@@ -107,7 +107,8 @@ test("upgrade shell programs are syntactically valid", async () => {
   for (const script of [
     "test/upgrade/lib.sh",
     "test/upgrade/server-from-previous",
-    "test/upgrade/provider-from-previous"
+    "test/upgrade/provider-from-previous",
+    "test/upgrade/provider-atomic-overlap.sh"
   ]) {
     await execute("bash", ["-n", resolve(repoRoot, script)]);
   }
@@ -203,6 +204,45 @@ test("predecessor HTTP probes retain legacy binding and NULL metadata semantics"
   assert.equal((program.match(/rollback_assert_policy "\$rollback_narrowed" 2 1/g) ?? []).length, 2);
   assert.match(program, /UPGRADE_ROLLBACK_APPLICATION_TOKEN UPGRADE_ROLLBACK_MIRROR_TOKEN GITHUB_TOKEN/);
   assert.match(program, /text=\$\{text:0:8192\}/);
+});
+
+test("actual-binary overlap is clone-owned and observes atomicity before readiness", async () => {
+  const program = await readFile(resolve(repoRoot, "test/upgrade/provider-from-previous"), "utf8");
+  const overlap = await readFile(resolve(repoRoot, "test/upgrade/provider-atomic-overlap.sh"), "utf8");
+  assert.ok(program.indexOf("\nprovider_atomic_overlap\n") > program.indexOf("predecessor_application_receipt=$("));
+  assert.ok(program.indexOf("\nprovider_atomic_overlap\n") < program.indexOf("upgrade_phase 'writing predecessor-created"));
+  assert.match(program, /local name=\$\{1:-mdbase-provider-upgrade-candidate\}/);
+  assert.match(program, /local port=\$\{2:-\$UPGRADE_PROVIDER_PORT\}/);
+  assert.match(overlap, /provider_atomic_overlap\(\) \(/);
+  assert.match(overlap, /\[\[ \$DATABASE_URL == "\$expected" \]\]/);
+  assert.match(overlap, /CREATE DATABASE \$db TEMPLATE mdbase_provider_upgrade/);
+  assert.match(overlap, /trap overlap_cleanup EXIT/);
+  assert.match(overlap, /DROP DATABASE \$db WITH \(FORCE\)/);
+  assert.match(overlap, /for pid in "\$\{curls\[@\]\}"; do kill/);
+  for (const name of ["candidate", "previous", "holder"]) {
+    assert.ok(overlap.includes(`upgrade_remove_container "$${name}"`));
+  }
+  assert.match(overlap, /AFTER INSERT ON _sqlx_migrations/);
+  assert.match(overlap, /IF NEW.version = 40 THEN/);
+  assert.match(overlap, /pg_advisory_xact_lock\(194038, 41\)/);
+  assert.match(overlap, /pg_locks[\s\S]*application_name='\$candidate'[\s\S]*NOT l.granted/);
+  assert.match(overlap, /SELECT max\(version\) FROM _sqlx_migrations WHERE success'\) == 38/);
+  assert.match(overlap, /Atomicity failure: external connection sees migration39\/40 before41/);
+  assert.match(overlap, /application_setup_evidence','application_semantic_version/);
+  assert.doesNotMatch(overlap, /(?:UPDATE|DELETE FROM|INSERT INTO)\s+_sqlx_migrations/i);
+  assert.doesNotMatch(overlap, /--entrypoint|SKIP_|ALTER TABLE/);
+  assert.match(overlap, /201:0/);
+  assert.match(overlap, /000:28/);
+  assert.match(overlap, /provider_database_timeout.*timeout_class == "lock"/);
+  assert.match(overlap, /rollback_assert_policy "\$rollback_narrowed" 2/);
+  assert.match(overlap, /rollback_receipt_inventory\) == "\$receipts"/);
+  const success = overlap.indexOf("upgrade_phase 'releasing actual atomic38-to41");
+  let position = success;
+  for (const step of ["\n  overlap_hold", "\n  overlap_launch", "\n  overlap_release", "\n  overlap_join", " wait_candidate_provider"]) {
+    const next = overlap.indexOf(step, position + 1);
+    assert.ok(next > position, `successful overlap missing/out of order: ${step}`);
+    position = next;
+  }
 });
 
 test("S3 readiness fixture serves a scoped empty bucket listing", async (context) => {

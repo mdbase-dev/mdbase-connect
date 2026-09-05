@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# The isolated overlap subshell deliberately discards its fixture ID changes.
+# shellcheck disable=SC2031
 set -euo pipefail
 
 repo_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
@@ -26,7 +28,7 @@ UPGRADE_APPLICATION_REQUEST_ID=99999999-9999-4999-8999-999999999999
 UPGRADE_MUTATION_ID=66666666-6666-4666-8666-666666666666
 UPGRADE_NEXT_MUTATION_ID=88888888-8888-4888-8888-888888888888
 UPGRADE_RECORD_ID=77777777-7777-4777-8777-777777777777
-UPGRADE_REPLICA_TOKEN=previous-provider-upgrade-replica-token
+UPGRADE_REPLICA_TOKEN='previous-provider-upgrade-replica-token'
 UPGRADE_ROLLBACK_APPLICATION_ID=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1
 UPGRADE_ROLLBACK_MIRROR_ID=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2
 UPGRADE_ROLLBACK_GRANT_ID=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3
@@ -136,7 +138,9 @@ provider_application_operation_status() {
 }
 
 start_candidate_provider() {
-  docker run --detach --name mdbase-provider-upgrade-candidate \
+  local name=${1:-mdbase-provider-upgrade-candidate}
+  local port=${2:-$UPGRADE_PROVIDER_PORT}
+  docker run --detach --name "$name" \
     --network host \
     --env DATABASE_URL \
     --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
@@ -147,7 +151,7 @@ start_candidate_provider() {
     --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
     --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
     --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
-    --env PORT="$UPGRADE_PROVIDER_PORT" \
+    --env PORT="$port" \
     "$CANDIDATE_IMAGE" >/dev/null
 }
 
@@ -642,6 +646,11 @@ jq -e '
   (.result | type) == "object"
 ' <<<"$predecessor_application_receipt" >/dev/null
 upgrade_remove_container mdbase-provider-previous-migration
+
+# Isolated clone: none of its additional authority rows enter the inventories below.
+# shellcheck source=test/upgrade/provider-atomic-overlap.sh
+source "$repo_root/test/upgrade/provider-atomic-overlap.sh"
+provider_atomic_overlap
 
 upgrade_phase 'writing predecessor-created persisted state before projection rebuild'
 start_candidate_provider
