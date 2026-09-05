@@ -136,12 +136,27 @@ grants.
    and issuance without translating them to version 2. Version-dispatch schema,
    file, proof, planning, SDK, and authority enforcement. Retain old SDK operation
    APIs for version-1 sessions only; reject mixed-version requests. Keep bundled
-   consumers on version 1 during this phase. Acceptance, default issuance, and
+   consumers on version 1 during this phase. Reader acceptance, issuance, and
    retirement are separate policies; binary startup must not retire valid v1
-   grants. Qualify the unchanged signed predecessor client and bridge clients
-   against both predecessor and bridge infrastructure, including rollback.
+   grants. Split this phase into two independently qualified releases:
+   - **Compatibility prelude:** preserve predecessor writes on the migrated
+     schema, retain strict readers for both versions, and impose an
+     artifact-bound ceiling of version 1 on fresh authority issuance. Bundled
+     v1 defaults alone are not an issuance gate. Before overlap or rollback to
+     the old binary, prove that no reachable v2 authority has been issued,
+     including pending provisioning and durable local authority.
+   - **V2 enablement:** permit new v2 authority only after the prelude is the
+     uniquely live, qualified rollback predecessor. On rollback the prelude
+     must preserve and strictly enforce retained v2 authority, without allowing
+     fresh v2 issuance or treating an application-signed request as evidence of
+     previous approval. Beta.94 is not a rollback target after v2 issuance.
+   Qualify unchanged signed predecessor and candidate binaries on populated
+   state: registration, policy updates, setup, restart, partial migration,
+   rollback and re-upgrade. Exact migration-ledger verification is necessary
+   but does not prove old-writer or authorization compatibility. Migration-pair
+   guards remain closed until the corresponding transitions are qualified.
 2. Publish controlled consumers and SDKs that declare version 2 only after the
-   bridge is available. Require positive server and selected-authority support
+   v2-enablement release is available. Require positive server and selected-authority support
    at approval and activation; handshake overlap alone is insufficient. Never
    retry a failed version-2 authorization by silently downgrading to version 1.
    After consumer availability and compatibility evidence, explicitly stop
@@ -166,8 +181,10 @@ Bridge release defaults (phase 1): Editor, MCP, and CLI retain the exact
 `c2596a6e` v1 declaration/operation intent; authorization signs that version
 without runtime fallback or stored-grant expansion. Editor validates its generated
 manifest with the versioned parser (the devkit current-only validator targets v2).
-Explicit v2 protocol/E2E fixtures remain. Consumer conversion requires deployed
-bridge qualification and a supported desktop v2 direct-approval path; that path
+Explicit v2 fixtures must distinguish reader/recovery coverage from new-issuance
+coverage; a successful reader test cannot authorize prelude issuance. Consumer
+conversion requires deployed v2-enablement qualification and a supported desktop
+v2 direct-approval path; that path
 remains intentionally blocked while legacy desktop approval remains available.
 Declaration/digest changes use ordinary registration. No consumer deployment or
 v1 retirement is implied by these defaults.
