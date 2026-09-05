@@ -36,8 +36,8 @@ export async function portableHostedFileE2E({
         contracts: [],
         collection_kind: "hosted",
         capabilities: {
-          contract_version: 2,
-          required: ["collection.read", "records.create", "offline.replica"],
+          contract_version: 1,
+          required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read", "records.create", "sync.offline-replica"],
           optional: []
         }
       }
@@ -66,6 +66,7 @@ export async function portableHostedFileE2E({
   };
   document.querySelector("#connect").onclick = () => {
     manager.authorize({
+      capabilities: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read", "records.create", "sync.offline-replica"],
       openVerification() {},
       onDeviceCode(authorization) {
         globalThis.portableHarness.authorization = authorization;
@@ -109,6 +110,42 @@ export async function portableHostedFileE2E({
     assert.equal(environment.environment.applicationOrigin, "null");
     assert.equal(environment.environment.credentialStorage, "memory");
     assert.equal(environment.initialConnections, 0);
+
+    // A genuine v2 request must stop before device consent, not be translated to v1.
+    const beforeDenial = await controlRequest(controlUrl, "/v1/me", cookie);
+    const deniedPrelude = page.waitForResponse((response) =>
+      response.url().endsWith("/oauth/device_authorization") && response.request().method() === "POST"
+    );
+    const denied = await page.evaluate(async (serverUrl) => {
+      const manager = new MdbaseConnect.MdbaseConnect({
+        serverUrl,
+        manifest: {
+          manifest_version: 1,
+          distribution: "portable",
+          id: "dev.mdbase.portable-hosted-v2-denied-e2e",
+          name: "Portable Hosted V2 Denied E2E",
+          project_url: "https://apps.example/portable-hosted-v2-denied-e2e",
+          requirements: {
+            access: "full_collection", contracts: [], collection_kind: "hosted",
+            capabilities: { contract_version: 2, required: ["collection.read", "records.create", "offline.replica"] }
+          }
+        }
+      });
+      let verificationOpened = false;
+      let deviceCodeIssued = false;
+      const outcome = await manager.authorize({
+        openVerification() { verificationOpened = true; },
+        onDeviceCode() { deviceCodeIssued = true; }
+      });
+      return { ok: outcome.ok, verificationOpened, deviceCodeIssued, connections: manager.connections().length };
+    }, controlUrl);
+    const denialResponse = await deniedPrelude;
+    assert.equal(denialResponse.status(), 400);
+    assert.match((await denialResponse.json()).error.message, /issuance is disabled.*version 2/);
+    assert.deepEqual(denied, { ok: false, verificationOpened: false, deviceCodeIssued: false, connections: 0 });
+    const afterDenial = await controlRequest(controlUrl, "/v1/me", cookie);
+    assert.deepEqual(afterDenial.grants, beforeDenial.grants);
+    assert.deepEqual(afterDenial.hosted_collections, beforeDenial.hosted_collections);
     await page.click("#connect");
     await page.waitForFunction(() => Boolean(globalThis.portableHarness.authorization));
     const authorization = await page.evaluate(

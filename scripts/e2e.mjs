@@ -525,8 +525,8 @@ implements:
             digest: setupContractDigest
           }],
           capabilities: {
-            contract_version: 2,
-            required: ["collection.read"]
+            contract_version: 1,
+            required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read", "collection.setup.apply"]
           }
         },
         provisions: {
@@ -718,8 +718,8 @@ implements:
           contracts: [],
           configuration: taskNotesSetup.requirements.configuration,
           capabilities: {
-            contract_version: 2,
-            required: ["collection.read"],
+            contract_version: 1,
+            required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read", "collection.setup.apply"],
             optional: []
           }
         },
@@ -772,7 +772,7 @@ implements:
       `.collection-choice-list input[value="${collection.id}"]`
     ).click();
     await taskNotesPage.getByRole("button", { name: "Review access" }).click();
-    await taskNotesPage.getByText("Collection changes").waitFor();
+    await taskNotesPage.getByText("Collection changes", { exact: true }).waitFor();
     await taskNotesPage.getByText("x-obsidian → bases → include").waitFor();
     await taskNotesPage.getByText("views/tasknotes/**/*.base").waitFor();
     await taskNotesPage.getByRole("button", {
@@ -1096,7 +1096,7 @@ implements:
     requirements: {
       access: "full_collection",
       contracts: [],
-      capabilities: { contract_version: 2, required: ["collection.read"] }
+      capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"] }
     }
   };
   const manager = new MdbaseConnect.MdbaseConnect({
@@ -1114,7 +1114,7 @@ implements:
   };
   document.querySelector("#connect").onclick = () => {
     globalThis.portableHarness.pending = manager.authorize({
-      capabilities: ["collection.read"],
+      capabilities: manifest.requirements.capabilities.required,
       onDeviceCode(authorization) {
         globalThis.portableHarness.authorization = authorization;
         document.querySelector("#code").textContent = authorization.userCode;
@@ -1423,7 +1423,7 @@ async function startSignedWebAuthorization({
     redirect_uri: redirectUri,
     state,
     code_challenge: challenge,
-    contracts: authorizationContractRequirements(operations, requestedFiles),
+    contracts: authorizationContractRequirements(operations, requestedFiles, [], application.requirements.capabilities.contract_version),
     requested_operations: operations,
     ...(requestedFiles ? { requested_files: requestedFiles } : {}),
     ...(collectionId ? { collection_id: collectionId } : {})
@@ -1876,11 +1876,12 @@ schema:
         contracts,
         ...(access ? { access } : {}),
         capabilities: {
-          contract_version: 2,
-          required: ["collection.read"],
+          contract_version: 1,
+          required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"],
           optional: [
-            "records.create", "records.edit", "records.delete",
-            "views.manage", "definitions.manage"
+            "records.create", "records.update", "records.rename", "records.delete",
+            "views.source.create", "views.source.update", "views.source.delete",
+            "definitions.create", "definitions.update", "definitions.type-pack.inspect", "definitions.type-pack.apply"
           ]
         }
       }
@@ -1899,11 +1900,12 @@ schema:
       contracts,
       ...(access ? { access } : {}),
       capabilities: {
-        contract_version: 2,
-        required: ["collection.read"],
+        contract_version: 1,
+        required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"],
         optional: [
-          "records.create", "records.edit", "records.delete",
-          "views.manage", "definitions.manage"
+          "records.create", "records.update", "records.rename", "records.delete",
+          "views.source.create", "views.source.update", "views.source.delete",
+          "definitions.create", "definitions.update", "definitions.type-pack.inspect", "definitions.type-pack.apply"
         ]
       }
     }

@@ -1045,7 +1045,7 @@ schema:
           "changes",
           "list_timers",
           "reconcile_timers"
-        ]),
+        ], undefined, [], 1),
         scope: { contracts: [], access: "full_collection" },
         notification_criteria: [
           {
@@ -1563,7 +1563,14 @@ schema:
   await stopProvider(maintenanceProvider);
 
   phase("provisioning collections and replicas through the Node control plane");
-  controlDatabase = await createDatabase("memory");
+  // Grant narrowing takes PostgreSQL row locks; pg-mem cannot execute FOR UPDATE OF.
+  // Keep control-plane tables separate from provider payload tables in this run's container.
+  await execute("docker", [
+    "exec", postgresContainer, "createdb", "--username", "mdbase", "mdbase_control"
+  ]);
+  const controlDatabaseUrl = new URL(databaseUrl);
+  controlDatabaseUrl.pathname = "/mdbase_control";
+  controlDatabase = await createDatabase(controlDatabaseUrl.href);
   const controlPort = await availableTcpPort();
   const controlUrl = `http://127.0.0.1:${controlPort}`;
   const localEditor = await startEditorServer();
@@ -1742,8 +1749,8 @@ schema:
       access: "full_collection",
       contracts: [typeProvision.provides[0]],
       capabilities: {
-        contract_version: 2,
-        required: ["collection.read", "records.create", "records.edit"],
+        contract_version: 1,
+        required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read", "records.create", "records.update", "records.rename", "collection.setup.apply"],
         optional: []
       }
     },
@@ -1761,7 +1768,7 @@ schema:
       identityStore: new MemoryApplicationIdentityStore(),
       navigate: (value) => { inlineAuthorizationUrl = value; }
     });
-    const inlineAuthorization = inlineSdk.authorize();
+    const inlineAuthorization = inlineSdk.authorize({ capabilities: inlineManifest.capabilities });
     await waitFor(() => inlineAuthorizationUrl, "SDK did not start inline hosted authorization");
     assert.deepEqual(requireConnectSuccess(await inlineAuthorization), { kind: "redirecting" });
     const inlineCallbackUrl = await authorizeHostedApplicationByCreating(
@@ -1808,11 +1815,12 @@ schema:
       contracts: [],
       access: "full_collection",
       capabilities: {
-        contract_version: 2,
-        required: ["collection.read"],
+        contract_version: 1,
+        required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"],
         optional: [
-          "records.create", "records.edit", "records.delete", "definitions.manage",
-          "offline.replica"
+          "records.create", "records.update", "records.rename", "records.delete",
+          "definitions.create", "definitions.update", "definitions.type-pack.inspect", "definitions.type-pack.apply",
+          "sync.offline-replica"
         ]
       }
     }
@@ -1829,7 +1837,7 @@ schema:
     identityStore: new MemoryApplicationIdentityStore(),
     navigate: (value) => { authorizationUrl = value; }
   });
-  const hostedAuthorization = hostedSdk.authorize();
+  const hostedAuthorization = hostedSdk.authorize({ capabilities: manifest.capabilities });
   await waitFor(() => authorizationUrl, "SDK did not start hosted authorization");
   assert.deepEqual(requireConnectSuccess(await hostedAuthorization), { kind: "redirecting" });
   const callbackUrl = await authorizeHostedApplication(
@@ -2067,7 +2075,7 @@ schema:
     })),
     (error) => error?.problem?.code === "insufficient_access"
   );
-  // Narrowing removed creation, but collection.read still explicitly grants
+  // Narrowing removed creation, but records.watch still explicitly grants
   // changes. The transport must respect that exact retained operation authority.
   await assert.doesNotReject(() => hostedSync.transport.changes(0, 10));
   await controlRequest(controlUrl, `/v1/grants/${hostedGrant.id}`, cookie, { method: "DELETE" });
@@ -4903,7 +4911,7 @@ async function openManifestServer({
   requirements = {
     contracts: [],
     access: "full_collection",
-    capabilities: { contract_version: 2, required: ["collection.read"], optional: [] }
+    capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"], optional: [] }
   },
   provisions = { type_packs: [] }
 } = {}) {
@@ -4931,6 +4939,7 @@ async function openManifestServer({
   return {
     server,
     origin,
+    capabilities: [...requirements.capabilities.required, ...(requirements.capabilities.optional ?? [])],
     manifestUrl: `${origin}/.well-known/mdbase-app.json`,
     redirectUri: `${origin}/auth/mdbase/callback`
   };
