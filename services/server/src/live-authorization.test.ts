@@ -1,4 +1,5 @@
 import { once } from "node:events";
+import { LEGACY_READ_CAPABILITIES, LEGACY_READ_OPERATIONS } from "./legacy-issuance.test-helper.js";
 import { createECDH, randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,23 +15,19 @@ import {
 import {
   applicationInstallationIdFromPublicKey,
   CONNECT_CONTRACT_SUPPORT,
-  operationsForApplicationCapabilities,
   type CollectionOperation,
   type OperationTransportProtocolVersion
 } from "@mdbase-dev/connect-protocol";
 
 const resources: Array<() => Promise<void>> = [];
-const READ_OPERATIONS = operationsForApplicationCapabilities({
-  contract_version: 2,
-  required: ["collection.read"]
-});
+const READ_OPERATIONS = LEGACY_READ_OPERATIONS;
 
 afterEach(async () => {
   while (resources.length) await resources.pop()?.();
 });
 
 describe("live connector-mediated authorization", () => {
-  it("offers only live local collections and activates a grant after connector acknowledgement", async () => {
+  it("offers only live local collections and activates a prelude v1 grant after connector acknowledgement", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const { app, relay } = await buildApp({
@@ -62,8 +59,8 @@ describe("live connector-mediated authorization", () => {
             contracts: [],
             access: "full_collection",
             capabilities: {
-              contract_version: 2,
-              required: ["collection.read"],
+              contract_version: 1,
+              required: LEGACY_READ_CAPABILITIES,
               optional: ["records.create"]
             }
           }
@@ -975,6 +972,7 @@ async function createAuthorizationRequest(
     codeChallenge: pkceChallenge(verifier),
     requestedOperations,
     operationTransportRecovery,
+    semanticCapabilityContractVersion: 1,
     installationIdentity
   });
   const started = await app.inject({

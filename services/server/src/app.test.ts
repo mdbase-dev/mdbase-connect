@@ -6,8 +6,8 @@ import {
   sign
 } from "node:crypto";
 import type {
-  ApplicationRequirements,
   CollectionOperation,
+  LegacyMdbaseAppManifest,
   MdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
 import {
@@ -18,6 +18,8 @@ import {
   HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
   operationsForApplicationCapabilities
 } from "@mdbase-dev/connect-protocol";
+import type { ApplicationRequirements } from "./application-requirements.js";
+import { LEGACY_READ_CAPABILITIES, LEGACY_READ_OPERATIONS, legacyOperations } from "./legacy-issuance.test-helper.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
@@ -628,7 +630,8 @@ describe("mdbase connect server", () => {
     });
   });
 
-  it("runs the discovery, consent, token, and offline operation path", async () => {
+  it("runs the prelude v1 discovery, consent, token, and offline operation path", async () => {
+    const READ_OPERATIONS = LEGACY_READ_OPERATIONS;
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const { app } = await buildApp({
@@ -729,8 +732,8 @@ describe("mdbase connect server", () => {
 
     const manifestServer = applicationManifestFixture();
     manifestServer.manifest.requirements.capabilities = {
-      contract_version: 2,
-      required: ["collection.read"]
+      contract_version: 1,
+      required: LEGACY_READ_CAPABILITIES
     };
     const discovered = await app.inject({
       method: "POST",
@@ -747,8 +750,8 @@ describe("mdbase connect server", () => {
         digest: TEST_CONTRACT_DIGEST
       }],
       capabilities: {
-        contract_version: 2,
-        required: ["collection.read"]
+        contract_version: 1,
+        required: LEGACY_READ_CAPABILITIES
       }
     });
     const applicationId = discovered.json().application.id as string;
@@ -758,8 +761,8 @@ describe("mdbase connect server", () => {
       contracts: [],
       access: "full_collection",
       capabilities: {
-        contract_version: 2,
-        required: ["definitions.manage"]
+        contract_version: 1,
+        required: ["definitions.create", "definitions.update"]
       }
     }, "Definition Manager");
     definitionManager.manifest.id = "dev.mdbase.definition-manager";
@@ -781,10 +784,7 @@ describe("mdbase connect server", () => {
       redirectUri: definitionManager.redirectUri,
       verifier: "semantic-capability-verifier-that-is-long-enough-0001",
       state: "semantic-capability",
-      operations: operationsForApplicationCapabilities({
-        contract_version: 2,
-        required: ["definitions.manage"]
-      }),
+      operations: legacyOperations(["definitions.create", "definitions.update"]),
       collectionId
     });
     expect(semanticAuthorization.statusCode, semanticAuthorization.body).toBe(200);
@@ -943,8 +943,8 @@ describe("mdbase connect server", () => {
         digest: TEST_CONTRACT_DIGEST
       }],
       capabilities: {
-        contract_version: 2,
-        required: ["collection.read"]
+        contract_version: 1,
+        required: LEGACY_READ_CAPABILITIES
       }
     });
 
@@ -1081,7 +1081,8 @@ describe("mdbase connect server", () => {
       .toBe("application_authorization_required");
   });
 
-  it("authorizes portable v1 applications with a single-use key-bound device flow", async () => {
+  it("authorizes prelude semantic v1 portable applications with a single-use key-bound device flow", async () => {
+    const READ_OPERATIONS = LEGACY_READ_OPERATIONS;
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const { app } = await buildApp({
@@ -1134,7 +1135,7 @@ describe("mdbase connect server", () => {
       }
     });
     const collectionId = synchronized.json().collections[0].id as string;
-    const manifest: MdbaseAppManifest = {
+    const manifest: LegacyMdbaseAppManifest = {
       manifest_version: 1,
       distribution: "portable",
       id: "dev.mdbase.portable-notes",
@@ -1144,9 +1145,9 @@ describe("mdbase connect server", () => {
         contracts: [],
         access: "full_collection",
         capabilities: {
-          contract_version: 2,
-          required: ["collection.read"],
-          optional: ["background.schedule"]
+          contract_version: 1,
+          required: LEGACY_READ_CAPABILITIES,
+          optional: ["timers.list", "timers.put", "timers.cancel", "timers.reconcile"]
         }
       }
     };
@@ -1166,6 +1167,7 @@ describe("mdbase connect server", () => {
       registration.json().application.manifest_digest as string;
     const verifier = "portable-verifier-that-is-long-enough-for-pkce-0001";
     const timerProof = await testApplicationAuthorization({
+      semanticCapabilityContractVersion: 1,
       applicationId,
       applicationDeclarationId: manifest.id,
       applicationManifestDigest,
@@ -1208,6 +1210,7 @@ describe("mdbase connect server", () => {
       flow: "device_code",
       codeChallenge: pkceChallenge(verifier),
       requestedOperations: READ_OPERATIONS,
+      semanticCapabilityContractVersion: 1,
       collectionId
     });
     const applicationAgreementPublicKey = proof.binding.grant_agreement_public_key;
@@ -1374,6 +1377,7 @@ describe("mdbase connect server", () => {
     expect(token.json()).toMatchObject({ error: "authorization_pending" });
 
     const deniedProof = await testApplicationAuthorization({
+      semanticCapabilityContractVersion: 1,
       applicationId,
       applicationDeclarationId: manifest.id,
       applicationManifestDigest,
@@ -1411,6 +1415,7 @@ describe("mdbase connect server", () => {
     })).json()).toMatchObject({ error: "access_denied" });
 
     const expiringProof = await testApplicationAuthorization({
+      semanticCapabilityContractVersion: 1,
       applicationId,
       applicationDeclarationId: manifest.id,
       applicationManifestDigest,
@@ -1440,7 +1445,11 @@ describe("mdbase connect server", () => {
     })).json()).toMatchObject({ error: "expired_token" });
   });
 
-  it("adopts a legacy hosted grant for one portable v2 installation without another replica", async () => {
+  it.each([
+    { version: 1 as const, name: "runs prelude v1 portable hosted token, refresh, and retained-grant adoption without another replica" },
+    { version: 2 as const, name: "denies fresh portable v2 adoption without changing the retained legacy grant or replica" }
+  ])("$name", async ({ version }) => {
+    const READ_OPERATIONS = version === 1 ? LEGACY_READ_OPERATIONS : operationsForApplicationCapabilities({ contract_version: 2, required: ["collection.read"] });
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const hostedProvider = {
@@ -1484,7 +1493,7 @@ describe("mdbase connect server", () => {
     });
     expect(created.statusCode).toBe(201);
     const collectionId = created.json().collection.id as string;
-    const manifest: MdbaseAppManifest = {
+    const manifest: MdbaseAppManifest | LegacyMdbaseAppManifest = {
       manifest_version: 1,
       distribution: "portable",
       id: "dev.mdbase.portable-cloud-notes",
@@ -1494,7 +1503,11 @@ describe("mdbase connect server", () => {
         contracts: [],
         access: "full_collection",
         collection_kind: "hosted",
-        capabilities: {
+        capabilities: version === 1 ? {
+          contract_version: 1,
+          required: LEGACY_READ_CAPABILITIES,
+          optional: ["records.create", "records.update", "records.rename", "sync.offline-replica"]
+        } : {
           contract_version: 2,
           required: ["collection.read"],
           optional: ["records.create", "records.edit", "offline.replica"]
@@ -1524,9 +1537,10 @@ describe("mdbase connect server", () => {
     ]).toString("base64url");
     const verifier = "portable-hosted-verifier-that-is-long-enough-0001";
     const installationIdentity = createTestApplicationIdentity();
-    const portableHostedOperations = operationsForApplicationCapabilities(
-      manifest.requirements.capabilities!
-    );
+    const capabilities = manifest.requirements.capabilities!;
+    const portableHostedOperations = capabilities.contract_version === 1
+      ? legacyOperations([...capabilities.required, ...(capabilities.optional ?? [])])
+      : operationsForApplicationCapabilities(capabilities);
     const proof = await testApplicationAuthorization({
       applicationId,
       applicationDeclarationId: manifest.id,
@@ -1537,8 +1551,21 @@ describe("mdbase connect server", () => {
       collectionId,
       installationIdentity,
       grantAgreementPublicKey: applicationAgreementPublicKey,
-      grantSigningPublicKey: applicationSigningPublicKey
+      grantSigningPublicKey: applicationSigningPublicKey,
+      semanticCapabilityContractVersion: version
     });
+    // Seed previously committed authority, never create v2 authority through a live gate.
+    if (version === 2) {
+      const owner = (await db.query<{ id: string }>("SELECT id FROM users WHERE email = 'portable-cloud@example.com'")).rows[0];
+      const replicaId = randomUUID();
+      await db.query(`INSERT INTO hosted_replicas (id, collection_id, authorized_user_id, name, purpose, mode, allowed_types)
+        VALUES ($1, $2, $3, 'Retained legacy replica', 'application', 'read_only', '[]'::jsonb)`, [replicaId, collectionId, owner.id]);
+      await db.query(`INSERT INTO grants (id, user_id, application_id, hosted_collection_id, hosted_replica_id, operations, scope, proof_public_key, application_origin, activated_at)
+        VALUES ($1, $2, $3, $4, $5, '["read","query"]'::jsonb, '{"access":"full_collection","contracts":[]}'::jsonb, $6, 'https://prior.example', now())`,
+      [randomUUID(), owner.id, applicationId, collectionId, replicaId, p256PublicKey()]);
+    }
+    const retainedGrants = (await db.query("SELECT * FROM grants")).rows;
+    const retainedReplicas = (await db.query("SELECT * FROM hosted_replicas")).rows;
     const extensionOrigin = "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo";
     const device = await app.inject({
       method: "POST",
@@ -1556,6 +1583,17 @@ describe("mdbase connect server", () => {
         application_authorization: JSON.stringify(proof)
       }).toString()
     });
+    if (version === 2) {
+      expect(device.statusCode).toBe(400);
+      expect(device.json().error.message).toContain("issuance is disabled for semantic capability contract version 2");
+      expect((await db.query("SELECT * FROM grants")).rows).toEqual(retainedGrants);
+      expect((await db.query("SELECT * FROM hosted_replicas")).rows).toEqual(retainedReplicas);
+      expect(retainedGrants).toHaveLength(1);
+      expect(retainedReplicas).toHaveLength(1);
+      expect((await db.query("SELECT id FROM authorization_requests")).rows).toHaveLength(0);
+      for (const method of [hostedProvider.registerReplica, hostedProvider.updateApplicationReplica, hostedProvider.provisionApplicationSetup, hostedProvider.rotateReplicaToken, hostedProvider.revokeReplica, hostedProvider.upsertNotificationGrant]) expect(method).not.toHaveBeenCalled();
+      return;
+    }
     expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
     const lookup = await app.inject({
       method: "POST",
@@ -1720,7 +1758,8 @@ describe("mdbase connect server", () => {
       collectionId,
       installationIdentity,
       grantAgreementPublicKey: secondAgreementPublicKey,
-      grantSigningPublicKey: secondSigningPublicKey
+      grantSigningPublicKey: secondSigningPublicKey,
+      semanticCapabilityContractVersion: 1
     });
     const secondDevice = await app.inject({
       method: "POST",
@@ -2065,7 +2104,8 @@ describe("mdbase connect server", () => {
     expect(state.rows.find(({ id }) => id === grants[1])?.revoked_at).toBeNull();
   });
 
-  it("provisions and reconciles contract-free hosted application access as unrestricted", async () => {
+  it("provisions and reconciles prelude v1 contract-free hosted application access as unrestricted", async () => {
+    const READ_OPERATIONS = LEGACY_READ_OPERATIONS;
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const revokeReplica = vi.fn<() => Promise<void>>();
@@ -2135,11 +2175,11 @@ describe("mdbase connect server", () => {
     const collectionId = collection.json().collection.id as string;
 
     const hostedCapabilities = {
-      contract_version: 2 as const,
-      required: ["collection.read"] as const,
-      optional: ["records.create", "records.edit", "offline.replica"] as const
+      contract_version: 1 as const,
+      required: LEGACY_READ_CAPABILITIES,
+      optional: ["records.create", "records.update", "records.rename", "sync.offline-replica"] as const
     };
-    const hostedOperations = operationsForApplicationCapabilities(hostedCapabilities);
+    const hostedOperations = legacyOperations([...hostedCapabilities.required, ...hostedCapabilities.optional]);
     const manifestServer = applicationManifestFixture(
       {
         contracts: [],
@@ -2319,7 +2359,7 @@ describe("mdbase connect server", () => {
     expect(hostedProvider.revokeReplica).toHaveBeenCalledWith(provisioned.rows[0].id);
   });
 
-  it("provisions required types before creating a full-collection grant", async () => {
+  it("provisions required types before creating a prelude v1 full-collection grant", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const contract = contractDescriptor("workout.record", "task");
@@ -2415,8 +2455,8 @@ describe("mdbase connect server", () => {
         ],
         access: "full_collection",
         capabilities: {
-          contract_version: 2,
-          required: ["collection.read", "records.create"]
+          contract_version: 1,
+          required: [...LEGACY_READ_CAPABILITIES, "records.create", "collection.setup.apply"]
         },
         configuration: [{
           id: "workout-base-sources",
@@ -2449,12 +2489,7 @@ describe("mdbase connect server", () => {
     const verifier = "hosted-provision-verifier-that-is-long-enough-0001";
     const state = "hosted-provision";
     const setupOperations: CollectionOperation[] = [
-      ...operationsForApplicationCapabilities({
-        contract_version: 2,
-        required: ["collection.read", "records.create"]
-      }),
-      "assess_collection_setup",
-      "apply_collection_setup"
+      ...legacyOperations([...LEGACY_READ_CAPABILITIES, "records.create", "collection.setup.apply"])
     ];
     const authorization = await startWebAuthorization(app, cookie, {
       applicationId,
@@ -2660,6 +2695,8 @@ async function postWebAuthorization(
     state: input.state,
     codeChallenge: challenge,
     requestedOperations: input.operations,
+    // This helper is exclusively used by the prelude v1 lifecycle scenarios.
+    semanticCapabilityContractVersion: 1,
     ...(input.collectionId ? { collectionId: input.collectionId } : {})
   });
   return app.inject({
@@ -2706,7 +2743,7 @@ function applicationManifestFixture(
   name = "Workout Tracker",
   provisions?: NonNullable<MdbaseAppManifest["provisions"]>
 ): {
-  manifest: MdbaseAppManifest;
+  manifest: MdbaseAppManifest | LegacyMdbaseAppManifest;
   redirectUri: string;
   nativeRedirectUri: string;
 } {
