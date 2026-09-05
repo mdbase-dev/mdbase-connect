@@ -19,7 +19,6 @@ import {
   operationsForApplicationCapabilities
 } from "@mdbase-dev/connect-protocol";
 import type { ApplicationRequirements } from "./application-requirements.js";
-import { LEGACY_READ_CAPABILITIES, LEGACY_READ_OPERATIONS, legacyOperations } from "./legacy-issuance.test-helper.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
@@ -31,7 +30,8 @@ import { authorityProofMessage } from "./authority-proof.js";
 import { pkceChallenge, tokenHash } from "./security.js";
 import {
   createTestApplicationIdentity,
-  testApplicationAuthorization
+  testApplicationAuthorization,
+  LEGACY_READ_CAPABILITIES, LEGACY_READ_OPERATIONS, legacyOperations
 } from "./application-authorization.test-helper.js";
 
 const resources: Array<() => Promise<void>> = [];

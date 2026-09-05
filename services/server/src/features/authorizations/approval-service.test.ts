@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { LEGACY_READ_CAPABILITIES, LEGACY_READ_OPERATIONS } from "../../legacy-issuance.test-helper.js";
 import { operationsForApplicationCapabilities, type CollectionOperation } from "@mdbase-dev/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { testApplicationAuthorization } from "../../application-authorization.test-helper.js";
+import { testApplicationAuthorization, LEGACY_READ_CAPABILITIES, LEGACY_READ_OPERATIONS } from "../../application-authorization.test-helper.js";
 import type { CollectionAccessContext } from "../../collection-access.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";

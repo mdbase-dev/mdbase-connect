@@ -9,12 +9,27 @@ import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   authorizationContractRequirements,
   authorizationSigningMessage,
+  capabilityOperationsForContractVersion,
   type ApplicationAuthorizationBinding,
   type ApplicationAuthorizationProof,
   type ApplicationFileRequest,
   type CollectionOperation,
   type OperationTransportProtocolVersion
 } from "@mdbase-dev/connect-protocol";
+
+import type { LegacyApplicationRequirements } from "@mdbase-dev/connect-protocol/manifest";
+
+type LegacyTestCapability = NonNullable<LegacyApplicationRequirements["capabilities"]>["required"][number];
+
+/** Explicit predecessor intents for semantic-neutral prelude lifecycle fixtures. */
+export const LEGACY_READ_CAPABILITIES: LegacyTestCapability[] = [
+  "collection.inspect", "records.watch", "records.read", "records.query",
+  "records.validate", "definitions.read"
+];
+export function legacyOperations(capabilities: readonly LegacyTestCapability[]): CollectionOperation[] {
+  return [...new Set(capabilities.flatMap((capability) => capabilityOperationsForContractVersion(1, capability)!))];
+}
+export const LEGACY_READ_OPERATIONS = legacyOperations(LEGACY_READ_CAPABILITIES);
 
 const P256_ORDER = BigInt(
   "0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"

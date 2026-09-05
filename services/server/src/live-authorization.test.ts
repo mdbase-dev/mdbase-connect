@@ -1,5 +1,4 @@
 import { once } from "node:events";
-import { LEGACY_READ_CAPABILITIES, LEGACY_READ_OPERATIONS } from "./legacy-issuance.test-helper.js";
 import { createECDH, randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +8,7 @@ import { canonicalSha256 } from "./canonical-json.js";
 import { pkceChallenge } from "./security.js";
 import {
   createTestApplicationIdentity,
+  LEGACY_READ_CAPABILITIES, LEGACY_READ_OPERATIONS,
   testApplicationAuthorization,
   type TestApplicationIdentity
 } from "./application-authorization.test-helper.js";
