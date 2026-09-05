@@ -20,7 +20,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import { legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "../../application-requirements.js";
 import { collectionGrantScope } from "../../application-grant-scope.js";
-import type { DatabasePool } from "../../database-types.js";
+import type { DatabaseQueryable } from "../../database-types.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { requiresPortableProfile } from "../../collection-operation-policy.js";
 
@@ -225,7 +225,7 @@ export function requiresHostedCollection(
 }
 
 export async function rotateGrantEncryption(
-  db: DatabasePool,
+  db: DatabaseQueryable,
   grantId: string
 ): Promise<void> {
   const grant = await db.query<{ encryption: GrantEncryption | null }>(

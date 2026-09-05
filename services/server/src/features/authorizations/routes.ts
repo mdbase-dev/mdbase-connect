@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
 import type {
   ApplicationNotifications,
   ApplicationProvisions,
@@ -30,7 +30,6 @@ import {
 } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
-import { planCollectionGrant } from "../../grant-planner.js";
 import {
   canonicalUserCode,
   randomToken,
@@ -301,105 +300,138 @@ export function registerAuthorizationRoutes(
     const input = z.object({
       operations: z.array(operationSchema)
     }).strict().parse(request.body);
-    const active = await options.db.query<{
-      id: string;
-      connector_id: string | null;
-      hosted_replica_id: string | null;
-      operations: string[];
-      encryption: GrantEncryption | null;
-      scope: GrantScope;
-      requirements: ApplicationRequirements;
-      notifications: ApplicationNotifications;
-      provisions: ApplicationProvisions;
-      allowed_types: string[] | null;
-      file_capability: FileCapability | null;
-      application_origin: string;
-      proof_public_key: string;
-      application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
-      application_family_identity: string;
-      application_manifest_digest: string;
-      application_declaration?: unknown;
-    }>(
-      `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
-              g.application_origin, g.proof_public_key, g.application_authorization,
-              a.requirements, a.notifications, a.provisions,
-              a.family_identity AS application_family_identity,
-              a.manifest_digest AS application_manifest_digest,
-              a.application_declaration,
-              col.connector_id,
-              g.hosted_replica_id, replica.allowed_types
-       FROM grants g
-       JOIN applications a ON a.id = g.application_id
-       LEFT JOIN collections col ON col.id = g.collection_id
-       LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
-       WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
-         AND g.activated_at IS NOT NULL`,
-      [grantId, user.id]
-    );
-    const current = active.rows[0];
-    if (!current) return reply.code(404).send(apiError("grant_not_found", "Active grant not found."));
-    if (
-      !isCanonicalCollectionGrantScope(current.scope)
-      || (current.hosted_replica_id && (current.allowed_types?.length ?? 0) > 0)
-    ) {
-      return reply.code(409).send(apiError(
-        "application_reauthorization_required",
-        "Legacy scoped access must be revoked and explicitly reauthorized for the collection."
-      ));
-    }
-    const operations = [...new Set(input.operations)];
-    if (operations.some((operation) => !current.operations.includes(operation))) {
-      return reply.code(409).send(apiError(
-        "permission_expansion_requires_approval",
-        "Existing access can be narrowed here, but broader access requires a new application request."
-      ));
-    }
-    assertOperationsAllowedByApplication(
-      operations,
-      current.requirements,
-      current.notifications,
-      current.provisions
-    );
-    if (current.hosted_replica_id) {
-      if (!options.hostedProvider) {
-        return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
+    const connection = await options.db.connect();
+    let providerAttempt: string | null = null;
+    let committed = false;
+    let narrowed;
+    try {
+      await connection.query("BEGIN");
+      // Only the active grant is locked: outer-join rows may be null. Revocation
+      // and approval update this same row; rotation must use this connection.
+      const active = await connection.query<{
+        id: string;
+        connector_id: string | null;
+        hosted_replica_id: string | null;
+        operations: string[];
+        encryption: GrantEncryption | null;
+        scope: GrantScope;
+        requirements: ApplicationRequirements;
+        notifications: ApplicationNotifications;
+        provisions: ApplicationProvisions;
+        allowed_types: string[] | null;
+        file_capability: FileCapability | null;
+        application_origin: string;
+        proof_public_key: string;
+        application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
+        application_family_identity: string;
+        application_manifest_digest: string;
+        application_declaration?: unknown;
+      }>(
+        `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
+                g.application_origin, g.proof_public_key, g.application_authorization,
+                a.requirements, a.notifications, a.provisions,
+                a.family_identity AS application_family_identity,
+                a.manifest_digest AS application_manifest_digest,
+                a.application_declaration,
+                col.connector_id,
+                g.hosted_replica_id, replica.allowed_types
+         FROM grants g
+         JOIN applications a ON a.id = g.application_id
+         LEFT JOIN collections col ON col.id = g.collection_id
+         LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
+         WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
+           AND g.activated_at IS NOT NULL
+         FOR UPDATE OF g`,
+        [grantId, user.id]
+      );
+      const current = active.rows[0];
+      if (!current) return reply.code(404).send(apiError("grant_not_found", "Active grant not found."));
+      if (
+        !isCanonicalCollectionGrantScope(current.scope)
+        || (current.hosted_replica_id && (current.allowed_types?.length ?? 0) > 0)
+      ) {
+        return reply.code(409).send(apiError(
+          "application_reauthorization_required",
+          "Legacy scoped access must be revoked and explicitly reauthorized for the collection."
+        ));
       }
-      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "apply_type_pack", "apply_collection_setup", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation))
-        || current.file_capability?.actions.some((action) => ["add", "replace", "move", "delete"].includes(action)) === true;
-      await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
-        grantId,
-        mode: write ? "read_write" : "read_only",
-        allowedTypes: [],
-        contractScope: [],
-        fullCollection: true,
-        allowedOperations: hostedReplicaCollectionOperations(operations),
-        operationTransportProtocol:
-          current.application_authorization.binding.contracts.operation_transport,
-        operationTransportRecoveryProtocols:
-          current.application_authorization.binding.contracts
-            .operation_transport_recovery ?? [],
-        fileCapability: current.file_capability ?? undefined,
-        allowedOrigin: current.application_origin,
-        proofPublicKey: current.proof_public_key,
-        applicationDeclarationId: declarationIdFromFamilyIdentity(
-          current.application_family_identity
-        ),
-        applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`,
-        applicationDeclaration: current.application_declaration,
-        applicationAuthorization: current.application_authorization
-      });
+      const operations = [...new Set(input.operations)];
+      if (operations.some((operation) => !current.operations.includes(operation))) {
+        return reply.code(409).send(apiError(
+          "permission_expansion_requires_approval",
+          "Existing access can be narrowed here, but broader access requires a new application request."
+        ));
+      }
+      assertOperationsAllowedByApplication(
+        operations,
+        current.requirements,
+        current.notifications,
+        current.provisions
+      );
+      if (current.hosted_replica_id) {
+        if (!options.hostedProvider) {
+          return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
+        }
+        const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "apply_type_pack", "apply_collection_setup", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation))
+          || current.file_capability?.actions.some((action) => ["add", "replace", "move", "delete"].includes(action)) === true;
+        // Never compensate a failed commit by restoring the previous (broader)
+        // provider policy: revoke instead, including ambiguous provider failures.
+        providerAttempt = current.hosted_replica_id;
+        await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
+          grantId,
+          mode: write ? "read_write" : "read_only",
+          allowedTypes: [],
+          contractScope: [],
+          fullCollection: true,
+          allowedOperations: hostedReplicaCollectionOperations(operations),
+          operationTransportProtocol:
+            current.application_authorization.binding.contracts.operation_transport,
+          operationTransportRecoveryProtocols:
+            current.application_authorization.binding.contracts
+              .operation_transport_recovery ?? [],
+          fileCapability: current.file_capability ?? undefined,
+          allowedOrigin: current.application_origin,
+          proofPublicKey: current.proof_public_key,
+          applicationDeclarationId: declarationIdFromFamilyIdentity(
+            current.application_family_identity
+          ),
+          applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`,
+          applicationDeclaration: current.application_declaration,
+          applicationAuthorization: current.application_authorization
+        });
+      }
+      const updated = await connection.query<{ id: string; operations: string[] }>(
+        "UPDATE grants SET operations = $2::jsonb WHERE id = $1 RETURNING id, operations",
+        [grantId, JSON.stringify(operations)]
+      );
+      if (current.encryption) await rotateGrantEncryption(connection, grantId);
+      await connection.query("COMMIT");
+      committed = true;
+      narrowed = { current, operations, grant: updated.rows[0] };
+    } finally {
+      try {
+        if (!committed) await connection.query("ROLLBACK");
+      } finally {
+        connection.release();
+        if (!committed && providerAttempt) {
+          try {
+            await queueHostedGrantRevocation(options.db, user.id, grantId, "narrowing_failed");
+          } catch (error) {
+            // If persistence itself is unavailable, still attempt to close the
+            // data-authority boundary; never restore the earlier permissions.
+            await options.hostedProvider!.revokeReplica(providerAttempt);
+            throw error;
+          }
+          await options.drainProviderRevocations();
+        }
+      }
     }
-    const updated = await options.db.query<{ id: string; operations: string[] }>(
-      "UPDATE grants SET operations = $2::jsonb WHERE id = $1 RETURNING id, operations",
-      [grantId, JSON.stringify(operations)]
-    );
-    if (current.encryption) await rotateGrantEncryption(options.db, grantId);
-    if (current.connector_id) await relay.pushPolicy(current.connector_id);
+    if (narrowed.current.connector_id) await relay.pushPolicy(narrowed.current.connector_id);
     await audit(options.db, user.id, "grant.narrowed", grantId, {
-      previous_operations: current.operations,
-      operations
+      previous_operations: narrowed.current.operations,
+      operations: narrowed.operations
     });
-    return { grant: updated.rows[0] };
+    return { grant: narrowed.grant };
   });
 
   app.post("/oauth/authorization_request", {
