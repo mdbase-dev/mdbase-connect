@@ -601,8 +601,7 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
     let _ = server.await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn timer_handle_reconciles_through_the_running_local_authority() {
+fn timer_handle_fixture() -> (tempfile::TempDir, CollectionRegistry, GrantSummary) {
     let state_dir = tempdir().unwrap();
     let registry = CollectionRegistry::open(state_dir.path()).unwrap();
     let collection = registry
@@ -673,12 +672,89 @@ async fn timer_handle_reconciles_through_the_running_local_authority() {
         }])
         .unwrap();
     let grant = registry.grant_context(grant_id).unwrap().unwrap();
+    (state_dir, registry, grant)
+}
+
+#[tokio::test]
+async fn revoked_timer_cleanup_count_depends_on_recovery_order() {
+    for recovery_first in [false, true] {
+        let (state_dir, registry, grant) = timer_handle_fixture();
+        let collection_id = grant.collection_id;
+        let runtime_dir = state_dir.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        let mut service = RuntimeNotificationService {
+            runtime_dir: runtime_dir.clone(),
+            local_registry: registry.clone(),
+            cloud: None,
+            runtimes: HashMap::new(),
+        };
+        let catalog = compose_catalog(std::slice::from_ref(&grant), collection_id).unwrap();
+        perform_timer_operation(
+            service.runtime(collection_id).unwrap(),
+            &catalog,
+            &grant,
+            "reconcile_timers",
+            json!({
+                "namespace": "task-reminders",
+                "criterion_id": "task.reminder",
+                "timers": [{"id": "task-a:reminder-a", "fire_at": "2099-07-26T00:00:00Z"}]
+            }),
+        )
+        .await
+        .unwrap();
+        let timers = service
+            .runtime(collection_id)
+            .unwrap()
+            .timers("connect:")
+            .await
+            .unwrap();
+        assert_eq!(timers.len(), 1);
+        assert_eq!(timers[0].status, mdbase_runtime::TimerStatus::Scheduled);
+        registry.replace_grants(&[]).unwrap();
+        // These are the two serial orderings of the production select! branches.
+        // The interval's immediately-ready first tick may win before cleanup.
+        if recovery_first {
+            service.recover().await;
+        }
+        let cancelled = service.cleanup_orphaned_timers().await.unwrap();
+        assert_eq!(cancelled, if recovery_first { 0 } else { 1 });
+        eprintln!("recovery_first={recovery_first}, explicit_cleanup_cancelled={cancelled}");
+        assert_eq!(service.cleanup_orphaned_timers().await.unwrap(), 0);
+        service.recover().await;
+        drop(service);
+        assert_cancelled_timer_cannot_fire(&runtime_dir, collection_id).await;
+    }
+}
+
+async fn assert_cancelled_timer_cannot_fire(runtime_dir: &std::path::Path, collection_id: Uuid) {
+    let store = SqliteRuntimeStore::open(runtime_path(runtime_dir, collection_id)).unwrap();
+    let timers = store.timers("connect:").await.unwrap();
+    assert_eq!(timers.len(), 1);
+    assert_eq!(timers[0].status, mdbase_runtime::TimerStatus::Cancelled);
+    // Advance the claim time beyond the original deadline: absence of delivery
+    // must follow from terminal cancellation, not merely a future fire_at.
+    assert!(store
+        .claim_due_timer(
+            "test-after-deadline",
+            "2100-01-01T00:00:00Z".parse().unwrap(),
+            Duration::from_secs(30),
+        )
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn timer_handle_reconciles_through_the_running_local_authority() {
+    let (state_dir, registry, grant) = timer_handle_fixture();
+    let collection_id = grant.collection_id;
+    let grant_id = grant.id;
     let (events, event_rx) = tokio::sync::mpsc::unbounded_channel();
     let (timers, task) = start(state_dir.path(), registry.clone(), None, event_rx);
     let operation_timers = timers.clone();
     let result = tokio::task::spawn_blocking(move || {
         operation_timers.operation(
-            collection.id,
+            collection_id,
             grant,
             "reconcile_timers",
             json!({
@@ -695,14 +771,32 @@ async fn timer_handle_reconciles_through_the_running_local_authority() {
     .unwrap()
     .unwrap();
     assert_eq!(result["timers"][0]["id"], "task-a:reminder-a");
+    let runtime_dir = state_dir.path().join("runtime");
+    let store = SqliteRuntimeStore::open(runtime_path(&runtime_dir, collection_id)).unwrap();
+    let scheduled = store.timers("connect:").await.unwrap();
+    assert_eq!(scheduled.len(), 1);
+    assert_eq!(scheduled[0].status, mdbase_runtime::TimerStatus::Scheduled);
+    drop(store);
     registry.replace_grants(&[]).unwrap();
     assert!(registry.grant_context(grant_id).unwrap().is_none());
-    let cancelled = tokio::task::spawn_blocking(move || timers.cleanup_orphaned_timers())
+    let cleanup_timers = timers.clone();
+    // Background recovery can cancel the orphan before this command is selected.
+    // Assert the durable outcome below, rather than which caller did the work.
+    tokio::task::spawn_blocking(move || cleanup_timers.cleanup_orphaned_timers())
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(cancelled, 1);
-    drop(events);
+    let cleanup_timers = timers.clone();
+    assert_eq!(
+        tokio::task::spawn_blocking(move || cleanup_timers.cleanup_orphaned_timers())
+            .await
+            .unwrap()
+            .unwrap(),
+        0
+    );
     task.abort();
-    let _ = task.await;
+    assert!(task.await.unwrap_err().is_cancelled());
+    drop(events);
+    drop(timers);
+    assert_cancelled_timer_cannot_fire(&runtime_dir, collection_id).await;
 }
