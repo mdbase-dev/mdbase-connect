@@ -224,6 +224,77 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let original: Value = sqlx::query_scalar(
+        "SELECT jsonb_agg(to_jsonb(m) ORDER BY version) FROM _sqlx_migrations m",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let versions: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(versions, (1..=40).collect::<Vec<_>>());
+    let plan = fixture
+        .provider
+        .projection_index_plan(None, 1)
+        .await
+        .unwrap();
+    assert!(plan.migration_ledger_valid);
+    assert!(plan.schema_valid);
+    assert_eq!(plan.migration_baseline, 34);
+    assert_eq!(plan.migration_target, 40);
+
+    // Only this disposable fixture's ledger is corrupted. Save every original
+    // column, including checksum bytes and timestamps; never rerun migrations
+    // or normalize historical checksums to repair the fixture.
+    let mut connection = fixture.pool.acquire().await.unwrap();
+    sqlx::query("CREATE TEMP TABLE indexer_original_ledger AS TABLE _sqlx_migrations")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    for (name, corruption) in [
+        ("missing", "DELETE FROM _sqlx_migrations WHERE version = 40"),
+        ("extra", "INSERT INTO _sqlx_migrations SELECT 41, description, installed_on, success, checksum, execution_time FROM _sqlx_migrations WHERE version = 40"),
+        ("wrong checksum", "UPDATE _sqlx_migrations SET checksum = decode('00', 'hex') WHERE version = 40"),
+        ("unsuccessful", "UPDATE _sqlx_migrations SET success = false WHERE version = 40"),
+        ("right count wrong future version", "UPDATE _sqlx_migrations SET version = 41 WHERE version = 40"),
+        ("right count wrong legacy version", "UPDATE _sqlx_migrations SET version = 0 WHERE version = 1"),
+        ("empty", "DELETE FROM _sqlx_migrations"),
+    ] {
+        sqlx::query(corruption).execute(&mut *connection).await.unwrap();
+        let result = fixture.provider.projection_index_plan(None, 1).await;
+        // Restore before assertions, even when verification unexpectedly fails.
+        sqlx::raw_sql("BEGIN; DELETE FROM _sqlx_migrations; INSERT INTO _sqlx_migrations SELECT * FROM indexer_original_ledger; COMMIT;")
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+        let restored: Value = sqlx::query_scalar(
+            "SELECT jsonb_agg(to_jsonb(m) ORDER BY version) FROM _sqlx_migrations m",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+        assert_eq!(restored, original, "exact restoration after {name}");
+        let plan = result.unwrap();
+        assert!(!plan.migration_ledger_valid, "accepted {name}");
+        assert_eq!(plan.migration_target, 40, "target changed for {name}");
+        assert!(plan.schema_valid, "schema changed for {name}");
+        assert!(fixture.provider.projection_index_plan(None, 1).await.unwrap().migration_ledger_valid);
+    }
+    sqlx::query("DROP TABLE indexer_original_ledger")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn new_collections_are_indexed_before_becoming_active() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
