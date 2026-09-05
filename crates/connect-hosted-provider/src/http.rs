@@ -474,7 +474,11 @@ async fn register_application_replica_v2(
 ) -> ApiResult<StatusCode> {
     state.authorize_internal(&headers)?;
     require_setup_evidence(input.application_setup_evidence.as_ref())?;
-    register_replica(State(state), headers, Path(collection_id), Json(input)).await
+    state
+        .provider
+        .register_application_replica_v2(collection_id, input)
+        .await?;
+    Ok(StatusCode::CREATED)
 }
 
 async fn update_application_replica_v2(
@@ -485,7 +489,11 @@ async fn update_application_replica_v2(
 ) -> ApiResult<StatusCode> {
     state.authorize_internal(&headers)?;
     require_setup_evidence(input.application_setup_evidence.as_ref())?;
-    update_replica_policy(State(state), headers, Path(replica_id), Json(input)).await
+    state
+        .provider
+        .update_application_replica_v2(replica_id, input)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn require_setup_evidence(evidence: Option<&Value>) -> ApiResult<()> {

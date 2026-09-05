@@ -409,7 +409,7 @@ impl HostedProvider {
     ) -> ApiResult<()> {
         let binding = sqlx::query(
             r#"SELECT application_declaration_id, application_declaration_digest,
-                      application_setup_evidence, proof_public_key, allowed_operations,
+                      application_setup_evidence, application_semantic_version, proof_public_key, allowed_operations,
                       operation_transport_protocol, operation_transport_recovery_protocols,
                       file_capability
                FROM hosted_provider_replicas
@@ -421,6 +421,30 @@ impl HostedProvider {
         let Some(binding) = binding else {
             return Err(collection_setup_declaration_mismatch());
         };
+        match binding.get::<Option<i32>, _>("application_semantic_version") {
+            Some(1) => {
+                // Bounded predecessor semantics (c2596a6e): only ID/digest binding,
+                // not v2 authenticity or exact declaration projection guarantees.
+                return ensure_collection_setup_declaration_binding(
+                    binding
+                        .get::<Option<String>, _>("application_declaration_id")
+                        .as_deref(),
+                    binding
+                        .get::<Option<String>, _>("application_declaration_digest")
+                        .as_deref(),
+                    input
+                        .get("application_id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(collection_setup_declaration_mismatch)?,
+                    input
+                        .get("declaration_digest")
+                        .and_then(Value::as_str)
+                        .ok_or_else(collection_setup_declaration_mismatch)?,
+                );
+            }
+            Some(2) => {}
+            _ => return Err(collection_setup_declaration_mismatch()),
+        }
         let evidence = binding
             .get::<Option<Value>, _>("application_setup_evidence")
             .ok_or_else(collection_setup_declaration_mismatch)?;
@@ -970,7 +994,6 @@ fn validate_setup_runtime_choices(input: &Value) -> ApiResult<()> {
     Ok(())
 }
 
-#[cfg(test)]
 pub(super) fn ensure_collection_setup_declaration_binding(
     expected_application_id: Option<&str>,
     expected_declaration_digest: Option<&str>,
