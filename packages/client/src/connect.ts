@@ -1,8 +1,7 @@
 import type {
   CollectionOperation,
   GrantScope,
-  JsonObject,
-  MdbaseAppManifest
+  JsonObject
 } from "@mdbase-dev/connect-protocol";
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
@@ -11,6 +10,13 @@ import {
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
+import {
+  authorizationOperations,
+  authorizationFiles,
+  semanticContractVersion,
+  validateAuthorizationSelection,
+  type MdbaseApplicationManifest as MdbaseAppManifest
+} from "./application-contract.js";
 import { abortableDelay } from "./async.js";
 import { authorizationCallbackState } from "./authorization-url.js";
 import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
@@ -46,7 +52,6 @@ import {
 } from "./crypto.js";
 import { MdbaseConnectError, connectError, serverConnectError } from "./errors.js";
 import {
-  DEFAULT_OPERATIONS,
   type Application,
   type StoredAuthorization,
   type StoredToken
@@ -56,7 +61,6 @@ import {
   publishPopupAuthorizationCompletion,
   waitForPopupAuthorization
 } from "./popup-authorization.js";
-import { uniqueOperations } from "./operation-helpers.js";
 import { pendingRecoveryTransports, removePendingMutations } from "./pending-recovery-transports.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
 import { GrantKeyLeaseRegistry } from "./grant-key-leases.js";
@@ -74,12 +78,10 @@ import {
   collectionIdFromTokenKey,
   connectFetch,
   createPkce,
-  defaultManifestSource,
-  defaultRedirectUri,
   defaultStorage,
   decodeJsonResponse,
   isOpaquePortableManifest,
-  manifestStorageFingerprint,
+  resolveManifestSource,
   oauthErrorCode,
   parseDeviceAuthorization,
   parseStored,
@@ -114,20 +116,11 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   constructor(options: MdbaseConnectOptions) {
     this.serverUrl = stripTrailingSlash(String(options.serverUrl));
-    this.manifest = options.manifest instanceof URL
-      ? options.manifest.href
-      : options.manifest ?? defaultManifestSource();
-    this.manifestSource = typeof this.manifest === "string"
-      ? this.manifest
-      : this.manifest.distribution === "portable"
-        ? `bundle:${this.manifest.id}:${manifestStorageFingerprint(this.manifest)}`
-        : `bundle:${this.manifest.id}`;
+    const declaration = resolveManifestSource(options.manifest, options.redirectUri);
+    this.manifest = declaration.manifest;
+    this.manifestSource = declaration.manifestSource;
     const opaquePortable = isOpaquePortableManifest(this.manifest);
-    this.redirectUri = options.redirectUri === undefined ? (
-      typeof this.manifest !== "string" && this.manifest.distribution === "portable"
-        ? ""
-        : defaultRedirectUri()
-    ) : String(options.redirectUri);
+    this.redirectUri = declaration.redirectUri;
     this.storage = options.storage ?? defaultStorage(opaquePortable);
     this.relayEncryption = options.relayEncryption ?? "required";
     this.keyStore = options.keyStore ?? (
@@ -279,6 +272,12 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       navigate: this.navigate,
       register: (signal) => this.registerWithinBudget(signal)
     });
+    try {
+      validateAuthorizationSelection(application.requirements, options);
+    } catch (error) {
+      popup?.close();
+      throw error;
+    }
     if (application.distribution === "portable") {
       if (options.openVerification) popup?.close();
       return this.authorizePortable(
@@ -310,7 +309,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       await this.keyStore.delete(keyHandle);
       throw error;
     }
-    const operations = uniqueOperations(options.operations ?? DEFAULT_OPERATIONS);
+    const operations = authorizationOperations(application, options);
+    const requestedFiles = authorizationFiles(application.requirements);
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
@@ -331,18 +331,17 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       code_challenge: challenge,
       contracts: authorizationContractRequirements(
         operations,
-        application.requirements?.files,
+        requestedFiles,
         pendingRecoveryTransports(
           this.storage,
           this.storagePrefix(),
           operations,
           targetCollectionId
-        )
+        ),
+        semanticContractVersion(application.requirements)
       ),
       requested_operations: operations,
-      ...(application.requirements?.files
-        ? { requested_files: application.requirements.files }
-        : {}),
+      ...(requestedFiles ? { requested_files: requestedFiles } : {}),
       ...(targetCollectionId ? { collection_id: targetCollectionId } : {})
     }, installation);
     const pending: StoredAuthorization = {
@@ -458,7 +457,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       await this.keyStore.delete(keyHandle);
       throw error;
     }
-    const operations = uniqueOperations(options.operations ?? DEFAULT_OPERATIONS);
+    const operations = authorizationOperations(application, options);
+    const requestedFiles = authorizationFiles(application.requirements);
     const authorizationId = crypto.randomUUID();
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
@@ -478,18 +478,17 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       code_challenge: challenge,
       contracts: authorizationContractRequirements(
         operations,
-        application.requirements?.files,
+        requestedFiles,
         pendingRecoveryTransports(
           this.storage,
           this.storagePrefix(),
           operations,
           options.target?.kind === "collection" ? options.target.collectionId : undefined
-        )
+        ),
+        semanticContractVersion(application.requirements)
       ),
       requested_operations: operations,
-      ...(application.requirements?.files
-        ? { requested_files: application.requirements.files }
-        : {}),
+      ...(requestedFiles ? { requested_files: requestedFiles } : {}),
       ...(options.target?.kind === "collection"
         ? { collection_id: options.target.collectionId }
         : {})

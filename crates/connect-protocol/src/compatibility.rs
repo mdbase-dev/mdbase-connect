@@ -1,4 +1,4 @@
-use crate::{ApplicationFileRequirement, FileAction};
+use crate::{ApplicationFileRequest, FileAction};
 use crate::{ConnectOperationOutcome, ConnectProblem};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -15,7 +15,8 @@ pub const SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS: &[u32] = &[
     AUTHORIZATION_BINDING_PROTOCOL_VERSION,
     LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
 ];
-pub const SEMANTIC_CAPABILITY_CONTRACT_VERSION: u32 = 1;
+pub const SEMANTIC_CAPABILITY_CONTRACT_VERSION: u32 =
+    crate::APPLICATION_CAPABILITY_CONTRACT_VERSION;
 pub const DURABLE_MUTATION_CONTRACT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,13 +43,37 @@ impl Default for ConnectContractSupport {
         Self {
             operation_transport: SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.to_vec(),
             authorization_binding: SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS.to_vec(),
-            semantic_capabilities: vec![SEMANTIC_CAPABILITY_CONTRACT_VERSION],
+            semantic_capabilities: vec![SEMANTIC_CAPABILITY_CONTRACT_VERSION, 1],
             durable_mutation: vec![DURABLE_MUTATION_CONTRACT_VERSION],
         }
     }
 }
 
 impl ConnectContractSupport {
+    /// Internal validation/dispatch support for exact signed grants.
+    pub fn implemented() -> Self {
+        Self {
+            semantic_capabilities: vec![1, 2],
+            ..Self::default()
+        }
+    }
+
+    /// Handshake baseline only; never selects or downgrades a signed grant.
+    pub fn supports_relay_baseline(&self) -> bool {
+        self.operation_transport
+            .contains(&OPERATION_TRANSPORT_PROTOCOL_VERSION)
+            && self
+                .authorization_binding
+                .contains(&AUTHORIZATION_BINDING_PROTOCOL_VERSION)
+            && self
+                .semantic_capabilities
+                .iter()
+                .any(|version| matches!(version, 1 | 2))
+            && self
+                .durable_mutation
+                .contains(&DURABLE_MUTATION_CONTRACT_VERSION)
+    }
+
     pub fn supports_current(&self) -> bool {
         self.operation_transport
             .contains(&OPERATION_TRANSPORT_PROTOCOL_VERSION)
@@ -90,7 +115,9 @@ impl ConnectContractRequirements {
         SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.contains(&self.operation_transport)
             && SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS
                 .contains(&self.authorization_binding)
-            && self.semantic_capabilities == SEMANTIC_CAPABILITY_CONTRACT_VERSION
+            && ConnectContractSupport::implemented()
+                .semantic_capabilities
+                .contains(&self.semantic_capabilities)
             && (if requires_durable_mutation {
                 self.durable_mutation == Some(DURABLE_MUTATION_CONTRACT_VERSION)
             } else {
@@ -118,13 +145,15 @@ impl ConnectContractRequirements {
             || (recovery_only && self.operation_transport_recovery.contains(&version))
     }
 
+    /// Check local execution support for an already selected, signed contract.
+    /// This is not a peer-support advertisement or a negotiation decision.
     pub fn mismatch_problem(
         &self,
         operation: &str,
         input: &Value,
         peer: &str,
     ) -> Option<ConnectProblem> {
-        let supported = ConnectContractSupport::default();
+        let supported = ConnectContractSupport::implemented();
         let checks = [
             (
                 "operation_transport",
@@ -183,7 +212,7 @@ impl ConnectContractRequirements {
 
 pub fn authorization_requires_durable_mutation(
     operations: &[String],
-    files: Option<&ApplicationFileRequirement>,
+    files: Option<&ApplicationFileRequest>,
 ) -> bool {
     operations.iter().any(|operation| {
         matches!(
@@ -240,6 +269,54 @@ fn contract_problem(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relay_baseline_accepts_both_semantics_without_changing_exact_current() {
+        for versions in [vec![1], vec![2], vec![2, 1], vec![], vec![99]] {
+            let support = ConnectContractSupport {
+                semantic_capabilities: versions.clone(),
+                ..Default::default()
+            };
+            assert_eq!(
+                support.supports_relay_baseline(),
+                versions.contains(&1) || versions.contains(&2)
+            );
+            assert_eq!(support.supports_current(), versions.contains(&2));
+            let mut invalid = support;
+            invalid.authorization_binding.clear();
+            assert!(!invalid.supports_relay_baseline());
+        }
+    }
+
+    #[test]
+    fn implemented_semantics_are_not_peer_advertisement() {
+        assert_eq!(
+            ConnectContractSupport::default().semantic_capabilities,
+            vec![2, 1]
+        );
+        assert_eq!(
+            ConnectContractRequirements::current(false).semantic_capabilities,
+            2
+        );
+        for version in [0, 1, 2, 3, u32::MAX] {
+            let requirements = ConnectContractRequirements {
+                semantic_capabilities: version,
+                ..ConnectContractRequirements::current(false)
+            };
+            let implemented = matches!(version, 1 | 2);
+            assert_eq!(requirements.valid_for_authorization(false), implemented);
+            assert_eq!(
+                requirements
+                    .mismatch_problem("read", &serde_json::json!({}), "connector")
+                    .is_none(),
+                implemented
+            );
+            // Semantic compatibility cannot bypass the durable mutation axis.
+            assert!(requirements
+                .mismatch_problem("create", &serde_json::json!({}), "connector")
+                .is_some());
+        }
+    }
 
     #[test]
     fn reads_do_not_require_the_durable_mutation_axis() {

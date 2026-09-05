@@ -59,6 +59,31 @@ fn local_notification_runtime_upgrades_unversioned_state() {
     assert_eq!(version, mdbase_runtime::SQLITE_SCHEMA_VERSION);
 }
 
+#[test]
+fn orphan_cleanup_runtime_does_not_require_collection_configuration() {
+    let state_dir = tempdir().unwrap();
+    let runtime_dir = state_dir.path().join("runtime");
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+    let registry = CollectionRegistry::open(state_dir.path()).unwrap();
+    let collection = registry
+        .create(state_dir.path().join("collection"), Some("Offline"), "UTC")
+        .unwrap();
+    std::fs::write(
+        state_dir.path().join("collection").join("mdbase.yaml"),
+        "invalid: [",
+    )
+    .unwrap();
+    let mut service = RuntimeNotificationService {
+        runtime_dir,
+        local_registry: registry,
+        cloud: None,
+        runtimes: HashMap::new(),
+    };
+
+    assert!(service.build_runtime(collection.id, None).is_ok());
+    assert!(service.runtime(collection.id).is_err());
+}
+
 #[tokio::test]
 async fn recovery_keeps_idle_registered_collections_cold() {
     let state_dir = tempdir().unwrap();
@@ -90,6 +115,7 @@ async fn recovery_keeps_idle_registered_collections_cold() {
 #[test]
 fn compiled_workflows_keep_record_data_out_of_action_input() {
     let grant = GrantSummary {
+        application_declaration: None,
         contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
         id: Uuid::new_v4(),
         application_id: Uuid::new_v4(),
@@ -130,6 +156,18 @@ fn compiled_workflows_keep_record_data_out_of_action_input() {
         encryption: None,
         file_capability: None,
     };
+    for (operations, eligible) in [
+        (vec!["put_timer"], true),
+        (vec!["reconcile_timers"], true),
+        (vec!["changes"], false),
+        (vec!["list_timers", "cancel_timer"], false),
+        (vec!["background.schedule"], false),
+        (vec![], false),
+    ] {
+        let mut candidate = grant.clone();
+        candidate.operations = operations.into_iter().map(str::to_string).collect();
+        assert_eq!(can_schedule_timers(&candidate), eligible);
+    }
     let catalog = compose_catalog(std::slice::from_ref(&grant), grant.collection_id).unwrap();
     let workflow = &catalog.admission().workflows()[0];
     let input = workflow.pointer("/steps/0/input").unwrap();
@@ -155,7 +193,7 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
     let connector_id = Uuid::new_v4();
     let connector = mdbase_connect_protocol::crypto::RelayIdentity::generate();
     let application = mdbase_connect_protocol::crypto::RelayIdentity::generate();
-    let operations = vec!["changes".to_string()];
+    let operations = vec!["changes".to_string(), "put_timer".to_string()];
     let encryption = mdbase_connect_protocol::GrantEncryption {
         protocol_version: mdbase_connect_protocol::GRANT_ENCRYPTION_PROTOCOL_VERSION,
         suite: mdbase_connect_protocol::RELAY_ENCRYPTION_SUITE.to_string(),
@@ -177,59 +215,61 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
             file_capability: None,
         },
     );
+    let policy = GrantPolicy {
+        application_declaration: None,
+        id: grant_id,
+        application_id,
+        collection_id: collection.id,
+        operations,
+        scope: GrantScope::full_collection(),
+        application_name: "Tasks".to_string(),
+        application_distribution: "web".to_string(),
+        application_homepage: "https://tasks.example".to_string(),
+        application_project_url: None,
+        application_origin: "https://tasks.example".to_string(),
+        application_icon: None,
+        collection_name: "Private notes".to_string(),
+        notification_criteria: vec![
+            NotificationCriterion {
+                id: "task.ready".to_string(),
+                event: ContractRequirement {
+                    id: RECORD_MODIFIED_EVENT_ID.to_string(),
+                    version: "1.0.0".to_string(),
+                    digest: RECORD_MODIFIED_EVENT_DIGEST.to_string(),
+                },
+                r#if: None,
+                debounce: None,
+                minimum_interval: None,
+                presentation: NotificationPresentation {
+                    title: "A task changed".to_string(),
+                    body: None,
+                    tag: None,
+                },
+            },
+            NotificationCriterion {
+                id: "reminder.due".to_string(),
+                event: ContractRequirement {
+                    id: TIMER_EVENT_ID.to_string(),
+                    version: "1.0.0".to_string(),
+                    digest: TIMER_EVENT_DIGEST.to_string(),
+                },
+                r#if: None,
+                debounce: None,
+                minimum_interval: None,
+                presentation: NotificationPresentation {
+                    title: "A reminder is due".to_string(),
+                    body: None,
+                    tag: None,
+                },
+            },
+        ],
+        created_at: "2026-07-24T00:00:00Z".to_string(),
+        encryption: Some(encryption),
+        file_capability: None,
+        application_authorization: security.proof,
+    };
     registry
-        .replace_grants(&[GrantPolicy {
-            id: grant_id,
-            application_id,
-            collection_id: collection.id,
-            operations,
-            scope: GrantScope::full_collection(),
-            application_name: "Tasks".to_string(),
-            application_distribution: "web".to_string(),
-            application_homepage: "https://tasks.example".to_string(),
-            application_project_url: None,
-            application_origin: "https://tasks.example".to_string(),
-            application_icon: None,
-            collection_name: "Private notes".to_string(),
-            notification_criteria: vec![
-                NotificationCriterion {
-                    id: "task.ready".to_string(),
-                    event: ContractRequirement {
-                        id: RECORD_MODIFIED_EVENT_ID.to_string(),
-                        version: "1.0.0".to_string(),
-                        digest: RECORD_MODIFIED_EVENT_DIGEST.to_string(),
-                    },
-                    r#if: None,
-                    debounce: None,
-                    minimum_interval: None,
-                    presentation: NotificationPresentation {
-                        title: "A task changed".to_string(),
-                        body: None,
-                        tag: None,
-                    },
-                },
-                NotificationCriterion {
-                    id: "reminder.due".to_string(),
-                    event: ContractRequirement {
-                        id: TIMER_EVENT_ID.to_string(),
-                        version: "1.0.0".to_string(),
-                        digest: TIMER_EVENT_DIGEST.to_string(),
-                    },
-                    r#if: None,
-                    debounce: None,
-                    minimum_interval: None,
-                    presentation: NotificationPresentation {
-                        title: "A reminder is due".to_string(),
-                        body: None,
-                        tag: None,
-                    },
-                },
-            ],
-            created_at: "2026-07-24T00:00:00Z".to_string(),
-            encryption: Some(encryption),
-            file_capability: None,
-            application_authorization: security.proof,
-        }])
+        .replace_grants(std::slice::from_ref(&policy))
         .unwrap();
 
     let (signals, mut signal_rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
@@ -349,6 +389,182 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
     assert!(!encoded.contains("private-reminder"));
     assert!(!encoded.contains("timer-state-stays-local"));
 
+    // Keep the same identity and criteria, but withdraw scheduling authority.
+    // Exercise explicit policy cleanup and cold recovery, including a durable
+    // firing lease and an event admitted before the policy changed.
+    for explicit_cleanup in [true, false] {
+        service
+            .local_registry
+            .replace_grants(std::slice::from_ref(&policy))
+            .unwrap();
+        let grant = service
+            .local_registry
+            .grant_context(grant_id)
+            .unwrap()
+            .unwrap();
+        let catalog = compose_catalog(std::slice::from_ref(&grant), collection.id).unwrap();
+        for id in ["already-admitted", "firing", "pending"] {
+            perform_timer_operation(
+                service.runtime(collection.id).unwrap(), &catalog, &grant, "put_timer",
+                json!({
+                    "namespace": "narrowed",
+                    "criterion_id": "reminder.due",
+                    "timer": {
+                        "id": id,
+                        "fire_at": (chrono::Utc::now() - chrono::TimeDelta::seconds(1)).to_rfc3339(),
+                        "data": {}
+                    }
+                }),
+            ).await.unwrap();
+            if id == "already-admitted" {
+                service
+                    .runtime(collection.id)
+                    .unwrap()
+                    .fire_due_timer(catalog.admission())
+                    .await
+                    .unwrap();
+            }
+        }
+        let store =
+            SqliteRuntimeStore::open(runtime_path(&service.runtime_dir, collection.id)).unwrap();
+        assert!(store
+            .claim_due_timer(
+                "interrupted-worker",
+                chrono::Utc::now(),
+                Duration::from_secs(30)
+            )
+            .await
+            .unwrap()
+            .is_some());
+        let statuses = store.timers(&format!("connect:{grant_id}:")).await.unwrap();
+        assert!(statuses
+            .iter()
+            .any(|timer| timer.status == mdbase_runtime::TimerStatus::Firing));
+        assert!(statuses
+            .iter()
+            .any(|timer| timer.status == mdbase_runtime::TimerStatus::Scheduled));
+        drop(store);
+
+        let mut narrowed = policy.clone();
+        narrowed.operations = vec!["changes".to_string()];
+        service.local_registry.replace_grants(&[narrowed]).unwrap();
+        let retained = service
+            .local_registry
+            .grant_context(grant_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(retained.notification_criteria, policy.notification_criteria);
+        assert_eq!(retained.operations, vec!["changes".to_string()]);
+        if explicit_cleanup {
+            assert_eq!(service.cleanup_orphaned_timers().await.unwrap(), 2);
+            assert_eq!(service.cleanup_orphaned_timers().await.unwrap(), 0);
+        }
+        let runtime_dir = service.runtime_dir.clone();
+        let local_registry = service.local_registry.clone();
+        let cloud = service.cloud.clone();
+        drop(service);
+        service = RuntimeNotificationService {
+            runtime_dir,
+            local_registry,
+            cloud,
+            runtimes: HashMap::new(),
+        };
+        service.recover().await;
+        let timers = service
+            .runtime(collection.id)
+            .unwrap()
+            .timers(&format!("connect:{grant_id}:"))
+            .await
+            .unwrap();
+        assert_eq!(
+            timers
+                .iter()
+                .filter(|timer| timer.status == mdbase_runtime::TimerStatus::Cancelled)
+                .count(),
+            2
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), signal_rx.recv())
+                .await
+                .is_err(),
+            "narrowed grants must not dispatch pending, firing, or already-admitted timers"
+        );
+        // Ordinary watcher notifications still work with read-only authority.
+        service
+            .handle_event(CollectionRuntimeEvent {
+                collection_id: collection.id,
+                cursor: if explicit_cleanup { 20 } else { 21 },
+                event: mdbase::watch::WatchEvent {
+                    event_type: RECORD_MODIFIED_EVENT_ID.to_string(),
+                    sequence: if explicit_cleanup { 20 } else { 21 },
+                    occurred_at: chrono::Utc::now().to_rfc3339(),
+                    payload: json!({
+                        "path": "private/note.md", "before": {}, "after": {},
+                        "changed_fields": ["status"], "previous_revision": "a", "revision": "b",
+                        "previous_types": ["task"], "types": ["task"]
+                    }),
+                },
+            })
+            .await
+            .unwrap();
+        let signal = tokio::time::timeout(Duration::from_secs(1), signal_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(signal["criterion_id"], "task.ready");
+    }
+    service
+        .local_registry
+        .replace_grants(std::slice::from_ref(&policy))
+        .unwrap();
+    let timer_grant = service
+        .local_registry
+        .grant_context(grant_id)
+        .unwrap()
+        .unwrap();
+    {
+        let catalog = compose_catalog(std::slice::from_ref(&timer_grant), collection.id).unwrap();
+        let runtime = service.runtime(collection.id).unwrap();
+        perform_timer_operation(
+            runtime,
+            &catalog,
+            &timer_grant,
+            "put_timer",
+            json!({
+                "namespace": "reminders",
+                "criterion_id": "reminder.due",
+                "timer": {
+                    "id": "revoked-reminder",
+                    "fire_at": (chrono::Utc::now() - chrono::TimeDelta::seconds(1)).to_rfc3339(),
+                    "data": {}
+                }
+            }),
+        )
+        .await
+        .unwrap();
+    }
+    service.local_registry.replace_grants(&[]).unwrap();
+    service.recover().await;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), signal_rx.recv())
+            .await
+            .is_err(),
+        "a revoked grant's due timer must be cancelled before recovery dispatch"
+    );
+    let timers = service
+        .runtime(collection.id)
+        .unwrap()
+        .timers(&format!("connect:{grant_id}:"))
+        .await
+        .unwrap();
+    assert!(timers
+        .iter()
+        .any(|timer| matches!(timer.status, mdbase_runtime::TimerStatus::Cancelled)));
+    assert!(timers.iter().all(|timer| matches!(
+        timer.status,
+        mdbase_runtime::TimerStatus::Cancelled | mdbase_runtime::TimerStatus::Fired
+    )));
+
     service
         .local_registry
         .set_enabled(collection.id, false)
@@ -385,8 +601,7 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
     let _ = server.await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn timer_handle_reconciles_through_the_running_local_authority() {
+fn timer_handle_fixture() -> (tempfile::TempDir, CollectionRegistry, GrantSummary) {
     let state_dir = tempdir().unwrap();
     let registry = CollectionRegistry::open(state_dir.path()).unwrap();
     let collection = registry
@@ -421,6 +636,7 @@ async fn timer_handle_reconciles_through_the_running_local_authority() {
     );
     registry
         .replace_grants(&[GrantPolicy {
+            application_declaration: None,
             id: grant_id,
             application_id,
             collection_id: collection.id,
@@ -456,11 +672,89 @@ async fn timer_handle_reconciles_through_the_running_local_authority() {
         }])
         .unwrap();
     let grant = registry.grant_context(grant_id).unwrap().unwrap();
+    (state_dir, registry, grant)
+}
+
+#[tokio::test]
+async fn revoked_timer_cleanup_count_depends_on_recovery_order() {
+    for recovery_first in [false, true] {
+        let (state_dir, registry, grant) = timer_handle_fixture();
+        let collection_id = grant.collection_id;
+        let runtime_dir = state_dir.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        let mut service = RuntimeNotificationService {
+            runtime_dir: runtime_dir.clone(),
+            local_registry: registry.clone(),
+            cloud: None,
+            runtimes: HashMap::new(),
+        };
+        let catalog = compose_catalog(std::slice::from_ref(&grant), collection_id).unwrap();
+        perform_timer_operation(
+            service.runtime(collection_id).unwrap(),
+            &catalog,
+            &grant,
+            "reconcile_timers",
+            json!({
+                "namespace": "task-reminders",
+                "criterion_id": "task.reminder",
+                "timers": [{"id": "task-a:reminder-a", "fire_at": "2099-07-26T00:00:00Z"}]
+            }),
+        )
+        .await
+        .unwrap();
+        let timers = service
+            .runtime(collection_id)
+            .unwrap()
+            .timers("connect:")
+            .await
+            .unwrap();
+        assert_eq!(timers.len(), 1);
+        assert_eq!(timers[0].status, mdbase_runtime::TimerStatus::Scheduled);
+        registry.replace_grants(&[]).unwrap();
+        // These are the two serial orderings of the production select! branches.
+        // The interval's immediately-ready first tick may win before cleanup.
+        if recovery_first {
+            service.recover().await;
+        }
+        let cancelled = service.cleanup_orphaned_timers().await.unwrap();
+        assert_eq!(cancelled, if recovery_first { 0 } else { 1 });
+        eprintln!("recovery_first={recovery_first}, explicit_cleanup_cancelled={cancelled}");
+        assert_eq!(service.cleanup_orphaned_timers().await.unwrap(), 0);
+        service.recover().await;
+        drop(service);
+        assert_cancelled_timer_cannot_fire(&runtime_dir, collection_id).await;
+    }
+}
+
+async fn assert_cancelled_timer_cannot_fire(runtime_dir: &std::path::Path, collection_id: Uuid) {
+    let store = SqliteRuntimeStore::open(runtime_path(runtime_dir, collection_id)).unwrap();
+    let timers = store.timers("connect:").await.unwrap();
+    assert_eq!(timers.len(), 1);
+    assert_eq!(timers[0].status, mdbase_runtime::TimerStatus::Cancelled);
+    // Advance the claim time beyond the original deadline: absence of delivery
+    // must follow from terminal cancellation, not merely a future fire_at.
+    assert!(store
+        .claim_due_timer(
+            "test-after-deadline",
+            "2100-01-01T00:00:00Z".parse().unwrap(),
+            Duration::from_secs(30),
+        )
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn timer_handle_reconciles_through_the_running_local_authority() {
+    let (state_dir, registry, grant) = timer_handle_fixture();
+    let collection_id = grant.collection_id;
+    let grant_id = grant.id;
     let (events, event_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (timers, task) = start(state_dir.path(), registry, None, event_rx);
+    let (timers, task) = start(state_dir.path(), registry.clone(), None, event_rx);
+    let operation_timers = timers.clone();
     let result = tokio::task::spawn_blocking(move || {
-        timers.operation(
-            collection.id,
+        operation_timers.operation(
+            collection_id,
             grant,
             "reconcile_timers",
             json!({
@@ -468,7 +762,7 @@ async fn timer_handle_reconciles_through_the_running_local_authority() {
                 "criterion_id": "task.reminder",
                 "timers": [{
                     "id": "task-a:reminder-a",
-                    "fire_at": "2026-07-26T00:00:00Z"
+                    "fire_at": "2099-07-26T00:00:00Z"
                 }]
             }),
         )
@@ -477,7 +771,32 @@ async fn timer_handle_reconciles_through_the_running_local_authority() {
     .unwrap()
     .unwrap();
     assert_eq!(result["timers"][0]["id"], "task-a:reminder-a");
-    drop(events);
+    let runtime_dir = state_dir.path().join("runtime");
+    let store = SqliteRuntimeStore::open(runtime_path(&runtime_dir, collection_id)).unwrap();
+    let scheduled = store.timers("connect:").await.unwrap();
+    assert_eq!(scheduled.len(), 1);
+    assert_eq!(scheduled[0].status, mdbase_runtime::TimerStatus::Scheduled);
+    drop(store);
+    registry.replace_grants(&[]).unwrap();
+    assert!(registry.grant_context(grant_id).unwrap().is_none());
+    let cleanup_timers = timers.clone();
+    // Background recovery can cancel the orphan before this command is selected.
+    // Assert the durable outcome below, rather than which caller did the work.
+    tokio::task::spawn_blocking(move || cleanup_timers.cleanup_orphaned_timers())
+        .await
+        .unwrap()
+        .unwrap();
+    let cleanup_timers = timers.clone();
+    assert_eq!(
+        tokio::task::spawn_blocking(move || cleanup_timers.cleanup_orphaned_timers())
+            .await
+            .unwrap()
+            .unwrap(),
+        0
+    );
     task.abort();
-    let _ = task.await;
+    assert!(task.await.unwrap_err().is_cancelled());
+    drop(events);
+    drop(timers);
+    assert_cancelled_timer_cannot_fire(&runtime_dir, collection_id).await;
 }

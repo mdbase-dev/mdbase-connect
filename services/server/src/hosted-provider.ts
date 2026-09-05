@@ -1,6 +1,7 @@
+import type { ApplicationRequirements } from "./application-requirements.js";
 import type {
+  ApplicationAuthorizationProof,
   ApplicationProvisions,
-  ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
   ContractSetupChoice,
@@ -73,6 +74,8 @@ export interface HostedReplicaEnrollment {
   grantId?: string;
   applicationDeclarationId?: string;
   applicationDeclarationDigest?: string;
+  applicationDeclaration?: unknown;
+  applicationAuthorization?: ApplicationAuthorizationProof;
   token: string;
   tokenTtlSeconds?: number;
 }
@@ -475,9 +478,10 @@ export class HostedProviderClient {
   }
 
   async registerReplica(collectionId: string, replica: HostedReplicaEnrollment): Promise<void> {
+    const evidence = await this.setupEvidence(replica);
     await this.request(
       "POST",
-      `/internal/v1/collections/${encodeURIComponent(collectionId)}/replicas`,
+      `/internal/${evidence.application_setup_evidence ? "v2" : "v1"}/collections/${encodeURIComponent(collectionId)}/replicas`,
       {
         replica_id: replica.id,
         name: replica.name,
@@ -509,6 +513,7 @@ export class HostedProviderClient {
         ...(replica.applicationDeclarationDigest
           ? { application_declaration_digest: replica.applicationDeclarationDigest }
           : {}),
+        ...evidence,
         token: replica.token,
         ...(replica.tokenTtlSeconds ? { token_ttl_seconds: replica.tokenTtlSeconds } : {})
       }
@@ -562,11 +567,14 @@ export class HostedProviderClient {
       proofPublicKey: string;
       applicationDeclarationId: string;
       applicationDeclarationDigest: string;
+      applicationDeclaration?: unknown;
+      applicationAuthorization?: ApplicationAuthorizationProof;
     }
   ): Promise<void> {
+    const evidence = await this.setupEvidence(policy);
     await this.request(
       "PATCH",
-      `/internal/v1/replicas/${encodeURIComponent(replicaId)}/policy`,
+      `/internal/${evidence.application_setup_evidence ? "v2" : "v1"}/replicas/${encodeURIComponent(replicaId)}/policy`,
       {
         grant_id: policy.grantId,
         mode: policy.mode,
@@ -583,9 +591,36 @@ export class HostedProviderClient {
         allowed_origin: policy.allowedOrigin,
         proof_public_key: policy.proofPublicKey,
         application_declaration_id: policy.applicationDeclarationId,
-        application_declaration_digest: policy.applicationDeclarationDigest
+        application_declaration_digest: policy.applicationDeclarationDigest,
+        ...evidence
       }
     );
+  }
+
+  private async setupEvidence(policy: {
+    applicationDeclaration?: unknown;
+    applicationAuthorization?: ApplicationAuthorizationProof;
+  }): Promise<Record<string, unknown>> {
+    const declaredVersion = (policy.applicationDeclaration as {
+      requirements?: { capabilities?: { contract_version?: number } };
+    } | undefined)?.requirements?.capabilities?.contract_version;
+    const signedVersion = policy.applicationAuthorization?.binding.contracts.semantic_capabilities;
+    if (signedVersion !== 2 && declaredVersion !== 2) return {};
+    if (signedVersion !== 2 || !policy.applicationDeclaration) {
+      throw new HostedProviderUnavailableError(new Error("Missing v2 application declaration evidence."));
+    }
+    // Do not infer support from an older receiver ignoring optional JSON fields.
+    const ready = await this.request("GET", "/ready", undefined, false) as {
+      status?: string; provider?: { capabilities?: string[] };
+    } | undefined;
+    if (ready?.status !== "ready"
+        || !ready.provider?.capabilities?.includes("application-setup-evidence-v2")) {
+      throw new HostedProviderUnavailableError(new Error("Hosted provider does not enforce v2 setup evidence."));
+    }
+    return { application_setup_evidence: {
+      application_declaration: policy.applicationDeclaration,
+      application_authorization: policy.applicationAuthorization
+    } };
   }
 
   async revokeReplica(replicaId: string): Promise<void> {

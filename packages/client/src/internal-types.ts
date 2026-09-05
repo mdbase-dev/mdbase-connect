@@ -1,6 +1,6 @@
 import type {
   ApplicationNotifications,
-  ApplicationRequirements,
+  ApplicationProvisions,
   CollectionOperation,
   EncryptedRelayOperationRequest,
   GrantEncryption,
@@ -9,6 +9,7 @@ import type {
   MdbaseOperationRequest,
   MutationOperationIdentifier
 } from "@mdbase-dev/connect-protocol";
+import type { MdbaseApplicationRequirements as ApplicationRequirements } from "./application-contract.js";
 import { encryptRelayRequest } from "./crypto.js";
 
 export interface Application {
@@ -21,6 +22,7 @@ export interface Application {
   project_url?: string;
   notifications?: ApplicationNotifications;
   requirements: ApplicationRequirements;
+  provisions?: ApplicationProvisions;
 }
 
 export interface StoredAuthorization {
@@ -104,4 +106,4 @@ export interface OperationAttempt {
   resumingMutation?: boolean;
 }
 
-export const DEFAULT_OPERATIONS: CollectionOperation[] = ["describe", "changes", "read", "query"];
+export { DEFAULT_OPERATIONS } from "./application-contract.js";

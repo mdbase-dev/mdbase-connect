@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::fmt;
+use uuid::Uuid;
 
 use crate::{NotificationCatalog, TIMER_EVENT_ID};
 
@@ -84,6 +85,25 @@ struct DesiredTimer {
     fire_at: String,
     #[serde(default)]
     data: Value,
+}
+
+/// Atomically cancel all scheduled or firing Connect timers owned by a grant,
+/// across every namespace, and invalidate their outstanding leases.
+///
+/// Returns the number of timers newly cancelled. Repeated cleanup returns zero;
+/// already fired or cancelled timers are preserved. This does not prevent later
+/// scheduling or retract timer events that have already been admitted.
+pub async fn cancel_grant_timers(
+    runtime: &Runtime,
+    grant_id: Uuid,
+) -> mdbase_runtime::RuntimeResult<usize> {
+    let outcome = runtime
+        .reconcile_timers(TimerReconcileRequest {
+            id_prefix: format!("connect:{grant_id}:"),
+            timers: Vec::new(),
+        })
+        .await?;
+    Ok(outcome.cancelled_ids.len())
 }
 
 pub async fn perform_timer_operation(
@@ -361,11 +381,139 @@ mod tests {
     };
     use mdbase_runtime::{
         DenyAllAuthorizer, ImplementationIdentity, InMemoryRuntimeStore, ManualClock,
-        ProviderRegistry, RuntimeConfig, RuntimeStore, TimerFireOutcome,
+        PreparedEvent, ProviderRegistry, RuntimeConfig, RuntimeStore, TimerFireOutcome,
     };
     use std::sync::Arc;
     use std::time::Duration;
     use uuid::Uuid;
+
+    #[tokio::test]
+    async fn grant_cleanup_cancels_all_namespaces_and_preserves_other_prefixes() {
+        let (runtime, store) = runtime();
+        let grant_a = grant("reminder");
+        let grant_b = grant("reminder");
+        let catalog = catalog(&[grant_a.clone(), grant_b.clone()]);
+        for namespace in ["one", "two", "three"] {
+            put(&runtime, &catalog, &grant_a, namespace, "a", "10:00:00", 1).await;
+        }
+        put(&runtime, &catalog, &grant_b, "one", "a", "10:00:00", 1).await;
+
+        // Similar IDs outside the exact colon-delimited Connect grant prefix
+        // must not be treated as owned timers.
+        let template = runtime
+            .timers(&timer_prefix(&grant_b, "one"))
+            .await
+            .unwrap()[0]
+            .clone();
+        for id in [
+            format!("connect:{}suffix:one:timer.61", grant_a.id),
+            format!("other:{}:one:timer.61", grant_a.id),
+        ] {
+            let mut timer = template.clone();
+            timer.id = id;
+            store.upsert_timer(timer).await.unwrap();
+        }
+        let prefix = format!("connect:{}:", grant_a.id);
+        let before = store.snapshot().await.unwrap();
+        assert_eq!(cancel_grant_timers(&runtime, grant_a.id).await.unwrap(), 3);
+        let after = store.snapshot().await.unwrap();
+        assert_eq!(after.timers.len(), before.timers.len());
+        for timer in &after.timers {
+            let original = before.timers.iter().find(|old| old.id == timer.id).unwrap();
+            if timer.id.starts_with(&prefix) {
+                assert_eq!(timer.status, TimerStatus::Cancelled);
+                assert_eq!(timer.generation, original.generation);
+            } else {
+                assert_eq!(timer, original);
+            }
+        }
+        assert_eq!(cancel_grant_timers(&runtime, grant_a.id).await.unwrap(), 0);
+        assert_eq!(store.snapshot().await.unwrap(), after);
+        assert_eq!(
+            cancel_grant_timers(&runtime, Uuid::new_v4()).await.unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn grant_cleanup_invalidates_firing_leases_and_preserves_fired_timers() {
+        let (runtime, store) = runtime();
+        let grant = grant("reminder");
+        let catalog = catalog(std::slice::from_ref(&grant));
+        put(&runtime, &catalog, &grant, "done", "fired", "00:00:00", 1).await;
+        assert!(matches!(
+            runtime.fire_due_timer(catalog.admission()).await.unwrap(),
+            TimerFireOutcome::Fired { .. }
+        ));
+        let fired = runtime.timers(&timer_prefix(&grant, "done")).await.unwrap();
+        put(
+            &runtime,
+            &catalog,
+            &grant,
+            "pending",
+            "scheduled",
+            "10:00:00",
+            1,
+        )
+        .await;
+        put(
+            &runtime, &catalog, &grant, "claimed", "firing", "00:00:00", 1,
+        )
+        .await;
+        let now = Utc.with_ymd_and_hms(2026, 7, 25, 0, 0, 0).unwrap();
+        let claim = store
+            .claim_due_timer("worker", now, Duration::from_secs(30))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(claim.timer.status, TimerStatus::Firing);
+        assert_eq!(cancel_grant_timers(&runtime, grant.id).await.unwrap(), 2);
+        for namespace in ["pending", "claimed"] {
+            let timers = runtime
+                .timers(&timer_prefix(&grant, namespace))
+                .await
+                .unwrap();
+            assert_eq!(timers.len(), 1);
+            assert_eq!(timers[0].status, TimerStatus::Cancelled);
+        }
+        assert_eq!(
+            runtime.timers(&timer_prefix(&grant, "done")).await.unwrap(),
+            fired
+        );
+        let mut attempted = claim.timer.clone();
+        attempted.status = TimerStatus::Fired;
+        let error = store
+            .fire_timer(
+                claim,
+                attempted,
+                PreparedEvent {
+                    source_runtime: "test".to_string(),
+                    event_id: "stale-timer".to_string(),
+                    envelope: json!({}),
+                    received_at: now,
+                    runs: Vec::new(),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "stale_lease");
+        assert!(store
+            .claim_due_timer(
+                "worker",
+                now + chrono::Duration::days(1),
+                Duration::from_secs(30)
+            )
+            .await
+            .unwrap()
+            .is_none());
+        let after = store.snapshot().await.unwrap();
+        assert_eq!(cancel_grant_timers(&runtime, grant.id).await.unwrap(), 0);
+        assert_eq!(store.snapshot().await.unwrap(), after);
+        assert!(!after
+            .events
+            .iter()
+            .any(|event| event.event_id == "stale-timer"));
+    }
 
     #[tokio::test]
     async fn put_timer_upserts_only_the_exact_encoded_id() {
@@ -752,6 +900,7 @@ mod tests {
 
     fn grant(criterion_id: &str) -> GrantSummary {
         GrantSummary {
+            application_declaration: None,
             contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
             id: Uuid::new_v4(),
             application_id: Uuid::new_v4(),

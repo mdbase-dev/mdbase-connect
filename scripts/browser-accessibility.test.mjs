@@ -18,6 +18,7 @@ try {
   await auditPortalLogin();
   await auditEditorConnect();
   await auditPortalColdStartAuthorization();
+  await auditPortalColdStartAuthorization({ atomic: true });
   await auditPortalDeviceAuthorization();
   await auditDesktopResumedAuthorization();
   await auditDesktopRoutes();
@@ -262,11 +263,13 @@ async function auditPortalDeviceAuthorization() {
   await page.close();
 }
 
-async function auditPortalColdStartAuthorization() {
+async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   const page = await browser.newPage();
   const errors = watchPageErrors(page);
   const requestId = "22222222-2222-4222-8222-222222222222";
-  const authorization = portalAuthorizationFixture(requestId);
+  const authorization = atomic
+    ? portalAtomicAuthorizationFixture(requestId)
+    : portalAuthorizationFixture(requestId);
   await page.route("**/v1/**", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname === `/v1/authorization-requests/${requestId}`) {
@@ -337,15 +340,52 @@ async function auditPortalColdStartAuthorization() {
   );
   await page.getByRole("radio", { name: /Personal notes.*Home computer/ }).check();
   await reviewAccess.click();
-  await page.getByText("View and find records", { exact: true }).first().waitFor();
-  await page.getByText("Create and edit records", { exact: true }).first().waitFor();
-  await page.getByText("Delete records", { exact: true }).first().waitFor();
-  await page.getByText("Higher impact", { exact: true }).first().waitFor();
+  const summary = page.getByRole("list", { name: "What this application can do" });
+  const labels = atomic
+    ? ["Read this collection", "Create records", "Edit records", "Delete records"]
+    : ["Read records", "Create records", "Delete records"];
+  for (const label of labels) await summary.getByText(label, { exact: true }).waitFor();
+  assert.deepEqual(await summary.locator("strong").allTextContents(), labels,
+    "portal authorization: summary names exactly the requested permissions");
+  await summary.getByText("Higher impact", { exact: true }).waitFor();
+  await page.getByText(atomic ? "Optional capabilities" : "Review exact permissions", { exact: true }).click();
+  if (atomic) {
+    assert.deepEqual(await page.getByRole("group").locator("legend").allTextContents(),
+      ["Create records", "Edit records", "Delete records"],
+      "portal authorization: required read capability has no optional toggle");
+    assert.equal(await page.getByRole("checkbox").count(), 3,
+      "portal authorization: one checkbox per optional atomic capability");
+    await page.getByRole("group", { name: "Edit records", exact: true }).getByRole("checkbox").uncheck();
+    assert.equal(await summary.getByText("Edit records", { exact: true }).count(), 0,
+      "portal authorization: denied edit group is absent from approved summary");
+  } else {
+    assert.deepEqual(await page.getByRole("checkbox").evaluateAll((inputs) =>
+      inputs.map((input) => input.closest("label").textContent.trim())), labels,
+      "portal authorization: only read, create, delete have exact action controls (not query, update, or rename)");
+    for (const label of labels) {
+      assert.equal(await page.getByRole("checkbox", { name: label, exact: true }).isChecked(), true);
+    }
+    await page.getByRole("checkbox", { name: "Create records", exact: true }).uncheck();
+    assert.equal(await summary.getByText("Create records", { exact: true }).count(), 0,
+      "portal authorization: denied create action is absent from approved summary");
+  }
+  await auditPage(page, `portal ${atomic ? "atomic" : "legacy exact"} permission controls`, { keyboard: true });
   await page.reload();
   await page.getByText("Personal notes", { exact: true }).first().waitFor();
-  await page.getByText("Delete records", { exact: true }).first().waitFor();
+  await summary.getByText("Delete records", { exact: true }).waitFor();
+  assert.deepEqual(await summary.locator("strong").allTextContents(),
+    labels.filter((label) => label !== (atomic ? "Edit records" : "Create records")),
+    "portal authorization: selected and denied permissions survive refresh");
+  await page.getByText(atomic ? "Optional capabilities" : "Review exact permissions", { exact: true }).click();
+  assert.equal(await page.getByRole("checkbox", {
+    name: atomic ? "Allow this capability" : "Create records", exact: true
+  }).filter({ visible: true }).count(), atomic ? 3 : 1);
+  const denied = atomic
+    ? page.getByRole("group", { name: "Edit records", exact: true }).getByRole("checkbox")
+    : page.getByRole("checkbox", { name: "Create records", exact: true });
+  assert.equal(await denied.isChecked(), false, "portal authorization: denied control stays unchecked after refresh");
   assert.equal(await page.getByRole("button", { name: "Allow Workout journal" }).count(), 1, "portal authorization: review state survives refresh");
-  await auditPage(page, "portal application access review", { keyboard: true });
+  await auditPage(page, `portal ${atomic ? "atomic" : "legacy exact"} application access review`, { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();
 }
@@ -507,6 +547,7 @@ async function auditDesktopRoutes() {
 }
 
 function portalAuthorizationFixture(id) {
+  // An omitted capabilities declaration is legacy v1 exact-operation consent.
   return {
     id,
     flow: "authorization_code",
@@ -524,6 +565,25 @@ function portalAuthorizationFixture(id) {
     notifications: { criteria: [] },
     available_collections: [],
     unavailable_connectors: []
+  };
+}
+
+function portalAtomicAuthorizationFixture(id) {
+  return {
+    ...portalAuthorizationFixture(id),
+    requested_operations: [
+      "describe", "changes", "read", "query", "list_views", "execute_view",
+      "read_view_source", "validate", "read_type", "create", "update", "rename", "delete"
+    ],
+    requirements: {
+      contracts: [],
+      access: "full_collection",
+      capabilities: {
+        contract_version: 2,
+        required: ["collection.read"],
+        optional: ["records.create", "records.edit", "records.delete"]
+      }
+    }
   };
 }
 

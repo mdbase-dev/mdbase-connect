@@ -167,16 +167,115 @@ describe("hosted capability lifecycle", () => {
     )).toBe("revoked");
   });
 
-  it("retires legacy scoped replicas and their notification authority", async () => {
+  it.each([
+    ["semantic-v1", '{"binding":{"contracts":{"semantic_capabilities":1}}}'],
+    ["SQL null authorization", null],
+    ["JSON null authorization", "null"],
+    ["missing semantic metadata", '{"binding":{"contracts":{}}}'],
+    ["null semantic metadata", '{"binding":{"contracts":{"semantic_capabilities":null}}}'],
+    ["malformed semantic metadata", '{"binding":{"contracts":{"semantic_capabilities":{"invalid":true}}}}'],
+    ["malformed binding", '{"binding":"invalid"}']
+  ])("preserves full-collection grants with %s across repeated scope backfills", async (_name, authorization) => {
     const fixture = await capabilityFixture();
+    // These are persisted legacy rows, not authorization-admission fixtures.
     await fixture.db.query(
-      `UPDATE grants
-       SET scope = '{"access":"contract","contracts":[]}'::jsonb
-       WHERE id = $1`,
-      [fixture.grantId]
+      `UPDATE grants SET application_authorization = $2::jsonb WHERE id = $1`,
+      [fixture.grantId, authorization]
+    );
+    await fixture.db.query(
+      "UPDATE hosted_replicas SET token_hash = 'retained-replica-token-hash' WHERE id = $1",
+      [fixture.replicaId]
+    );
+    const channelId = randomUUID();
+    await fixture.db.query(
+      `INSERT INTO push_channels (id, grant_id, installation_id)
+       VALUES ($1, $2, 'legacy-installation')`,
+      [channelId, fixture.grantId]
+    );
+    await fixture.db.query(
+      `INSERT INTO notification_subscriptions
+         (id, grant_id, channel_id, criterion_id)
+       VALUES ($1, $2, $3, 'legacy-criterion')`,
+      [randomUUID(), fixture.grantId, channelId]
+    );
+
+    const snapshot = async () => {
+      const state: Record<string, unknown[]> = {};
+      for (const table of [
+        "grants", "access_tokens", "refresh_tokens", "hosted_replicas",
+        "push_channels", "notification_subscriptions", "provider_revocation_jobs"
+      ]) {
+        state[table] = (await fixture.db.query(`SELECT * FROM ${table} ORDER BY id`)).rows;
+      }
+      return state;
+    };
+    const before = await snapshot();
+    expect(before.grants).toEqual([expect.objectContaining({
+      scope: { access: "full_collection", contracts: [] },
+      revoked_at: null,
+      activated_at: expect.any(Date)
+    })]);
+    for (let run = 0; run < 2; run++) {
+      expect(await retireLegacyContractScopedGrants(fixture.db)).toBe(0);
+      expect(await snapshot()).toEqual(before);
+    }
+  });
+
+  it.each(["contract scope", "selective replica"])("retires legacy %s and its notification authority", async (legacyKind) => {
+    const fixture = await capabilityFixture();
+    if (legacyKind === "contract scope") {
+      await fixture.db.query(
+        `UPDATE grants
+         SET scope = '{"access":"contract","contracts":[]}'::jsonb
+         WHERE id = $1`,
+        [fixture.grantId]
+      );
+    } else {
+      await fixture.db.query(
+        `UPDATE hosted_replicas SET allowed_types = '["task"]'::jsonb WHERE id = $1`,
+        [fixture.replicaId]
+      );
+    }
+    const channelId = randomUUID();
+    await fixture.db.query(
+      `INSERT INTO push_channels (id, grant_id, installation_id)
+       VALUES ($1, $2, 'legacy-installation')`,
+      [channelId, fixture.grantId]
+    );
+    await fixture.db.query(
+      `INSERT INTO notification_subscriptions (id, grant_id, channel_id, criterion_id)
+       VALUES ($1, $2, $3, 'legacy-criterion')`,
+      [randomUUID(), fixture.grantId, channelId]
     );
 
     expect(await retireLegacyContractScopedGrants(fixture.db)).toBe(1);
+    expect(await retireLegacyContractScopedGrants(fixture.db)).toBe(0);
+    expect((await fixture.db.query(
+      "SELECT revoked_at, reauthorization_required_at, reauthorization_reason FROM grants WHERE id = $1",
+      [fixture.grantId]
+    )).rows).toEqual([{
+      revoked_at: expect.any(Date),
+      reauthorization_required_at: expect.any(Date),
+      reauthorization_reason: "collection_level_authorization"
+    }]);
+    expect((await fixture.db.query(
+      "SELECT reason FROM provider_revocation_jobs WHERE grant_id = $1",
+      [fixture.grantId]
+    )).rows).toEqual([{ reason: "collection_level_authorization" }]);
+    expect((await fixture.db.query(
+      "SELECT id FROM notification_subscriptions WHERE grant_id = $1",
+      [fixture.grantId]
+    )).rows).toEqual([]);
+    for (const table of ["access_tokens", "refresh_tokens"]) {
+      expect((await fixture.db.query(
+        `SELECT revoked_at FROM ${table} WHERE grant_id = $1`,
+        [fixture.grantId]
+      )).rows).toEqual([{ revoked_at: expect.any(Date) }]);
+    }
+    expect((await fixture.db.query(
+      "SELECT revoked_at, token_hash FROM hosted_replicas WHERE id = $1",
+      [fixture.replicaId]
+    )).rows).toEqual([{ revoked_at: expect.any(Date), token_hash: null }]);
     const provider = {
       revokeReplica: vi.fn(async () => undefined),
       revokeNotificationGrant: vi.fn(async () => undefined)

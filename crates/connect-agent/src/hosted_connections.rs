@@ -33,6 +33,7 @@ use uuid::Uuid;
 const REGISTRY_VERSION: u32 = 1;
 const CLI_APPLICATION_ID: &str = "dev.mdbase.cli";
 const CLI_APPLICATION_NAME: &str = "mdbase CLI";
+// ADR 0013 phase 1: retain the exact predecessor declaration.
 const CLI_APPLICATION_CAPABILITIES: &[&str] = &[
     "collection.inspect",
     "records.watch",
@@ -275,9 +276,13 @@ impl HostedConnectionManager {
             redirect_uri: None,
             state: None,
             code_challenge: challenge.clone(),
-            contracts: ConnectContractRequirements::current(
-                authorization_requires_durable_mutation(&operations, None),
-            ),
+            contracts: ConnectContractRequirements {
+                semantic_capabilities: 1,
+                ..ConnectContractRequirements::current(authorization_requires_durable_mutation(
+                    &operations,
+                    None,
+                ))
+            },
             requested_operations: operations.clone(),
             requested_files: None,
             collection_id: Some(params.collection_id),

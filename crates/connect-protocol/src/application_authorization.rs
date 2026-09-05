@@ -1,6 +1,6 @@
 use crate::{
-    authorization_requires_durable_mutation, ApplicationFileRequirement,
-    ConnectContractRequirements, FileAction, FileCapabilityKind, FileScope, GrantPolicy,
+    authorization_requires_durable_mutation, ApplicationFileRequest, ConnectContractRequirements,
+    FileAction, FileCapabilityKind, FileScope, GrantPolicy,
     APPLICATION_AUTHORIZATION_PROTOCOL_VERSION, AUTHORIZATION_BINDING_PROTOCOL_VERSION,
     FILE_PROTOCOL_VERSION, GRANT_ENCRYPTION_PROTOCOL_VERSION,
     LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
@@ -60,7 +60,7 @@ pub struct ApplicationAuthorizationBinding {
     pub contracts: ConnectContractRequirements,
     pub requested_operations: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub requested_files: Option<ApplicationFileRequirement>,
+    pub requested_files: Option<ApplicationFileRequest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection_id: Option<Uuid>,
 }
@@ -245,6 +245,20 @@ impl GrantPolicy {
     pub fn validate_application_security(&self) -> Result<(), ApplicationAuthorizationError> {
         self.application_authorization.verify()?;
         let authorization = &self.application_authorization.binding;
+        if let Some(declaration) = &self.application_declaration {
+            let requirements: crate::ApplicationRequirements = serde_json::from_value(
+                declaration
+                    .get("requirements")
+                    .cloned()
+                    .ok_or(ApplicationAuthorizationError::InvalidProof)?,
+            )
+            .map_err(|_| ApplicationAuthorizationError::InvalidProof)?;
+            if !requirements
+                .valid_for_semantic_contract(authorization.contracts.semantic_capabilities)
+            {
+                return Err(ApplicationAuthorizationError::InvalidProof);
+            }
+        }
         let encryption = self
             .encryption
             .as_ref()
@@ -260,13 +274,17 @@ impl GrantPolicy {
             self.file_capability.as_ref(),
         ) {
             (None, None) => true,
+            (Some(_requested), None) => true,
             (Some(requested), Some(granted)) => {
                 granted.kind == FileCapabilityKind::Files
                     && granted.protocol_version == FILE_PROTOCOL_VERSION
-                    && granted.actions == requested.actions
+                    && granted
+                        .actions
+                        .iter()
+                        .all(|action| requested.actions.contains(action))
                     && granted.scope == requested.scope
             }
-            _ => false,
+            (None, Some(_)) => false,
         };
         let requires_durable_mutation = authorization_requires_durable_mutation(
             &authorization.requested_operations,
@@ -380,7 +398,7 @@ fn append_optional_uuid(output: &mut Vec<u8>, value: Option<Uuid>) {
 }
 
 fn validate_requested_files(
-    files: Option<&ApplicationFileRequirement>,
+    files: Option<&ApplicationFileRequest>,
 ) -> Result<(), ApplicationAuthorizationError> {
     let Some(files) = files else {
         return Ok(());
@@ -413,7 +431,7 @@ fn validate_requested_files(
     Ok(())
 }
 
-fn append_requested_files(output: &mut Vec<u8>, files: Option<&ApplicationFileRequirement>) {
+fn append_requested_files(output: &mut Vec<u8>, files: Option<&ApplicationFileRequest>) {
     let Some(files) = files else {
         output.push(0);
         return;
@@ -535,6 +553,51 @@ mod tests {
         )
     }
 
+    fn grant_policy() -> GrantPolicy {
+        let legacy: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../test-fixtures/protocol-v1-policy-canonical.json"
+        ))
+        .unwrap();
+        let mut grant: GrantPolicy =
+            serde_json::from_value(legacy["normalized_wire_body"]["grants"][1].clone()).unwrap();
+        let (authorization, _) = proof();
+        let binding = &authorization.binding;
+        grant.application_id = binding.application_id;
+        grant.collection_id = binding.collection_id.unwrap();
+        grant.operations = binding.requested_operations.clone();
+        grant.application_distribution = "web".to_string();
+        let encryption = grant.encryption.as_mut().unwrap();
+        encryption.collection_id = grant.collection_id;
+        encryption.application_agreement_public_key = binding.grant_agreement_public_key.clone();
+        grant.application_authorization = authorization;
+        grant
+    }
+
+    #[test]
+    fn file_grant_may_be_narrower_than_signed_request() {
+        let mut grant = grant_policy();
+        grant.file_capability.as_mut().unwrap().actions.pop();
+        grant.validate_application_security().unwrap();
+
+        grant.file_capability = None;
+        grant.validate_application_security().unwrap();
+    }
+
+    #[test]
+    fn file_grant_cannot_exceed_signed_request() {
+        let mut grant = grant_policy();
+        grant
+            .file_capability
+            .as_mut()
+            .unwrap()
+            .actions
+            .push(FileAction::Delete);
+        assert_eq!(
+            grant.validate_application_security(),
+            Err(ApplicationAuthorizationError::InvalidProof)
+        );
+    }
+
     #[test]
     fn shared_fixture_matches_installation_id_transcript_and_signature() {
         let (binding, fixture) = fixture();
@@ -555,7 +618,7 @@ mod tests {
     }
 
     #[test]
-    fn frozen_beta55_v4_fixture_keeps_its_protocol_two_transcript_and_signature() {
+    fn frozen_beta55_v4_fixture_preserves_transcript_and_signature() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../packages/protocol/test/fixtures/application-authorization-beta55-v4.json"
         ))
@@ -580,6 +643,67 @@ mod tests {
         }
         .verify()
         .unwrap();
+    }
+
+    fn historical_proof() -> (ApplicationAuthorizationProof, serde_json::Value) {
+        // Frozen c2596a6e input, not regenerated with the current constructor/key.
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../test-fixtures/semantic-v1-authorization-c2596a6e.json"
+        ))
+        .unwrap();
+        let proof = serde_json::from_value(fixture.clone()).unwrap();
+        (proof, fixture)
+    }
+
+    #[test]
+    fn frozen_semantic_v1_proof_and_exact_ceilings_are_preserved() {
+        let (proof, fixture) = historical_proof();
+        proof.verify().unwrap();
+        assert_eq!(
+            hex(&Sha256::digest(proof.binding.signing_message().unwrap())),
+            fixture["signing_message_sha256"]
+        );
+        assert_eq!(
+            serde_json::to_value(&proof.binding).unwrap(),
+            fixture["binding"]
+        );
+        let mut grant = grant_policy();
+        grant.application_authorization = proof;
+        // Independent legacy read, not the v2 collection.read group.
+        grant.operations = vec!["read".into()];
+        grant.validate_application_security().unwrap();
+        grant.operations.push("read_type".into());
+        assert!(grant.validate_application_security().is_err());
+        grant.operations.pop();
+        grant.file_capability.as_mut().unwrap().scope = FileScope::Collection;
+        assert!(grant.validate_application_security().is_err());
+    }
+
+    #[test]
+    fn semantic_version_is_signed_and_unknown_versions_fail_closed() {
+        let (proof, _) = historical_proof();
+        for version in [0, 2, 3, u32::MAX] {
+            let mut changed = proof.clone();
+            changed.binding.contracts.semantic_capabilities = version;
+            assert!(changed.verify().is_err(), "version {version}");
+        }
+    }
+
+    #[test]
+    fn declaration_evidence_cannot_mix_semantic_versions() {
+        for (version, capability) in [(1, "records.read"), (2, "collection.read")] {
+            let mut grant = grant_policy();
+            if version == 1 {
+                grant.application_authorization = historical_proof().0;
+            }
+            grant.application_declaration = Some(serde_json::json!({
+                "requirements": {"capabilities": {"contract_version": version, "required": [capability]}}
+            }));
+            grant.validate_application_security().unwrap();
+            grant.application_declaration.as_mut().unwrap()["requirements"]["capabilities"]
+                ["contract_version"] = serde_json::json!(3 - version);
+            assert!(grant.validate_application_security().is_err());
+        }
     }
 
     #[test]

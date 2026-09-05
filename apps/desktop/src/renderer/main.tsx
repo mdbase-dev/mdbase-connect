@@ -5,7 +5,6 @@ import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
 import {
   groupApplicationAccess,
-  groupAuthorizationOperations,
   type ApplicationAccessGroup
 } from "@mdbase/connect-ui/access";
 import "@mdbase/connect-ui/styles.css";
@@ -31,6 +30,7 @@ import {
   type AuthorityTransferReceipt as TransferReceipt
 } from "./onboarding-state.mjs";
 import { RequestPermissionChoices } from "./authorization-components";
+import { hasSupportedCapabilityDeclaration, requestCapabilityGroups } from "./application-capabilities";
 import { ConnectionProgress, Overview } from "./overview-view";
 import { singleFlight } from "./single-flight.mjs";
 import {
@@ -596,34 +596,37 @@ function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
 function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; busy: boolean; onAct(action: () => Promise<void>): Promise<void>; onNotice(value: string): void }) {
   const [operations, setOperations] = useState(grant.operations);
   const allowedOperations = grant.operations;
+  const permissionDetailsAvailable = hasSupportedCapabilityDeclaration(grant.requirements);
   const permissionGroups = useMemo(
-    () => groupAuthorizationOperations(allowedOperations),
-    [allowedOperations]
+    () => requestCapabilityGroups(grant.requirements, allowedOperations),
+    [allowedOperations, grant.requirements]
   );
-  const selectedPermissionCount = permissionGroups.reduce(
-    (count, group) =>
-      count + group.operations.filter((operation) => operations.includes(operation.id)).length,
-    0
-  );
+  const selectedPermissionCount = permissionGroups.filter((group) =>
+    group.operations.every((operation) => operations.includes(operation))
+  ).length;
   const changed = useMemo(() => [...operations].sort().join(",") !== [...grant.operations].sort().join(","), [operations, grant.operations]);
   useEffect(() => setOperations(grant.operations), [grant.operations]);
   const authority = grant.collection_kind === "hosted" ? "Hosted by mdbase" : "On this computer";
   if (grant.revocation_status === "revoking") {
     return <article className="grant-review"><div className="grant-identity"><p className="eyebrow">Hosted by mdbase</p><h3>{grant.collection_name}</h3><small>Access is disabled here. Waiting for the hosted authority to confirm revocation.</small></div><strong>Revoking…</strong></article>;
   }
-  if (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0) {
+  if (permissionDetailsAvailable && (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0)) {
     return <article className="grant-review"><div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><small>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</small></div><strong>Reauthorization required</strong></article>;
   }
   return (
     <article className="grant-review">
-      <div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small><small>Entire collection</small></div>
+      <div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small><small>{grant.scope.access === "full_collection" && grant.scope.contracts.length === 0 ? "Entire collection" : "Legacy scoped access"}</small></div>
       <div className="request-decision">
         <section className="request-section">
-          <div><strong>Permissions</strong><small>You can remove previously approved actions here. An application must request any additional access separately.</small></div>
-          <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />
+          <div><strong>Permissions</strong><small>{permissionDetailsAvailable
+            ? "You can remove optional capability groups here. An application must request any additional access separately."
+            : "Permission details unavailable. Access has not been changed. You can still revoke access."}</small></div>
+          {permissionDetailsAvailable && <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />}
         </section>
         <footer className="request-footer">
-          <p>{grant.application_name} can use the selected actions on {grant.collection_name} until you revoke access.</p>
+          <p>{permissionDetailsAvailable
+            ? `${grant.application_name} can use the selected actions on ${grant.collection_name} until you revoke access.`
+            : `Existing access for ${grant.application_name} to ${grant.collection_name} remains unchanged.`}</p>
           <div className="decision-actions">
             <button className="button secondary danger-text" disabled={busy} onClick={() => { if (window.confirm(`Revoke ${grant.application_name} access to ${grant.collection_name}?`)) void onAct(async () => {
               if (grant.collection_kind === "hosted") {
@@ -636,7 +639,8 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
                 onNotice(`${grant.application_name} access was revoked.`);
               }
             }); }}>Revoke</button>
-            <button className="button primary" disabled={busy || !changed || selectedPermissionCount === 0} onClick={() => void onAct(async () => {
+            <button className="button primary" disabled={busy || !permissionDetailsAvailable || !changed || selectedPermissionCount === 0} onClick={() => void onAct(async () => {
+              if (!permissionDetailsAvailable) return;
               if (grant.collection_kind === "hosted") await window.mdbaseConnect.updateHostedGrant({ grantId: grant.id, operations });
               else await window.mdbaseConnect.updateGrant({ grantId: grant.id, operations });
               onNotice(`Narrower access for ${grant.application_name} was saved.`);

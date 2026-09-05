@@ -20,6 +20,8 @@
     "check:problems": "node scripts/generate-connect-problems.mjs --check",
     "generate:operations": "node scripts/generate-operation-catalog.mjs",
     "check:operations": "node scripts/generate-operation-catalog.mjs --check",
+    "generate:capabilities": "node scripts/generate-application-capabilities.mjs",
+    "check:capabilities": "node scripts/generate-application-capabilities.mjs --check",
     "audit:dependencies": "pnpm audit --audit-level high",
     "sync:runtime-contracts": "node scripts/sync-runtime-contracts.mjs",
     "dev:environment:up": "node scripts/dev-environment.mjs up",

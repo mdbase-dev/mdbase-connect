@@ -79,11 +79,14 @@ describe("canonical developer validation", () => {
         access: "full_collection" as const,
         contracts: [],
         capabilities: {
-          contract_version: 1 as const,
-          required: ["collection.inspect", "files.read"],
-          optional: ["records.query"]
+          contract_version: 2 as const,
+          required: ["collection.read"],
+          optional: ["records.edit"]
         },
-        files: { scope: { kind: "selected_folders", folders: ["attachments"] }, actions: ["read"] }
+        files: {
+          scope: { kind: "selected_folders", folders: ["attachments"] },
+          required: ["read"]
+        }
       }
     };
     expect(validateAppManifest(base)).toEqual({ valid: true, issues: [] });
@@ -93,7 +96,7 @@ describe("canonical developer validation", () => {
         ...base.requirements,
         capabilities: {
           ...base.requirements.capabilities,
-          optional: ["collection.inspect"]
+          optional: ["collection.read"]
         }
       }
     }).valid).toBe(false);
@@ -103,7 +106,8 @@ describe("canonical developer validation", () => {
         ...base.requirements,
         files: {
           scope: { kind: "selected_folders", folders: ["attachments"] },
-          actions: ["read", "add"]
+          required: ["read"],
+          optional: ["read"]
         }
       }
     }).valid).toBe(false);
@@ -114,17 +118,16 @@ describe("canonical developer validation", () => {
     expect(validateAppManifest({
       ...base,
       provisions: { type_packs: [taskTypePack([])] }
-    }).valid).toBe(false);
+    }).valid).toBe(true);
     expect(validateAppManifest({
       ...base,
       requirements: {
         ...base.requirements,
-        access: "full_collection",
         capabilities: {
           ...base.requirements.capabilities,
           required: [
             ...base.requirements.capabilities.required,
-            "collection.setup.apply"
+            "definitions.manage"
           ]
         }
       },

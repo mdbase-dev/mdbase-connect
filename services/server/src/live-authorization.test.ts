@@ -8,6 +8,7 @@ import { canonicalSha256 } from "./canonical-json.js";
 import { pkceChallenge } from "./security.js";
 import {
   createTestApplicationIdentity,
+  LEGACY_READ_CAPABILITIES, LEGACY_READ_OPERATIONS,
   testApplicationAuthorization,
   type TestApplicationIdentity
 } from "./application-authorization.test-helper.js";
@@ -19,13 +20,14 @@ import {
 } from "@mdbase-dev/connect-protocol";
 
 const resources: Array<() => Promise<void>> = [];
+const READ_OPERATIONS = LEGACY_READ_OPERATIONS;
 
 afterEach(async () => {
   while (resources.length) await resources.pop()?.();
 });
 
 describe("live connector-mediated authorization", () => {
-  it("offers only live local collections and activates a grant after connector acknowledgement", async () => {
+  it("offers only live local collections and activates a prelude v1 grant after connector acknowledgement", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const { app, relay } = await buildApp({
@@ -53,7 +55,15 @@ describe("live connector-mediated authorization", () => {
           name: "Live test",
           homepage: "http://localhost:4180",
           redirect_uris: ["http://localhost:4180/callback"],
-          requirements: { contracts: [], access: "full_collection" }
+          requirements: {
+            contracts: [],
+            access: "full_collection",
+            capabilities: {
+              contract_version: 1,
+              required: LEGACY_READ_CAPABILITIES,
+              optional: ["records.create"]
+            }
+          }
         }
       }
     });
@@ -144,7 +154,8 @@ describe("live connector-mediated authorization", () => {
           "authorization-activation",
           "encrypted-relay",
           "policy-ack",
-          "policy-freshness-lease-v1"
+          "policy-freshness-lease-v1",
+          "application-declaration-evidence-v1"
         ],
         contract_support: CONNECT_CONTRACT_SUPPORT
       }));
@@ -271,7 +282,7 @@ describe("live connector-mediated authorization", () => {
       payload: {
         collection_id: serverCollectionId,
         offer_id: offer.offer_id,
-        operations: ["describe"]
+        operations: READ_OPERATIONS
       }
     });
     await activationStarted;
@@ -306,7 +317,7 @@ describe("live connector-mediated authorization", () => {
       grant: expect.objectContaining({
         application_id: applicationId,
         collection_id: localCollectionId,
-        operations: ["describe"]
+        operations: READ_OPERATIONS
       })
     });
     const active = await db.query<{
@@ -346,7 +357,7 @@ describe("live connector-mediated authorization", () => {
     });
     expect(replacementPending.json().authorization.existing_access).toEqual([{
       collection_id: serverCollectionId,
-      operations: ["describe"]
+      operations: READ_OPERATIONS.toSorted()
     }]);
     const replacementOffer = replacementPending.json().collections[0];
     const replacement = await app.inject({
@@ -356,7 +367,7 @@ describe("live connector-mediated authorization", () => {
       payload: {
         collection_id: serverCollectionId,
         offer_id: replacementOffer.offer_id,
-        operations: ["describe"]
+        operations: READ_OPERATIONS
       }
     });
     expect(replacement.statusCode, JSON.stringify(replacement.json())).toBe(200);
@@ -395,7 +406,7 @@ describe("live connector-mediated authorization", () => {
       cookie,
       "recovery",
       installationIdentity,
-      ["create"],
+      [...READ_OPERATIONS, "create"],
       [2]
     );
     const recoveryOffer = (await app.inject({
@@ -410,7 +421,7 @@ describe("live connector-mediated authorization", () => {
       payload: {
         collection_id: serverCollectionId,
         offer_id: recoveryOffer.offer_id,
-        operations: ["create"]
+        operations: [...READ_OPERATIONS, "create"]
       }
     });
     expect(recovery.statusCode, JSON.stringify(recovery.json())).toBe(200);
@@ -438,7 +449,7 @@ describe("live connector-mediated authorization", () => {
       cookie,
       "contraction",
       installationIdentity,
-      ["create"]
+      [...READ_OPERATIONS, "create"]
     );
     const contractionOffer = (await app.inject({
       method: "GET",
@@ -452,7 +463,7 @@ describe("live connector-mediated authorization", () => {
       payload: {
         collection_id: serverCollectionId,
         offer_id: contractionOffer.offer_id,
-        operations: ["create"]
+        operations: [...READ_OPERATIONS, "create"]
       }
     });
     expect(contraction.statusCode, JSON.stringify(contraction.json())).toBe(200);
@@ -507,7 +518,7 @@ describe("live connector-mediated authorization", () => {
       payload: {
         collection_id: serverCollectionId,
         offer_id: rejectedOffer.offer_id,
-        operations: ["describe"]
+        operations: READ_OPERATIONS
       }
     });
     expect(rejected.statusCode).toBe(409);
@@ -712,7 +723,7 @@ describe("live connector-mediated authorization", () => {
       contract_support: {
         operation_transport: [2],
         authorization_binding: [4],
-        semantic_capabilities: [1],
+        semantic_capabilities: [2],
         durable_mutation: [1]
       }
     }));
@@ -750,7 +761,7 @@ describe("live connector-mediated authorization", () => {
       contract_support: {
         operation_transport: [3],
         authorization_binding: [4],
-        semantic_capabilities: [1],
+        semantic_capabilities: [2],
         durable_mutation: [1]
       }
     }));
@@ -946,7 +957,7 @@ async function createAuthorizationRequest(
   cookie: string,
   suffix: string,
   installationIdentity?: TestApplicationIdentity,
-  requestedOperations: CollectionOperation[] = ["describe"],
+  requestedOperations: CollectionOperation[] = READ_OPERATIONS,
   operationTransportRecovery?: OperationTransportProtocolVersion[]
 ): Promise<string> {
   const verifier = `live-connector-verifier-${suffix}-that-is-long-enough-000001`;
@@ -961,6 +972,7 @@ async function createAuthorizationRequest(
     codeChallenge: pkceChallenge(verifier),
     requestedOperations,
     operationTransportRecovery,
+    semanticCapabilityContractVersion: 1,
     installationIdentity
   });
   const started = await app.inject({
@@ -973,7 +985,7 @@ async function createAuthorizationRequest(
       code_challenge: pkceChallenge(verifier),
       code_challenge_method: "S256",
       state,
-      operations: requestedOperations.join(" "),
+      operations: requestedOperations.join(","),
       application_authorization: JSON.stringify(proof)
     }).toString()
   });

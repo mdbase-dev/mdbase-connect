@@ -9,6 +9,7 @@ import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js"
 export const MCP_SCOPES = ["mdbase:read", "mdbase:write"] as const;
 export type McpScope = typeof MCP_SCOPES[number];
 
+// Exact predecessor ceilings: do not expand legacy scopes into v2 groups.
 export const READ_OPERATIONS = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type"] as const;
 export const WRITE_OPERATIONS = ["create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "create_type", "update_type", "apply_type_pack"] as const;
 

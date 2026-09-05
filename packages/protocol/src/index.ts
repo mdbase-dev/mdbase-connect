@@ -1,11 +1,12 @@
 import type { ConnectProblem } from "./connect-problems.generated.js";
 import type {
   ApplicationFileRequirement,
+  LegacyApplicationFileRequirement,
   CollectionFileDescriptor,
   FileCapability
 } from "./files.js";
 import type { CollectionOperation } from "./operations.js";
-import type { ApplicationCapabilityRequirements } from "./capabilities.js";
+import type { ApplicationCapabilityRequirements, LegacyApplicationCapabilityRequirements } from "./capabilities.js";
 import type { ContractRequirement, ContractSetupChoice, TypePackProvision } from "./type-packs.js";
 import type { ConfigurationProvision, ConfigurationRequirement } from "./collection-setup.js";
 import type {
@@ -17,6 +18,7 @@ export * from "./operations.js";
 export * from "./mutation-fingerprint.js";
 export * from "./compatibility.js";
 export * from "./capabilities.js";
+
 export * from "./application-authorization.js";
 export * from "./type-packs.js";
 export * from "./collection-setup.js";
@@ -52,7 +54,9 @@ export const HOSTED_PROVIDER_CAPABILITIES = [
   "mutation-replay-after-credential-retirement-v1",
   HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY
 ] as const;
+export const APPLICATION_DECLARATION_EVIDENCE_CAPABILITY = "application-declaration-evidence-v1" as const;
 export const RELAY_CAPABILITIES = [
+  APPLICATION_DECLARATION_EVIDENCE_CAPABILITY,
   ...RELAY_REQUIRED_CAPABILITIES,
   POLICY_FRESHNESS_LEASE_CAPABILITY,
   "application-authorization-v5",
@@ -244,6 +248,20 @@ export interface ApplicationRequirements {
   files?: ApplicationFileRequirement;
 }
 
+export type LegacyApplicationRequirements = Omit<ApplicationRequirements, "capabilities" | "files" | "access"> & {
+  access: "full_collection";
+  capabilities?: LegacyApplicationCapabilityRequirements;
+  files?: LegacyApplicationFileRequirement;
+};
+
+export type LegacyMdbaseWebAppManifest = Omit<MdbaseWebAppManifest, "requirements"> & {
+  requirements: LegacyApplicationRequirements;
+};
+export type LegacyMdbasePortableAppManifest = Omit<MdbasePortableAppManifest, "requirements"> & {
+  requirements: LegacyApplicationRequirements;
+};
+export type LegacyMdbaseAppManifest = LegacyMdbaseWebAppManifest | LegacyMdbasePortableAppManifest;
+
 export interface ApplicationProvisions {
   type_packs: TypePackProvision[];
   /** Narrow semantic changes that may satisfy configuration requirements. */
@@ -309,6 +327,8 @@ export type MdbaseOperationResponse<Result = unknown> =
     };
 
 export interface GrantPolicy {
+  /** Complete normalized JSON evidence; never independent operation authority. */
+  application_declaration?: unknown;
   id: string;
   application_id: string;
   /** Stable declaration identity bound into the exact application authorization. */

@@ -19,20 +19,32 @@ describe("application capability policy", () => {
     contracts: [],
     access: "full_collection" as const,
     capabilities: {
-      contract_version: 1 as const,
-      required: ["collection.inspect", "records.read"] as const,
-      optional: ["records.update"] as const
+      contract_version: 2 as const,
+      required: ["collection.read"] as const,
+      optional: ["records.edit"] as const
     }
   };
 
-  it("accepts only operations compiled from declared semantic capabilities", () => {
-    expect(operationsAllowedByRequirements(["describe", "read", "update"], requirements)).toBe(true);
+  it("accepts only complete groups compiled from declared semantic capabilities", () => {
+    const required = operationsForApplicationCapabilities(
+      requirements.capabilities,
+      { includeOptional: false }
+    );
+    expect(operationsAllowedByRequirements(required, requirements)).toBe(true);
+    expect(operationsAllowedByRequirements(
+      [...required, "update", "rename"],
+      requirements
+    )).toBe(true);
+    expect(operationsAllowedByRequirements([...required, "update"], requirements)).toBe(false);
     expect(operationsAllowedByRequirements(["delete"], requirements)).toBe(false);
     expect(operationsAllowedByRequirements(["apply_type_pack"], requirements)).toBe(false);
   });
 
   it("does not use contract requirements as an operation ceiling", () => {
-    expect(operationsAllowedByRequirements(["read_type"], {
+    expect(operationsAllowedByRequirements(operationsForApplicationCapabilities({
+      contract_version: 2,
+      required: ["collection.read"]
+    }), {
       ...requirements,
       contracts: [{
         id: "example.tasks",
@@ -40,8 +52,8 @@ describe("application capability policy", () => {
         digest: `sha256:${"a".repeat(64)}`
       }],
       capabilities: {
-        contract_version: 1,
-        required: ["definitions.read"]
+        contract_version: 2,
+        required: ["collection.read"]
       }
     })).toBe(true);
   });
@@ -81,17 +93,38 @@ describe("application capability policy", () => {
     )).toBe(false);
   });
 
+  it("requires complete setup authority whenever the application declares provisions", () => {
+    const read = operationsForApplicationCapabilities(requirements.capabilities, {
+      includeOptional: false
+    });
+    const provisions = {
+      type_packs: [{ id: "example.tasks", version: "1.0.0" }]
+    };
+    expect(() => assertOperationsAllowedByApplication(
+      read,
+      requirements,
+      {},
+      provisions
+    )).toThrow("must exactly match the application's declared provisions");
+    expect(() => assertOperationsAllowedByApplication(
+      [...read, "assess_collection_setup", "apply_collection_setup"],
+      requirements,
+      {},
+      provisions
+    )).not.toThrow();
+  });
+
   it("keeps timer operations available to applications that declare them", () => {
     const timerCapabilities = Object.keys(APPLICATION_CAPABILITY_DEFINITIONS)
-      .filter((capability): capability is ApplicationCapabilityId => capability.startsWith("timers."));
+      .filter((capability): capability is ApplicationCapabilityId => capability === "background.schedule");
     const timerOperations = operationsForApplicationCapabilities({
-      contract_version: 1,
+      contract_version: 2,
       required: timerCapabilities
     });
     const requirements = {
       contracts: [],
       access: "full_collection" as const,
-      capabilities: { contract_version: 1 as const, required: timerCapabilities }
+      capabilities: { contract_version: 2 as const, required: timerCapabilities }
     };
     expect(() => assertOperationsAllowedByApplication(
       timerOperations,
@@ -106,10 +139,14 @@ describe("application capability policy", () => {
     )).not.toThrow();
   });
 
-  it("rejects timer requests without criteria even for legacy full-access manifests", () => {
+  it("rejects timer groups without a matching notification criterion", () => {
+    const capabilities = {
+      contract_version: 2 as const,
+      required: ["background.schedule"] as const
+    };
     expect(() => assertOperationsAllowedByApplication(
-      ["put_timer"],
-      { contracts: [], access: "full_collection" },
+      operationsForApplicationCapabilities(capabilities),
+      { contracts: [], access: "full_collection", capabilities },
       { criteria: [] }
     )).toThrow("Timer operations require an mdbase.runtime.timer.fired notification criterion.");
   });
@@ -130,10 +167,10 @@ describe("application capability policy", () => {
 
   it("keeps operation timer metadata aligned with semantic capabilities", () => {
     const timerCapabilities = Object.keys(APPLICATION_CAPABILITY_DEFINITIONS)
-      .filter((capability): capability is ApplicationCapabilityId => capability.startsWith("timers."));
+      .filter((capability): capability is ApplicationCapabilityId => capability === "background.schedule");
     expect(new Set(COLLECTION_OPERATIONS.filter(operationRequiresTimerCriterion))).toEqual(
       new Set(operationsForApplicationCapabilities({
-        contract_version: 1,
+        contract_version: 2,
         required: timerCapabilities
       }))
     );

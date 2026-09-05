@@ -142,6 +142,7 @@ async fn retired_application_credentials_replay_only_exact_terminal_mutations() 
             RegisterReplica {
                 replica_id,
                 name: "Retired application replay".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -309,6 +310,7 @@ async fn retired_application_credentials_replay_only_exact_terminal_mutations() 
             RegisterReplica {
                 replica_id: expired_replica_id,
                 name: "Expired application replay".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -597,6 +599,7 @@ async fn assess_collection_setup_dispatch_rejects_mismatched_declaration() {
             RegisterReplica {
                 replica_id,
                 name: "Tasks application".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -658,6 +661,7 @@ async fn hosted_request_path_rejects_protocol_discriminators_before_authorizatio
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Request validation application".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -793,6 +797,7 @@ async fn full_collection_updates_skip_unneeded_type_classification() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Malformed link fixture writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -936,6 +941,7 @@ implements:
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Malformed link collection application".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -1124,6 +1130,7 @@ async fn hosted_operation_mutations_replay_exactly_after_provider_recreation() {
             RegisterReplica {
                 replica_id,
                 name: "Mutation recovery matrix application".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -1365,6 +1372,7 @@ async fn legacy_record_effect_replay_is_exact_or_fails_closed_without_ambient_hy
             RegisterReplica {
                 replica_id,
                 name: "Legacy effect replay application".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),

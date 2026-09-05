@@ -64,7 +64,20 @@ try {
     MDBASE_PROJECTION_DATABASE_URL:
       `postgres://mdbase:${password}@127.0.0.1:${port}/${migrationDatabase}`
   });
-  await proveFinalAdmissionAndRollbackGates(migrationDatabase);
+  // Historical rollback authorization is not qualification of the current schema.
+  const historicalDatabase = "mdbase_historical_rollback_38";
+  await execute("docker", [
+    "exec", container, "createdb", "-U", "mdbase", historicalDatabase
+  ], { cwd: root });
+  await run("cargo", [
+    "test", "-p", "mdbase-connect-hosted-provider",
+    "--test", "historical_rollback_fixture", "--", "--ignored", "--nocapture"
+  ], {
+    MDBASE_PROJECTION_DATABASE_URL:
+      `postgres://mdbase:${password}@127.0.0.1:${port}/${historicalDatabase}`
+  });
+  await proveFinalAdmissionAndRollbackGates(historicalDatabase);
+  await proveCurrentRollbackIsNotAuthorized(migrationDatabase);
   const collectionAuthorizationMigrationDatabase =
     "mdbase_collection_authorization_migration";
   await execute(
@@ -214,7 +227,7 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     database,
     "databaseDrained",
     drainObserver,
-    "the drain preflight accepted another database session"
+    "hosted_database_not_drained: other_sessions=1"
   );
   await psql(
     database,
@@ -235,13 +248,13 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     database,
     "resume",
     { fence_token: wrongToken, fence_kind: "rollback" },
-    "a stale fence token resumed hosted admission"
+    "hosted_admission_resume_failed: expected exactly one matching fenced runtime control row, updated 0"
   );
   await expectPsqlFailure(
     database,
     "resume",
     { fence_token: token, fence_kind: "cutover" },
-    "a mismatched fence kind resumed hosted admission"
+    "hosted_admission_resume_failed: expected exactly one matching fenced runtime control row, updated 0"
   );
   await psql(database,
     "ALTER TABLE hosted_provider_record_relationships DISABLE TRIGGER hosted_provider_relationship_epoch_after_insert");
@@ -249,7 +262,7 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     database,
     "finalPreflight",
     { ...rollbackPair, fence_token: token },
-    "the final preflight accepted a disabled integrity trigger"
+    "final_rollback_blocked: 1 final projection integrity trigger(s) differ from the exact contract"
   );
   await psql(database,
     "ALTER TABLE hosted_provider_record_relationships ENABLE TRIGGER hosted_provider_relationship_epoch_after_insert");
@@ -259,7 +272,7 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     database,
     "finalPreflight",
     { ...rollbackPair, fence_token: token },
-    "the final preflight accepted an unexpected derived-state trigger"
+    "final_rollback_blocked: expected exactly ten non-internal projection integrity triggers, found 11"
   );
   await psql(database,
     "DROP TRIGGER hosted_provider_unexpected_integrity_trigger ON hosted_provider_record_relationships");
@@ -269,7 +282,7 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     database,
     "finalPreflight",
     { ...rollbackPair, fence_token: token },
-    "the final preflight accepted an altered integrity function body"
+    "final_rollback_blocked: 1 projection integrity function body/bodies differ from the exact contract"
   );
   await psql(database,
     "DO $restore$ DECLARE saved_definition text; BEGIN SELECT definition INTO saved_definition FROM hosted_attestation_function_backup; EXECUTE saved_definition; END $restore$; DROP TABLE hosted_attestation_function_backup");
@@ -279,7 +292,7 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     database,
     "finalPreflight",
     { ...rollbackPair, fence_token: token },
-    "the final preflight accepted a renamed binding constraint"
+    "final_rollback_blocked: 1 final projection binding constraint(s) differ from the exact contract"
   );
   await psql(database,
     "ALTER TABLE hosted_provider_collections RENAME CONSTRAINT hosted_provider_collections_projection_binding_check_wrong TO hosted_provider_collections_projection_binding_check");
@@ -289,10 +302,13 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     database,
     "finalPreflight",
     { ...rollbackPair, fence_token: token },
-    "the final preflight accepted a renamed admission-fence constraint"
+    "final_rollback_blocked: 1 final projection binding constraint(s) differ from the exact contract"
   );
   await psql(database,
     "ALTER TABLE hosted_provider_runtime_control RENAME CONSTRAINT hosted_provider_runtime_control_fence_pair_check_wrong TO hosted_provider_runtime_control_fence_pair_check");
+  await assertAdmissionFence(database, token, "rollback");
+  await psqlFile(database, "finalPreflight", { ...rollbackPair, fence_token: token });
+  console.log("Historical migration 38: pair 37 -> 38 accepted before and after exact tampering checks");
   await psqlFile(database, "resume", { fence_token: token, fence_kind: "rollback" });
   await psqlFile(database, "suspend", {
     fence_token: token,
@@ -303,13 +319,13 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     database,
     "finalCutover",
     { ...rollbackPair, fence_token: token },
-    "the retired Candidate B cutover accepted the migration 38 ledger"
+    "hosted_migration_ledger_blocked: expected exact successful ledger 1-37"
   );
   await expectPsqlFailure(
     database,
     "finalCutover",
     { ...rollbackPair, fence_token: wrongToken },
-    "the final cutover preflight accepted a stale fence token"
+    "final_schema_preflight_blocked: expected exactly one matching controlled suspended admission row"
   );
   await psqlFile(database, "resume", { fence_token: token, fence_kind: "cutover" });
   await psqlFile(database, "suspend", {
@@ -321,9 +337,67 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     database,
     "beta69Rollback",
     { fence_token: token },
-    "the retired beta69 rollback accepted the migration 38 ledger"
+    "hosted_migration_ledger_blocked: expected exact successful ledger 1-37"
   );
   await psqlFile(database, "resume", { fence_token: token, fence_kind: "rollback" });
+}
+
+async function assertAdmissionFence(database, token, kind) {
+  await psql(database, `DO $assert$ BEGIN
+    IF (SELECT count(*) FROM hosted_provider_runtime_control) <> 1
+       OR NOT EXISTS (SELECT 1 FROM hosted_provider_runtime_control
+         WHERE singleton AND query_admission_suspended
+           AND admission_fence_token = '${token}'::uuid
+           AND admission_fence_kind = '${kind}'
+           AND suspension_reason = 'controlled_provider_${kind}'
+           AND admission_lease_expires_at IS NULL) THEN
+      RAISE EXCEPTION 'test assertion: admission did not retain its matching suspended fence';
+    END IF;
+  END $assert$`);
+}
+
+async function proveCurrentRollbackIsNotAuthorized(database) {
+  const token = randomUUID();
+  await psql(database, `DO $assert$ BEGIN
+    IF (SELECT array_agg(version ORDER BY version) FROM _sqlx_migrations)
+         IS DISTINCT FROM ARRAY(SELECT generate_series(1, 41)::bigint)
+       OR EXISTS (SELECT 1 FROM _sqlx_migrations WHERE NOT success) THEN
+      RAISE EXCEPTION 'test assertion: expected genuine current ledger 1-41';
+    END IF;
+  END $assert$`);
+  await psqlFile(database, "suspend", {
+    fence_token: token, fence_kind: "rollback", owner_lease_seconds: "7200"
+  });
+  for (const [predecessor, candidate, expectedError] of [
+    ["37", "38", "final_rollback_blocked: live ledger endpoint 41 is not authorized by pair 37 -> 38"],
+    ["38", "40", "final_rollback_blocked: unsupported migration pair 38 -> 40"],
+    ["38", "41", "final_rollback_blocked: unsupported migration pair 38 -> 41"]
+  ]) {
+    await expectPsqlFailure(database, "finalPreflight", {
+      predecessor_migration: predecessor,
+      candidate_migration: candidate,
+      fence_token: token
+    }, expectedError);
+    await assertAdmissionFence(database, token, "rollback");
+  }
+  for (const variables of [
+    { fence_token: randomUUID(), fence_kind: "rollback" },
+    { fence_token: token, fence_kind: "cutover" }
+  ]) {
+    await expectPsqlFailure(database, "resume", variables,
+      "hosted_admission_resume_failed: expected exactly one matching fenced runtime control row, updated 0");
+    await assertAdmissionFence(database, token, "rollback");
+  }
+  // Fixture cleanup only: never select/start an old binary on this schema.
+  await psqlFile(database, "resume", { fence_token: token, fence_kind: "rollback" });
+  await psql(database, `DO $assert$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM hosted_provider_runtime_control
+      WHERE singleton AND NOT query_admission_suspended
+        AND admission_fence_token IS NULL AND admission_fence_kind IS NULL) THEN
+      RAISE EXCEPTION 'test assertion: matching-token fixture cleanup failed';
+    END IF;
+  END $assert$`);
+  console.log("Current migration 41: historical endpoint and unsupported pairs rejected; admission retained until matching-token fixture cleanup (not rollback qualified)");
 }
 
 async function proveBeta69CutoverGate(database) {
@@ -343,7 +417,7 @@ async function proveBeta69CutoverGate(database) {
     database,
     "beta69Preflight",
     {},
-    "the beta69 cutover preflight accepted a corrupted migration checksum"
+    "hosted_migration_ledger_blocked: migration checksum mismatch at version(s) 34"
   );
 }
 
@@ -366,12 +440,17 @@ async function psqlFileAs(database, name, role) {
   ], { cwd: root });
 }
 
-async function expectPsqlFileAsFailure(database, name, role, message) {
-  const failed = await psqlFileAs(database, name, role).then(
-    () => false,
-    () => true
-  );
-  if (!failed) throw new Error(message);
+async function expectPsqlFileAsFailure(database, name, role, expectedError) {
+  try {
+    await psqlFileAs(database, name, role);
+  } catch (error) {
+    const observed = error.stderr?.match(/ERROR:\s+([^\r\n]+)/)?.[1];
+    if (observed !== expectedError) {
+      throw new Error(`${name}: expected ${expectedError}, got ${observed}`, { cause: error });
+    }
+    return;
+  }
+  throw new Error(`${name}: unexpectedly succeeded; expected ${expectedError}`);
 }
 
 async function waitForApplicationSession(database, applicationName) {
@@ -398,12 +477,18 @@ function waitForChildExit(child) {
   });
 }
 
-async function expectPsqlFailure(database, name, variables, message) {
-  const failed = await psqlFile(database, name, variables).then(
-    () => false,
-    () => true
-  );
-  if (!failed) throw new Error(message);
+async function expectPsqlFailure(database, name, variables, expectedError) {
+  try {
+    await psqlFile(database, name, variables);
+  } catch (error) {
+    const observed = error.stderr?.match(/ERROR:\s+([^\r\n]+)/)?.[1];
+    if (observed !== expectedError) {
+      throw new Error(`${name}: expected SQL error ${JSON.stringify(expectedError)}, got ${JSON.stringify(observed)}`, { cause: error });
+    }
+    console.log(`${database}: ${observed}`);
+    return;
+  }
+  throw new Error(`${name}: unexpectedly succeeded; expected ${expectedError}`);
 }
 
 async function psql(database, statement) {

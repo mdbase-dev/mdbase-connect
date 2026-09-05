@@ -36,10 +36,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{ApiError, ApiResult},
-    provider::{
-        validate_limit, HostedProvider, PrepareAuthorityImport, PrepareAuthorityTransfer,
-        RegisterReplica, UpdateApplicationReplica,
-    },
+    provider::{validate_limit, HostedProvider, PrepareAuthorityImport, PrepareAuthorityTransfer},
 };
 
 mod accounts;
@@ -48,6 +45,7 @@ mod authority_import_files;
 mod diagnostics;
 mod files;
 mod projections;
+mod replicas;
 
 use accounts::account_routes;
 use authentication::{authorize_operation, bearer, request_origin, request_proof};
@@ -58,6 +56,10 @@ use authority_import_files::{
 use diagnostics::diagnostic_routes;
 use files::file_routes;
 use projections::projection_routes;
+use replicas::{
+    list_replicas, register_application_replica_v2, register_replica, revoke_replica,
+    rotate_replica_token, update_application_replica_v2, update_replica_policy,
+};
 const MAX_BODY_BYTES: usize = 3 * 1024 * 1024;
 // Record imports are paged, but a page can contain several large canonical
 // documents. Provider quotas and the concurrency gate bound parsed work.
@@ -105,12 +107,6 @@ impl AppState {
 #[derive(Debug, Deserialize)]
 struct RenameCollectionRequest {
     display_name: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct RotateTokenRequest {
-    token: String,
-    token_ttl_seconds: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -259,6 +255,14 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/internal/v1/replicas/{replica_id}/policy",
             patch(update_replica_policy),
+        )
+        .route(
+            "/internal/v2/collections/{collection_id}/replicas",
+            post(register_application_replica_v2),
+        )
+        .route(
+            "/internal/v2/replicas/{replica_id}/policy",
+            patch(update_application_replica_v2),
         )
         .route("/internal/v1/replicas/{replica_id}", delete(revoke_replica))
         .route_layer(middleware::from_fn_with_state(
@@ -456,68 +460,8 @@ async fn delete_collection(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn register_replica(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(collection_id): Path<Uuid>,
-    Json(input): Json<RegisterReplica>,
-) -> ApiResult<StatusCode> {
-    state.authorize_internal(&headers)?;
-    state
-        .provider
-        .register_replica(collection_id, input)
-        .await?;
-    Ok(StatusCode::CREATED)
-}
-
-async fn list_replicas(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(collection_id): Path<Uuid>,
-) -> ApiResult<Json<Value>> {
-    state.authorize_internal(&headers)?;
-    let replicas = state.provider.replica_statuses(collection_id).await?;
-    Ok(Json(json!({ "replicas": replicas })))
-}
-
-async fn rotate_replica_token(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(replica_id): Path<Uuid>,
-    Json(input): Json<RotateTokenRequest>,
-) -> ApiResult<StatusCode> {
-    state.authorize_internal(&headers)?;
-    state
-        .provider
-        .rotate_replica_token(replica_id, &input.token, input.token_ttl_seconds)
-        .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn revoke_replica(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(replica_id): Path<Uuid>,
-) -> ApiResult<StatusCode> {
-    state.authorize_internal(&headers)?;
-    state.provider.revoke_replica(replica_id).await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn update_replica_policy(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(replica_id): Path<Uuid>,
-    Json(input): Json<UpdateApplicationReplica>,
-) -> ApiResult<StatusCode> {
-    state.authorize_internal(&headers)?;
-    state
-        .provider
-        .update_application_replica(replica_id, input)
-        .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
+// Versioned write routes prevent a mixed-version fleet from silently accepting
+// evidence JSON on an older receiver which only understands the v1 policy body.
 async fn compact_collection(
     State(state): State<AppState>,
     headers: HeaderMap,

@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 mod application_authorization;
+mod application_capabilities_generated;
+mod application_declaration;
 mod applications;
 mod collection_operations_generated;
 mod collections;
@@ -20,6 +22,8 @@ mod relay;
 mod sync;
 
 pub use application_authorization::*;
+pub use application_capabilities_generated::*;
+pub use application_declaration::*;
 pub use applications::*;
 pub use collection_operations_generated::*;
 pub use collections::*;
@@ -63,7 +67,9 @@ pub const RELAY_REQUIRED_CAPABILITIES: &[&str] = &[
     "encrypted-relay",
     "policy-ack",
 ];
+pub const APPLICATION_DECLARATION_EVIDENCE_CAPABILITY: &str = "application-declaration-evidence-v1";
 pub const RELAY_CAPABILITIES: &[&str] = &[
+    APPLICATION_DECLARATION_EVIDENCE_CAPABILITY,
     "application-authorization-v4",
     "application-authorization-v5",
     "authorization-activation",

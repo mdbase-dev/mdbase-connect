@@ -141,7 +141,7 @@
       "additionalProperties": false,
       "required": ["contract_version", "required"],
       "properties": {
-        "contract_version": { "const": 1 },
+        "contract_version": { "const": 2 },
         "required": {
           "type": "array",
           "maxItems": 32,
@@ -198,57 +198,33 @@
     },
     "applicationCapability": {
       "enum": [
-        "collection.inspect",
-        "records.watch",
-        "records.read",
-        "records.query",
-        "records.validate",
+        "collection.read",
         "records.create",
-        "records.update",
+        "records.edit",
         "records.delete",
-        "records.rename",
-        "views.list",
-        "views.execute",
-        "views.source.read",
-        "views.source.create",
-        "views.source.update",
-            "views.source.delete",
-            "definitions.contracts.current",
-            "definitions.read",
-        "definitions.create",
-        "definitions.update",
-        "definitions.type-pack.inspect",
-        "definitions.type-pack.apply",
-        "collection.setup.apply",
-        "timers.list",
-        "timers.put",
-        "timers.cancel",
-        "timers.reconcile",
-        "sync.offline-replica",
-        "notifications.background-delivery",
-        "files.list",
-        "files.read",
-        "files.add",
-        "files.replace",
-        "files.move",
-        "files.delete"
+        "views.manage",
+        "definitions.manage",
+        "background.schedule",
+        "offline.replica"
       ]
     },
     "fileRequirement": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["actions", "scope"],
+      "required": ["required", "scope"],
       "properties": {
-        "actions": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 6,
-          "uniqueItems": true,
-          "items": {
-            "enum": ["list", "read", "add", "replace", "move", "delete"]
-          }
-        },
+        "required": { "$ref": "#/$defs/fileActions" },
+        "optional": { "$ref": "#/$defs/fileActions" },
         "scope": { "$ref": "#/$defs/fileScope" }
+      }
+    },
+    "fileActions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["list", "read", "add", "replace", "move", "delete"]
       }
     },
     "fileScope": {

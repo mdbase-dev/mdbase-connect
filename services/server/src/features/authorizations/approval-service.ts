@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
+import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../../application-requirements.js";
 import type {
   ApplicationNotifications,
   ApplicationAuthorizationProof,
   ApplicationProvisions,
-  ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionOperation,
-  ContractRequirement,
   ContractSetupChoice,
+  FileAction,
   GrantEncryption,
   GrantPolicy
 } from "@mdbase-dev/connect-protocol";
@@ -41,7 +40,9 @@ import {
   contractsSatisfy,
   requiredContractsForRequirements,
   requiredTypePackProvisions,
-  requiresHostedCollection
+  requiresHostedCollection,
+  validateContractSetupChoices,
+  verifyContractSetupAcknowledgement
 } from "../grants/policy.js";
 import { syncHostedNotificationGrant } from "../grants/service.js";
 import {
@@ -59,12 +60,14 @@ export async function approvePortalAuthorization(
     offerId: string;
     collectionId: string;
     operations: CollectionOperation[];
+    fileActions?: FileAction[];
     contractSetups: ContractSetupChoice[];
   }
 ): Promise<boolean> {
   const connection = await db.connect();
   const grantId = randomUUID();
   let connectorId = "";
+  let authorityGeneration = "";
   let localCollectionId = "";
   let authorityRowId = "";
   let requirements: ApplicationRequirements;
@@ -84,6 +87,7 @@ export async function approvePortalAuthorization(
       application_homepage: string;
       application_project_url: string | null;
       application_icon: string | null;
+      application_declaration: unknown | null;
       requested_operations: string[];
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
@@ -105,6 +109,7 @@ export async function approvePortalAuthorization(
               a.name AS application_name,
               a.distribution, a.homepage AS application_homepage,
               a.project_url AS application_project_url, a.icon AS application_icon,
+              a.application_declaration,
               ar.requested_operations, a.requirements, a.provisions, a.notifications,
               ar.operation_transport_protocol, ar.application_agreement_public_key,
               ar.application_signing_public_key, ar.application_authorization,
@@ -122,10 +127,12 @@ export async function approvePortalAuthorization(
       await connection.query("ROLLBACK");
       return false;
     }
+    assertFreshApplicationAuthorization(pending.requirements);
     assertOperationsAllowedByApplication(
       pending.requested_operations,
       pending.requirements,
-      pending.notifications
+      pending.notifications,
+      pending.provisions
     );
     if (pending.collection_id && pending.collection_id !== input.collectionId) {
       throw new RequestValidationError(
@@ -211,6 +218,9 @@ export async function approvePortalAuthorization(
         "Update mdbase connect on this computer before approving this application."
       );
     }
+    authorityGeneration = relay.authorizationAuthority(
+      selected.connector_id, pending.application_authorization.binding.contracts
+    );
     grantAccess = requireCollectionAction(
       await resolveLocalCollectionAccess(
         connection,
@@ -231,6 +241,7 @@ export async function approvePortalAuthorization(
       requestedOperations: input.operations,
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
+      requestedFileActions: input.fileActions,
       requirements: pending.requirements,
       access: grantAccess
     });
@@ -320,6 +331,9 @@ export async function approvePortalAuthorization(
       created_at: new Date(inserted.rows[0].created_at).toISOString(),
       encryption,
       ...(plan.fileCapability ? { file_capability: plan.fileCapability } : {}),
+      ...(pending.application_declaration == null
+        ? {}
+        : { application_declaration: pending.application_declaration }),
       application_authorization: pending.application_authorization
     };
     await connection.query("COMMIT");
@@ -333,6 +347,8 @@ export async function approvePortalAuthorization(
   let activation: Awaited<ReturnType<RelayHub["activateAuthorization"]>>;
   try {
     activation = await relay.activateAuthorization(connectorId, {
+      authorityGeneration,
+      authorityRowId,
       authorizationId: input.requestId,
       applicationDeclarationId,
       applicationManifestDigest,
@@ -354,8 +370,21 @@ export async function approvePortalAuthorization(
   }
 
   const finalize = await db.connect();
+  let finalizeReleased = false;
   try {
     await finalize.query("BEGIN");
+    await relay.assertAuthorizationAuthority(
+      connectorId, authorityGeneration, grant!.application_authorization.binding.contracts,
+      finalize
+    );
+    const authority = await finalize.query(
+      `SELECT id FROM collections WHERE id = $1 AND connector_id = $2
+         AND authority_state = 'active' AND present = true FOR UPDATE`,
+      [authorityRowId, connectorId]
+    );
+    if (!authority.rows[0]) {
+      throw new RequestValidationError("The selected collection authority changed during activation.");
+    }
     const completed = await finalize.query(
       `UPDATE authorization_requests SET
          completed_at = now(),
@@ -373,6 +402,7 @@ export async function approvePortalAuthorization(
     const finalScope = planCollectionGrant({
       requestedOperations: grant!.operations,
       applicationOperationCeiling: grant!.operations,
+      requestedFileActions: grant!.file_capability?.actions,
       requirements,
       access: grantAccess!
     }).scope;
@@ -441,14 +471,24 @@ export async function approvePortalAuthorization(
        WHERE id = $1`,
       [authorityRowId, JSON.stringify(activation.contracts)]
     );
+    // The transaction still owns the user, connector-generation and collection
+    // locks. Recheck in-memory liveness without another checkout or network I/O.
+    if (relay.authorizationAuthority(
+      connectorId, grant!.application_authorization.binding.contracts
+    ) !== authorityGeneration) {
+      throw new RequestValidationError("The connector session changed before publication.");
+    }
     await finalize.query("COMMIT");
   } catch (error) {
     await finalize.query("ROLLBACK");
+    // Compensation uses the pool; return the transaction's slot first.
+    finalize.release();
+    finalizeReleased = true;
     await abandonPendingAuthorizationGrant(db, input.requestId, grantId);
     await relay.pushPolicy(connectorId);
     throw error;
   } finally {
-    finalize.release();
+    if (!finalizeReleased) finalize.release();
   }
   await relay.pushPolicy(connectorId);
   await audit(db, input.userId, "authorization.approved", input.requestId, {
@@ -488,78 +528,6 @@ async function abandonPendingAuthorizationGrant(
   }
 }
 
-function verifyContractSetupAcknowledgement(
-  requested: ContractSetupChoice[],
-  acknowledged: ContractSetupChoice[] | undefined,
-  contracts: CollectionContractDescriptor[]
-): void {
-  if (requested.length === 0) return;
-  if (!acknowledged || !isDeepStrictEqual(acknowledged, requested)) {
-    throw new RequestValidationError(
-      "The collection authority did not acknowledge the exact contract setup that was approved."
-    );
-  }
-  for (const setup of requested) {
-    const contract = contracts.find((candidate) =>
-      candidate.id === setup.contract.id
-      && candidate.version === setup.contract.version
-    );
-    if (!contract) {
-      throw new RequestValidationError(
-        `Contract setup did not provide ${setup.contract.id} ${setup.contract.version}.`
-      );
-    }
-    if (setup.mode === "starter") continue;
-    const implementation = contract.implementations.find((candidate) =>
-      candidate.type_name === setup.type_name
-      && isDeepStrictEqual(candidate.fields, setup.fields)
-      && isDeepStrictEqual(candidate.binding, setup.binding)
-    );
-    if (!implementation) {
-      throw new RequestValidationError(
-        `Contract setup did not apply the approved mapping to type '${setup.type_name}'.`
-      );
-    }
-  }
-}
-
-function validateContractSetupChoices(
-  setups: ContractSetupChoice[],
-  required: ContractRequirement[],
-  available: CollectionContractDescriptor[]
-): void {
-  const keys = new Set(setups.map(
-    (setup) => `${setup.contract.id}@${setup.contract.version}#${setup.contract.digest}`
-  ));
-  if (
-    keys.size !== setups.length
-    || setups.some((setup) => !required.some((contract) =>
-      contract.id === setup.contract.id
-        && contract.version === setup.contract.version
-        && contract.digest === setup.contract.digest
-    ))
-  ) {
-    throw new RequestValidationError(
-      "Contract setup may configure each contract required by this application only once."
-    );
-  }
-  if (setups.length === 0) return;
-  const missing = required.filter((contract) => !available.some((candidate) =>
-    candidate.id === contract.id
-      && candidate.version === contract.version
-      && candidate.digest === contract.digest
-  ));
-  if (
-    keys.size !== missing.length
-    || missing.some((contract) =>
-      !keys.has(`${contract.id}@${contract.version}#${contract.digest}`))
-  ) {
-    throw new RequestValidationError(
-      "Choose starter or existing-type setup for each missing contract only."
-    );
-  }
-}
-
 export async function approveHostedAuthorization(
   db: DatabasePool,
   provider: HostedProviderClient,
@@ -568,6 +536,7 @@ export async function approveHostedAuthorization(
     userId: string;
     collectionId: string;
     operations: CollectionOperation[];
+    fileActions?: FileAction[];
     contracts: CollectionContractDescriptor[];
     contractSetups: ContractSetupChoice[];
     access: CollectionAccessContext;
@@ -582,6 +551,7 @@ export async function approveHostedAuthorization(
   try {
     await connection.query("BEGIN");
     const authorization = await connection.query<{
+      application_declaration?: unknown;
       application_id: string;
       application_family_identity: string;
       application_manifest_digest: string;
@@ -607,6 +577,7 @@ export async function approveHostedAuthorization(
               a.name AS application_name,
               a.distribution, a.homepage AS application_homepage,
               ar.redirect_uri, ar.device_origin, ar.requested_operations,
+              a.application_declaration,
               a.requirements, a.provisions, a.notifications,
               ar.operation_transport_protocol, ar.application_agreement_public_key,
               ar.application_signing_public_key, ar.application_authorization, ar.flow,
@@ -623,10 +594,12 @@ export async function approveHostedAuthorization(
       await connection.query("ROLLBACK");
       return false;
     }
+    assertFreshApplicationAuthorization(pending.requirements);
     assertOperationsAllowedByApplication(
       pending.requested_operations,
       pending.requirements,
-      pending.notifications
+      pending.notifications,
+      pending.provisions
     );
     const hostedCollection = await connection.query(
       `SELECT id FROM hosted_collections
@@ -738,6 +711,7 @@ export async function approveHostedAuthorization(
       requestedOperations: input.operations,
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
+      requestedFileActions: input.fileActions,
       requirements: pending.requirements,
       access: input.access
     });
@@ -840,7 +814,9 @@ export async function approveHostedAuthorization(
       applicationDeclarationId: declarationIdFromFamilyIdentity(
         pending.application_family_identity
       ),
-      applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`
+      applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`,
+      applicationDeclaration: pending.application_declaration,
+      applicationAuthorization: pending.application_authorization
     };
     if (retained) {
       compensateRetainedReplica = retainedReplicaPolicy.compensation(

@@ -664,6 +664,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             lease_issued_at_ms: Some(1_700_000_000_000),
             lease_expires_at_ms: Some(1_700_000_060_000),
             grants: vec![GrantPolicy {
+                application_declaration: None,
                 id: ids[1],
                 application_id: ids[3],
                 collection_id: ids[2],
@@ -754,6 +755,7 @@ fn portable_policy_keeps_v1_and_the_exact_opaque_origin() {
         lease_issued_at_ms: Some(1_700_000_000_000),
         lease_expires_at_ms: Some(1_700_000_060_000),
         grants: vec![GrantPolicy {
+            application_declaration: None,
             id: ids[0],
             application_id: ids[1],
             collection_id: ids[2],

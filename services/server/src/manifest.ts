@@ -2,22 +2,21 @@ import { isNativeRedirectUri } from "@mdbase-dev/connect-protocol";
 import {
   AppManifestValidationError,
   formatManifestValidationIssues,
-  parseAppManifest,
+  parseVersionedAppManifest,
   type ManifestValidationIssue,
-  type ValidatedAppManifest
+  type VersionedAppManifest
 } from "@mdbase-dev/connect-protocol/manifest";
 import { canonicalSha256 } from "./canonical-json.js";
 
 export { isNativeRedirectUri };
 
-export type AppManifest = ValidatedAppManifest;
+export type AppManifest = VersionedAppManifest["manifest"];
 
-export interface RegisteredApplicationManifest {
-  manifest: AppManifest;
+export type RegisteredApplicationManifest = VersionedAppManifest & {
   digest: string;
   canonicalIdentity: string;
   familyIdentity: string;
-}
+};
 
 export class ApplicationManifestError extends Error {
   constructor(
@@ -40,10 +39,11 @@ export function registerApplicationManifest(
   allowInsecure = false
 ): RegisteredApplicationManifest {
   try {
-    const manifest = parseAppManifest(value, { allowLocal: allowInsecure });
+    const declaration = parseVersionedAppManifest(value, { allowLocal: allowInsecure });
+    const { manifest } = declaration;
     const digest = canonicalSha256(manifest).slice("sha256:".length);
     return {
-      manifest,
+      ...declaration,
       digest,
       canonicalIdentity: `bundle:${manifest.id}:sha256:${digest}`,
       familyIdentity: `bundle:${manifest.id}`

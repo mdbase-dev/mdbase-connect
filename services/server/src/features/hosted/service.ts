@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import type { ApplicationRequirements } from "../../application-requirements.js";
 import type {
-  ApplicationRequirements,
+  ApplicationNotifications,
+  ApplicationProvisions,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
   FileCapability,
@@ -51,7 +53,7 @@ import {
   recoverExpiredAuthorityTransfers
 } from "../authority-transfer/lifecycle.js";
 import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
-import { assertOperationsAllowedByRequirements } from "../grants/policy.js";
+import { assertOperationsAllowedByApplication } from "../grants/policy.js";
 
 export interface HostedServiceOptions {
   db: DatabasePool;
@@ -573,19 +575,23 @@ export async function narrowHostedGrantForUser(
     operations: string[];
     scope: GrantScope;
     requirements: ApplicationRequirements;
+    notifications: ApplicationNotifications;
+    provisions: ApplicationProvisions;
     allowed_types: string[];
     file_capability: FileCapability | null;
     application_origin: string;
     proof_public_key: string;
     application_family_identity: string;
     application_manifest_digest: string;
+    application_declaration?: unknown;
     application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
   }>(
     `SELECT g.id, g.hosted_replica_id, g.operations, g.scope, g.file_capability,
             g.application_origin, g.proof_public_key, g.application_authorization,
-            a.requirements,
+            a.requirements, a.notifications, a.provisions,
             a.family_identity AS application_family_identity,
             a.manifest_digest AS application_manifest_digest,
+            a.application_declaration,
             replica.allowed_types
      FROM grants g
      JOIN applications a ON a.id = g.application_id
@@ -615,7 +621,12 @@ export async function narrowHostedGrantForUser(
       "Existing access can be narrowed here, but broader access requires a new application request."
     );
   }
-  assertOperationsAllowedByRequirements(operations, current.requirements);
+  assertOperationsAllowedByApplication(
+    operations,
+    current.requirements,
+    current.notifications,
+    current.provisions
+  );
   if (!options.hostedProvider) {
     throw new RequestValidationError(
       "Hosted application access is temporarily unavailable."
@@ -659,7 +670,9 @@ export async function narrowHostedGrantForUser(
       applicationDeclarationId: declarationIdFromFamilyIdentity(
         current.application_family_identity
       ),
-      applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`
+      applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`,
+      applicationDeclaration: current.application_declaration,
+      applicationAuthorization: current.application_authorization
     }
   );
   const updated = await options.db.query<{

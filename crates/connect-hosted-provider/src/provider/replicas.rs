@@ -1,11 +1,36 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "setup_evidence_tests.rs"]
+mod setup_evidence_tests;
+
 impl HostedProvider {
     pub async fn register_replica(
         &self,
         collection_id: Uuid,
-        mut input: RegisterReplica,
+        input: RegisterReplica,
     ) -> ApiResult<()> {
+        self.register_replica_with_semantics(collection_id, input, 1)
+            .await
+    }
+
+    /// Retained v2 retry only; never fresh authorization or an operation discriminator.
+    pub async fn register_application_replica_v2(
+        &self,
+        collection_id: Uuid,
+        input: RegisterReplica,
+    ) -> ApiResult<()> {
+        self.register_replica_with_semantics(collection_id, input, 2)
+            .await
+    }
+
+    async fn register_replica_with_semantics(
+        &self,
+        collection_id: Uuid,
+        mut input: RegisterReplica,
+        semantics: i32,
+    ) -> ApiResult<()> {
+        validate_policy_semantics(&input, semantics)?;
         if input.name.trim().is_empty() || input.token.len() < 32 {
             return Err(ApiError::bad_request(
                 "invalid_replica",
@@ -17,6 +42,7 @@ impl HostedProvider {
         input.allowed_operations.sort();
         input.allowed_operations.dedup();
         validate_replica_capability(&input)?;
+        validate_setup_evidence_policy(collection_id, &input)?;
         let file_capability = input
             .file_capability
             .as_ref()
@@ -78,15 +104,25 @@ impl HostedProvider {
                       operation_transport_recovery_protocols,
                       file_capability, allowed_origin, proof_public_key, grant_id,
                       application_declaration_id, application_declaration_digest,
-                      token_hash, revoked_at
+                      application_setup_evidence, application_semantic_version, token_hash, revoked_at
                FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE"#,
         )
         .bind(input.replica_id)
         .fetch_optional(&mut *transaction)
         .await?
         {
+            let requested_semantics = (input.purpose == ReplicaPurpose::Application).then_some(semantics);
+            if decode_persisted_semantics(
+                &existing.get::<String, _>("purpose"),
+                existing.get("application_semantic_version"),
+                existing.get::<Option<Value>, _>("application_setup_evidence").as_ref(),
+            )? != requested_semantics {
+                return Err(semantic_policy_mismatch());
+            }
             let existing_hash: Vec<u8> = existing.get("token_hash");
-            let exact_match = existing.get::<Uuid, _>("collection_id") == collection_id
+            let exact_match = existing.get::<Option<Value>, _>("application_setup_evidence")
+                == input.application_setup_evidence
+                && existing.get::<Uuid, _>("collection_id") == collection_id
                 && existing.get::<String, _>("name") == name
                 && existing.get::<String, _>("purpose") == purpose
                 && existing.get::<String, _>("mode") == mode
@@ -136,6 +172,9 @@ impl HostedProvider {
                 "Replica already exists with a different capability.",
             ));
         }
+        if input.purpose == ReplicaPurpose::Application {
+            ensure_fresh_application_issuance(semantics)?;
+        }
         let replica_count: i64 = sqlx::query_scalar(
             r#"SELECT count(*) FROM hosted_provider_replicas
                WHERE collection_id = $1 AND purpose = $2 AND revoked_at IS NULL"#,
@@ -155,10 +194,10 @@ impl HostedProvider {
                   operation_transport_recovery_protocols,
                   file_capability, allowed_origin, proof_public_key, grant_id,
                   application_declaration_id, application_declaration_digest, token_hash,
-                  token_expires_at)
+                  token_expires_at, application_setup_evidence, application_semantic_version)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                        $13, $14, $15, $16, $17, $18,
-                       now() + ($19 * interval '1 second'))"#,
+                       now() + ($19 * interval '1 second'), $20, $21)"#,
         )
         .bind(input.replica_id)
         .bind(collection_id)
@@ -189,6 +228,8 @@ impl HostedProvider {
         .bind(input.application_declaration_digest)
         .bind(requested_token_hash)
         .bind(to_i64(token_ttl_seconds, "replica credential lifetime")?)
+        .bind(input.application_setup_evidence)
+        .bind((input.purpose == ReplicaPurpose::Application).then_some(semantics))
         .execute(&mut *transaction)
         .await;
         match result {
@@ -467,13 +508,32 @@ impl HostedProvider {
     pub async fn update_application_replica(
         &self,
         replica_id: Uuid,
+        input: UpdateApplicationReplica,
+    ) -> ApiResult<()> {
+        self.update_application_replica_with_semantics(replica_id, input, 1)
+            .await
+    }
+
+    pub async fn update_application_replica_v2(
+        &self,
+        replica_id: Uuid,
+        input: UpdateApplicationReplica,
+    ) -> ApiResult<()> {
+        self.update_application_replica_with_semantics(replica_id, input, 2)
+            .await
+    }
+
+    async fn update_application_replica_with_semantics(
+        &self,
+        replica_id: Uuid,
         mut input: UpdateApplicationReplica,
+        semantics: i32,
     ) -> ApiResult<()> {
         input.allowed_types.sort();
         input.allowed_types.dedup();
         input.allowed_operations.sort();
         input.allowed_operations.dedup();
-        validate_replica_capability(&RegisterReplica {
+        let policy = RegisterReplica {
             replica_id,
             name: "updated application capability".to_owned(),
             purpose: ReplicaPurpose::Application,
@@ -492,9 +552,12 @@ impl HostedProvider {
             grant_id: Some(input.grant_id),
             application_declaration_id: Some(input.application_declaration_id.clone()),
             application_declaration_digest: Some(input.application_declaration_digest.clone()),
+            application_setup_evidence: input.application_setup_evidence.clone(),
             token: "unused".to_owned(),
             token_ttl_seconds: None,
-        })?;
+        };
+        validate_policy_semantics(&policy, semantics)?;
+        validate_replica_capability(&policy)?;
         let contract_scope = serde_json::to_value(&input.contract_scope).map_err(|error| {
             ApiError::internal(format!("Contract scope could not be serialized: {error}"))
         })?;
@@ -507,6 +570,37 @@ impl HostedProvider {
                 ApiError::internal(format!("File capability could not be serialized: {error}"))
             })?;
         let mut transaction = self.pool.begin().await?;
+        let installed =
+            sqlx::query("SELECT * FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
+                .bind(replica_id)
+                .fetch_optional(&mut *transaction)
+                .await?
+                .ok_or_else(|| {
+                    ApiError::not_found(
+                        "replica_not_found",
+                        "Active application capability not found.",
+                    )
+                })?;
+        let collection_id: Uuid = installed.get("collection_id");
+        let installed_semantics = decode_persisted_semantics(
+            &installed.get::<String, _>("purpose"),
+            installed.get("application_semantic_version"),
+            installed
+                .get::<Option<Value>, _>("application_setup_evidence")
+                .as_ref(),
+        )?;
+        if !matches!(installed_semantics, Some(1 | 2))
+            || (installed_semantics == Some(2) && semantics == 1)
+        {
+            return Err(semantic_policy_mismatch());
+        }
+        if semantics == 2
+            && (installed_semantics != Some(2)
+                || !retains_application_authority(&installed, &policy)?)
+        {
+            ensure_fresh_application_issuance(semantics)?;
+        }
+        validate_setup_evidence_policy(collection_id, &policy)?;
         reject_legacy_application_replica(&mut transaction, replica_id).await?;
         archive_application_replay_credential(&mut transaction, replica_id).await?;
         let result = sqlx::query(
@@ -525,6 +619,8 @@ impl HostedProvider {
                        OR proof_public_key IS DISTINCT FROM $12
                        OR application_declaration_id IS DISTINCT FROM $13
                        OR application_declaration_digest IS DISTINCT FROM $14
+                       OR application_setup_evidence IS DISTINCT FROM $15
+                       OR $17::integer IS DISTINCT FROM $16
                      THEN 1 ELSE 0 END,
                    mode = $2,
                    allowed_types = $3,
@@ -538,7 +634,9 @@ impl HostedProvider {
                    allowed_origin = $11,
                    proof_public_key = $12,
                    application_declaration_id = $13,
-                   application_declaration_digest = $14
+                   application_declaration_digest = $14,
+                   application_setup_evidence = $15,
+                   application_semantic_version = $16
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL
                  AND full_collection = true
                  AND cardinality(allowed_types) = 0
@@ -564,6 +662,9 @@ impl HostedProvider {
         .bind(input.proof_public_key)
         .bind(input.application_declaration_id)
         .bind(input.application_declaration_digest)
+        .bind(input.application_setup_evidence)
+        .bind(semantics)
+        .bind(installed_semantics)
         .execute(&mut *transaction)
         .await?;
         if result.rows_affected() == 0 {
@@ -634,6 +735,181 @@ impl HostedProvider {
         authorize_sync_access(&replica, required_operation, request_origin)?;
         Ok(replica)
     }
+}
+
+/// Decode stored authority, not evidence validity. SQL NULL differs from JSON null.
+/// Explicit v2 never falls back; its evidence must still pass signature verification.
+pub(super) fn decode_persisted_semantics(
+    purpose: &str,
+    version: Option<i32>,
+    evidence: Option<&Value>,
+) -> ApiResult<Option<i32>> {
+    match (purpose, version, evidence) {
+        ("application", None | Some(1), None) => Ok(Some(1)),
+        ("application", Some(2), _) => Ok(Some(2)),
+        ("mirror", None, None) => Ok(None),
+        _ => Err(semantic_policy_mismatch()),
+    }
+}
+
+fn semantic_policy_mismatch() -> ApiError {
+    ApiError::forbidden(
+        "application_semantic_version_mismatch",
+        "Application policy semantics cannot be downgraded or inferred from evidence.",
+    )
+}
+
+fn validate_policy_semantics(policy: &RegisterReplica, semantics: i32) -> ApiResult<()> {
+    match semantics {
+        1 if policy.application_setup_evidence.is_none() => Ok(()),
+        2 if policy.purpose == ReplicaPurpose::Application
+            && policy.application_setup_evidence.is_some() =>
+        {
+            Ok(())
+        }
+        _ => Err(semantic_policy_mismatch()),
+    }
+}
+
+pub(super) fn validate_setup_evidence_policy(
+    collection_id: Uuid,
+    policy: &RegisterReplica,
+) -> ApiResult<()> {
+    let Some(evidence) = &policy.application_setup_evidence else {
+        return Ok(());
+    };
+    verified_setup_evidence(
+        collection_id,
+        policy.purpose,
+        policy.proof_public_key.as_deref(),
+        policy.application_declaration_id.as_deref(),
+        policy.application_declaration_digest.as_deref(),
+        policy.operation_transport_protocol,
+        &policy.operation_transport_recovery_protocols,
+        &policy.allowed_operations,
+        policy.file_capability.as_ref(),
+        evidence,
+    )?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn verified_setup_evidence(
+    collection_id: Uuid,
+    purpose: ReplicaPurpose,
+    public_key: Option<&str>,
+    declaration_id: Option<&str>,
+    declaration_digest: Option<&str>,
+    transport: Option<u32>,
+    recovery: &[u32],
+    operations: &[String],
+    files: Option<&FileCapability>,
+    evidence: &Value,
+) -> ApiResult<mdbase_connect_protocol::VerifiedApplicationSetupDeclaration> {
+    let deny = || {
+        ApiError::forbidden("application_declaration_mismatch", "Installed application setup evidence is missing or does not match the application policy.")
+    };
+    let proof: mdbase_connect_protocol::ApplicationAuthorizationProof = serde_json::from_value(
+        evidence
+            .get("application_authorization")
+            .cloned()
+            .ok_or_else(deny)?,
+    )
+    .map_err(|_| deny())?;
+    proof.verify().map_err(|_| deny())?;
+    let binding = &proof.binding;
+    let digest = format!("sha256:{}", binding.application_manifest_digest);
+    let files_match = match (files, binding.requested_files.as_ref()) {
+        (None, _) => true,
+        (Some(granted), Some(requested)) => {
+            granted.protocol_version == mdbase_connect_protocol::FILE_PROTOCOL_VERSION
+                && granted.kind == mdbase_connect_protocol::FileCapabilityKind::Files
+                && granted.scope == requested.scope
+                && granted
+                    .actions
+                    .iter()
+                    .all(|action| requested.actions.contains(action))
+        }
+        _ => false,
+    };
+    if purpose != ReplicaPurpose::Application
+        || public_key != Some(binding.grant_signing_public_key.as_str())
+        || declaration_id != Some(binding.application_declaration_id.as_str())
+        || declaration_digest != Some(digest.as_str())
+        || transport != Some(binding.contracts.operation_transport)
+        || recovery != binding.contracts.operation_transport_recovery
+        || binding.contracts.semantic_capabilities != 2
+        || binding.collection_id.is_some_and(|id| id != collection_id)
+        || operations
+            .iter()
+            .any(|op| !binding.requested_operations.contains(op))
+        || !files_match
+    {
+        return Err(deny());
+    }
+    mdbase_connect_protocol::verify_application_setup_declaration_v2(
+        evidence.get("application_declaration").ok_or_else(deny)?,
+        &binding.application_declaration_id,
+        &binding.application_manifest_digest,
+    )
+    .map_err(|_| deny())
+}
+
+pub(super) fn validate_setup_runtime_choices(input: &Value) -> ApiResult<()> {
+    // Conversion only after exact raw declaration comparison. Unknown pack/contract
+    // choices must not be silently discarded by engine_collection_setup's filters.
+    let setup: AssessCollectionSetupInput = serde_json::from_value(input.clone())
+        .map_err(|_| collection_setup_declaration_mismatch())?;
+    let packs = &setup.provisions.type_packs;
+    let mut contracts = BTreeSet::new();
+    for choice in &setup.contract_setups {
+        if !packs
+            .iter()
+            .any(|pack| pack.provides.contains(&choice.contract))
+            || !contracts.insert((
+                &choice.contract.id,
+                &choice.contract.version,
+                &choice.contract.digest,
+            ))
+        {
+            return Err(collection_setup_declaration_mismatch());
+        }
+    }
+    for (id, targets) in &setup.type_pack_adoptions {
+        let pack = packs
+            .iter()
+            .find(|pack| &pack.manifest.id == id)
+            .ok_or_else(collection_setup_declaration_mismatch)?;
+        if targets.keys().any(|target| {
+            !pack
+                .manifest
+                .resources
+                .iter()
+                .any(|resource| &resource.target == target && resource.mode == "managed")
+        }) {
+            return Err(collection_setup_declaration_mismatch());
+        }
+    }
+    if let Some(downgrades) = input.get("allow_type_pack_downgrades") {
+        let ids: Vec<String> = serde_json::from_value(downgrades.clone())
+            .map_err(|_| collection_setup_declaration_mismatch())?;
+        if ids
+            .iter()
+            .any(|id| !packs.iter().any(|pack| &pack.manifest.id == id))
+        {
+            return Err(collection_setup_declaration_mismatch());
+        }
+    }
+    // Engine assessment/apply remain authoritative for adoption digest ownership,
+    // existing-type revision/field mappings, and the three apply CAS digests.
+    Ok(())
+}
+
+pub(super) fn collection_setup_declaration_mismatch() -> ApiError {
+    ApiError::forbidden(
+        "application_declaration_mismatch",
+        "Collection setup must exactly match the application declaration bound to this capability.",
+    )
 }
 
 async fn reject_legacy_application_replica(

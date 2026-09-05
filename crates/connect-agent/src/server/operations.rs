@@ -151,6 +151,11 @@ impl AgentState {
                                 .to_string(),
                         ));
                     }
+                    setup_binding::validate_activation_setup_binding(
+                        &grant,
+                        &requirements,
+                        &provisions,
+                    )?;
                     let validate_target = || {
                         if self.registry.paused()? {
                             return Err(ConnectError::AccessDenied(
