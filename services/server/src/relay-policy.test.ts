@@ -110,6 +110,27 @@ describe("connector policy sequence", () => {
       .toBe("sha256:141ae510bcd2582cc075046327940a622d68a87355e1f11fb7358bf5fe0803fd");
   });
 
+  it("retains complete declaration evidence and omits absent evidence without changing proofs", () => {
+    const fixture = JSON.parse(readFileSync(new URL(
+      "../../../test-fixtures/protocol-v1-policy-canonical.json", import.meta.url
+    ), "utf8"));
+    const source = fixture.db_like_grants[0];
+    const legacy = normalizePolicyGrant(source);
+    expect(legacy).not.toHaveProperty("application_declaration");
+    expect(normalizePolicyGrant({ ...source, application_declaration: null })).toEqual(legacy);
+    const evidence = {
+      id: "dev.mdbase.fixture",
+      requirements: { capabilities: { contract_version: 2, required: [], optional: [] } },
+      provisions: { configuration: {}, type_packs: [] },
+      unknown: { preserve: [3, 1, 2] }
+    };
+    const delivered = normalizePolicyGrant({ ...source, application_declaration: evidence });
+    expect(delivered.application_declaration).toEqual(evidence);
+    expect(delivered.application_authorization).toEqual(legacy.application_authorization);
+    expect(delivered.operations).toEqual(legacy.operations);
+    expect(canonicalSha256(delivered)).not.toBe(canonicalSha256(legacy));
+  });
+
   it("rejects invalid policy grant dates without normalizing garbage", () => {
     expect(() => policyGrantCreatedAtIso("not-a-date")).toThrow(
       "Policy grant created_at is invalid."

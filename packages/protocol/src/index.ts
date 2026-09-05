@@ -309,6 +309,8 @@ export type MdbaseOperationResponse<Result = unknown> =
     };
 
 export interface GrantPolicy {
+  /** Complete normalized JSON evidence; never independent operation authority. */
+  application_declaration?: unknown;
   id: string;
   application_id: string;
   /** Stable declaration identity bound into the exact application authorization. */

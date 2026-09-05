@@ -606,7 +606,7 @@ schema:
         application_agreement_public_key: application_identity.public_key(),
         connector_agreement_public_key: connector_identity.public_key(),
     };
-    let security = crate::test_support::application_security(
+    let mut security = crate::test_support::application_security(
         crate::test_support::TestApplicationSecurityParams {
             application_id,
             authorization_id,
@@ -617,7 +617,41 @@ schema:
             file_capability: None,
         },
     );
+    // Current v2 activation authenticates complete evidence before provisioning.
+    // Preserve this fixture's empty setup, but sign its actual declaration.
+    let declaration = serde_json::json!({
+        "manifest_version": 1, "id": "dev.mdbase.test", "name": "Live application",
+        "distribution": "web", "homepage": "https://example.test",
+        "requirements": {
+            "access": "full_collection", "contracts": [], "configuration": [],
+            "capabilities": {"contract_version": 2, "required": []}
+        },
+        "provisions": {"configuration": [], "type_packs": []}
+    });
+    {
+        use base64::Engine;
+        use p256::ecdsa::{signature::Signer, Signature, SigningKey};
+        use sha2::Digest;
+        let signing = SigningKey::random(&mut rand_core::OsRng);
+        let encoding = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let binding = &mut security.proof.binding;
+        binding.installation_signing_public_key =
+            encoding.encode(signing.verifying_key().to_encoded_point(false).as_bytes());
+        binding.application_installation_id = mdbase_connect_protocol::application_installation_id(
+            &binding.installation_signing_public_key,
+        )
+        .unwrap();
+        binding.application_manifest_digest = format!(
+            "{:x}",
+            sha2::Sha256::digest(serde_jcs::to_vec(&declaration).unwrap())
+        );
+        let signature: Signature = signing.sign(&binding.signing_message().unwrap());
+        security.proof.signature =
+            encoding.encode(signature.normalize_s().unwrap_or(signature).to_bytes());
+        security.proof.verify().unwrap();
+    }
     let grant = GrantPolicy {
+        application_declaration: Some(declaration),
         id: Uuid::new_v4(),
         application_id,
         collection_id: collection.id,
@@ -658,7 +692,11 @@ schema:
             access: Some(ApplicationAccess::FullCollection),
             collection_kind: None,
             files: None,
-            capabilities: None,
+            capabilities: Some(mdbase_connect_protocol::ApplicationCapabilityRequirements {
+                contract_version: 2,
+                required: Vec::new(),
+                optional: Vec::new(),
+            }),
         },
         provisions: ApplicationProvisions::default(),
         contract_setups: Vec::new(),
@@ -760,6 +798,7 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
     );
     registry
         .replace_grants(&[GrantPolicy {
+            application_declaration: None,
             id: grant_id,
             application_id,
             collection_id: collection.id,
@@ -897,6 +936,7 @@ fn unauthorized_legacy_mutation_fails_before_replay_or_collection_write() {
     let compatible = crate::test_support::application_security(security_params());
     registry
         .replace_grants(&[GrantPolicy {
+            application_declaration: None,
             id: grant_id,
             application_id,
             collection_id: collection.id,

@@ -175,6 +175,7 @@ export function policyGrantCreatedAtIso(value: Date | string): string {
 }
 
 export interface PolicyGrantSource {
+  application_declaration?: unknown | null;
   id: string;
   application_id: string;
   collection_id: string;
@@ -216,6 +217,10 @@ export function normalizePolicyGrant(grant: PolicyGrantSource): Record<string, u
     created_at: policyGrantCreatedAtIso(grant.created_at),
     ...(grant.encryption == null ? {} : { encryption: grant.encryption }),
     ...(grant.file_capability == null ? {} : { file_capability: grant.file_capability }),
+    // Retain the entire registered normalized JSON, never reconstruct split columns.
+    ...(grant.application_declaration == null
+      ? {}
+      : { application_declaration: grant.application_declaration }),
     application_authorization: grant.application_authorization
   };
 }
@@ -277,6 +282,7 @@ export async function buildPolicySnapshot(
       operations: string[]; scope: GrantScope; encryption: unknown | null;
       file_capability: unknown | null;
       application_authorization: ApplicationAuthorizationProof;
+      application_declaration: unknown | null;
       notification_criteria: unknown[]; created_at: Date | string;
     }>(
       `SELECT g.id, g.application_id, a.name AS application_name,
@@ -288,6 +294,7 @@ export async function buildPolicySnapshot(
               a.icon AS application_icon,
               c.local_id, c.display_name AS collection_name, g.operations, g.scope,
               g.encryption, g.file_capability, g.application_authorization,
+              a.application_declaration,
               g.notification_criteria, g.created_at
        FROM grants g
        JOIN collections c ON c.id = g.collection_id

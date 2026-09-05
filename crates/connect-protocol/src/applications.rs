@@ -340,6 +340,9 @@ impl GrantScope {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrantSummary {
+    /// Complete normalized declaration evidence authenticated before presentation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_declaration: Option<serde_json::Value>,
     pub id: Uuid,
     pub application_id: Uuid,
     pub application_declaration_id: String,
@@ -456,6 +459,9 @@ pub struct ActivityEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrantPolicy {
+    /// Retained complete normalized JSON; not authority until checked against the signed proof.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_declaration: Option<serde_json::Value>,
     pub id: Uuid,
     pub application_id: Uuid,
     pub collection_id: Uuid,

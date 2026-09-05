@@ -117,6 +117,7 @@ fn local_list_pages_share_one_index_revision_and_expire_after_refresh() {
 
 fn file_grant(collection_id: Uuid, actions: Vec<FileAction>) -> GrantSummary {
     GrantSummary {
+        application_declaration: None,
         contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
         id: Uuid::now_v7(),
         application_id: Uuid::now_v7(),

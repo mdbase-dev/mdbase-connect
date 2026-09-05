@@ -115,6 +115,7 @@ async fn recovery_keeps_idle_registered_collections_cold() {
 #[test]
 fn compiled_workflows_keep_record_data_out_of_action_input() {
     let grant = GrantSummary {
+        application_declaration: None,
         contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
         id: Uuid::new_v4(),
         application_id: Uuid::new_v4(),
@@ -215,6 +216,7 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
         },
     );
     let policy = GrantPolicy {
+        application_declaration: None,
         id: grant_id,
         application_id,
         collection_id: collection.id,
@@ -635,6 +637,7 @@ async fn timer_handle_reconciles_through_the_running_local_authority() {
     );
     registry
         .replace_grants(&[GrantPolicy {
+            application_declaration: None,
             id: grant_id,
             application_id,
             collection_id: collection.id,
