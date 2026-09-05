@@ -14,11 +14,40 @@ const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
 const operationCatalog = JSON.parse(readFileSync(operationCatalogPath, "utf8"));
 const manifestSchema = JSON.parse(readFileSync(manifestSchemaPath, "utf8"));
 const check = process.argv.includes("--check");
+const issuancePolicy = JSON.parse(readFileSync(resolve(root, "config/application-issuance-policy.json"), "utf8"));
+// This is an artifact policy, not part of either immutable capability catalog.
+// Enabling v2 issuance requires a separately reviewed source/artifact change.
+if (issuancePolicy.policy_version !== 1 || issuancePolicy.phase !== "compatibility-prelude"
+    || JSON.stringify(issuancePolicy.fresh_semantic_versions) !== "[1]") {
+  throw new Error("The compatibility prelude must permit fresh authorization only for semantic version 1.");
+}
 
 validateCatalog(catalog, operationCatalog, manifestSchema);
 validateLegacyCatalog(legacyCatalog, operationCatalog);
-emit(typescriptPath, typescriptSource(catalog) + legacyTypescriptSource(legacyCatalog));
-emit(rustPath, rustSource(catalog) + legacyRustSource(legacyCatalog));
+emit(typescriptPath, typescriptSource(catalog) + legacyTypescriptSource(legacyCatalog) + issuanceTypescriptSource());
+emit(rustPath, rustSource(catalog) + legacyRustSource(legacyCatalog) + issuanceRustSource());
+
+function issuanceTypescriptSource() {
+  return `
+/** Fresh issuance only; never use this ceiling to reject retained authority or terminal replay. */
+export const FRESH_APPLICATION_AUTHORIZATION_VERSIONS = Object.freeze(${JSON.stringify(issuancePolicy.fresh_semantic_versions)} as const);
+
+export function permitsFreshApplicationAuthorization(version: number): boolean {
+  return FRESH_APPLICATION_AUTHORIZATION_VERSIONS.some((supported) => supported === version);
+}
+`;
+}
+
+function issuanceRustSource() {
+  return `
+/// Fresh issuance only, not retained authority enforcement or terminal replay.
+pub const FRESH_APPLICATION_AUTHORIZATION_VERSIONS: &[u32] = &[${issuancePolicy.fresh_semantic_versions.join(", ")}];
+
+pub fn permits_fresh_application_authorization(version: u32) -> bool {
+    FRESH_APPLICATION_AUTHORIZATION_VERSIONS.contains(&version)
+}
+`;
+}
 
 // V1 is a historical intent table, not a partition of the operation catalog:
 // empty aliases and operations shared between capabilities must remain intact.

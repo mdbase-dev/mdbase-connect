@@ -12,9 +12,23 @@ import {
   APPLICATION_CAPABILITY_CONTRACT_VERSION,
   APPLICATION_CAPABILITY_DEFINITIONS,
   APPLICATION_SETUP_OPERATIONS,
+  FRESH_APPLICATION_AUTHORIZATION_VERSIONS,
+  permitsFreshApplicationAuthorization,
   applicationOperationSelectionIsAtomic,
   operationsForApplicationCapabilities
 } from "../dist/capabilities.js";
+
+test("prelude issuance ceiling is independent of v2 reader support", () => {
+  assert.deepEqual(FRESH_APPLICATION_AUTHORIZATION_VERSIONS, [1]);
+  assert.equal(Object.isFrozen(FRESH_APPLICATION_AUTHORIZATION_VERSIONS), true);
+  assert.throws(() => FRESH_APPLICATION_AUTHORIZATION_VERSIONS.push(2), TypeError);
+  assert.equal(permitsFreshApplicationAuthorization(1), true);
+  for (const version of [0, 2, 3, -1, 1.5, NaN, Infinity, undefined, null, "1"]) {
+    assert.equal(permitsFreshApplicationAuthorization(version), false, String(version));
+  }
+  assert.equal(APPLICATION_CAPABILITY_CONTRACT_VERSION, 2);
+  assert.deepEqual(capabilityOperationsForContractVersion(2, "records.edit"), ["update", "rename"]);
+});
 
 const catalog = JSON.parse(readFileSync(
   new URL("../schemas/application-capability-catalog.v2.json", import.meta.url),
@@ -129,6 +143,11 @@ test("generated Rust compiles and resolves both catalogs exactly like TypeScript
           assertions.push(`assert_eq!(application_capability_operations_for_contract_version(${version}, ${JSON.stringify(id)}), None);`);
         }
       }
+    }
+    assertions.push("assert_eq!(FRESH_APPLICATION_AUTHORIZATION_VERSIONS, &[1]);");
+    assertions.push("assert!(permits_fresh_application_authorization(1));");
+    for (const version of [0, 2, 3, 4294967295]) {
+      assertions.push(`assert!(!permits_fresh_application_authorization(${version}));`);
     }
     for (const version of [0, 3, 4294967295]) {
       assertions.push(`assert_eq!(application_capability_operations_for_contract_version(${version}, "records.create"), None);`);

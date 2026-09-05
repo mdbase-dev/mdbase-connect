@@ -124,3 +124,10 @@ export function capabilityOperationsForContractVersion(
   if (!definitions || !Object.hasOwn(definitions, capability)) return undefined;
   return [...(definitions as Readonly<Record<string, readonly CollectionOperation[]>>)[capability]];
 }
+
+/** Fresh issuance only; never use this ceiling to reject retained authority or terminal replay. */
+export const FRESH_APPLICATION_AUTHORIZATION_VERSIONS = Object.freeze([1] as const);
+
+export function permitsFreshApplicationAuthorization(version: number): boolean {
+  return FRESH_APPLICATION_AUTHORIZATION_VERSIONS.some((supported) => supported === version);
+}
