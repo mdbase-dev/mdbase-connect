@@ -68,8 +68,17 @@ test("candidate writes predecessor state before explicit projection work", async
   );
   const write = program.indexOf('"$(exact_mutation_body "$previous_revision")"', writePhase);
   const readBack = program.indexOf("pre_rebuild_snapshot=$(provider_get", write);
-  const firstProjectionWork = program.indexOf("run_projection_indexer ", writePhase);
-  const verify = program.indexOf("run_projection_indexer verify", readBack);
+  const verificationHelper = program.match(/^verify_synthetic_projection\(\) \{\n([\s\S]*?)^\}/m)?.[1];
+  assert.ok(verificationHelper, "projection diagnostic helper is missing");
+  assert.deepEqual(
+    verificationHelper.match(/run_projection_indexer\s+\S+/g),
+    ["run_projection_indexer verify"],
+    "the diagnostic helper must only run read-only verification"
+  );
+  assert.match(verificationHelper, /\.ok == true[\s\S]*\.command == "verify"[\s\S]*\(\.result\.collections \| length\) == 1[\s\S]*\.result\.collections\[0\]\.verified == true/);
+  const firstProjectionCall = /(?:run_projection_indexer|verify_synthetic_projection)\s+/.exec(program.slice(writePhase));
+  const firstProjectionWork = firstProjectionCall ? writePhase + firstProjectionCall.index : -1;
+  const verify = program.indexOf("verify_synthetic_projection 'write-through without normalization'", readBack);
   const recovery = program.indexOf("upgrade_phase 'requiring candidate recovery readiness'", verify);
   const finalVerify = program.indexOf(
     "upgrade_phase 'verifying projections after final provider restart'",
@@ -80,6 +89,10 @@ test("candidate writes predecessor state before explicit projection work", async
   assert.ok(verify > readBack, "read-only projection verification must remain post-write");
   assert.ok(recovery > verify, "notification recovery must follow projection verification");
   assert.ok(finalVerify > recovery, "projection verification must run again after final restart");
+  assert.ok(
+    program.indexOf("verify_synthetic_projection 'after final provider restart'", finalVerify) > finalVerify,
+    "final restart verification must invoke the checked read-only helper"
+  );
   assert.match(program, /\.status == "ready"[\s\S]*\.notifications\.configured == true[\s\S]*\.notifications\.recovery == "ok"[\s\S]*\.projections\.degraded_collections == 0/);
   assert.equal(
     firstProjectionWork,
