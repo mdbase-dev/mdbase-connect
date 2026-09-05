@@ -6,6 +6,65 @@ use p256::ecdsa::{signature::Signer, Signature, SigningKey};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+/// Historical committed v2 authority, exclusively for disposable database tests.
+/// This is deliberately not a production registration override or v1 promotion.
+#[allow(dead_code)]
+pub async fn seed_committed_v2(
+    pool: &sqlx::PgPool,
+    collection_id: Uuid,
+    policy: &super::RegisterReplica,
+) {
+    use sha2::{Digest, Sha256};
+    let mut row = json!({
+        "id": policy.replica_id, "collection_id": collection_id,
+        "name": policy.name, "purpose": "application", "mode": policy.mode,
+        "allowed_types": policy.allowed_types, "contract_scope": policy.contract_scope,
+        "full_collection": policy.full_collection, "allowed_operations": policy.allowed_operations,
+        "operation_transport_protocol": policy.operation_transport_protocol,
+        "operation_transport_recovery_protocols": policy.operation_transport_recovery_protocols,
+        "file_capability": policy.file_capability, "allowed_origin": policy.allowed_origin,
+        "proof_public_key": policy.proof_public_key, "grant_id": policy.grant_id,
+        "application_declaration_id": policy.application_declaration_id,
+        "application_declaration_digest": policy.application_declaration_digest,
+        "application_setup_evidence": policy.application_setup_evidence
+    });
+    row["allowed_operations"]
+        .as_array_mut()
+        .unwrap()
+        .sort_by_key(Value::to_string);
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_replicas
+        (id, collection_id, name, purpose, mode, allowed_types, contract_scope,
+         full_collection, allowed_operations, operation_transport_protocol,
+         operation_transport_recovery_protocols, file_capability, allowed_origin,
+         proof_public_key, grant_id, application_declaration_id,
+         application_declaration_digest, application_setup_evidence,
+         application_semantic_version, token_hash, token_expires_at)
+        SELECT id, collection_id, name, purpose, mode, allowed_types, contract_scope,
+         full_collection, allowed_operations, operation_transport_protocol,
+         operation_transport_recovery_protocols, file_capability, allowed_origin,
+         proof_public_key, grant_id, application_declaration_id,
+         application_declaration_digest, application_setup_evidence,
+         2, $2, now() + interval '30 days'
+        FROM jsonb_populate_record(NULL::hosted_provider_replicas, $1)"#,
+    )
+    .bind(row)
+    .bind(Sha256::digest(policy.token.as_bytes()).to_vec())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Precommitted declaration replacement for historical receipt-recovery coverage.
+#[allow(dead_code)]
+pub async fn seed_committed_v2_declaration(pool: &sqlx::PgPool, id: Uuid, update: &Value) {
+    sqlx::query("UPDATE hosted_provider_replicas SET application_declaration_digest=$2, application_setup_evidence=$3, scope_epoch=scope_epoch+1 WHERE id=$1 AND application_semantic_version=2")
+        .bind(id)
+        .bind(update["application_declaration_digest"].as_str().unwrap())
+        .bind(&update["application_setup_evidence"])
+        .execute(pool).await.unwrap();
+}
+
 pub fn setup_evidence(collection_id: Uuid) -> (Value, Value, String) {
     let (evidence, input, grant_key, _) = setup_evidence_with_signer(collection_id);
     (evidence, input, grant_key)

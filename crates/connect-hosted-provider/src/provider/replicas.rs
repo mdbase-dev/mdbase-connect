@@ -14,7 +14,7 @@ impl HostedProvider {
             .await
     }
 
-    /// Trusted control-plane v2 provisioning, never an operation discriminator.
+    /// Retained v2 retry only; never fresh authorization or an operation discriminator.
     pub async fn register_application_replica_v2(
         &self,
         collection_id: Uuid,
@@ -171,6 +171,9 @@ impl HostedProvider {
                 "replica_conflict",
                 "Replica already exists with a different capability.",
             ));
+        }
+        if input.purpose == ReplicaPurpose::Application {
+            ensure_fresh_application_issuance(semantics)?;
         }
         let replica_count: i64 = sqlx::query_scalar(
             r#"SELECT count(*) FROM hosted_provider_replicas
@@ -567,29 +570,35 @@ impl HostedProvider {
                 ApiError::internal(format!("File capability could not be serialized: {error}"))
             })?;
         let mut transaction = self.pool.begin().await?;
-        let installed = sqlx::query(
-            "SELECT collection_id, purpose, application_semantic_version, application_setup_evidence
-             FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE",
-        )
-        .bind(replica_id)
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or_else(|| {
-            ApiError::not_found(
-                "replica_not_found",
-                "Active application capability not found.",
-            )
-        })?;
+        let installed =
+            sqlx::query("SELECT * FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
+                .bind(replica_id)
+                .fetch_optional(&mut *transaction)
+                .await?
+                .ok_or_else(|| {
+                    ApiError::not_found(
+                        "replica_not_found",
+                        "Active application capability not found.",
+                    )
+                })?;
         let collection_id: Uuid = installed.get("collection_id");
-        let installed = decode_persisted_semantics(
+        let installed_semantics = decode_persisted_semantics(
             &installed.get::<String, _>("purpose"),
             installed.get("application_semantic_version"),
             installed
                 .get::<Option<Value>, _>("application_setup_evidence")
                 .as_ref(),
         )?;
-        if !matches!(installed, Some(1 | 2)) || (installed == Some(2) && semantics == 1) {
+        if !matches!(installed_semantics, Some(1 | 2))
+            || (installed_semantics == Some(2) && semantics == 1)
+        {
             return Err(semantic_policy_mismatch());
+        }
+        if semantics == 2
+            && (installed_semantics != Some(2)
+                || !retains_application_authority(&installed, &policy)?)
+        {
+            ensure_fresh_application_issuance(semantics)?;
         }
         validate_setup_evidence_policy(collection_id, &policy)?;
         reject_legacy_application_replica(&mut transaction, replica_id).await?;
@@ -655,7 +664,7 @@ impl HostedProvider {
         .bind(input.application_declaration_digest)
         .bind(input.application_setup_evidence)
         .bind(semantics)
-        .bind(installed)
+        .bind(installed_semantics)
         .execute(&mut *transaction)
         .await?;
         if result.rows_affected() == 0 {

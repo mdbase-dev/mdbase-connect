@@ -44,11 +44,20 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
         token: token.clone(),
         token_ttl_seconds: None,
     };
-    fixture
+    let denied = fixture
         .provider
         .register_application_replica_v2(fixture.collection_id, policy.clone())
         .await
-        .unwrap();
+        .unwrap_err();
+    assert_eq!(denied.code, "application_authorization_issuance_disabled");
+    let absent: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM hosted_provider_replicas WHERE id=$1")
+            .bind(replica_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(absent, 0);
+    fixture::seed_committed_v2(&fixture.pool, fixture.collection_id, &policy).await;
     fixture
         .provider
         .register_application_replica_v2(fixture.collection_id, policy.clone())
@@ -118,6 +127,62 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
         .await
         .unwrap();
     assert_eq!(accepted.status(), reqwest::StatusCode::CREATED);
+    let mut fresh = registration.clone();
+    fresh["replica_id"] = json!(Uuid::new_v4());
+    let before_denials: Value = sqlx::query_scalar(
+        "SELECT jsonb_build_array(head, encode(resources_ciphertext,'hex'), (SELECT count(*) FROM hosted_provider_mutation_journal), (SELECT count(*) FROM hosted_provider_replicas), (SELECT count(*) FROM hosted_provider_retired_replay_credentials)) FROM hosted_provider_collections WHERE id=$1"
+    ).bind(fixture.collection_id).fetch_one(&fixture.pool).await.unwrap();
+    let denied = client
+        .post(format!(
+            "http://{address}/internal/v2/collections/{}/replicas",
+            fixture.collection_id
+        ))
+        .bearer_auth(&internal_token)
+        .json(&fresh)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), reqwest::StatusCode::FORBIDDEN);
+    for (field, value) in [
+        ("grant_id", json!(Uuid::new_v4())),
+        ("allowed_origin", json!("https://changed.example")),
+        (
+            "allowed_operations",
+            json!(["assess_collection_setup", "apply_collection_setup", "read"]),
+        ),
+    ] {
+        let mut expanded = update.clone();
+        expanded[field] = value;
+        let denied = fixture
+            .provider
+            .update_application_replica_v2(replica_id, serde_json::from_value(expanded).unwrap())
+            .await
+            .unwrap_err();
+        assert_eq!(denied.code, "application_authorization_issuance_disabled");
+    }
+    let after_denials: Value = sqlx::query_scalar(
+        "SELECT jsonb_build_array(head, encode(resources_ciphertext,'hex'), (SELECT count(*) FROM hosted_provider_mutation_journal), (SELECT count(*) FROM hosted_provider_replicas), (SELECT count(*) FROM hosted_provider_retired_replay_credentials)) FROM hosted_provider_collections WHERE id=$1"
+    ).bind(fixture.collection_id).fetch_one(&fixture.pool).await.unwrap();
+    assert_eq!(
+        before_denials, after_denials,
+        "issuance denial has no durable effects"
+    );
+    // Revocation of an otherwise byte-exact retained identity must not resurrect it.
+    let mut revoked_policy = policy.clone();
+    revoked_policy.replica_id = Uuid::new_v4();
+    revoked_policy.grant_id = Some(Uuid::new_v4());
+    revoked_policy.token = format!("revoked-fixture-{}", Uuid::new_v4());
+    fixture::seed_committed_v2(&fixture.pool, fixture.collection_id, &revoked_policy).await;
+    fixture
+        .provider
+        .revoke_replica(revoked_policy.replica_id)
+        .await
+        .unwrap();
+    assert!(fixture
+        .provider
+        .register_application_replica_v2(fixture.collection_id, revoked_policy)
+        .await
+        .is_err());
     let before_policy: Value =
         sqlx::query_scalar("SELECT to_jsonb(r) FROM hosted_provider_replicas r WHERE id=$1")
             .bind(replica_id)
@@ -191,6 +256,14 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
     .await
     .unwrap();
     assert_eq!(version, 1);
+    let mut promotion = update.clone();
+    promotion["grant_id"] = registration["grant_id"].clone();
+    let denied = fixture
+        .provider
+        .update_application_replica_v2(legacy_id, serde_json::from_value(promotion).unwrap())
+        .await
+        .unwrap_err();
+    assert_eq!(denied.code, "application_authorization_issuance_disabled");
     let mut legacy_input = exact.clone();
     legacy_input["requirements"]["configuration"][0]["value"] = json!("legacy-original-semantics");
     legacy_input["provisions"]["configuration"][0]["value"] = json!("legacy-original-semantics");
@@ -333,7 +406,7 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
     }
     sqlx::query("UPDATE hosted_provider_replicas SET proof_public_key=$2 WHERE id=$1")
         .bind(replica_id)
-        .bind(policy.proof_public_key)
+        .bind(policy.proof_public_key.clone())
         .execute(&fixture.pool)
         .await
         .unwrap();
@@ -396,9 +469,9 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
     assert_eq!(applied["valid"], true, "{applied}");
 
     // A terminal receipt belongs to the exact request, not to today's declaration.
-    // Install valid B through the real policy API, retaining grant, token, key,
-    // origin, and setup permission. B changes the authenticated manifest digest.
-    let mut update_b = update;
+    // Valid B is fresh issuance and must be denied by the real policy API.
+    // A test-only precommitted B fixture retains historical receipt coverage.
+    let mut update_b = update.clone();
     update_b["application_declaration_digest"] = json!(format!(
         "sha256:{}",
         evidence_b["application_authorization"]["binding"]["application_manifest_digest"]
@@ -408,9 +481,13 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
     update_b["application_setup_evidence"] = evidence_b;
     fixture
         .provider
-        .update_application_replica_v2(replica_id, serde_json::from_value(update_b).unwrap())
+        .update_application_replica_v2(
+            replica_id,
+            serde_json::from_value(update_b.clone()).unwrap(),
+        )
         .await
-        .unwrap();
+        .unwrap_err();
+    fixture::seed_committed_v2_declaration(&fixture.pool, replica_id, &update_b).await;
     let committed: (i64, Vec<u8>) = sqlx::query_as(
         "SELECT head, resources_ciphertext FROM hosted_provider_collections WHERE id=$1",
     )
@@ -527,6 +604,33 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
         "tombstone responses must not re-journal the request"
     );
 
+    // Retained authority can genuinely narrow, but cannot re-expand or resurrect.
+    let mut narrowing = update_b;
+    narrowing["allowed_operations"] = json!(["assess_collection_setup"]);
+    narrowing["mode"] = json!("read_only");
+    fixture
+        .provider
+        .update_application_replica_v2(
+            replica_id,
+            serde_json::from_value(narrowing.clone()).unwrap(),
+        )
+        .await
+        .unwrap();
+    narrowing["allowed_operations"] = json!(["assess_collection_setup", "apply_collection_setup"]);
+    narrowing["mode"] = json!("read_write");
+    let denied = fixture
+        .provider
+        .update_application_replica_v2(replica_id, serde_json::from_value(narrowing).unwrap())
+        .await
+        .unwrap_err();
+    assert_eq!(denied.code, "application_authorization_issuance_disabled");
+    fixture.provider.revoke_replica(replica_id).await.unwrap();
+    assert!(fixture
+        .provider
+        .register_application_replica_v2(fixture.collection_id, policy.clone())
+        .await
+        .is_err());
+
     // Rehearse the additive migration against a historical schema; it explicitly
     // establishes v1, while preserving every predecessor policy field.
     let mut migration = fixture.pool.begin().await.unwrap();
@@ -554,6 +658,8 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
     assert_eq!(bad_mirrors, 0);
     migration.rollback().await.unwrap();
 
+    // Restore active historical state solely for decoder fault injection below.
+    sqlx::query("UPDATE hosted_provider_replicas SET revoked_at=NULL, mode='read_write', allowed_operations=$2 WHERE id=$1").bind(replica_id).bind(&policy.allowed_operations).execute(&fixture.pool).await.unwrap();
     // Fault injection: even if database validation is bypassed, missing/unknown
     // persisted semantics cannot become an unsigned setup fallback.
     sqlx::query(
