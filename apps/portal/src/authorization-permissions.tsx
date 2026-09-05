@@ -17,9 +17,10 @@ export function PermissionDelta({ existingAccess, collectionId, groups, selected
     group.operations.every((operation) => existing.has(operation))
   ).length;
   const added = selectedGroups.length - approved;
+  const unit = groups.some((group) => group.semantics === "exact") ? "action" : "capability";
   return <div className="permission-delta" role="note">
     <span><strong>{approved}</strong> already approved</span>
-    <span><strong>{added}</strong> {added === 1 ? "capability" : "capabilities"} added by this request</span>
+    <span><strong>{added}</strong> {added === 1 ? unit : unit === "action" ? "actions" : "capabilities"} added by this request</span>
   </div>;
 }
 
@@ -44,7 +45,7 @@ export function PermissionCapabilitySummary({
   }));
   if (files && selectedFiles.size > 0) {
     capabilities.push({
-      id: "files" as never,
+      id: "files",
       label: selectedFiles.has("delete") ? "Manage and delete files" : "Work with files",
       description: files.scope.kind === "collection"
         ? "Use the approved file actions in every visible folder."
@@ -69,12 +70,13 @@ export function PermissionChoices({ groups, selected, disabled, onToggle }: {
   disabled: boolean;
   onToggle(group: AuthorizationCapabilityGroup): void;
 }) {
+  const exact = groups.some((group) => group.semantics === "exact");
   const optional = groups.filter((group) => !group.required);
   if (optional.length === 0) return null;
   return (
     <details className="permission-review">
       <summary>
-        <span><strong>Optional capabilities</strong><small>Optional capabilities can only be allowed or denied as a complete group.</small></span>
+        <span><strong>{exact ? "Review exact permissions" : "Optional capabilities"}</strong><small>{exact ? "Choose each requested action independently." : "Optional capabilities can only be allowed or denied as a complete group."}</small></span>
         <b>Review</b>
       </summary>
       <div className="permission-groups">{optional.map((group) => (
@@ -88,7 +90,7 @@ export function PermissionChoices({ groups, selected, disabled, onToggle }: {
               onChange={() => onToggle(group)}
               disabled={disabled}
             />
-            <span>Allow this capability</span>
+            <span>{exact ? group.label : "Allow this capability"}</span>
           </label></div>
         </fieldset>
       ))}</div>
@@ -111,6 +113,14 @@ export function FilePermissionSummary({ files, selected, disabled, onToggle }: {
   disabled: boolean;
   onToggle(action: ApplicationFileAction): void;
 }) {
+  if ("actions" in files) return <details className="permission-review file-permission-review">
+    <summary><span><strong>Review exact file permissions</strong><small>{files.actions.length} requested actions, approved together.</small></span><b>Details</b></summary>
+    <div className="permission-groups"><fieldset className="permission-group">
+      <legend>Files</legend>
+      <p>{files.scope.kind === "collection" ? "Every visible folder in this collection." : `Only ${files.scope.folders.join(", ")}.`} Hidden folders are always excluded. These actions are approved together.</p>
+      <ul className="permission-action-list">{files.actions.map((action) => <li key={action}>{FILE_ACTION_LABELS[action]}</li>)}</ul>
+    </fieldset></div>
+  </details>;
   const scope = files.scope.kind === "collection"
     ? "Every visible folder in this collection. Hidden folders are always excluded."
     : `Only ${files.scope.folders.join(", ")}. Hidden folders are always excluded.`;

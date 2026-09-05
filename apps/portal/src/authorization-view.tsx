@@ -24,6 +24,8 @@ import {
 import { collectionCompatibility } from "./compatibility";
 import {
   authorizationCapabilityGroups,
+  authorizationRequirementsError,
+  toggleAuthorizationGroup,
   selectedFileActions,
   selectedOperationsForCapabilityGroups,
   type AuthorizationCapabilityGroup
@@ -458,7 +460,13 @@ function initialSchemaValue(schema?: Record<string, unknown>): Record<string, un
   ));
 }
 
-export function ApprovalForm({
+export function ApprovalForm(props: React.ComponentProps<typeof SupportedApprovalForm>) {
+  const error = authorizationRequirementsError(props.request.requirements);
+  if (error) return <div className="message error" role="alert">{error}</div>;
+  return <SupportedApprovalForm {...props} />;
+}
+
+function SupportedApprovalForm({
   request,
   collections,
   canCreateHosted,
@@ -534,7 +542,9 @@ export function ApprovalForm({
     );
     const grouped = new Set(permissionGroups.flatMap((group) => group.operations));
     for (const operation of request.requested_operations) {
-      if (!grouped.has(operation)) selected.add(operation);
+      if (!grouped.has(operation) && (!savedReview?.operations
+        || request.requirements.capabilities?.contract_version === 2
+        || savedReview.operations.includes(operation))) selected.add(operation);
     }
     return selected;
   });
@@ -652,15 +662,7 @@ export function ApprovalForm({
 
   function toggleCapability(group: AuthorizationCapabilityGroup) {
     if (group.required) return;
-    setOperations((current) => {
-      const next = new Set(current);
-      const enabled = group.operations.every((operation) => next.has(operation));
-      for (const operation of group.operations) {
-        if (enabled) next.delete(operation);
-        else next.add(operation);
-      }
-      return next;
-    });
+    setOperations((current) => toggleAuthorizationGroup(current, group));
   }
 
   function toggleFileAction(action: ApplicationFileAction) {

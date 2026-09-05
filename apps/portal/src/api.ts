@@ -166,9 +166,19 @@ export type ApplicationCapabilityId =
 export type ApplicationFileAction =
   | "list" | "read" | "add" | "replace" | "move" | "delete";
 
-export interface ApplicationRequirements {
+export type ApplicationRequirements = CapabilityApplicationRequirements | LegacyApplicationRequirements;
+
+export type LegacyApplicationRequirements = Omit<CapabilityApplicationRequirements, "capabilities" | "files"> & {
+  capabilities?: import("@mdbase-dev/connect-protocol").LegacyApplicationCapabilityRequirements;
+  files?: {
+    actions: ApplicationFileAction[];
+    scope: NonNullable<CapabilityApplicationRequirements["files"]>["scope"];
+  };
+};
+
+export interface CapabilityApplicationRequirements {
   contracts: ContractRequirement[];
-  capabilities?: {
+  capabilities: {
     contract_version: 2;
     required: ApplicationCapabilityId[];
     optional?: ApplicationCapabilityId[];
