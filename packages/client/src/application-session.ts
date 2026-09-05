@@ -16,6 +16,7 @@ import {
 } from "./application-contract.js";
 /* The versioned protocol package is the sole capability-to-operation compiler. */
 import { effectiveCapabilities, type MdbaseEffectiveCapabilities } from "./capabilities.js";
+import { structuredReadiness, type MdbaseStructuredReadiness } from "./structured-readiness.js";
 import type {
   MdbaseAuthorizationOutcome,
   MdbaseAuthorizeOptions,
@@ -118,6 +119,8 @@ interface ApplicationSessionContext {
   collectionId: string;
   info: MdbaseConnectionInfo;
   capabilities: MdbaseEffectiveCapabilities;
+  /** Present only for semantic contract v2. */
+  readiness?: MdbaseStructuredReadiness;
   connections: MdbaseConnectionInfo[];
 }
 
@@ -167,6 +170,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   private setupAssessment: CollectionSetupAssessment | null = null;
   private setupTypePackAdoptions: Record<string, Record<string, string>> | null = null;
   private verificationGeneration = 0;
+  private readinessController?: AbortController;
   private lifecycleGeneration = 0;
   private readonly operationControllers = new Set<AbortController>();
   private startOperation: {
@@ -221,6 +225,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     operation: NonNullable<MdbaseApplicationSession<Frontmatter>["startOperation"]>
   ): void {
     operation.controller.abort();
+    this.readinessController?.abort();
     this.startOperation = null;
     this.lifecycleGeneration += 1;
     this.verificationGeneration += 1;
@@ -386,6 +391,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     if (this.snapshot.status === "destroyed") return;
     this.lifecycleGeneration += 1;
     this.verificationGeneration += 1;
+    this.readinessController?.abort();
     this.startOperation?.controller.abort();
     this.startOperation = null;
     for (const controller of this.operationControllers) controller.abort();
@@ -575,6 +581,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     if (!connection) {
       return connectFailure(connectProblem("collection_not_ready", "The collection is not ready."));
     }
+    const verificationGeneration = this.verificationGeneration;
     const assessment = this.setupAssessment;
     const input = {
       ...this.collectionSetupInput(this.setupTypePackAdoptions ?? undefined),
@@ -591,6 +598,9 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
         return connectFailure(applied.problem);
       }
       return connectFailure(connectProblem("session_destroyed", lifecycleProblemMessage("session_destroyed")));
+    }
+    if (verificationGeneration !== this.verificationGeneration || this.connection() !== connection) {
+      return connectFailure(connectProblem("collection_not_ready", "The selected collection changed during setup."));
     }
     if (!applied.ok) {
       if (applied.problem.code === "application_declaration_mismatch") {
@@ -613,6 +623,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   private async refresh(awaitVerification = false, options?: ConnectRequestOptions): Promise<void> {
     if (!this.base || !this.manifest) return;
     const current = this.base.getSnapshot();
+    this.readinessController?.abort();
     this.verificationGeneration += 1;
     const generation = this.verificationGeneration;
     this.setupAssessment = null;
@@ -635,6 +646,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     }
     if (
       !context.capabilities.requiredAvailable
+      || context.readiness?.files.state === "requires_authorization"
       || !accessRequirementSatisfied(this.manifest, context.info)
     ) {
       this.publish({ status: "authorization_required", ...context });
@@ -643,11 +655,13 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     const managesSetup = (this.manifest.provisions?.type_packs.length ?? 0) > 0
       || (this.manifest.provisions?.configuration?.length ?? 0) > 0;
     if (!managesSetup) {
-      this.publish({ status: "ready", verification: "verified", ...context });
+      const verification = this.publishReady(context, generation, options);
+      if (awaitVerification) await verification;
       return;
     }
     const key = verificationKey(this.manifest, current.collectionId);
-    if (this.verificationStore.read(key) === verificationValue(this.manifest)) {
+    if (context.readiness?.contracts.state !== "checking"
+      && this.verificationStore.read(key) === verificationValue(this.manifest)) {
       this.publish({ status: "ready", verification: "cached", ...context });
     } else {
       this.publish({ status: "checking_setup", ...context });
@@ -709,7 +723,59 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       verificationKey(manifest, context.collectionId),
       verificationValue(manifest)
     );
-    this.publish({ status: "ready", verification: "verified", ...context });
+    if (context.readiness) context.readiness.setup = { state: "current", evidence: [{ source: "authority", fact: "Collection setup assessment is current." }] };
+    await this.publishReady(context, generation, options);
+  }
+
+  private async publishReady(context: ApplicationSessionContext, generation: number, options?: ConnectRequestOptions): Promise<void> {
+    const contracts = this.requireManifest().requirements?.contracts ?? [];
+    if (context.readiness && contracts.length) {
+      const connection = this.connection();
+      if (!connection || connection.collectionId !== context.collectionId) return;
+      this.publish({ status: "checking_setup", ...context });
+      const controller = new AbortController();
+      this.readinessController?.abort();
+      this.readinessController = controller;
+      const abort = () => controller.abort(options?.signal?.reason);
+      if (options?.signal?.aborted) abort();
+      else options?.signal?.addEventListener("abort", abort, { once: true });
+      try {
+        const outcome = await withRequestBudget({ ...options, signal: controller.signal }, this.timeouts.requestMs,
+          request => connection.describe(request));
+        if (generation !== this.verificationGeneration || this.connection() !== connection) return;
+        if (!outcome.ok) {
+          const authorizationRequired = ["access_denied", "collection_access_denied", "insufficient_access", "not_authorized", "authorization_expired", "application_declaration_mismatch"].includes(outcome.problem.code);
+          context.readiness.contracts = { state: authorizationRequired ? "requires_authorization" : "temporarily_unavailable", missing: [], evidence: [{ source: "runtime", fact: outcome.problem.message }] };
+          this.publish(authorizationRequired
+            ? { status: "authorization_required", ...context }
+            : { status: "blocked", problem: outcome.problem, ...context });
+          return;
+        }
+        if (outcome.value.collectionId !== context.collectionId) {
+          context.readiness.contracts = { state: "temporarily_unavailable", missing: [], evidence: [] };
+          this.publish({ status: "blocked", problem: { code: "collection_not_ready", message: "Description belongs to a different collection." }, ...context });
+          return;
+        }
+        const missing = contracts.filter(required => !outcome.value.contracts.some(actual =>
+          actual.id === required.id && actual.version === required.version && actual.digest === required.digest));
+        context.readiness.contracts = { state: missing.length ? "requires_setup" : "verified", missing,
+          evidence: [{ source: "authority", fact: "Exact contract ID, version and digest checked by live describe for this collection." }] };
+        if (missing.length) {
+          this.publish({ status: "blocked", problem: { code: "collection_not_ready", message: "The collection is missing required exact contracts." }, ...context });
+          return;
+        }
+      } catch (error) {
+        if (generation !== this.verificationGeneration || this.connection() !== connection) return;
+        if (!(error instanceof MdbaseConnectError)) throw error;
+        context.readiness.contracts = { state: "temporarily_unavailable", missing: [], evidence: [{ source: "runtime", fact: error.problem.message }] };
+        this.publish({ status: "blocked", problem: error.problem, ...context });
+        return;
+      } finally {
+        options?.signal?.removeEventListener("abort", abort);
+        if (this.readinessController === controller) this.readinessController = undefined;
+      }
+    }
+    if (generation === this.verificationGeneration) this.publish({ status: "ready", verification: "verified", ...context });
   }
 
   private collectionSetupInput(typePackAdoptions?: Record<string, Record<string, string>>) {
@@ -739,12 +805,26 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
         this.requireManifest(),
         info
       ),
+      ...(this.requireManifest().requirements?.capabilities?.contract_version === 2
+        ? { readiness: structuredReadiness(this.requireManifest(), info) } : {}),
       connections: this.connect.connections()
     };
   }
 
   private publish(snapshot: MdbaseApplicationSessionSnapshot): void {
     if (this.snapshot.status === "destroyed" && snapshot.status !== "destroyed") return;
+    if ("readiness" in snapshot && snapshot.readiness) {
+      const readiness = structuredClone(snapshot.readiness);
+      if (readiness.setup.state !== "not_required" && readiness.setup.state !== "current") {
+        readiness.setup.state = snapshot.status === "ready" ? (snapshot.verification === "cached" ? "cached" : "current")
+          : snapshot.status === "setup_review_required" ? "review_required"
+          : snapshot.status === "authorization_required" ? "requires_authorization"
+          : snapshot.status === "blocked" ? "blocked" : "checking";
+        readiness.setup.evidence = [{ source: snapshot.status === "ready" && snapshot.verification === "cached" ? "runtime" : "authority",
+          fact: `Collection setup verification: ${readiness.setup.state}.` }];
+      }
+      snapshot = { ...snapshot, readiness };
+    }
     if (JSON.stringify(this.snapshot) === JSON.stringify(snapshot)) return;
     this.snapshot = snapshot;
     for (const listener of this.listeners) listener();

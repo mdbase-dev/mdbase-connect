@@ -34,6 +34,7 @@ export type {
   MdbaseSyncConnection
 } from "./connection-types.js";
 export { effectiveCapabilities } from "./capabilities.js";
+export type { MdbaseStructuredReadiness } from "./structured-readiness.js";
 export type {
   MdbaseCapabilityState,
   MdbaseCapabilityEvidence,

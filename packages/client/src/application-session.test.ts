@@ -184,6 +184,82 @@ function connectFixture(
   };
 }
 
+describe("v2 structured readiness", () => {
+  const requiredContract = { id: "dev.example.record", version: "1.0.0", digest: `sha256:${"a".repeat(64)}` };
+  function declaration(extra = {}) {
+    return manifest({ requirements: { access: "full_collection", contracts: [], capabilities: { contract_version: 2, required: [] }, ...extra } });
+  }
+  function sessionFor(fixture: ReturnType<typeof connectFixture>) {
+    return new MdbaseApplicationSession(fixture.facade as never, { selection: new MdbaseMemorySelection() });
+  }
+  it("gates required files even without capability groups", async () => {
+    const fixture = connectFixture(declaration({ files: { required: ["read"], scope: { kind: "collection" } } }));
+    const session = sessionFor(fixture);
+    await session.start();
+    expect(session.getSnapshot()).toMatchObject({ status: "authorization_required", readiness: { files: { missingRequiredActions: ["read"] } } });
+  });
+  it.each([true, false])("requires exact file scope (matches=%s)", async matches => {
+    const fixture = connectFixture(declaration({ files: { required: ["read"], scope: { kind: "selected_folders", folders: ["assets"] } } }));
+    const info = fixture.value.info();
+    fixture.value.info = () => ({ ...info, fileCapability: { kind: "files", protocol_version: 1, actions: ["read"], scope: { kind: "selected_folders", folders: matches ? ["assets"] : ["other"] } } });
+    const session = sessionFor(fixture);
+    await session.start();
+    expect(session.getSnapshot()).toMatchObject({ status: matches ? "ready" : "authorization_required", readiness: { files: { scopeMatches: matches } } });
+  });
+  it("exposes optional file denial without blocking", async () => {
+    const fixture = connectFixture(declaration({ files: { required: [], optional: ["read"], scope: { kind: "collection" } } }));
+    const session = sessionFor(fixture);
+    await session.start();
+    expect(session.getSnapshot()).toMatchObject({ status: "ready", readiness: { files: { missingOptionalActions: ["read"] } } });
+  });
+  it.each(["missing", "wrong_digest", "wrong_version", "exact"])("checks exact contracts without provisions (%s)", async evidence => {
+    const present = evidence === "exact";
+    const fixture = connectFixture(declaration({ contracts: [requiredContract] }));
+    const describe = vi.fn(async () => connectSuccess({ collectionId, contracts: present ? [requiredContract] : evidence === "missing" ? [] : [{ ...requiredContract, ...(evidence === "wrong_version" ? { version: "2.0.0" } : { digest: `sha256:${"b".repeat(64)}` }) }] }));
+    Object.assign(fixture.value, { describe });
+    const session = sessionFor(fixture);
+    await session.start();
+    expect(describe).toHaveBeenCalledOnce();
+    expect(session.getSnapshot()).toMatchObject({ status: present ? "ready" : "blocked", readiness: { contracts: { state: present ? "verified" : "requires_setup", missing: present ? [] : [requiredContract] } } });
+  });
+  it("keeps temporary describe failure distinct from authorization", async () => {
+    const fixture = connectFixture(declaration({ contracts: [requiredContract] }));
+    Object.assign(fixture.value, { describe: async () => connectFailure(connectProblem("timeout", "Offline")) });
+    const session = sessionFor(fixture);
+    await session.start();
+    expect(session.getSnapshot()).toMatchObject({ status: "blocked", readiness: { contracts: { state: "temporarily_unavailable" } } });
+  });
+  it("cancels stale readiness when selection is cleared", async () => {
+    const fixture = connectFixture(declaration({ contracts: [requiredContract] }));
+    const gate = deferred<ReturnType<typeof connectSuccess>>();
+    let signal: AbortSignal | undefined;
+    Object.assign(fixture.value, { describe: (options: { signal: AbortSignal }) => { signal = options.signal; return gate.promise; } });
+    const selection = new MdbaseMemorySelection();
+    const session = new MdbaseApplicationSession(fixture.facade as never, { selection });
+    const started = session.start();
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    selection.select(null);
+    gate.resolve(connectSuccess({ collectionId, contracts: [requiredContract] }));
+    await started;
+    expect(signal?.aborted).toBe(true);
+    expect(session.getSnapshot().status).toBe("unselected");
+  });
+  it("preserves v1 readiness without adding v2 evidence or describe requests", async () => {
+    const fixture = connectFixture(manifest({ requirements: { access: "full_collection", contracts: [requiredContract], capabilities: { contract_version: 1, required: [] } } as never }));
+    const session = sessionFor(fixture);
+    await session.start();
+    expect(session.getSnapshot()).toMatchObject({ status: "ready", verification: "verified" });
+    expect(session.getSnapshot()).not.toHaveProperty("readiness");
+  });
+  it("does not infer notification registration from criteria", async () => {
+    const value = declaration();
+    value.notifications = { criteria: [{ id: "test" }] } as never;
+    const session = sessionFor(connectFixture(value));
+    await session.start();
+    expect(session.getSnapshot()).toMatchObject({ status: "ready", readiness: { notifications: { state: "requires_registration", registration: "unverified" } } });
+  });
+});
+
 describe("MdbaseApplicationSession", () => {
   it("coalesces concurrent and repeated starts into one owned base session", async () => {
     const fixture = connectFixture(manifest());
