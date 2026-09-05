@@ -1183,6 +1183,13 @@ schema:
   assert.equal(JSON.stringify(notificationSignals[2]).includes("private-task"), false);
   assert.equal(JSON.stringify(notificationSignals[2]).includes("timer-state-stays-hosted"), false);
   await stopProvider(notificationProvider);
+  phase("replaying historical notification SQL before current runtime recovery");
+  // SQL replay on a current schema is not predecessor-schema startup qualification.
+  // semantic_migration.rs separately exercises the genuine SQLx prefix 14 -> 16.
+  const notificationLedgerQuery = `
+    SELECT jsonb_agg(to_jsonb(m) ORDER BY version) FROM _sqlx_migrations m
+  `;
+  const notificationLedgerBefore = await postgresQuery(notificationLedgerQuery);
   await postgresQuery(`
     UPDATE hosted_provider_notification_grants
     SET grant_json = jsonb_set(
@@ -1195,9 +1202,18 @@ schema:
       '"timer.fired"'::jsonb
     )
     WHERE grant_id = '${notificationGrantId}';
-    DELETE FROM _sqlx_migrations WHERE version IN (15, 16);
     UPDATE mdbase_runtime_schema SET version = 1 WHERE singleton = TRUE;
   `);
+  for (const migration of [
+    "0015_notification_contract_versions.sql",
+    "0016_notification_event_ids.sql"
+  ]) {
+    await postgresQuery(await readFile(
+      join(repoRoot, "crates", "connect-hosted-provider", "migrations", migration),
+      "utf8"
+    ));
+  }
+  assert.equal(await postgresQuery(notificationLedgerQuery), notificationLedgerBefore);
   const upgradedNotificationProvider = await startProvider(databaseUrl, 0, masterKey, {
     MDBASE_CONNECT_CONTROL_PLANE_URL: `http://127.0.0.1:${callbackPort}`,
     MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS: "1",
@@ -1229,6 +1245,7 @@ schema:
     "2"
   );
   await stopProvider(upgradedNotificationProvider);
+  assert.equal(await postgresQuery(notificationLedgerQuery), notificationLedgerBefore);
   await new Promise((resolveClose) => notificationCallbackServer.close(resolveClose));
   notificationCallbackServer = undefined;
 

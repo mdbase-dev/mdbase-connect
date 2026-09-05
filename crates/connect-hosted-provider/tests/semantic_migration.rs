@@ -99,6 +99,73 @@ async fn migrate_through(pool: &sqlx::PgPool, version: i64) {
     migrator.run(pool).await.unwrap();
 }
 
+async fn assert_exact_migration_prefix(pool: &sqlx::PgPool, version: i64) {
+    let ledger: Vec<(i64, bool, Vec<u8>)> =
+        sqlx::query_as("SELECT version, success, checksum FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+    let migrator = sqlx::migrate!("./migrations");
+    let expected: Vec<_> = migrator
+        .iter()
+        .filter(|m| m.version <= version)
+        .map(|m| (m.version, true, m.checksum.to_vec()))
+        .collect();
+    assert_eq!(expected.len(), version as usize);
+    assert_eq!(
+        ledger, expected,
+        "complete genuine prefix and exact checksums"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn genuine_prefix_0014_to_0016_upgrades_notification_json() {
+    // Historical SQL migration evidence, not execution of a predecessor binary.
+    let database = DisposablePostgres::from_projection_env().await;
+    let pool = sqlx::PgPool::connect(database.url()).await.unwrap();
+    migrate_through(&pool, 14).await;
+    assert_exact_migration_prefix(&pool, 14).await;
+    let collection = Uuid::new_v4();
+    let grant = Uuid::new_v4();
+    sqlx::query("INSERT INTO hosted_provider_collections (id, template, spec_version, max_records, max_content_bytes, max_document_bytes, max_replicas, resource_revision, wrapped_data_key, resources_ciphertext) VALUES ($1,'mdbase','0.3.0',100,100000,10000,50,'fixture',''::bytea,''::bytea)")
+        .bind(collection).execute(&pool).await.unwrap();
+    let original = json!({
+        "grant_id": grant,
+        "collection_id": collection,
+        "notification_criteria": [
+            {"id": "task.created", "event": {"id": "mdbase.record.created", "version": 1}},
+            {"id": "task.reminder", "event": {"id": "timer.fired", "version": 1}}
+        ]
+    });
+    sqlx::query("INSERT INTO hosted_provider_notification_grants (grant_id, collection_id, grant_json) VALUES ($1,$2,$3)")
+        .bind(grant).bind(collection).bind(&original).execute(&pool).await.unwrap();
+    let read_grant = || {
+        sqlx::query_scalar::<_, Value>(
+            "SELECT grant_json FROM hosted_provider_notification_grants WHERE grant_id=$1",
+        )
+        .bind(grant)
+        .fetch_one(&pool)
+    };
+    assert_eq!(read_grant().await.unwrap(), original);
+    migrate_through(&pool, 15).await;
+    assert_exact_migration_prefix(&pool, 15).await;
+    let mut expected = original;
+    for criterion in expected["notification_criteria"].as_array_mut().unwrap() {
+        criterion["event"]["version"] = json!("1.0.0");
+    }
+    assert_eq!(read_grant().await.unwrap(), expected);
+    migrate_through(&pool, 16).await;
+    assert_exact_migration_prefix(&pool, 16).await;
+    expected["notification_criteria"][1]["event"]["id"] = json!("mdbase.runtime.timer.fired");
+    assert_eq!(read_grant().await.unwrap(), expected);
+    // Re-running the real migrator is a no-op, not a fabricated ledger replay.
+    migrate_through(&pool, 16).await;
+    assert_exact_migration_prefix(&pool, 16).await;
+    assert_eq!(read_grant().await.unwrap(), expected);
+    pool.close().await;
+}
+
 #[tokio::test]
 #[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
 async fn actual_migration_prefix_exposes_0040_interruption_and_0041_repairs_old_insert() {
