@@ -186,7 +186,12 @@ try {
     requirements: {
       contracts: [],
       access: "full_collection",
-      capabilities: { contract_version: 2, required: ["collection.read"], optional: [] }
+      // Positive prelude lifecycle: explicit predecessor intents, not v2 issuance.
+      capabilities: {
+        contract_version: 1,
+        required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"],
+        optional: []
+      }
     },
     provisions: { type_packs: [] },
     notifications: { criteria: [] }
@@ -211,13 +216,12 @@ try {
     navigate: (value) => { authorizationUrl = value; }
   });
   const authorization = consumer.authorize({
+    capabilities: manifest.requirements.capabilities.required,
     target: { kind: "collection", collectionId: collection.id }
   });
-  await waitForValue(
-    async () => authorizationUrl,
-    (value) => typeof value === "string",
-    15_000
-  );
+  // Await the SDK outcome so authorization errors are not disguised as a UI timeout.
+  assert.deepEqual(requireConnectSuccess(await authorization), { kind: "redirecting" });
+  assert.equal(typeof authorizationUrl, "string");
   await portalPage.goto(authorizationUrl);
   await portalPage
     .getByRole("heading", { name: "Docker fixture consumer" })
@@ -238,7 +242,6 @@ try {
   await portalPage.waitForURL("https://desktop-docker-e2e.example/callback**", {
     timeout: 15_000
   });
-  assert.deepEqual(requireConnectSuccess(await authorization), { kind: "redirecting" });
   const authorized = requireConnectSuccess(
     await consumer.completeAuthorization(portalPage.url())
   );
