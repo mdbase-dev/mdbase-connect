@@ -414,7 +414,7 @@ mod tests {
                 1,
                 now,
                 now + 60_000,
-                &[grant.clone()],
+                std::slice::from_ref(&grant),
             )
             .unwrap();
         assert_denied(); // Existing installation does not bypass activation.

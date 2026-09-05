@@ -149,7 +149,9 @@ fn application_declaration_migration_upgrades_existing_authority_without_inventi
     let directory = tempfile::tempdir().unwrap();
     let registry = CollectionRegistry::open(directory.path()).unwrap();
     let grant = super::super::tests::signed_test_grant(&registry, vec!["query".into()]);
-    registry.replace_grants(&[grant.clone()]).unwrap();
+    registry
+        .replace_grants(std::slice::from_ref(&grant))
+        .unwrap();
     let identity = registry.grant_mutation_identity(grant.id).unwrap();
     drop(registry);
     let connection = Connection::open(directory.path().join("authority.sqlite")).unwrap();
@@ -262,7 +264,7 @@ fn fresh_v2_upsert_denied_without_insert_archive_or_resurrection() {
             1,
             now,
             now + 60_000,
-            &[grant.clone()],
+            std::slice::from_ref(&grant),
         )
         .unwrap();
     let identity = registry.grant_mutation_identity(grant.id).unwrap();
