@@ -148,6 +148,63 @@ test("provider upgrade proves exact application replay without canonical writes"
   assert.doesNotMatch(program, /invalid_replica_token/);
 });
 
+test("provider rollback uses the verified unchanged predecessor after existing replay assertions", async () => {
+  const program = await readFile(resolve(repoRoot, "test/upgrade/provider-from-previous"), "utf8");
+  const phases = [
+    '[[ $changed_status == 409 ]]',
+    "upgrade_phase 'rolling back only the image on the migrated 0041 database'",
+    'upgrade_remove_container mdbase-provider-upgrade-candidate',
+    'upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"',
+    'start_previous_provider mdbase-provider-previous-rollback false',
+    "upgrade_phase 'registering new legacy application and mirror through predecessor HTTP'",
+    "upgrade_phase 'narrowing predecessor policy with exact retry epoch checks'",
+    'upgrade_remove_container mdbase-provider-previous-rollback',
+    "upgrade_phase 'reupgrading predecessor-written NULL metadata without normalization'",
+    'start_candidate_provider',
+    'wait_candidate_recovery',
+    "verify_synthetic_projection 'after predecessor writes and candidate reupgrade'",
+    "printf 'Immediate-predecessor persisted-state upgrade path passed."
+  ];
+  let position = -1;
+  for (const phase of phases) {
+    const next = program.indexOf(phase, position + 1);
+    assert.ok(next > position, `missing or out-of-order rollback step: ${phase}`);
+    position = next;
+  }
+  const previous = program.match(/^start_previous_provider\(\) \{\n([\s\S]*?)^\}/m)?.[1];
+  assert.match(previous, /"\$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"/);
+  assert.doesNotMatch(previous, /CANDIDATE_IMAGE|--entrypoint|--volume/);
+  assert.doesNotMatch(program, /(?:ALTER|DROP|TRUNCATE)\s+(?:TABLE|COLUMN)|(?:INSERT INTO|UPDATE|DELETE FROM)\s+_sqlx_migrations/i);
+  assert.doesNotMatch(program, /^\s*MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=/m);
+  assert.match(program, /rollback_ledger_before/);
+  assert.match(program, /rollback_receipts_before/);
+  assert.match(program, /SELECT to_jsonb\(j\) FROM hosted_provider_mutation_journal j ORDER BY replica_id, request_id/);
+  assert.match(program, /sequential image rollback\/reupgrade, NOT concurrent rolling/);
+  assert.match(program, /NOT signed candidate publication qualification/);
+  assert.match(program, /NOT evidence of safe production rollback/);
+});
+
+test("predecessor HTTP probes retain legacy binding and NULL metadata semantics", async () => {
+  const program = await readFile(resolve(repoRoot, "test/upgrade/provider-from-previous"), "utf8");
+  const body = program.match(/^rollback_application_body\(\) \{\n([\s\S]*?)^\}/m)?.[1];
+  assert.ok(body);
+  assert.doesNotMatch(body, /application_semantic_version|application_setup_evidence/);
+  assert.match(body, /allowed_types:\[\],contract_scope:\[\],full_collection:true/);
+  assert.match(body, /allowed_origin:"https:\/\/example.test",proof_public_key:null/);
+  assert.match(body, /application_declaration_id:"dev.mdbase.upgrade.rollback"/);
+  assert.match(program, /for field in application_id declaration_digest/);
+  assert.match(program, /\.error.code == "application_declaration_mismatch"/);
+  assert.match(program, /\.result.valid == true/);
+  assert.match(program, /\.application_semantic_version == \$semantics/);
+  assert.match(program, /\.application_setup_evidence == null/);
+  assert.match(program, /\.token_hash == \$token_hash/);
+  assert.match(program, /rollback_assert_policy "\$rollback_application" 1/);
+  assert.match(program, /rollback_assert_policy "\$rollback_narrowed" 2\n/);
+  assert.equal((program.match(/rollback_assert_policy "\$rollback_narrowed" 2 1/g) ?? []).length, 2);
+  assert.match(program, /UPGRADE_ROLLBACK_APPLICATION_TOKEN UPGRADE_ROLLBACK_MIRROR_TOKEN GITHUB_TOKEN/);
+  assert.match(program, /text=\$\{text:0:8192\}/);
+});
+
 test("S3 readiness fixture serves a scoped empty bucket listing", async (context) => {
   const port = await availableTcpPort();
   const child = execFile(
