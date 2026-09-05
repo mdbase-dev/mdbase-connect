@@ -86,6 +86,7 @@ export async function approvePortalAuthorization(
       application_homepage: string;
       application_project_url: string | null;
       application_icon: string | null;
+      application_declaration: unknown | null;
       requested_operations: string[];
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
@@ -107,6 +108,7 @@ export async function approvePortalAuthorization(
               a.name AS application_name,
               a.distribution, a.homepage AS application_homepage,
               a.project_url AS application_project_url, a.icon AS application_icon,
+              a.application_declaration,
               ar.requested_operations, a.requirements, a.provisions, a.notifications,
               ar.operation_transport_protocol, ar.application_agreement_public_key,
               ar.application_signing_public_key, ar.application_authorization,
@@ -324,6 +326,9 @@ export async function approvePortalAuthorization(
       created_at: new Date(inserted.rows[0].created_at).toISOString(),
       encryption,
       ...(plan.fileCapability ? { file_capability: plan.fileCapability } : {}),
+      ...(pending.application_declaration == null
+        ? {}
+        : { application_declaration: pending.application_declaration }),
       application_authorization: pending.application_authorization
     };
     await connection.query("COMMIT");
@@ -588,6 +593,7 @@ export async function approveHostedAuthorization(
   try {
     await connection.query("BEGIN");
     const authorization = await connection.query<{
+      application_declaration?: unknown;
       application_id: string;
       application_family_identity: string;
       application_manifest_digest: string;
@@ -613,6 +619,7 @@ export async function approveHostedAuthorization(
               a.name AS application_name,
               a.distribution, a.homepage AS application_homepage,
               ar.redirect_uri, ar.device_origin, ar.requested_operations,
+              a.application_declaration,
               a.requirements, a.provisions, a.notifications,
               ar.operation_transport_protocol, ar.application_agreement_public_key,
               ar.application_signing_public_key, ar.application_authorization, ar.flow,
@@ -848,7 +855,9 @@ export async function approveHostedAuthorization(
       applicationDeclarationId: declarationIdFromFamilyIdentity(
         pending.application_family_identity
       ),
-      applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`
+      applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`,
+      applicationDeclaration: pending.application_declaration,
+      applicationAuthorization: pending.application_authorization
     };
     if (retained) {
       compensateRetainedReplica = retainedReplicaPolicy.compensation(

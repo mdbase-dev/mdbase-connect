@@ -2052,6 +2052,7 @@ async fn view_mutations_carry_the_projection_binding_and_keep_readiness() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B view writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -3401,6 +3402,7 @@ async fn candidate_b_query_receipt_window_does_not_stall_long_pagination() {
             RegisterReplica {
                 replica_id: application_replica_id,
                 name: "Candidate B receipt-window reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -4833,6 +4835,7 @@ async fn candidate_b_query_receipts_evict_the_oldest_per_replica_window_entry() 
             RegisterReplica {
                 replica_id,
                 name: "Candidate B receipt budget reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -4923,6 +4926,7 @@ async fn candidate_b_corrupt_projection_envelopes_fall_back_for_collection_autho
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B integrity writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -5145,6 +5149,7 @@ schema:
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B integrity collection reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -5411,6 +5416,7 @@ async fn candidate_b_concurrent_application_writes_do_not_upgrade_replica_locks(
             RegisterReplica {
                 replica_id: writer_id,
                 name: "Candidate B concurrent writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -5752,6 +5758,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B query reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -6344,6 +6351,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B mutation writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -7202,6 +7210,7 @@ async fn candidate_b_projection_bytes_are_preflighted_before_json_transfer() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B budget reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -7261,6 +7270,7 @@ async fn candidate_b_grouping_preflights_large_keys_before_database_aggregation(
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B large-group budget reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -7620,6 +7630,7 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B TaskNotes Base mission".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -8052,6 +8063,7 @@ async fn hosted_base_skips_a_malformed_record_and_returns_readable_rows() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Malformed Base record acceptance".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -8188,6 +8200,7 @@ async fn candidate_b_exact_projected_filter_fixture(
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B exact projected filter mission".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -9513,6 +9526,7 @@ async fn candidate_b_base_candidate_prunes_fixture(
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B Base candidate scale mission".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -9953,6 +9967,7 @@ async fn register_query_application(
             RegisterReplica {
                 replica_id,
                 name: "Candidate B query application".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types,

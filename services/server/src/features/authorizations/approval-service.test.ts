@@ -112,12 +112,19 @@ describe("approveHostedAuthorization retained replica recovery", () => {
     expect(revokeReplica).not.toHaveBeenCalled();
   });
 
-  it("revokes without masking the original error when complete policy is unavailable", async () => {
+  it.each(["proof", "declaration"])("revokes without masking the original error when retained %s is unavailable", async (missing) => {
     const fixture = await retainedReplicaFixture();
-    await fixture.db.query(
-      "UPDATE grants SET application_authorization = NULL WHERE id = $1",
-      [fixture.grantId]
-    );
+    if (missing === "proof") {
+      await fixture.db.query(
+        "UPDATE grants SET application_authorization = NULL WHERE id = $1",
+        [fixture.grantId]
+      );
+    } else {
+      await fixture.db.query(
+        "UPDATE applications SET application_declaration = NULL WHERE id = $1",
+        [fixture.oldProof.binding.application_id]
+      );
+    }
     const originalError = new Error("notification policy update failed");
     const updateApplicationReplica = vi.fn().mockResolvedValue(undefined);
     const revokeReplica = vi.fn().mockRejectedValue(new Error("replica revoke failed"));
@@ -200,6 +207,8 @@ async function retainedReplicaFixture(options: {
     }
   };
 
+  const declaration = { id: "dev.mdbase.restore-test", requirements,
+    provisions: { type_packs: [], configuration: [] }, notifications: { criteria: [] } };
   await db.query(
     "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Policy owner')",
     [userId, `${userId}@example.test`]
@@ -212,16 +221,17 @@ async function retainedReplicaFixture(options: {
   await db.query(
     `INSERT INTO applications
        (id, canonical_identity, family_identity, manifest_digest, distribution,
-        name, homepage, redirect_uris, requirements, provisions, notifications)
+        name, homepage, redirect_uris, requirements, provisions, notifications, application_declaration)
      VALUES ($1, $2, $3, $4, 'portable', 'Policy app', '', '[]'::jsonb,
              $5::jsonb, '{"type_packs":[],"configuration":[]}'::jsonb,
-             '{"criteria":[]}'::jsonb)`,
+             '{"criteria":[]}'::jsonb, $6::jsonb)`,
     [
       applicationId,
       `${familyIdentity}:sha256:${manifestDigest}`,
       familyIdentity,
       manifestDigest,
-      JSON.stringify(requirements)
+      JSON.stringify(requirements),
+      JSON.stringify(declaration)
     ]
   );
   await db.query(
@@ -307,7 +317,9 @@ async function retainedReplicaFixture(options: {
       allowedOrigin: "https://old.example",
       proofPublicKey: oldProof.binding.grant_signing_public_key,
       applicationDeclarationId: "dev.mdbase.restore-test",
-      applicationDeclarationDigest: `sha256:${manifestDigest}`
+      applicationDeclarationDigest: `sha256:${manifestDigest}`,
+      applicationDeclaration: declaration,
+      applicationAuthorization: oldProof
     },
     input: {
       requestId,

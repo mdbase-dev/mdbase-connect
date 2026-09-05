@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "setup_evidence_tests.rs"]
+mod setup_evidence_tests;
+
 impl HostedProvider {
     pub async fn register_replica(
         &self,
@@ -17,6 +21,7 @@ impl HostedProvider {
         input.allowed_operations.sort();
         input.allowed_operations.dedup();
         validate_replica_capability(&input)?;
+        validate_setup_evidence_policy(collection_id, &input)?;
         let file_capability = input
             .file_capability
             .as_ref()
@@ -78,7 +83,7 @@ impl HostedProvider {
                       operation_transport_recovery_protocols,
                       file_capability, allowed_origin, proof_public_key, grant_id,
                       application_declaration_id, application_declaration_digest,
-                      token_hash, revoked_at
+                      application_setup_evidence, token_hash, revoked_at
                FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE"#,
         )
         .bind(input.replica_id)
@@ -86,7 +91,9 @@ impl HostedProvider {
         .await?
         {
             let existing_hash: Vec<u8> = existing.get("token_hash");
-            let exact_match = existing.get::<Uuid, _>("collection_id") == collection_id
+            let exact_match = existing.get::<Option<Value>, _>("application_setup_evidence")
+                == input.application_setup_evidence
+                && existing.get::<Uuid, _>("collection_id") == collection_id
                 && existing.get::<String, _>("name") == name
                 && existing.get::<String, _>("purpose") == purpose
                 && existing.get::<String, _>("mode") == mode
@@ -155,10 +162,10 @@ impl HostedProvider {
                   operation_transport_recovery_protocols,
                   file_capability, allowed_origin, proof_public_key, grant_id,
                   application_declaration_id, application_declaration_digest, token_hash,
-                  token_expires_at)
+                  token_expires_at, application_setup_evidence)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                        $13, $14, $15, $16, $17, $18,
-                       now() + ($19 * interval '1 second'))"#,
+                       now() + ($19 * interval '1 second'), $20)"#,
         )
         .bind(input.replica_id)
         .bind(collection_id)
@@ -189,6 +196,7 @@ impl HostedProvider {
         .bind(input.application_declaration_digest)
         .bind(requested_token_hash)
         .bind(to_i64(token_ttl_seconds, "replica credential lifetime")?)
+        .bind(input.application_setup_evidence)
         .execute(&mut *transaction)
         .await;
         match result {
@@ -473,7 +481,7 @@ impl HostedProvider {
         input.allowed_types.dedup();
         input.allowed_operations.sort();
         input.allowed_operations.dedup();
-        validate_replica_capability(&RegisterReplica {
+        let policy = RegisterReplica {
             replica_id,
             name: "updated application capability".to_owned(),
             purpose: ReplicaPurpose::Application,
@@ -492,9 +500,11 @@ impl HostedProvider {
             grant_id: Some(input.grant_id),
             application_declaration_id: Some(input.application_declaration_id.clone()),
             application_declaration_digest: Some(input.application_declaration_digest.clone()),
+            application_setup_evidence: input.application_setup_evidence.clone(),
             token: "unused".to_owned(),
             token_ttl_seconds: None,
-        })?;
+        };
+        validate_replica_capability(&policy)?;
         let contract_scope = serde_json::to_value(&input.contract_scope).map_err(|error| {
             ApiError::internal(format!("Contract scope could not be serialized: {error}"))
         })?;
@@ -507,6 +517,19 @@ impl HostedProvider {
                 ApiError::internal(format!("File capability could not be serialized: {error}"))
             })?;
         let mut transaction = self.pool.begin().await?;
+        let collection_id: Uuid = sqlx::query_scalar(
+            "SELECT collection_id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE",
+        )
+        .bind(replica_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "replica_not_found",
+                "Active application capability not found.",
+            )
+        })?;
+        validate_setup_evidence_policy(collection_id, &policy)?;
         reject_legacy_application_replica(&mut transaction, replica_id).await?;
         archive_application_replay_credential(&mut transaction, replica_id).await?;
         let result = sqlx::query(
@@ -525,6 +548,7 @@ impl HostedProvider {
                        OR proof_public_key IS DISTINCT FROM $12
                        OR application_declaration_id IS DISTINCT FROM $13
                        OR application_declaration_digest IS DISTINCT FROM $14
+                       OR application_setup_evidence IS DISTINCT FROM $15
                      THEN 1 ELSE 0 END,
                    mode = $2,
                    allowed_types = $3,
@@ -538,7 +562,8 @@ impl HostedProvider {
                    allowed_origin = $11,
                    proof_public_key = $12,
                    application_declaration_id = $13,
-                   application_declaration_digest = $14
+                   application_declaration_digest = $14,
+                   application_setup_evidence = $15
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL
                  AND full_collection = true
                  AND cardinality(allowed_types) = 0
@@ -564,6 +589,7 @@ impl HostedProvider {
         .bind(input.proof_public_key)
         .bind(input.application_declaration_id)
         .bind(input.application_declaration_digest)
+        .bind(input.application_setup_evidence)
         .execute(&mut *transaction)
         .await?;
         if result.rows_affected() == 0 {
@@ -634,6 +660,90 @@ impl HostedProvider {
         authorize_sync_access(&replica, required_operation, request_origin)?;
         Ok(replica)
     }
+}
+
+pub(super) fn validate_setup_evidence_policy(
+    collection_id: Uuid,
+    policy: &RegisterReplica,
+) -> ApiResult<()> {
+    let Some(evidence) = &policy.application_setup_evidence else {
+        return Ok(());
+    };
+    verified_setup_evidence(
+        collection_id,
+        policy.purpose,
+        policy.proof_public_key.as_deref(),
+        policy.application_declaration_id.as_deref(),
+        policy.application_declaration_digest.as_deref(),
+        policy.operation_transport_protocol,
+        &policy.operation_transport_recovery_protocols,
+        &policy.allowed_operations,
+        policy.file_capability.as_ref(),
+        evidence,
+    )?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn verified_setup_evidence(
+    collection_id: Uuid,
+    purpose: ReplicaPurpose,
+    public_key: Option<&str>,
+    declaration_id: Option<&str>,
+    declaration_digest: Option<&str>,
+    transport: Option<u32>,
+    recovery: &[u32],
+    operations: &[String],
+    files: Option<&FileCapability>,
+    evidence: &Value,
+) -> ApiResult<mdbase_connect_protocol::VerifiedApplicationSetupDeclaration> {
+    let deny = || {
+        ApiError::forbidden("application_declaration_mismatch", "Installed application setup evidence is missing or does not match the application policy.")
+    };
+    let proof: mdbase_connect_protocol::ApplicationAuthorizationProof = serde_json::from_value(
+        evidence
+            .get("application_authorization")
+            .cloned()
+            .ok_or_else(deny)?,
+    )
+    .map_err(|_| deny())?;
+    proof.verify().map_err(|_| deny())?;
+    let binding = &proof.binding;
+    let digest = format!("sha256:{}", binding.application_manifest_digest);
+    let files_match = match (files, binding.requested_files.as_ref()) {
+        (None, _) => true,
+        (Some(granted), Some(requested)) => {
+            granted.protocol_version == mdbase_connect_protocol::FILE_PROTOCOL_VERSION
+                && granted.kind == mdbase_connect_protocol::FileCapabilityKind::Files
+                && granted.scope == requested.scope
+                && granted
+                    .actions
+                    .iter()
+                    .all(|action| requested.actions.contains(action))
+        }
+        _ => false,
+    };
+    if purpose != ReplicaPurpose::Application
+        || public_key != Some(binding.grant_signing_public_key.as_str())
+        || declaration_id != Some(binding.application_declaration_id.as_str())
+        || declaration_digest != Some(digest.as_str())
+        || transport != Some(binding.contracts.operation_transport)
+        || recovery != binding.contracts.operation_transport_recovery
+        || binding.contracts.semantic_capabilities != 2
+        || binding.collection_id.is_some_and(|id| id != collection_id)
+        || operations
+            .iter()
+            .any(|op| !binding.requested_operations.contains(op))
+        || !files_match
+    {
+        return Err(deny());
+    }
+    mdbase_connect_protocol::verify_application_setup_declaration_v2(
+        evidence.get("application_declaration").ok_or_else(deny)?,
+        &binding.application_declaration_id,
+        &binding.application_manifest_digest,
+    )
+    .map_err(|_| deny())
 }
 
 async fn reject_legacy_application_replica(

@@ -1,0 +1,404 @@
+#![allow(dead_code, unused_imports)]
+#[path = "support/setup_evidence.rs"]
+mod fixture;
+mod support;
+#[path = "support/test_postgres.rs"]
+mod test_postgres;
+use mdbase_connect_hosted_provider::{RegisterReplica, ReplicaPurpose};
+use mdbase_connect_protocol::SyncReplicaMode;
+use serde_json::{json, Value};
+use support::FileLifecycleFixture;
+use test_postgres::DisposablePostgres;
+use uuid::Uuid;
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn setup_evidence_denials_precede_journal_and_collection_effects() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let (evidence, evidence_b, exact, key) =
+        fixture::setup_evidence_revisions(fixture.collection_id);
+    let replica_id = Uuid::new_v4();
+    let token = format!("setup-evidence-{}", Uuid::new_v4());
+    let policy = RegisterReplica {
+        replica_id,
+        name: "setup evidence".into(),
+        purpose: ReplicaPurpose::Application,
+        mode: SyncReplicaMode::ReadWrite,
+        allowed_types: vec![],
+        contract_scope: vec![],
+        full_collection: true,
+        allowed_operations: vec![
+            "assess_collection_setup".into(),
+            "apply_collection_setup".into(),
+        ],
+        operation_transport_protocol: Some(3),
+        operation_transport_recovery_protocols: vec![2],
+        file_capability: None,
+        allowed_origin: Some("null".into()),
+        proof_public_key: Some(key),
+        grant_id: Some(Uuid::new_v4()),
+        application_declaration_id: Some("dev.mdbase.fixture".into()),
+        application_declaration_digest: Some(exact["declaration_digest"].as_str().unwrap().into()),
+        application_setup_evidence: Some(evidence.clone()),
+        token: token.clone(),
+        token_ttl_seconds: None,
+    };
+    fixture
+        .provider
+        .register_replica(fixture.collection_id, policy.clone())
+        .await
+        .unwrap();
+    fixture
+        .provider
+        .register_replica(fixture.collection_id, policy.clone())
+        .await
+        .unwrap(); // idempotency
+    let update = json!({
+        "grant_id": policy.grant_id, "mode":"read_write", "full_collection":true,
+        "allowed_operations":policy.allowed_operations, "operation_transport_protocol":3,
+        "operation_transport_recovery_protocols":[2], "allowed_origin":"null", "proof_public_key":policy.proof_public_key,
+        "application_declaration_id":policy.application_declaration_id,
+        "application_declaration_digest":policy.application_declaration_digest,
+        "application_setup_evidence":evidence
+    });
+    fixture
+        .provider
+        .update_application_replica(replica_id, serde_json::from_value(update.clone()).unwrap())
+        .await
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let internal_token = "internal-setup-test-token-".repeat(2);
+    let state =
+        mdbase_connect_hosted_provider::AppState::new(fixture.provider.clone(), &internal_token)
+            .unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, mdbase_connect_hosted_provider::app(state))
+            .await
+            .unwrap()
+    });
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let client = reqwest::Client::new();
+    let url = format!("http://{address}/internal/v2/replicas/{replica_id}/policy");
+    let mut missing = update.clone();
+    missing
+        .as_object_mut()
+        .unwrap()
+        .remove("application_setup_evidence");
+    let denied = client
+        .patch(&url)
+        .bearer_auth(&internal_token)
+        .json(&missing)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), reqwest::StatusCode::FORBIDDEN);
+    let accepted = client
+        .patch(&url)
+        .bearer_auth(&internal_token)
+        .json(&update)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(accepted.status(), reqwest::StatusCode::NO_CONTENT);
+    let mut registration = update.clone();
+    registration["replica_id"] = json!(replica_id);
+    registration["name"] = json!("setup evidence");
+    registration["purpose"] = json!("application");
+    registration["token"] = json!(token);
+    let accepted = client
+        .post(format!(
+            "http://{address}/internal/v2/collections/{}/replicas",
+            fixture.collection_id
+        ))
+        .bearer_auth(&internal_token)
+        .json(&registration)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(accepted.status(), reqwest::StatusCode::CREATED);
+    server.abort();
+    let mut tampered_update = update.clone();
+    tampered_update["application_setup_evidence"]["application_authorization"]["signature"] =
+        json!("bad");
+    assert!(fixture
+        .provider
+        .update_application_replica(replica_id, serde_json::from_value(tampered_update).unwrap())
+        .await
+        .is_err());
+    let before: (i64, Vec<u8>) = sqlx::query_as(
+        "SELECT head, resources_ciphertext FROM hosted_provider_collections WHERE id=$1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let mut changed = exact.clone();
+    changed["provisions"]["configuration"][0]["value"] = json!("escalated");
+    let mut unknown = exact.clone();
+    unknown["caller_proof"] = evidence.clone();
+    let mut nested = exact.clone();
+    nested["setup"] = exact.clone();
+    let mut choice = exact.clone();
+    choice["allow_type_pack_downgrades"] = json!(["undeclared"]);
+    for input in [changed, unknown, nested, choice] {
+        for op in ["assess_collection_setup", "apply_collection_setup"] {
+            assert!(fixture
+                .provider
+                .operation(
+                    fixture.collection_id,
+                    &token,
+                    op,
+                    Uuid::new_v4(),
+                    input.clone(),
+                    Some("null")
+                )
+                .await
+                .is_err());
+        }
+    }
+    for installed in [
+        None,
+        Some(Value::Null),
+        Some({
+            let mut e = evidence.clone();
+            e["application_authorization"]["signature"] = json!("bad");
+            e
+        }),
+    ] {
+        sqlx::query(
+            "UPDATE hosted_provider_replicas SET application_setup_evidence=$2 WHERE id=$1",
+        )
+        .bind(replica_id)
+        .bind(installed)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+        for op in ["assess_collection_setup", "apply_collection_setup"] {
+            assert!(fixture
+                .provider
+                .operation(
+                    fixture.collection_id,
+                    &token,
+                    op,
+                    Uuid::new_v4(),
+                    exact.clone(),
+                    Some("null")
+                )
+                .await
+                .is_err());
+        }
+    }
+    sqlx::query("UPDATE hosted_provider_replicas SET application_setup_evidence=$2, proof_public_key=NULL WHERE id=$1")
+        .bind(replica_id).bind(evidence.clone()).execute(&fixture.pool).await.unwrap();
+    for op in ["assess_collection_setup", "apply_collection_setup"] {
+        assert!(fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                op,
+                Uuid::new_v4(),
+                exact.clone(),
+                Some("null")
+            )
+            .await
+            .is_err());
+    }
+    sqlx::query("UPDATE hosted_provider_replicas SET proof_public_key=$2 WHERE id=$1")
+        .bind(replica_id)
+        .bind(policy.proof_public_key)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let after: (i64, Vec<u8>) = sqlx::query_as(
+        "SELECT head, resources_ciphertext FROM hosted_provider_collections WHERE id=$1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(before, after);
+    let journal: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_mutation_journal WHERE replica_id=$1",
+    )
+    .bind(replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(journal, 0);
+    sqlx::query("UPDATE hosted_provider_replicas SET application_setup_evidence=$2 WHERE id=$1")
+        .bind(replica_id)
+        .bind(evidence)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let assessment = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "assess_collection_setup",
+            Uuid::new_v4(),
+            exact.clone(),
+            Some("null"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(assessment["valid"], true, "{assessment}");
+    let mut apply = exact;
+    for (input_key, result_key) in [
+        ("expected_assessment_digest", "assessment_digest"),
+        ("expected_collection_revision", "collection_revision"),
+        ("expected_provision_digest", "provision_digest"),
+    ] {
+        apply[input_key] = assessment["result"][result_key].clone();
+    }
+    let request_r = Uuid::new_v4();
+    let applied = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "apply_collection_setup",
+            request_r,
+            apply.clone(),
+            Some("null"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(applied["valid"], true, "{applied}");
+
+    // A terminal receipt belongs to the exact request, not to today's declaration.
+    // Install valid B through the real policy API, retaining grant, token, key,
+    // origin, and setup permission. B changes the authenticated manifest digest.
+    let mut update_b = update;
+    update_b["application_declaration_digest"] = json!(format!(
+        "sha256:{}",
+        evidence_b["application_authorization"]["binding"]["application_manifest_digest"]
+            .as_str()
+            .unwrap()
+    ));
+    update_b["application_setup_evidence"] = evidence_b;
+    fixture
+        .provider
+        .update_application_replica(replica_id, serde_json::from_value(update_b).unwrap())
+        .await
+        .unwrap();
+    let committed: (i64, Vec<u8>) = sqlx::query_as(
+        "SELECT head, resources_ciphertext FROM hosted_provider_collections WHERE id=$1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(
+        committed.0 > before.0,
+        "A actually committed a collection effect"
+    );
+    let replay = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "apply_collection_setup",
+            request_r,
+            apply.clone(),
+            Some("null"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        replay, applied,
+        "B must not prevent recovery of A's exact receipt"
+    );
+    let denied = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "apply_collection_setup",
+            Uuid::new_v4(),
+            apply.clone(),
+            Some("null"),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(denied.code, "application_declaration_mismatch");
+    let mut conflicting = apply.clone();
+    conflicting["provisions"]["configuration"][0]["value"] = json!("conflicting-body");
+    let denied = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "apply_collection_setup",
+            request_r,
+            conflicting.clone(),
+            Some("null"),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(denied.code, "mutation_request_conflict");
+    let journal: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_mutation_journal WHERE replica_id=$1",
+    )
+    .bind(replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(journal, 1, "denied fresh A creates no journal entry");
+
+    // Exercise production compaction instead of manufacturing a tombstone row.
+    sqlx::query("UPDATE hosted_provider_mutation_journal SET completed_at=now()-interval '181 days' WHERE replica_id=$1 AND request_id=$2")
+        .bind(replica_id).bind(request_r).execute(&fixture.pool).await.unwrap();
+    assert_eq!(
+        fixture
+            .provider
+            .compact_operation_mutations()
+            .await
+            .unwrap(),
+        1
+    );
+    for (body, expected) in [
+        (apply, "mutation_recovery_expired"),
+        (conflicting, "mutation_request_conflict"),
+    ] {
+        let denied = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "apply_collection_setup",
+                request_r,
+                body,
+                Some("null"),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(denied.code, expected);
+    }
+    let after_recovery: (i64, Vec<u8>) = sqlx::query_as(
+        "SELECT head, resources_ciphertext FROM hosted_provider_collections WHERE id=$1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        after_recovery, committed,
+        "recovery and denials create no new collection effects"
+    );
+    let journal: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_mutation_journal WHERE replica_id=$1",
+    )
+    .bind(replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        journal, 0,
+        "tombstone responses must not re-journal the request"
+    );
+}

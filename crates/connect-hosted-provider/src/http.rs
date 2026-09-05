@@ -260,6 +260,14 @@ pub fn app(state: AppState) -> Router {
             "/internal/v1/replicas/{replica_id}/policy",
             patch(update_replica_policy),
         )
+        .route(
+            "/internal/v2/collections/{collection_id}/replicas",
+            post(register_application_replica_v2),
+        )
+        .route(
+            "/internal/v2/replicas/{replica_id}/policy",
+            patch(update_application_replica_v2),
+        )
         .route("/internal/v1/replicas/{replica_id}", delete(revoke_replica))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -454,6 +462,40 @@ async fn delete_collection(
     state.authorize_internal(&headers)?;
     state.provider.delete_collection(collection_id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// Versioned write routes prevent a mixed-version fleet from silently accepting
+// evidence JSON on an older receiver which only understands the v1 policy body.
+async fn register_application_replica_v2(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<RegisterReplica>,
+) -> ApiResult<StatusCode> {
+    state.authorize_internal(&headers)?;
+    require_setup_evidence(input.application_setup_evidence.as_ref())?;
+    register_replica(State(state), headers, Path(collection_id), Json(input)).await
+}
+
+async fn update_application_replica_v2(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(replica_id): Path<Uuid>,
+    Json(input): Json<UpdateApplicationReplica>,
+) -> ApiResult<StatusCode> {
+    state.authorize_internal(&headers)?;
+    require_setup_evidence(input.application_setup_evidence.as_ref())?;
+    update_replica_policy(State(state), headers, Path(replica_id), Json(input)).await
+}
+
+fn require_setup_evidence(evidence: Option<&Value>) -> ApiResult<()> {
+    if evidence.is_none() {
+        return Err(ApiError::forbidden(
+            "application_declaration_mismatch",
+            "V2 application policies require installed setup evidence.",
+        ));
+    }
+    Ok(())
 }
 
 async fn register_replica(

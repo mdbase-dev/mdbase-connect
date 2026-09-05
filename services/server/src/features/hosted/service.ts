@@ -583,6 +583,7 @@ export async function narrowHostedGrantForUser(
     proof_public_key: string;
     application_family_identity: string;
     application_manifest_digest: string;
+    application_declaration?: unknown;
     application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
   }>(
     `SELECT g.id, g.hosted_replica_id, g.operations, g.scope, g.file_capability,
@@ -590,6 +591,7 @@ export async function narrowHostedGrantForUser(
             a.requirements, a.notifications, a.provisions,
             a.family_identity AS application_family_identity,
             a.manifest_digest AS application_manifest_digest,
+            a.application_declaration,
             replica.allowed_types
      FROM grants g
      JOIN applications a ON a.id = g.application_id
@@ -668,7 +670,9 @@ export async function narrowHostedGrantForUser(
       applicationDeclarationId: declarationIdFromFamilyIdentity(
         current.application_family_identity
       ),
-      applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`
+      applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`,
+      applicationDeclaration: current.application_declaration,
+      applicationAuthorization: current.application_authorization
     }
   );
   const updated = await options.db.query<{

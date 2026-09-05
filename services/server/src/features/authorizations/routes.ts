@@ -318,12 +318,14 @@ export function registerAuthorizationRoutes(
       application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
       application_family_identity: string;
       application_manifest_digest: string;
+      application_declaration?: unknown;
     }>(
       `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
               g.application_origin, g.proof_public_key, g.application_authorization,
               a.requirements, a.notifications, a.provisions,
               a.family_identity AS application_family_identity,
               a.manifest_digest AS application_manifest_digest,
+              a.application_declaration,
               col.connector_id,
               g.hosted_replica_id, replica.allowed_types
        FROM grants g
@@ -382,7 +384,9 @@ export function registerAuthorizationRoutes(
         applicationDeclarationId: declarationIdFromFamilyIdentity(
           current.application_family_identity
         ),
-        applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`
+        applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`,
+        applicationDeclaration: current.application_declaration,
+        applicationAuthorization: current.application_authorization
       });
     }
     const updated = await options.db.query<{ id: string; operations: string[] }>(
