@@ -192,11 +192,22 @@ v1 retirement is implied by these defaults.
 The prelude preserves migration 0039/0040 bytes and adds corrective migration
 0041 for predecessor INSERTs that omit both semantic metadata columns. Only
 SQL-NULL version with SQL-NULL evidence normalizes to legacy; JSON null is not
-absence. New writers store explicit versions. Authorization provisioning must
-remain fenced while migrating: an interrupted endpoint at 0040 still rejects
-old application INSERTs and requires forward completion before an old-writer
-rollback can be considered. Neither endpoint 0040 nor 0041 becomes an authorized
-rollback pair merely because current-schema verification passes.
+absence. New writers store explicit versions. Normal startup applies the prefix
+through 0038 outside the transaction (preserving concurrent-index migrations),
+then commits 0039–0041 in one SQLx transaction under the shared migration lock.
+PostgreSQL holds the replica-table DDL lock through 0041, excluding provisioning
+from the transient 0040 constraint. Waiting predecessor requests may time out;
+this is not a zero-interruption availability claim. A failed normal 0038 upgrade
+cannot commit an intermediate 0040 endpoint. A lost commit response still has an
+unknown 0038-or-0041 outcome and requires reinspection, not assumed rollback.
+Migration sessions must not return to a pool carrying advisory locks after
+failure or cancellation.
+
+Already-retained 0040 state still rejects old application INSERTs and requires
+exact-ledger-checked forward completion before an old-writer rollback can be
+considered. Atomic startup does not supply the no-reachable-v2 proof or signed
+predecessor/candidate qualification. Neither endpoint 0040 nor 0041 becomes an
+authorized rollback pair merely because current-schema verification passes.
 
 Operation-transport N-1 compatibility is a separate protocol concern. The
 bridge must explicitly implement both semantic contracts; advertising support

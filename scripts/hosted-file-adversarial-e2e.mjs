@@ -22,6 +22,17 @@ try {
   if (!port) throw new Error(`Could not determine PostgreSQL port from ${JSON.stringify(stdout)}`);
   await waitForPostgres();
   const databaseUrl = `postgres://mdbase:${password}@127.0.0.1:${port}/mdbase`;
+  // These ignored tests require this owned loopback database; execute them in
+  // the registered CI suite rather than relying on ordinary workspace tests.
+  for (const target of [["--lib", "atomic_runner"], ["--test", "semantic_migration"]]) {
+    await run("cargo", [
+      "test", "--locked", "-p", "mdbase-connect-hosted-provider", ...target,
+      "--", "--ignored", "--nocapture", "--test-threads=1"
+    ], {
+      MDBASE_PROJECTION_DATABASE_URL: databaseUrl,
+      MDBASE_APPROVE_DESTRUCTIVE_HOSTED_TESTS: "operation_dispatch_uuid_schema_v1"
+    });
+  }
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "operation_dispatch", "--", "--ignored", "--nocapture", "--test-threads=1"
