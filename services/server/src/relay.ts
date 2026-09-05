@@ -8,7 +8,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   CONNECT_CONTRACT_SUPPORT, CONTRACT_SETUP_CAPABILITY, CONTROL_PROTOCOL_VERSION,
-  isConnectProblem, MINIMUM_CONNECTOR_VERSION, normalizeConnectProblem,
+  isConnectProblem, normalizeConnectProblem,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
   POLICY_FRESHNESS_LEASE_CAPABILITY,
   POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION,
@@ -31,8 +31,9 @@ import {
 import type { WebSocket } from "ws";
 import { recordConnectorProtocolUsage } from "./protocol-telemetry.js";
 import {
-  CONNECTOR_UPDATE_URL, receiveRelayHello, rejectIncompatibleRelay,
-  relayCapabilityMismatch, relayContractMismatch, type RelayHello
+  CONNECTOR_UPDATE_URL, currentRelayGeneration, lockAuthorizationGeneration,
+  receiveRelayHello, recordIncompatibleRelay, rejectIncompatibleRelay, rejectUnavailableRelay,
+  relayCapabilityMismatch, relayContractMismatch, relaySupportsContracts, type RelayHello
 } from "./relay-compatibility.js";
 import { grantIdFromMessage, hasPendingOperationCapacity } from "./relay-admission.js";
 import {
@@ -108,30 +109,10 @@ export class RelayHub {
         || hello.protocol_version !== CONTROL_PROTOCOL_VERSION
         || contractMismatch
         || capabilityMismatch) {
-      try {
-        if (!this.isConnected(connectorId)) {
-          await this.db.query(
-            `UPDATE connectors
-             SET connector_version = $2,
-                 last_incompatible_at = now(),
-                 incompatibility_code = $3,
-                 minimum_connector_version = $4,
-                 connector_update_url = $5
-             WHERE id = $1`,
-            [
-              connectorId,
-              hello?.connector_version ?? null,
-              contractMismatch?.code
-                ?? capabilityMismatch?.code
-                ?? "connector_upgrade_required",
-              MINIMUM_CONNECTOR_VERSION,
-              CONNECTOR_UPDATE_URL
-            ]
-          );
-        }
-      } finally {
-        rejectIncompatibleRelay(socket, contractMismatch ?? capabilityMismatch);
-      }
+      await recordIncompatibleRelay(
+        this.db, connectorId, socket, hello, contractMismatch ?? capabilityMismatch,
+        this.isConnected(connectorId)
+      );
       return;
     }
     const mode: PolicyMode = hello.capabilities.includes(POLICY_FRESHNESS_LEASE_CAPABILITY)
@@ -163,47 +144,10 @@ export class RelayHub {
     );
     const row = updated.rows[0];
     if (!row) {
-      const leaseBoundary = await this.db.query<{
-        policy_lease_negotiated_at: Date | null;
-        policy_lease_adopted_at: Date | null;
-      }>(
-        `SELECT c.policy_lease_negotiated_at, c.policy_lease_adopted_at FROM connectors c
-         JOIN users u ON u.id = c.user_id
-         WHERE c.id = $1 AND c.revoked_at IS NULL AND u.suspended_at IS NULL`,
-        [connectorId]
+      await rejectUnavailableRelay(
+        this.db, connectorId, socket, hello, mode === "legacy_ack_v0",
+        () => this.isConnected(connectorId)
       );
-      if (mode === "legacy_ack_v0" && (
-        leaseBoundary.rows[0]?.policy_lease_negotiated_at
-        || leaseBoundary.rows[0]?.policy_lease_adopted_at
-      )) {
-        if (!this.isConnected(connectorId)) {
-          await this.db.query(
-            `UPDATE connectors
-             SET connector_version = $2,
-                 last_incompatible_at = now(),
-                 incompatibility_code = 'capability_contract_incompatible',
-                 minimum_connector_version = $3,
-                 connector_update_url = $4
-             WHERE id = $1 AND revoked_at IS NULL
-               AND (policy_lease_negotiated_at IS NOT NULL
-                 OR policy_lease_adopted_at IS NOT NULL)
-               AND user_id IN (
-                 SELECT id FROM users WHERE suspended_at IS NULL
-               )`,
-            [connectorId, hello.connector_version,
-              POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION, CONNECTOR_UPDATE_URL]
-          );
-        }
-        rejectIncompatibleRelay(socket, {
-          code: "capability_contract_incompatible",
-          details: {
-            contract: "relay_capability",
-            required: [POLICY_FRESHNESS_LEASE_CAPABILITY],
-            supported: hello.capabilities,
-            peer: "connector"
-          }
-        }, POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION);
-      } else socket.close(4003, "Invalid connector credential");
       return;
     }
     const generation = String(row.relay_generation);
@@ -570,19 +514,9 @@ export class RelayHub {
     required: ConnectContractRequirements
   ): boolean {
     const session = this.connectors.get(connectorId);
-    const support = session?.ready && session.socket.readyState === 1 && !this.closed
-      ? session.contractSupport : undefined;
-    return Boolean(
-      support
-      && support.operation_transport.includes(required.operation_transport)
-      && (required.operation_transport_recovery ?? []).every((version) =>
-        support.operation_transport.includes(version))
-      && support.authorization_binding.includes(required.authorization_binding)
-      && support.semantic_capabilities.includes(required.semantic_capabilities)
-      && (required.semantic_capabilities !== 2
-        || session!.capabilities.includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY))
-      && (required.durable_mutation === undefined
-        || support.durable_mutation.includes(required.durable_mutation))
+    return relaySupportsContracts(
+      session?.ready && session.socket.readyState === 1 && !this.closed ? session : undefined,
+      required
     );
   }
 
@@ -595,29 +529,9 @@ export class RelayHub {
     connectorId: string, generation: string, required: ConnectContractRequirements,
     transaction?: DatabaseQueryable
   ): Promise<void> {
-    let current: string | null;
-    if (transaction) {
-      // Caller owns BEGIN/COMMIT. Match account/inventory lock order: user,
-      // connector, then collection. Suspension and generation replacement must
-      // wait for publication; never acquire another pool connection here.
-      const owner = await transaction.query(
-        `SELECT id FROM users WHERE id = (SELECT user_id FROM connectors WHERE id = $1)
-           AND suspended_at IS NULL FOR UPDATE`,
-        [connectorId]
-      );
-      if (!owner.rows[0]) throw new RelayUnavailableError();
-      // Single-table FOR UPDATE is exactly FOR UPDATE OF c; keeping the
-      // already-locked user out of this query also makes lock ordering explicit.
-      const authority = await transaction.query<{ relay_generation: string | number }>(
-        `SELECT c.relay_generation FROM connectors c
-         WHERE c.id = $1 AND c.user_id = $2 AND c.revoked_at IS NULL
-         FOR UPDATE`,
-        [connectorId, owner.rows[0].id]
-      );
-      current = authority.rows[0] ? String(authority.rows[0].relay_generation) : null;
-    } else {
-      current = await this.currentGeneration(connectorId);
-    }
+    const current = transaction
+      ? await lockAuthorizationGeneration(transaction, connectorId)
+      : await this.currentGeneration(connectorId);
     if (current !== generation
         || this.authorizationAuthority(connectorId, required) !== generation) {
       throw new RelayUnavailableError();
@@ -996,14 +910,8 @@ export class RelayHub {
     });
   }
 
-  private async currentGeneration(connectorId: string): Promise<string | null> {
-    const result = await this.db.query<{ relay_generation: string | number }>(
-      `SELECT c.relay_generation FROM connectors c
-       JOIN users u ON u.id = c.user_id
-       WHERE c.id = $1 AND c.revoked_at IS NULL AND u.suspended_at IS NULL`,
-      [connectorId]
-    );
-    return result.rows[0] ? String(result.rows[0].relay_generation) : null;
+  private currentGeneration(connectorId: string): Promise<string | null> {
+    return currentRelayGeneration(this.db, connectorId);
   }
 
   private async requireCurrentGeneration(connectorId: string): Promise<string> {

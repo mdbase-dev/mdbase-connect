@@ -1,13 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { ApplicationRequirements } from "../../application-requirements.js";
-import { isDeepStrictEqual } from "node:util";
 import type {
   ApplicationNotifications,
   ApplicationAuthorizationProof,
   ApplicationProvisions,
   CollectionContractDescriptor,
   CollectionOperation,
-  ContractRequirement,
   ContractSetupChoice,
   FileAction,
   GrantEncryption,
@@ -42,7 +40,9 @@ import {
   contractsSatisfy,
   requiredContractsForRequirements,
   requiredTypePackProvisions,
-  requiresHostedCollection
+  requiresHostedCollection,
+  validateContractSetupChoices,
+  verifyContractSetupAcknowledgement
 } from "../grants/policy.js";
 import { syncHostedNotificationGrant } from "../grants/service.js";
 import {
@@ -524,78 +524,6 @@ async function abandonPendingAuthorizationGrant(
     throw error;
   } finally {
     connection.release();
-  }
-}
-
-function verifyContractSetupAcknowledgement(
-  requested: ContractSetupChoice[],
-  acknowledged: ContractSetupChoice[] | undefined,
-  contracts: CollectionContractDescriptor[]
-): void {
-  if (requested.length === 0) return;
-  if (!acknowledged || !isDeepStrictEqual(acknowledged, requested)) {
-    throw new RequestValidationError(
-      "The collection authority did not acknowledge the exact contract setup that was approved."
-    );
-  }
-  for (const setup of requested) {
-    const contract = contracts.find((candidate) =>
-      candidate.id === setup.contract.id
-      && candidate.version === setup.contract.version
-    );
-    if (!contract) {
-      throw new RequestValidationError(
-        `Contract setup did not provide ${setup.contract.id} ${setup.contract.version}.`
-      );
-    }
-    if (setup.mode === "starter") continue;
-    const implementation = contract.implementations.find((candidate) =>
-      candidate.type_name === setup.type_name
-      && isDeepStrictEqual(candidate.fields, setup.fields)
-      && isDeepStrictEqual(candidate.binding, setup.binding)
-    );
-    if (!implementation) {
-      throw new RequestValidationError(
-        `Contract setup did not apply the approved mapping to type '${setup.type_name}'.`
-      );
-    }
-  }
-}
-
-function validateContractSetupChoices(
-  setups: ContractSetupChoice[],
-  required: ContractRequirement[],
-  available: CollectionContractDescriptor[]
-): void {
-  const keys = new Set(setups.map(
-    (setup) => `${setup.contract.id}@${setup.contract.version}#${setup.contract.digest}`
-  ));
-  if (
-    keys.size !== setups.length
-    || setups.some((setup) => !required.some((contract) =>
-      contract.id === setup.contract.id
-        && contract.version === setup.contract.version
-        && contract.digest === setup.contract.digest
-    ))
-  ) {
-    throw new RequestValidationError(
-      "Contract setup may configure each contract required by this application only once."
-    );
-  }
-  if (setups.length === 0) return;
-  const missing = required.filter((contract) => !available.some((candidate) =>
-    candidate.id === contract.id
-      && candidate.version === contract.version
-      && candidate.digest === contract.digest
-  ));
-  if (
-    keys.size !== missing.length
-    || missing.some((contract) =>
-      !keys.has(`${contract.id}@${contract.version}#${contract.digest}`))
-  ) {
-    throw new RequestValidationError(
-      "Choose starter or existing-type setup for each missing contract only."
-    );
   }
 }
 
