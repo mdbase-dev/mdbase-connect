@@ -131,10 +131,26 @@ This is a coordinated breaking transition. Semantic capability version 1 is not
 translated because every non-trivial group would broaden at least some existing
 grants.
 
-1. Publish controlled consumers and SDKs that declare version 2.
-2. Stop creating version-1 pending authorizations and grants.
-3. Retire active version-1 grants and credentials through the existing durable
-   revocation paths.
+1. Qualify and deploy a bounded dual-acceptance bridge before converting
+   consumers. Preserve version-1 declarations, signed exact ceilings, consent,
+   and issuance without translating them to version 2. Version-dispatch schema,
+   file, proof, planning, SDK, and authority enforcement. Retain old SDK operation
+   APIs for version-1 sessions only; reject mixed-version requests. Keep bundled
+   consumers on version 1 during this phase. Acceptance, default issuance, and
+   retirement are separate policies; binary startup must not retire valid v1
+   grants. Qualify the unchanged signed predecessor client and bridge clients
+   against both predecessor and bridge infrastructure, including rollback.
+2. Publish controlled consumers and SDKs that declare version 2 only after the
+   bridge is available. Require positive server and selected-authority support
+   at approval and activation; handshake overlap alone is insufficient. Never
+   retry a failed version-2 authorization by silently downgrading to version 1.
+   After consumer availability and compatibility evidence, explicitly stop
+   creating version-1 pending authorizations and grants, with defined recovery
+   for already pending requests.
+3. In a separately approved durable migration phase, retire active version-1
+   grants and credentials through the existing durable revocation paths. Require
+   consumer adoption, authority compatibility, and rollback evidence first.
+   Image rollback does not undo credential or background-state revocation.
 4. Prompt for ordinary authorization on the next application use.
 5. Revoke grant-owned timers and notification subscriptions as part of the old
    grant's durable cleanup. Do not transfer them to a new grant identity.
@@ -146,8 +162,15 @@ grants.
 8. Remove version-1 manifest parsing, SDK aliases, consent code, fixtures, and
    migration state after the rollback and bounded policy-lease window.
 
-Operation-transport N-1 compatibility is a separate protocol concern. It does
-not justify accepting the old public capability model.
+Operation-transport N-1 compatibility is a separate protocol concern. The
+bridge must explicitly implement both semantic contracts; advertising support
+without version-specific enforcement is unsafe. Delete semantic-v1 acceptance
+only once the signed predecessor qualification no longer depends on it, active
+v1 authority and cleanup have drained, and rollback, policy-lease, cache, and
+bounded terminal-replay windows are closed. Keep historical security fixtures.
+
+Authentication-profile redesign is a separate release. This transition must
+not change identity, key ceremonies, or request-proof semantics.
 
 ## Consequences
 
@@ -173,8 +196,10 @@ The change is complete only when tests prove that:
 
 - TypeScript, JSON Schema, and Rust advertise the same capability-contract
   version and immutable expansion;
-- version-1 manifests and grants produce an explicit update/reauthorization
-  outcome and never create live authority;
+- during the bridge, version-1 manifests and exact grants retain their original
+  meaning and survive startup/restart without widening or semantic retirement;
+- after the explicit retirement phase, version-1 manifests and grants produce
+  an update/reauthorization outcome and never create live authority;
 - a capability can be approved or denied only atomically, and optional file
   actions remain independently deniable without duplicate aliases;
 - every compiled operation is inside both the signed application ceiling and
@@ -185,6 +210,9 @@ The change is complete only when tests prove that:
   changed setup payload is rejected at both data authorities;
 - SDK readiness for files, notifications, contracts, and setup no longer
   depends on removed aliases;
+- removing scheduling authority cancels existing grant-owned timers even when
+  the grant identity and notification criteria remain; timer dispatch requires
+  current scheduling authority without suppressing unrelated notifications;
 - retired credentials cannot perform live work, old timers and notification
   registrations are durably cleaned up, and exact terminal mutation replay
   remains bounded where required;
