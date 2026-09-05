@@ -67,3 +67,50 @@ bytes; these counts do not qualify any new rollback endpoint.
 - Server extraction: 463 tests passed, typecheck passed; parent reran server tests before `8a9dcb16`.
 - Rust extraction: 611 workspace tests passed, strict workspace/all-target Clippy passed, and per-file architecture checks passed before `7f60a24e`.
 - Exact-candidate CI, signed predecessor qualification, and environment acceptance must still pass. Updating reviewed counts does not waive those gates.
+
+## Browser SDK size review — compatibility prelude
+
+Measured with Node 24.19.0 and each checkout's frozen dependency lock, using the
+unchanged `packages/client/scripts/build-browser.mjs` configuration:
+
+| Source | Raw bytes | Gzip bytes |
+| --- | ---: | ---: |
+| Published beta.94 source `8d1b5fb1647edcadd716d4ee671f0ba04d34fa5e` | 230,850 | 58,770 |
+| Prelude `01f74ecd7106ddcb63bdc0ef0d63f951416f9161` | 240,726 | 61,440 |
+| Source-to-source increase | 9,876 | 2,670 |
+
+The prelude has 4,096 gzip bytes and 21,418 raw bytes remaining under the hard
+ceilings. Its 7,785-byte increase over the checked-in gzip baseline is **not**
+entirely new in this change: beta.94 already exceeds that baseline by 5,115 bytes.
+The actual 2,670-byte increase still warrants review against the 2,048-byte
+per-change allowance. Both builds exceed the 57,344-byte review threshold.
+
+An in-memory esbuild build with the same options and `metafile: true` reproduces
+the exact sizes. Its largest raw output contributions to the increase are:
+
+| Input | Raw output delta |
+| --- | ---: |
+| `src/structured-readiness.ts` | +4,053 |
+| `src/application-contract.ts` | +1,835 |
+| Protocol `capabilities.js` | +1,173 |
+| `src/application-session.ts` | +985 |
+| `src/session.ts` | +974 |
+| `src/connection.ts` | +843 |
+
+These are raw minified input contributions, not independent gzip costs; gzip
+compression and minifier naming cross module boundaries. The new readiness and
+application-contract code owns exact contract checks, version-aware selection,
+and independent readiness reporting. The dual capability catalog preserves
+immutable legacy semantics while reading v2; deleting it to meet the old size
+baseline would violate the compatibility boundary. The client package dependency
+manifest, browser build configuration, and bundle budget are unchanged from
+beta.94. This review retains those behaviors and does not raise any threshold or
+claim a browser latency benchmark.
+
+Reproduce each ordinary build with `pnpm install --frozen-lockfile`, then
+`pnpm --filter @mdbase-dev/connect-protocol build` and
+`pnpm --filter @mdbase-dev/connect build`, under Node 24.19.0 in separate source
+checkouts. Local evidence: `/tmp/prelude-sdk-baseline-build.log`,
+`/tmp/prelude-sdk-baseline-analysis.json`, and
+`/tmp/prelude-sdk-bundle-analysis.json`. These are source-build size measurements,
+not signed SDK artifact or downstream consumer qualification.
