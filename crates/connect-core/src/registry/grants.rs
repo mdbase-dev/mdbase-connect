@@ -1,3 +1,6 @@
+use super::scope::{
+    invalid_grant_security, parse_application_scope, validate_grant_application_authorization,
+};
 use super::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -931,28 +934,6 @@ impl CollectionRegistry {
     }
 }
 
-fn parse_application_scope(encoded: &str) -> Result<GrantScope, ConnectError> {
-    let scope = serde_json::from_str(encoded)?;
-    validate_application_scope(&scope)?;
-    Ok(scope)
-}
-
-fn validate_grant_application_authorization(grant: &GrantPolicy) -> Result<(), ConnectError> {
-    if grant.scope.access != mdbase_connect_protocol::ApplicationAccess::FullCollection
-        || !grant.scope.contracts.is_empty()
-    {
-        return Err(invalid_grant_security(
-            "application grants must use full_collection access with an empty contract set",
-        ));
-    }
-    grant.validate_application_security().map_err(|error| {
-        invalid_grant_security(format!(
-            "grant does not match its application proof: {error}"
-        ))
-    })?;
-    Ok(())
-}
-
 /// Evidence is presentation-only: absent, mismatched, or unsupported declarations
 /// do not alter cached operations. Verify signatures before using binding digests.
 fn authenticated_summary_declaration(
@@ -974,13 +955,6 @@ fn authenticated_summary_declaration(
         .ok()
         .map(|_| declaration),
     )
-}
-
-fn invalid_grant_security(message: impl Into<String>) -> ConnectError {
-    ConnectError::InvalidInput(format!(
-        "Invalid application authorization: {}",
-        message.into()
-    ))
 }
 
 pub(super) fn archive_grant_replay_material(

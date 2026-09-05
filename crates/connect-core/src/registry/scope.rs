@@ -1,5 +1,36 @@
 use super::*;
 
+pub(super) fn parse_application_scope(encoded: &str) -> Result<GrantScope, ConnectError> {
+    let scope = serde_json::from_str(encoded)?;
+    validate_application_scope(&scope)?;
+    Ok(scope)
+}
+
+pub(super) fn validate_grant_application_authorization(
+    grant: &GrantPolicy,
+) -> Result<(), ConnectError> {
+    if grant.scope.access != mdbase_connect_protocol::ApplicationAccess::FullCollection
+        || !grant.scope.contracts.is_empty()
+    {
+        return Err(invalid_grant_security(
+            "application grants must use full_collection access with an empty contract set",
+        ));
+    }
+    grant.validate_application_security().map_err(|error| {
+        invalid_grant_security(format!(
+            "grant does not match its application proof: {error}"
+        ))
+    })?;
+    Ok(())
+}
+
+pub(super) fn invalid_grant_security(message: impl Into<String>) -> ConnectError {
+    ConnectError::InvalidInput(format!(
+        "Invalid application authorization: {}",
+        message.into()
+    ))
+}
+
 pub(super) fn validate_application_scope(scope: &GrantScope) -> Result<(), ConnectError> {
     if scope.access != mdbase_connect_protocol::ApplicationAccess::FullCollection
         || !scope.contracts.is_empty()

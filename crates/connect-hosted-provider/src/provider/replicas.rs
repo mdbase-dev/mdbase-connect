@@ -823,6 +823,63 @@ pub(super) fn verified_setup_evidence(
     .map_err(|_| deny())
 }
 
+pub(super) fn validate_setup_runtime_choices(input: &Value) -> ApiResult<()> {
+    // Conversion only after exact raw declaration comparison. Unknown pack/contract
+    // choices must not be silently discarded by engine_collection_setup's filters.
+    let setup: AssessCollectionSetupInput = serde_json::from_value(input.clone())
+        .map_err(|_| collection_setup_declaration_mismatch())?;
+    let packs = &setup.provisions.type_packs;
+    let mut contracts = BTreeSet::new();
+    for choice in &setup.contract_setups {
+        if !packs
+            .iter()
+            .any(|pack| pack.provides.contains(&choice.contract))
+            || !contracts.insert((
+                &choice.contract.id,
+                &choice.contract.version,
+                &choice.contract.digest,
+            ))
+        {
+            return Err(collection_setup_declaration_mismatch());
+        }
+    }
+    for (id, targets) in &setup.type_pack_adoptions {
+        let pack = packs
+            .iter()
+            .find(|pack| &pack.manifest.id == id)
+            .ok_or_else(collection_setup_declaration_mismatch)?;
+        if targets.keys().any(|target| {
+            !pack
+                .manifest
+                .resources
+                .iter()
+                .any(|resource| &resource.target == target && resource.mode == "managed")
+        }) {
+            return Err(collection_setup_declaration_mismatch());
+        }
+    }
+    if let Some(downgrades) = input.get("allow_type_pack_downgrades") {
+        let ids: Vec<String> = serde_json::from_value(downgrades.clone())
+            .map_err(|_| collection_setup_declaration_mismatch())?;
+        if ids
+            .iter()
+            .any(|id| !packs.iter().any(|pack| &pack.manifest.id == id))
+        {
+            return Err(collection_setup_declaration_mismatch());
+        }
+    }
+    // Engine assessment/apply remain authoritative for adoption digest ownership,
+    // existing-type revision/field mappings, and the three apply CAS digests.
+    Ok(())
+}
+
+pub(super) fn collection_setup_declaration_mismatch() -> ApiError {
+    ApiError::forbidden(
+        "application_declaration_mismatch",
+        "Collection setup must exactly match the application declaration bound to this capability.",
+    )
+}
+
 async fn reject_legacy_application_replica(
     transaction: &mut Transaction<'_, Postgres>,
     replica_id: Uuid,
