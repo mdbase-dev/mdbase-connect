@@ -207,7 +207,7 @@ impl RuntimeNotificationService {
     }
 
     async fn cleanup_orphaned_timers(&mut self) -> mdbase_runtime::RuntimeResult<usize> {
-        let active = active_grant_ids_by_collection(&self.local_registry)?;
+        let active = timer_owner_ids_by_collection(&self.local_registry)?;
         let mut cancelled = 0;
         for collection_id in self.timer_runtime_ids() {
             cancelled += self
@@ -250,7 +250,7 @@ impl RuntimeNotificationService {
     }
 
     async fn recover(&mut self) {
-        let active = match active_grant_ids_by_collection(&self.local_registry) {
+        let active = match timer_owner_ids_by_collection(&self.local_registry) {
             Ok(active) => active,
             Err(error) => {
                 tracing::warn!(code = error.code(), %error, "notification grant cleanup lookup failed");
@@ -526,6 +526,12 @@ impl DispatchAuthorizer for LocalNotificationAuthorizer {
                 "The timer does not belong to this grant and criterion.",
             );
         }
+        if event_type == Some(TIMER_EVENT_ID) && !can_schedule_timers(&grant) {
+            return denied(
+                "notification_timer_authority_revoked",
+                "The local grant no longer authorizes scheduling timers.",
+            );
+        }
         let criterion = grant
             .notification_criteria
             .iter()
@@ -597,14 +603,23 @@ fn recoverable_runtime_ids(runtime_dir: &Path) -> HashSet<Uuid> {
     recoverable
 }
 
-fn active_grant_ids_by_collection(
+// Either exact operation can create scheduled work. Legacy grants need not hold
+// every operation in the v2 background.schedule group (list/cancel cannot schedule).
+fn can_schedule_timers(grant: &GrantSummary) -> bool {
+    grant
+        .operations
+        .iter()
+        .any(|operation| matches!(operation.as_str(), "put_timer" | "reconcile_timers"))
+}
+
+fn timer_owner_ids_by_collection(
     registry: &CollectionRegistry,
 ) -> Result<HashMap<Uuid, HashSet<Uuid>>, mdbase_runtime::RuntimeError> {
     registry
         .list_grants()
         .map(|grants| {
             let mut grouped = HashMap::<Uuid, HashSet<Uuid>>::new();
-            for grant in grants {
+            for grant in grants.into_iter().filter(can_schedule_timers) {
                 grouped
                     .entry(grant.collection_id)
                     .or_default()

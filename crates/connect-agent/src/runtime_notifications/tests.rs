@@ -155,6 +155,18 @@ fn compiled_workflows_keep_record_data_out_of_action_input() {
         encryption: None,
         file_capability: None,
     };
+    for (operations, eligible) in [
+        (vec!["put_timer"], true),
+        (vec!["reconcile_timers"], true),
+        (vec!["changes"], false),
+        (vec!["list_timers", "cancel_timer"], false),
+        (vec!["background.schedule"], false),
+        (vec![], false),
+    ] {
+        let mut candidate = grant.clone();
+        candidate.operations = operations.into_iter().map(str::to_string).collect();
+        assert_eq!(can_schedule_timers(&candidate), eligible);
+    }
     let catalog = compose_catalog(std::slice::from_ref(&grant), grant.collection_id).unwrap();
     let workflow = &catalog.admission().workflows()[0];
     let input = workflow.pointer("/steps/0/input").unwrap();
@@ -180,7 +192,7 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
     let connector_id = Uuid::new_v4();
     let connector = mdbase_connect_protocol::crypto::RelayIdentity::generate();
     let application = mdbase_connect_protocol::crypto::RelayIdentity::generate();
-    let operations = vec!["changes".to_string()];
+    let operations = vec!["changes".to_string(), "put_timer".to_string()];
     let encryption = mdbase_connect_protocol::GrantEncryption {
         protocol_version: mdbase_connect_protocol::GRANT_ENCRYPTION_PROTOCOL_VERSION,
         suite: mdbase_connect_protocol::RELAY_ENCRYPTION_SUITE.to_string(),
@@ -202,59 +214,60 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
             file_capability: None,
         },
     );
+    let policy = GrantPolicy {
+        id: grant_id,
+        application_id,
+        collection_id: collection.id,
+        operations,
+        scope: GrantScope::full_collection(),
+        application_name: "Tasks".to_string(),
+        application_distribution: "web".to_string(),
+        application_homepage: "https://tasks.example".to_string(),
+        application_project_url: None,
+        application_origin: "https://tasks.example".to_string(),
+        application_icon: None,
+        collection_name: "Private notes".to_string(),
+        notification_criteria: vec![
+            NotificationCriterion {
+                id: "task.ready".to_string(),
+                event: ContractRequirement {
+                    id: RECORD_MODIFIED_EVENT_ID.to_string(),
+                    version: "1.0.0".to_string(),
+                    digest: RECORD_MODIFIED_EVENT_DIGEST.to_string(),
+                },
+                r#if: None,
+                debounce: None,
+                minimum_interval: None,
+                presentation: NotificationPresentation {
+                    title: "A task changed".to_string(),
+                    body: None,
+                    tag: None,
+                },
+            },
+            NotificationCriterion {
+                id: "reminder.due".to_string(),
+                event: ContractRequirement {
+                    id: TIMER_EVENT_ID.to_string(),
+                    version: "1.0.0".to_string(),
+                    digest: TIMER_EVENT_DIGEST.to_string(),
+                },
+                r#if: None,
+                debounce: None,
+                minimum_interval: None,
+                presentation: NotificationPresentation {
+                    title: "A reminder is due".to_string(),
+                    body: None,
+                    tag: None,
+                },
+            },
+        ],
+        created_at: "2026-07-24T00:00:00Z".to_string(),
+        encryption: Some(encryption),
+        file_capability: None,
+        application_authorization: security.proof,
+    };
     registry
-        .replace_grants(&[GrantPolicy {
-            id: grant_id,
-            application_id,
-            collection_id: collection.id,
-            operations,
-            scope: GrantScope::full_collection(),
-            application_name: "Tasks".to_string(),
-            application_distribution: "web".to_string(),
-            application_homepage: "https://tasks.example".to_string(),
-            application_project_url: None,
-            application_origin: "https://tasks.example".to_string(),
-            application_icon: None,
-            collection_name: "Private notes".to_string(),
-            notification_criteria: vec![
-                NotificationCriterion {
-                    id: "task.ready".to_string(),
-                    event: ContractRequirement {
-                        id: RECORD_MODIFIED_EVENT_ID.to_string(),
-                        version: "1.0.0".to_string(),
-                        digest: RECORD_MODIFIED_EVENT_DIGEST.to_string(),
-                    },
-                    r#if: None,
-                    debounce: None,
-                    minimum_interval: None,
-                    presentation: NotificationPresentation {
-                        title: "A task changed".to_string(),
-                        body: None,
-                        tag: None,
-                    },
-                },
-                NotificationCriterion {
-                    id: "reminder.due".to_string(),
-                    event: ContractRequirement {
-                        id: TIMER_EVENT_ID.to_string(),
-                        version: "1.0.0".to_string(),
-                        digest: TIMER_EVENT_DIGEST.to_string(),
-                    },
-                    r#if: None,
-                    debounce: None,
-                    minimum_interval: None,
-                    presentation: NotificationPresentation {
-                        title: "A reminder is due".to_string(),
-                        body: None,
-                        tag: None,
-                    },
-                },
-            ],
-            created_at: "2026-07-24T00:00:00Z".to_string(),
-            encryption: Some(encryption),
-            file_capability: None,
-            application_authorization: security.proof,
-        }])
+        .replace_grants(std::slice::from_ref(&policy))
         .unwrap();
 
     let (signals, mut signal_rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
@@ -374,6 +387,134 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
     assert!(!encoded.contains("private-reminder"));
     assert!(!encoded.contains("timer-state-stays-local"));
 
+    // Keep the same identity and criteria, but withdraw scheduling authority.
+    // Exercise explicit policy cleanup and cold recovery, including a durable
+    // firing lease and an event admitted before the policy changed.
+    for explicit_cleanup in [true, false] {
+        service
+            .local_registry
+            .replace_grants(std::slice::from_ref(&policy))
+            .unwrap();
+        let grant = service
+            .local_registry
+            .grant_context(grant_id)
+            .unwrap()
+            .unwrap();
+        let catalog = compose_catalog(std::slice::from_ref(&grant), collection.id).unwrap();
+        for id in ["already-admitted", "firing", "pending"] {
+            perform_timer_operation(
+                service.runtime(collection.id).unwrap(), &catalog, &grant, "put_timer",
+                json!({
+                    "namespace": "narrowed",
+                    "criterion_id": "reminder.due",
+                    "timer": {
+                        "id": id,
+                        "fire_at": (chrono::Utc::now() - chrono::TimeDelta::seconds(1)).to_rfc3339(),
+                        "data": {}
+                    }
+                }),
+            ).await.unwrap();
+            if id == "already-admitted" {
+                service
+                    .runtime(collection.id)
+                    .unwrap()
+                    .fire_due_timer(catalog.admission())
+                    .await
+                    .unwrap();
+            }
+        }
+        let store =
+            SqliteRuntimeStore::open(runtime_path(&service.runtime_dir, collection.id)).unwrap();
+        assert!(store
+            .claim_due_timer(
+                "interrupted-worker",
+                chrono::Utc::now(),
+                Duration::from_secs(30)
+            )
+            .await
+            .unwrap()
+            .is_some());
+        let statuses = store.timers(&format!("connect:{grant_id}:")).await.unwrap();
+        assert!(statuses
+            .iter()
+            .any(|timer| timer.status == mdbase_runtime::TimerStatus::Firing));
+        assert!(statuses
+            .iter()
+            .any(|timer| timer.status == mdbase_runtime::TimerStatus::Scheduled));
+        drop(store);
+
+        let mut narrowed = policy.clone();
+        narrowed.operations = vec!["changes".to_string()];
+        service.local_registry.replace_grants(&[narrowed]).unwrap();
+        let retained = service
+            .local_registry
+            .grant_context(grant_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(retained.notification_criteria, policy.notification_criteria);
+        assert_eq!(retained.operations, vec!["changes".to_string()]);
+        if explicit_cleanup {
+            assert_eq!(service.cleanup_orphaned_timers().await.unwrap(), 2);
+            assert_eq!(service.cleanup_orphaned_timers().await.unwrap(), 0);
+        }
+        let runtime_dir = service.runtime_dir.clone();
+        let local_registry = service.local_registry.clone();
+        let cloud = service.cloud.clone();
+        drop(service);
+        service = RuntimeNotificationService {
+            runtime_dir,
+            local_registry,
+            cloud,
+            runtimes: HashMap::new(),
+        };
+        service.recover().await;
+        let timers = service
+            .runtime(collection.id)
+            .unwrap()
+            .timers(&format!("connect:{grant_id}:"))
+            .await
+            .unwrap();
+        assert_eq!(
+            timers
+                .iter()
+                .filter(|timer| timer.status == mdbase_runtime::TimerStatus::Cancelled)
+                .count(),
+            2
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), signal_rx.recv())
+                .await
+                .is_err(),
+            "narrowed grants must not dispatch pending, firing, or already-admitted timers"
+        );
+        // Ordinary watcher notifications still work with read-only authority.
+        service
+            .handle_event(CollectionRuntimeEvent {
+                collection_id: collection.id,
+                cursor: if explicit_cleanup { 20 } else { 21 },
+                event: mdbase::watch::WatchEvent {
+                    event_type: RECORD_MODIFIED_EVENT_ID.to_string(),
+                    sequence: if explicit_cleanup { 20 } else { 21 },
+                    occurred_at: chrono::Utc::now().to_rfc3339(),
+                    payload: json!({
+                        "path": "private/note.md", "before": {}, "after": {},
+                        "changed_fields": ["status"], "previous_revision": "a", "revision": "b",
+                        "previous_types": ["task"], "types": ["task"]
+                    }),
+                },
+            })
+            .await
+            .unwrap();
+        let signal = tokio::time::timeout(Duration::from_secs(1), signal_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(signal["criterion_id"], "task.ready");
+    }
+    service
+        .local_registry
+        .replace_grants(std::slice::from_ref(&policy))
+        .unwrap();
     let timer_grant = service
         .local_registry
         .grant_context(grant_id)
