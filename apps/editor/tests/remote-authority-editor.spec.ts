@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { OPERATION_TRANSPORT_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
+import { editorRequirements, expectEditorRegistration } from "./editor-authorization-fixture";
 
 const collectionId = "10000000-0000-4000-8000-000000000001";
 const replicaId = "20000000-0000-4000-8000-000000000002";
@@ -144,19 +145,7 @@ class RemoteAuthorityHarness {
     const request = route.request();
     const url = new URL(request.url());
     if (url.pathname === "/v1/apps/register") {
-      expect(request.postDataJSON()).toMatchObject({
-        manifest: {
-          manifest_version: 1,
-          id: "dev.mdbase.editor",
-          requirements: {
-            access: "full_collection",
-            capabilities: {
-              contract_version: 2,
-              required: ["collection.read", "records.create", "records.edit", "records.delete", "definitions.manage"]
-            }
-          }
-        }
-      });
+      expectEditorRegistration(request.postDataJSON());
       return json(route, {
         application: {
           id: "40000000-0000-4000-8000-000000000004",
@@ -164,16 +153,7 @@ class RemoteAuthorityHarness {
           manifest_digest: "0".repeat(64),
           name: "mdbase editor",
           homepage: "http://127.0.0.1:4174/",
-          requirements: {
-            contracts: [],
-            access: "full_collection",
-            capabilities: {
-              contract_version: 2,
-              required: ["collection.read", "records.create", "records.edit", "records.delete", "definitions.manage"],
-              optional: []
-            },
-            files: { required: ["list", "read"], optional: ["add"], scope: { kind: "collection" } }
-          }
+          requirements: editorRequirements
         }
       });
     }

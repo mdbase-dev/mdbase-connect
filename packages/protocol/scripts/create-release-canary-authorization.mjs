@@ -48,7 +48,9 @@ export async function createReleaseCanaryAuthorization(
     redirect_uri: redirectUri,
     state,
     code_challenge: codeChallenge,
-    contracts: authorizationContractRequirements(["describe"]),
+    // The upgrade canary registers an implicit v1 declaration. Keep its
+    // selected semantics independent of the SDK's current issuance default.
+    contracts: authorizationContractRequirements(["describe"], undefined, [], 1),
     requested_operations: ["describe"]
   };
   const signature = canonicalSignature(sign(
