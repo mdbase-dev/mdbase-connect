@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 mod application_authorization;
 mod application_capabilities_generated;
+mod application_declaration;
 mod applications;
 mod collection_operations_generated;
 mod collections;
@@ -22,6 +23,7 @@ mod sync;
 
 pub use application_authorization::*;
 pub use application_capabilities_generated::*;
+pub use application_declaration::*;
 pub use applications::*;
 pub use collection_operations_generated::*;
 pub use collections::*;
