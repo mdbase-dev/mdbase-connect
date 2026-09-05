@@ -189,6 +189,15 @@ remains intentionally blocked while legacy desktop approval remains available.
 Declaration/digest changes use ordinary registration. No consumer deployment or
 v1 retirement is implied by these defaults.
 
+The prelude preserves migration 0039/0040 bytes and adds corrective migration
+0041 for predecessor INSERTs that omit both semantic metadata columns. Only
+SQL-NULL version with SQL-NULL evidence normalizes to legacy; JSON null is not
+absence. New writers store explicit versions. Authorization provisioning must
+remain fenced while migrating: an interrupted endpoint at 0040 still rejects
+old application INSERTs and requires forward completion before an old-writer
+rollback can be considered. Neither endpoint 0040 nor 0041 becomes an authorized
+rollback pair merely because current-schema verification passes.
+
 Operation-transport N-1 compatibility is a separate protocol concern. The
 bridge must explicitly implement both semantic contracts; advertising support
 without version-specific enforcement is unsafe. Delete semantic-v1 acceptance

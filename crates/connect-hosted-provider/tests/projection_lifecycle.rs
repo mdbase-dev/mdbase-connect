@@ -182,7 +182,7 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(final_versions, (1_i64..=40).collect::<Vec<_>>());
+    assert_eq!(final_versions, (1_i64..=41).collect::<Vec<_>>());
     let runtime_columns: Vec<String> = sqlx::query_scalar(
         r#"SELECT column_name
            FROM information_schema.columns
@@ -239,7 +239,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
             .fetch_all(&fixture.pool)
             .await
             .unwrap();
-    assert_eq!(versions, (1..=40).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=41).collect::<Vec<_>>());
     let plan = fixture
         .provider
         .projection_index_plan(None, 1)
@@ -248,7 +248,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
     assert!(plan.migration_ledger_valid);
     assert!(plan.schema_valid);
     assert_eq!(plan.migration_baseline, 34);
-    assert_eq!(plan.migration_target, 40);
+    assert_eq!(plan.migration_target, 41);
 
     // Only this disposable fixture's ledger is corrupted. Save every original
     // column, including checksum bytes and timestamps; never rerun migrations
@@ -259,11 +259,11 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
         .await
         .unwrap();
     for (name, corruption) in [
-        ("missing", "DELETE FROM _sqlx_migrations WHERE version = 40"),
-        ("extra", "INSERT INTO _sqlx_migrations SELECT 41, description, installed_on, success, checksum, execution_time FROM _sqlx_migrations WHERE version = 40"),
-        ("wrong checksum", "UPDATE _sqlx_migrations SET checksum = decode('00', 'hex') WHERE version = 40"),
-        ("unsuccessful", "UPDATE _sqlx_migrations SET success = false WHERE version = 40"),
-        ("right count wrong future version", "UPDATE _sqlx_migrations SET version = 41 WHERE version = 40"),
+        ("missing", "DELETE FROM _sqlx_migrations WHERE version = 41"),
+        ("extra", "INSERT INTO _sqlx_migrations SELECT 42, description, installed_on, success, checksum, execution_time FROM _sqlx_migrations WHERE version = 41"),
+        ("wrong checksum", "UPDATE _sqlx_migrations SET checksum = decode('00', 'hex') WHERE version = 41"),
+        ("unsuccessful", "UPDATE _sqlx_migrations SET success = false WHERE version = 41"),
+        ("right count wrong future version", "UPDATE _sqlx_migrations SET version = 42 WHERE version = 41"),
         ("right count wrong legacy version", "UPDATE _sqlx_migrations SET version = 0 WHERE version = 1"),
         ("empty", "DELETE FROM _sqlx_migrations"),
     ] {
@@ -283,7 +283,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
         assert_eq!(restored, original, "exact restoration after {name}");
         let plan = result.unwrap();
         assert!(!plan.migration_ledger_valid, "accepted {name}");
-        assert_eq!(plan.migration_target, 40, "target changed for {name}");
+        assert_eq!(plan.migration_target, 41, "target changed for {name}");
         assert!(plan.schema_valid, "schema changed for {name}");
         assert!(fixture.provider.projection_index_plan(None, 1).await.unwrap().migration_ledger_valid);
     }
