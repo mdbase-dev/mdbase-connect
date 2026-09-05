@@ -204,6 +204,7 @@ export class RelayPolicySession {
 }
 
 export interface ExactPolicyAuthority {
+  declarationEvidence?: boolean;
   connectorId: string;
   generation: string;
   isStillCurrent(): boolean;
@@ -231,7 +232,8 @@ export class ExactPolicyPublisher {
       this.leaseMs,
       authority.generation,
       () => this.isOpen() && authority.isStillCurrent(),
-      this.mode
+      this.mode,
+      authority.declarationEvidence === true
     ));
     if (!message || !await observeConnectorPolicyStage(
       "generation_after_build", () => this.isCurrent(authority)

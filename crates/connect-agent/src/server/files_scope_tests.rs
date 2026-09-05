@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 fn file_grant(collection_id: Uuid, actions: Vec<FileAction>, scope: FileScope) -> GrantSummary {
     GrantSummary {
+        application_declaration: None,
         contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
         id: Uuid::now_v7(),
         application_id: Uuid::now_v7(),

@@ -4,7 +4,7 @@ use chrono::{Duration, SecondsFormat, Utc};
 use mdbase_connect_protocol::{
     application_installation_id, authorization_requires_durable_mutation,
     ApplicationAuthorizationBinding, ApplicationAuthorizationFlow, ApplicationAuthorizationProof,
-    ApplicationFileRequirement, ConnectContractRequirements, FileCapability,
+    ApplicationFileRequest, ConnectContractRequirements, FileCapability,
     APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
 };
 use p256::ecdsa::{signature::Signer, Signature, SigningKey};
@@ -63,7 +63,7 @@ pub(crate) fn application_security_with_contracts(
     } else {
         ApplicationAuthorizationFlow::AuthorizationCode
     };
-    let requested_files = file_capability.map(|capability| ApplicationFileRequirement {
+    let requested_files = file_capability.map(|capability| ApplicationFileRequest {
         actions: capability.actions.clone(),
         scope: capability.scope.clone(),
     });

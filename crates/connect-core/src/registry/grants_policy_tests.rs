@@ -1,5 +1,191 @@
 use super::*;
 
+fn declaration_evidence() -> serde_json::Value {
+    serde_json::json!({
+        "id": "dev.mdbase.fixture",
+        "requirements": {
+            "capabilities": {"contract_version": 2, "required": [], "optional": []},
+            "configuration": []
+        },
+        "provisions": {"configuration": [], "type_packs": []},
+        "unknown": {"preserve": [3, 1, 2]}
+    })
+}
+
+#[test]
+fn application_declaration_verified_summary_and_revoked_replay_roundtrip() {
+    let directory = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let mut grant = super::super::tests::signed_test_grant(&registry, vec!["query".into()]);
+    // Existing authorization-v4 test key, signing the complete Node-canonical evidence.
+    grant
+        .application_authorization
+        .binding
+        .application_manifest_digest =
+        "492822461ec05e5383dd907e65b76ac68917d2c85e8de32a65f44317a3676b67".into();
+    grant.application_authorization.signature =
+        "9U6t2UIoZEAgE65Ih49geQ5RG6tZp50ckg32wfL5u1UTyRl7OPMW1QhCb9EUOkVklAawihmnEx3mFsJy-EE9-A"
+            .into();
+    grant.application_declaration = Some(declaration_evidence());
+    registry.replace_grants(&[grant.clone()]).unwrap();
+    let identity = registry.grant_mutation_identity(grant.id).unwrap().unwrap();
+    assert_eq!(
+        registry.list_grants().unwrap()[0].application_declaration,
+        grant.application_declaration
+    );
+    drop(registry);
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    assert_eq!(
+        registry
+            .grant_context(grant.id)
+            .unwrap()
+            .unwrap()
+            .application_declaration,
+        grant.application_declaration
+    );
+    registry.replace_grants(&[]).unwrap();
+    let replay = registry
+        .grant_replay_context(grant.id, "key-1")
+        .unwrap()
+        .unwrap();
+    assert!(replay.revoked);
+    assert_eq!(
+        replay.grant.application_declaration,
+        grant.application_declaration
+    );
+    assert_eq!(replay.grant_snapshot_digest, identity.1);
+}
+
+#[test]
+fn application_declaration_cache_roundtrips_without_changing_signed_authority() {
+    let directory = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let mut grant = super::super::tests::signed_test_grant(&registry, vec!["query".into()]);
+    let evidence = declaration_evidence();
+    // These v2 fixtures exercise retained authority, not fresh local issuance.
+    registry.replace_grants(&[grant.clone()]).unwrap();
+    let identity = registry.grant_mutation_identity(grant.id).unwrap();
+    assert!(serde_json::to_value(&grant)
+        .unwrap()
+        .get("application_declaration")
+        .is_none());
+    grant.application_declaration = Some(evidence.clone());
+    registry.replace_grants(&[grant.clone()]).unwrap();
+    assert_eq!(
+        registry.grant_mutation_identity(grant.id).unwrap(),
+        identity
+    );
+    let stored: String = registry
+        .authority
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT application_declaration FROM grants WHERE id = ?1",
+            [grant.id.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&stored).unwrap(),
+        evidence
+    );
+    // Mismatched evidence stays cached, but cannot become trusted summary/setup data.
+    let summary = registry.grant_context(grant.id).unwrap().unwrap();
+    assert!(summary.application_declaration.is_none());
+    assert_eq!(summary.operations, grant.operations);
+    assert!(serde_json::to_value(summary)
+        .unwrap()
+        .get("application_declaration")
+        .is_none());
+    let connector_id = grant.encryption.as_ref().unwrap().connector_id;
+    let now = super::super::authority_store::current_time_ms();
+    registry
+        .replace_remote_grants_at_revision(
+            connector_id,
+            "with-evidence",
+            1,
+            now,
+            now + 60_000,
+            &[grant.clone()],
+        )
+        .unwrap();
+    let expected = canonical_policy_authority_digest(connector_id, &[grant.clone()]).unwrap();
+    assert_eq!(
+        registry.remote_policy_authority().unwrap().authority_digest,
+        Some(expected.clone())
+    );
+    drop(registry);
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    assert_eq!(
+        registry.remote_policy_authority().unwrap().authority_digest,
+        Some(expected)
+    );
+    assert_eq!(
+        registry.grant_mutation_identity(grant.id).unwrap(),
+        identity
+    );
+    grant.application_declaration = None;
+    registry.replace_grants(&[grant.clone()]).unwrap();
+    let stored: Option<String> = registry
+        .authority
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT application_declaration FROM grants WHERE id = ?1",
+            [grant.id.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(stored.is_none());
+    let replay = registry
+        .grant_replay_context(grant.id, "key-1")
+        .unwrap()
+        .unwrap();
+    assert!(replay.grant.application_declaration.is_none());
+}
+
+#[test]
+fn application_declaration_migration_upgrades_existing_authority_without_inventing_evidence() {
+    let directory = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let grant = super::super::tests::signed_test_grant(&registry, vec!["query".into()]);
+    registry
+        .replace_grants(std::slice::from_ref(&grant))
+        .unwrap();
+    let identity = registry.grant_mutation_identity(grant.id).unwrap();
+    drop(registry);
+    let connection = Connection::open(directory.path().join("authority.sqlite")).unwrap();
+    connection
+        .execute_batch(
+            "ALTER TABLE grants DROP COLUMN application_declaration;
+         ALTER TABLE revoked_grant_replay_material DROP COLUMN application_declaration;
+         DELETE FROM authority_schema_migrations WHERE version = 4;
+         PRAGMA user_version = 3;",
+        )
+        .unwrap();
+    drop(connection);
+    for _ in 0..2 {
+        let registry = CollectionRegistry::open(directory.path()).unwrap();
+        assert_eq!(
+            registry.grant_mutation_identity(grant.id).unwrap(),
+            identity
+        );
+        let summary = registry.grant_context(grant.id).unwrap().unwrap();
+        assert!(summary.application_declaration.is_none());
+        assert_eq!(summary.operations, grant.operations);
+    }
+}
+
+#[test]
+fn application_declaration_summary_rejects_unverified_binding() {
+    let directory = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let grant = super::super::tests::signed_test_grant(&registry, vec!["query".into()]);
+    let mut proof = grant.application_authorization;
+    proof.binding.application_manifest_digest = "0".repeat(64);
+    assert!(authenticated_summary_declaration(&proof, Some("{}")).is_err());
+}
+
 #[test]
 fn legacy_can_upgrade_to_lease_but_cannot_return_after_restart() {
     let directory = tempfile::tempdir().unwrap();
@@ -35,6 +221,134 @@ fn legacy_can_upgrade_to_lease_but_cannot_return_after_restart() {
 }
 
 #[test]
+fn fresh_v2_upsert_denied_without_insert_archive_or_resurrection() {
+    let directory = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let grant = super::super::tests::signed_test_grant(&registry, vec!["query".into()]);
+    assert_eq!(
+        grant
+            .application_authorization
+            .binding
+            .contracts
+            .semantic_capabilities,
+        2
+    );
+    grant.validate_application_security().unwrap();
+    let counts = || {
+        let connection = registry.authority.connection().unwrap();
+        connection.query_row(
+            "SELECT (SELECT count(*) FROM grants), (SELECT count(*) FROM revoked_grant_replay_material)",
+            [], |row| Ok((row.get::<_, u64>(0)?, row.get::<_, u64>(1)?)),
+        ).unwrap()
+    };
+    let denied = || {
+        assert!(
+            matches!(registry.upsert_grant(&grant), Err(ConnectError::AccessDenied(message))
+            if message.contains("issuance is unavailable") && !message.contains("unsupported"))
+        );
+    };
+    let mut invalid = grant.clone();
+    invalid.application_authorization.signature = "invalid".into();
+    assert!(matches!(
+        registry.upsert_grant(&invalid),
+        Err(ConnectError::InvalidInput(_))
+    ));
+    denied();
+    assert_eq!(counts(), (0, 0));
+    let connector_id = grant.encryption.as_ref().unwrap().connector_id;
+    let now = super::super::authority_store::current_time_ms();
+    registry
+        .replace_remote_grants_at_revision(
+            connector_id,
+            "retained-v2",
+            1,
+            now,
+            now + 60_000,
+            std::slice::from_ref(&grant),
+        )
+        .unwrap();
+    let identity = registry.grant_mutation_identity(grant.id).unwrap();
+    assert!(registry.remote_policy_authority().unwrap().fresh);
+    denied(); // An existing installation is not a completed activation retry.
+    assert_eq!(counts(), (1, 0));
+    assert_eq!(
+        registry.grant_mutation_identity(grant.id).unwrap(),
+        identity
+    );
+    registry
+        .replace_remote_grants_at_revision(connector_id, "revoked-v2", 2, now, now + 60_000, &[])
+        .unwrap();
+    assert_eq!(counts(), (0, 1));
+    denied();
+    assert_eq!(counts(), (0, 1));
+    assert!(registry.grant_context(grant.id).unwrap().is_none());
+    assert!(
+        registry
+            .grant_replay_context(grant.id, "key-1")
+            .unwrap()
+            .unwrap()
+            .revoked
+    );
+    assert!(registry
+        .replace_remote_grants_at_revision(
+            connector_id,
+            "retained-v2",
+            1,
+            now,
+            now + 60_000,
+            &[grant]
+        )
+        .is_err());
+}
+
+#[test]
+fn frozen_semantic_v1_grant_stays_exact_across_storage_and_revoked_replay() {
+    let directory = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let mut grant = super::super::tests::signed_test_grant(&registry, vec!["read".into()]);
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../connect-protocol/test-fixtures/semantic-v1-authorization-c2596a6e.json"
+    ))
+    .unwrap();
+    grant.application_authorization = serde_json::from_value(fixture.clone()).unwrap();
+    grant.validate_application_security().unwrap();
+    registry.upsert_grant(&grant).unwrap();
+    let identity = registry.grant_mutation_identity(grant.id).unwrap();
+    let mut broadened = grant.clone();
+    broadened.operations.push("read_type".into());
+    assert!(registry.upsert_grant(&broadened).is_err());
+    broadened = grant.clone();
+    broadened
+        .file_capability
+        .as_mut()
+        .unwrap()
+        .actions
+        .push(mdbase_connect_protocol::FileAction::Add);
+    assert!(registry.upsert_grant(&broadened).is_err());
+    broadened = grant.clone();
+    broadened.application_declaration = Some(declaration_evidence()); // v2 evidence / v1 proof
+    assert!(registry.upsert_grant(&broadened).is_err());
+    drop(registry);
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let summary = registry.grant_context(grant.id).unwrap().unwrap();
+    assert_eq!(summary.contracts.semantic_capabilities, 1);
+    assert_eq!(summary.operations, vec!["read"]);
+    assert_eq!(
+        registry.grant_mutation_identity(grant.id).unwrap(),
+        identity
+    );
+    registry.replace_grants(&[]).unwrap();
+    let replay = registry
+        .grant_replay_context(grant.id, "key-1")
+        .unwrap()
+        .unwrap();
+    assert!(replay.revoked);
+    assert_eq!(replay.grant.contracts.semantic_capabilities, 1);
+    assert_eq!(replay.grant.operations, vec!["read"]);
+    assert_eq!(replay.grant_snapshot_digest, identity.unwrap().1);
+}
+
+#[test]
 fn protocol_v1_fixture_round_trips_exact_grant_policy_and_digests() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../test-fixtures/protocol-v1-policy-canonical.json"
@@ -44,6 +358,11 @@ fn protocol_v1_fixture_round_trips_exact_grant_policy_and_digests() {
     let wire_body = &fixture["normalized_wire_body"];
     let mut grants: Vec<GrantPolicy> = serde_json::from_value(wire_body["grants"].clone()).unwrap();
     assert_eq!(serde_json::to_value(&grants).unwrap(), wire_body["grants"]);
+    // This fixture's wire body and digests are unchanged from c2596a6e.
+    // Verify its frozen semantic-v1 signatures, rather than replacing/resigning.
+    for grant in &grants {
+        grant.validate_application_security().unwrap();
+    }
     grants.reverse();
 
     let connector_id: Uuid = serde_json::from_value(wire_body["connector_id"].clone()).unwrap();

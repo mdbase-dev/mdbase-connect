@@ -58,29 +58,30 @@ describe("portable application manifests", () => {
         access: "full_collection",
         contracts: [],
         capabilities: {
-          contract_version: 1,
-          required: ["collection.inspect", "files.list", "files.read"]
+          contract_version: 2,
+          required: ["collection.read"]
         },
         files: {
-          actions: ["list", "read"],
+          required: ["list", "read"],
           scope: { kind: "selected_folders", folders: ["Assets", "Exports/Final"] }
         }
       }
     });
 
     expect(registered.manifest.requirements.files).toEqual({
-      actions: ["list", "read"],
+      required: ["list", "read"],
       scope: { kind: "selected_folders", folders: ["Assets", "Exports/Final"] }
     });
   });
 
   it.each([
-    { actions: [], scope: { kind: "collection" } },
-    { actions: ["read", "read"], scope: { kind: "collection" } },
-    { actions: ["read"], scope: { kind: "selected_folders", folders: ["../private"] } },
-    { actions: ["read"], scope: { kind: "selected_folders", folders: ["Assets//Raw"] } },
-    { actions: ["read"], scope: { kind: "selected_folders", folders: [".hidden"] } },
-    { actions: ["read"], scope: { kind: "selected_folders", folders: ["_types"] } }
+    { required: [], scope: { kind: "collection" } },
+    { required: ["read", "read"], scope: { kind: "collection" } },
+    { required: ["read"], optional: ["read"], scope: { kind: "collection" } },
+    { required: ["read"], scope: { kind: "selected_folders", folders: ["../private"] } },
+    { required: ["read"], scope: { kind: "selected_folders", folders: ["Assets//Raw"] } },
+    { required: ["read"], scope: { kind: "selected_folders", folders: [".hidden"] } },
+    { required: ["read"], scope: { kind: "selected_folders", folders: ["_types"] } }
   ])("rejects unsafe or ambiguous file intent %#", (files) => {
     expect(() => registerApplicationManifest({
       manifest_version: 1,

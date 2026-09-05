@@ -370,7 +370,7 @@ describe("App collection switch ownership", () => {
   });
 
   it("single-flights selected authorization for saved B, holds the transition frozen, and revalidates B authority at execution", async () => {
-    const gateway = new SwitchGateway(); gateway.bMissingCapabilities = ["records.update"];
+    const gateway = new SwitchGateway(); gateway.bMissingCapabilities = ["records.edit"];
     const user = userEvent.setup(); render(<App gateway={gateway} />);
     const body = await screen.findByRole("textbox", { name: "Note body" }); await user.type(body, " pending selected auth");
     void requestSavedSwitch(user);
@@ -380,7 +380,7 @@ describe("App collection switch ownership", () => {
     await requestSavedSwitch(user);
     expect(gateway.authorizeTargets).toEqual([{ target: "selected", selected: "b" }]);
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Alpha note");
-    act(() => gateway.emitSnapshot({ status: "ready", connection: connection("a"), connections: [connection("a"), connection("b", ["records.update"])] }));
+    act(() => gateway.emitSnapshot({ status: "ready", connection: connection("a"), connections: [connection("a"), connection("b", ["records.edit"])] }));
     expect(gateway.current).toBe("b"); expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Alpha note");
     gateway.authorizeGate.resolve(); await finishSavedSwitch(gateway);
     expect(gateway.authorizeTargets).toEqual([{ target: "selected", selected: "b" }]);

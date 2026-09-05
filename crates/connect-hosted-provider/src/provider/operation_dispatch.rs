@@ -1,5 +1,6 @@
 use super::mutation_journal::{HostedMutationClaim, HostedMutationLease};
 use super::mutation_metrics::{duplicate_replay, lease_takeover};
+use super::replicas::{collection_setup_declaration_mismatch, validate_setup_runtime_choices};
 use super::*;
 
 const OPERATION_MUTATION_DATABASE_RETRIES: usize = 3;
@@ -54,6 +55,15 @@ impl HostedProvider {
                 duplicate_replay(operation);
                 return result;
             }
+        }
+        if matches!(
+            operation,
+            "assess_collection_setup" | "apply_collection_setup"
+        ) {
+            // Exact terminal replay above cannot create new work. Authenticate
+            // current evidence before parsing or admitting any new journal entry.
+            self.authorize_collection_setup_declaration(collection_id, replica.id, &input)
+                .await?;
         }
         validate_hosted_operation_input(operation, &input)?;
         let portable_selector = matches!(
@@ -201,22 +211,6 @@ impl HostedProvider {
             | "list_views"
             | "execute_view"
             | "read_view_source" => {
-                if operation == "assess_collection_setup" {
-                    let request =
-                        serde_json::from_value::<AssessCollectionSetupInput>(input.clone())
-                            .map_err(|error| {
-                                ApiError::bad_request(
-                                    "invalid_collection_setup",
-                                    format!("The collection setup assessment is invalid: {error}"),
-                                )
-                            })?;
-                    self.authorize_collection_setup_declaration(
-                        replica.id,
-                        &request.application_id,
-                        &request.declaration_digest,
-                    )
-                    .await?;
-                }
                 let (scoped_input, selector) = match (&contract_scope, operation) {
                     (Some(scope), "query") => scope.query_input(&input).map_err(scope_error)?,
                     (Some(scope), "read") => scope.read_input(&input).map_err(scope_error)?,
@@ -383,12 +377,6 @@ impl HostedProvider {
                         )
                     },
                 )?;
-                self.authorize_collection_setup_declaration(
-                    replica.id,
-                    &request.setup.application_id,
-                    &request.setup.declaration_digest,
-                )
-                .await?;
                 self.write_collection_setup_apply_operation(
                     collection_id,
                     &request,
@@ -416,12 +404,15 @@ impl HostedProvider {
 
     async fn authorize_collection_setup_declaration(
         &self,
+        collection_id: Uuid,
         replica_id: Uuid,
-        application_id: &str,
-        declaration_digest: &str,
+        input: &Value,
     ) -> ApiResult<()> {
         let binding = sqlx::query(
-            r#"SELECT application_declaration_id, application_declaration_digest
+            r#"SELECT purpose, application_declaration_id, application_declaration_digest,
+                      application_setup_evidence, application_semantic_version, proof_public_key, allowed_operations,
+                      operation_transport_protocol, operation_transport_recovery_protocols,
+                      file_capability
                FROM hosted_provider_replicas
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
         )
@@ -431,16 +422,71 @@ impl HostedProvider {
         let Some(binding) = binding else {
             return Err(collection_setup_declaration_mismatch());
         };
-        ensure_collection_setup_declaration_binding(
+        let evidence = binding.get::<Option<Value>, _>("application_setup_evidence");
+        match super::replicas::decode_persisted_semantics(
+            &binding.get::<String, _>("purpose"),
+            binding.get("application_semantic_version"),
+            evidence.as_ref(),
+        )
+        .map_err(|_| collection_setup_declaration_mismatch())?
+        {
+            Some(1) => {
+                // Bounded predecessor semantics (c2596a6e): only ID/digest binding,
+                // not v2 authenticity or exact declaration projection guarantees.
+                return ensure_collection_setup_declaration_binding(
+                    binding
+                        .get::<Option<String>, _>("application_declaration_id")
+                        .as_deref(),
+                    binding
+                        .get::<Option<String>, _>("application_declaration_digest")
+                        .as_deref(),
+                    input
+                        .get("application_id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(collection_setup_declaration_mismatch)?,
+                    input
+                        .get("declaration_digest")
+                        .and_then(Value::as_str)
+                        .ok_or_else(collection_setup_declaration_mismatch)?,
+                );
+            }
+            Some(2) => {}
+            _ => return Err(collection_setup_declaration_mismatch()),
+        }
+        let evidence = evidence.ok_or_else(collection_setup_declaration_mismatch)?;
+        let files = binding
+            .get::<Option<Value>, _>("file_capability")
+            .map(serde_json::from_value::<FileCapability>)
+            .transpose()
+            .map_err(|_| collection_setup_declaration_mismatch())?;
+        let verified = super::replicas::verified_setup_evidence(
+            collection_id,
+            ReplicaPurpose::Application,
+            binding
+                .get::<Option<String>, _>("proof_public_key")
+                .as_deref(),
             binding
                 .get::<Option<String>, _>("application_declaration_id")
                 .as_deref(),
             binding
                 .get::<Option<String>, _>("application_declaration_digest")
                 .as_deref(),
-            application_id,
-            declaration_digest,
-        )
+            binding
+                .get::<Option<i32>, _>("operation_transport_protocol")
+                .map(|v| v as u32),
+            &binding
+                .get::<Vec<i32>, _>("operation_transport_recovery_protocols")
+                .iter()
+                .map(|v| *v as u32)
+                .collect::<Vec<_>>(),
+            &binding.get::<Vec<String>, _>("allowed_operations"),
+            files.as_ref(),
+            &evidence,
+        )?;
+        verified
+            .validate_setup_input(input)
+            .map_err(|_| collection_setup_declaration_mismatch())?;
+        validate_setup_runtime_choices(input)
     }
 
     pub(super) async fn contract_scope(
@@ -917,13 +963,6 @@ pub(super) fn ensure_collection_setup_declaration_binding(
     } else {
         Err(collection_setup_declaration_mismatch())
     }
-}
-
-fn collection_setup_declaration_mismatch() -> ApiError {
-    ApiError::forbidden(
-        "application_declaration_mismatch",
-        "Collection setup must exactly match the application declaration bound to this capability.",
-    )
 }
 
 #[cfg(test)]

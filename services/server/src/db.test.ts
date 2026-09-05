@@ -62,7 +62,8 @@ describe("database migrations", () => {
       "0024_account_deletion_consistency",
       "0025_application_reconciliation_jobs",
       "0026_connector_policy_freshness",
-      "0027_connector_policy_lease_adoption"
+      "0027_connector_policy_lease_adoption",
+      "0028_application_declaration"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -626,7 +627,8 @@ describe("database migrations", () => {
       "0024_account_deletion_consistency",
       "0025_application_reconciliation_jobs",
       "0026_connector_policy_freshness",
-      "0027_connector_policy_lease_adoption"
+      "0027_connector_policy_lease_adoption",
+      "0028_application_declaration"
     ]);
   });
 

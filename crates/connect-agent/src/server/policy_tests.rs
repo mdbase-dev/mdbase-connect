@@ -145,6 +145,23 @@ fn fixture_grant() -> (Uuid, GrantPolicy) {
     let connector_id: Uuid = serde_json::from_value(wire["connector_id"].clone()).unwrap();
     let grants: Vec<GrantPolicy> = serde_json::from_value(wire["grants"].clone()).unwrap();
     let mut grant = grants.into_iter().nth(1).unwrap();
+    let security = crate::test_support::application_security(
+        crate::test_support::TestApplicationSecurityParams {
+            application_id: grant.application_id,
+            authorization_id: Uuid::new_v4(),
+            collection_id: grant.collection_id,
+            operations: &grant.operations,
+            distribution: &grant.application_distribution,
+            grant_agreement_public_key: grant
+                .encryption
+                .as_ref()
+                .unwrap()
+                .application_agreement_public_key
+                .clone(),
+            file_capability: grant.file_capability.as_ref(),
+        },
+    );
+    grant.application_authorization = security.proof;
     grant.validate_application_security().unwrap();
     grant.scope.access = mdbase_connect_protocol::ApplicationAccess::FullCollection;
     grant.scope.contracts.clear();

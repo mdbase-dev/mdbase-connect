@@ -1,8 +1,13 @@
-import type { ConnectContractSupport } from "@mdbase-dev/connect-protocol";
+import type { ConnectContractRequirements, ConnectContractSupport } from "@mdbase-dev/connect-protocol";
+import type { DatabaseQueryable } from "./database-types.js";
+import { RelayUnavailableError } from "./relay-errors.js";
 import {
+  APPLICATION_DECLARATION_EVIDENCE_CAPABILITY,
   CONNECT_CONTRACT_SUPPORT,
   CONTROL_PROTOCOL_VERSION,
   MINIMUM_CONNECTOR_VERSION,
+  POLICY_FRESHNESS_LEASE_CAPABILITY,
+  POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION,
   RELAY_REQUIRED_CAPABILITIES
 } from "@mdbase-dev/connect-protocol";
 import type { WebSocket } from "ws";
@@ -127,6 +132,145 @@ export function rejectIncompatibleRelay(
     minimum_connector_version: minimumConnectorVersion,
     update_url: CONNECTOR_UPDATE_URL
   }), () => socket.close(INCOMPATIBLE_CLOSE_CODE, "Connector upgrade required"));
+}
+
+export function relaySupportsContracts(
+  session: { contractSupport: ConnectContractSupport; capabilities: readonly string[] } | undefined,
+  required: ConnectContractRequirements
+): boolean {
+  const support = session?.contractSupport;
+  return Boolean(
+    support
+    && support.operation_transport.includes(required.operation_transport)
+    && (required.operation_transport_recovery ?? []).every((version) =>
+      support.operation_transport.includes(version))
+    && support.authorization_binding.includes(required.authorization_binding)
+    && support.semantic_capabilities.includes(required.semantic_capabilities)
+    && (required.semantic_capabilities !== 2
+      || session!.capabilities.includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY))
+    && (required.durable_mutation === undefined
+      || support.durable_mutation.includes(required.durable_mutation))
+  );
+}
+
+export async function currentRelayGeneration(
+  db: DatabaseQueryable,
+  connectorId: string
+): Promise<string | null> {
+  const result = await db.query<{ relay_generation: string | number }>(
+    `SELECT c.relay_generation FROM connectors c
+     JOIN users u ON u.id = c.user_id
+     WHERE c.id = $1 AND c.revoked_at IS NULL AND u.suspended_at IS NULL`,
+    [connectorId]
+  );
+  return result.rows[0] ? String(result.rows[0].relay_generation) : null;
+}
+
+export async function lockAuthorizationGeneration(
+  transaction: DatabaseQueryable,
+  connectorId: string
+): Promise<string | null> {
+  // Caller owns BEGIN/COMMIT. Match account/inventory lock order: user,
+  // connector, then collection. Suspension and generation replacement must
+  // wait for publication; never acquire another pool connection here.
+  const owner = await transaction.query(
+    `SELECT id FROM users WHERE id = (SELECT user_id FROM connectors WHERE id = $1)
+       AND suspended_at IS NULL FOR UPDATE`,
+    [connectorId]
+  );
+  if (!owner.rows[0]) throw new RelayUnavailableError();
+  // Single-table FOR UPDATE is exactly FOR UPDATE OF c; keeping the
+  // already-locked user out of this query also makes lock ordering explicit.
+  const authority = await transaction.query<{ relay_generation: string | number }>(
+    `SELECT c.relay_generation FROM connectors c
+     WHERE c.id = $1 AND c.user_id = $2 AND c.revoked_at IS NULL
+     FOR UPDATE`,
+    [connectorId, owner.rows[0].id]
+  );
+  return authority.rows[0] ? String(authority.rows[0].relay_generation) : null;
+}
+
+export async function recordIncompatibleRelay(
+  db: DatabaseQueryable,
+  connectorId: string,
+  socket: WebSocket,
+  hello: RelayHello | null,
+  mismatch: RelayContractMismatch | undefined,
+  connected: boolean
+): Promise<void> {
+  try {
+    if (!connected) {
+      await db.query(
+        `UPDATE connectors
+         SET connector_version = $2,
+             last_incompatible_at = now(),
+             incompatibility_code = $3,
+             minimum_connector_version = $4,
+             connector_update_url = $5
+         WHERE id = $1`,
+        [
+          connectorId,
+          hello?.connector_version ?? null,
+          mismatch?.code ?? "connector_upgrade_required",
+          MINIMUM_CONNECTOR_VERSION,
+          CONNECTOR_UPDATE_URL
+        ]
+      );
+    }
+  } finally {
+    rejectIncompatibleRelay(socket, mismatch);
+  }
+}
+
+export async function rejectUnavailableRelay(
+  db: DatabaseQueryable,
+  connectorId: string,
+  socket: WebSocket,
+  hello: RelayHello,
+  legacyMode: boolean,
+  isConnected: () => boolean
+): Promise<void> {
+  const leaseBoundary = await db.query<{
+    policy_lease_negotiated_at: Date | null;
+    policy_lease_adopted_at: Date | null;
+  }>(
+    `SELECT c.policy_lease_negotiated_at, c.policy_lease_adopted_at FROM connectors c
+     JOIN users u ON u.id = c.user_id
+     WHERE c.id = $1 AND c.revoked_at IS NULL AND u.suspended_at IS NULL`,
+    [connectorId]
+  );
+  if (legacyMode && (
+    leaseBoundary.rows[0]?.policy_lease_negotiated_at
+    || leaseBoundary.rows[0]?.policy_lease_adopted_at
+  )) {
+    if (!isConnected()) {
+      await db.query(
+        `UPDATE connectors
+         SET connector_version = $2,
+             last_incompatible_at = now(),
+             incompatibility_code = 'capability_contract_incompatible',
+             minimum_connector_version = $3,
+             connector_update_url = $4
+         WHERE id = $1 AND revoked_at IS NULL
+           AND (policy_lease_negotiated_at IS NOT NULL
+             OR policy_lease_adopted_at IS NOT NULL)
+           AND user_id IN (
+             SELECT id FROM users WHERE suspended_at IS NULL
+           )`,
+        [connectorId, hello.connector_version,
+          POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION, CONNECTOR_UPDATE_URL]
+      );
+    }
+    rejectIncompatibleRelay(socket, {
+      code: "capability_contract_incompatible",
+      details: {
+        contract: "relay_capability",
+        required: [POLICY_FRESHNESS_LEASE_CAPABILITY],
+        supported: hello.capabilities,
+        peer: "connector"
+      }
+    }, POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION);
+  } else socket.close(4003, "Invalid connector credential");
 }
 
 export function connectorVersionAtLeast(actual: string, minimum: string): boolean {

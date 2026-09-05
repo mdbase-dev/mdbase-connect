@@ -947,6 +947,7 @@ fn applied_receipts_replay_exactly_without_changing_status_or_sequence() {
 #[test]
 fn application_capabilities_bind_operations_mode_and_origin() {
     let capability = RegisterReplica {
+        application_setup_evidence: None,
         replica_id: Uuid::new_v4(),
         name: "Tasks app".to_string(),
         purpose: ReplicaPurpose::Application,
@@ -1155,6 +1156,7 @@ fn application_capabilities_bind_operations_mode_and_origin() {
 #[test]
 fn collection_setup_assess_and_apply_require_matching_declaration_binding() {
     let mut capability = RegisterReplica {
+        application_setup_evidence: None,
         replica_id: Uuid::new_v4(),
         name: "Tasks app".to_string(),
         purpose: ReplicaPurpose::Application,
@@ -1219,6 +1221,7 @@ fn collection_setup_assess_and_apply_require_matching_declaration_binding() {
 #[test]
 fn assess_collection_setup_alone_requires_declaration_binding() {
     let capability = RegisterReplica {
+        application_setup_evidence: None,
         replica_id: Uuid::new_v4(),
         name: "Tasks app".to_string(),
         purpose: ReplicaPurpose::Application,
@@ -1323,6 +1326,7 @@ fn mirror_sync_credentials_are_not_browser_capabilities() {
 #[test]
 fn rejects_write_operations_on_read_only_application_capabilities() {
     let capability = RegisterReplica {
+        application_setup_evidence: None,
         replica_id: Uuid::new_v4(),
         name: "Tasks app".to_string(),
         purpose: ReplicaPurpose::Application,
@@ -1351,6 +1355,7 @@ fn rejects_write_operations_on_read_only_application_capabilities() {
 #[test]
 fn file_capabilities_are_independent_scoped_and_mode_checked() {
     let mut capability = RegisterReplica {
+        application_setup_evidence: None,
         replica_id: Uuid::new_v4(),
         name: "Asset viewer".to_string(),
         purpose: ReplicaPurpose::Application,

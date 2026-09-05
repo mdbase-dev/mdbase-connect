@@ -690,12 +690,15 @@ pub(crate) fn apply_policy_snapshot(
         );
     }
     if current_is_lease && sequence == current.sequence {
-        return RelayMessage::PolicyApplied {
-            protocol_version: CONTROL_PROTOCOL_VERSION,
-            request_id,
-            revision,
-            ok: true,
-            error: None,
+        return match cleanup_orphaned_timers(state) {
+            Ok(()) => RelayMessage::PolicyApplied {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id,
+                revision,
+                ok: true,
+                error: None,
+            },
+            Err(error) => rejected(request_id, revision, error.code(), error.to_string()),
         };
     }
 
@@ -713,6 +716,7 @@ pub(crate) fn apply_policy_snapshot(
         );
         drop(authority);
         drop(publications);
+        let result = result.and_then(|()| cleanup_orphaned_timers(state));
         return applied(request_id, revision, normalized_grants.len(), result);
     }
 
@@ -780,6 +784,7 @@ pub(crate) fn apply_policy_snapshot(
     drop(publications);
     state.publication_gate.changed.notify_all();
 
+    let result = result.and_then(|()| cleanup_orphaned_timers(state));
     applied(request_id, revision, normalized_grants.len(), result)
 }
 
@@ -885,7 +890,21 @@ pub(crate) fn apply_legacy_policy_snapshot(
     drop(authority);
     drop(publications);
     state.publication_gate.changed.notify_all();
+    let result = result.and_then(|()| cleanup_orphaned_timers(state));
     applied(request_id, revision, grants.len(), result)
+}
+
+fn cleanup_orphaned_timers(state: &AgentState) -> Result<(), ConnectError> {
+    let Some(runtime_timers) = &state.runtime_timers else {
+        return Ok(());
+    };
+    runtime_timers
+        .cleanup_orphaned_timers()
+        .map(|_| ())
+        .map_err(|error| ConnectError::CloudProblem {
+            code: "timer_cleanup_pending".to_string(),
+            message: format!("Grant-owned timer cleanup is pending: {error}"),
+        })
 }
 
 fn applied(

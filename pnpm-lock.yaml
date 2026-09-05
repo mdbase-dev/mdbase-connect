@@ -72,6 +72,9 @@ importers:
       '@electron-forge/maker-zip':
         specifier: ^7.11.2
         version: 7.11.2(supports-color@10.2.2)
+      '@mdbase-dev/connect-protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -247,6 +250,9 @@ importers:
       '@fontsource/azeret-mono':
         specifier: ^5.3.0
         version: 5.3.0
+      '@mdbase-dev/connect-protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui

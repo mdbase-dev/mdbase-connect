@@ -598,7 +598,8 @@ async function seed(db, hash) {
     redirect_uri: "https://relay-e2e.example/callback",
     state: "relay-e2e",
     code_challenge: randomBytes(32).toString("base64url"),
-    contracts: authorizationContractRequirements(["read", "query"]),
+    // This fixture installs a legacy grant directly, without v2 declaration evidence.
+    contracts: authorizationContractRequirements(["read", "query"], undefined, [], 1),
     requested_operations: ["read", "query"],
     collection_id: collectionId
   }, installationKey);

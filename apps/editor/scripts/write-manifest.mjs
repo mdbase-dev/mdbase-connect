@@ -23,6 +23,7 @@ await writeFile(target, `${JSON.stringify({
   requirements: {
     contracts: [],
     capabilities: {
+      // ADR 0013 phase 1: bundled releases retain the exact legacy declaration.
       contract_version: 1,
       required: [
         "collection.inspect",

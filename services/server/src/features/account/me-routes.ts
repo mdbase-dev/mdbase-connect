@@ -174,7 +174,7 @@ export function registerAccountOverviewRoute(
               a.id AS application_id,
               a.family_identity AS application_family_id,
               a.distribution, a.name AS application_name,
-              a.homepage, a.project_url, a.icon,
+              a.homepage, a.project_url, a.icon, a.requirements,
               COALESCE(col.display_name, hosted.display_name) AS collection_name,
               CASE WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
        FROM grants g

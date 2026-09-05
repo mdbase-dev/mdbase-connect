@@ -182,7 +182,7 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(final_versions, (1_i64..=38).collect::<Vec<_>>());
+    assert_eq!(final_versions, (1_i64..=41).collect::<Vec<_>>());
     let runtime_columns: Vec<String> = sqlx::query_scalar(
         r#"SELECT column_name
            FROM information_schema.columns
@@ -220,6 +220,77 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
     .await
     .unwrap();
     assert_eq!(general_projection_indexes, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let original: Value = sqlx::query_scalar(
+        "SELECT jsonb_agg(to_jsonb(m) ORDER BY version) FROM _sqlx_migrations m",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let versions: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(versions, (1..=41).collect::<Vec<_>>());
+    let plan = fixture
+        .provider
+        .projection_index_plan(None, 1)
+        .await
+        .unwrap();
+    assert!(plan.migration_ledger_valid);
+    assert!(plan.schema_valid);
+    assert_eq!(plan.migration_baseline, 34);
+    assert_eq!(plan.migration_target, 41);
+
+    // Only this disposable fixture's ledger is corrupted. Save every original
+    // column, including checksum bytes and timestamps; never rerun migrations
+    // or normalize historical checksums to repair the fixture.
+    let mut connection = fixture.pool.acquire().await.unwrap();
+    sqlx::query("CREATE TEMP TABLE indexer_original_ledger AS TABLE _sqlx_migrations")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    for (name, corruption) in [
+        ("missing", "DELETE FROM _sqlx_migrations WHERE version = 41"),
+        ("extra", "INSERT INTO _sqlx_migrations SELECT 42, description, installed_on, success, checksum, execution_time FROM _sqlx_migrations WHERE version = 41"),
+        ("wrong checksum", "UPDATE _sqlx_migrations SET checksum = decode('00', 'hex') WHERE version = 41"),
+        ("unsuccessful", "UPDATE _sqlx_migrations SET success = false WHERE version = 41"),
+        ("right count wrong future version", "UPDATE _sqlx_migrations SET version = 42 WHERE version = 41"),
+        ("right count wrong legacy version", "UPDATE _sqlx_migrations SET version = 0 WHERE version = 1"),
+        ("empty", "DELETE FROM _sqlx_migrations"),
+    ] {
+        sqlx::query(corruption).execute(&mut *connection).await.unwrap();
+        let result = fixture.provider.projection_index_plan(None, 1).await;
+        // Restore before assertions, even when verification unexpectedly fails.
+        sqlx::raw_sql("BEGIN; DELETE FROM _sqlx_migrations; INSERT INTO _sqlx_migrations SELECT * FROM indexer_original_ledger; COMMIT;")
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+        let restored: Value = sqlx::query_scalar(
+            "SELECT jsonb_agg(to_jsonb(m) ORDER BY version) FROM _sqlx_migrations m",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+        assert_eq!(restored, original, "exact restoration after {name}");
+        let plan = result.unwrap();
+        assert!(!plan.migration_ledger_valid, "accepted {name}");
+        assert_eq!(plan.migration_target, 41, "target changed for {name}");
+        assert!(plan.schema_valid, "schema changed for {name}");
+        assert!(fixture.provider.projection_index_plan(None, 1).await.unwrap().migration_ledger_valid);
+    }
+    sqlx::query("DROP TABLE indexer_original_ledger")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2052,6 +2123,7 @@ async fn view_mutations_carry_the_projection_binding_and_keep_readiness() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B view writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -3401,6 +3473,7 @@ async fn candidate_b_query_receipt_window_does_not_stall_long_pagination() {
             RegisterReplica {
                 replica_id: application_replica_id,
                 name: "Candidate B receipt-window reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -4833,6 +4906,7 @@ async fn candidate_b_query_receipts_evict_the_oldest_per_replica_window_entry() 
             RegisterReplica {
                 replica_id,
                 name: "Candidate B receipt budget reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -4923,6 +4997,7 @@ async fn candidate_b_corrupt_projection_envelopes_fall_back_for_collection_autho
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B integrity writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -5145,6 +5220,7 @@ schema:
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B integrity collection reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -5411,6 +5487,7 @@ async fn candidate_b_concurrent_application_writes_do_not_upgrade_replica_locks(
             RegisterReplica {
                 replica_id: writer_id,
                 name: "Candidate B concurrent writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -5752,6 +5829,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B query reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -6344,6 +6422,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B mutation writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -7202,6 +7281,7 @@ async fn candidate_b_projection_bytes_are_preflighted_before_json_transfer() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B budget reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -7261,6 +7341,7 @@ async fn candidate_b_grouping_preflights_large_keys_before_database_aggregation(
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B large-group budget reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -7620,6 +7701,7 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B TaskNotes Base mission".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -8052,6 +8134,7 @@ async fn hosted_base_skips_a_malformed_record_and_returns_readable_rows() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Malformed Base record acceptance".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -8188,6 +8271,7 @@ async fn candidate_b_exact_projected_filter_fixture(
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B exact projected filter mission".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -9513,6 +9597,7 @@ async fn candidate_b_base_candidate_prunes_fixture(
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B Base candidate scale mission".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -9953,6 +10038,7 @@ async fn register_query_application(
             RegisterReplica {
                 replica_id,
                 name: "Candidate B query application".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types,

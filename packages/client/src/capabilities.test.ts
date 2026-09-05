@@ -13,9 +13,9 @@ const manifest: MdbaseAppManifest = {
     access: "full_collection",
     contracts: [],
     capabilities: {
-      contract_version: 1,
-      required: ["collection.inspect"],
-      optional: ["sync.offline-replica"]
+      contract_version: 2,
+      required: ["collection.read"],
+      optional: ["offline.replica"]
     }
   }
 };
@@ -33,62 +33,42 @@ function connection(operations: string[]): MdbaseConnectionInfo {
 }
 
 describe("effectiveCapabilities", () => {
-  it("treats full-collection authorization as approval of required contracts", () => {
-    const contractManifest: MdbaseAppManifest = {
-      ...manifest,
-      requirements: {
-        access: "full_collection",
-        contracts: [{
-          id: "mdbase.workouts.exercise",
-          version: "1.0.0",
-          digest: `sha256:${"a".repeat(64)}`
-        }],
-        capabilities: {
-          contract_version: 1,
-          required: ["definitions.contracts.current"]
-        }
-      }
-    };
-
+  it("requires every internal operation in an atomic read capability", () => {
     const capabilities = effectiveCapabilities(
-      contractManifest.requirements!.capabilities!,
-      contractManifest,
+      manifest.requirements!.capabilities!,
+      manifest,
       connection(["describe"])
     );
 
-    expect(capabilities.requiredAvailable).toBe(true);
-    expect(capabilities.values["definitions.contracts.current"]).toMatchObject({
-      state: "available"
+    expect(capabilities.requiredAvailable).toBe(false);
+    expect(capabilities.values["collection.read"]).toMatchObject({
+      state: "requires_authorization",
+      missingOperations: expect.arrayContaining(["changes", "read", "query"])
     });
   });
 
   it("requires reauthorization for legacy contract-scoped grants", () => {
-    const contractManifest: MdbaseAppManifest = {
-      ...manifest,
-      requirements: {
-        access: "contract",
-        contracts: [{
-          id: "mdbase.workouts.exercise",
-          version: "1.0.0",
-          digest: `sha256:${"a".repeat(64)}`
-        }],
-        capabilities: {
-          contract_version: 1,
-          required: ["definitions.contracts.current"]
-        }
-      }
-    };
-    const scoped = connection(["describe"]);
+    const scoped = connection([
+      "describe",
+      "changes",
+      "read",
+      "query",
+      "list_views",
+      "execute_view",
+      "read_view_source",
+      "validate",
+      "read_type"
+    ]);
     scoped.scope = { access: "contract", contracts: [] };
 
     const capabilities = effectiveCapabilities(
-      contractManifest.requirements!.capabilities!,
-      contractManifest,
+      manifest.requirements!.capabilities!,
+      manifest,
       scoped
     );
 
     expect(capabilities.requiredAvailable).toBe(false);
-    expect(capabilities.values["definitions.contracts.current"]).toMatchObject({
+    expect(capabilities.values["collection.read"]).toMatchObject({
       state: "requires_authorization",
       reason: expect.stringContaining("reauthorized for the entire collection")
     });
@@ -98,10 +78,21 @@ describe("effectiveCapabilities", () => {
     const capabilities = effectiveCapabilities(
       manifest.requirements!.capabilities!,
       manifest,
-      connection(["describe", "sync"])
+      connection([
+        "describe",
+        "changes",
+        "read",
+        "query",
+        "list_views",
+        "execute_view",
+        "read_view_source",
+        "validate",
+        "read_type",
+        "sync"
+      ])
     );
 
-    expect(capabilities.values["sync.offline-replica"]).toMatchObject({
+    expect(capabilities.values["offline.replica"]).toMatchObject({
       state: "available",
       details: { durability: "device", writes: "queued", authority: "connector" }
     });
@@ -111,10 +102,20 @@ describe("effectiveCapabilities", () => {
     const capabilities = effectiveCapabilities(
       manifest.requirements!.capabilities!,
       manifest,
-      connection(["describe"])
+      connection([
+        "describe",
+        "changes",
+        "read",
+        "query",
+        "list_views",
+        "execute_view",
+        "read_view_source",
+        "validate",
+        "read_type"
+      ])
     );
 
-    expect(capabilities.values["sync.offline-replica"]).toMatchObject({
+    expect(capabilities.values["offline.replica"]).toMatchObject({
       state: "requires_authorization",
       missingOperations: ["sync"]
     });

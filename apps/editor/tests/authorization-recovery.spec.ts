@@ -1,4 +1,5 @@
 import { expect, test, type Route } from "@playwright/test";
+import { editorRequirements, expectEditorRegistration } from "./editor-authorization-fixture";
 
 const serverUrl = "https://connect.mdbase.dev";
 const manifestPath = ".well-known/mdbase-app.json";
@@ -20,12 +21,7 @@ test("recovers from a stale local grant without bypassing the connector", async 
   await page.context().route(`${serverUrl}/**`, async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/v1/apps/register") {
-      expect(route.request().postDataJSON()).toMatchObject({
-        manifest: {
-          manifest_version: 1,
-          id: "dev.mdbase.editor"
-        }
-      });
+      expectEditorRegistration(route.request().postDataJSON());
       await json(route, {
         application: {
           id: "20000000-0000-4000-8000-000000000002",
@@ -33,7 +29,7 @@ test("recovers from a stale local grant without bypassing the connector", async 
           manifest_digest: "0".repeat(64),
           name: "mdbase editor",
           homepage: "http://127.0.0.1",
-          requirements: { contracts: [], access: "full_collection" }
+          requirements: editorRequirements
         }
       });
       return;
@@ -142,8 +138,9 @@ test("recovers from a stale local grant without bypassing the connector", async 
         collectionId,
         collectionName: "Stale editor collection",
         operations: [
-          "describe", "changes", "read", "query", "validate", "create", "update",
-          "delete", "rename", "read_type", "create_type", "update_type", "apply_type_pack"
+          "describe", "changes", "read", "query", "list_views", "execute_view",
+          "read_view_source", "validate", "read_type", "create", "update", "rename",
+          "delete", "create_type", "update_type", "assess_type_pack", "apply_type_pack"
         ],
         scope: { contracts: [], access: "full_collection" },
         fileCapability: {

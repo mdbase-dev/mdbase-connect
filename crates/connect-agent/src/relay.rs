@@ -93,21 +93,30 @@ async fn connect_once(
     let Message::Text(welcome) = welcome else {
         return Err("relay returned a non-text handshake response".into());
     };
-    let usage_reporting = match serde_json::from_str::<RelayMessage>(welcome.as_ref())? {
+    let (usage_reporting, server_semantics, declaration_evidence) = match serde_json::from_str::<
+        RelayMessage,
+    >(welcome.as_ref())?
+    {
         RelayMessage::RelayWelcome {
             protocol_version,
             capabilities,
             contract_support,
             ..
         } if protocol_version == CONTROL_PROTOCOL_VERSION
-            && contract_support.supports_current()
+            && contract_support.supports_relay_baseline()
             && RELAY_REQUIRED_CAPABILITIES
                 .iter()
                 .all(|required| capabilities.iter().any(|value| value == required)) =>
         {
-            capabilities
-                .iter()
-                .any(|value| value == PROTOCOL_USAGE_REPORT_CAPABILITY)
+            (
+                capabilities
+                    .iter()
+                    .any(|value| value == PROTOCOL_USAGE_REPORT_CAPABILITY),
+                contract_support.semantic_capabilities,
+                capabilities.iter().any(|value| {
+                    value == mdbase_connect_protocol::APPLICATION_DECLARATION_EVIDENCE_CAPABILITY
+                }),
+            )
         }
         RelayMessage::RelayIncompatible { message, .. } => return Err(message.into()),
         _ => return Err("relay returned an incompatible handshake response".into()),
@@ -158,6 +167,18 @@ async fn connect_once(
                 match message? {
                     Message::Text(text) => {
                         let relay_message: RelayMessage = serde_json::from_str(text.as_ref())?;
+                        let supported_grant = |grant: &mdbase_connect_protocol::GrantPolicy| {
+                            let version = grant.application_authorization.binding.contracts.semantic_capabilities;
+                            server_semantics.contains(&version) && (version != 2 || declaration_evidence)
+                        };
+                        let supported = match &relay_message {
+                            RelayMessage::PolicySnapshot { grants, .. } => grants.iter().all(supported_grant),
+                            RelayMessage::AuthorizationActivationRequest { grant, .. } => supported_grant(grant),
+                            _ => true,
+                        };
+                        if !supported {
+                            return Err("relay attempted an unadvertised authorization contract".into());
+                        }
                         if matches!(&relay_message, RelayMessage::PolicySnapshot { .. }) {
                             // A dedicated single consumer preserves snapshot order without
                             // blocking websocket pings or reads on SQLite. Every subsequent

@@ -1,6 +1,7 @@
+import type { ApplicationRequirements } from "../../application-requirements.js";
 import type {
   ApplicationNotifications,
-  ApplicationRequirements,
+  ApplicationProvisions,
   CollectionContractDescriptor
 } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
@@ -15,7 +16,7 @@ import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
 import {
   assertCollectionSupportsOperations,
-  assertOperationsAllowedByRequirements,
+  assertOperationsAllowedByApplication,
   contractsSatisfy,
   requiredContractsForRequirements,
   requiresHostedCollection,
@@ -73,8 +74,9 @@ export function registerConnectorGrantRoutes(
       homepage: string;
       requirements: ApplicationRequirements;
       notifications: ApplicationNotifications;
+      provisions: ApplicationProvisions;
     }>(
-      "SELECT id, distribution, homepage, requirements, notifications FROM applications WHERE id = $1",
+      "SELECT id, distribution, homepage, requirements, notifications, provisions FROM applications WHERE id = $1",
       [input.application_id]
     );
     if (!application.rows[0]) {
@@ -95,9 +97,11 @@ export function registerConnectorGrantRoutes(
         "This application requires an mdbase cloud collection."
       ));
     }
-    assertOperationsAllowedByRequirements(
+    assertOperationsAllowedByApplication(
       input.operations,
-      application.rows[0].requirements
+      application.rows[0].requirements,
+      application.rows[0].notifications,
+      application.rows[0].provisions
     );
     assertCollectionSupportsOperations(
       collection.rows[0].spec_version,
@@ -127,9 +131,11 @@ export function registerConnectorGrantRoutes(
     }).parse(request.body);
     const current = await options.db.query<{
       requirements: ApplicationRequirements;
+      notifications: ApplicationNotifications;
+      provisions: ApplicationProvisions;
       spec_version: string;
     }>(
-      `SELECT a.requirements, col.spec_version FROM grants g
+      `SELECT a.requirements, a.notifications, a.provisions, col.spec_version FROM grants g
        JOIN applications a ON a.id = g.application_id
        JOIN collections col ON col.id = g.collection_id
        WHERE g.id = $1 AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
@@ -143,9 +149,11 @@ export function registerConnectorGrantRoutes(
         "Active grant not found."
       ));
     }
-    assertOperationsAllowedByRequirements(
+    assertOperationsAllowedByApplication(
       input.operations,
-      current.rows[0].requirements
+      current.rows[0].requirements,
+      current.rows[0].notifications,
+      current.rows[0].provisions
     );
     assertCollectionSupportsOperations(
       current.rows[0].spec_version,

@@ -261,7 +261,14 @@ export function CodeEditor({
     requestAnimationFrame(() => {
       if (viewRef.current !== view) return;
       if (remembered) view.scrollDOM.scrollTop = remembered.scrollTop;
-      if (autoFocus) view.focus();
+      const ownerDocument = view.dom.ownerDocument;
+      const activeElement = ownerDocument.activeElement;
+      const HTMLElement = ownerDocument.defaultView?.HTMLElement;
+      const editableOwner = HTMLElement && activeElement instanceof HTMLElement
+        && (activeElement.matches("input, textarea, select") || activeElement.isContentEditable
+          || activeElement.closest('[contenteditable]:not([contenteditable="false"])'));
+      // A lazy mount must not take typing away from another editable control.
+      if (autoFocus && (!editableOwner || view.dom.contains(activeElement))) view.focus();
     });
     return () => {
       if (documentId) rememberEditor(documentId, view, lineSeparator.current);

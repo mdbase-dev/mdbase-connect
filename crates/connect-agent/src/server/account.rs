@@ -317,6 +317,18 @@ impl AgentState {
         provisions: &mdbase_connect_protocol::ApplicationProvisions,
         contract_setups: &[ContractSetupChoice],
     ) -> Result<Vec<mdbase_connect_protocol::CollectionContractDescriptor>, ConnectError> {
+        // These legacy account-management responses carry typed declarations but
+        // no complete evidence or grant-bound proof. V2 must use authenticated
+        // activation, not provision first and discover a mismatch afterward.
+        if requirements
+            .capabilities
+            .as_ref()
+            .is_some_and(|capabilities| capabilities.contract_version == 2)
+        {
+            return Err(ConnectError::ApplicationDeclarationMismatch(
+                "Capability v2 setup requires authenticated authorization activation.".to_string(),
+            ));
+        }
         let registered = self.registry.get(collection_id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(

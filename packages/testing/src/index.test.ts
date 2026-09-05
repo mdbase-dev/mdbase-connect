@@ -107,9 +107,9 @@ describe("browser authorization fixture", () => {
           requirements: {
             contracts: [],
             capabilities: {
-              contract_version: 1,
-              required: ["collection.inspect", "records.read"],
-              optional: ["records.update"]
+              contract_version: 2,
+              required: ["collection.read"],
+              optional: ["records.edit"]
             }
           }
         }
@@ -127,7 +127,10 @@ describe("browser authorization fixture", () => {
 
     const tokenKey = [...storage.values.keys()].find((key) => key.includes(":token:"))!;
     expect(JSON.parse(storage.getItem(tokenKey)!)).toMatchObject({
-      operations: ["describe", "read", "update"],
+      operations: [
+        "describe", "changes", "read", "query", "list_views", "execute_view",
+        "read_view_source", "validate", "read_type", "update", "rename"
+      ],
       authority: { replicaId: "replica-1" }
     });
     expect(await controller.isInstalled(page)).toBe(true);
@@ -159,8 +162,8 @@ describe("browser authorization fixture", () => {
           requirements: {
             contracts: [],
             capabilities: {
-              contract_version: 1,
-              required: ["collection.inspect", "records.read"],
+              contract_version: 2,
+              required: ["collection.read"],
               optional: []
             }
           }

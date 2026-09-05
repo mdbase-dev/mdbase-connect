@@ -20,8 +20,8 @@ const owner = ownerAccess({
 describe("planCollectionGrant", () => {
   it("plans every operation compiled for type-pack application sessions", () => {
     const capabilities = {
-      contract_version: 1 as const,
-      required: ["definitions.type-pack.apply"] as const
+      contract_version: 2 as const,
+      required: ["definitions.manage"] as const
     };
     const operations = operationsForApplicationCapabilities(capabilities);
     const result = planCollectionGrant({
@@ -36,18 +36,24 @@ describe("planCollectionGrant", () => {
     });
 
     expect(result).toEqual({
-      operations: ["assess_type_pack", "apply_type_pack"],
+      operations: ["create_type", "update_type", "assess_type_pack", "apply_type_pack"],
       scope: { access: "full_collection", contracts: [] },
       replicaMode: "read_write"
     });
   });
 
   it("uses collection authority while retaining contracts as compatibility requirements", () => {
+    const capabilities = {
+      contract_version: 2 as const,
+      required: ["collection.read", "records.edit"] as const
+    };
+    const operations = operationsForApplicationCapabilities(capabilities);
     const result = planCollectionGrant({
-      requestedOperations: ["read", "update"],
-      applicationOperationCeiling: ["read", "query", "update"],
+      requestedOperations: operations,
+      applicationOperationCeiling: operations,
       requirements: {
         access: "full_collection",
+        capabilities,
         contracts: [{
           id: "example.tasks",
           version: "1.0.0",
@@ -58,7 +64,7 @@ describe("planCollectionGrant", () => {
     });
 
     expect(result).toEqual({
-      operations: ["read", "update"],
+      operations,
       scope: { access: "full_collection", contracts: [] },
       replicaMode: "read_write"
     });
@@ -71,8 +77,10 @@ describe("planCollectionGrant", () => {
       requirements: {
         access: "full_collection",
         contracts: [],
+        capabilities: { contract_version: 2, required: [] },
         files: {
-          actions: ["list", "read", "add"],
+          required: ["list", "read"],
+          optional: ["add"],
           scope: { kind: "selected_folders", folders: ["Assets"] }
         }
       },
@@ -90,6 +98,56 @@ describe("planCollectionGrant", () => {
         scope: { kind: "selected_folders", folders: ["Assets"] }
       }
     });
+  });
+
+  it("allows optional file actions to be denied without dropping required actions", () => {
+    const requirements = {
+      access: "full_collection" as const,
+      contracts: [],
+      capabilities: { contract_version: 2 as const, required: [] },
+      files: {
+        required: ["list", "read"] as const,
+        optional: ["add", "delete"] as const,
+        scope: { kind: "collection" as const }
+      }
+    };
+    const result = planCollectionGrant({
+      requestedOperations: [],
+      applicationOperationCeiling: [],
+      requestedFileActions: ["list", "read", "add"],
+      requirements,
+      access: owner
+    });
+    expect(result.fileCapability?.actions).toEqual(["list", "read", "add"]);
+    expect(() => planCollectionGrant({
+      requestedOperations: [],
+      applicationOperationCeiling: [],
+      requestedFileActions: ["list", "delete"],
+      requirements,
+      access: owner
+    })).toThrow("Required file actions");
+  });
+
+  it("rejects partial optional capability groups", () => {
+    const capabilities = {
+      contract_version: 2 as const,
+      required: ["collection.read"] as const,
+      optional: ["records.edit"] as const
+    };
+    const required = operationsForApplicationCapabilities(
+      capabilities,
+      { includeOptional: false }
+    );
+    expect(() => planCollectionGrant({
+      requestedOperations: [...required, "update"],
+      applicationOperationCeiling: [...required, "update", "rename"],
+      requirements: {
+        access: "full_collection",
+        contracts: [],
+        capabilities
+      },
+      access: owner
+    })).toThrow("complete groups");
   });
 
   it("rejects legacy contract-scoped authorization instead of widening it", () => {

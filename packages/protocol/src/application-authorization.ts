@@ -1,4 +1,4 @@
-import type { ApplicationFileRequirement } from "./files.js";
+import type { ApplicationFileRequest } from "./files.js";
 import {
   isMutatingOperation,
   type CollectionOperation
@@ -36,7 +36,7 @@ export interface ApplicationAuthorizationBinding {
   code_challenge: string;
   contracts: ConnectContractRequirements;
   requested_operations: CollectionOperation[];
-  requested_files?: ApplicationFileRequirement;
+  requested_files?: ApplicationFileRequest;
   collection_id?: string;
 }
 

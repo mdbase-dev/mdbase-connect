@@ -5,6 +5,18 @@ import type {
   JsonObject
 } from "@mdbase-dev/connect-protocol";
 import {
+  APPLICATION_CAPABILITY_DEFINITIONS,
+  capabilityOperationsForContractVersion
+} from "@mdbase-dev/connect-protocol";
+import {
+  retainedCapabilities,
+  semanticContractVersion,
+  validateAuthorizationSelection,
+  type MdbaseApplicationManifest,
+  type MdbaseApplicationRequirements,
+  type MdbaseApplicationCapabilityId as ApplicationCapabilityId
+} from "./application-contract.js";
+import {
   authorizationCallbackState,
   authorizationReturnToFromProblem,
   isAuthorizationCallbackUrl
@@ -26,6 +38,7 @@ import {
   connectFailure,
   connectSuccess,
   type AuthorizationProblemCode,
+  type RegistrationProblemCode,
   type ConnectOutcome,
   type SessionProblemCode
 } from "./outcomes.js";
@@ -42,6 +55,7 @@ import {
 } from "./request-budget.js";
 
 export interface MdbaseSessionConnect<Frontmatter extends JsonObject> {
+  manifest?(options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseApplicationManifest, RegistrationProblemCode>>;
   authorize(
     options?: MdbaseAuthorizeOptions
   ): Promise<ConnectOutcome<MdbaseAuthorizationOutcome<Frontmatter>, AuthorizationProblemCode>>;
@@ -328,7 +342,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
 
   async authorize(
     target: "choose" | "selected" | { collectionId: string },
-    options: Omit<MdbaseAuthorizeOptions, "operations" | "returnTo" | "target"> = {}
+    options: Omit<MdbaseAuthorizeOptions, "returnTo" | "target"> = {}
   ): Promise<ConnectOutcome<MdbaseAuthorizationOutcome<Frontmatter>, SessionProblemCode>> {
     const lifecycle = this.lifecycleProblem();
     if (lifecycle) return connectFailure(lifecycle);
@@ -347,9 +361,14 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     const operation = this.beginLifecycleOperation(options);
     this.transactionDepth += 1;
     try {
+      const declaration = await this.connect.manifest?.(operation.options);
+      if (declaration && !declaration.ok) return declaration;
+      if (!this.lifecycleCurrent(operation.generation)) return this.destroyedOutcome(connectSuccess(undefined));
+      const version = declaration ? semanticContractVersion(declaration.value.requirements) : 1;
       const outcome = await this.connect.authorize({
         ...operation.options,
-        operations: this.operations,
+        ...(version === 1 && options.operations === undefined && options.capabilities === undefined
+          ? { operations: this.operations } : {}),
         target: targetCollectionId === null
           ? { kind: "choose" }
           : { kind: "collection", collectionId: targetCollectionId },
@@ -370,8 +389,16 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     }
   }
 
-  async ensureOperations(
-    requiredOperations: CollectionOperation[],
+  ensureOperations(requiredOperations: CollectionOperation[], options?: ConnectRequestOptions) {
+    return this.ensureAuthorization({ operations: requiredOperations }, options);
+  }
+
+  ensureCapabilities(requiredCapabilities: ApplicationCapabilityId[], options?: ConnectRequestOptions) {
+    return this.ensureAuthorization({ capabilities: requiredCapabilities }, options);
+  }
+
+  private async ensureAuthorization(
+    selection: { operations: CollectionOperation[] } | { capabilities: ApplicationCapabilityId[] },
     options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<
     MdbaseAuthorizationOutcome<Frontmatter>
@@ -387,17 +414,29 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
         "Choose an authorized collection first."
       ));
     }
-    const required = uniqueOperations(requiredOperations);
-    const capabilities = current.connection.authorizationCapabilities(required);
-    if (capabilities.sufficient) {
-      return connectSuccess({ kind: "unchanged", connection: current.connection });
-    }
     const operation = this.beginLifecycleOperation(options);
     this.transactionDepth += 1;
     try {
+      const declaration = await this.connect.manifest?.(operation.options);
+      if (declaration && !declaration.ok) return declaration;
+      if (!this.lifecycleCurrent(operation.generation)) return this.destroyedOutcome(connectSuccess(undefined));
+      // Custom advanced session adapters predating manifest() retain exact v1
+      // operations. The concrete SDK always supplies its declared manifest.
+      const requirements: MdbaseApplicationRequirements = declaration?.value.requirements ?? ("operations" in selection
+        ? { access: "full_collection", contracts: [] }
+        : { access: "full_collection", contracts: [], capabilities: { contract_version: 2, required: [], optional: Object.keys(APPLICATION_CAPABILITY_DEFINITIONS) as (keyof typeof APPLICATION_CAPABILITY_DEFINITIONS)[] } });
+      validateAuthorizationSelection(requirements, { ...options, ...selection });
+      const requiredOperations = "operations" in selection ? selection.operations : selection.capabilities.flatMap(
+        (id) => capabilityOperationsForContractVersion(semanticContractVersion(requirements), id) ?? []
+      );
+      const authorization = current.connection.authorizationCapabilities(requiredOperations);
+      if (authorization.sufficient) return connectSuccess({ kind: "unchanged", connection: current.connection });
+      const incremental = "operations" in selection || semanticContractVersion(requirements) === 1
+        ? { operations: uniqueOperations([...authorization.grantedOperations, ...requiredOperations]) }
+        : { capabilities: [...new Set([...retainedCapabilities(requirements, authorization.grantedOperations), ...selection.capabilities])] };
       const outcome = await this.connect.authorize({
         ...operation.options,
-        operations: uniqueOperations([...capabilities.grantedOperations, ...capabilities.missingOperations]),
+        ...incremental,
         target: { kind: "collection", collectionId: current.collectionId },
         returnTo: this.selection.authorizationReturnTo()
       });
@@ -409,6 +448,9 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
         );
       }
       return outcome;
+    } catch (error) {
+      if (error instanceof MdbaseConnectError) return connectFailure(error.problem as ConnectProblem<SessionProblemCode>);
+      throw error;
     } finally {
       operation.dispose();
       this.transactionDepth -= 1;

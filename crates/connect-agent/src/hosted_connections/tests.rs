@@ -433,7 +433,12 @@ async fn test_register_application(
         body["manifest"]["requirements"]["capabilities"]["required"],
         json!(CLI_APPLICATION_CAPABILITIES)
     );
-    assert!(!CLI_APPLICATION_CAPABILITIES.contains(&"collection.setup.apply"));
+    assert_eq!(
+        body["manifest"]["requirements"]["capabilities"]["contract_version"],
+        1
+    );
+    assert!(body["manifest"]["requirements"]["capabilities"]["optional"].is_null());
+    assert!(!CLI_APPLICATION_CAPABILITIES.contains(&"timers.read"));
     assert!(body["manifest"]["notifications"].is_null());
     Json(json!({
         "application": {
@@ -457,6 +462,7 @@ async fn test_device_authorization(
     assert_eq!(proof.binding.application_declaration_id, CLI_APPLICATION_ID);
     assert_eq!(proof.binding.collection_id, Some(state.collection_id));
     assert_eq!(proof.binding.requested_operations, ["query"]);
+    assert_eq!(proof.binding.contracts.semantic_capabilities, 1);
     assert_eq!(
         form.get("code_challenge"),
         Some(&proof.binding.code_challenge)

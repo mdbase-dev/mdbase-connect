@@ -274,6 +274,7 @@
         "file_capability": {
           "$ref": "https://mdbase.dev/connect/schemas/files.v1.json#/$defs/fileCapability"
         },
+        "application_declaration": {},
         "application_authorization": { "$ref": "#/$defs/applicationAuthorizationProof" }
       }
     },

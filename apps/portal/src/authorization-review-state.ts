@@ -2,6 +2,7 @@ export interface StoredAuthorizationReview {
   collectionId?: string;
   collectionConfirmed?: boolean;
   operations?: string[];
+  fileActions?: string[];
   reviewing?: boolean;
 }
 

@@ -153,13 +153,42 @@ export interface CollectionContractDescriptor extends ContractRequirement {
   }>;
 }
 
-export interface ApplicationRequirements {
+export type ApplicationCapabilityId =
+  | "collection.read"
+  | "records.create"
+  | "records.edit"
+  | "records.delete"
+  | "views.manage"
+  | "definitions.manage"
+  | "background.schedule"
+  | "offline.replica";
+
+export type ApplicationFileAction =
+  | "list" | "read" | "add" | "replace" | "move" | "delete";
+
+export type ApplicationRequirements = CapabilityApplicationRequirements | LegacyApplicationRequirements;
+
+export type LegacyApplicationRequirements = Omit<CapabilityApplicationRequirements, "capabilities" | "files"> & {
+  capabilities?: import("@mdbase-dev/connect-protocol").LegacyApplicationCapabilityRequirements;
+  files?: {
+    actions: ApplicationFileAction[];
+    scope: NonNullable<CapabilityApplicationRequirements["files"]>["scope"];
+  };
+};
+
+export interface CapabilityApplicationRequirements {
   contracts: ContractRequirement[];
+  capabilities: {
+    contract_version: 2;
+    required: ApplicationCapabilityId[];
+    optional?: ApplicationCapabilityId[];
+  };
   configuration?: ConfigurationRequirement[];
   access?: "contract" | "full_collection";
   collection_kind?: "local" | "hosted";
   files?: {
-    actions: Array<"list" | "read" | "add" | "replace" | "move" | "delete">;
+    required: ApplicationFileAction[];
+    optional?: ApplicationFileAction[];
     scope:
       | { kind: "selected_folders"; folders: string[] }
       | { kind: "collection" };
