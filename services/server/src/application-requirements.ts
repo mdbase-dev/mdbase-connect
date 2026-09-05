@@ -1,6 +1,8 @@
-import { applicationFileRequest, capabilityOperationsForContractVersion } from "@mdbase-dev/connect-protocol";
+import { applicationFileRequest, capabilityOperationsForContractVersion, permitsFreshApplicationAuthorization } from "@mdbase-dev/connect-protocol";
 import type { ApplicationRequirements as V2ApplicationRequirements, ApplicationFileRequest } from "@mdbase-dev/connect-protocol";
 import type { LegacyApplicationRequirements } from "@mdbase-dev/connect-protocol/manifest";
+
+import { RequestValidationError } from "./platform/http-errors.js";
 
 /** Server-only declaration union. Never translate predecessor intent into groups. */
 export type ApplicationRequirements = LegacyApplicationRequirements | V2ApplicationRequirements;
@@ -9,6 +11,16 @@ export function requirementContractVersion(requirements: ApplicationRequirements
   const version = requirements?.capabilities?.contract_version ?? 1;
   if (version !== 1 && version !== 2) throw new Error("Unsupported semantic capability contract version.");
   return version;
+}
+
+/** Fresh authority only; retained policy readers and exact replay must not call this. */
+export function assertFreshApplicationAuthorization(requirements: ApplicationRequirements): void {
+  const version = requirementContractVersion(requirements);
+  if (!permitsFreshApplicationAuthorization(version)) {
+    throw new RequestValidationError(
+      `Fresh application authorization issuance is disabled for semantic capability contract version ${version}.`
+    );
+  }
 }
 
 export function legacyOperationSelectionAllowed(

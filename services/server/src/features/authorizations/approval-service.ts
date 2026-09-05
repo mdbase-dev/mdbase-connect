@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ApplicationRequirements } from "../../application-requirements.js";
+import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../../application-requirements.js";
 import type {
   ApplicationNotifications,
   ApplicationAuthorizationProof,
@@ -127,6 +127,7 @@ export async function approvePortalAuthorization(
       await connection.query("ROLLBACK");
       return false;
     }
+    assertFreshApplicationAuthorization(pending.requirements);
     assertOperationsAllowedByApplication(
       pending.requested_operations,
       pending.requirements,
@@ -593,6 +594,7 @@ export async function approveHostedAuthorization(
       await connection.query("ROLLBACK");
       return false;
     }
+    assertFreshApplicationAuthorization(pending.requirements);
     assertOperationsAllowedByApplication(
       pending.requested_operations,
       pending.requirements,

@@ -8,7 +8,7 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import { fileRequestForRequirements, requirementContractVersion, type ApplicationRequirements } from "../../application-requirements.js";
+import { assertFreshApplicationAuthorization, fileRequestForRequirements, requirementContractVersion, type ApplicationRequirements } from "../../application-requirements.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { verifyApplicationAuthorization } from "../../application-authorization.js";
@@ -166,6 +166,7 @@ export function registerAuthorizationRoutes(
         collectionId: input.collection_id
       }
     );
+    assertFreshApplicationAuthorization(application.rows[0].requirements);
     const authorizationId = proof.binding.authorization_id;
     const deviceCode = randomToken("device");
     const userCode = randomUserCode();
@@ -264,6 +265,7 @@ export function registerAuthorizationRoutes(
       [input.application_id]
     );
     if (!application.rows[0]) return reply.code(404).send(apiError("application_not_found", "Application not found."));
+    assertFreshApplicationAuthorization(application.rows[0].requirements);
     if (application.rows[0].distribution === "portable") {
       return reply.code(409).send(apiError(
         "portable_approval_required",
@@ -467,6 +469,7 @@ export function registerAuthorizationRoutes(
         collectionId: input.collection_id
       }
     );
+    assertFreshApplicationAuthorization(application.rows[0].requirements);
     const authorizationId = proof.binding.authorization_id;
     const inserted = await options.db.query(
       `INSERT INTO authorization_requests
