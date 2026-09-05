@@ -6,7 +6,6 @@ import {
   type CollectionDescription,
   type MdbaseConnection,
   type MdbaseConnectionInfo,
-  type ApplicationCapabilityId,
   type MdbaseApplicationSession,
   type MdbaseApplicationSessionSnapshot,
   type JsonObject,
@@ -46,26 +45,30 @@ import type {
   TypePackApplyResult
 } from "./model";
 
-export const CORE_CAPABILITIES: ApplicationCapabilityId[] = [
+// Readiness supports legacy release declarations and explicit v2 fixtures.
+export const CORE_CAPABILITIES: readonly string[] = [
+  "collection.inspect", "records.watch", "records.read", "records.query",
+  "records.validate", "records.update", "records.rename", "files.list", "files.read",
   "collection.read",
   "records.create",
   "records.edit",
   "records.delete"
 ];
 
-export const TYPE_DEFINITION_CAPABILITIES: ApplicationCapabilityId[] = [
+export const TYPE_DEFINITION_CAPABILITIES: readonly string[] = [
+  "definitions.read", "definitions.create", "definitions.update",
   "definitions.manage"
 ];
 
 export function missingCoreCapabilities(connection: ConnectionSummary | null): string[] {
   return connection?.missingCapabilities?.filter((capability) =>
-    CORE_CAPABILITIES.includes(capability as ApplicationCapabilityId)
+    CORE_CAPABILITIES.includes(capability)
   ) ?? [];
 }
 
 export function missingTypeCapabilities(connection: ConnectionSummary | null): string[] {
   return connection?.missingCapabilities?.filter((capability) =>
-    TYPE_DEFINITION_CAPABILITIES.includes(capability as ApplicationCapabilityId)
+    TYPE_DEFINITION_CAPABILITIES.includes(capability)
   ) ?? [];
 }
 

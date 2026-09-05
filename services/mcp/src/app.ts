@@ -38,18 +38,8 @@ export async function buildApp(options: BuildOptions) {
     redirect_uris: [`${config.publicUrl}/oauth/connect/callback`],
     requirements: {
       access: "full_collection",
-      contracts: [],
-      capabilities: {
-        contract_version: 2,
-        required: ["collection.read"],
-        optional: [
-          "records.create",
-          "records.edit",
-          "records.delete",
-          "views.manage",
-          "definitions.manage"
-        ]
-      }
+      // ADR 0013 bridge release: preserve the predecessor's implicit v1 declaration.
+      contracts: []
     },
     provisions: { type_packs: [] }
   };

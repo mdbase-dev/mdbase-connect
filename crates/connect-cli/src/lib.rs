@@ -583,47 +583,29 @@ fn hosted_cli_authorization_operations(
             "The mdbase CLI cannot request {operation} because it has no timer notification criteria."
         )));
     }
-    let requested_capabilities: Vec<&str> = if operations.is_empty() {
-        mdbase_connect_protocol::APPLICATION_CAPABILITY_IDS
-            .iter()
-            .copied()
-            .filter(|capability| {
-                *capability != "background.schedule"
-                    && (!read_only || *capability == "collection.read")
-            })
-            .collect()
-    } else {
-        let mut selected = vec!["collection.read"];
-        for operation in &operations {
-            let capability = mdbase_connect_protocol::APPLICATION_CAPABILITY_IDS
-                .iter()
-                .copied()
-                .find(|capability| {
-                    mdbase_connect_protocol::application_capability_operations(capability)
-                        .is_some_and(|group| group.contains(&operation.as_str()))
-                })
-                .ok_or_else(|| {
-                    CliError::unsupported_cli_operation(format!(
-                        "The mdbase CLI cannot request the unknown {operation} operation."
-                    ))
-                })?;
-            if !selected.contains(&capability) {
-                selected.push(capability);
-            }
-        }
-        selected
-    };
-    Ok(mdbase_connect_protocol::APPLICATION_CAPABILITY_IDS
+    // Bridge releases preserve exact v1 operation requests, not v2 group expansion.
+    if let Some(operation) = operations.iter().find(|operation| {
+        !mdbase_connect_protocol::COLLECTION_OPERATIONS.contains(&operation.as_str())
+    }) {
+        return Err(CliError::unsupported_cli_operation(format!(
+            "The mdbase CLI cannot request the unknown {operation} operation."
+        )));
+    }
+    if !operations.is_empty() {
+        return Ok(operations);
+    }
+    Ok(mdbase_connect_protocol::COLLECTION_OPERATIONS
         .iter()
-        .copied()
-        .filter(|capability| requested_capabilities.contains(capability))
-        .flat_map(|capability| {
-            mdbase_connect_protocol::application_capability_operations(capability)
-                .unwrap_or_default()
-                .iter()
-                .copied()
+        .filter(|operation| {
+            !mdbase_connect_protocol::operation_requires_timer_criterion(operation)
+                && !mdbase_connect_protocol::APPLICATION_SETUP_OPERATIONS.contains(operation)
+                && (!read_only
+                    || (**operation != "sync"
+                        && !mdbase_connect_protocol::MUTATING_OPERATION_IDENTIFIERS
+                            .iter()
+                            .any(|mutation| mutation.split(':').next() == Some(**operation))))
         })
-        .map(str::to_string)
+        .map(|operation| (*operation).to_string())
         .collect())
 }
 

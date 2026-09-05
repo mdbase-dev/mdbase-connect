@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { parseVersionedAppManifest } from "@mdbase-dev/connect-protocol/manifest";
+import { READ_OPERATIONS, WRITE_OPERATIONS } from "./oauth.js";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import type { McpRuntimeConfig } from "./config.js";
@@ -27,20 +29,10 @@ describe("mdbase MCP gateway", () => {
     });
     const manifest = await app.inject({ method: "GET", url: "/.well-known/mdbase-app.json" });
     expect(manifest.statusCode).toBe(200);
+    expect(parseVersionedAppManifest(manifest.json()).contractVersion).toBe(1);
     expect(manifest.json().requirements).toEqual({
       access: "full_collection",
-      contracts: [],
-      capabilities: {
-        contract_version: 2,
-        required: ["collection.read"],
-        optional: [
-          "records.create",
-          "records.edit",
-          "records.delete",
-          "views.manage",
-          "definitions.manage"
-        ]
-      }
+      contracts: []
     });
     const denied = await app.inject({
       method: "POST",
@@ -130,12 +122,14 @@ describe("mdbase MCP gateway", () => {
       contracts: {
         operation_transport: 3,
         authorization_binding: 5,
-        semantic_capabilities: 2,
+        semantic_capabilities: 1,
         durable_mutation: 1
       }
     });
     expect(upstream.authorizationProofs[0]?.binding.requested_operations)
-      .toContain("create");
+      .toEqual([...READ_OPERATIONS, ...WRITE_OPERATIONS]);
+    expect(upstream.authorizationProofs[0]?.binding.requested_operations)
+      .not.toContain("assess_type_pack");
 
     const firstCallback = await app.inject({
       method: "GET",

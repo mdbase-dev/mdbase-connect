@@ -252,16 +252,26 @@ fn hosted_cli_timer_operations_are_not_authorizable() {
     let read_only = hosted_cli_authorization_operations(Vec::new(), true).unwrap();
     assert_eq!(
         read_only,
-        mdbase_connect_protocol::application_capability_operations("collection.read")
-            .unwrap()
-            .iter()
-            .map(|operation| operation.to_string())
-            .collect::<Vec<_>>()
+        vec![
+            "describe",
+            "changes",
+            "read",
+            "query",
+            "list_views",
+            "execute_view",
+            "read_view_source",
+            "validate",
+            "read_type",
+            "assess_type_pack"
+        ]
     );
     let create = hosted_cli_authorization_operations(vec!["create".to_string()], false).unwrap();
-    assert!(create.iter().any(|operation| operation == "describe"));
-    assert!(create.iter().any(|operation| operation == "create"));
-    assert!(!create.iter().any(|operation| operation == "update"));
+    assert_eq!(create, vec!["create"]);
+    assert_eq!(
+        hosted_cli_authorization_operations(vec!["update".to_string()], false).unwrap(),
+        vec!["update"]
+    );
+    assert!(hosted_cli_authorization_operations(vec!["unknown".to_string()], false).is_err());
 
     for operation in COLLECTION_OPERATIONS
         .iter()

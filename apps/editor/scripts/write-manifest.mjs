@@ -23,18 +23,29 @@ await writeFile(target, `${JSON.stringify({
   requirements: {
     contracts: [],
     capabilities: {
-      contract_version: 2,
+      // ADR 0013 phase 1: bundled releases retain the exact legacy declaration.
+      contract_version: 1,
       required: [
-        "collection.read",
+        "collection.inspect",
+        "records.watch",
+        "records.read",
+        "records.query",
+        "records.validate",
         "records.create",
-        "records.edit",
+        "records.update",
         "records.delete",
-        "definitions.manage",
+        "records.rename",
+        "files.list",
+        "files.read",
+        "definitions.read",
+        "definitions.create",
+        "definitions.update",
+        "definitions.type-pack.apply",
       ],
+      optional: ["files.add"],
     },
     files: {
-      required: ["list", "read"],
-      optional: ["add"],
+      actions: ["list", "read", "add"],
       scope: { kind: "collection" }
     },
     access: "full_collection"

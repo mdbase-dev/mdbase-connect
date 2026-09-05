@@ -162,6 +162,16 @@ grants.
 8. Remove version-1 manifest parsing, SDK aliases, consent code, fixtures, and
    migration state after the rollback and bounded policy-lease window.
 
+Bridge release defaults (phase 1): Editor, MCP, and CLI retain the exact
+`c2596a6e` v1 declaration/operation intent; authorization signs that version
+without runtime fallback or stored-grant expansion. Editor validates its generated
+manifest with the versioned parser (the devkit current-only validator targets v2).
+Explicit v2 protocol/E2E fixtures remain. Consumer conversion requires deployed
+bridge qualification and a supported desktop v2 direct-approval path; that path
+remains intentionally blocked while legacy desktop approval remains available.
+Declaration/digest changes use ordinary registration. No consumer deployment or
+v1 retirement is implied by these defaults.
+
 Operation-transport N-1 compatibility is a separate protocol concern. The
 bridge must explicitly implement both semantic contracts; advertising support
 without version-specific enforcement is unsafe. Delete semantic-v1 acceptance

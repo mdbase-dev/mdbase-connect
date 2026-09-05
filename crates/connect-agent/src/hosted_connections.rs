@@ -33,14 +33,29 @@ use uuid::Uuid;
 const REGISTRY_VERSION: u32 = 1;
 const CLI_APPLICATION_ID: &str = "dev.mdbase.cli";
 const CLI_APPLICATION_NAME: &str = "mdbase CLI";
-const CLI_APPLICATION_REQUIRED_CAPABILITIES: &[&str] = &["collection.read"];
-const CLI_APPLICATION_OPTIONAL_CAPABILITIES: &[&str] = &[
+// ADR 0013 phase 1: retain the exact predecessor declaration.
+const CLI_APPLICATION_CAPABILITIES: &[&str] = &[
+    "collection.inspect",
+    "records.watch",
+    "records.read",
+    "records.query",
+    "records.validate",
     "records.create",
-    "records.edit",
+    "records.update",
     "records.delete",
-    "views.manage",
-    "definitions.manage",
-    "offline.replica",
+    "records.rename",
+    "views.list",
+    "views.execute",
+    "views.source.read",
+    "views.source.create",
+    "views.source.update",
+    "views.source.delete",
+    "definitions.read",
+    "definitions.create",
+    "definitions.update",
+    "definitions.type-pack.inspect",
+    "definitions.type-pack.apply",
+    "sync.offline-replica",
 ];
 const MAX_HOSTED_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 
@@ -261,9 +276,13 @@ impl HostedConnectionManager {
             redirect_uri: None,
             state: None,
             code_challenge: challenge.clone(),
-            contracts: ConnectContractRequirements::current(
-                authorization_requires_durable_mutation(&operations, None),
-            ),
+            contracts: ConnectContractRequirements {
+                semantic_capabilities: 1,
+                ..ConnectContractRequirements::current(authorization_requires_durable_mutation(
+                    &operations,
+                    None,
+                ))
+            },
             requested_operations: operations.clone(),
             requested_files: None,
             collection_id: Some(params.collection_id),
@@ -816,9 +835,8 @@ impl HostedConnectionManager {
                         "access": "full_collection",
                         "contracts": [],
                         "capabilities": {
-                            "contract_version": 2,
-                            "required": CLI_APPLICATION_REQUIRED_CAPABILITIES,
-                            "optional": CLI_APPLICATION_OPTIONAL_CAPABILITIES
+                            "contract_version": 1,
+                            "required": CLI_APPLICATION_CAPABILITIES
                         }
                     }
                 }

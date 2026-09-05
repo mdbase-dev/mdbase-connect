@@ -18,7 +18,8 @@ import {
   type GrantEncryption,
   type GrantScope,
   type MdbaseOperationRequest,
-  type MdbaseAppManifest
+  type MdbaseAppManifest,
+  type LegacyMdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import type { DatabasePool } from "./db.js";
@@ -105,7 +106,7 @@ export class ConnectGateway {
     private readonly secrets: SecretBox,
     private readonly keyStore: GrantKeyStore,
     readonly connectUrl: string,
-    private readonly manifest: MdbaseAppManifest,
+    private readonly manifest: MdbaseAppManifest | LegacyMdbaseAppManifest,
     readonly callbackUrl: string
   ) {
     this.applicationOrigin = new URL(callbackUrl).origin;
@@ -141,8 +142,9 @@ export class ConnectGateway {
   }): Promise<string> {
     const application = await this.registerApplication();
     const installation = await this.applicationIdentity(application.id);
-    const requestedFiles = this.manifest.requirements?.files
-      ? applicationFileRequest(this.manifest.requirements.files)
+    const files = this.manifest.requirements?.files;
+    const requestedFiles = files
+      ? ("actions" in files ? files : applicationFileRequest(files))
       : undefined;
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
@@ -164,7 +166,9 @@ export class ConnectGateway {
       code_challenge: input.codeChallenge,
       contracts: authorizationContractRequirements(
         input.operations,
-        requestedFiles
+        requestedFiles,
+        [],
+        this.manifest.requirements?.capabilities?.contract_version ?? 1
       ),
       requested_operations: input.operations,
       ...(requestedFiles ? { requested_files: requestedFiles } : {}),
