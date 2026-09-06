@@ -129,6 +129,11 @@ export interface PickleRequest {
   frontmatter: PickleFrontmatter;
 }
 
+export interface PickleListOptions extends ConnectRequestOptions {
+  /** Omit Markdown bodies for an inbox; load individual context with readBody. */
+  includeBody?: boolean;
+}
+
 export interface RespondOptions extends ConnectRequestOptions {
   responder?: string;
 }
@@ -238,16 +243,16 @@ export class PickleCollection {
     return { collection: this.description, contract: this.contract };
   }
 
-  async list(options: ConnectRequestOptions = {}): Promise<PickleRequest[]> {
+  async list({ includeBody = true, ...options }: PickleListOptions = {}): Promise<PickleRequest[]> {
     const { collection, contract } = await this.describe(options);
     const requestQuery = requireOutcome(
       await this.connect.queryAll(
         {
           types: contract.implementations.map(({ typeName }) => typeName),
-          includeBody: true,
+          includeBody,
           frontmatterMode: "effective"
         },
-        options
+        { ...options, pageSize: 256 }
       )
     );
     const requests = requestQuery.results.map(requireEffectiveFrontmatter);
@@ -270,10 +275,10 @@ export class PickleCollection {
             await this.connect.queryAll(
               {
                 types: responseTypes,
-                includeBody: true,
+                includeBody: false,
                 frontmatterMode: "effective"
               },
-              options
+              { ...options, pageSize: 256 }
             )
           )
         ).results.map(requireEffectiveFrontmatter)
@@ -285,6 +290,11 @@ export class PickleCollection {
       .sort((left, right) =>
         (right.createdAt ?? "").localeCompare(left.createdAt ?? "")
       );
+  }
+
+  async readBody(request: PickleRequest, options: ConnectRequestOptions = {}): Promise<string> {
+    const record = requireOutcome(await this.connect.read({ path: request.path }, options));
+    return record.body ?? "";
   }
 
   async respond(

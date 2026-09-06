@@ -727,6 +727,54 @@ describe("provider-neutral collection client", () => {
     });
   });
 
+  it("delivers completed query data without waiting for cursor cleanup", async () => {
+    vi.useFakeTimers();
+    const calls: Array<Record<string, unknown>> = [];
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        const query = input as Record<string, unknown>;
+        calls.push(query);
+        if (query.release_cursor) {
+          await new Promise((resolve) => setTimeout(resolve, 2_000));
+          throw new Error("cleanup unavailable");
+        }
+        return {
+          valid: true, diagnostics: [], result: {
+            results: [{ path: query.cursor ? "two.md" : "one.md", frontmatter: {}, types: [] }],
+            meta: { total_count: 2, has_more: !query.cursor,
+              ...(!query.cursor ? { cursor: "next" } : {}) }
+          }
+        } as Result;
+      }
+    });
+    const pending = client.queryAll({}, { pageSize: 256, timeoutMs: 50 });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(pending).resolves.toMatchObject({
+      ok: true, value: { results: [{ path: "one.md" }, { path: "two.md" }] }
+    });
+    expect(calls).toEqual([
+      { limit: 256, offset: 0, pagination: "cursor" },
+      { cursor: "next" },
+      { release_cursor: "next" }
+    ]);
+    await vi.advanceTimersByTimeAsync(2_000);
+  });
+
+  it("does not return a partial query when the caller cancels before the final page", async () => {
+    const controller = new AbortController();
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        return { valid: true, diagnostics: [], result: {
+          results: [{ path: "one.md", frontmatter: {}, types: [] }],
+          meta: { has_more: true }
+        } } as Result;
+      }
+    });
+    await expect(client.queryAll({}, {
+      signal: controller.signal, onProgress: () => controller.abort()
+    })).resolves.toMatchObject({ ok: false, problem: { code: "operation_cancelled" } });
+  });
+
   it("uses one total queryAll deadline while queryPages keeps an explicit per-page budget", async () => {
     vi.useFakeTimers();
     const requestOptions: Array<{ signal?: AbortSignal; timeoutMs?: number | null }> = [];
