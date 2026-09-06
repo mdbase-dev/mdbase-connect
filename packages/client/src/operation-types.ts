@@ -207,7 +207,9 @@ export interface QueryResult<Record extends JsonObject = JsonObject> {
 }
 
 export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
+  /** Initial page size. Cursor authorities pin this size for the query lifetime. */
   firstPageSize?: number;
+  /** Also sets the initial size unless firstPageSize is explicit; authorities may cap it. */
   pageSize?: number;
   signal?: AbortSignal;
   /** Independent budget for each page requested by this caller-driven iterator. */
@@ -218,7 +220,9 @@ export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
 
 export interface QueryAllOptions<Record extends JsonObject = JsonObject>
   extends ConnectRequestOptions {
+  /** Initial page size. Cursor authorities pin this size for the query lifetime. */
   firstPageSize?: number;
+  /** Also sets the initial size unless firstPageSize is explicit; authorities may cap it. */
   pageSize?: number;
   onProgress?: (page: QueryPage<Record>) => void;
 }
