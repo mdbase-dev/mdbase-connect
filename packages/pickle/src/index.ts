@@ -120,6 +120,8 @@ export interface PickleRequest {
   responseType: string;
   responseTypeDefinition?: CollectionTypeDescriptor;
   createdAt?: string;
+  /** Stable file modification time for invalidating an opened context. */
+  modifiedAt?: string;
   dueAt?: string;
   tags: string[];
   links: PickleLink[];
@@ -292,7 +294,7 @@ export class PickleCollection {
       );
   }
 
-  async readBody(request: PickleRequest, options: ConnectRequestOptions = {}): Promise<string> {
+  async readBody(request: Pick<PickleRequest, "path">, options: ConnectRequestOptions = {}): Promise<string> {
     const record = requireOutcome(await this.connect.read({ path: request.path }, options));
     return record.body ?? "";
   }
@@ -468,6 +470,7 @@ function normalizeRequest(
       role(implementation, "message", "message")
     ),
     body: record.body ?? "",
+    modifiedAt: record.file?.mtime,
     kind:
       stringField(record.effectiveFrontmatter, role(implementation, "kind", "kind")) ||
       "approval",
