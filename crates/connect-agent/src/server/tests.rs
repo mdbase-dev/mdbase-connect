@@ -392,13 +392,16 @@ async fn bounds_local_control_request_memory() {
 async fn local_collection_operations_share_admission_without_blocking_control() {
     use crate::admission::{AdmissionRequest, WorkClass};
 
-    let test_root = std::env::temp_dir().join(format!(
-        "mdbase-connect-local-admission-test-{}",
-        uuid::Uuid::new_v4()
-    ));
-    let registry = CollectionRegistry::open(test_root.join("state")).unwrap();
+    use futures_util::FutureExt;
+
+    let fixture = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(fixture.path().join("state")).unwrap();
     let collection = registry
-        .create(test_root.join("collection"), Some("Local admission"), "UTC")
+        .create(
+            fixture.path().join("collection"),
+            Some("Local admission"),
+            "UTC",
+        )
         .unwrap();
     let watcher = CollectionWatchService::start(registry.clone());
     let state = Arc::new(AgentState::new(registry, watcher, None));
@@ -419,60 +422,135 @@ async fn local_collection_operations_share_admission_without_blocking_control() 
         );
     }
 
-    let queued_state = state.clone();
-    let queued = tokio::spawn(async move {
-        queued_state
-            .execute(ControlRequest::new(ControlCommand::CollectionOperation(
-                mdbase_connect_protocol::CollectionOperationParams {
-                    collection_id: collection.id,
-                    operation: "query".to_string(),
-                    input: serde_json::json!({ "limit": 1 }),
-                },
-            )))
-            .await
-    });
-    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    assert!(
-        !queued.is_finished(),
-        "a local read must wait behind the shared read limit"
-    );
-
-    let mutation = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        state.execute(ControlRequest::new(ControlCommand::CollectionOperation(
-            mdbase_connect_protocol::CollectionOperationParams {
-                collection_id: collection.id,
-                operation: "create".to_string(),
-                input: serde_json::json!({
-                    "path": "mutation-capacity.md",
-                    "frontmatter": { "title": "Reserved mutation capacity" },
-                    "body": "The queued local read did not consume this slot."
-                }),
-            },
-        ))),
-    )
-    .await
-    .expect("queued local reads must leave the mutation lane available");
-    assert!(mutation.ok, "{:?}", mutation.error);
-    assert_eq!(mutation.result.unwrap()["valid"], true);
-
-    let ping = tokio::time::timeout(
-        std::time::Duration::from_millis(250),
-        state.execute(ControlRequest::new(ControlCommand::Ping)),
-    )
-    .await
-    .expect("queued collection work must not block local control");
-    assert!(ping.ok);
-
-    drop(held_reads.pop());
-    let response = tokio::time::timeout(std::time::Duration::from_secs(2), queued)
+    let trace = state.admission().trace().clone();
+    let mut queries = tokio::task::JoinSet::new();
+    for _ in 0..2 {
+        let state = state.clone();
+        queries.spawn(async move {
+            state
+                .execute(ControlRequest::new(ControlCommand::CollectionOperation(
+                    mdbase_connect_protocol::CollectionOperationParams {
+                        collection_id: collection.id,
+                        operation: "query".to_string(),
+                        input: serde_json::json!({ "limit": 1 }),
+                    },
+                )))
+                .await
+        });
+    }
+    let mut mutation_task = None;
+    // Capture assertion failures so workers and the finalizer stop before TempDir removal.
+    let outcome = std::panic::AssertUnwindSafe(async {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            trace.wait_for_pending_reads(2),
+        )
         .await
-        .expect("the admitted local query must finish")
-        .unwrap();
-    assert!(response.ok, "{:?}", response.error);
+        .expect("both local reads must actually queue at shared read admission");
+        let pending = trace
+            .snapshot()
+            .into_iter()
+            .filter(|event| event.3 == "read_pending")
+            .map(|event| event.1)
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(pending.len(), 2);
+        assert!(
+            queries.try_join_next().is_none(),
+            "queued reads must not finish"
+        );
 
-    drop(held_reads);
-    fs::remove_dir_all(test_root).unwrap();
+        let mutation_state = state.clone();
+        mutation_task = Some(tokio::spawn(async move {
+            mutation_state
+                .execute(ControlRequest::new(ControlCommand::CollectionOperation(
+                    mdbase_connect_protocol::CollectionOperationParams {
+                        collection_id: collection.id,
+                        operation: "create".to_string(),
+                        input: serde_json::json!({
+                            "path": "mutation-capacity.md",
+                            "frontmatter": { "title": "Reserved mutation capacity" },
+                            "body": "The queued local reads did not consume this slot."
+                        }),
+                    },
+                )))
+                .await
+        }));
+        let (mutation, ping) = tokio::join!(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                mutation_task.as_mut().unwrap()
+            ),
+            tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                state.execute(ControlRequest::new(ControlCommand::Ping))
+            ),
+        );
+        let mutation = mutation.expect("queued local reads must leave the mutation lane available");
+        mutation_task = None;
+        let mutation = mutation.expect("mutation worker must not panic");
+        assert!(mutation.ok, "mutation must succeed");
+        assert!(
+            mutation.result.unwrap()["valid"] == true,
+            "mutation must be valid"
+        );
+        assert!(
+            ping.expect("queued collection work must not block local control")
+                .ok
+        );
+        let events = trace.snapshot();
+        let admitted = events
+            .iter()
+            .find(|event| event.2 == WorkClass::Mutation && event.3 == "admitted")
+            .expect("mutation must be admitted")
+            .1;
+        for stage in [
+            "worker_entered",
+            "execution_complete",
+            "finalization_complete",
+            "worker_complete",
+        ] {
+            assert!(
+                events
+                    .iter()
+                    .any(|event| event.1 == admitted && event.3 == stage),
+                "missing {stage}"
+            );
+        }
+        assert!(!events
+            .iter()
+            .any(|event| pending.contains(&event.1) && event.3 == "admitted"));
+        // Never release read capacity until the real mutation has succeeded.
+        held_reads.clear();
+        for _ in 0..2 {
+            let response =
+                tokio::time::timeout(std::time::Duration::from_secs(2), queries.join_next())
+                    .await
+                    .expect("the admitted local query must finish")
+                    .unwrap()
+                    .unwrap();
+            assert!(response.ok, "query must succeed");
+            let result = response.result.unwrap();
+            assert!(
+                result["result"]["results"][0]["path"] == "mutation-capacity.md",
+                "each query must see the successfully created record"
+            );
+        }
+    })
+    .catch_unwind()
+    .await;
+    let timeline = trace.snapshot();
+    held_reads.clear();
+    // Drain rather than abort: a read's blocking worker may still own the state.
+    while queries.join_next().await.is_some() {}
+    if let Some(task) = mutation_task {
+        let _ = task.await;
+    }
+    drop(state); // Joins the finalizer before removing the fixture, including failure paths.
+    drop(fixture);
+    if let Err(panic) = outcome {
+        eprintln!("local admission timeline (microseconds, request, class, stage): {timeline:?}");
+        std::panic::resume_unwind(panic);
+    }
 }
 
 #[test]
