@@ -131,11 +131,6 @@ export interface PickleRequest {
   frontmatter: PickleFrontmatter;
 }
 
-export interface PickleListOptions extends ConnectRequestOptions {
-  /** Omit Markdown bodies for an inbox; load individual context with readBody. */
-  includeBody?: boolean;
-}
-
 export interface RespondOptions extends ConnectRequestOptions {
   responder?: string;
 }
@@ -245,7 +240,8 @@ export class PickleCollection {
     return { collection: this.description, contract: this.contract };
   }
 
-  async list({ includeBody = true, ...options }: PickleListOptions = {}): Promise<PickleRequest[]> {
+  /** Omit Markdown bodies for an inbox; load individual context with readBody. */
+  async list({ includeBody = true, ...options }: ConnectRequestOptions & { includeBody?: boolean } = {}): Promise<PickleRequest[]> {
     const { collection, contract } = await this.describe(options);
     const requestQuery = requireOutcome(
       await this.connect.queryAll(
