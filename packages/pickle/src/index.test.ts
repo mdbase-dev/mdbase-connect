@@ -195,6 +195,7 @@ describe("Pickle contract adapter", () => {
             created_at: "2026-07-24T01:00:00Z",
             attachment_paths: ["attachments/req-one/report.txt"]
           },
+          file: { mtime: "2026-09-07T00:00:00Z" },
           body: "Review the release notes before deciding."
         }
       ]
@@ -226,6 +227,7 @@ describe("Pickle contract adapter", () => {
 
     const answered = await pickle.list({ includeBody: false });
     expect(answered[0].body).toBe("");
+    expect(answered[0].modifiedAt).toBeDefined();
     expect(await pickle.readBody(answered[0])).toBe("Review the release notes before deciding.");
     expect(answered[0]).toEqual(
       expect.objectContaining({
