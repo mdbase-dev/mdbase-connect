@@ -17,6 +17,7 @@ import { hostname } from "node:os";
 import { promisify } from "node:util";
 import { ensureAgentReady, type AgentPing } from "./agent-startup";
 import { AgentControlError, requestAgent } from "./control-client";
+import { connectCliEnvironment, daemonCliArguments } from "./daemon-lifecycle";
 import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { ElectronUpdateBackend } from "./electron-update-backend";
@@ -72,7 +73,7 @@ async function resolveDaemonPaths(): Promise<void> {
   const binary = connectBinary();
   if (!existsSync(binary)) throw new Error(`Connector runtime is missing: ${binary}`);
   const { stdout } = await execFile(binary, ["--json", "connect", "paths"], {
-    env: process.env,
+    env: connectCliEnvironment(app.isPackaged),
     timeout: 10_000,
     windowsHide: true
   });
@@ -124,17 +125,14 @@ async function startAgent(): Promise<void> {
       await mkdir(stateDirectory(), { recursive: true });
       await execFile(
         binary,
-        [
-          "--state-dir",
+        daemonCliArguments(
+          app.isPackaged,
           stateDirectory(),
-          "--endpoint",
           controlEndpoint(),
-          "connect",
-          "daemon",
-          "start"
-        ],
+          ["start"]
+        ),
         {
-          env: process.env,
+          env: connectCliEnvironment(app.isPackaged),
           timeout: 30_000,
           windowsHide: true
         }
