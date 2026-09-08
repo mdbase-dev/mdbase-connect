@@ -105,6 +105,15 @@ references, 2,292 TypeScript export references, 16 `mdbase::Collection`
 references, and one `TypedCollection` reference. These checks are architectural
 alarms rather than substitutes for review.
 
+Public provider signup adds two server modules: `external-signup.ts` owns the
+short-lived verified-identity proof and the account-creation transaction;
+`public-account-onboarding.ts` replaces the password-only legal/entitlement/
+welcome/starter sequence with one implementation used by both signup methods.
+The corresponding reviewed-surface increase is two production files, fourteen
+relative imports and five TypeScript exports. This does not relax file-size or
+cycle checks. Route tests and real PostgreSQL replay, cross-provider email-race,
+same-subject concurrency and rollback tests cover the new persisted boundary.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;

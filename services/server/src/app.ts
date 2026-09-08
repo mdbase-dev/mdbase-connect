@@ -307,7 +307,9 @@ export async function buildApp(options: BuildOptions) {
     managementOrigins: options.managementOrigins,
     authenticationPolicy,
     githubAuth: options.githubAuth,
-    googleAuth: options.googleAuth
+    googleAuth: options.googleAuth,
+    authRateLimitSecret: options.authRateLimitSecret,
+    authenticationLegalDocuments: options.authenticationLegalDocuments
   });
   registerConnectorPairingRoutes(app, {
     db: options.db,

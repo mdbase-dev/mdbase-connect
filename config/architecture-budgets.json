@@ -28,7 +28,7 @@
     "packages/webhooks": 1,
     "services/feedback": 1,
     "services/mcp": 11,
-    "services/server": 130
+    "services/server": 132
   },
   "deadCodeReferencesByFile": {
     "crates/connect-hosted-provider/src/workspace.rs": 1,
@@ -43,11 +43,11 @@
     "semanticProjectionFormatVersion": 6
   },
   "reviewBudgets": {
-    "productionFiles": 675,
-    "relativeImports": 1431,
+    "productionFiles": 677,
+    "relativeImports": 1445,
     "workspacePackages": 24,
     "rustPublicDeclarations": 3161,
-    "typeScriptExportDeclarations": 2392,
+    "typeScriptExportDeclarations": 2397,
     "mdbaseCollectionReferences": 16,
     "typedCollectionReferences": 1
   }

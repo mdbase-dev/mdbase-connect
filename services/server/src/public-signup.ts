@@ -12,9 +12,7 @@ import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
 } from "./authentication-policy.js";
-import { scheduleStarterCollection } from "./account-onboarding.js";
-import { scheduleOpenBetaWelcomeEmail } from "./beta-welcome-email.js";
-import { materializePublicSignupEntitlement } from "./entitlements.js";
+import { completePublicAccountOnboarding } from "./public-account-onboarding.js";
 import { hashPassword } from "./password.js";
 import { randomToken, tokenHash } from "./security.js";
 
@@ -227,17 +225,14 @@ export class PublicSignupService {
          VALUES ($1, $2)`,
         [userId, passwordHash]
       );
-      await connection.query(
-        `INSERT INTO account_agreements
-           (user_id, document, version, acceptance_method)
-         VALUES
-           ($1, 'terms', $2, 'email_verification'),
-           ($1, 'privacy', $3, 'email_verification')`,
-        [userId, input.termsVersion, input.privacyVersion]
-      );
-      await materializePublicSignupEntitlement(connection, userId);
-      await scheduleOpenBetaWelcomeEmail(connection, { userId, emailIdentityId });
-      await scheduleStarterCollection(connection, userId, input.timezone ?? "UTC");
+      await completePublicAccountOnboarding(connection, {
+        userId,
+        emailIdentityId,
+        termsVersion: input.termsVersion,
+        privacyVersion: input.privacyVersion,
+        acceptanceMethod: "email_verification",
+        timezone: input.timezone ?? "UTC"
+      });
       await connection.query(
         `INSERT INTO sessions
            (id, user_id, token_hash, provider, account_session_epoch,

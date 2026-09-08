@@ -71,9 +71,14 @@ For public account creation, explicitly select open registration:
 MDBASE_CONNECT_REGISTRATION=open
 ```
 
-Open registration applies to every configured external provider. Do not enable
-it on the public service until the homepage, privacy policy, support contact,
-account lifecycle, monitoring, and abuse response are ready.
+Open registration applies to every configured external provider. New Google
+and GitHub identities finish signup by confirming their name and accepting the
+current legal documents before an account is created. This requires a verified
+provider email, current legal versions/URLs, and the shared authentication
+limiter; it does not require password authentication or email delivery to be
+enabled. See [public provider signup](account-authentication.md#public-google-and-github-signup).
+Do not enable it on the public service until the homepage, privacy policy,
+support contact, account lifecycle, monitoring, and abuse response are ready.
 
 Open registration also advertises verified email-and-password signup when the
 password-authentication limiter, current legal documents, audited email

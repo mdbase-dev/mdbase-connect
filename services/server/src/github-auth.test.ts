@@ -39,7 +39,8 @@ describe("GitHub identity exchange", () => {
       id: "12558714",
       login: "callumalpass",
       name: "Callum",
-      email: null
+      email: null,
+      emailVerified: false
     });
 
     const tokenRequest = fetchMock.mock.calls[0];
@@ -49,6 +50,34 @@ describe("GitHub identity exchange", () => {
     expect(body.get("client_secret")).toBe("client-secret");
     const profileHeaders = new Headers(fetchMock.mock.calls[1][1]?.headers);
     expect(profileHeaders.get("authorization")).toBe("Bearer temporary-token");
+  });
+
+  it.each([
+    [[{ email: "private@example.com", primary: true, verified: true }], "private@example.com", true],
+    [[{ email: "unverified@example.com", primary: true, verified: false }], null, false],
+    [[{ email: "secondary@example.com", primary: false, verified: true }], null, false],
+    [[], null, false]
+  ])("requires a verified primary email, including private addresses (%j)", async (emails, email, emailVerified) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json({ access_token: "temporary-token" }))
+      .mockResolvedValueOnce(Response.json({ id: 123, login: "person", email: "public-untrusted@example.com" }))
+      .mockResolvedValueOnce(Response.json(emails));
+    const identity = await exchangeGitHubCode(config, {
+      code: "code", codeVerifier: "pkce", redirectUri: "https://connect.example/auth/github/callback", readVerifiedEmail: true
+    });
+    expect(identity).toMatchObject({ email, emailVerified });
+    expect(fetchMock.mock.calls[2][0]).toBe("https://api.github.com/user/emails");
+    expect(JSON.stringify(identity)).not.toContain("temporary-token");
+  });
+
+  it("fails closed when GitHub email verification is unavailable", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json({ access_token: "temporary-token" }))
+      .mockResolvedValueOnce(Response.json({ id: 123, login: "person", email: "public@example.com" }))
+      .mockResolvedValueOnce(Response.json({ message: "unavailable" }, { status: 503 }));
+    await expect(exchangeGitHubCode(config, {
+      code: "code", codeVerifier: "pkce", redirectUri: "https://connect.example/auth/github/callback", readVerifiedEmail: true
+    })).rejects.toBeInstanceOf(GitHubIdentityError);
   });
 
   it("rejects failed token exchanges and malformed identities", async () => {

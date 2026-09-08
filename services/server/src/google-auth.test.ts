@@ -155,6 +155,8 @@ describe("Google authentication", () => {
     const { app: closed } = await buildApp({
       db,
       publicUrl: "https://connect.example",
+      authRateLimitSecret: "social-signup-test-secret-at-least-32-bytes",
+      authenticationLegalDocuments: { termsUrl: "https://connect.example/terms", privacyUrl: "https://connect.example/privacy" },
       googleAuth: {
         clientId: "google-client.apps.googleusercontent.com",
         allowedSubjects: new Set(["111111111111"]),
@@ -172,8 +174,8 @@ describe("Google authentication", () => {
       registrationMode: "open",
       passwordAuthEnabled: false,
       emailDeliveryEnabled: false,
-      termsVersion: null,
-      privacyVersion: null,
+      termsVersion: "terms-v1",
+      privacyVersion: "privacy-v1",
       expectedRevision: 0,
       updatedBy: "operator:test",
       reason: "Exercise dynamic registration"
@@ -184,6 +186,19 @@ describe("Google authentication", () => {
     const openStart = await closed.inject({ method: "GET", url: "/auth/google" });
     const admitted = await googleCallback(closed, openStart);
     expect(admitted.statusCode).toBe(200);
+    expect(admitted.json().redirect_to).toContain("/signup?external=1");
+    expect((await db.query("SELECT id FROM users")).rows).toHaveLength(0);
+    const signupCookie = responseCookies(admitted).find((value) => value.startsWith("__Host-mdbase-signup="))!;
+    const preview = await closed.inject({
+      method: "POST", url: "/v1/auth/external/signup/preview",
+      headers: { origin: "https://connect.example", cookie: cookiePair(signupCookie) }, payload: {}
+    });
+    const completed = await closed.inject({
+      method: "POST", url: "/v1/auth/external/signup",
+      headers: { origin: "https://connect.example", cookie: cookiePair(signupCookie) },
+      payload: { proof_id: preview.json().proof_id, name: "New User", terms_version: "terms-v1", privacy_version: "privacy-v1", timezone: "UTC" }
+    });
+    expect(completed.statusCode).toBe(200);
     expect((await db.query("SELECT id FROM users")).rows).toHaveLength(1);
 
     await policy.update({
