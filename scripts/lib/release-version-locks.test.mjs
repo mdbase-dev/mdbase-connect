@@ -23,9 +23,11 @@ async function fixture(run) {
   }
   try {
     for (const path of packagePaths) await put(path, JSON.stringify({ version }));
-    await put('Cargo.toml', `[workspace.package]\nversion = "${version}"\n`);
+    await put('Cargo.toml', `[workspace]\nmembers = ["crates/provider", "crates/adapter"]\n[workspace.package]\nversion = "${version}"\n`);
+    await put('crates/provider/Cargo.toml', '[package]\nname = "mdbase-connect-hosted-provider"\nversion.workspace = true\n');
+    await put('crates/adapter/Cargo.toml', '[package]\nname = "mdbase-connect-testbed-adapter"\nversion = "0.0.0"\n');
     await put('services/mcp/src/mcp.ts', `const info = { version: "${version}" };\n`);
-    for (const path of lockPaths) await put(path, lock(version));
+    for (const path of lockPaths) await put(path, `${lock(version)}\n[[package]]\nname = "mdbase-connect-testbed-adapter"\nversion = "0.0.0"\n`);
     await run(root, put);
   } finally {
     await rm(root, { recursive: true, force: true });
