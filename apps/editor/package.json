@@ -10,7 +10,7 @@
     "check:bundle": "node scripts/check-bundle-size.mjs",
     "check:csp": "node scripts/check-csp.mjs",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run",
+    "test": "node --test scripts/write-manifest.test.mjs && vitest run",
     "test:deployment": "node --test scripts/verify-deployment-manifest.test.mjs",
     "test:e2e": "playwright test",
     "preview": "vite preview --host 127.0.0.1",

@@ -2,7 +2,7 @@ import { expect } from "@playwright/test";
 import manifest from "../public/.well-known/mdbase-app.json" with { type: "json" };
 
 // Use the generated production declaration for registration responses, while
-// explicitly pinning the bundled Editor's predecessor bridge permissions.
+// explicitly pinning the bundled Editor's new semantic-v2 permissions.
 export const editorRequirements = manifest.requirements;
 
 export function expectEditorRegistration(body: unknown): void {
@@ -10,28 +10,19 @@ export function expectEditorRegistration(body: unknown): void {
     contracts: [],
     access: "full_collection",
     capabilities: {
-      contract_version: 1,
+      contract_version: 2,
       required: [
-        "collection.inspect",
-        "records.watch",
-        "records.read",
-        "records.query",
-        "records.validate",
+        "collection.read",
         "records.create",
-        "records.update",
+        "records.edit",
         "records.delete",
-        "records.rename",
-        "files.list",
-        "files.read",
-        "definitions.read",
-        "definitions.create",
-        "definitions.update",
-        "definitions.type-pack.apply"
+        "definitions.manage"
       ],
-      optional: ["files.add"]
+      optional: []
     },
     files: {
-      actions: ["list", "read", "add"],
+      required: ["list", "read"],
+      optional: ["add"],
       scope: { kind: "collection" }
     }
   });

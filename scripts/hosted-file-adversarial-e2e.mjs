@@ -24,7 +24,8 @@ try {
   const databaseUrl = `postgres://mdbase:${password}@127.0.0.1:${port}/mdbase`;
   // These ignored tests require this owned loopback database; execute them in
   // the registered CI suite rather than relying on ordinary workspace tests.
-  for (const target of [["--lib", "atomic_runner"], ["--test", "semantic_migration"]]) {
+  for (const target of [["--lib", "atomic_runner"], ["--test", "semantic_migration"],
+    ["--test", "setup_evidence"], ["--test", "fresh_issuance"]]) {
     await run("cargo", [
       "test", "--locked", "-p", "mdbase-connect-hosted-provider", ...target,
       "--", "--ignored", "--nocapture", "--test-threads=1"

@@ -221,7 +221,7 @@ fn legacy_can_upgrade_to_lease_but_cannot_return_after_restart() {
 }
 
 #[test]
-fn fresh_v2_upsert_denied_without_insert_archive_or_resurrection() {
+fn fresh_v2_upsert_requires_valid_proof_before_insert_archive_or_resurrection() {
     let directory = tempfile::tempdir().unwrap();
     let registry = CollectionRegistry::open(directory.path()).unwrap();
     let grant = super::super::tests::signed_test_grant(&registry, vec!["query".into()]);
@@ -241,20 +241,19 @@ fn fresh_v2_upsert_denied_without_insert_archive_or_resurrection() {
             [], |row| Ok((row.get::<_, u64>(0)?, row.get::<_, u64>(1)?)),
         ).unwrap()
     };
-    let denied = || {
-        assert!(
-            matches!(registry.upsert_grant(&grant), Err(ConnectError::AccessDenied(message))
-            if message.contains("issuance is unavailable") && !message.contains("unsupported"))
-        );
-    };
     let mut invalid = grant.clone();
     invalid.application_authorization.signature = "invalid".into();
-    assert!(matches!(
-        registry.upsert_grant(&invalid),
-        Err(ConnectError::InvalidInput(_))
-    ));
+    let denied = || {
+        assert!(matches!(
+            registry.upsert_grant(&invalid),
+            Err(ConnectError::InvalidInput(_))
+        ));
+    };
     denied();
     assert_eq!(counts(), (0, 0));
+    // Fresh authority must be installed through the real API, not a seeded restore.
+    registry.upsert_grant(&grant).unwrap();
+    assert_eq!(counts(), (1, 0));
     let connector_id = grant.encryption.as_ref().unwrap().connector_id;
     let now = super::super::authority_store::current_time_ms();
     registry
@@ -269,7 +268,7 @@ fn fresh_v2_upsert_denied_without_insert_archive_or_resurrection() {
         .unwrap();
     let identity = registry.grant_mutation_identity(grant.id).unwrap();
     assert!(registry.remote_policy_authority().unwrap().fresh);
-    denied(); // An existing installation is not a completed activation retry.
+    denied(); // Existing authority does not authenticate a replacement proof.
     assert_eq!(counts(), (1, 0));
     assert_eq!(
         registry.grant_mutation_identity(grant.id).unwrap(),

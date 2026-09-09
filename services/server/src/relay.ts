@@ -33,7 +33,7 @@ import { recordConnectorProtocolUsage } from "./protocol-telemetry.js";
 import {
   CONNECTOR_UPDATE_URL, currentRelayGeneration, lockAuthorizationGeneration,
   receiveRelayHello, recordIncompatibleRelay, rejectIncompatibleRelay, rejectUnavailableRelay,
-  relayCapabilityMismatch, relayContractMismatch, relaySupportsContracts, type RelayHello
+  relayCapabilityMismatch, relayContractMismatch, relaySupportsContracts, relaySupportsFreshAuthorization, type RelayHello
 } from "./relay-compatibility.js";
 import { grantIdFromMessage, hasPendingOperationCapacity } from "./relay-admission.js";
 import {
@@ -521,7 +521,10 @@ export class RelayHub {
   }
 
   authorizationAuthority(connectorId: string, required: ConnectContractRequirements): string {
-    if (!this.supportsContracts(connectorId, required)) throw new RelayUnavailableError();
+    if (!this.supportsContracts(connectorId, required)
+        || !relaySupportsFreshAuthorization(this.connectors.get(connectorId), required)) {
+      throw new RelayUnavailableError();
+    }
     return this.connectors.get(connectorId)!.generation;
   }
 

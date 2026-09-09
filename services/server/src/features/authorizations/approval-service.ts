@@ -601,6 +601,8 @@ export async function approveHostedAuthorization(
       pending.notifications,
       pending.provisions
     );
+    const freshV2 = pending.requirements.capabilities?.contract_version === 2;
+    if (freshV2) await provider.assertFreshV2AuthorizationSupport();
     const hostedCollection = await connection.query(
       `SELECT id FROM hosted_collections
        WHERE id = $1 AND quarantined_at IS NULL
@@ -818,6 +820,7 @@ export async function approveHostedAuthorization(
       applicationDeclaration: pending.application_declaration,
       applicationAuthorization: pending.application_authorization
     };
+    if (freshV2) await provider.assertFreshV2AuthorizationSupport();
     if (retained) {
       compensateRetainedReplica = retainedReplicaPolicy.compensation(
         provider,
@@ -920,6 +923,7 @@ export async function approveHostedAuthorization(
       source: "portal"
     });
     await syncHostedNotificationGrant(connection, provider, grantId);
+    if (freshV2) await provider.assertFreshV2AuthorizationSupport();
     await connection.query("COMMIT");
     return true;
   } catch (error) {

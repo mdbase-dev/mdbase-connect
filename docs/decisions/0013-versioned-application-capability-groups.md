@@ -159,6 +159,18 @@ grants.
    v2-enablement release is available. Require positive server and selected-authority support
    at approval and activation; handshake overlap alone is insufficient. Never
    retry a failed version-2 authorization by silently downgrading to version 1.
+   Advertise fresh issuance separately with the policy-generated
+   `application-authorization-v2-issuance` capability; retained-reader support
+   is not fresh-issuance permission. The selected daemon/provider, not merely a
+   desktop UI or relay welcome, must supply that capability. Cached readiness
+   is insufficient: hosted fresh-v2 setup uses its mandatory receiver-gated
+   endpoint, with no fallback to the prelude's generic setup endpoint. Queued
+   relay controls must recheck their originating session and policy generation
+   immediately before entering the receiver handler.
+   Zero-effects assertions apply to rejection before setup. Setup already
+   committed while authorized is not undone by subsequent generation changes,
+   rollover or grant-publication failure; do not describe those later failures
+   as atomic rollback of collection setup.
    After consumer availability and compatibility evidence, explicitly stop
    creating version-1 pending authorizations and grants, with defined recovery
    for already pending requests.
@@ -184,10 +196,22 @@ manifest with the versioned parser (the devkit current-only validator targets v2
 Explicit v2 fixtures must distinguish reader/recovery coverage from new-issuance
 coverage; a successful reader test cannot authorize prelude issuance. Consumer
 conversion requires deployed v2-enablement qualification and a supported desktop
-v2 direct-approval path; that path
-remains intentionally blocked while legacy desktop approval remains available.
-Declaration/digest changes use ordinary registration. No consumer deployment or
-v1 retirement is implied by these defaults.
+v2 direct-approval path. The enablement candidate uses the artifact policy
+`v2-enablement` with fresh semantic versions `[1, 2]`; this is not an environment
+switch and does not change the immutable beta.95 prelude's `[1]` policy.
+
+Native approval now reuses authenticated relay activation. A connector may
+approve only a request belonging to its account for its own selected local
+authority; discovery snapshots never provision or grant access. Desktop consent
+supports compatible v2 collections without additional type/configuration setup.
+Detailed setup and hosted approval continue through the portal rather than
+bypassing their review. Both routes must establish selected-authority fresh
+issuance support, not just retained-reader support.
+
+Declaration/digest changes use ordinary registration. Changing the candidate
+policy and passing unit tests do not establish deployed enablement or qualify
+rollback. Consumer publication follows actual service qualification; v1 grant
+retirement remains a separate migration.
 
 The prelude preserves migration 0039/0040 bytes and adds corrective migration
 0041 for predecessor INSERTs that omit both semantic metadata columns. Only
