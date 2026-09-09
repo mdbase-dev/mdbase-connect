@@ -40,6 +40,21 @@ if (cargoVersion !== version) {
   throw new Error(`Cargo.toml has ${cargoVersion ?? "no workspace version"}; expected ${version}.`);
 }
 
+// The release image uses its own pinned-engine lock, not the development lock.
+// Both must track the workspace version before a --locked Docker build starts.
+for (const lockPath of ["Cargo.lock", "deploy/docker/Cargo.lock.hosted-provider"]) {
+  const lock = await readFile(lockPath, "utf8");
+  for (const entry of lock.split("[[package]]").slice(1)) {
+    const name = entry.match(/^name = "([^"]+)"/m)?.[1];
+    if (!(name?.startsWith("mdbase-connect-") || name === "mdbase-cli"
+        || name === "connect-hosted-storage-benchmark")) continue;
+    const lockedVersion = entry.match(/^version = "([^"]+)"/m)?.[1];
+    if (lockedVersion !== version) {
+      throw new Error(`${lockPath}: ${name} has ${lockedVersion}; expected ${version}.`);
+    }
+  }
+}
+
 const mcpSource = await readFile("services/mcp/src/mcp.ts", "utf8");
 if (!mcpSource.includes(`version: "${version}"`)) {
   throw new Error("The MCP server's advertised version does not match the release version.");
