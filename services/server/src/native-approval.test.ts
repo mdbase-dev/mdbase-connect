@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { afterEach, expect, it, vi } from "vitest";
-import { capabilityOperationsForContractVersion } from "@mdbase-dev/connect-protocol";
+import { capabilityOperationsForContractVersion, type FileAction } from "@mdbase-dev/connect-protocol";
 import { createDatabase, type DatabasePool } from "./db.js";
 import { testApplicationAuthorization } from "./application-authorization.test-helper.js";
 import { tokenHash, pkceChallenge } from "./security.js";
@@ -14,15 +14,15 @@ import type { RelayHub } from "./relay.js";
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
 
-async function fixture(version: 1 | 2 = 2, files = false) {
+async function fixture(version: 1 | 2 = 2, files = false, optionalFiles = false) {
   const db = await createDatabase("memory");
   cleanups.push(() => db.end());
   const userId = randomUUID(), connectorId = randomUUID(), collectionId = randomUUID();
   const authorityId = randomUUID(), applicationId = randomUUID(), requestId = randomUUID();
   const token = randomUUID();
   const operations = capabilityOperationsForContractVersion(version, version === 2 ? "collection.read" : "records.read")!;
-  const requestedFiles = files ? { actions: ["list", "read"] as const, scope: { kind: "selected_folders" as const, folders: ["attachments"] } } : undefined;
-  const rawRequirements = { ...(files ? { files: { required: ["list", "read"], scope: requestedFiles!.scope } } : {}), contracts: [], access: "full_collection", capabilities: {
+  const requestedFiles = files ? { actions: (optionalFiles ? ["list", "read", "delete"] : ["list", "read"]) as FileAction[], scope: { kind: "selected_folders" as const, folders: ["attachments"] } } : undefined;
+  const rawRequirements = { ...(files ? { files: { required: ["list", "read"], ...(optionalFiles ? { optional: ["delete"] } : {}), scope: requestedFiles!.scope } } : {}), contracts: [], access: "full_collection", capabilities: {
     contract_version: version, required: [version === 2 ? "collection.read" : "records.read"]
   } };
   const discovered = registerApplicationManifest({ manifest_version: 1, id: "dev.mdbase.native-test",
@@ -76,12 +76,31 @@ async function fixture(version: 1 | 2 = 2, files = false) {
   app.setErrorHandler((error, _request, reply) => reply.code(400).send({ error: String(error) }));
   registerAuthorizationRoutes(app, { db, relay: relay as unknown as RelayHub, publicUrl: "https://connect.example.test", drainProviderRevocations: async () => {} });
   cleanups.push(() => app.close());
-  const approve = (payload = { collection_id: collectionId, operations }, credential = token, id = requestId) => app.inject({
+  const approve = (payload: { collection_id: string; operations: typeof operations; file_actions?: FileAction[] } = { collection_id: collectionId, operations }, credential = token, id = requestId) => app.inject({
     method: "POST", url: `/v1/connectors/authorization-requests/${id}/approve`,
     headers: { authorization: `Bearer ${credential}` }, payload
   });
   return { db, app, relay, approve, proof, userId, connectorId, authorityId, collectionId, requestId, operations, token };
 }
+
+it("native approval does not implicitly select optional file permissions", async () => {
+  const f = await fixture(2, true, true);
+  const response = await f.approve();
+  expect(response.statusCode).toBe(400);
+  expect(response.json().error.code).toBe("invalid_request");
+  expect(f.relay.authorizationOffers).not.toHaveBeenCalled();
+  expect(f.relay.activateAuthorization).not.toHaveBeenCalled();
+  expect((await f.db.query("SELECT id FROM grants")).rows).toHaveLength(0);
+});
+
+it.each<FileAction[]>([["list", "read"], ["list", "read", "delete"]])("native approval honors explicit file selection %j", async (...actions) => {
+  const f = await fixture(2, true, true);
+  const response = await f.approve({ collection_id: f.collectionId, operations: f.operations, file_actions: actions });
+  expect(response.statusCode, response.body).toBe(200);
+  const grant = (await f.db.query("SELECT file_capability, application_authorization FROM grants")).rows[0];
+  expect(grant.file_capability.actions).toEqual(actions);
+  expect(grant.application_authorization).toEqual(f.proof);
+});
 
 it.each([1, 2] as const)("native v%s approval activates and publishes the exact signed grant", async (version) => {
   const f = await fixture(version);

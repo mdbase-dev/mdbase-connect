@@ -76,8 +76,8 @@ MDBASE_CLOUD_OPS_CHECKOUT=/absolute/path/to/mdbase-cloud-ops \
 
 ## Public client release publication
 
-The tag-driven `desktop-release.yml` workflow separately owns the public desktop
-channel. It creates and verifies `mdbase-connect-channel-v1.json`, publishes the
+The explicitly dispatched `desktop-release.yml` workflow owns the public desktop
+channel after production verification. It creates and verifies `mdbase-connect-channel-v1.json`, publishes the
 GitHub release, and only then sends a `connect-client-release-published`
 repository dispatch containing the immutable tag to `mdbase-dev/mdbase.dev`.
 The receiving repository verifies the signed public channel, release assets,
@@ -91,6 +91,55 @@ contents and pull requests. A failed dispatch is recovered by manually running
 the website's **Update Connect release** workflow with the same tag; the public
 release is not republished.
 
-This client publication boundary is independent of server staging and
-production promotion. `mdbase-cloud-ops` does not trigger, receive, or hold
-credentials for the website update.
+Client publication follows server production promotion; it cannot be triggered
+by creating a tag. `mdbase-cloud-ops` does not trigger, receive, or hold
+credentials for client or website publication.
+
+For semantic-v2 enablement, use this order:
+
+1. Qualify the exact candidate with full Server CI and retain the build-once
+   signed image bundle. Create the matching immutable annotated version tag;
+   ops preparation still requires that tag. Tag creation publishes no npm,
+   desktop release/feed, or production Editor.
+2. Prepare and promote those signed digests through the existing guarded ops
+   staging and production process. The parent release owner independently
+   verifies the exact enabled candidate on each actual canonical production
+   service, including unique service/deployment identity, image digests, hosted
+   provider fresh-v2 readiness, and fresh authorization behavior.
+3. Only after that verification, dispatch `publish-npm.yml`, then
+   `desktop-release.yml`, then `editor-pages.yml` (target `production`), selecting
+   the existing version tag as the workflow ref in each case. Supply the full
+   verified candidate SHA as `production_verified_commit`. Desktop builds begin
+   on this dispatch; no pre-production desktop build is required. Consumers may
+   update only after their dependencies are published. Reader remains excluded
+   from this enablement rollout.
+
+Immediately before each public mutation, `scripts/verify-client-publication.mjs`
+requires a dispatch, matching workspace version/tag/checkout/full verified SHA,
+checks the current annotated tag through the existing GitHub API, and reads only
+fixed canonical production endpoints. Connect `/health` must identify production,
+its canonical origin, the exact revision, protocol 1 and fresh-v2 issuance;
+Connect `/ready` must succeed; canonical `sync.mdbase.dev/ready` must identify
+the candidate provider version, fresh-v2 issuance and successful notification
+recovery with zero consecutive failures; MCP `/health` must identify the exact
+revision.
+Missing fields, disabled capability, mismatches, redirects, HTTP failures and
+timeouts fail closed. Existing exact Server CI qualification and release gates
+remain in force. No caller-supplied service URL or cross-repository ops credential
+is accepted.
+
+These live public responses supplement the parent's verification. They do not
+prove unique service deployment identity, the hosted-provider source revision
+(its public readiness exposes version, not source), or successful end-to-end fresh
+authorization. Provider fresh-v2 readiness is checked directly, not inferred from
+Connect readiness. The full SHA input records the parent's explicit assertion;
+it is not a signed receipt or independent readiness evidence. If independent ops
+verification is unavailable, do not dispatch. A rollback or service change between
+verification and publication requires re-verification; publication is not atomic
+with deployment and cannot retract already published packages. Retry a failed
+publication only while the same exact candidate is still verified in production.
+GitHub environment protection remains authoritative. In particular,
+`cloudflare-pages` must permit reviewed release-tag refs for production Editor;
+a branch-only environment policy will block this transition and must be reviewed
+by the release owner, not bypassed by the workflow. Earlier v1 release history is
+unchanged.

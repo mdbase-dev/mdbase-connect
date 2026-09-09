@@ -117,6 +117,10 @@ export function registerAuthorizationRoutes(
     );
     const selected = selection.rows[0];
     if (!selected) return reply.code(404).send(apiError("authorization_not_found", "Authorization request or local collection is unavailable."));
+    const files = selected.requirements.files;
+    if (files && "optional" in files && files.optional?.length && input.file_actions === undefined) {
+      return reply.code(400).send(apiError("invalid_request", "Choose optional file permissions explicitly in Connect before approving this request."));
+    }
     const access = await resolveLocalCollectionAccess(options.db, connector.user_id, selected.authority_id);
     requireCollectionAction(access, "application.authorize");
     if (input.contract_setups.length) requireCollectionAction(access, "schema.manage");

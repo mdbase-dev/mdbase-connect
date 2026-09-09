@@ -541,14 +541,16 @@ function PortalApprovalRequest({ request, collections, focused, busy, onAct }: {
   const [collectionId, setCollectionId] = useState(candidates.length === 1 ? candidates[0].id : "");
   const [operations, setOperations] = useState(request.requested_operations);
   const groups = requestCapabilityGroups(request.requirements, request.requested_operations);
+  const files = request.requirements.files;
   // Complex setup needs the existing type-mapping/configuration review. Merely
   // appearing in this snapshot never establishes fresh issuance support.
   const native = candidates.length > 0 && hasSupportedCapabilityDeclaration(request.requirements)
+    && (request.requirements as { access?: string }).access !== "contract_scoped"
+    && (!files || (Array.isArray(files.required) && !(files.optional?.length)))
     && request.provisions.type_packs.length === 0
     && !((request.requirements as { configuration?: unknown[] }).configuration?.length)
     && !((request.provisions as { configuration?: unknown[] }).configuration?.length);
   const selected = candidates.find((collection) => collection.id === collectionId);
-  const files = request.requirements.files;
   const identity = request.application_distribution === "portable"
     ? request.application_project_url
       ? `Downloaded file · ${host(request.application_project_url)}`

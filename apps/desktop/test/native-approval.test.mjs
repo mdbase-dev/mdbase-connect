@@ -51,16 +51,20 @@ for (const [name, overrides, collections] of [
   ["disabled collection", {}, [{ ...collection, enabled: false }]],
   ["missing capability version", { requirements: { contracts: [] } }],
   ["type setup", { provisions: { type_packs: [{}] } }],
-  ["configuration setup", { provisions: { type_packs: [], configuration: [{}] } }]
+  ["configuration setup", { provisions: { type_packs: [], configuration: [{}] } }],
+  ["contract-scoped access", { requirements: { ...request.requirements, access: "contract_scoped" } }],
+  ["optional file choices", { requirements: { ...request.requirements, files: { required: ["read"], optional: ["delete"], scope: { kind: "collection" } } } }],
+  ["legacy file choices", { requirements: { ...request.requirements, files: { actions: ["read"], scope: { kind: "collection" } } } }]
 ]) test(`${name} retains the supported detailed review`, () => {
   const html = render(overrides, collections);
   assert.match(html, /Review in Connect/);
   assert.doesNotMatch(html, /Allow Reader/);
 });
 
-test("file ceilings and selected folder scope remain visible at consent", () => {
-  const html = render({ requirements: { ...request.requirements, files: { required: ["list", "read"], optional: ["delete"], scope: { kind: "selected_folders", folders: ["attachments"] } } } });
-  assert.match(html, /Files: list, read, delete/);
+test("required file ceilings and selected folder scope remain visible at native consent", () => {
+  const html = render({ requirements: { ...request.requirements, files: { required: ["list", "read"], scope: { kind: "selected_folders", folders: ["attachments"] } } } });
+  assert.match(html, /Files: list, read/);
+  assert.match(html, /Allow Reader/);
   assert.match(html, /Scope: attachments/);
 });
 
