@@ -2114,7 +2114,7 @@ describe("mdbase connect server", () => {
     expect(state.rows.find(({ id }) => id === grants[1])?.revoked_at).toBeNull();
   });
 
-  it("provisions and reconciles prelude v1 contract-free hosted application access as unrestricted", async () => {
+  it("provisions native prelude v1 contract-free hosted access with an exact application origin", async () => {
     const READ_OPERATIONS = LEGACY_READ_OPERATIONS;
     const db = await createDatabase("memory");
     resources.push(() => db.end());
@@ -2212,7 +2212,7 @@ describe("mdbase connect server", () => {
     const authorization = await startWebAuthorization(app, cookie, {
       applicationId,
       applicationManifestDigest,
-      redirectUri: manifestServer.redirectUri,
+      redirectUri: manifestServer.nativeRedirectUri,
       verifier,
       state,
       operations: hostedOperations
@@ -2275,6 +2275,8 @@ describe("mdbase connect server", () => {
         allowedTypes: [],
         fullCollection: true,
         allowedOperations: hostedOperations.filter((operation) => operation !== "sync"),
+        allowedOrigin: new URL(manifestServer.manifest.homepage).origin,
+        proofPublicKey: expect.any(String),
         applicationDeclarationId: manifestServer.manifest.id,
         applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
       })
