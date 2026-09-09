@@ -156,10 +156,7 @@ function completeRetainedReplicaPolicy(
       retained.application_authorization.binding.contracts
         .operation_transport_recovery ?? [],
     fileCapability: retained.file_capability ?? undefined,
-    allowedOrigin: priorAllowedOrigin(
-      retained.application_authorization.binding,
-      retained.application_origin
-    ),
+    allowedOrigin: retained.application_origin,
     proofPublicKey: retained.proof_public_key,
     applicationDeclarationId: declarationIdFromFamilyIdentity(
       retained.application_family_identity
@@ -167,15 +164,4 @@ function completeRetainedReplicaPolicy(
     applicationDeclarationDigest:
       `sha256:${retained.application_manifest_digest}`
   };
-}
-
-function priorAllowedOrigin(
-  binding: ApplicationAuthorizationProof["binding"],
-  storedApplicationOrigin: string
-): string | undefined {
-  if (binding.flow === "device_code") return storedApplicationOrigin;
-  const redirect = new URL(binding.redirect_uri!);
-  return ["http:", "https:"].includes(redirect.protocol)
-    ? redirect.origin
-    : undefined;
 }

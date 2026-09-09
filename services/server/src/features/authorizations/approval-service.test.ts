@@ -127,7 +127,7 @@ describe("approveHostedAuthorization prelude v1 retained replica recovery", () =
     expect(revokeReplica).toHaveBeenCalledWith(fixture.replicaId);
   });
 
-  it("restores no allowed origin for a prior custom-scheme authorization", async () => {
+  it("restores the stored exact origin for a prior custom-scheme authorization", async () => {
     const fixture = await retainedReplicaFixture({
       priorFlow: "authorization_code",
       priorRedirectUri: "dev.mdbase.restore-test://auth/mdbase/callback",
@@ -147,7 +147,11 @@ describe("approveHostedAuthorization prelude v1 retained replica recovery", () =
 
     expect(updateApplicationReplica.mock.calls[1]).toEqual([
       fixture.replicaId,
-      { ...fixture.priorPolicy, allowedOrigin: undefined }
+      {
+        ...fixture.priorPolicy,
+        allowedOrigin: "https://homepage.example",
+        fileCapability: undefined
+      }
     ]);
     expect(revokeReplica).not.toHaveBeenCalled();
   });

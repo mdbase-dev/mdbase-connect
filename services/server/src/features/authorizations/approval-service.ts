@@ -726,11 +726,7 @@ export async function approveHostedAuthorization(
           pending.redirect_uri!,
           pending.application_homepage
         );
-    const allowedOrigin = pending.flow === "device_code"
-      ? pending.device_origin ?? "null"
-      : ["http:", "https:"].includes(new URL(pending.redirect_uri!).protocol)
-        ? new URL(pending.redirect_uri!).origin
-        : undefined;
+    const allowedOrigin = applicationOrigin;
     const applicationInstallationId =
       pending.application_authorization.binding.application_installation_id;
     const existing = await retainedReplicaPolicy.loadCandidates(connection, {
