@@ -225,6 +225,10 @@ pub fn app(state: AppState) -> Router {
             post(setup_application),
         )
         .route(
+            "/internal/v1/collections/{collection_id}/fresh-application-setup-v2",
+            post(setup_fresh_application_v2),
+        )
+        .route(
             "/internal/v1/collections/{collection_id}/types",
             get(collection_type_candidates),
         )
@@ -790,6 +794,38 @@ async fn setup_contracts(
     })))
 }
 
+// A distinct mandatory route binds fresh issuance support to the receiver that
+// performs setup. Older receivers return 404 instead of ignoring an optional flag.
+async fn setup_fresh_application_v2(
+    state: State<AppState>,
+    collection_id: Path<Uuid>,
+    input: Json<ApplicationSetupRequest>,
+) -> ApiResult<Json<Value>> {
+    ensure_fresh_application_setup_v2(&input.requirements)?;
+    setup_application(state, collection_id, input).await
+}
+
+fn ensure_fresh_application_setup_v2(requirements: &ApplicationRequirements) -> ApiResult<()> {
+    if requirements
+        .capabilities
+        .as_ref()
+        .map(|capabilities| capabilities.contract_version)
+        != Some(2)
+    {
+        return Err(ApiError::bad_request(
+            "application_semantic_version_mismatch",
+            "Fresh v2 application setup requires semantic capability version 2.",
+        ));
+    }
+    if !mdbase_connect_protocol::permits_fresh_application_authorization(2) {
+        return Err(ApiError::forbidden(
+            "application_authorization_issuance_disabled",
+            "Fresh application authorization is disabled for these semantics.",
+        ));
+    }
+    Ok(())
+}
+
 async fn setup_application(
     State(state): State<AppState>,
     Path(collection_id): Path<Uuid>,
@@ -932,6 +968,31 @@ async fn operation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fresh_application_setup_v2_accepts_only_explicit_v2_before_provider_access() {
+        assert_eq!(
+            ensure_fresh_application_setup_v2(&ApplicationRequirements::default())
+                .unwrap_err()
+                .code,
+            "application_semantic_version_mismatch"
+        );
+        for version in [0, 1, 2, 3, u8::MAX] {
+            let requirements: ApplicationRequirements = serde_json::from_value(json!({
+                "capabilities": { "contract_version": version }
+            }))
+            .unwrap();
+            let result = ensure_fresh_application_setup_v2(&requirements);
+            if version == 2 {
+                result.unwrap();
+            } else {
+                assert_eq!(
+                    result.unwrap_err().code,
+                    "application_semantic_version_mismatch"
+                );
+            }
+        }
+    }
 
     #[test]
     fn internal_credentials_are_checked_by_digest() {

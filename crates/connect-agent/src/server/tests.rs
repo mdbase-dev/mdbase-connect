@@ -323,9 +323,16 @@ async fn status_reports_the_running_binary_version_for_upgrade_health_checks() {
         .await;
 
     assert!(response.ok);
+    let result = response.result.expect("status result");
+    assert_eq!(result["binary_version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(
-        response.result.expect("status result")["binary_version"],
-        env!("CARGO_PKG_VERSION")
+        result["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value.as_str()
+                == Some(mdbase_connect_protocol::APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY)),
+        mdbase_connect_protocol::permits_fresh_application_authorization(2)
     );
     fs::remove_dir_all(test_root).unwrap();
 }

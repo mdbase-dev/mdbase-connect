@@ -24,6 +24,7 @@ import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import {
   HostedProviderClient,
+  HostedProviderUnavailableError,
   HostedProviderResponseError
 } from "./hosted-provider.js";
 import { authorityProofMessage } from "./authority-proof.js";
@@ -168,6 +169,7 @@ describe("mdbase connect server", () => {
       ok: true,
       service: "mdbase-connect",
       protocol_version: 1,
+      capabilities: ["application-authorization-v2-issuance"],
       revision: "ae3a8d9"
     });
   });
@@ -954,9 +956,9 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${connector.token}` },
       payload: { collection_id: legacyLocalCollectionId, operations: READ_OPERATIONS }
     });
-    expect(connectorLegacyApproval.statusCode).toBe(409);
+    expect(connectorLegacyApproval.statusCode).toBe(404);
     expect(connectorLegacyApproval.json().error.code)
-      .toBe("portal_activation_required");
+      .toBe("authorization_not_found");
 
     const approved = await app.inject({
       method: "POST",
@@ -965,7 +967,7 @@ describe("mdbase connect server", () => {
       payload: { collection_id: localCollectionId, operations: READ_OPERATIONS }
     });
     expect(approved.statusCode).toBe(409);
-    expect(approved.json().error.code).toBe("portal_activation_required");
+    expect(approved.json().error.code).toBe("connector_offline");
 
     const deniedState = "denied-state";
     const deniedAuthorization = await startWebAuthorization(app, cookie, {
@@ -982,14 +984,14 @@ describe("mdbase connect server", () => {
       url: `/v1/connectors/authorization-requests/${deniedRequestId}/deny`,
       headers: { authorization: `Bearer ${connector.token}` }
     });
-    expect(denied.statusCode).toBe(409);
-    expect(denied.json().error.code).toBe("portal_activation_required");
+    expect(denied.statusCode).toBe(200);
+    expect(denied.json()).toEqual({ ok: true });
     const portalDenied = await app.inject({
       method: "POST",
       url: `/v1/authorization-requests/${deniedRequestId}/deny`,
       headers: { cookie }
     });
-    expect(portalDenied.statusCode).toBe(200);
+    expect(portalDenied.statusCode).toBe(404); // Already denied natively; no second decision.
     const deniedStatus = await app.inject({
       method: "GET",
       url: `/v1/authorization-requests/${deniedRequestId}/status`,
@@ -1031,7 +1033,7 @@ describe("mdbase connect server", () => {
       payload: { collection_id: localCollectionId, operations: READ_OPERATIONS }
     });
     expect(locallyApproved.statusCode).toBe(409);
-    expect(locallyApproved.json().error.code).toBe("portal_activation_required");
+    expect(locallyApproved.json().error.code).toBe("connector_offline");
     const policyAfterPortalApproval = await app.inject({
       method: "GET",
       url: "/v1/connectors/control",
@@ -1351,7 +1353,7 @@ describe("mdbase connect server", () => {
       payload: { collection_id: localCollectionId, operations: ["describe", "query"] }
     });
     expect(approved.statusCode).toBe(409);
-    expect(approved.json().error.code).toBe("portal_activation_required");
+    expect(approved.json().error.code).toBe("connector_offline");
     const status = await app.inject({
       method: "GET",
       url: `/v1/authorization-requests/${requestId}/status`,
@@ -1446,13 +1448,17 @@ describe("mdbase connect server", () => {
   });
 
   it.each([
-    { version: 1 as const, name: "runs prelude v1 portable hosted token, refresh, and retained-grant adoption without another replica" },
-    { version: 2 as const, name: "denies fresh portable v2 adoption without changing the retained legacy grant or replica" }
-  ])("$name", async ({ version }) => {
+    { version: 1 as const, preludeProvider: false, name: "runs v1 portable hosted token, refresh, and retained-grant adoption without another replica" },
+    { version: 2 as const, preludeProvider: false, name: "runs v2 portable hosted token, refresh, and retained-grant adoption without another replica" },
+    { version: 2 as const, preludeProvider: true, name: "refuses v2 approval on a prelude provider without changing the retained legacy grant or replica" }
+  ])("$name", async ({ version, preludeProvider }) => {
     const READ_OPERATIONS = version === 1 ? LEGACY_READ_OPERATIONS : operationsForApplicationCapabilities({ contract_version: 2, required: ["collection.read"] });
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const hostedProvider = {
+      assertFreshV2AuthorizationSupport: vi.fn(async () => {
+        if (preludeProvider) throw new HostedProviderUnavailableError(new Error("Hosted provider does not support fresh v2 authorization."));
+      }),
       url: "https://sync.example",
       ready: vi.fn(),
       upsertAccount: vi.fn().mockResolvedValue({}),
@@ -1554,8 +1560,8 @@ describe("mdbase connect server", () => {
       grantSigningPublicKey: applicationSigningPublicKey,
       semanticCapabilityContractVersion: version
     });
-    // Seed previously committed authority, never create v2 authority through a live gate.
-    if (version === 2) {
+    // The prelude receiver case must not damage existing authority on rejection.
+    if (preludeProvider) {
       const owner = (await db.query<{ id: string }>("SELECT id FROM users WHERE email = 'portable-cloud@example.com'")).rows[0];
       const replicaId = randomUUID();
       await db.query(`INSERT INTO hosted_replicas (id, collection_id, authorized_user_id, name, purpose, mode, allowed_types)
@@ -1583,17 +1589,6 @@ describe("mdbase connect server", () => {
         application_authorization: JSON.stringify(proof)
       }).toString()
     });
-    if (version === 2) {
-      expect(device.statusCode).toBe(400);
-      expect(device.json().error.message).toContain("issuance is disabled for semantic capability contract version 2");
-      expect((await db.query("SELECT * FROM grants")).rows).toEqual(retainedGrants);
-      expect((await db.query("SELECT * FROM hosted_replicas")).rows).toEqual(retainedReplicas);
-      expect(retainedGrants).toHaveLength(1);
-      expect(retainedReplicas).toHaveLength(1);
-      expect((await db.query("SELECT id FROM authorization_requests")).rows).toHaveLength(0);
-      for (const method of [hostedProvider.registerReplica, hostedProvider.updateApplicationReplica, hostedProvider.provisionApplicationSetup, hostedProvider.rotateReplicaToken, hostedProvider.revokeReplica, hostedProvider.upsertNotificationGrant]) expect(method).not.toHaveBeenCalled();
-      return;
-    }
     expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
     const lookup = await app.inject({
       method: "POST",
@@ -1621,7 +1616,22 @@ describe("mdbase connect server", () => {
         operations: portableHostedOperations
       }
     });
+    if (preludeProvider) {
+      expect(approved.statusCode, approved.body).toBe(503);
+      expect(approved.json().error.code).toBe("hosted_provider_unavailable");
+      expect(hostedProvider.assertFreshV2AuthorizationSupport).toHaveBeenCalledTimes(1);
+      expect((await db.query("SELECT * FROM grants")).rows).toEqual(retainedGrants);
+      expect((await db.query("SELECT * FROM hosted_replicas")).rows).toEqual(retainedReplicas);
+      expect(retainedGrants).toHaveLength(1);
+      expect(retainedReplicas).toHaveLength(1);
+      expect((await db.query("SELECT grant_id, completed_at FROM authorization_requests")).rows)
+        .toEqual([{ grant_id: null, completed_at: null }]);
+      for (const method of [hostedProvider.registerReplica, hostedProvider.updateApplicationReplica, hostedProvider.provisionApplicationSetup, hostedProvider.rotateReplicaToken, hostedProvider.revokeReplica, hostedProvider.upsertNotificationGrant]) expect(method).not.toHaveBeenCalled();
+      return;
+    }
     expect(approved.statusCode, JSON.stringify(approved.json())).toBe(200);
+    // Recheck at entry, before provisioning, and before committing approval.
+    expect(hostedProvider.assertFreshV2AuthorizationSupport).toHaveBeenCalledTimes(version === 2 ? 3 : 0);
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
       collectionId,
       expect.objectContaining({
@@ -1759,7 +1769,7 @@ describe("mdbase connect server", () => {
       installationIdentity,
       grantAgreementPublicKey: secondAgreementPublicKey,
       grantSigningPublicKey: secondSigningPublicKey,
-      semanticCapabilityContractVersion: 1
+      semanticCapabilityContractVersion: version
     });
     const secondDevice = await app.inject({
       method: "POST",

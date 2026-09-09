@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, CONNECT_CONTRACT_SUPPORT,
+import { APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY, APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, CONNECT_CONTRACT_SUPPORT,
   authorizationContractRequirements } from "@mdbase-dev/connect-protocol";
 import { RelayHub } from "./relay.js";
 
@@ -18,7 +18,7 @@ const schema = `relay_publication_test_${randomUUID().replaceAll("-", "")}`;
 function authority(db: pg.Pool, id: string) {
   const hub = Object.create(RelayHub.prototype) as RelayHub;
   const session = { ready: true, generation: "1", socket: { readyState: 1 },
-    capabilities: [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY],
+    capabilities: [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY],
     contractSupport: structuredClone(CONNECT_CONTRACT_SUPPORT) };
   Object.assign(hub, { db, closed: false, connectors: new Map([[id, session]]) });
   return { hub, session };

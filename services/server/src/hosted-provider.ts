@@ -1,3 +1,4 @@
+import { APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY } from "@mdbase-dev/connect-protocol";
 import type { ApplicationRequirements } from "./application-requirements.js";
 import type {
   ApplicationAuthorizationProof,
@@ -447,7 +448,7 @@ export class HostedProviderClient {
   ): Promise<HostedContractSetupResult> {
     const result = await this.request(
       "POST",
-      `/internal/v1/collections/${encodeURIComponent(collectionId)}/application-setup`,
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/${input.requirements.capabilities?.contract_version === 2 ? "fresh-application-setup-v2" : "application-setup"}`,
       {
         application_id: input.applicationId,
         declaration_digest: input.declarationDigest,
@@ -595,6 +596,19 @@ export class HostedProviderClient {
         ...evidence
       }
     );
+  }
+
+  /** Uncached, bounded receiver check for new approvals, never retained policy renewal. */
+  async assertFreshV2AuthorizationSupport(): Promise<void> {
+    const ready = await this.request("GET", "/ready", undefined, false) as {
+      status?: string; provider?: { capabilities?: unknown };
+    } | undefined;
+    const capabilities = ready?.provider?.capabilities;
+    if (ready?.status !== "ready" || !Array.isArray(capabilities)
+        || !capabilities.every((value) => typeof value === "string")
+        || !capabilities.includes(APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY)) {
+      throw new HostedProviderUnavailableError(new Error("Hosted provider does not support fresh v2 authorization."));
+    }
   }
 
   private async setupEvidence(policy: {

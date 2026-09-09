@@ -18,8 +18,13 @@ afterEach(async () => {
 });
 
 describe("fresh issuance policy for seeded pending requests", () => {
-  it.each(["local", "hosted"] as const)("denies pending v2 %s approval before any cleanup or provider effects", async (kind) => {
+  it.each(["local", "hosted"] as const)("denies unknown-version %s approval before any cleanup or provider effects", async (kind) => {
     const fixture = await retainedReplicaFixture({ version: 2 });
+    // Corrupt only the pending application's declaration; retained authority stays intact.
+    const application = (await fixture.db.query("SELECT id, requirements FROM applications")).rows[0];
+    application.requirements.capabilities.contract_version = 3;
+    await fixture.db.query("UPDATE applications SET requirements = $2::jsonb WHERE id = $1",
+      [application.id, JSON.stringify(application.requirements)]);
     if (kind === "local") {
       await fixture.db.query(
         "UPDATE authorization_requests SET grant_id = $2, activation_started_at = now() - interval '2 minutes' WHERE id = $1",
@@ -36,7 +41,7 @@ describe("fresh issuance policy for seeded pending requests", () => {
     const approval = kind === "hosted"
       ? approveHostedAuthorization(fixture.db, provider, fixture.input)
       : approvePortalAuthorization(fixture.db, relay as unknown as RelayHub, { ...fixture.input, offerId: randomUUID() });
-    await expect(approval).rejects.toThrow("Fresh application authorization issuance is disabled for semantic capability contract version 2.");
+    await expect(approval).rejects.toThrow("Unsupported semantic capability contract version.");
     expect(queries.mock.calls.map(([sql]) => String(sql).trim().split(/\s+/)[0])).toEqual(["BEGIN", "SELECT", "ROLLBACK"]);
     queries.mockRestore();
     connect.mockRestore();

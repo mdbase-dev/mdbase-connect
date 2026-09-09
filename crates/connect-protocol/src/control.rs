@@ -374,6 +374,8 @@ pub struct ControlError {
 pub struct AgentStatus {
     pub protocol_version: u32,
     #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
     pub binary_version: String,
     pub state: AgentConnectionState,
     pub registered_collections: usize,

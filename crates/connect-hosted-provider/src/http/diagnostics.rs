@@ -29,6 +29,8 @@ async fn health() -> Json<Value> {
 async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
     let readiness = state.provider.ready().await?;
     let mut capabilities = mdbase_connect_protocol::HOSTED_PROVIDER_CAPABILITIES.to_vec();
+    capabilities
+        .extend_from_slice(mdbase_connect_protocol::FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES);
     capabilities.push("application-setup-evidence-v2");
     Ok(Json(json!({
         "status": "ready",

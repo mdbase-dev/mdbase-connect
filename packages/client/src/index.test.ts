@@ -1041,6 +1041,7 @@ describe("provider-neutral collection client", () => {
     let applicationAgreementPublicKey = "";
     let polls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
@@ -1124,7 +1125,7 @@ describe("provider-neutral collection client", () => {
       value: { connection: { collectionId: portableCollectionId } }
     });
     expect(connect.connections()).toHaveLength(1);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("accepts a scoped hosted capability from the same portable device flow", async () => {
@@ -1135,6 +1136,7 @@ describe("provider-neutral collection client", () => {
     let applicationSigningPublicKey = "";
     let providerHeaders: Record<string, string> | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
@@ -1263,6 +1265,7 @@ describe("provider-neutral collection client", () => {
           distribution: "portable"
         })
       }))
+      .mockResolvedValueOnce(jsonResponse({ capabilities: ["application-authorization-v2-issuance"] }))
       .mockResolvedValueOnce(jsonResponse({
         device_code: "device-secret",
         user_code: "ABCD-EFGH",
@@ -1296,6 +1299,7 @@ describe("provider-neutral collection client", () => {
     let applicationAgreementPublicKey = "";
     const opened = vi.fn();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
@@ -1369,6 +1373,7 @@ describe("provider-neutral collection client", () => {
     let applicationSigningPublicKey = "";
     const opened = vi.fn();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
@@ -3095,6 +3100,7 @@ describe("authorization renewal", () => {
     const navigate = vi.fn();
     let authorizationForm: URLSearchParams | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request).endsWith("/v1/apps/register")) {
         return jsonResponse({ application: registeredApplication() });
       }
@@ -3161,6 +3167,7 @@ describe("authorization renewal", () => {
     vi.stubGlobal("location", { assign: vi.fn() });
     let state = "";
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({ application: registeredApplication() });
@@ -3234,6 +3241,7 @@ describe("authorization renewal", () => {
     vi.stubGlobal("window", { open: vi.fn(() => null) });
     vi.stubGlobal("location", { assign });
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request).endsWith("/v1/apps/register")) {
         return jsonResponse({ application: registeredApplication() });
       }
@@ -3287,6 +3295,7 @@ describe("authorization renewal", () => {
     storage.setItem(`${prefix}:${target}:read`, JSON.stringify(pending(target, "read", 2)));
     let proof: any;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request).endsWith("/v1/apps/register")) {
         return jsonResponse({
           application: registeredApplication({
@@ -3348,9 +3357,11 @@ describe("authorization renewal", () => {
   it("returns a typed problem when persistent application identity is unavailable", async () => {
     const keyStore = new MemoryGrantKeyStore();
     const deleteKey = vi.spyOn(keyStore, "delete");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
-      application: registeredApplication()
-    }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => jsonResponse(
+      String(request).endsWith("/health")
+        ? { capabilities: ["application-authorization-v2-issuance"] }
+        : { application: registeredApplication() }
+    ));
     const manager = new MdbaseConnect({
       serverUrl: "https://connect.example",
       manifest: {
@@ -3511,6 +3522,7 @@ describe("authorization renewal", () => {
     }));
     let authorizationForm: URLSearchParams | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request) === manifestUrl) return jsonResponse({
             manifest_version: 1,
             id: "dev.worklog.app",
@@ -3624,6 +3636,7 @@ describe("authorization renewal", () => {
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
     let authorizationForm: URLSearchParams | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request) === manifestUrl) return jsonResponse({
             manifest_version: 1,
             id: "dev.worklog.app",

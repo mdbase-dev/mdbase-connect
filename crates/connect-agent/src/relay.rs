@@ -76,6 +76,10 @@ async fn connect_once(
                 connector_version: env!("CARGO_PKG_VERSION").to_string(),
                 capabilities: RELAY_CAPABILITIES
                     .iter()
+                    .chain(
+                        mdbase_connect_protocol::FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES
+                            .iter(),
+                    )
                     .map(|capability| (*capability).to_string())
                     .collect(),
                 contract_support: ConnectContractSupport::default(),
@@ -128,6 +132,8 @@ async fn connect_once(
     let (file_responses, mut file_response_rx) = tokio::sync::mpsc::channel::<FileResponse>(8);
     let (policy_jobs, mut policy_job_rx) = tokio::sync::mpsc::channel::<(u64, RelayMessage)>(8);
     let (policy_applied, policy_applied_rx) = tokio::sync::watch::channel((0_u64, false));
+    // Only this session owns the sender; detached controls receive clones only.
+    let (_session_owner, session_open) = tokio::sync::watch::channel(());
     let policy_state = state.clone();
     let policy_responses = responses.clone();
     let _policy_worker = AbortOnDrop(tokio::spawn(async move {
@@ -300,17 +306,15 @@ async fn connect_once(
                             let policy_applied = policy_applied_rx.clone();
                             let required_policy_generation = received_policy_generation;
                             let control_slots = control_slots.clone();
+                            let session_open = session_open.clone();
                             tokio::spawn(async move {
-                                if !wait_for_policy(policy_applied, required_policy_generation).await.unwrap_or(false) {
-                                    return;
-                                }
-                                let Ok(permit) = control_slots.acquire_owned().await else {
-                                    return;
-                                };
-                                match tokio::task::spawn_blocking(move || {
-                                    let _permit = permit;
-                                    state_for_control.handle_relay_message(relay_message)
-                                }).await {
+                                match dispatch_control(
+                                    policy_applied,
+                                    required_policy_generation,
+                                    control_slots,
+                                    session_open,
+                                    move || state_for_control.handle_relay_message(relay_message),
+                                ).await {
                                     Ok(Some(response)) => {
                                         let _ = responses.send(response).await;
                                     }
@@ -621,6 +625,44 @@ fn relay_admission_request(message: &RelayMessage) -> Option<AdmissionRequest> {
     }
 }
 
+async fn dispatch_control<T: Send + 'static>(
+    policy_applied: tokio::sync::watch::Receiver<(u64, bool)>,
+    required_generation: u64,
+    control_slots: Arc<tokio::sync::Semaphore>,
+    mut session_open: tokio::sync::watch::Receiver<()>,
+    handler: impl FnOnce() -> Option<T> + Send + 'static,
+) -> Result<Option<T>, tokio::task::JoinError> {
+    let ready = tokio::select! {
+        biased;
+        _ = session_open.changed() => return Ok(None),
+        ready = wait_for_policy(policy_applied.clone(), required_generation) => ready.unwrap_or(false),
+    };
+    if !ready {
+        return Ok(None);
+    }
+    let permit = tokio::select! {
+        biased;
+        _ = session_open.changed() => return Ok(None),
+        permit = control_slots.acquire_owned() => match permit {
+            Ok(permit) => permit,
+            Err(_) => return Ok(None),
+        },
+    };
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        // Narrow entry guarantee, including time queued in the blocking pool.
+        // Release watch borrows before entering the handler. This does not abort
+        // or undo setup that has already entered when policy/session changes.
+        if session_open.has_changed().is_err()
+            || *policy_applied.borrow() != (required_generation, true)
+        {
+            return None;
+        }
+        handler()
+    })
+    .await
+}
+
 async fn wait_for_policy(
     mut applied: tokio::sync::watch::Receiver<(u64, bool)>,
     required_generation: u64,
@@ -686,6 +728,164 @@ fn websocket_url(server_url: &str) -> Result<Url, Box<dyn std::error::Error + Se
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn queued_control_rejects_replaced_policy() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let (policy, applied) = tokio::sync::watch::channel((1, true));
+        let (_session, open) = tokio::sync::watch::channel(());
+        let slots = Arc::new(tokio::sync::Semaphore::new(1));
+        let held = slots.clone().acquire_owned().await.unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let dispatch = dispatch_control(applied, 1, slots.clone(), open, move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Some(())
+        });
+        tokio::pin!(dispatch);
+        assert!(futures_util::poll!(&mut dispatch).is_pending());
+        policy.send_replace((2, true));
+        drop(held);
+        let result = dispatch.await.unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(result, None);
+        assert_eq!(slots.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn queued_control_rejects_disconnected_session_after_reconnect() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let (_policy, applied) = tokio::sync::watch::channel((1, true));
+        let (session, open) = tokio::sync::watch::channel(());
+        let slots = Arc::new(tokio::sync::Semaphore::new(1));
+        let held = slots.clone().acquire_owned().await.unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let dispatch = dispatch_control(applied.clone(), 1, slots.clone(), open, move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Some(())
+        });
+        tokio::pin!(dispatch);
+        assert!(futures_util::poll!(&mut dispatch).is_pending());
+        drop(session);
+        let (_new_session, new_open) = tokio::sync::watch::channel(());
+        drop(held);
+        let result = dispatch.await.unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(result, None);
+        assert_eq!(slots.available_permits(), 1);
+        let counter = calls.clone();
+        assert_eq!(
+            dispatch_control(applied, 1, slots.clone(), new_open, move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Some(42)
+            })
+            .await
+            .unwrap(),
+            Some(42)
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(slots.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn control_session_cancellation_settles_without_queue_progress() {
+        for waiting_for_policy in [true, false] {
+            let (_policy, applied) = tokio::sync::watch::channel((1, !waiting_for_policy));
+            let (session, open) = tokio::sync::watch::channel(());
+            let slots = Arc::new(tokio::sync::Semaphore::new(1));
+            let held = slots.clone().acquire_owned().await.unwrap();
+            let dispatch = dispatch_control(
+                applied,
+                if waiting_for_policy { 2 } else { 1 },
+                slots.clone(),
+                open,
+                || -> Option<()> { panic!("cancelled control entered handler") },
+            );
+            tokio::pin!(dispatch);
+            assert!(futures_util::poll!(&mut dispatch).is_pending());
+            drop(session);
+            assert!(matches!(
+                futures_util::poll!(&mut dispatch),
+                std::task::Poll::Ready(Ok(None))
+            ));
+            drop(held);
+            assert_eq!(slots.available_permits(), 1);
+        }
+    }
+
+    #[test]
+    fn control_rechecks_at_blocking_pool_entry() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            for disconnect in [false, true] {
+                let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+                let (release_tx, release_rx) = std::sync::mpsc::channel();
+                let blocker = tokio::task::spawn_blocking(move || {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                });
+                started_rx.await.unwrap();
+                let (policy, applied) = tokio::sync::watch::channel((1, true));
+                let (session, open) = tokio::sync::watch::channel(());
+                let slots = Arc::new(tokio::sync::Semaphore::new(1));
+                let calls = Arc::new(AtomicUsize::new(0));
+                let counter = calls.clone();
+                let dispatch = dispatch_control(applied, 1, slots.clone(), open, move || {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    Some(())
+                });
+                tokio::pin!(dispatch);
+                assert!(futures_util::poll!(&mut dispatch).is_pending());
+                assert_eq!(slots.available_permits(), 0);
+                if disconnect {
+                    drop(session);
+                } else {
+                    policy.send_replace((1, false));
+                }
+                release_tx.send(()).unwrap();
+                let result = dispatch.await.unwrap();
+                blocker.await.unwrap();
+                assert_eq!(calls.load(Ordering::SeqCst), 0);
+                assert_eq!(result, None);
+                assert_eq!(slots.available_permits(), 1);
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn control_rejects_closed_semaphore_and_unusable_policy() {
+        let (_session, open) = tokio::sync::watch::channel(());
+        let (policy, applied) = tokio::sync::watch::channel((1, false));
+        let slots = Arc::new(tokio::sync::Semaphore::new(1));
+        assert_eq!(
+            dispatch_control(
+                applied.clone(),
+                1,
+                slots.clone(),
+                open.clone(),
+                || -> Option<()> { panic!("unusable policy entered handler") }
+            )
+            .await
+            .unwrap(),
+            None
+        );
+        policy.send_replace((1, true));
+        slots.close();
+        assert_eq!(
+            dispatch_control(applied, 1, slots.clone(), open, || -> Option<()> {
+                panic!("closed semaphore entered handler")
+            })
+            .await
+            .unwrap(),
+            None
+        );
+        assert_eq!(slots.available_permits(), 1);
+    }
 
     #[test]
     fn maps_http_server_to_websocket_relay() {
