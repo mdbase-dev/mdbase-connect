@@ -23,14 +23,6 @@ impl AgentState {
             ControlCommand::Status => self.registry.count().map(|registered_collections| {
                 serde_json::to_value(AgentStatus {
                     protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
-                    capabilities: mdbase_connect_protocol::RELAY_CAPABILITIES
-                        .iter()
-                        .chain(
-                            mdbase_connect_protocol::FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES
-                                .iter(),
-                        )
-                        .map(|capability| (*capability).to_string())
-                        .collect(),
                     binary_version: env!("CARGO_PKG_VERSION").to_string(),
                     state: self
                         .connection_state

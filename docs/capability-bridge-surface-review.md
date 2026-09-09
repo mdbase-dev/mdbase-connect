@@ -114,3 +114,47 @@ checkouts. Local evidence: `/tmp/prelude-sdk-baseline-build.log`,
 `/tmp/prelude-sdk-baseline-analysis.json`, and
 `/tmp/prelude-sdk-bundle-analysis.json`. These are source-build size measurements,
 not signed SDK artifact or downstream consumer qualification.
+
+## V2 writer candidate — reviewed implementation delta for PR #406
+
+Parent review of the candidate at `d6489825` and its bounded architecture
+corrections retains only the following consumer-backed additions:
+
+| Metric | Prelude bound | Proposed bound | Delta |
+| --- | ---: | ---: | ---: |
+| Rust public visibility references | 3,161 | 3,163 | +2 |
+| TypeScript export references | 2,392 | 2,396 | +4 |
+| Relative imports | 1,431 | 1,432 | +1 |
+
+The two new generated declarations in each language are
+`APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY` and
+`FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES`. The identifier names the receiver
+check; the list reflects the artifact issuance policy. Rust producers are the
+relay hello and hosted `/ready` response. TypeScript producers
+are server `/health` and the protocol relay/provider capability arrays. Consumers
+are the SDK preauthorization check, the server's selected-relay authorization
+check, and its uncached hosted-provider readiness check. These checks distinguish
+fresh issuance from retained v2 reader support without raising the required
+handshake floor. The protocol index's import of its generated capabilities list
+accounts for the one additional relative import.
+
+Parent review removed the proposed `AgentStatus.capabilities` field and its
+producer: it had no in-repository feature consumer and was not an authorization
+boundary. The ordinary status regression now checks that this redundant API is
+absent. Fresh-issuance support remains covered at the actual relay and provider
+boundaries, reducing Rust's reviewed total to 3,163.
+
+The other TypeScript exports are `relaySupportsFreshAuthorization`, consumed by
+`RelayHub` before selected-authority activation, and the package-internal
+`assertFreshV2AuthorizationSupport`, extracted into the existing SDK authorization
+helper module. The latter retains the uncached request, abort signal, strict
+string-array validation, error details, and caller-owned popup cleanup; it is
+not added to a package export facade. The existing import of that helper module
+is reused, so this extraction adds no relative import.
+
+Existing Rust test bodies move unchanged apart from indentation into private
+`relay/tests.rs` and `http/tests.rs` modules. Production modules are now 729,
+969, and 1,000 lines for relay, hosted HTTP, and SDK connect respectively.
+No test, comment, security guard, production file allowance, per-file ceiling,
+cycle rule, or external guard is removed or relaxed. These proposed surface
+bounds do not qualify deployment or downstream consumers; Reader is excluded.

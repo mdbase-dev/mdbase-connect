@@ -42,6 +42,7 @@ import type { MdbaseConnectOptions } from "./connect-options.js";
 import type { MdbaseConnectionInfo } from "./connection-types.js";
 import { addConnectionId, connectionIds, removeConnectionId } from "./connection-index.js";
 import {
+  assertFreshV2AuthorizationSupport,
   authorizationAbort,
   declarationIdFromFamilyIdentity
 } from "./connect-authorization-helpers.js";
@@ -50,7 +51,6 @@ import {
   MemoryGrantKeyStore,
   type GrantKeyStore
 } from "./crypto.js";
-import { APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY } from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError, connectError, serverConnectError } from "./errors.js";
 import {
   type Application,
@@ -276,15 +276,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     try {
       validateAuthorizationSelection(application.requirements, options);
       if (application.requirements.capabilities?.contract_version === 2) {
-        const response = await fetch(`${this.serverUrl}/health`, { signal: options.signal, cache: "no-store" });
-        const health = await response.json().catch(() => null) as { capabilities?: unknown } | null;
-        if (!response.ok || !Array.isArray(health?.capabilities)
-            || !health.capabilities.every((value) => typeof value === "string")
-            || !health.capabilities.includes(APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY)) {
-          throw connectError("capability_contract_incompatible", "This server does not support new version-2 application authorizations.", {
-            details: { contract: "fresh_application_authorization", required: [2], supported: [], peer: "server" }
-          });
-        }
+        await assertFreshV2AuthorizationSupport(this.serverUrl, options.signal);
       }
     } catch (error) {
       popup?.close();

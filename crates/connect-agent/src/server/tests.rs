@@ -325,15 +325,9 @@ async fn status_reports_the_running_binary_version_for_upgrade_health_checks() {
     assert!(response.ok);
     let result = response.result.expect("status result");
     assert_eq!(result["binary_version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(
-        result["capabilities"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value.as_str()
-                == Some(mdbase_connect_protocol::APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY)),
-        mdbase_connect_protocol::permits_fresh_application_authorization(2)
-    );
+    // Issuance support belongs to the authenticated relay handshake, not an
+    // additional diagnostic status API with no feature consumer.
+    assert!(result.get("capabilities").is_none());
     fs::remove_dir_all(test_root).unwrap();
 }
 
