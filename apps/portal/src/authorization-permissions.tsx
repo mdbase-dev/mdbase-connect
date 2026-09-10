@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { ApplicationFileAction, PendingAuthorization } from "./api";
 import type { AuthorizationCapabilityGroup } from "./authorization-capabilities";
 
@@ -70,6 +71,7 @@ export function PermissionChoices({ groups, selected, disabled, onToggle }: {
   disabled: boolean;
   onToggle(group: AuthorizationCapabilityGroup): void;
 }) {
+  const descriptionId = useId();
   const exact = groups.some((group) => group.semantics === "exact");
   const optional = groups.filter((group) => !group.required);
   if (optional.length === 0) return null;
@@ -80,9 +82,9 @@ export function PermissionChoices({ groups, selected, disabled, onToggle }: {
         <b>Review</b>
       </summary>
       <div className="permission-groups">{optional.map((group) => (
-        <fieldset className="permission-group" key={group.id}>
+        <fieldset className="permission-group" key={group.id} aria-describedby={`${descriptionId}-${group.id}`}>
           <legend>{group.label}</legend>
-          <p>{group.description}</p>
+          <p id={`${descriptionId}-${group.id}`}>{group.description}</p>
           <div><label>
             <input
               type="checkbox"
@@ -113,17 +115,17 @@ export function FilePermissionSummary({ files, selected, disabled, onToggle }: {
   disabled: boolean;
   onToggle(action: ApplicationFileAction): void;
 }) {
-  if ("actions" in files) return <details className="permission-review file-permission-review">
-    <summary><span><strong>Review exact file permissions</strong><small>{files.actions.length} requested actions, approved together.</small></span><b>Details</b></summary>
-    <div className="permission-groups"><fieldset className="permission-group">
-      <legend>Files</legend>
-      <p>{files.scope.kind === "collection" ? "Every visible folder in this collection." : `Only ${files.scope.folders.join(", ")}.`} Hidden folders are always excluded. These actions are approved together.</p>
-      <ul className="permission-action-list">{files.actions.map((action) => <li key={action}>{FILE_ACTION_LABELS[action]}</li>)}</ul>
-    </fieldset></div>
-  </details>;
   const scope = files.scope.kind === "collection"
     ? "Every visible folder in this collection. Hidden folders are always excluded."
     : `Only ${files.scope.folders.join(", ")}. Hidden folders are always excluded.`;
+  if ("actions" in files) return <details className="permission-review file-permission-review">
+    <summary><span><strong>Review exact file permissions</strong><small>{files.actions.length} requested {files.actions.length === 1 ? "action" : "actions"}, approved together. {scope}</small></span><b>Details</b></summary>
+    <div className="permission-groups"><fieldset className="permission-group">
+      <legend>Files</legend>
+      <p>{scope} These actions are approved together.</p>
+      <ul className="permission-action-list">{files.actions.map((action) => <li key={action}>{FILE_ACTION_LABELS[action]}</li>)}</ul>
+    </fieldset></div>
+  </details>;
   return (
     <details className="permission-review file-permission-review">
       <summary>
