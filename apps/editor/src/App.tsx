@@ -87,6 +87,7 @@ import {
 } from "./note-search";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { revealMarkdownLine } from "./code-editor-reveal";
+import { forgetRecentPath, loadRecentPaths, rememberRecentPath } from "./recent-notes";
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { buildQuickOpenCommands } from "./editor-commands";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
@@ -2242,29 +2243,6 @@ function summaryFromDocument(document: NoteDocument): NoteSummary {
     ...summary,
     file: { ...document.file, path: document.path }
   };
-}
-
-const RECENT_NOTES_KEY = "mdbase-editor:recent-notes";
-
-function loadRecentPaths(): string[] {
-  try {
-    const value = JSON.parse(localStorage.getItem(RECENT_NOTES_KEY) ?? "[]");
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").slice(0, 20) : [];
-  } catch {
-    return [];
-  }
-}
-
-function rememberRecentPath(current: string[], path: string): string[] {
-  const next = [path, ...current.filter((candidate) => candidate !== path)].slice(0, 20);
-  localStorage.setItem(RECENT_NOTES_KEY, JSON.stringify(next));
-  return next;
-}
-
-function forgetRecentPath(current: string[], path: string): string[] {
-  const next = current.filter((candidate) => candidate !== path);
-  localStorage.setItem(RECENT_NOTES_KEY, JSON.stringify(next));
-  return next;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
