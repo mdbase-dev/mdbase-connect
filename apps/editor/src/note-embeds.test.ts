@@ -13,8 +13,8 @@ const target = { path: "Shared/target.md", title: "Target" };
 const document = (body: string) => ({ path: target.path, revision: body, body, frontmatter: {}, effectiveFrontmatter: {}, types: [], document: body, file: { name: "target.md", folder: "Shared", size: body.length, mtime: "", tags: [], links: [], embeds: [] } });
 const summary = (body?: string) => ({ ...document(body ?? ""), ...(body === undefined ? { body: undefined } : {}) });
 function embedHarness(read: (path: string) => Promise<ReturnType<typeof document>>, body?: string) {
-  const props = { gateway: { read }, owner: { collectionId: "a" as string | undefined, epoch: 1 }, notes: [summary(body)] };
-  const hook = renderHook(() => useEmbeddedNoteReferences(props.gateway, props.owner, "![[Target]]", props.notes as never, [target], [], "Shared/source.md"));
+  const props = { gateway: { read }, owner: { collectionId: "a" as string | undefined, epoch: 1 }, notes: [summary(body)], suggestions: [target], files: [] };
+  const hook = renderHook(() => useEmbeddedNoteReferences(props.gateway, props.owner, "![[Target]]", props.notes as never, props.suggestions, props.files, "Shared/source.md"));
   return { props, ...hook };
 }
 
@@ -63,6 +63,31 @@ describe("Markdown transclusion fragments", () => {
 });
 
 describe("embedded note owner cache", () => {
+  it.each(["success", "error"])("memoizes unchanged inputs and publishes async %s and epoch resets", async (outcome) => {
+    const pending = deferred<ReturnType<typeof document>>();
+    const read = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValueOnce(document("new epoch"));
+    const hook = embedHarness(read);
+    const empty = hook.result.current;
+    hook.rerender();
+    expect(hook.result.current).toBe(empty);
+    await waitFor(() => expect(hook.result.current[0]?.status).toBe("loading"));
+    const loading = hook.result.current;
+    hook.rerender();
+    expect(hook.result.current).toBe(loading);
+    await act(async () => outcome === "success" ? pending.resolve(document("cached")) : pending.reject(new Error("read failed")));
+    await waitFor(() => expect(hook.result.current[0]?.status).toBe(outcome === "success" ? "ready" : "error"));
+    expect(hook.result.current).not.toBe(loading);
+    const completed = hook.result.current;
+    hook.props.owner = { collectionId: "a", epoch: 1 };
+    hook.rerender();
+    expect(hook.result.current).toBe(completed);
+    hook.props.owner = { collectionId: "a", epoch: 2 };
+    hook.rerender();
+    expect(hook.result.current).not.toBe(completed);
+    await ready(hook.result, "new epoch");
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
   it("does not reuse a completed same-path document after A to B", async () => {
     const read = vi.fn(async () => document("A body"));
     const hook = embedHarness(read);

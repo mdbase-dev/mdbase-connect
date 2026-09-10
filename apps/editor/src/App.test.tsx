@@ -670,11 +670,14 @@ describe("mdbase editor", () => {
 
   it("navigates notes and reveals keyboard help without leaving the editor", async () => {
     const user = userEvent.setup();
-    render(<App gateway={new DemoCollectionGateway(4)} />);
+    const gateway = new DemoCollectionGateway(4);
+    const read = vi.spyOn(gateway, "read");
+    render(<App gateway={gateway} />);
 
     expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
     fireEvent.keyDown(window, { key: "j", altKey: true });
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    expect(read).toHaveBeenCalledWith("Journal/garden-notes-2.md");
     fireEvent.keyDown(window, { key: "k", altKey: true });
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools"));
 
