@@ -2477,6 +2477,15 @@ kbd {
   border-bottom: 1px solid var(--line);
 }
 
+.note-opening-status {
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .note-history {
   display: inline-flex;
   align-items: center;
