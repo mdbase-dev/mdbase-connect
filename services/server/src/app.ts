@@ -177,7 +177,7 @@ export async function buildApp(options: BuildOptions) {
         formAction: ["'self'"],
         frameSrc: options.googleAuth ? ["https://accounts.google.com/gsi/"] : ["'none'"],
         frameAncestors: ["'none'"],
-        imgSrc: ["'self'", "data:"],
+        imgSrc: ["'self'", "data:", "https:"],
         objectSrc: ["'none'"],
         scriptSrc: ["'self'", ...(options.googleAuth ? ["https://accounts.google.com/gsi/client"] : [])],
         styleSrc: ["'self'", "'unsafe-inline'", ...(options.googleAuth ? ["https://accounts.google.com/gsi/style"] : [])],
