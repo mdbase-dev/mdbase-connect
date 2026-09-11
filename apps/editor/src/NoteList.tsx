@@ -140,14 +140,11 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
           onPreview(note.path, { left, right, top, bottom }, "sidebar");
         };
         return <button key={note.path} id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={note.path === selectedPath} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={previewPath === note.path ? notePreviewPopoverId() : undefined} className={`note-row${note.path === selectedPath ? " selected" : ""}${status ? ` ${status.tone}` : ""}`} onMouseEnter={(event) => requestPreview(event.currentTarget)} onMouseLeave={onDismissPreview} onFocus={(event) => requestPreview(event.currentTarget)} onBlur={onDismissPreview} onClick={() => { onDismissPreview(); if (!status?.disabled) onSelect(note.path); }} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title-line">{typeIcon && <PhosphorIcon name={typeIcon} aria-hidden="true" />}<span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span></span>{status ? <span className="note-transition">{status.label}</span> : searchContext ? <span className={`note-detail note-search-context ${searchContext.kind}`}><SearchMatchText text={searchContext.text} ranges={searchContext.ranges} /></span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note, types)}</span>}</button>;
-      })}</div> : structureLoading || filesLoading ? <NoteListSkeleton /> : <div className="list-empty"><p>{search ? "No notes or files found." : "This collection is empty."}</p>{!search && <button onClick={onCreate}>Create the first note</button>}</div>}
+      })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status">Reading notes and files…</div> : <div className="list-empty"><p>{search ? "No notes or files found." : "This collection is empty."}</p>{!search && <button onClick={onCreate}>Create the first note</button>}</div>}
     </div>
   </section>;
 }
 
-function NoteListSkeleton() {
-  return <div className="note-list-skeleton" aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <div key={index}><span /><small /></div>)}</div>;
-}
 
 function browserCountLabel(noteCount: number, fileCount: number, resultCount: number, loading: boolean, structureLoading: boolean, filesLoading: boolean, contentIndexing: boolean, contentLoaded: number, total: number | undefined, contentTotal: number | undefined, searching: boolean, sort: NoteSort): string {
   if (searching && contentIndexing) return `${resultCount.toLocaleString()} found so far · searching ${contentLoaded.toLocaleString()} of ${contentTotal?.toLocaleString() ?? "…"}`;

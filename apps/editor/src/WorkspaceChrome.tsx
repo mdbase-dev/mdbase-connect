@@ -53,12 +53,12 @@ export function BacklinksPanel({ notes, types, loading, onClose, onOpen }: {
 }
 
 export function NoteSkeleton({ leadingActions }: { leadingActions?: ReactNode }) {
-  return <div className="note-skeleton" aria-label="Loading note" aria-busy="true"><div className="skeleton-bar">{leadingActions}<span /></div><div className="skeleton-document"><span className="skeleton-title" /><span /><span /><span className="short" /></div></div>;
+  return <div className="note-skeleton" aria-label="Loading note" aria-busy="true"><div className="skeleton-bar">{leadingActions}<span role="status">Opening note…</span></div><div className="skeleton-document"><p>Reading note content…</p></div></div>;
 }
 
 export function PaneSkeleton({ label, leadingActions, variant = "document" }: { label: string; leadingActions?: ReactNode; variant?: "document" | "canvas" }) {
   if (variant === "canvas") {
-    return <main className="editor-pane file-workspace" aria-label={label} aria-busy="true"><div className="skeleton-bar">{leadingActions}<span /></div><div className="file-workspace-content"><span className="skeleton-canvas-pill" aria-hidden="true" /></div></main>;
+    return <main className="editor-pane file-workspace" aria-label={label} aria-busy="true"><div className="skeleton-bar">{leadingActions}<span role="status">{label}…</span></div><div className="file-workspace-content" /></main>;
   }
   return <main className="editor-pane" aria-label={label}><NoteSkeleton leadingActions={leadingActions} /></main>;
 }
@@ -135,7 +135,7 @@ export function OutlineMenu({ headings, onReveal }: { headings: NoteHeading[]; o
 }
 
 export function InspectorPanelLoading({ label }: { label: "Note properties" | "Backlinks" }) {
-  return <aside className="properties-panel properties-panel-loading" aria-label={label} aria-busy="true"><div /><span /><span /><span /></aside>;
+  return <aside className="properties-panel properties-panel-loading" aria-label={label} aria-busy="true"><strong>{label}</strong><p role="status">Loading…</p></aside>;
 }
 
 export function TypeAccessPrompt({ leadingActions, onAuthorize, onBack }: {

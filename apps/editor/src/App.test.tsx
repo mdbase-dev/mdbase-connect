@@ -523,13 +523,15 @@ describe("mdbase editor", () => {
     expect(screen.queryByLabelText("Loading note")).not.toBeInTheDocument();
   }, 15_000);
 
-  it("shows the collection-shaped opening state while metadata is loading", async () => {
+  it("shows an explicit opening state without previewing unstable sidebars", async () => {
     const gateway = new SlowDescriptionGateway();
     render(<App gateway={gateway} />);
 
     const opening = await screen.findByLabelText("Opening collection");
     expect(opening).toHaveAttribute("aria-busy", "true");
+    expect(opening).toHaveAttribute("data-loading-state", "opening");
     expect(screen.getByText("Reading its notes and types")).toBeInTheDocument();
+    expect(opening.querySelector(".opening-rail, .opening-list")).toBeNull();
     gateway.releaseDescription();
     expect(await screen.findByRole("heading", { name: "Writing" })).toBeInTheDocument();
   });

@@ -34,8 +34,8 @@ describe("ConnectApp", () => {
     const { container } = render(<ConnectApp />);
 
     expect(screen.getByText("Opening mdbase connect")).toBeInTheDocument();
-    expect(container.querySelector(".connect-loading .mdbase-motion-bootstrap")).toBeInTheDocument();
-    expect(container.querySelector(".mdbase-mark-conveyor-track")).toBeInTheDocument();
+    expect(container.querySelector(".connect-loading .mdbase-motion-mark")).toBeInTheDocument();
+    expect(container.querySelector(".connect-loading .mdbase-motion-bootstrap")).not.toBeInTheDocument();
   });
 
   it("opens account management without requesting a collection grant", async () => {

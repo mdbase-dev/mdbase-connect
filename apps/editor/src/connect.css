@@ -1356,3 +1356,69 @@ button.danger:disabled {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Quiet-instrument treatment for account management. */
+.connect-nav > nav > .connect-nav-group > a,
+.connect-rail-account,
+.connect-inline-rename input,
+.connect-inline-form input,
+.connect-account-action,
+.connect-account-danger,
+.connect-feedback-topic label,
+.connect-feedback-field input,
+.connect-feedback-field textarea,
+.connect-feedback-origin select,
+.connect-feedback-upload,
+.connect-feedback-diagnostics,
+.connect-account-form input,
+.connect-account-reauthentication input,
+.connect-provider-loading {
+  border-radius: 2px;
+}
+
+.connect-nav > nav > .connect-nav-group > a.selected {
+  background: var(--selected);
+  color: var(--ink);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.connect-avatar {
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+}
+
+.connect-primary-action {
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--accent) !important;
+}
+
+.connect-primary-action:hover {
+  background: var(--hover);
+  color: var(--accent-strong) !important;
+}
+
+.connect-account-message,
+.connect-pending-banner,
+.connect-deletion-effects,
+.connect-account-reauthentication {
+  border-radius: 2px;
+}
+
+.connect-account-message.success {
+  border-color: color-mix(in oklch, var(--success) 42%, var(--line));
+  background: transparent;
+  color: var(--success);
+}
+
+.connect-deleted-account > div {
+  padding-inline: 0;
+  border-right: 0;
+  border-left: 0;
+}
+
+.connect-empty {
+  justify-content: flex-start;
+}
