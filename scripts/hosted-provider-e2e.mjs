@@ -4374,7 +4374,7 @@ async function startObjectStore() {
   await execute("docker", [
     "run", "--rm", "--network", `container:${objectStoreContainer}`,
     "--entrypoint", "/bin/sh",
-    "minio/mc:RELEASE.2025-08-13T08-35-41Z",
+    "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
     "-c",
     "mc alias set local http://127.0.0.1:9000 mdbase-test-access mdbase-test-secret-key && mc mb --ignore-existing local/mdbase-connect-files"
   ]);
