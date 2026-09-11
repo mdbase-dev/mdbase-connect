@@ -1,3 +1,6 @@
+use super::scope::{
+    invalid_grant_security, parse_application_scope, validate_grant_application_authorization,
+};
 use super::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -325,8 +328,8 @@ impl CollectionRegistry {
                            (id, application_id, collection_id, operations, scope, application_name,
                             application_distribution, application_homepage, application_project_url,
                             application_origin, application_icon, collection_name, created_at, encryption,
-                            file_capability, notification_criteria, application_authorization)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                            file_capability, notification_criteria, application_authorization, application_declaration)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
                     )?;
                     for grant in &grants {
                         statement.execute(params![
@@ -355,6 +358,7 @@ impl CollectionRegistry {
                                 .transpose()?,
                             serde_json::to_string(&grant.notification_criteria)?,
                             serde_json::to_string(&grant.application_authorization)?,
+                            grant.application_declaration.as_ref().map(serde_json::to_string).transpose()?,
                         ])?;
                     }
                 }
@@ -380,6 +384,7 @@ impl CollectionRegistry {
 
     pub fn upsert_grant(&self, grant: &GrantPolicy) -> Result<(), ConnectError> {
         validate_grant_application_authorization(grant)?;
+        super::scope::validate_fresh_grant_issuance(grant)?;
         let grant = grant.clone();
         self.authority
             .write(AuthorityWritePriority::Control, move |connection| {
@@ -389,8 +394,8 @@ impl CollectionRegistry {
                        (id, application_id, collection_id, operations, scope, application_name,
                         application_distribution, application_homepage, application_project_url,
                         application_origin, application_icon, collection_name, created_at, encryption,
-                        file_capability, notification_criteria, application_authorization)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                        file_capability, notification_criteria, application_authorization, application_declaration)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
                      ON CONFLICT(id) DO UPDATE SET
                        application_id = excluded.application_id,
                        collection_id = excluded.collection_id,
@@ -408,6 +413,7 @@ impl CollectionRegistry {
                        file_capability = excluded.file_capability,
                        notification_criteria = excluded.notification_criteria,
                        application_authorization = excluded.application_authorization,
+                       application_declaration = excluded.application_declaration,
                        updated_at = CURRENT_TIMESTAMP",
                     params![
                         grant.id.to_string(),
@@ -435,6 +441,7 @@ impl CollectionRegistry {
                             .transpose()?,
                         serde_json::to_string(&grant.notification_criteria)?,
                         serde_json::to_string(&grant.application_authorization)?,
+                        grant.application_declaration.as_ref().map(serde_json::to_string).transpose()?,
                     ],
                 )?;
                 Ok(())
@@ -448,7 +455,7 @@ impl CollectionRegistry {
                     application_homepage, application_project_url, application_origin,
                     application_icon, collection_id, collection_name, operations, scope,
                     created_at, encryption, file_capability, notification_criteria,
-                    application_authorization
+                    application_authorization, application_declaration
              FROM grants ORDER BY application_name COLLATE NOCASE, collection_name COLLATE NOCASE",
         )?;
         let rows = statement.query_map([], |row| {
@@ -470,6 +477,7 @@ impl CollectionRegistry {
                 row.get::<_, Option<String>>(14)?,
                 row.get::<_, String>(15)?,
                 row.get::<_, String>(16)?,
+                row.get::<_, Option<String>>(17)?,
             ))
         })?;
         rows.map(|row| {
@@ -491,10 +499,14 @@ impl CollectionRegistry {
                 file_capability,
                 notification_criteria,
                 application_authorization,
+                application_declaration,
             ) = row?;
             let proof: ApplicationAuthorizationProof =
                 serde_json::from_str(&application_authorization)?;
+            let application_declaration =
+                authenticated_summary_declaration(&proof, application_declaration.as_deref())?;
             Ok(GrantSummary {
+                application_declaration,
                 id: parse_registry_uuid(&id)?,
                 application_id: parse_registry_uuid(&application_id)?,
                 application_declaration_id: proof.binding.application_declaration_id,
@@ -594,7 +606,7 @@ impl CollectionRegistry {
                         application_homepage, application_project_url, application_origin,
                         application_icon, collection_id, collection_name, operations, scope,
                         created_at, encryption, file_capability, notification_criteria,
-                        application_authorization
+                        application_authorization, application_declaration
                  FROM revoked_grant_replay_material
                  WHERE grant_id = ?1 AND key_id = ?2",
                 params![grant_id.to_string(), key_id],
@@ -616,6 +628,7 @@ impl CollectionRegistry {
                         row.get::<_, Option<String>>(13)?,
                         row.get::<_, String>(14)?,
                         row.get::<_, String>(15)?,
+                        row.get::<_, Option<String>>(16)?,
                     ))
                 },
             )
@@ -637,6 +650,7 @@ impl CollectionRegistry {
             file_capability,
             notification_criteria,
             application_authorization,
+            application_declaration,
         )) = row
         else {
             return Ok(None);
@@ -654,6 +668,10 @@ impl CollectionRegistry {
             .collect();
         Ok(Some(GrantReplayContext {
             grant: GrantSummary {
+                application_declaration: authenticated_summary_declaration(
+                    &proof,
+                    application_declaration.as_deref(),
+                )?,
                 id: grant_id,
                 application_id: parse_registry_uuid(&application_id)?,
                 application_declaration_id: proof.binding.application_declaration_id.clone(),
@@ -761,7 +779,7 @@ impl CollectionRegistry {
                             application_name, application_distribution, application_homepage,
                             application_project_url, application_origin, application_icon,
                             collection_name, notification_criteria, created_at, encryption,
-                            file_capability, application_authorization
+                            file_capability, application_authorization, application_declaration
                      FROM grants ORDER BY id",
                 )?;
                 let grants = statement
@@ -784,11 +802,17 @@ impl CollectionRegistry {
                             row.get::<_, Option<String>>(14)?,
                             row.get::<_, Option<String>>(15)?,
                             row.get::<_, String>(16)?,
+                            row.get::<_, Option<String>>(17)?,
                         ))
                     })?
                     .map(|row| {
                         let row = row?;
                         Ok(GrantPolicy {
+                            application_declaration: row
+                                .17
+                                .as_deref()
+                                .map(serde_json::from_str)
+                                .transpose()?,
                             id: parse_registry_uuid(&row.0)?,
                             application_id: parse_registry_uuid(&row.1)?,
                             collection_id: parse_registry_uuid(&row.2)?,
@@ -911,33 +935,27 @@ impl CollectionRegistry {
     }
 }
 
-fn parse_application_scope(encoded: &str) -> Result<GrantScope, ConnectError> {
-    let scope = serde_json::from_str(encoded)?;
-    validate_application_scope(&scope)?;
-    Ok(scope)
-}
-
-fn validate_grant_application_authorization(grant: &GrantPolicy) -> Result<(), ConnectError> {
-    if grant.scope.access != mdbase_connect_protocol::ApplicationAccess::FullCollection
-        || !grant.scope.contracts.is_empty()
-    {
-        return Err(invalid_grant_security(
-            "application grants must use full_collection access with an empty contract set",
-        ));
-    }
-    grant.validate_application_security().map_err(|error| {
-        invalid_grant_security(format!(
-            "grant does not match its application proof: {error}"
-        ))
-    })?;
-    Ok(())
-}
-
-fn invalid_grant_security(message: impl Into<String>) -> ConnectError {
-    ConnectError::InvalidInput(format!(
-        "Invalid application authorization: {}",
-        message.into()
-    ))
+/// Evidence is presentation-only: absent, mismatched, or unsupported declarations
+/// do not alter cached operations. Verify signatures before using binding digests.
+fn authenticated_summary_declaration(
+    proof: &ApplicationAuthorizationProof,
+    encoded: Option<&str>,
+) -> Result<Option<serde_json::Value>, ConnectError> {
+    proof
+        .verify()
+        .map_err(|error| invalid_grant_security(error.to_string()))?;
+    let Some(declaration) = encoded.and_then(|value| serde_json::from_str(value).ok()) else {
+        return Ok(None);
+    };
+    Ok(
+        mdbase_connect_protocol::verify_application_setup_declaration_v2(
+            &declaration,
+            &proof.binding.application_declaration_id,
+            &proof.binding.application_manifest_digest,
+        )
+        .ok()
+        .map(|_| declaration),
+    )
 }
 
 pub(super) fn archive_grant_replay_material(
@@ -950,13 +968,13 @@ pub(super) fn archive_grant_replay_material(
             application_name, application_distribution, application_homepage,
             application_project_url, application_origin, application_icon,
             collection_name, notification_criteria, created_at, encryption,
-            file_capability, application_authorization, revoked_at_ms
+            file_capability, application_authorization, application_declaration, revoked_at_ms
          )
          SELECT id, json_extract(encryption, '$.key_id'), application_id, collection_id,
                 operations, scope, application_name, application_distribution,
                 application_homepage, application_project_url, application_origin,
                 application_icon, collection_name, notification_criteria, created_at,
-                encryption, file_capability, application_authorization,
+                encryption, file_capability, application_authorization, application_declaration,
                 CAST(unixepoch('subsec') * 1000 AS INTEGER)
          FROM grants WHERE id = ?1 AND encryption IS NOT NULL",
         [grant_id],

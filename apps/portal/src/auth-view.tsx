@@ -7,14 +7,12 @@ import {
   returnTarget,
   signInUrl
 } from "./portal-model";
-import { Loading, PageBrand, useSystemTheme } from "./portal-ui";
+import { Loading, PageBrand } from "./portal-ui";
 
 function MinimalAuthPage({ children }: { children: React.ReactNode }) {
-  useSystemTheme();
-
   return <div className="minimal-auth-shell">
     <main className="center-page minimal-auth-page">
-      <PageBrand label="connect" themePicker={false} />
+      <PageBrand label="connect" />
       {children}
     </main>
     <footer className="minimal-auth-footer">
@@ -42,6 +40,7 @@ export function Login() {
         }
         try {
           setConfig(await api<AuthConfig>("/v1/auth/config"));
+          setError("");
         } catch (configError) {
           setError(message(configError));
         }

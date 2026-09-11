@@ -323,10 +323,11 @@ async fn status_reports_the_running_binary_version_for_upgrade_health_checks() {
         .await;
 
     assert!(response.ok);
-    assert_eq!(
-        response.result.expect("status result")["binary_version"],
-        env!("CARGO_PKG_VERSION")
-    );
+    let result = response.result.expect("status result");
+    assert_eq!(result["binary_version"], env!("CARGO_PKG_VERSION"));
+    // Issuance support belongs to the authenticated relay handshake, not an
+    // additional diagnostic status API with no feature consumer.
+    assert!(result.get("capabilities").is_none());
     fs::remove_dir_all(test_root).unwrap();
 }
 
@@ -392,13 +393,16 @@ async fn bounds_local_control_request_memory() {
 async fn local_collection_operations_share_admission_without_blocking_control() {
     use crate::admission::{AdmissionRequest, WorkClass};
 
-    let test_root = std::env::temp_dir().join(format!(
-        "mdbase-connect-local-admission-test-{}",
-        uuid::Uuid::new_v4()
-    ));
-    let registry = CollectionRegistry::open(test_root.join("state")).unwrap();
+    use futures_util::FutureExt;
+
+    let fixture = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(fixture.path().join("state")).unwrap();
     let collection = registry
-        .create(test_root.join("collection"), Some("Local admission"), "UTC")
+        .create(
+            fixture.path().join("collection"),
+            Some("Local admission"),
+            "UTC",
+        )
         .unwrap();
     let watcher = CollectionWatchService::start(registry.clone());
     let state = Arc::new(AgentState::new(registry, watcher, None));
@@ -419,60 +423,135 @@ async fn local_collection_operations_share_admission_without_blocking_control() 
         );
     }
 
-    let queued_state = state.clone();
-    let queued = tokio::spawn(async move {
-        queued_state
-            .execute(ControlRequest::new(ControlCommand::CollectionOperation(
-                mdbase_connect_protocol::CollectionOperationParams {
-                    collection_id: collection.id,
-                    operation: "query".to_string(),
-                    input: serde_json::json!({ "limit": 1 }),
-                },
-            )))
-            .await
-    });
-    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    assert!(
-        !queued.is_finished(),
-        "a local read must wait behind the shared read limit"
-    );
-
-    let mutation = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        state.execute(ControlRequest::new(ControlCommand::CollectionOperation(
-            mdbase_connect_protocol::CollectionOperationParams {
-                collection_id: collection.id,
-                operation: "create".to_string(),
-                input: serde_json::json!({
-                    "path": "mutation-capacity.md",
-                    "frontmatter": { "title": "Reserved mutation capacity" },
-                    "body": "The queued local read did not consume this slot."
-                }),
-            },
-        ))),
-    )
-    .await
-    .expect("queued local reads must leave the mutation lane available");
-    assert!(mutation.ok, "{:?}", mutation.error);
-    assert_eq!(mutation.result.unwrap()["valid"], true);
-
-    let ping = tokio::time::timeout(
-        std::time::Duration::from_millis(250),
-        state.execute(ControlRequest::new(ControlCommand::Ping)),
-    )
-    .await
-    .expect("queued collection work must not block local control");
-    assert!(ping.ok);
-
-    drop(held_reads.pop());
-    let response = tokio::time::timeout(std::time::Duration::from_secs(2), queued)
+    let trace = state.admission().trace().clone();
+    let mut queries = tokio::task::JoinSet::new();
+    for _ in 0..2 {
+        let state = state.clone();
+        queries.spawn(async move {
+            state
+                .execute(ControlRequest::new(ControlCommand::CollectionOperation(
+                    mdbase_connect_protocol::CollectionOperationParams {
+                        collection_id: collection.id,
+                        operation: "query".to_string(),
+                        input: serde_json::json!({ "limit": 1 }),
+                    },
+                )))
+                .await
+        });
+    }
+    let mut mutation_task = None;
+    // Capture assertion failures so workers and the finalizer stop before TempDir removal.
+    let outcome = std::panic::AssertUnwindSafe(async {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            trace.wait_for_pending_reads(2),
+        )
         .await
-        .expect("the admitted local query must finish")
-        .unwrap();
-    assert!(response.ok, "{:?}", response.error);
+        .expect("both local reads must actually queue at shared read admission");
+        let pending = trace
+            .snapshot()
+            .into_iter()
+            .filter(|event| event.3 == "read_pending")
+            .map(|event| event.1)
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(pending.len(), 2);
+        assert!(
+            queries.try_join_next().is_none(),
+            "queued reads must not finish"
+        );
 
-    drop(held_reads);
-    fs::remove_dir_all(test_root).unwrap();
+        let mutation_state = state.clone();
+        mutation_task = Some(tokio::spawn(async move {
+            mutation_state
+                .execute(ControlRequest::new(ControlCommand::CollectionOperation(
+                    mdbase_connect_protocol::CollectionOperationParams {
+                        collection_id: collection.id,
+                        operation: "create".to_string(),
+                        input: serde_json::json!({
+                            "path": "mutation-capacity.md",
+                            "frontmatter": { "title": "Reserved mutation capacity" },
+                            "body": "The queued local reads did not consume this slot."
+                        }),
+                    },
+                )))
+                .await
+        }));
+        let (mutation, ping) = tokio::join!(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                mutation_task.as_mut().unwrap()
+            ),
+            tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                state.execute(ControlRequest::new(ControlCommand::Ping))
+            ),
+        );
+        let mutation = mutation.expect("queued local reads must leave the mutation lane available");
+        mutation_task = None;
+        let mutation = mutation.expect("mutation worker must not panic");
+        assert!(mutation.ok, "mutation must succeed");
+        assert!(
+            mutation.result.unwrap()["valid"] == true,
+            "mutation must be valid"
+        );
+        assert!(
+            ping.expect("queued collection work must not block local control")
+                .ok
+        );
+        let events = trace.snapshot();
+        let admitted = events
+            .iter()
+            .find(|event| event.2 == WorkClass::Mutation && event.3 == "admitted")
+            .expect("mutation must be admitted")
+            .1;
+        for stage in [
+            "worker_entered",
+            "execution_complete",
+            "finalization_complete",
+            "worker_complete",
+        ] {
+            assert!(
+                events
+                    .iter()
+                    .any(|event| event.1 == admitted && event.3 == stage),
+                "missing {stage}"
+            );
+        }
+        assert!(!events
+            .iter()
+            .any(|event| pending.contains(&event.1) && event.3 == "admitted"));
+        // Never release read capacity until the real mutation has succeeded.
+        held_reads.clear();
+        for _ in 0..2 {
+            let response =
+                tokio::time::timeout(std::time::Duration::from_secs(2), queries.join_next())
+                    .await
+                    .expect("the admitted local query must finish")
+                    .unwrap()
+                    .unwrap();
+            assert!(response.ok, "query must succeed");
+            let result = response.result.unwrap();
+            assert!(
+                result["result"]["results"][0]["path"] == "mutation-capacity.md",
+                "each query must see the successfully created record"
+            );
+        }
+    })
+    .catch_unwind()
+    .await;
+    let timeline = trace.snapshot();
+    held_reads.clear();
+    // Drain rather than abort: a read's blocking worker may still own the state.
+    while queries.join_next().await.is_some() {}
+    if let Some(task) = mutation_task {
+        let _ = task.await;
+    }
+    drop(state); // Joins the finalizer before removing the fixture, including failure paths.
+    drop(fixture);
+    if let Err(panic) = outcome {
+        eprintln!("local admission timeline (microseconds, request, class, stage): {timeline:?}");
+        std::panic::resume_unwind(panic);
+    }
 }
 
 #[test]
@@ -606,7 +685,7 @@ schema:
         application_agreement_public_key: application_identity.public_key(),
         connector_agreement_public_key: connector_identity.public_key(),
     };
-    let security = crate::test_support::application_security(
+    let mut security = crate::test_support::application_security(
         crate::test_support::TestApplicationSecurityParams {
             application_id,
             authorization_id,
@@ -617,7 +696,41 @@ schema:
             file_capability: None,
         },
     );
+    // Fresh issuance lifecycle uses the enabled legacy version explicitly.
+    // V2 denied activation and retained authority are covered separately.
+    let declaration = serde_json::json!({
+        "manifest_version": 1, "id": "dev.mdbase.test", "name": "Live application",
+        "distribution": "web", "homepage": "https://example.test",
+        "requirements": {
+            "access": "full_collection", "contracts": [], "configuration": []
+        },
+        "provisions": {"configuration": [], "type_packs": []}
+    });
+    {
+        use base64::Engine;
+        use p256::ecdsa::{signature::Signer, Signature, SigningKey};
+        use sha2::Digest;
+        let signing = SigningKey::random(&mut rand_core::OsRng);
+        let encoding = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let binding = &mut security.proof.binding;
+        binding.contracts.semantic_capabilities = 1;
+        binding.installation_signing_public_key =
+            encoding.encode(signing.verifying_key().to_encoded_point(false).as_bytes());
+        binding.application_installation_id = mdbase_connect_protocol::application_installation_id(
+            &binding.installation_signing_public_key,
+        )
+        .unwrap();
+        binding.application_manifest_digest = format!(
+            "{:x}",
+            sha2::Sha256::digest(serde_jcs::to_vec(&declaration).unwrap())
+        );
+        let signature: Signature = signing.sign(&binding.signing_message().unwrap());
+        security.proof.signature =
+            encoding.encode(signature.normalize_s().unwrap_or(signature).to_bytes());
+        security.proof.verify().unwrap();
+    }
     let grant = GrantPolicy {
+        application_declaration: Some(declaration),
         id: Uuid::new_v4(),
         application_id,
         collection_id: collection.id,
@@ -760,6 +873,7 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
     );
     registry
         .replace_grants(&[GrantPolicy {
+            application_declaration: None,
             id: grant_id,
             application_id,
             collection_id: collection.id,
@@ -897,6 +1011,7 @@ fn unauthorized_legacy_mutation_fails_before_replay_or_collection_write() {
     let compatible = crate::test_support::application_security(security_params());
     registry
         .replace_grants(&[GrantPolicy {
+            application_declaration: None,
             id: grant_id,
             application_id,
             collection_id: collection.id,

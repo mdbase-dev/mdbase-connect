@@ -148,7 +148,7 @@ or omit SRI in a downloaded application.
 
   document.querySelector("#connect").onclick = async () => {
     const authorization = await connect.authorize({
-      operations: ["describe", "read", "query"],
+      capabilities: ["collection.read"],
       onDeviceCode: ({ userCode }) => {
         document.querySelector("#code").textContent =
           `Confirm ${userCode} in mdbase Connect`;

@@ -9,7 +9,7 @@ function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unkn
 function ready(id: string): CollectionSessionSnapshot { const connection: ConnectionSummary = { collectionId: id, operations: ["all"] }; return { status: "ready", connection, connections: [connection] }; }
 const staleSameOwner = ready("a");
 const exactCases: [string, CollectionSessionSnapshot, boolean][] = [
-  ["revoked capability", { status: "ready", connection: { collectionId: "a", operations: ["read"], missingCapabilities: ["files.read"] }, connections: [] }, false],
+  ["revoked capability", { status: "ready", connection: { collectionId: "a", operations: ["read"], missingCapabilities: ["collection.read"] }, connections: [] }, false],
   ["granted capability", { status: "ready", connection: { collectionId: "a", operations: ["read", "write"], missingCapabilities: [], fileActions: ["list", "replace"] }, connections: [{ collectionId: "other", operations: ["read"] }] }, true],
   ["changed operations, file actions, and inventory", { status: "ready", connection: { collectionId: "a", operations: ["new-operation"], fileActions: ["move"] }, connections: [{ collectionId: "new-saved", operations: [] }] }, true],
   ["changed start failure problem", { status: "start_failed", problem: { message: "current failure", recovery: "retry now" }, connections: [{ collectionId: "saved", operations: [] }] }, false],

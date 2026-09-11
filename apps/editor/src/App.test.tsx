@@ -670,11 +670,14 @@ describe("mdbase editor", () => {
 
   it("navigates notes and reveals keyboard help without leaving the editor", async () => {
     const user = userEvent.setup();
-    render(<App gateway={new DemoCollectionGateway(4)} />);
+    const gateway = new DemoCollectionGateway(4);
+    const read = vi.spyOn(gateway, "read");
+    render(<App gateway={gateway} />);
 
     expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
     fireEvent.keyDown(window, { key: "j", altKey: true });
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    expect(read).toHaveBeenCalledWith("Journal/garden-notes-2.md");
     fireEvent.keyDown(window, { key: "k", altKey: true });
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools"));
 
@@ -1133,14 +1136,14 @@ describe("mdbase editor", () => {
     const connection = {
       collectionId: "partial",
       operations: ["describe", "read", "query"],
-      missingCapabilities: ["records.update", "records.rename", "definitions.read"]
+      missingCapabilities: ["records.edit", "definitions.manage"]
     };
     partial.sessionSnapshot = () => ({ status: "ready", connection, connections: [connection] });
     partial.authorize = authorize;
     render(<App gateway={partial} />);
 
     expect(await screen.findByRole("button", { name: "Update access" })).toBeInTheDocument();
-    expect(screen.getByText(/edit notes and move notes/i)).toBeInTheDocument();
+    expect(screen.getByText(/edit and move notes/i)).toBeInTheDocument();
     expect(screen.getByText(/shows only what needs to be added/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Update access" }));
     expect(authorize).toHaveBeenCalledWith("selected", { presentation: "popup" });
@@ -1153,7 +1156,7 @@ describe("mdbase editor", () => {
     const connection = {
       collectionId: "notes-only",
       operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
-      missingCapabilities: ["definitions.read", "definitions.create", "definitions.update"]
+      missingCapabilities: ["definitions.manage"]
     };
     partial.sessionSnapshot = () => ({ status: "ready", connection, connections: [connection] });
     partial.authorize = authorize;

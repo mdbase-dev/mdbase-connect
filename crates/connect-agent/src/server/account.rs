@@ -258,7 +258,7 @@ impl AgentState {
             .snapshot()
             .await
             .map_err(crate::cloud::CloudSnapshotError::into_connect_error)?;
-        let pending = snapshot
+        snapshot
             .pending_authorizations
             .iter()
             .find(|pending| pending.id == params.request_id)
@@ -276,17 +276,9 @@ impl AgentState {
                 description.display_name
             )));
         }
-        let contracts = self
-            .ensure_application_types(
-                params.collection_id,
-                &pending.application_family_identity,
-                &pending.application_manifest_digest,
-                &pending.requirements,
-                &pending.provisions,
-                &params.contract_setups,
-            )
-            .await?;
-        cloud.approve_authorization(params, &contracts).await
+        // The snapshot is discovery only. Setup must run inside authenticated
+        // relay activation after explicit approval, including for v2.
+        cloud.approve_authorization(params).await
     }
 
     pub(super) async fn create_grant(
@@ -317,6 +309,18 @@ impl AgentState {
         provisions: &mdbase_connect_protocol::ApplicationProvisions,
         contract_setups: &[ContractSetupChoice],
     ) -> Result<Vec<mdbase_connect_protocol::CollectionContractDescriptor>, ConnectError> {
+        // These legacy account-management responses carry typed declarations but
+        // no complete evidence or grant-bound proof. V2 must use authenticated
+        // activation, not provision first and discover a mismatch afterward.
+        if requirements
+            .capabilities
+            .as_ref()
+            .is_some_and(|capabilities| capabilities.contract_version == 2)
+        {
+            return Err(ConnectError::ApplicationDeclarationMismatch(
+                "Capability v2 setup requires authenticated authorization activation.".to_string(),
+            ));
+        }
         let registered = self.registry.get(collection_id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(

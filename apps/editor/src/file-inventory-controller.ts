@@ -48,7 +48,9 @@ export class FileInventoryController {
     const acceptProgress = (progress: FileListProgress) => {
       if (!this.isCurrent(controller, generation)) return;
       this.publish({
-        files: stableFileOrder(progress.files),
+        // Partial inventories are usable in source order. Sort only the final
+        // result, rather than re-sorting every cumulative pagination snapshot.
+        files: [...progress.files],
         loading: !progress.complete,
         complete: progress.complete,
         error: undefined
@@ -108,11 +110,10 @@ export class FileInventoryController {
   }
 }
 
+const filePathCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
 function stableFileOrder(files: readonly CollectionFile[]): CollectionFile[] {
-  return [...files].sort((left, right) => left.path.localeCompare(right.path, undefined, {
-    numeric: true,
-    sensitivity: "base"
-  }));
+  return [...files].sort((left, right) => filePathCollator.compare(left.path, right.path));
 }
 
 function defaultErrorMessage(error: unknown): string {

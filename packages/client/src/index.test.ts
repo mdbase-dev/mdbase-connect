@@ -57,7 +57,11 @@ function registeredApplication(
   manifest_digest: TEST_MANIFEST_DIGEST,
     name: "Tasks",
     homepage: "https://tasks.example/",
-    requirements: { contracts: [] },
+    requirements: {
+      contracts: [],
+      access: "full_collection",
+      capabilities: { contract_version: 2, required: ["collection.read"] }
+    },
     ...overrides
   };
 }
@@ -727,6 +731,54 @@ describe("provider-neutral collection client", () => {
     });
   });
 
+  it("delivers completed query data without waiting for cursor cleanup", async () => {
+    vi.useFakeTimers();
+    const calls: Array<Record<string, unknown>> = [];
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        const query = input as Record<string, unknown>;
+        calls.push(query);
+        if (query.release_cursor) {
+          await new Promise((resolve) => setTimeout(resolve, 2_000));
+          throw new Error("cleanup unavailable");
+        }
+        return {
+          valid: true, diagnostics: [], result: {
+            results: [{ path: query.cursor ? "two.md" : "one.md", frontmatter: {}, types: [] }],
+            meta: { total_count: 2, has_more: !query.cursor,
+              ...(!query.cursor ? { cursor: "next" } : {}) }
+          }
+        } as Result;
+      }
+    });
+    const pending = client.queryAll({}, { pageSize: 256, timeoutMs: 50 });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(pending).resolves.toMatchObject({
+      ok: true, value: { results: [{ path: "one.md" }, { path: "two.md" }] }
+    });
+    expect(calls).toEqual([
+      { limit: 256, offset: 0, pagination: "cursor" },
+      { cursor: "next" },
+      { release_cursor: "next" }
+    ]);
+    await vi.advanceTimersByTimeAsync(2_000);
+  });
+
+  it("does not return a partial query when the caller cancels before the final page", async () => {
+    const controller = new AbortController();
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        return { valid: true, diagnostics: [], result: {
+          results: [{ path: "one.md", frontmatter: {}, types: [] }],
+          meta: { has_more: true }
+        } } as Result;
+      }
+    });
+    await expect(client.queryAll({}, {
+      signal: controller.signal, onProgress: () => controller.abort()
+    })).resolves.toMatchObject({ ok: false, problem: { code: "operation_cancelled" } });
+  });
+
   it("uses one total queryAll deadline while queryPages keeps an explicit per-page budget", async () => {
     vi.useFakeTimers();
     const requestOptions: Array<{ signal?: AbortSignal; timeoutMs?: number | null }> = [];
@@ -989,6 +1041,7 @@ describe("provider-neutral collection client", () => {
     let applicationAgreementPublicKey = "";
     let polls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
@@ -1003,7 +1056,9 @@ describe("provider-neutral collection client", () => {
         const form = new URLSearchParams(String(init?.body));
         const proof = JSON.parse(form.get("application_authorization")!);
         applicationAgreementPublicKey = proof.binding.grant_agreement_public_key;
-        expect(form.get("operations")).toBe("describe,query");
+        expect(form.get("operations")).toBe(
+          "describe,changes,read,query,list_views,execute_view,read_view_source,validate,read_type"
+        );
         return jsonResponse({
           device_code: "device-secret",
           user_code: "ABCD-EFGH",
@@ -1058,7 +1113,6 @@ describe("provider-neutral collection client", () => {
     });
 
     const authorization = connect.authorize({
-      operations: ["describe", "query"],
       onDeviceCode: ({ userCode }) => shown.push(userCode),
       openVerification: opened
     });
@@ -1071,7 +1125,7 @@ describe("provider-neutral collection client", () => {
       value: { connection: { collectionId: portableCollectionId } }
     });
     expect(connect.connections()).toHaveLength(1);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("accepts a scoped hosted capability from the same portable device flow", async () => {
@@ -1082,6 +1136,7 @@ describe("provider-neutral collection client", () => {
     let applicationSigningPublicKey = "";
     let providerHeaders: Record<string, string> | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
@@ -1092,8 +1147,12 @@ describe("provider-neutral collection client", () => {
               contracts: [],
               access: "full_collection",
               collection_kind: "hosted",
+              capabilities: {
+                contract_version: 2,
+                required: ["collection.read"]
+              },
               files: {
-                actions: ["list", "read"],
+                required: ["list", "read"],
                 scope: { kind: "collection" }
               }
             }
@@ -1164,7 +1223,7 @@ describe("provider-neutral collection client", () => {
           access: "full_collection",
           collection_kind: "hosted",
           files: {
-            actions: ["list", "read"],
+            required: ["list", "read"],
             scope: { kind: "collection" }
           }
         }
@@ -1173,7 +1232,7 @@ describe("provider-neutral collection client", () => {
     });
 
     const authorization = connect.authorize({
-      operations: ["describe", "query"],
+      capabilities: ["collection.read"],
       openVerification: opened
     });
     await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
@@ -1206,6 +1265,7 @@ describe("provider-neutral collection client", () => {
           distribution: "portable"
         })
       }))
+      .mockResolvedValueOnce(jsonResponse({ capabilities: ["application-authorization-v2-issuance"] }))
       .mockResolvedValueOnce(jsonResponse({
         device_code: "device-secret",
         user_code: "ABCD-EFGH",
@@ -1239,6 +1299,7 @@ describe("provider-neutral collection client", () => {
     let applicationAgreementPublicKey = "";
     const opened = vi.fn();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
@@ -1312,6 +1373,7 @@ describe("provider-neutral collection client", () => {
     let applicationSigningPublicKey = "";
     const opened = vi.fn();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
@@ -2291,8 +2353,8 @@ describe("application sessions", () => {
     if (snapshot.status === "start_failed") expect(snapshot.problem).toBe(problem);
   });
 
-  it("fences advanced authorize and ensureOperations after destroy", async () => {
-    for (const method of ["authorize", "ensureOperations"] as const) {
+  it("fences advanced authorize and ensureCapabilities after destroy", async () => {
+    for (const method of ["authorize", "ensureCapabilities"] as const) {
       const manager = managerWithConnections([TEST_COLLECTION_ID]);
       const selection = new MdbaseMemorySelection();
       selection.select(TEST_COLLECTION_ID);
@@ -2311,7 +2373,7 @@ describe("application sessions", () => {
 
       const operation = method === "authorize"
         ? session.authorize("choose", { timeoutMs: null })
-        : session.ensureOperations(["update"], { timeoutMs: null });
+        : session.ensureCapabilities(["records.edit"], { timeoutMs: null });
       await vi.waitFor(() => expect(signal).toBeInstanceOf(AbortSignal));
       session.destroy();
       expect(signal?.aborted).toBe(true);
@@ -2371,7 +2433,7 @@ describe("application sessions", () => {
       requirements: {
         contracts: [],
         access: "full_collection",
-        capabilities: { contract_version: 1, required: ["records.query"] }
+        capabilities: { contract_version: 2, required: ["collection.read"] }
       }
     }));
     let finish!: (value: ReturnType<typeof connectSuccess>) => void;
@@ -2675,6 +2737,7 @@ describe("application sessions", () => {
       serverUrl, manifest, redirectUri: "https://tasks.example/callback",
       relayEncryption: "disabled", storage
     });
+    vi.spyOn(manager, "manifest").mockResolvedValue(connectSuccess(sessionManifest()));
     const session = new MdbaseSession(manager, { operations: ["query"], selection: new MdbaseBrowserSelection() });
     await session.start();
     const authorize = vi.spyOn(manager, "authorize").mockImplementationOnce(async (options) => {
@@ -3037,6 +3100,7 @@ describe("authorization renewal", () => {
     const navigate = vi.fn();
     let authorizationForm: URLSearchParams | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request).endsWith("/v1/apps/register")) {
         return jsonResponse({ application: registeredApplication() });
       }
@@ -3068,7 +3132,7 @@ describe("authorization renewal", () => {
 
     const controller = new AbortController();
     const outcome = manager.authorize({
-      operations: ["query"],
+      capabilities: ["collection.read"],
       target: { kind: "collection", collectionId: TEST_COLLECTION_ID },
       returnTo: "/today?filter=open",
       signal: controller.signal
@@ -3103,6 +3167,7 @@ describe("authorization renewal", () => {
     vi.stubGlobal("location", { assign: vi.fn() });
     let state = "";
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({ application: registeredApplication() });
@@ -3147,7 +3212,7 @@ describe("authorization renewal", () => {
 
     const authorization = manager.authorize({
       presentation: "popup",
-      operations: ["query"],
+      capabilities: ["collection.read"],
       returnTo: "/today"
     });
     expect(open).toHaveBeenCalledOnce();
@@ -3176,6 +3241,7 @@ describe("authorization renewal", () => {
     vi.stubGlobal("window", { open: vi.fn(() => null) });
     vi.stubGlobal("location", { assign });
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request).endsWith("/v1/apps/register")) {
         return jsonResponse({ application: registeredApplication() });
       }
@@ -3229,8 +3295,21 @@ describe("authorization renewal", () => {
     storage.setItem(`${prefix}:${target}:read`, JSON.stringify(pending(target, "read", 2)));
     let proof: any;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request).endsWith("/v1/apps/register")) {
-        return jsonResponse({ application: registeredApplication() });
+        return jsonResponse({
+          application: registeredApplication({
+            requirements: {
+              contracts: [],
+              access: "full_collection",
+              capabilities: {
+                contract_version: 2,
+                required: ["collection.read"],
+                optional: ["records.create"]
+              }
+            }
+          })
+        });
       }
       const form = new URLSearchParams(String(init?.body));
       proof = JSON.parse(form.get("application_authorization")!);
@@ -3259,7 +3338,7 @@ describe("authorization renewal", () => {
     });
 
     await expect(manager.authorize({
-      operations: ["create"],
+      capabilities: ["records.create"],
       target: { kind: "collection", collectionId: target }
     })).resolves.toMatchObject({ ok: true, value: { kind: "redirecting" } });
     expect(proof.binding).toMatchObject({
@@ -3269,7 +3348,7 @@ describe("authorization renewal", () => {
         operation_transport: 3,
         operation_transport_recovery: [2],
         authorization_binding: 5,
-        semantic_capabilities: 1,
+        semantic_capabilities: 2,
         durable_mutation: 1
       }
     });
@@ -3278,9 +3357,11 @@ describe("authorization renewal", () => {
   it("returns a typed problem when persistent application identity is unavailable", async () => {
     const keyStore = new MemoryGrantKeyStore();
     const deleteKey = vi.spyOn(keyStore, "delete");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
-      application: registeredApplication()
-    }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => jsonResponse(
+      String(request).endsWith("/health")
+        ? { capabilities: ["application-authorization-v2-issuance"] }
+        : { application: registeredApplication() }
+    ));
     const manager = new MdbaseConnect({
       serverUrl: "https://connect.example",
       manifest: {
@@ -3302,7 +3383,7 @@ describe("authorization renewal", () => {
       navigate: vi.fn()
     });
 
-    await expect(manager.authorize({ operations: ["query"] })).resolves.toMatchObject({
+    await expect(manager.authorize({ capabilities: ["collection.read"] })).resolves.toMatchObject({
       ok: false,
       problem: {
         code: "application_identity_unavailable",
@@ -3419,7 +3500,7 @@ describe("authorization renewal", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it("reports capability gaps and requests only the least-privilege union", async () => {
+  it("reports operation gaps and requests complete declared capability groups", async () => {
     const storage = new MemoryStorage();
     const navigate = vi.fn();
     const serverUrl = "https://connect.example";
@@ -3431,13 +3512,17 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       collectionName: "Worklog",
-      operations: ["query", "read"],
+      operations: [
+        "describe", "changes", "read", "query", "list_views",
+        "execute_view", "read_view_source", "validate", "read_type", "create"
+      ],
       scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000
     }));
     let authorizationForm: URLSearchParams | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request) === manifestUrl) return jsonResponse({
             manifest_version: 1,
             id: "dev.worklog.app",
@@ -3448,7 +3533,16 @@ describe("authorization renewal", () => {
       if (String(request).endsWith("/v1/apps/register")) return jsonResponse({
             application: registeredApplication({
               name: "Worklog",
-              homepage: "https://tasks.example"
+              homepage: "https://tasks.example",
+              requirements: {
+                contracts: [],
+                access: "full_collection",
+                capabilities: {
+                  contract_version: 2,
+                  required: ["collection.read"],
+                  optional: ["records.create", "records.edit"]
+                }
+              }
             })
           });
       authorizationForm = new URLSearchParams(String(init?.body));
@@ -3476,19 +3570,24 @@ describe("authorization renewal", () => {
       authorized: true,
       sufficient: false,
       collectionId: "00000000-0000-0000-0000-000000000002",
-      grantedOperations: ["query", "read"],
+      grantedOperations: [
+        "describe", "changes", "read", "query", "list_views",
+        "execute_view", "read_view_source", "validate", "read_type", "create"
+      ],
       missingOperations: ["update"]
     });
     expect(connect.hasOperations(["query", "read"])).toBe(true);
-    await connect.requestOperations(["read"]);
+    await connect.requestCapabilities(["collection.read"]);
     expect(navigate).not.toHaveBeenCalled();
 
     const controller = new AbortController();
-    const outcome = connect.requestOperations(["read", "update"], {
+    const outcome = connect.requestCapabilities(["collection.read", "records.edit"], {
       signal: controller.signal
     });
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
-    expect(authorizationForm?.get("operations")).toBe("query,read,update");
+    expect(authorizationForm?.get("operations")).toBe(
+      "describe,changes,read,query,list_views,execute_view,read_view_source,validate,read_type,create,update,rename"
+    );
     controller.abort();
     await outcome;
   });
@@ -3537,6 +3636,7 @@ describe("authorization renewal", () => {
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
     let authorizationForm: URLSearchParams | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request) === manifestUrl) return jsonResponse({
             manifest_version: 1,
             id: "dev.worklog.app",
@@ -3572,7 +3672,7 @@ describe("authorization renewal", () => {
 
     const controller = new AbortController();
     const outcome = connect.authorize({
-      operations: ["query"],
+      capabilities: ["collection.read"],
       signal: controller.signal
     });
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
@@ -5757,13 +5857,22 @@ function managerWithConnections(collectionIds: string[]): MdbaseConnect {
     `mdbase-connect:${serverUrl}:${manifest}:connections`,
     storedConnectionIndex(collectionIds)
   );
-  return new MdbaseConnect({
+  const manager = new MdbaseConnect({
     serverUrl,
     manifest,
     redirectUri: "https://tasks.example/auth/mdbase/callback",
     storage,
     relayEncryption: "disabled"
   });
+  vi.spyOn(manager, "manifest").mockResolvedValue(connectSuccess(sessionManifest()));
+  return manager;
+}
+
+function sessionManifest(): MdbaseAppManifest {
+  return { ...portableManifest(), requirements: {
+    contracts: [], access: "full_collection",
+    capabilities: { contract_version: 2, required: ["collection.read"], optional: ["records.edit"] }
+  } };
 }
 
 function storedConnectionIndex(collectionIds: string[]): string {

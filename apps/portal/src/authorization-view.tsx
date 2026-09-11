@@ -1,4 +1,3 @@
-import { groupAuthorizationOperations } from "@mdbase/connect-ui/access";
 import {
   assessMapping,
   contractFields,
@@ -15,6 +14,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ApiError,
+  type ApplicationFileAction,
   type AvailableCollection,
   type ContractSetupChoice as ContractSetupRequestChoice,
   type HostedCollection,
@@ -22,7 +22,15 @@ import {
   type UnavailableConnector
 } from "./api";
 import { collectionCompatibility } from "./compatibility";
-import { configurationSetupSummary } from "./application-setup";
+import {
+  authorizationCapabilityGroups,
+  authorizationRequirementsError,
+  toggleAuthorizationGroup,
+  selectedFileActions,
+  selectedOperationsForCapabilityGroups,
+  type AuthorizationCapabilityGroup
+} from "./authorization-capabilities";
+import { configurationSetupSummary, initialContractSetupChoice } from "./application-setup";
 import {
   clearAuthorizationReview,
   disambiguatedCollectionLocations,
@@ -33,6 +41,7 @@ import {
 import {
   FilePermissionSummary,
   NotificationAccess,
+  PermissionCapabilitySummary,
   PermissionDelta,
   PermissionChoices
 } from "./authorization-permissions";
@@ -45,14 +54,13 @@ import {
   relativeTime,
   scopeDescription
 } from "./portal-model";
-import { Loading, PageBrand, useSystemTheme } from "./portal-ui";
+import { Loading, PageBrand } from "./portal-ui";
 export function DeviceAuthorization() {
   const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? "");
   const [code, setCode] = useState(initialCode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const automaticallyClaimed = useRef(false);
-  useSystemTheme();
 
   async function openRequest(value: string) {
     const userCode = formatDeviceCode(value);
@@ -86,7 +94,7 @@ export function DeviceAuthorization() {
 
   return (
     <main className="center-page">
-      <PageBrand label="Downloaded application" themePicker={false} />
+      <PageBrand label="Downloaded application" />
       <form className="decision-panel device-panel" onSubmit={(event) => {
         event.preventDefault();
         void openRequest(code);
@@ -131,7 +139,6 @@ export function Authorization({ requestId }: { requestId: string }) {
   const [error, setError] = useState("");
   const [decisionError, setDecisionError] = useState("");
   const returning = useRef(false);
-  useSystemTheme();
 
   useEffect(() => {
     let active = true;
@@ -206,7 +213,6 @@ export function Authorization({ requestId }: { requestId: string }) {
     <main className="center-page approval-page">
       <PageBrand
         label="Application request"
-        themePicker={false}
         markMotion={setupMotionActive ? (preparingStructure ? "rebalance" : "conveyor") : undefined}
       />
       <section className="decision-panel authorization-panel">
@@ -253,8 +259,8 @@ export function RequestIdentity({ request, large = false }: { request: PendingAu
         <small className="request-metadata">{request.distribution === "portable"
           ? `Downloaded HTML file${request.project_url ? ` · ${host(request.project_url)}` : ""}`
           : host(request.homepage)} · expires {relativeTime(request.expires_at)}</small>
-        {!large && request.distribution !== "portable" && (
-          <small className="request-guidance">Only continue if you recognize this exact site. An approved application can use the selected data until you revoke it.</small>
+        {request.distribution !== "portable" && (
+          <small className="request-guidance">Only continue if you recognize this exact site.</small>
         )}
         <small className="request-scope">Requests access to the entire selected collection.</small>
         {request.requirements.contracts.length > 0 && (
@@ -291,25 +297,7 @@ function DesktopContinuation({ request, onReviewHere }: {
   );
 }
 
-interface ContractSetupChoice {
-  mode: "starter" | "existing";
-  typeName: string;
-  fields: Record<string, string>;
-  binding: Record<string, unknown>;
-}
-
-function initialContractSetupChoice(
-  contract: SetupContract,
-  types: SetupType[]
-): ContractSetupChoice {
-  const suggestion = suggestTypes(contract, types)[0];
-  return {
-    mode: "starter",
-    typeName: suggestion?.type.name ?? "",
-    fields: suggestion?.fields ?? {},
-    binding: initialSchemaValue(contract.binding_schema)
-  };
-}
+type ContractSetupChoice = ReturnType<typeof initialContractSetupChoice>;
 
 function ContractSetupEditor({
   applicationName,
@@ -442,18 +430,13 @@ function SchemaInput({ field, required, value, disabled, onChange }: {
   </label>;
 }
 
-function initialSchemaValue(schema?: Record<string, unknown>): Record<string, unknown> {
-  if (!schema || !schema.properties || typeof schema.properties !== "object") return {};
-  return Object.fromEntries(Object.entries(schema.properties as Record<string, unknown>).flatMap(
-    ([key, candidate]) => {
-      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
-      const value = candidate as Record<string, unknown>;
-      return "default" in value ? [[key, structuredClone(value.default)]] : [];
-    }
-  ));
+export function ApprovalForm(props: React.ComponentProps<typeof SupportedApprovalForm>) {
+  const error = authorizationRequirementsError(props.request.requirements);
+  if (error) return <div className="message error" role="alert">{error}</div>;
+  return <SupportedApprovalForm {...props} />;
 }
 
-export function ApprovalForm({
+function SupportedApprovalForm({
   request,
   collections,
   canCreateHosted,
@@ -506,6 +489,13 @@ export function ApprovalForm({
     [visibleChoices]
   );
   const savedReview = useMemo(() => storedAuthorizationReview(request.id), [request.id]);
+  const permissionGroups = useMemo(
+    () => authorizationCapabilityGroups(
+      request.requirements,
+      request.requested_operations
+    ),
+    [request.requirements, request.requested_operations]
+  );
   const initialSelection = initialAuthorizationSelection(
     compatible.map((choice) => choice.collection.id),
     savedReview
@@ -515,11 +505,23 @@ export function ApprovalForm({
     Boolean(initialSelection.collectionId)
   );
   const [reviewing, setReviewing] = useState(initialSelection.reviewing);
-  const [operations, setOperations] = useState(() => new Set(
-    savedReview?.operations
-      ? savedReview.operations.filter((operation) => request.requested_operations.includes(operation))
-      : request.requested_operations
-  ));
+  const [operations, setOperations] = useState(() => {
+    const selected = selectedOperationsForCapabilityGroups(
+      permissionGroups,
+      savedReview?.operations
+    );
+    const grouped = new Set(permissionGroups.flatMap((group) => group.operations));
+    for (const operation of request.requested_operations) {
+      if (!grouped.has(operation) && (!savedReview?.operations
+        || request.requirements.capabilities?.contract_version === 2
+        || savedReview.operations.includes(operation))) selected.add(operation);
+    }
+    return selected;
+  });
+  const [fileActions, setFileActions] = useState(() => request.requirements.files
+    ? selectedFileActions(request.requirements.files, savedReview?.fileActions)
+    : new Set<string>()
+  );
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
   const [creatingHosted, setCreatingHosted] = useState(false);
   const [showAlternateCollections, setShowAlternateCollections] = useState(false);
@@ -553,15 +555,20 @@ export function ApprovalForm({
     ...setupTypes.map((type) => `${type.name}@${type.revision ?? ""}`)
   ].join("|");
   const [setupChoices, setSetupChoices] = useState<Record<string, ContractSetupChoice>>({});
-  const permissionGroups = useMemo(
-    () => groupAuthorizationOperations(request.requested_operations),
-    [request.requested_operations]
+  const permissionCount = permissionGroups.length
+    + (request.requirements.files ? 1 : 0);
+  const selectedPermissionGroups = permissionGroups.filter((group) =>
+    group.operations.every((operation) => operations.has(operation))
   );
-  const selectedPermissionCount = permissionGroups.reduce(
-    (count, group) =>
-      count + group.operations.filter((operation) => operations.has(operation.id)).length,
-    0
-  );
+  const selectedPermissionCount = selectedPermissionGroups.length
+    + (fileActions.size > 0 ? 1 : 0);
+  const higherImpactLabels = [
+    ...selectedPermissionGroups.flatMap((group) =>
+      group.higherImpact ? [group.label] : []
+    ),
+    ...(fileActions.has("delete") ? ["Delete files"] : []),
+    ...(hasSetup ? ["Changes collection setup"] : [])
+  ];
 
   useEffect(() => {
     if (collectionId && !compatible.some((choice) => choice.collection.id === collectionId)) {
@@ -576,9 +583,10 @@ export function ApprovalForm({
       collectionId,
       collectionConfirmed,
       operations: [...operations],
+      fileActions: [...fileActions],
       reviewing
     });
-  }, [collectionConfirmed, collectionId, operations, request.id, reviewing]);
+  }, [collectionConfirmed, collectionId, fileActions, operations, request.id, reviewing]);
 
   useEffect(() => {
     if (!reviewing && focusCollectionOnReturn.current) {
@@ -641,11 +649,16 @@ export function ApprovalForm({
     }];
   });
 
-  function toggleOperation(operation: string) {
-    setOperations((current) => {
+  function toggleCapability(group: AuthorizationCapabilityGroup) {
+    if (group.required) return;
+    setOperations((current) => toggleAuthorizationGroup(current, group));
+  }
+
+  function toggleFileAction(action: ApplicationFileAction) {
+    setFileActions((current) => {
       const next = new Set(current);
-      if (next.has(operation)) next.delete(operation);
-      else next.add(operation);
+      if (next.has(action)) next.delete(action);
+      else next.add(action);
       return next;
     });
   }
@@ -665,6 +678,7 @@ export function ApprovalForm({
             collection_id: collectionId,
             ...(selected?.offer_id ? { offer_id: selected.offer_id } : {}),
             operations: [...operations],
+            ...(request.requirements.files ? { file_actions: [...fileActions] } : {}),
             contract_setups: contractSetups
           })
         } : {})
@@ -872,17 +886,24 @@ export function ApprovalForm({
       </section>
       {reviewing && <section className="approval-section">
         <div className="approval-section-intro">
-          <strong>Permissions</strong>
+          <strong>What it can do</strong>
+          <small>{permissionCount} requested {permissionCount === 1 ? "capability" : "capabilities"}.</small>
         </div>
         <div className="approval-section-content authorization-permissions">
-          {selected && <PermissionDelta existingAccess={request.existing_access} collectionId={selected.id} selected={operations} />}
+          {selected && <PermissionDelta existingAccess={request.existing_access} collectionId={selected.id} groups={permissionGroups} selected={operations} />}
+          <PermissionCapabilitySummary groups={permissionGroups} selected={operations} files={request.requirements.files} selectedFiles={fileActions} />
           {permissionGroups.length > 0 && <PermissionChoices
             groups={permissionGroups}
             selected={operations}
             disabled={submitting !== null}
-            onToggle={toggleOperation}
+            onToggle={toggleCapability}
           />}
-          {request.requirements.files && <FilePermissionSummary files={request.requirements.files} />}
+          {request.requirements.files && <FilePermissionSummary
+            files={request.requirements.files}
+            selected={fileActions}
+            disabled={submitting !== null}
+            onToggle={toggleFileAction}
+          />}
         </div>
       </section>}
       {reviewing && hasSetup && <section className="approval-section collection-changes-section">
@@ -933,6 +954,11 @@ export function ApprovalForm({
       {reviewing && <NotificationAccess notifications={request.notifications} />}
       {error && <div className="message error compact" role="alert">{error}</div>}
       {reviewing && <footer className="approval-footer">
+        <div className="approval-receipt">
+          <strong>{request.application_name} · {selected?.display_name}</strong>
+          {higherImpactLabels.length > 0 && <span>{higherImpactLabels.join(" · ")}</span>}
+          {request.distribution !== "portable" && <small>Access continues until you revoke it in mdbase connect.</small>}
+        </div>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
           <button className="button primary" type="button" disabled={submitting !== null || !collectionId || !collectionConfirmed || (selectedPermissionCount === 0 && !request.requirements.files) || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (hasSetup ? "Setting up and allowing…" : "Allowing…") : hasSetup ? "Set up and allow access" : "Allow access"}</button>

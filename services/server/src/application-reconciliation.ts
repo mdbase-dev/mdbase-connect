@@ -1,4 +1,5 @@
-import type { ApplicationNotifications, ApplicationRequirements } from "@mdbase-dev/connect-protocol";
+import type { ApplicationNotifications } from "@mdbase-dev/connect-protocol";
+import type { ApplicationRequirements } from "./application-requirements.js";
 import type { DatabasePool } from "./db.js";
 import {
   ApplicationAuthorizationError,

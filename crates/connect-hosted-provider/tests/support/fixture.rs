@@ -80,6 +80,7 @@ impl FileLifecycleFixture {
             .register_replica(
                 collection_id,
                 RegisterReplica {
+                    application_setup_evidence: None,
                     replica_id: Uuid::now_v7(),
                     name: "Adversarial writer".to_string(),
                     purpose: ReplicaPurpose::Mirror,

@@ -95,6 +95,13 @@ interface MarkdownEdit {
   head: number;
 }
 
+const EMPTY_STRINGS: string[] = [];
+const EMPTY_SUGGESTIONS: LinkSuggestion[] = [];
+const EMPTY_FILE_EMBEDS: ResolvedFileReference[] = [];
+const EMPTY_NOTE_EMBEDS: ResolvedNoteEmbed[] = [];
+const EMPTY_FILES: CollectionFile[] = [];
+const EMPTY_NOTES: NoteSummary[] = [];
+
 const rememberedEditors = new Map<string, RememberedEditor>();
 const rememberedEditorLimit = 40;
 const EMPTY_HISTORY_STATE = EditorState.create({ extensions: [history()] }).field(historyField);
@@ -117,18 +124,18 @@ export function CodeEditor({
   className = "",
   documentId,
   currentPath,
-  recentPaths = [],
-  linkSuggestions = [],
-  linkTypes = [],
+  recentPaths = EMPTY_STRINGS,
+  linkSuggestions = EMPTY_SUGGESTIONS,
+  linkTypes = EMPTY_STRINGS,
   onOpenLink,
   onCreateLink,
   onPreviewLink,
   onDismissLinkPreview,
-  embeddedFiles = [],
-  embeddedNotes = [],
+  embeddedFiles = EMPTY_FILE_EMBEDS,
+  embeddedNotes = EMPTY_NOTE_EMBEDS,
   onOpenFile,
-  files = [],
-  notes = [],
+  files = EMPTY_FILES,
+  notes = EMPTY_NOTES,
   onOpenFileLink,
   onVisibleFileEmbeds,
   onVisibleNoteEmbeds,
@@ -164,6 +171,12 @@ export function CodeEditor({
   const embeddedFilesRef = useRef(embeddedFiles);
   const embeddedNotesRef = useRef(embeddedNotes);
   const onOpenFileRef = useRef(onOpenFile);
+  // Widgets capture callbacks during decoration creation; retained DOM must
+  // forward to the latest prop rather than capture that render's callback.
+  const openEmbeddedNote = useRef((path: string) => onOpenLinkRef.current?.(path)).current;
+  const openEmbeddedFile = useRef((asset: Extract<FileAssetSnapshot, { status: "ready" }>) => onOpenFileRef.current?.(asset)).current;
+  const canOpenEmbeddedNote = Boolean(onOpenLink);
+  const canOpenEmbeddedFile = Boolean(onOpenFile);
   const filesRef = useRef(files);
   const notesRef = useRef(notes);
   const onOpenFileLinkRef = useRef(onOpenFileLink);
@@ -218,12 +231,12 @@ export function CodeEditor({
       writerPresentation.current.of(variant === "writer" && quietMarkdown ? quietMarkdownPresentation : []),
       fileEmbeds.current.of(variant === "writer" && language === "markdown" ? fileEmbedPresentation(
         () => embeddedFilesRef.current,
-        () => onOpenFileRef.current,
+        () => onOpenFileRef.current ? openEmbeddedFile : undefined,
         () => onVisibleFileEmbedsRef.current
       ) : []),
       noteEmbeds.current.of(variant === "writer" && language === "markdown" ? noteEmbedPresentation(
         () => embeddedNotesRef.current,
-        () => onOpenLinkRef.current,
+        () => onOpenLinkRef.current ? openEmbeddedNote : undefined,
         () => onVisibleNoteEmbedsRef.current
       ) : []),
       variant === "writer" ? writerInteractions(
@@ -255,13 +268,24 @@ export function CodeEditor({
     const state = remembered && rememberedValue(remembered) === value
       ? EditorState.fromJSON(remembered.state, config, { history: historyField })
       : EditorState.create({ doc: value, extensions });
+    const focusBeforeMount = parentRef.current.ownerDocument.activeElement;
     const view = new EditorView({ parent: parentRef.current, state });
     viewRef.current = view;
     if (documentId) registerActiveEditor(documentId, view);
     requestAnimationFrame(() => {
       if (viewRef.current !== view) return;
       if (remembered) view.scrollDOM.scrollTop = remembered.scrollTop;
-      if (autoFocus) view.focus();
+      const ownerDocument = view.dom.ownerDocument;
+      const activeElement = ownerDocument.activeElement;
+      const HTMLElement = ownerDocument.defaultView?.HTMLElement;
+      const editableOwner = HTMLElement && activeElement instanceof HTMLElement
+        && (activeElement.matches("input, textarea, select") || activeElement.isContentEditable
+          || activeElement.closest('[contenteditable]:not([contenteditable="false"])'));
+      // Preserve another control's focus, including focus moved after mounting
+      // but before this frame, and keep dialogs in charge of their own focus.
+      if (autoFocus && activeElement === focusBeforeMount
+          && (!editableOwner || view.dom.contains(activeElement))
+          && !activeElement?.closest("[role='dialog'], [role='alertdialog'], [role='combobox']")) view.focus();
     });
     return () => {
       if (documentId) rememberEditor(documentId, view, lineSeparator.current);
@@ -353,12 +377,12 @@ export function CodeEditor({
       effects: fileEmbeds.current.reconfigure(
         variant === "writer" && language === "markdown" ? fileEmbedPresentation(
           () => embeddedFilesRef.current,
-          () => onOpenFileRef.current,
+          () => onOpenFileRef.current ? openEmbeddedFile : undefined,
           () => onVisibleFileEmbedsRef.current
         ) : []
       )
     });
-  }, [embeddedFiles, language, onOpenFile, onVisibleFileEmbeds, variant]);
+  }, [embeddedFiles, language, canOpenEmbeddedFile, variant]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -367,12 +391,12 @@ export function CodeEditor({
       effects: noteEmbeds.current.reconfigure(
         variant === "writer" && language === "markdown" ? noteEmbedPresentation(
           () => embeddedNotesRef.current,
-          () => onOpenLinkRef.current,
+          () => onOpenLinkRef.current ? openEmbeddedNote : undefined,
           () => onVisibleNoteEmbedsRef.current
         ) : []
       )
     });
-  }, [embeddedNotes, language, onOpenLink, onVisibleNoteEmbeds, variant]);
+  }, [embeddedNotes, language, canOpenEmbeddedNote, variant]);
 
   useEffect(() => {
     const view = viewRef.current;

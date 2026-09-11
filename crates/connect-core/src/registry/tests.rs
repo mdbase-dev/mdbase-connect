@@ -10,7 +10,10 @@ mod operations;
 mod scope;
 mod security_state;
 
-fn signed_test_grant(_registry: &CollectionRegistry, operations: Vec<String>) -> GrantPolicy {
+pub(super) fn signed_test_grant(
+    _registry: &CollectionRegistry,
+    operations: Vec<String>,
+) -> GrantPolicy {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../packages/protocol/test/fixtures/application-authorization-v4.json"
     ))
@@ -36,6 +39,7 @@ fn signed_test_grant(_registry: &CollectionRegistry, operations: Vec<String>) ->
         })
         .unwrap();
     GrantPolicy {
+        application_declaration: None,
         id: Uuid::new_v4(),
         application_id: binding.application_id,
         collection_id,

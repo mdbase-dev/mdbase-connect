@@ -1,5 +1,4 @@
 const PRODUCTION_MIGRATION_BASELINE: u64 = 34;
-const FINAL_HOSTED_MIGRATION: u64 = 38;
 const MAX_INDEX_INVENTORY_PAGE: u32 = 1_000;
 const MAX_DERIVED_VERIFICATION_PAGE: i64 = 16;
 
@@ -10,38 +9,32 @@ impl HostedProvider {
         limit: u32,
     ) -> ApiResult<HostedProjectionIndexPlan> {
         let limit = limit.clamp(1, MAX_INDEX_INVENTORY_PAGE);
-        let ledger = sqlx::query(
-            r#"SELECT count(*)::bigint AS migration_count,
-                      min(version) AS minimum_version,
-                      max(version) AS maximum_version,
-                      bool_and(success) AS all_successful,
-                      count(*) FILTER (WHERE version BETWEEN 35 AND 38)::bigint
-                        AS final_migration_count
-               FROM _sqlx_migrations"#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        let applied_migrations = sqlx::query("SELECT version, checksum FROM _sqlx_migrations")
-            .fetch_all(&self.pool)
-            .await?;
-        let applied_checksums = applied_migrations
-            .iter()
-            .map(|row| (row.get::<i64, _>("version"), row.get::<Vec<u8>, _>("checksum")))
-            .collect::<BTreeMap<_, _>>();
         let expected_migrations = hosted_migrator();
-        let migration_checksums_valid = expected_migrations.migrations.iter().all(|migration| {
-            applied_checksums
-                .get(&migration.version)
-                .is_some_and(|checksum| checksum.as_slice() == migration.checksum.as_ref())
-        });
-        let migration_ledger_valid = ledger.get::<i64, _>("migration_count")
-            == FINAL_HOSTED_MIGRATION as i64
-            && ledger.get::<Option<i64>, _>("minimum_version") == Some(1)
-            && ledger.get::<Option<i64>, _>("maximum_version")
-                == Some(FINAL_HOSTED_MIGRATION as i64)
-            && ledger.get::<Option<bool>, _>("all_successful") == Some(true)
-            && ledger.get::<i64, _>("final_migration_count") == 4
-            && migration_checksums_valid;
+        let migration_target = number(
+            expected_migrations
+                .migrations
+                .iter()
+                .map(|migration| migration.version)
+                .max()
+                .ok_or_else(|| ApiError::internal("Embedded hosted migration inventory is empty."))?,
+            "embedded hosted migration target",
+        )?;
+        let applied_migrations =
+            sqlx::query("SELECT version, checksum, success FROM _sqlx_migrations")
+                .fetch_all(&self.pool)
+                .await?;
+        // Current index verification requires exactly this binary's inventory,
+        // independently of the migrator's historical ignore_missing policy.
+        let migration_ledger_valid = !expected_migrations.migrations.is_empty()
+            && applied_migrations.len() == expected_migrations.migrations.len()
+            && expected_migrations.migrations.iter().all(|migration| {
+                applied_migrations.iter().any(|row| {
+                    row.get::<i64, _>("version") == migration.version
+                        && row.get::<bool, _>("success")
+                        && row.get::<Vec<u8>, _>("checksum").as_slice()
+                            == migration.checksum.as_ref()
+                })
+            });
         let schema_valid: bool = sqlx::query_scalar(
             r#"SELECT to_regclass('public.hosted_provider_projection_generations') IS NOT NULL
                     AND to_regclass('public.hosted_provider_record_projections') IS NOT NULL
@@ -220,7 +213,7 @@ impl HostedProvider {
             .flatten();
         Ok(HostedProjectionIndexPlan {
             migration_baseline: PRODUCTION_MIGRATION_BASELINE,
-            migration_target: FINAL_HOSTED_MIGRATION,
+            migration_target,
             migration_ledger_valid,
             schema_valid,
             collections,

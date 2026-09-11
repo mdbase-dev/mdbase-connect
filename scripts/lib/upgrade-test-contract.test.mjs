@@ -27,10 +27,10 @@ test("upgrade pins the exact immediate predecessor", async () => {
   );
   assert.equal(fixture, `# Exact server image from the release immediately preceding this candidate.
 # Update this file as part of each release-preparation change.
-MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.94
-MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=8d1b5fb1647edcadd716d4ee671f0ba04d34fa5e
-MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:f1243c22160489d5d9044df2a1a14e05b36e00f7d01aaeca865d797bdd31aa94
-MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:caf69fea20acf7da3dac91a9babbb175f4789c7455684664734956237cd7667c
+MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.95
+MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=408c67bc10f128e0833f0da62cb3efb9d94657d7
+MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:95a89fd6f13de72bd9e45fbfa5f00df5f7b599d8fb9a4da22d1f22c5d0391970
+MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:1ef08bfa18431357a29e2565bc9a490a182e73f9e2b532594ac968a3c3563048
 `);
 });
 
@@ -47,14 +47,20 @@ test("both upgrade programs execute release and pulled-image verification", asyn
 
   for (const [script, imageVariable] of [
     ["test/upgrade/server-from-previous", "MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"],
-    ["test/upgrade/provider-from-previous", "MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"]
+    ["test/upgrade/retained-v2.sh", "MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"]
   ]) {
     const program = await readFile(resolve(repoRoot, script), "utf8");
     const releaseCheck = program.indexOf('upgrade_verify_previous_release "$repo_root"');
-    const pull = program.indexOf(`docker pull "$${imageVariable}"`);
     const imageCheck = program.indexOf(`upgrade_verify_previous_image "$${imageVariable}"`);
-    assert.ok(releaseCheck >= 0 && releaseCheck < pull, `${script} must verify the release before use`);
-    assert.ok(pull >= 0 && imageCheck > pull, `${script} must inspect the image after pulling it`);
+    assert.ok(releaseCheck >= 0 && releaseCheck < imageCheck, `${script} must verify the release before use`);
+    if (script.endsWith('retained-v2.sh')) {
+      const cachedImage = program.indexOf(`docker image inspect "$${imageVariable}"`);
+      assert.ok(cachedImage >= 0 && cachedImage < imageCheck, 'provider must verify its cached immutable image');
+      assert.match(program, /source "\$repo_root\/\.github\/previous-release\.env"/);
+    } else {
+      const pull = program.indexOf(`docker pull "$${imageVariable}"`);
+      assert.ok(pull >= 0 && imageCheck > pull, `${script} must inspect the image after pulling it`);
+    }
   }
 });
 
@@ -68,8 +74,17 @@ test("candidate writes predecessor state before explicit projection work", async
   );
   const write = program.indexOf('"$(exact_mutation_body "$previous_revision")"', writePhase);
   const readBack = program.indexOf("pre_rebuild_snapshot=$(provider_get", write);
-  const firstProjectionWork = program.indexOf("run_projection_indexer ", writePhase);
-  const verify = program.indexOf("run_projection_indexer verify", readBack);
+  const verificationHelper = program.match(/^verify_synthetic_projection\(\) \{\n([\s\S]*?)^\}/m)?.[1];
+  assert.ok(verificationHelper, "projection diagnostic helper is missing");
+  assert.deepEqual(
+    verificationHelper.match(/run_projection_indexer\s+\S+/g),
+    ["run_projection_indexer verify"],
+    "the diagnostic helper must only run read-only verification"
+  );
+  assert.match(verificationHelper, /\.ok == true[\s\S]*\.command == "verify"[\s\S]*\(\.result\.collections \| length\) == 1[\s\S]*\.result\.collections\[0\]\.verified == true/);
+  const firstProjectionCall = /(?:run_projection_indexer|verify_synthetic_projection)\s+/.exec(program.slice(writePhase));
+  const firstProjectionWork = firstProjectionCall ? writePhase + firstProjectionCall.index : -1;
+  const verify = program.indexOf("verify_synthetic_projection 'write-through without normalization'", readBack);
   const recovery = program.indexOf("upgrade_phase 'requiring candidate recovery readiness'", verify);
   const finalVerify = program.indexOf(
     "upgrade_phase 'verifying projections after final provider restart'",
@@ -80,6 +95,10 @@ test("candidate writes predecessor state before explicit projection work", async
   assert.ok(verify > readBack, "read-only projection verification must remain post-write");
   assert.ok(recovery > verify, "notification recovery must follow projection verification");
   assert.ok(finalVerify > recovery, "projection verification must run again after final restart");
+  assert.ok(
+    program.indexOf("verify_synthetic_projection 'after final provider restart'", finalVerify) > finalVerify,
+    "final restart verification must invoke the checked read-only helper"
+  );
   assert.match(program, /\.status == "ready"[\s\S]*\.notifications\.configured == true[\s\S]*\.notifications\.recovery == "ok"[\s\S]*\.projections\.degraded_collections == 0/);
   assert.equal(
     firstProjectionWork,
@@ -94,7 +113,8 @@ test("upgrade shell programs are syntactically valid", async () => {
   for (const script of [
     "test/upgrade/lib.sh",
     "test/upgrade/server-from-previous",
-    "test/upgrade/provider-from-previous"
+    "test/upgrade/provider-from-previous",
+    "test/upgrade/provider-atomic-overlap.sh"
   ]) {
     await execute("bash", ["-n", resolve(repoRoot, script)]);
   }
@@ -133,6 +153,102 @@ test("provider upgrade proves exact application replay without canonical writes"
   assert.match(program, /mutation_request_conflict/);
   assert.doesNotMatch(program, /hosted_provider_retired_replay_credentials/);
   assert.doesNotMatch(program, /invalid_replica_token/);
+});
+
+test("provider rollback uses the verified unchanged predecessor after existing replay assertions", async () => {
+  const program = await readFile(resolve(repoRoot, "test/upgrade/provider-from-previous"), "utf8");
+  const phases = [
+    '[[ $changed_status == 409 ]]',
+    "upgrade_phase 'rolling back only the image on the migrated 0041 database'",
+    'upgrade_remove_container mdbase-provider-upgrade-candidate',
+    'upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"',
+    'start_previous_provider mdbase-provider-previous-rollback false',
+    "upgrade_phase 'registering new legacy application and mirror through predecessor HTTP'",
+    "upgrade_phase 'narrowing predecessor policy with exact retry epoch checks'",
+    'upgrade_remove_container mdbase-provider-previous-rollback',
+    "upgrade_phase 'reupgrading predecessor-written NULL metadata without normalization'",
+    'start_candidate_provider',
+    'wait_candidate_recovery',
+    "verify_synthetic_projection 'after predecessor writes and candidate reupgrade'",
+    "printf 'Historical beta94 v1 prelude persisted-state path passed; not v2 rollback qualification."
+  ];
+  let position = -1;
+  for (const phase of phases) {
+    const next = program.indexOf(phase, position + 1);
+    assert.ok(next > position, `missing or out-of-order rollback step: ${phase}`);
+    position = next;
+  }
+  const previous = program.match(/^start_previous_provider\(\) \{\n([\s\S]*?)^\}/m)?.[1];
+  assert.match(previous, /"\$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"/);
+  assert.doesNotMatch(previous, /CANDIDATE_IMAGE|--entrypoint|--volume/);
+  assert.doesNotMatch(program, /(?:ALTER|DROP|TRUNCATE)\s+(?:TABLE|COLUMN)|(?:INSERT INTO|UPDATE|DELETE FROM)\s+_sqlx_migrations/i);
+  assert.doesNotMatch(program, /^\s*MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=/m);
+  assert.match(program, /rollback_ledger_before/);
+  assert.match(program, /rollback_receipts_before/);
+  assert.match(program, /SELECT to_jsonb\(j\) FROM hosted_provider_mutation_journal j ORDER BY replica_id, request_id/);
+  assert.match(program, /sequential image rollback\/reupgrade, NOT concurrent rolling/);
+  assert.match(program, /NOT signed candidate publication qualification/);
+  assert.match(program, /NOT evidence of safe production rollback/);
+});
+
+test("predecessor HTTP probes retain legacy binding and NULL metadata semantics", async () => {
+  const program = await readFile(resolve(repoRoot, "test/upgrade/provider-from-previous"), "utf8");
+  const body = program.match(/^rollback_application_body\(\) \{\n([\s\S]*?)^\}/m)?.[1];
+  assert.ok(body);
+  assert.doesNotMatch(body, /application_semantic_version|application_setup_evidence/);
+  assert.match(body, /allowed_types:\[\],contract_scope:\[\],full_collection:true/);
+  assert.match(body, /allowed_origin:"https:\/\/example.test",proof_public_key:null/);
+  assert.match(body, /application_declaration_id:"dev.mdbase.upgrade.rollback"/);
+  assert.match(program, /for field in application_id declaration_digest/);
+  assert.match(program, /\.error.code == "application_declaration_mismatch"/);
+  assert.match(program, /\.result.valid == true/);
+  assert.match(program, /\.application_semantic_version == \$semantics/);
+  assert.match(program, /\.application_setup_evidence == null/);
+  assert.match(program, /\.token_hash == \$token_hash/);
+  assert.match(program, /rollback_assert_policy "\$rollback_application" 1/);
+  assert.match(program, /rollback_assert_policy "\$rollback_narrowed" 2\n/);
+  assert.equal((program.match(/rollback_assert_policy "\$rollback_narrowed" 2 1/g) ?? []).length, 2);
+  assert.match(program, /UPGRADE_ROLLBACK_APPLICATION_TOKEN UPGRADE_ROLLBACK_MIRROR_TOKEN GITHUB_TOKEN/);
+  assert.match(program, /text=\$\{text:0:8192\}/);
+});
+
+test("actual-binary overlap is clone-owned and observes atomicity before readiness", async () => {
+  const program = await readFile(resolve(repoRoot, "test/upgrade/provider-from-previous"), "utf8");
+  const overlap = await readFile(resolve(repoRoot, "test/upgrade/provider-atomic-overlap.sh"), "utf8");
+  assert.ok(program.indexOf("\nprovider_atomic_overlap\n") > program.indexOf("predecessor_application_receipt=$("));
+  assert.ok(program.indexOf("\nprovider_atomic_overlap\n") < program.indexOf("upgrade_phase 'writing predecessor-created"));
+  assert.match(program, /local name=\$\{1:-mdbase-provider-upgrade-candidate\}/);
+  assert.match(program, /local port=\$\{2:-\$UPGRADE_PROVIDER_PORT\}/);
+  assert.match(overlap, /provider_atomic_overlap\(\) \(/);
+  assert.match(overlap, /\[\[ \$DATABASE_URL == "\$expected" \]\]/);
+  assert.match(overlap, /CREATE DATABASE \$db TEMPLATE mdbase_provider_upgrade/);
+  assert.match(overlap, /trap overlap_cleanup EXIT/);
+  assert.match(overlap, /DROP DATABASE \$db WITH \(FORCE\)/);
+  assert.match(overlap, /for pid in "\$\{curls\[@\]\}"; do kill/);
+  for (const name of ["candidate", "previous", "holder"]) {
+    assert.ok(overlap.includes(`upgrade_remove_container "$${name}"`));
+  }
+  assert.match(overlap, /AFTER INSERT ON _sqlx_migrations/);
+  assert.match(overlap, /IF NEW.version = 40 THEN/);
+  assert.match(overlap, /pg_advisory_xact_lock\(194038, 41\)/);
+  assert.match(overlap, /pg_locks[\s\S]*application_name='\$candidate'[\s\S]*NOT l.granted/);
+  assert.match(overlap, /SELECT max\(version\) FROM _sqlx_migrations WHERE success'\) == 38/);
+  assert.match(overlap, /Atomicity failure: external connection sees migration39\/40 before41/);
+  assert.match(overlap, /application_setup_evidence','application_semantic_version/);
+  assert.doesNotMatch(overlap, /(?:UPDATE|DELETE FROM|INSERT INTO)\s+_sqlx_migrations/i);
+  assert.doesNotMatch(overlap, /--entrypoint|SKIP_|ALTER TABLE/);
+  assert.match(overlap, /201:0/);
+  assert.match(overlap, /000:28/);
+  assert.match(overlap, /provider_database_timeout.*timeout_class == "lock"/);
+  assert.match(overlap, /rollback_assert_policy "\$rollback_narrowed" 2/);
+  assert.match(overlap, /rollback_receipt_inventory\) == "\$receipts"/);
+  const success = overlap.indexOf("upgrade_phase 'releasing actual atomic38-to41");
+  let position = success;
+  for (const step of ["\n  overlap_hold", "\n  overlap_launch", "\n  overlap_release", "\n  overlap_join", " wait_candidate_provider"]) {
+    const next = overlap.indexOf(step, position + 1);
+    assert.ok(next > position, `successful overlap missing/out of order: ${step}`);
+    position = next;
+  }
 });
 
 test("S3 readiness fixture serves a scoped empty bucket listing", async (context) => {

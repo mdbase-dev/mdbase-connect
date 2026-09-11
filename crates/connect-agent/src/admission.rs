@@ -167,13 +167,23 @@ impl Drop for QueueTicket {
     }
 }
 
+#[cfg(test)]
+#[path = "admission/tests/diagnostics.rs"]
+mod diagnostics;
+#[cfg(test)]
+use diagnostics::AdmissionTrace;
+
 #[derive(Debug)]
 pub(crate) struct AdmissionPermit {
+    #[cfg(test)]
+    trace_id: u64,
     _permits: Vec<OwnedSemaphorePermit>,
     pub queue_wait_us: u64,
 }
 
 pub(crate) struct AdmissionScheduler {
+    #[cfg(test)]
+    trace: Arc<AdmissionTrace>,
     limits: AdmissionLimits,
     operations: Arc<Semaphore>,
     reads: Arc<Semaphore>,
@@ -201,6 +211,8 @@ impl AdmissionScheduler {
         debug_assert!(limits.reads_per_grant < limits.operations_per_grant);
         debug_assert!(limits.background_per_grant < limits.reads_per_grant);
         Self {
+            #[cfg(test)]
+            trace: Arc::new(AdmissionTrace::default()),
             limits,
             operations: Arc::new(Semaphore::new(limits.operations)),
             reads: Arc::new(Semaphore::new(limits.reads)),
@@ -230,6 +242,13 @@ impl AdmissionScheduler {
         deadline: TokioInstant,
     ) -> Result<AdmissionPermit, AdmissionError> {
         let started = Instant::now();
+        #[cfg(test)]
+        let trace_id = self
+            .trace
+            .next
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(test)]
+        self.trace.record(trace_id, request.class, "requested");
         let ticket = QueueTicket::new(
             self.queue_counts.clone(),
             self.limits,
@@ -271,7 +290,25 @@ impl AdmissionScheduler {
                     acquire_before(self.operation_grant_semaphore(request.grant_id), deadline)
                         .await?,
                 );
-                permits.push(acquire_before(self.reads.clone(), deadline).await?);
+                let read = acquire_before(self.reads.clone(), deadline);
+                #[cfg(test)]
+                let read = {
+                    use std::future::Future;
+                    let mut read = std::pin::pin!(read);
+                    let mut observed = false;
+                    std::future::poll_fn(|cx| {
+                        let result = read.as_mut().poll(cx);
+                        if result.is_pending() && !observed {
+                            observed = true;
+                            self.trace.record(trace_id, request.class, "read_pending");
+                        }
+                        result
+                    })
+                    .await
+                };
+                #[cfg(not(test))]
+                let read = read.await;
+                permits.push(read?);
                 permits.push(acquire_before(self.operations.clone(), deadline).await?);
             }
             WorkClass::Background => {
@@ -292,7 +329,11 @@ impl AdmissionScheduler {
             }
         }
         drop(ticket);
+        #[cfg(test)]
+        self.trace.record(trace_id, request.class, "admitted");
         Ok(AdmissionPermit {
+            #[cfg(test)]
+            trace_id,
             _permits: permits,
             queue_wait_us: started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
         })

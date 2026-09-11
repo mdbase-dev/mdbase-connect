@@ -11,13 +11,15 @@ import {
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  applicationFileRequest,
   authorizationContractRequirements,
   type CollectionOperation,
   type EncryptedRelayOperationResponse,
   type GrantEncryption,
   type GrantScope,
   type MdbaseOperationRequest,
-  type MdbaseAppManifest
+  type MdbaseAppManifest,
+  type LegacyMdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import type { DatabasePool } from "./db.js";
@@ -104,7 +106,7 @@ export class ConnectGateway {
     private readonly secrets: SecretBox,
     private readonly keyStore: GrantKeyStore,
     readonly connectUrl: string,
-    private readonly manifest: MdbaseAppManifest,
+    private readonly manifest: MdbaseAppManifest | LegacyMdbaseAppManifest,
     readonly callbackUrl: string
   ) {
     this.applicationOrigin = new URL(callbackUrl).origin;
@@ -140,6 +142,10 @@ export class ConnectGateway {
   }): Promise<string> {
     const application = await this.registerApplication();
     const installation = await this.applicationIdentity(application.id);
+    const files = this.manifest.requirements?.files;
+    const requestedFiles = files
+      ? ("actions" in files ? files : applicationFileRequest(files))
+      : undefined;
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
@@ -160,12 +166,12 @@ export class ConnectGateway {
       code_challenge: input.codeChallenge,
       contracts: authorizationContractRequirements(
         input.operations,
-        this.manifest.requirements?.files
+        requestedFiles,
+        [],
+        this.manifest.requirements?.capabilities?.contract_version ?? 1
       ),
       requested_operations: input.operations,
-      ...(this.manifest.requirements?.files
-        ? { requested_files: this.manifest.requirements.files }
-        : {}),
+      ...(requestedFiles ? { requested_files: requestedFiles } : {}),
       ...(input.collectionId ? { collection_id: input.collectionId } : {})
     }, installation);
     const response = await fetch(`${this.connectUrl}/oauth/authorization_request`, {

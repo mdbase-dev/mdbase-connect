@@ -106,6 +106,10 @@ export async function retireLegacyContractScopedGrants(
         [grant.id]
       );
       await db.query(
+        "DELETE FROM notification_subscriptions WHERE grant_id = $1",
+        [grant.id]
+      );
+      await db.query(
         `UPDATE grants
          SET revoked_at = COALESCE(revoked_at, now()),
              reauthorization_required_at = COALESCE(reauthorization_required_at, now()),
@@ -130,12 +134,13 @@ export async function retireLegacyContractScopedGrants(
           await db.query(
             `INSERT INTO provider_revocation_jobs
                (id, replica_id, grant_id, collection_id, reason)
-             VALUES ($1, $2, $3, $4, 'collection_level_authorization')`,
+             VALUES ($1, $2, $3, $4, $5)`,
             [
               randomUUID(),
               grant.hosted_replica_id,
               grant.id,
-              grant.hosted_collection_id
+              grant.hosted_collection_id,
+              "collection_level_authorization"
             ]
           );
         }

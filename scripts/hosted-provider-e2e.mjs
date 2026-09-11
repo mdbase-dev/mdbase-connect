@@ -36,6 +36,20 @@ import {
 process.env.NODE_ENV = "test";
 const execute = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "..");
+const providerPerformanceOutput = process.env.MDBASE_CONNECT_PROVIDER_E2E_PERFORMANCE_OUTPUT;
+const providerObservationMode = process.env.MDBASE_CONNECT_PROVIDER_E2E_OBSERVATION_ONLY;
+assert.ok(
+  providerObservationMode === undefined || ["0", "1"].includes(providerObservationMode),
+  "MDBASE_CONNECT_PROVIDER_E2E_OBSERVATION_ONLY must be 0 or 1"
+);
+const providerObservationOnly = providerObservationMode === "1";
+let providerPerformanceReport;
+if (providerObservationOnly) {
+  assert.ok(
+    providerPerformanceOutput,
+    "MDBASE_CONNECT_PROVIDER_E2E_PERFORMANCE_OUTPUT is required in observation-only mode"
+  );
+}
 const CONNECT_COMMAND_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const operationCatalog = JSON.parse(await readFile(
   join(repoRoot, "packages", "protocol", "schemas", "operation-catalog.v1.json"),
@@ -1031,7 +1045,7 @@ schema:
           "changes",
           "list_timers",
           "reconcile_timers"
-        ]),
+        ], undefined, [], 1),
         scope: { contracts: [], access: "full_collection" },
         notification_criteria: [
           {
@@ -1169,6 +1183,13 @@ schema:
   assert.equal(JSON.stringify(notificationSignals[2]).includes("private-task"), false);
   assert.equal(JSON.stringify(notificationSignals[2]).includes("timer-state-stays-hosted"), false);
   await stopProvider(notificationProvider);
+  phase("replaying historical notification SQL before current runtime recovery");
+  // SQL replay on a current schema is not predecessor-schema startup qualification.
+  // semantic_migration.rs separately exercises the genuine SQLx prefix 14 -> 16.
+  const notificationLedgerQuery = `
+    SELECT jsonb_agg(to_jsonb(m) ORDER BY version) FROM _sqlx_migrations m
+  `;
+  const notificationLedgerBefore = await postgresQuery(notificationLedgerQuery);
   await postgresQuery(`
     UPDATE hosted_provider_notification_grants
     SET grant_json = jsonb_set(
@@ -1181,9 +1202,18 @@ schema:
       '"timer.fired"'::jsonb
     )
     WHERE grant_id = '${notificationGrantId}';
-    DELETE FROM _sqlx_migrations WHERE version IN (15, 16);
     UPDATE mdbase_runtime_schema SET version = 1 WHERE singleton = TRUE;
   `);
+  for (const migration of [
+    "0015_notification_contract_versions.sql",
+    "0016_notification_event_ids.sql"
+  ]) {
+    await postgresQuery(await readFile(
+      join(repoRoot, "crates", "connect-hosted-provider", "migrations", migration),
+      "utf8"
+    ));
+  }
+  assert.equal(await postgresQuery(notificationLedgerQuery), notificationLedgerBefore);
   const upgradedNotificationProvider = await startProvider(databaseUrl, 0, masterKey, {
     MDBASE_CONNECT_CONTROL_PLANE_URL: `http://127.0.0.1:${callbackPort}`,
     MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS: "1",
@@ -1215,6 +1245,7 @@ schema:
     "2"
   );
   await stopProvider(upgradedNotificationProvider);
+  assert.equal(await postgresQuery(notificationLedgerQuery), notificationLedgerBefore);
   await new Promise((resolveClose) => notificationCallbackServer.close(resolveClose));
   notificationCallbackServer = undefined;
 
@@ -1549,7 +1580,14 @@ schema:
   await stopProvider(maintenanceProvider);
 
   phase("provisioning collections and replicas through the Node control plane");
-  controlDatabase = await createDatabase("memory");
+  // Grant narrowing takes PostgreSQL row locks; pg-mem cannot execute FOR UPDATE OF.
+  // Keep control-plane tables separate from provider payload tables in this run's container.
+  await execute("docker", [
+    "exec", postgresContainer, "createdb", "--username", "mdbase", "mdbase_control"
+  ]);
+  const controlDatabaseUrl = new URL(databaseUrl);
+  controlDatabaseUrl.pathname = "/mdbase_control";
+  controlDatabase = await createDatabase(controlDatabaseUrl.href);
   const controlPort = await availableTcpPort();
   const controlUrl = `http://127.0.0.1:${controlPort}`;
   const localEditor = await startEditorServer();
@@ -1724,7 +1762,15 @@ schema:
   assert.ok(emptyCookie);
   const inlineManifest = await openManifestServer({
     name: "Workout Inline E2E",
-    requirements: { access: "full_collection", contracts: [typeProvision.provides[0]] },
+    requirements: {
+      access: "full_collection",
+      contracts: [typeProvision.provides[0]],
+      capabilities: {
+        contract_version: 1,
+        required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read", "records.create", "records.update", "records.rename", "collection.setup.apply"],
+        optional: []
+      }
+    },
     provisions: { type_packs: [typeProvision] }
   });
   try {
@@ -1739,9 +1785,7 @@ schema:
       identityStore: new MemoryApplicationIdentityStore(),
       navigate: (value) => { inlineAuthorizationUrl = value; }
     });
-    const inlineAuthorization = inlineSdk.authorize({
-      operations: ["describe", "read", "query", "create", "update"]
-    });
+    const inlineAuthorization = inlineSdk.authorize({ capabilities: inlineManifest.capabilities });
     await waitFor(() => inlineAuthorizationUrl, "SDK did not start inline hosted authorization");
     assert.deepEqual(requireConnectSuccess(await inlineAuthorization), { kind: "redirecting" });
     const inlineCallbackUrl = await authorizeHostedApplicationByCreating(
@@ -1784,7 +1828,19 @@ schema:
 
   phase("authorizing the browser SDK directly against the hosted data plane");
   const manifest = await openManifestServer({
-    requirements: { contracts: [], access: "full_collection" }
+    requirements: {
+      contracts: [],
+      access: "full_collection",
+      capabilities: {
+        contract_version: 1,
+        required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"],
+        optional: [
+          "records.create", "records.update", "records.rename", "records.delete",
+          "definitions.create", "definitions.update", "definitions.type-pack.inspect", "definitions.type-pack.apply",
+          "sync.offline-replica"
+        ]
+      }
+    }
   });
   manifestServer = manifest.server;
   const storage = memoryStorage();
@@ -1798,12 +1854,7 @@ schema:
     identityStore: new MemoryApplicationIdentityStore(),
     navigate: (value) => { authorizationUrl = value; }
   });
-  const hostedAuthorization = hostedSdk.authorize({
-    operations: [
-      "describe", "changes", "read", "query", "list_views", "execute_view",
-      "create", "update", "delete", "rename", "create_type"
-    ]
-  });
+  const hostedAuthorization = hostedSdk.authorize({ capabilities: manifest.capabilities });
   await waitFor(() => authorizationUrl, "SDK did not start hosted authorization");
   assert.deepEqual(requireConnectSuccess(await hostedAuthorization), { kind: "redirecting" });
   const callbackUrl = await authorizeHostedApplication(
@@ -2027,7 +2078,12 @@ schema:
   );
   await controlRequest(controlUrl, `/v1/grants/${hostedGrant.id}`, cookie, {
     method: "PATCH",
-    body: { operations: ["describe", "read", "query"] }
+    body: {
+      operations: [
+        "describe", "changes", "read", "query", "list_views", "execute_view",
+        "read_view_source", "validate", "read_type"
+      ]
+    }
   });
   await assert.rejects(
     async () => requireConnectSuccess(await hostedConnection.create({
@@ -2036,10 +2092,9 @@ schema:
     })),
     (error) => error?.problem?.code === "insufficient_access"
   );
-  await assert.rejects(
-    () => hostedSync.transport.changes(0, 10),
-    (error) => error?.code === "insufficient_access"
-  );
+  // Narrowing removed creation, but records.watch still explicitly grants
+  // changes. The transport must respect that exact retained operation authority.
+  await assert.doesNotReject(() => hostedSync.transport.changes(0, 10));
   await controlRequest(controlUrl, `/v1/grants/${hostedGrant.id}`, cookie, { method: "DELETE" });
   await assert.rejects(
     async () => requireConnectSuccess(await hostedConnection.query()),
@@ -2704,6 +2759,10 @@ schema:
   const bulkCount = Number(process.env.MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT ?? 205);
   assert.ok(Number.isInteger(bulkCount) && bulkCount >= 205 && bulkCount <= 20_000);
   const stressRun = bulkCount >= 10_000;
+  assert.ok(
+    !providerObservationOnly || stressRun,
+    "provider observation-only mode requires at least 10,000 bulk records"
+  );
   const memoryBeforeBulk = stressRun ? await processMemory(provider.pid) : undefined;
   let finalBulkRecordId;
   const bulkStartSession = await writerTransport.openSession();
@@ -2844,11 +2903,28 @@ schema:
       measured_cgroup_peak_bytes: maximumLogMetric(providerMeasurements, "cgroup_peak_bytes")
     };
     process.stdout.write(`[provider-e2e] performance ${JSON.stringify(result)}\n`);
-    assert.ok(result.mutation_p95_ms < 200, `mutation p95 budget exceeded: ${result.mutation_p95_ms}`);
-    assert.ok(result.snapshot_ms < 10_000, `snapshot budget exceeded: ${result.snapshot_ms}`);
-    assert.ok(result.change_page_p95_ms < 150, `change page p95 budget exceeded: ${result.change_page_p95_ms}`);
-    assert.ok(result.warm_read_p95_ms < 100, `warm read p95 budget exceeded: ${result.warm_read_p95_ms}`);
-    assert.ok(result.warm_query_p95_ms < 300, `warm query p95 budget exceeded: ${result.warm_query_p95_ms}`);
+    if (providerPerformanceOutput) {
+      providerPerformanceReport = {
+        schema_version: 1,
+        tool: "mdbase-provider-e2e-performance",
+        generated_at: new Date().toISOString(),
+        parameters: {
+          bulk_records: bulkCount,
+          records_before_bulk: recordsBeforeBulk,
+          final_records: pagedRecords.length,
+          warm_samples: readLatencies.length,
+          percentile_method: "nearest-rank-floor"
+        },
+        metrics: result
+      };
+    }
+    if (!providerObservationOnly) {
+      assert.ok(result.mutation_p95_ms < 200, `mutation p95 budget exceeded: ${result.mutation_p95_ms}`);
+      assert.ok(result.snapshot_ms < 10_000, `snapshot budget exceeded: ${result.snapshot_ms}`);
+      assert.ok(result.change_page_p95_ms < 150, `change page p95 budget exceeded: ${result.change_page_p95_ms}`);
+      assert.ok(result.warm_read_p95_ms < 100, `warm read p95 budget exceeded: ${result.warm_read_p95_ms}`);
+      assert.ok(result.warm_query_p95_ms < 300, `warm query p95 budget exceeded: ${result.warm_query_p95_ms}`);
+    }
     assert.equal(result.cold_read_records_fetched, 1, "cold point read must fetch exactly one row");
     assert.equal(
       result.cold_read_used_authority_bulk_materialization,
@@ -2892,7 +2968,12 @@ schema:
   const conformanceInputs = {
     update_type: { name: "missing", document: "invalid" },
     apply_type_pack: {},
-    apply_collection_setup: {},
+    // Admit this legacy request under its exact installed binding before
+    // exercising the terminal setup-validation failure in the journal.
+    apply_collection_setup: {
+      application_id: "dev.mdbase.provider-conformance",
+      declaration_digest: `sha256:${"c".repeat(64)}`
+    },
     create_view_source: { document: "invalid" },
     update_view_source: { path: "Views/missing.md", document: "invalid" },
     delete_view_source: { path: "Views/missing.md" },
@@ -3046,6 +3127,14 @@ schema:
     "provider_internal_error"
   );
 
+  if (providerPerformanceOutput) {
+    assert.ok(providerPerformanceReport, "provider performance report was not produced");
+    await mkdir(dirname(resolve(providerPerformanceOutput)), { recursive: true });
+    await writeFile(
+      providerPerformanceOutput,
+      `${JSON.stringify(providerPerformanceReport, null, 2)}\n`
+    );
+  }
   process.stdout.write("mdbase PostgreSQL hosted provider e2e passed\n");
 } finally {
   if (notificationCallbackServer) {
@@ -4487,7 +4576,7 @@ async function measureColdOperation({ databaseUrl, collectionId, token, operatio
       scannedRecords: maximumLogMetric(logs, "scanned_records"),
       recordsFetched: maximumLogMetric(logs, "records_fetched"),
       ciphertextBytes: maximumLogMetric(logs, "ciphertext_bytes"),
-      usedAuthorityBulkMaterialization: logs.includes("hosted_authority_snapshot_load")
+      usedAuthorityBulkMaterialization: plainLogs(logs).includes("hosted_authority_snapshot_load")
     };
   } finally {
     await stopProvider(coldProvider);
@@ -4504,11 +4593,15 @@ function procMemoryBytes(contents, key) {
 function maximumLogMetric(contents, key) {
   const pattern = new RegExp(`${key}=(\\d+)`, "g");
   let maximum;
-  for (const match of contents.matchAll(pattern)) {
+  for (const match of plainLogs(contents).matchAll(pattern)) {
     const value = Number(match[1]);
     if (Number.isSafeInteger(value)) maximum = Math.max(maximum ?? 0, value);
   }
   return maximum;
+}
+
+function plainLogs(contents) {
+  return contents.replaceAll(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 async function postgresQuery(sql) {
@@ -4832,7 +4925,11 @@ async function waitForOutput(action, message) {
 
 async function openManifestServer({
   name = "Hosted SDK E2E",
-  requirements = { contracts: [] },
+  requirements = {
+    contracts: [],
+    access: "full_collection",
+    capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"], optional: [] }
+  },
   provisions = { type_packs: [] }
 } = {}) {
   const server = createServer((_request, response) => {
@@ -4859,6 +4956,7 @@ async function openManifestServer({
   return {
     server,
     origin,
+    capabilities: [...requirements.capabilities.required, ...(requirements.capabilities.optional ?? [])],
     manifestUrl: `${origin}/.well-known/mdbase-app.json`,
     redirectUri: `${origin}/auth/mdbase/callback`
   };

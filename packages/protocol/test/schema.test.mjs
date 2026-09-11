@@ -334,7 +334,8 @@ test("application manifests request files independently from record contracts", 
       access: "full_collection",
       contracts: [],
       files: {
-        actions: ["list", "read"],
+        required: ["list"],
+        optional: ["read"],
         scope: { kind: "selected_folders", folders: ["Assets", "Exports/Final"] }
       }
     }
@@ -344,21 +345,21 @@ test("application manifests request files independently from record contracts", 
     ...declaration,
     requirements: {
       contracts: [],
-      files: { actions: ["read", "read"], scope: { kind: "collection" } }
+      files: { required: ["read", "read"], scope: { kind: "collection" } }
     }
   }), false);
   assert.equal(validate({
     ...declaration,
     requirements: {
       contracts: [],
-      files: { actions: ["read"], scope: { kind: "selected_folders", folders: ["../private"] } }
+      files: { required: ["read"], scope: { kind: "selected_folders", folders: ["../private"] } }
     }
   }), false);
   assert.equal(validate({
     ...declaration,
     requirements: {
       contracts: [],
-      files: { actions: ["read"], scope: { kind: "selected_folders", folders: [".hidden"] } }
+      files: { required: ["read"], scope: { kind: "selected_folders", folders: [".hidden"] } }
     }
   }), false);
 });

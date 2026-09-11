@@ -76,6 +76,10 @@ async fn connect_once(
                 connector_version: env!("CARGO_PKG_VERSION").to_string(),
                 capabilities: RELAY_CAPABILITIES
                     .iter()
+                    .chain(
+                        mdbase_connect_protocol::FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES
+                            .iter(),
+                    )
                     .map(|capability| (*capability).to_string())
                     .collect(),
                 contract_support: ConnectContractSupport::default(),
@@ -93,21 +97,30 @@ async fn connect_once(
     let Message::Text(welcome) = welcome else {
         return Err("relay returned a non-text handshake response".into());
     };
-    let usage_reporting = match serde_json::from_str::<RelayMessage>(welcome.as_ref())? {
+    let (usage_reporting, server_semantics, declaration_evidence) = match serde_json::from_str::<
+        RelayMessage,
+    >(welcome.as_ref())?
+    {
         RelayMessage::RelayWelcome {
             protocol_version,
             capabilities,
             contract_support,
             ..
         } if protocol_version == CONTROL_PROTOCOL_VERSION
-            && contract_support.supports_current()
+            && contract_support.supports_relay_baseline()
             && RELAY_REQUIRED_CAPABILITIES
                 .iter()
                 .all(|required| capabilities.iter().any(|value| value == required)) =>
         {
-            capabilities
-                .iter()
-                .any(|value| value == PROTOCOL_USAGE_REPORT_CAPABILITY)
+            (
+                capabilities
+                    .iter()
+                    .any(|value| value == PROTOCOL_USAGE_REPORT_CAPABILITY),
+                contract_support.semantic_capabilities,
+                capabilities.iter().any(|value| {
+                    value == mdbase_connect_protocol::APPLICATION_DECLARATION_EVIDENCE_CAPABILITY
+                }),
+            )
         }
         RelayMessage::RelayIncompatible { message, .. } => return Err(message.into()),
         _ => return Err("relay returned an incompatible handshake response".into()),
@@ -119,6 +132,8 @@ async fn connect_once(
     let (file_responses, mut file_response_rx) = tokio::sync::mpsc::channel::<FileResponse>(8);
     let (policy_jobs, mut policy_job_rx) = tokio::sync::mpsc::channel::<(u64, RelayMessage)>(8);
     let (policy_applied, policy_applied_rx) = tokio::sync::watch::channel((0_u64, false));
+    // Only this session owns the sender; detached controls receive clones only.
+    let (_session_owner, session_open) = tokio::sync::watch::channel(());
     let policy_state = state.clone();
     let policy_responses = responses.clone();
     let _policy_worker = AbortOnDrop(tokio::spawn(async move {
@@ -158,6 +173,18 @@ async fn connect_once(
                 match message? {
                     Message::Text(text) => {
                         let relay_message: RelayMessage = serde_json::from_str(text.as_ref())?;
+                        let supported_grant = |grant: &mdbase_connect_protocol::GrantPolicy| {
+                            let version = grant.application_authorization.binding.contracts.semantic_capabilities;
+                            server_semantics.contains(&version) && (version != 2 || declaration_evidence)
+                        };
+                        let supported = match &relay_message {
+                            RelayMessage::PolicySnapshot { grants, .. } => grants.iter().all(supported_grant),
+                            RelayMessage::AuthorizationActivationRequest { grant, .. } => supported_grant(grant),
+                            _ => true,
+                        };
+                        if !supported {
+                            return Err("relay attempted an unadvertised authorization contract".into());
+                        }
                         if matches!(&relay_message, RelayMessage::PolicySnapshot { .. }) {
                             // A dedicated single consumer preserves snapshot order without
                             // blocking websocket pings or reads on SQLite. Every subsequent
@@ -279,17 +306,15 @@ async fn connect_once(
                             let policy_applied = policy_applied_rx.clone();
                             let required_policy_generation = received_policy_generation;
                             let control_slots = control_slots.clone();
+                            let session_open = session_open.clone();
                             tokio::spawn(async move {
-                                if !wait_for_policy(policy_applied, required_policy_generation).await.unwrap_or(false) {
-                                    return;
-                                }
-                                let Ok(permit) = control_slots.acquire_owned().await else {
-                                    return;
-                                };
-                                match tokio::task::spawn_blocking(move || {
-                                    let _permit = permit;
-                                    state_for_control.handle_relay_message(relay_message)
-                                }).await {
+                                match dispatch_control(
+                                    policy_applied,
+                                    required_policy_generation,
+                                    control_slots,
+                                    session_open,
+                                    move || state_for_control.handle_relay_message(relay_message),
+                                ).await {
                                     Ok(Some(response)) => {
                                         let _ = responses.send(response).await;
                                     }
@@ -600,6 +625,44 @@ fn relay_admission_request(message: &RelayMessage) -> Option<AdmissionRequest> {
     }
 }
 
+async fn dispatch_control<T: Send + 'static>(
+    policy_applied: tokio::sync::watch::Receiver<(u64, bool)>,
+    required_generation: u64,
+    control_slots: Arc<tokio::sync::Semaphore>,
+    mut session_open: tokio::sync::watch::Receiver<()>,
+    handler: impl FnOnce() -> Option<T> + Send + 'static,
+) -> Result<Option<T>, tokio::task::JoinError> {
+    let ready = tokio::select! {
+        biased;
+        _ = session_open.changed() => return Ok(None),
+        ready = wait_for_policy(policy_applied.clone(), required_generation) => ready.unwrap_or(false),
+    };
+    if !ready {
+        return Ok(None);
+    }
+    let permit = tokio::select! {
+        biased;
+        _ = session_open.changed() => return Ok(None),
+        permit = control_slots.acquire_owned() => match permit {
+            Ok(permit) => permit,
+            Err(_) => return Ok(None),
+        },
+    };
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        // Narrow entry guarantee, including time queued in the blocking pool.
+        // Release watch borrows before entering the handler. This does not abort
+        // or undo setup that has already entered when policy/session changes.
+        if session_open.has_changed().is_err()
+            || *policy_applied.borrow() != (required_generation, true)
+        {
+            return None;
+        }
+        handler()
+    })
+    .await
+}
+
 async fn wait_for_policy(
     mut applied: tokio::sync::watch::Receiver<(u64, bool)>,
     required_generation: u64,
@@ -663,174 +726,4 @@ fn websocket_url(server_url: &str) -> Result<Url, Box<dyn std::error::Error + Se
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn maps_http_server_to_websocket_relay() {
-        assert_eq!(
-            websocket_url("https://connect.example/base")
-                .unwrap()
-                .as_str(),
-            "wss://connect.example/v1/relay"
-        );
-    }
-
-    #[tokio::test]
-    async fn policy_barrier_orders_generations_and_fails_closed() {
-        let (sender, receiver) = tokio::sync::watch::channel((0_u64, false));
-        assert!(!wait_for_policy(receiver.clone(), 0).await.unwrap());
-        let waiting = tokio::spawn(wait_for_policy(receiver.clone(), 2));
-        sender.send_replace((1, true));
-        tokio::task::yield_now().await;
-        assert!(!waiting.is_finished());
-        sender.send_replace((2, true));
-        assert!(waiting.await.unwrap().unwrap());
-
-        let failed = tokio::spawn(wait_for_policy(receiver, 3));
-        sender.send_replace((3, false));
-        assert!(!failed.await.unwrap().unwrap());
-    }
-
-    #[tokio::test]
-    async fn dropping_policy_worker_guard_prevents_connected_after_blocking_apply() {
-        let connected = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let worker_connected = connected.clone();
-        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
-        let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
-        let guard = AbortOnDrop(tokio::spawn(async move {
-            tokio::task::spawn_blocking(move || {
-                let _ = started_tx.send(());
-                release_rx.recv().unwrap();
-                let _ = finished_tx.send(());
-            })
-            .await
-            .unwrap();
-            worker_connected.store(true, std::sync::atomic::Ordering::Release);
-        }));
-
-        started_rx.await.unwrap();
-        drop(guard);
-        release_tx.send(()).unwrap();
-        finished_rx.await.unwrap();
-        tokio::task::yield_now().await;
-        assert!(!connected.load(std::sync::atomic::Ordering::Acquire));
-    }
-
-    #[test]
-    fn overload_rejections_preserve_request_identity() {
-        let request_id = uuid::Uuid::new_v4();
-        let request = RelayMessage::OperationRequest {
-            protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
-            request_id,
-            grant_id: uuid::Uuid::new_v4(),
-            collection_id: uuid::Uuid::new_v4(),
-            application_id: uuid::Uuid::new_v4(),
-            operation: "read".to_string(),
-            input: serde_json::json!({}),
-        };
-        assert!(matches!(
-            relay_operation_rejection(&request, "connector_busy", "busy"),
-            Some(RelayMessage::OperationResponse {
-                request_id: returned,
-                problem: Some(problem),
-                ..
-            }) if returned == request_id && problem.code == "connector_busy"
-        ));
-    }
-
-    #[test]
-    fn execution_deadlines_report_durable_mutations_as_unknown() {
-        let request_id = uuid::Uuid::new_v4();
-        let encrypted = RelayMessage::EncryptedOperationRequest {
-            envelope: mdbase_connect_protocol::EncryptedRelayEnvelope {
-                protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
-                suite: "P256-HKDF-SHA256-AES256GCM".to_string(),
-                request_id,
-                grant_id: uuid::Uuid::new_v4(),
-                application_id: uuid::Uuid::new_v4(),
-                connector_id: uuid::Uuid::new_v4(),
-                collection_id: uuid::Uuid::new_v4(),
-                operation: "create".to_string(),
-                scope_epoch: 1,
-                key_id: "deadline-test".to_string(),
-                counter: "1".to_string(),
-                deadline_unix_ms: Some(1),
-                ciphertext: "ciphertext".to_string(),
-            },
-        };
-        let timeout = RelayTimeoutRequest::from_message(&encrypted).unwrap();
-        assert!(matches!(
-            relay_operation_timeout(&timeout, true),
-            Some(RelayMessage::EncryptedOperationRejected {
-                request_id: returned,
-                problem,
-                ..
-            }) if returned == request_id
-                && problem.code == "operation_outcome_unknown"
-                && problem.operation_outcome == Some(ConnectOperationOutcome::Unknown)
-                && problem.details == Some(serde_json::json!({ "request_id": request_id }))
-        ));
-    }
-
-    #[test]
-    fn conservative_admission_does_not_make_encrypted_reads_outcome_unknown() {
-        for operation in ["sync", "file_control"] {
-            let request_id = uuid::Uuid::new_v4();
-            let encrypted = RelayMessage::EncryptedOperationRequest {
-                envelope: mdbase_connect_protocol::EncryptedRelayEnvelope {
-                    protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
-                    suite: "P256-HKDF-SHA256-AES256GCM".to_string(),
-                    request_id,
-                    grant_id: uuid::Uuid::new_v4(),
-                    application_id: uuid::Uuid::new_v4(),
-                    connector_id: uuid::Uuid::new_v4(),
-                    collection_id: uuid::Uuid::new_v4(),
-                    operation: operation.to_string(),
-                    scope_epoch: 1,
-                    key_id: "deadline-test".to_string(),
-                    counter: "1".to_string(),
-                    deadline_unix_ms: Some(1),
-                    ciphertext: "ciphertext".to_string(),
-                },
-            };
-            let timeout = RelayTimeoutRequest::from_message(&encrypted).unwrap();
-            assert!(matches!(
-                relay_operation_timeout(&timeout, false),
-                Some(RelayMessage::EncryptedOperationRejected {
-                    request_id: returned,
-                    problem,
-                    ..
-                }) if returned == request_id
-                    && problem.code == "operation_cancelled"
-                    && problem.operation_outcome == Some(ConnectOperationOutcome::NotSent)
-            ));
-        }
-    }
-
-    #[test]
-    fn execution_deadlines_cancel_reads_as_not_sent() {
-        let request_id = uuid::Uuid::new_v4();
-        let request = RelayMessage::OperationRequest {
-            protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
-            request_id,
-            grant_id: uuid::Uuid::new_v4(),
-            collection_id: uuid::Uuid::new_v4(),
-            application_id: uuid::Uuid::new_v4(),
-            operation: "query".to_string(),
-            input: serde_json::json!({}),
-        };
-        let timeout = RelayTimeoutRequest::from_message(&request).unwrap();
-        assert!(matches!(
-            relay_operation_timeout(&timeout, false),
-            Some(RelayMessage::OperationResponse {
-                request_id: returned,
-                problem: Some(problem),
-                ..
-            }) if returned == request_id
-                && problem.code == "operation_cancelled"
-                && problem.operation_outcome == Some(ConnectOperationOutcome::NotSent)
-        ));
-    }
-}
+mod tests;

@@ -34,7 +34,12 @@ export async function portableHostedFileE2E({
       requirements: {
         access: "full_collection",
         contracts: [],
-        collection_kind: "hosted"
+        collection_kind: "hosted",
+        capabilities: {
+          contract_version: 2,
+          required: ["collection.read", "records.create", "offline.replica"],
+          optional: []
+        }
       }
     }
   });
@@ -61,7 +66,7 @@ export async function portableHostedFileE2E({
   };
   document.querySelector("#connect").onclick = () => {
     manager.authorize({
-      operations: ["describe", "query", "create", "sync"],
+      capabilities: ["collection.read", "records.create", "offline.replica"],
       openVerification() {},
       onDeviceCode(authorization) {
         globalThis.portableHarness.authorization = authorization;
@@ -105,6 +110,10 @@ export async function portableHostedFileE2E({
     assert.equal(environment.environment.applicationOrigin, "null");
     assert.equal(environment.environment.credentialStorage, "memory");
     assert.equal(environment.initialConnections, 0);
+
+    // Exercise genuine semantic-v2 issuance and activation through the portable
+    // browser client and the hosted provider. The selected operations below are
+    // the exact expansions of all three required v2 capability groups.
     await page.click("#connect");
     await page.waitForFunction(() => Boolean(globalThis.portableHarness.authorization));
     const authorization = await page.evaluate(
@@ -135,7 +144,10 @@ export async function portableHostedFileE2E({
         method: "POST",
         body: {
           collection_id: collectionId,
-          operations: ["describe", "query", "create", "sync"]
+          operations: [
+            "describe", "changes", "read", "query", "list_views", "execute_view",
+            "read_view_source", "validate", "read_type", "create", "sync"
+          ]
         }
       }
     );

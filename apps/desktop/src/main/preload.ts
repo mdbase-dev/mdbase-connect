@@ -43,6 +43,9 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   openAccount: () => ipcRenderer.invoke("connect:account:open"),
   openAuthorization: (requestId: string) =>
     ipcRenderer.invoke("connect:authorizations:open", requestId),
+  approveAuthorization: (input: { requestId: string; collectionId: string; operations: string[] }) =>
+    ipcRenderer.invoke("connect:authorizations:approve", input),
+  denyAuthorization: (requestId: string) => ipcRenderer.invoke("connect:authorizations:deny", requestId),
   setCloudConfig: (input: { serverUrl: string; connectorToken: string }) =>
     ipcRenderer.invoke("connect:cloud:set", input),
   clearCloudConfig: () => ipcRenderer.invoke("connect:cloud:clear"),

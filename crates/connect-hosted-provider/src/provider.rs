@@ -647,6 +647,8 @@ pub struct RegisterReplica {
     pub application_declaration_id: Option<String>,
     #[serde(default)]
     pub application_declaration_digest: Option<String>,
+    #[serde(default)]
+    pub application_setup_evidence: Option<Value>,
     pub token: String,
     #[serde(default)]
     pub token_ttl_seconds: Option<u64>,
@@ -674,6 +676,8 @@ pub struct UpdateApplicationReplica {
     pub proof_public_key: Option<String>,
     pub application_declaration_id: String,
     pub application_declaration_digest: String,
+    #[serde(default)]
+    pub application_setup_evidence: Option<Value>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]

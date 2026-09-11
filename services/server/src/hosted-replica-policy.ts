@@ -18,6 +18,7 @@ interface RetainedReplicaPolicySource {
   application_authorization: ApplicationAuthorizationProof | null;
   application_family_identity: string;
   application_manifest_digest: string | null;
+  application_declaration?: unknown;
   replica_mode: "read_only" | "read_write";
   allowed_types: string[];
 }
@@ -36,6 +37,8 @@ interface ApplicationReplicaPolicy {
   proofPublicKey: string;
   applicationDeclarationId: string;
   applicationDeclarationDigest: string;
+  applicationDeclaration?: unknown;
+  applicationAuthorization?: ApplicationAuthorizationProof;
 }
 
 interface ReplicaPolicyProvider {
@@ -66,6 +69,7 @@ async function loadRetainedReplicaPolicyCandidates(
             g.proof_public_key, g.application_authorization,
             a.family_identity AS application_family_identity,
             a.manifest_digest AS application_manifest_digest,
+            a.application_declaration,
             replica.mode AS replica_mode, replica.allowed_types
      FROM grants g
      JOIN applications a ON a.id = g.application_id
@@ -132,10 +136,14 @@ function completeRetainedReplicaPolicy(
     || !retained.proof_public_key
     || !retained.application_family_identity
     || !retained.application_manifest_digest
+    || (retained.application_authorization.binding.contracts.semantic_capabilities === 2
+      && !retained.application_declaration)
   ) {
     return null;
   }
   return {
+    applicationDeclaration: retained.application_declaration,
+    applicationAuthorization: retained.application_authorization,
     grantId: retained.id,
     mode: retained.replica_mode,
     allowedTypes: retained.allowed_types,
@@ -148,10 +156,7 @@ function completeRetainedReplicaPolicy(
       retained.application_authorization.binding.contracts
         .operation_transport_recovery ?? [],
     fileCapability: retained.file_capability ?? undefined,
-    allowedOrigin: priorAllowedOrigin(
-      retained.application_authorization.binding,
-      retained.application_origin
-    ),
+    allowedOrigin: retained.application_origin,
     proofPublicKey: retained.proof_public_key,
     applicationDeclarationId: declarationIdFromFamilyIdentity(
       retained.application_family_identity
@@ -159,15 +164,4 @@ function completeRetainedReplicaPolicy(
     applicationDeclarationDigest:
       `sha256:${retained.application_manifest_digest}`
   };
-}
-
-function priorAllowedOrigin(
-  binding: ApplicationAuthorizationProof["binding"],
-  storedApplicationOrigin: string
-): string | undefined {
-  if (binding.flow === "device_code") return storedApplicationOrigin;
-  const redirect = new URL(binding.redirect_uri!);
-  return ["http:", "https:"].includes(redirect.protocol)
-    ? redirect.origin
-    : undefined;
 }
