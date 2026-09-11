@@ -262,7 +262,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn v2_initial_setup_issuance_is_denied_but_retained_policy_still_executes() {
+    async fn v2_initial_setup_requires_exact_evidence_then_activates_and_revokes() {
         use base64::Engine;
         use p256::ecdsa::{signature::Signer, Signature, SigningKey};
         let dir = tempfile::tempdir().unwrap();
@@ -379,32 +379,34 @@ mod tests {
             }
             let response = state.handle_relay_message(bad).unwrap();
             assert!(
-                matches!(response, RelayMessage::AuthorizationActivationResponse { ok: false, error: Some(ControlError { ref code, ref message, .. }), .. } if code == "access_denied" && message.contains("issuance is unavailable")),
+                matches!(response, RelayMessage::AuthorizationActivationResponse { ok: false, error: Some(ControlError { ref code, .. }), .. } if code == "application_declaration_mismatch"),
                 "{response:?}"
             );
             assert_eq!(std::fs::read(root.join("mdbase.yaml")).unwrap(), before);
             assert!(registry.list_grants().unwrap().is_empty());
         }
-        let assert_denied = || {
-            let response = state.handle_relay_message(request.clone()).unwrap();
-            assert!(
-                matches!(response, RelayMessage::AuthorizationActivationResponse {
-                ok: false, setup_assessment: None, provision_receipt: None,
-                error: Some(ControlError { ref code, ref message, .. }), ..
-            } if code == "access_denied" && message.contains("issuance is unavailable")),
-                "{response:?}"
-            );
-            assert_eq!(std::fs::read(root.join("mdbase.yaml")).unwrap(), before);
-            assert_eq!(
-                serde_json::to_value(registry.describe(collection.id).unwrap().types).unwrap(),
-                serde_json::to_value(&types_before).unwrap()
-            );
-        };
-        assert_denied();
-        assert!(registry.list_grants().unwrap().is_empty());
+        let response = state.handle_relay_message(request.clone()).unwrap();
+        assert!(
+            matches!(
+                response,
+                RelayMessage::AuthorizationActivationResponse {
+                    ok: true,
+                    error: None,
+                    ..
+                }
+            ),
+            "{response:?}"
+        );
+        assert_eq!(registry.list_grants().unwrap().len(), 1);
+        assert_eq!(
+            serde_json::to_value(registry.describe(collection.id).unwrap().types).unwrap(),
+            serde_json::to_value(&types_before).unwrap()
+        );
+        assert!(std::fs::read_to_string(root.join("mdbase.yaml"))
+            .unwrap()
+            .contains("é"));
 
-        // Authenticated, leased policy restore is not issuance, even with an
-        // empty cache. Restored v2 authority keeps ordinary setup execution.
+        // A leased policy update preserves the authority installed by activation.
         let connector_id = grant.encryption.as_ref().unwrap().connector_id;
         let now = chrono::Utc::now().timestamp_millis();
         registry
@@ -417,7 +419,6 @@ mod tests {
                 std::slice::from_ref(&grant),
             )
             .unwrap();
-        assert_denied(); // Existing installation does not bypass activation.
         let stored = registry.grant_context(grant.id).unwrap().unwrap();
         assert_eq!(stored.contracts.semantic_capabilities, 2);
         let (_, mut exact) = v2_fixture();

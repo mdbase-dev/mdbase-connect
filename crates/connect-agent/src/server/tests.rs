@@ -323,10 +323,11 @@ async fn status_reports_the_running_binary_version_for_upgrade_health_checks() {
         .await;
 
     assert!(response.ok);
-    assert_eq!(
-        response.result.expect("status result")["binary_version"],
-        env!("CARGO_PKG_VERSION")
-    );
+    let result = response.result.expect("status result");
+    assert_eq!(result["binary_version"], env!("CARGO_PKG_VERSION"));
+    // Issuance support belongs to the authenticated relay handshake, not an
+    // additional diagnostic status API with no feature consumer.
+    assert!(result.get("capabilities").is_none());
     fs::remove_dir_all(test_root).unwrap();
 }
 

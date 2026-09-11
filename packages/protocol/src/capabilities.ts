@@ -126,7 +126,10 @@ export function capabilityOperationsForContractVersion(
 }
 
 /** Fresh issuance only; never use this ceiling to reject retained authority or terminal replay. */
-export const FRESH_APPLICATION_AUTHORIZATION_VERSIONS = Object.freeze([1] as const);
+export const FRESH_APPLICATION_AUTHORIZATION_VERSIONS = Object.freeze([1,2] as const);
+
+export const APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY = "application-authorization-v2-issuance" as const;
+export const FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES: readonly string[] = Object.freeze(["application-authorization-v2-issuance"]);
 
 export function permitsFreshApplicationAuthorization(version: number): boolean {
   return FRESH_APPLICATION_AUTHORIZATION_VERSIONS.some((supported) => supported === version);

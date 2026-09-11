@@ -5,8 +5,8 @@
     "apps/editor/src/TypeBrowser.tsx": 1998
   },
   "productionFileBudgetsByPackage": {
-    "apps/desktop": 39,
-    "apps/editor": 109,
+    "apps/desktop": 40,
+    "apps/editor": 110,
     "apps/portal": 16,
     "crates/connect-agent": 34,
     "crates/connect-cli": 7,
@@ -43,11 +43,11 @@
     "semanticProjectionFormatVersion": 6
   },
   "reviewBudgets": {
-    "productionFiles": 675,
-    "relativeImports": 1431,
+    "productionFiles": 677,
+    "relativeImports": 1435,
     "workspacePackages": 24,
-    "rustPublicDeclarations": 3161,
-    "typeScriptExportDeclarations": 2392,
+    "rustPublicDeclarations": 3163,
+    "typeScriptExportDeclarations": 2400,
     "mdbaseCollectionReferences": 16,
     "typedCollectionReferences": 1
   }

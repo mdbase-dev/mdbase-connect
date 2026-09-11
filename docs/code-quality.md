@@ -105,6 +105,14 @@ references, 2,292 TypeScript export references, 16 `mdbase::Collection`
 references, and one `TypedCollection` reference. These checks are architectural
 alarms rather than substitutes for review.
 
+The installed-desktop daemon fix adds one 26-line `daemon-lifecycle.ts` module
+shared by startup and update recovery. Its two internal exports and two imports
+replace duplicated CLI profile selection, keeping packaged default-service
+selection and development isolation at one boundary. The reviewed limits are
+40 desktop files, 677 production files, 1,435 relative imports and 2,400
+TypeScript exports. No package, file-size or cycle limit changes, new service,
+public protocol, or alternate daemon lifecycle is introduced.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;

@@ -29,7 +29,7 @@ import {
   type CollectionCompletionReceipt as CompletionReceipt,
   type AuthorityTransferReceipt as TransferReceipt
 } from "./onboarding-state.mjs";
-import { RequestPermissionChoices } from "./authorization-components";
+import { NotificationAccess, RequestPermissionChoices } from "./authorization-components";
 import { hasSupportedCapabilityDeclaration, requestCapabilityGroups } from "./application-capabilities";
 import { ConnectionProgress, Overview } from "./overview-view";
 import { singleFlight } from "./single-flight.mjs";
@@ -426,6 +426,7 @@ function App() {
           <Access
             cloud={cloud}
             access={combinedAccess}
+            collections={collections}
             focusedRequestId={authorizationTarget === "pending" ? null : authorizationTarget}
             resumeAuthorization={authorizationTarget !== null}
             busy={busy}
@@ -477,9 +478,10 @@ function App() {
   );
 }
 
-function Access({ cloud, access, focusedRequestId, resumeAuthorization, busy, onAct, onNotice }: {
+function Access({ cloud, access, collections, focusedRequestId, resumeAuthorization, busy, onAct, onNotice }: {
   cloud: CloudSetting;
   access: AccessSnapshot;
+  collections: CollectionSummary[];
   focusedRequestId: string | null;
   resumeAuthorization: boolean;
   busy: boolean;
@@ -494,7 +496,7 @@ function Access({ cloud, access, focusedRequestId, resumeAuthorization, busy, on
   return (
     <div className="workspace-stack">
       <section>
-        <SectionHeading title="Pending decisions" note="Connect handles collection choice and exact permission review; this computer never substitutes a local approval." count={access.pending_authorizations.length} />
+        <SectionHeading title="Pending decisions" note="Choose a collection and review the access this application requests." count={access.pending_authorizations.length} />
         {access.pending_authorizations.length === 0 ? (
           <Empty title="No decisions are waiting" text="New application requests are reviewed in Connect." />
         ) : (
@@ -502,6 +504,7 @@ function Access({ cloud, access, focusedRequestId, resumeAuthorization, busy, on
             {pendingAuthorizations.map((request) => <PortalApprovalRequest
               key={request.id}
               request={request}
+              collections={collections}
               focused={request.id === focusedRequestId}
               busy={busy}
               onAct={onAct}
@@ -525,12 +528,29 @@ function Access({ cloud, access, focusedRequestId, resumeAuthorization, busy, on
   );
 }
 
-function PortalApprovalRequest({ request, focused, busy, onAct }: {
+function PortalApprovalRequest({ request, collections, focused, busy, onAct }: {
   request: PendingAuthorization;
+  collections: CollectionSummary[];
   focused: boolean;
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
 }) {
+  const candidates = collections.filter((collection) => collection.enabled
+    && request.compatible_collection_ids.includes(collection.id)
+    && (!request.collection_id || request.collection_id === collection.id));
+  const [collectionId, setCollectionId] = useState(candidates.length === 1 ? candidates[0].id : "");
+  const [operations, setOperations] = useState(request.requested_operations);
+  const groups = requestCapabilityGroups(request.requirements, request.requested_operations);
+  const files = request.requirements.files;
+  // Complex setup needs the existing type-mapping/configuration review. Merely
+  // appearing in this snapshot never establishes fresh issuance support.
+  const native = candidates.length > 0 && hasSupportedCapabilityDeclaration(request.requirements)
+    && (request.requirements as { access?: string }).access !== "contract_scoped"
+    && (!files || (Array.isArray(files.required) && !(files.optional?.length)))
+    && request.provisions.type_packs.length === 0
+    && !((request.requirements as { configuration?: unknown[] }).configuration?.length)
+    && !((request.provisions as { configuration?: unknown[] }).configuration?.length);
+  const selected = candidates.find((collection) => collection.id === collectionId);
   const identity = request.application_distribution === "portable"
     ? request.application_project_url
       ? `Downloaded file · ${host(request.application_project_url)}`
@@ -542,10 +562,31 @@ function PortalApprovalRequest({ request, focused, busy, onAct }: {
       <code>{identity}</code>
       <small>Expires {relativeTime(request.expires_at)}</small>
     </div>
-    <p>Choose the collection and review the exact permissions in Connect. If this is a new application installation, local code comparison follows separately.</p>
-    <button className="button primary" disabled={busy} onClick={() => void onAct(async () => {
-      await window.mdbaseConnect.openAuthorization(request.id);
-    })}>Review in Connect</button>
+    {native ? <div className="request-decision">
+      <label>Collection on this computer
+        <select disabled={busy} value={selected?.id ?? ""} onChange={(event) => setCollectionId(event.target.value)}>
+          <option value="" disabled>Choose a collection</option>
+          {candidates.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}</option>)}
+        </select>
+      </label>
+      <p>Entire collection. Access continues until revoked under Connected applications. New installations may also require local code comparison.</p>
+      <RequestPermissionChoices groups={groups} selected={operations} onChange={setOperations} />
+      {files && <p>Files: {[...files.required, ...(files.optional ?? [])].join(", ")}. Scope: {files.scope.kind === "collection" ? "Entire collection" : files.scope.folders.join(", ")}.</p>}
+      <NotificationAccess notifications={request.notifications} />
+      <div className="modal-actions">
+        <button className="button secondary" disabled={busy} onClick={() => void onAct(async () => {
+          await window.mdbaseConnect.denyAuthorization(request.id);
+        })}>Deny</button>
+        <button className="button primary" disabled={busy || !selected || Date.parse(request.expires_at) <= Date.now()} onClick={() => void onAct(async () => {
+          await window.mdbaseConnect.approveAuthorization({ requestId: request.id, collectionId, operations });
+        })}>{busy ? "Allowing…" : `Allow ${request.application_name}`}</button>
+      </div>
+    </div> : <>
+      <p>Review collection setup, hosted access, or permissions requiring additional controls in Connect.</p>
+      <button className="button primary" disabled={busy} onClick={() => void onAct(async () => {
+        await window.mdbaseConnect.openAuthorization(request.id);
+      })}>Review in Connect</button>
+    </>}
   </article>;
 }
 

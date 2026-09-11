@@ -12,6 +12,7 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   lazy,
   useMemo,
   useRef,
@@ -86,6 +87,7 @@ import {
 } from "./note-search";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { revealMarkdownLine } from "./code-editor-reveal";
+import { forgetRecentPath, loadRecentPaths, rememberRecentPath } from "./recent-notes";
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { buildQuickOpenCommands } from "./editor-commands";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
@@ -190,6 +192,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [draft, setDraft] = useState<Draft>();
   const [noteLoading, setNoteLoading] = useState(false);
   const [pendingNotePath, setPendingNotePath] = useState<string>();
+  const [noteOpenFailure, setNoteOpenFailure] = useState<{ path: string; options: NoteNavigationOptions; message: string }>();
   const [creationMode, setCreationMode] = useState<"note" | "folder">();
   const [creationContext, setCreationContext] = useState<CreationContext>({});
   const [creationDirty, setCreationDirty] = useState(false);
@@ -442,6 +445,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }), [gateway, touchSession, updateNoteSummary]);
 
   const activateSession = useCallback((session: NoteSession) => {
+    const previous = noteSessions.current.active;
+    // The old editor remains usable during a read. Save any edits made after
+    // navigation started before adopting the newly loaded session.
+    if (previous && previous !== session && sessionDirty(previous)) {
+      void noteOperations.requestSave(previous).catch(() => undefined);
+    }
     noteSessions.current.activate(session);
     setSelectedPath(session.document.path);
     setDocument(session.document);
@@ -450,13 +459,14 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setSaveState(session.activity === "saving" ? "saving" : session.saveState);
     setNoteLoading(false);
     setPendingNotePath(undefined);
+    setNoteOpenFailure(undefined);
     setCreationMode(undefined);
     setCreationContext({});
     setEditingPath(false);
     setNotice(session.error);
     localStorage.setItem("mdbase-editor:last-note", session.document.path);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
-  }, []);
+  }, [noteOperations]);
 
   const adoptDocument = useCallback((next: NoteDocument) => {
     const session = noteSessions.current.create(next, typeDescriptorsRef.current);
@@ -524,6 +534,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const openNote = useCallback(async (path: string, options: NoteNavigationOptions = {}): Promise<boolean> => {
     const epoch = collectionEpoch.current;
     const generation = ++documentGeneration.current;
+    const navigation = navigationGeneration.current;
+    const current = () => epoch === collectionEpoch.current
+      && generation === documentGeneration.current && navigation === navigationGeneration.current;
     const cached = noteSessions.current.get(path);
     if (cached?.deleted) return false;
     setCreationMode(undefined);
@@ -531,6 +544,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setPendingFilePath(undefined);
     setCreationContext({});
     setNotice(undefined);
+    setNoteOpenFailure(undefined);
     setPropertiesError(undefined);
     if (mobileLayout) {
       setPropertiesOpen(false);
@@ -546,22 +560,25 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       else selectNoteHistoryIndex(options.historyIndex, path);
       return true;
     }
-    setSelectedPath(path);
-    setDocument(undefined);
-    setDraft(undefined);
+    // Keep the active session (and its editor) until the next read succeeds.
+    // pendingNotePath identifies the requested row without claiming it is open.
+    setPendingNotePath(path);
     setNoteLoading(true);
     try {
       const next = await gateway.read(path);
-      if (epoch !== collectionEpoch.current || generation !== documentGeneration.current) return false;
+      if (!current()) return false;
       adoptDocument(next);
       if (options.historyIndex === undefined) recordNoteNavigation(next.path);
       else selectNoteHistoryIndex(options.historyIndex, next.path);
       return true;
     } catch (error) {
-      if (epoch === collectionEpoch.current && generation === documentGeneration.current) setNotice(gatewayError(error));
+      if (current()) setNoteOpenFailure({ path, options, message: `Couldn’t open “${path}”. ${gatewayError(error)}` });
       return false;
     } finally {
-      if (epoch === collectionEpoch.current && generation === documentGeneration.current) setNoteLoading(false);
+      if (current()) {
+        setNoteLoading(false);
+        setPendingNotePath(undefined);
+      }
     }
   }, [
     activateSession,
@@ -574,6 +591,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const start = useCallback(async () => {
     const epoch = collectionEpoch.current, generation = ++startGeneration.current;
+    const navigation = navigationGeneration.current;
     const current = () => epoch === collectionEpoch.current && generation === startGeneration.current;
     const indexLoad = indexController.beginLoad();
     const fileLoad = fileController.reload().catch(() => []);
@@ -594,9 +612,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setPhase("ready");
       const remembered = localStorage.getItem("mdbase-editor:last-note");
       let opened = remembered ? await openNote(remembered) : false;
+      if (!current() || navigation !== navigationGeneration.current) return;
       if (!opened) {
         setNoteLoading(true);
         const initial = (await indexLoad.firstPage)[0]?.path;
+        if (!current() || navigation !== navigationGeneration.current) return;
         if (initial) opened = await openNote(initial);
       }
       if (!opened) setNoteLoading(false);
@@ -737,6 +757,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function finishNavigateToFile(file: CollectionFile) {
     navigationGeneration.current += 1;
+    setNoteLoading(false);
+    setNoteOpenFailure(undefined);
     saveCurrentInBackground();
     setCreationMode(undefined);
     setCreationContext({});
@@ -753,7 +775,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   function finishNavigateToNote(path: string, options: NoteNavigationOptions = {}) {
     setCreationDirty(false);
     const generation = ++navigationGeneration.current;
-    if (path === noteSessions.current.active?.document.path && !noteLoading) {
+    setNoteOpenFailure(undefined);
+    if (path === noteSessions.current.active?.document.path && !noteLoading && !selectedCollectionFile) {
       setPendingNotePath(undefined);
       setMobilePane("editor");
       if (options.historyIndex !== undefined) selectNoteHistoryIndex(options.historyIndex, path);
@@ -795,7 +818,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     ? searchedResults.map((result) => result.note)
     : allNotes, [allNotes, searchedResults]);
   const searchContexts = useMemo(() => new Map(
-    searchedResults?.map((result) => [result.note.path, result.context]) ?? []
+    searchedResults?.map((result) => [result.note.path, result]) ?? []
   ), [searchedResults]);
   const visibleNotes = useMemo(() => {
     const filtered = !noteFilter
@@ -909,6 +932,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setDraft(undefined);
     setSelectedPath(undefined);
     setPendingNotePath(undefined);
+    setNoteOpenFailure(undefined);
     setSelectedCollectionFile(undefined);
     setPendingFilePath(undefined);
     setOpenFileAsset(undefined);
@@ -993,6 +1017,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function beginCreation(mode: "note" | "folder", context: CreationContext = {}) {
     navigationGeneration.current += 1;
+    setNoteLoading(false);
+    setNoteOpenFailure(undefined);
     setPendingNotePath(undefined);
     setNotice(undefined);
     saveCurrentInBackground();
@@ -1099,6 +1125,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
     if (linkCreations.current.has(linked.path)) return;
     linkCreations.current.add(linked.path);
+    const navigation = ++navigationGeneration.current;
+    setNoteLoading(false);
+    setNoteOpenFailure(undefined);
     saveCurrentInBackground();
     setPendingNotePath(linked.path);
     setNotice(undefined);
@@ -1111,6 +1140,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     })).then((created) => {
       if (!mutationScope.current.isCurrent(token)) return;
       indexController.create(summaryFromDocument(created));
+      // Creation still belongs to the collection, but only the latest navigation
+      // may adopt its result. A slow create must not replace a later choice.
+      if (navigation !== navigationGeneration.current) return;
       documentGeneration.current += 1;
       setPropertiesError(undefined);
       setDeletePlan(undefined);
@@ -1119,12 +1151,16 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       recordNoteNavigation(created.path);
     }).catch(async (error) => {
       if (!mutationScope.current.isCurrent(token)) return;
+      if (navigation !== navigationGeneration.current) {
+        setNotice(`Couldn’t create “${linked.path}”. ${gatewayError(error)}`);
+        return;
+      }
       const opened = await openNote(linked.path);
-      if (!opened) setNotice(gatewayError(error));
+      if (!opened && navigation === navigationGeneration.current) setNotice(gatewayError(error));
     }).finally(() => {
       if (!mutationScope.current.isCurrent(token)) return;
       linkCreations.current.delete(linked.path);
-      setPendingNotePath((current) => current === linked.path ? undefined : current);
+      if (navigation === navigationGeneration.current) setPendingNotePath((current) => current === linked.path ? undefined : current);
     });
   }
 
@@ -1616,6 +1652,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function finishSelectSurface(next: Surface) {
     navigationGeneration.current += 1;
+    setNoteLoading(false);
+    setNoteOpenFailure(undefined);
     setPendingNotePath(undefined);
     saveCurrentInBackground();
     setSurface(next);
@@ -1692,7 +1730,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (connection) requestForgetConnection(connection, description?.displayName);
   }
 
-  useEffect(() => {
+  // Native shortcuts must see the committed selection before the first key
+  // after navigation, rather than the previous render's passive effect.
+  useLayoutEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const modifier = event.metaKey || event.ctrlKey;
       const key = event.key.toLocaleLowerCase();
@@ -1749,11 +1789,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [creationMode, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
+  }, [creationDirty, creationMode, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
   const dismissToast = useCallback((id: string) => {
     if (id === "notice") setNoticeState(undefined);
+    else if (id === "note-open") setNoteOpenFailure(undefined);
     else if (id === "recovery") setRecoveryAction(undefined);
   }, []);
   if (phase === "starting") return <OpeningScreen />;
@@ -1838,6 +1879,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     onCopyPath: () => { if (document) copyFacet(document.path, "note path"); }
   });
   const activeToasts = buildToastItems({ notice, recoveryMessage: recoveryAction ? recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document, typeDescriptors)}”.` : `Renamed to “${recoveryAction.to}”.` : undefined, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs); } });
+  if (noteOpenFailure && document) activeToasts.push({
+    id: "note-open", message: noteOpenFailure.message, tone: "error", sticky: true,
+    action: { label: "Retry note", onAction: () => navigateToNote(noteOpenFailure.path, noteOpenFailure.options) }
+  });
   const typeAccessMissing = missingTypeCapabilities(connectionSummary);
   const editorLeadingActions = layout.listCollapsed ? <>
     {layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
@@ -1951,7 +1996,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onCancel={cancelCreation}
         onDraftChange={setCreationDirty}
       /></Suspense> : <main className="editor-pane" aria-label="Note editor">
-        {noteLoading ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
+        {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar">
             <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
             {editorLeadingActions}
@@ -1977,6 +2022,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
                 <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen} autoFocus />
               </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
             </div>
+            {noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
             {!mobileLayout && <OutlineMenu headings={noteHeadings(draft.body)} onReveal={(line) => revealMarkdownLine(noteSessions.current.active?.editorSessionKey ?? document.path, line)} />}
             {!mobileLayout && <span className="word-count" aria-label={`${wordCount.toLocaleString()} words`}>{wordCount.toLocaleString()} {wordCount === 1 ? "word" : "words"}</span>}
             {preferences.vim && <span className="vim-label">vim</span>}
@@ -2029,9 +2075,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             onVisibleFileEmbeds={updateVisibleFileEmbeds} onVisibleNoteEmbeds={updateVisibleNoteEmbeds} />
         </> : <EmptyEditor
           leadingActions={editorLeadingActions}
-          notice={editorNotice}
+          notice={noteOpenFailure?.message ?? editorNotice}
           onCreate={beginCreate}
-          onRetry={() => void start()}
+          onRetry={() => noteOpenFailure ? navigateToNote(noteOpenFailure.path, noteOpenFailure.options) : void start()}
         />}
       </main>}
       {propertiesOpen && (document ? <Suspense fallback={<InspectorPanelLoading label="Note properties" />}>
@@ -2197,29 +2243,6 @@ function summaryFromDocument(document: NoteDocument): NoteSummary {
     ...summary,
     file: { ...document.file, path: document.path }
   };
-}
-
-const RECENT_NOTES_KEY = "mdbase-editor:recent-notes";
-
-function loadRecentPaths(): string[] {
-  try {
-    const value = JSON.parse(localStorage.getItem(RECENT_NOTES_KEY) ?? "[]");
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").slice(0, 20) : [];
-  } catch {
-    return [];
-  }
-}
-
-function rememberRecentPath(current: string[], path: string): string[] {
-  const next = [path, ...current.filter((candidate) => candidate !== path)].slice(0, 20);
-  localStorage.setItem(RECENT_NOTES_KEY, JSON.stringify(next));
-  return next;
-}
-
-function forgetRecentPath(current: string[], path: string): string[] {
-  const next = current.filter((candidate) => candidate !== path);
-  localStorage.setItem(RECENT_NOTES_KEY, JSON.stringify(next));
-  return next;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

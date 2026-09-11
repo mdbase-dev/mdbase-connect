@@ -3,6 +3,7 @@ import type { DatabaseQueryable } from "./database-types.js";
 import { RelayUnavailableError } from "./relay-errors.js";
 import {
   APPLICATION_DECLARATION_EVIDENCE_CAPABILITY,
+  APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY,
   CONNECT_CONTRACT_SUPPORT,
   CONTROL_PROTOCOL_VERSION,
   MINIMUM_CONNECTOR_VERSION,
@@ -150,6 +151,18 @@ export function relaySupportsContracts(
       || session!.capabilities.includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY))
     && (required.durable_mutation === undefined
       || support.durable_mutation.includes(required.durable_mutation))
+  );
+}
+
+/** Fresh activation only: retained semantic readers are not issuance support. */
+export function relaySupportsFreshAuthorization(
+  session: { capabilities: readonly string[] } | undefined,
+  required: ConnectContractRequirements
+): boolean {
+  return required.semantic_capabilities !== 2 || Boolean(
+    Array.isArray(session?.capabilities)
+    && session.capabilities.every((value) => typeof value === "string")
+    && session.capabilities.includes(APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY)
   );
 }
 

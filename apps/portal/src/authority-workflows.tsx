@@ -11,15 +11,26 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [pairing, setPairing] = useState<{ connector_name: string; approved_at: string | null } | null>(null);
   const [deepLink, setDeepLink] = useState("");
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    let active = true;
+    setPairing(null);
+    setDeepLink("");
+    setError("");
     api<{ pairing: { connector_name: string; approved_at: string | null } }>(`/v1/pairing-requests/${pairingId}`)
-      .then((value) => setPairing(value.pairing))
+      .then((value) => {
+        if (!active) return;
+        setPairing(value.pairing);
+        setError("");
+      })
       .catch((reason) => {
+        if (!active) return;
         if (reason instanceof ApiError && reason.status === 401) location.href = `/login?return_to=${encodeURIComponent(location.href)}`;
         else setError(message(reason));
       });
-  }, [pairingId]);
+    return () => { active = false; };
+  }, [pairingId, attempt]);
 
   async function approve() {
     try {
@@ -28,7 +39,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     } catch (approveError) { setError(message(approveError)); }
   }
 
-  if (!pairing) return <Loading error={error} />;
+  if (!pairing) return <Loading error={error} onRetry={() => { if (error) { setError(""); setAttempt((value) => value + 1); } }} />;
   return (
     <main className="center-page">
       <PageBrand label="Computer pairing" />
@@ -56,9 +67,16 @@ export function MirrorPairing({ pairingId }: { pairingId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
+    let active = true;
+    setRequest(null);
+    setError("");
     api<NonNullable<typeof request>>(`/v1/mirror-pairing-requests/${pairingId}`)
       .then((value) => {
+        if (!active) return;
+        setError("");
         setRequest(value);
         setApproved(Boolean(value.pairing.approved_at));
         const preferred = value.collections.some(
@@ -69,13 +87,15 @@ export function MirrorPairing({ pairingId }: { pairingId: string }) {
         setCollectionId(value.pairing.collection_id ?? preferred);
       })
       .catch((reason) => {
+        if (!active) return;
         if (reason instanceof ApiError && reason.status === 401) {
           location.href = `/login?return_to=${encodeURIComponent(location.href)}`;
         } else {
           setError(message(reason));
         }
       });
-  }, [pairingId]);
+    return () => { active = false; };
+  }, [pairingId, attempt]);
 
   async function approve() {
     if (!collectionId) return;
@@ -94,7 +114,7 @@ export function MirrorPairing({ pairingId }: { pairingId: string }) {
     }
   }
 
-  if (!request) return <Loading error={error} />;
+  if (!request) return <Loading error={error} onRetry={() => { if (error) { setError(""); setAttempt((value) => value + 1); } }} />;
   const selected = request.collections.find((collection) => collection.id === collectionId);
   return (
     <main className="center-page">

@@ -45,6 +45,7 @@ function fixture(declaration: MdbaseAppManifest = manifest(1), operations: Colle
   }));
   storage.setItem(`mdbase-connect:${prefix}:connections`, JSON.stringify({ version: 1, collectionIds: [collectionId] }));
   const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+    if (String(request).endsWith("/health")) return Response.json({ capabilities: ["application-authorization-v2-issuance"] });
     if (String(request).endsWith("/v1/apps/register")) return Response.json({ application: {
       id: applicationId, family_identity: `bundle:${declaration.id}`, manifest_digest: "a".repeat(64),
       name: declaration.name, requirements: declaration.requirements, distribution: declaration.distribution
@@ -72,6 +73,20 @@ function fixture(declaration: MdbaseAppManifest = manifest(1), operations: Colle
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("SDK authorization semantic bridge", () => {
+  it.each([undefined, null, [], ["unknown"], ["application-declaration-evidence-v1"],
+    "application-authorization-v2-issuance", ["application-authorization-v2-issuance", 2]].map(capabilities => ({ capabilities })))(
+    "refuses fresh v2 before signing without positive server support $capabilities", async ({ capabilities }) => {
+      const test = fixture(manifest(2));
+      const original = test.fetch.getMockImplementation()!;
+      test.fetch.mockImplementation(async (request, init) => String(request).endsWith("/health")
+        ? Response.json({ capabilities, contract_support: { semantic_capabilities: [2, 1] } })
+        : original(request, init));
+      expect(await test.manager().authorize()).toMatchObject({ ok: false, problem: { code: "capability_contract_incompatible" } });
+      expect(test.proofs).toEqual([]);
+      expect(test.navigate).not.toHaveBeenCalled();
+      expect(test.fetch.mock.calls.some(([url]) => String(url).includes("/oauth/"))).toBe(false);
+    }
+  );
   it("signs exact legacy independent operations and files as semantic v1", async () => {
     const test = fixture();
     expect(await test.manager().authorize({ operations: ["update", "query", "update"] })).toMatchObject({ ok: true });
@@ -214,7 +229,8 @@ describe("SDK authorization semantic bridge", () => {
     const implementation = test.fetch.getMockImplementation()!;
     test.fetch.mockImplementation(async (request, init) => {
       const response = await implementation(request, init);
-      return String(request).endsWith("/v1/apps/register") ? response : Response.json({ error: "unsupported_contract" }, { status: 409 });
+      return String(request).endsWith("/v1/apps/register") || String(request).endsWith("/health")
+        ? response : Response.json({ error: "unsupported_contract" }, { status: 409 });
     });
     expect(await test.manager().authorize()).toMatchObject({ ok: false });
     expect(test.proofs).toHaveLength(1);

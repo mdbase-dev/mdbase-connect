@@ -146,7 +146,12 @@ fn legacy_application_capability_operations(capability: &str) -> Option<&'static
 }
 
 /// Fresh issuance only, not retained authority enforcement or terminal replay.
-pub const FRESH_APPLICATION_AUTHORIZATION_VERSIONS: &[u32] = &[1];
+pub const FRESH_APPLICATION_AUTHORIZATION_VERSIONS: &[u32] = &[1, 2];
+
+pub const APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY: &str =
+    "application-authorization-v2-issuance";
+pub const FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES: &[&str] =
+    &["application-authorization-v2-issuance"];
 
 pub fn permits_fresh_application_authorization(version: u32) -> bool {
     FRESH_APPLICATION_AUTHORIZATION_VERSIONS.contains(&version)
