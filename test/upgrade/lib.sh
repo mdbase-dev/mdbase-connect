@@ -20,7 +20,7 @@ upgrade_verify_previous_release() {
   local repo_root=$1
   local release=${MDBASE_CONNECT_PREVIOUS_RELEASE:-}
   local commit=${MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT:-}
-  local releases_json refs ref_hash ref_name peeled_commit=
+  local releases_json
   local -a curl_headers=()
 
   if [[ ! $release =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
@@ -54,6 +54,48 @@ upgrade_verify_previous_release() {
     return 1
   fi
 
+  upgrade_verify_annotated_release_tag "$repo_root"
+}
+
+# This historical lane is fixed to the original beta95 bytes, not a caller's
+# arbitrary older release. Newest-release verification above remains mandatory
+# for the ordinary immediate-predecessor lane.
+upgrade_verify_retained_v2_release() {
+  local repo_root=$1 metadata
+  local -a curl_headers=()
+  if [[ ${MDBASE_CONNECT_PREVIOUS_RELEASE:-} != v0.1.0-beta.95 ||
+        ${MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT:-} != 408c67bc10f128e0833f0da62cb3efb9d94657d7 ||
+        ${MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE:-} != ghcr.io/mdbase-dev/mdbase-connect-server@sha256:95a89fd6f13de72bd9e45fbfa5f00df5f7b599d8fb9a4da22d1f22c5d0391970 ||
+        ${MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE:-} != ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:1ef08bfa18431357a29e2565bc9a490a182e73f9e2b532594ac968a3c3563048 ]]; then
+    printf 'Historical retained-v2 regression requires the exact beta95 release, commit and image pair.\n' >&2
+    return 2
+  fi
+  if [[ -n ${GITHUB_TOKEN:-} ]]; then
+    curl_headers=(--header "authorization: Bearer $GITHUB_TOKEN")
+  fi
+  if ! metadata=$(curl --fail-with-body --silent --show-error \
+    --connect-timeout 5 --max-time 20 --retry 2 --retry-all-errors \
+    --header 'accept: application/vnd.github+json' \
+    "${curl_headers[@]}" \
+    'https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/tags/v0.1.0-beta.95'); then
+    printf 'Could not query the fixed beta95 release metadata.\n' >&2
+    return 1
+  fi
+  if ! jq -e 'type == "object" and .tag_name == "v0.1.0-beta.95" and
+    .draft == false and (.id | type) == "number" and
+    (.published_at | type) == "string" and (.published_at | length) > 0' \
+    <<<"$metadata" >/dev/null; then
+    printf 'The fixed beta95 release is missing, draft or malformed.\n' >&2
+    return 1
+  fi
+  upgrade_verify_annotated_release_tag "$repo_root"
+}
+
+upgrade_verify_annotated_release_tag() {
+  local repo_root=$1
+  local release=${MDBASE_CONNECT_PREVIOUS_RELEASE:-}
+  local commit=${MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT:-}
+  local refs ref_hash ref_name peeled_commit=
   if ! refs=$(timeout 30s git -C "$repo_root" ls-remote --exit-code --tags origin \
     "refs/tags/$release" "refs/tags/$release^{}"); then
     printf 'Could not resolve annotated release tag %s from origin.\n' "$release" >&2

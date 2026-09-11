@@ -54,8 +54,8 @@ test('retained-v2 rejects a mutable beta94 tag before starting resources', async
 test('Server CI requires retained-v2 evidence separately from the historical v1 lane', async () => {
   const workflow = await readFile(new URL('../../.github/workflows/server-ci.yml', import.meta.url), 'utf8');
   assert.match(workflow, /run: test\/upgrade\/provider-from-previous --retained-v2/);
-  assert.match(workflow, /source \.github\/previous-release\.env/);
-  assert.match(workflow, /upgrade_verify_previous_release "\$PWD"/);
+  assert.match(workflow, /source \.github\/retained-v2-predecessor\.env/);
+  assert.match(workflow, /upgrade_verify_retained_v2_release "\$PWD"/);
   assert.doesNotMatch(workflow, /vars\.RETAINED_V2_BETA95_PROVIDER_IMAGE/);
   assert.match(workflow, /provider-from-previous --legacy-prelude/);
   assert.match(workflow, /- retained-v2-provider-upgrade/);
