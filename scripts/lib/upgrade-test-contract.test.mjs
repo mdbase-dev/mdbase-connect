@@ -27,10 +27,10 @@ test("upgrade pins the exact immediate predecessor", async () => {
   );
   assert.equal(fixture, `# Exact server image from the release immediately preceding this candidate.
 # Update this file as part of each release-preparation change.
-MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.95
-MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=408c67bc10f128e0833f0da62cb3efb9d94657d7
-MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:95a89fd6f13de72bd9e45fbfa5f00df5f7b599d8fb9a4da22d1f22c5d0391970
-MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:1ef08bfa18431357a29e2565bc9a490a182e73f9e2b532594ac968a3c3563048
+MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.96
+MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=56ed32ffde055d2ab2b22ff95722df8ef06bdb1d
+MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:84bb6bf960046d303a7333a3d52ffeeab96feb06a8b3d311a75ccd1f3af09b59
+MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:dbd58b57dc280d2ee1de5cac53e92e813be02f108de4c1327ee53ee2d363625d
 `);
 });
 
@@ -50,13 +50,15 @@ test("both upgrade programs execute release and pulled-image verification", asyn
     ["test/upgrade/retained-v2.sh", "MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"]
   ]) {
     const program = await readFile(resolve(repoRoot, script), "utf8");
-    const releaseCheck = program.indexOf('upgrade_verify_previous_release "$repo_root"');
+    const verifier = script.endsWith('retained-v2.sh')
+      ? 'upgrade_verify_retained_v2_release' : 'upgrade_verify_previous_release';
+    const releaseCheck = program.indexOf(`${verifier} "$repo_root"`);
     const imageCheck = program.indexOf(`upgrade_verify_previous_image "$${imageVariable}"`);
     assert.ok(releaseCheck >= 0 && releaseCheck < imageCheck, `${script} must verify the release before use`);
     if (script.endsWith('retained-v2.sh')) {
       const cachedImage = program.indexOf(`docker image inspect "$${imageVariable}"`);
       assert.ok(cachedImage >= 0 && cachedImage < imageCheck, 'provider must verify its cached immutable image');
-      assert.match(program, /source "\$repo_root\/\.github\/previous-release\.env"/);
+      assert.match(program, /source "\$repo_root\/\.github\/retained-v2-predecessor\.env"/);
     } else {
       const pull = program.indexOf(`docker pull "$${imageVariable}"`);
       assert.ok(pull >= 0 && imageCheck > pull, `${script} must inspect the image after pulling it`);

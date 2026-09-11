@@ -13,7 +13,7 @@ server_retained_v2_inputs() {
     jq -e '.policy_version == 1 and .phase == "compatibility-prelude" and .fresh_semantic_versions == [1]' >/dev/null
   jq -e '.policy_version == 1 and .phase == "v2-enablement" and .fresh_semantic_versions == [1,2]' \
     "$repo_root/config/application-issuance-policy.json" >/dev/null
-  upgrade_verify_previous_release "$repo_root"
+  upgrade_verify_retained_v2_release "$repo_root"
 }
 
 server_retained_v2_run() (

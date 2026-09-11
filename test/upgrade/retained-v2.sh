@@ -3,7 +3,7 @@
 
 retained_v2_inputs() {
   local supplied_image=${MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE:-}
-  source "$repo_root/.github/previous-release.env"
+  source "$repo_root/.github/retained-v2-predecessor.env"
   [[ $MDBASE_CONNECT_PREVIOUS_RELEASE == v0.1.0-beta.95 &&
      $MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT == 408c67bc10f128e0833f0da62cb3efb9d94657d7 ]] || {
     printf 'Retained-v2 enablement qualification requires the exact beta95 predecessor.\n' >&2; return 2;
@@ -16,7 +16,7 @@ retained_v2_inputs() {
     printf 'Retained-v2 requires an immutable beta.95 provider digest.\n' >&2; return 2;
   }
   [[ $(git -C "$repo_root" rev-parse "$MDBASE_CONNECT_PREVIOUS_RELEASE^{commit}") == "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT" ]]
-  upgrade_verify_previous_release "$repo_root"
+  upgrade_verify_retained_v2_release "$repo_root"
   git -C "$repo_root" show "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT:config/application-issuance-policy.json" |
     jq -e '.phase == "compatibility-prelude" and .fresh_semantic_versions == [1]' >/dev/null
   jq -e '.phase == "v2-enablement" and .fresh_semantic_versions == [1,2]' \
