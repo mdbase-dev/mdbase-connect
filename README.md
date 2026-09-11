@@ -157,6 +157,11 @@ suspected vulnerabilities.
 
 ## Command line
 
+This repository is the home of the supported native `mdbase` CLI. It replaces
+the retired TypeScript CLI; TypeScript SDK packages remain supported libraries,
+not command-line implementations. CLI binaries follow mdbase connect's own beta
+release cadence and are not version-locked to the core and adapter RC train.
+
 The desktop app includes the unified `mdbase` CLI and background daemon. The
 same native executable is also published as a standalone headless archive for
 Linux, macOS, and Windows. Direct collection commands are top-level; identity,
