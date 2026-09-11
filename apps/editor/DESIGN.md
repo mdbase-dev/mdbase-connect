@@ -85,12 +85,14 @@ disclosure, and raw source remains inspector-only. When a type declares
 and is not repeated among the remaining properties. Without a declared display
 field, the prominent input names the Markdown document and similarly named
 schema properties remain separate. The initial create operation includes the
-drafted body and properties. While an existing note is fetched, a stable
-document skeleton preserves the pane geometry and avoids flashing the empty
-state. The collection opens into the same three-pane geometry: the first page
-becomes usable immediately while the remaining index continues in the note
-list. A newly created note is adopted from the create response, so the editor
-never waits for a collection-wide refresh or a redundant read.
+drafted body and properties. While an existing note is fetched, the stable
+document frame stays in place with concise loading text; it does not impersonate
+the note with placeholder content or shimmer. Before collection metadata is
+available, a centered status avoids previewing unstable sidebars. The first page
+then becomes usable in the three-pane workspace while the remaining index
+continues in the note list. A newly created note is adopted from the create
+response, so the editor never waits for a collection-wide refresh or a redundant
+read.
 
 Type editing uses the same quiet document grammar. Application compatibility
 appears as a disclosure within the type, not as a separate dashboard. Each

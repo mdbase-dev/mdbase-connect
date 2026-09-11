@@ -250,13 +250,14 @@ async function expectSharedSelectControls(scope: Locator) {
   )).toBe(true);
 }
 
-test("keeps the application geometry visible while a collection opens", async ({ page }) => {
+test("shows an explicit status while a collection opens", async ({ page }) => {
   await page.goto("?demo=80&delay=450");
   const opening = page.getByRole("main", { name: "Opening collection" });
   await expect(opening).toBeVisible();
   await expect(opening).toHaveAttribute("aria-busy", "true");
+  await expect(opening).toHaveAttribute("data-loading-state", "opening");
   await expect(page.getByText("Reading its notes and types")).toBeVisible();
-  expect(await opening.locator(":scope > *").count()).toBe(3);
+  await expect(opening.locator(".opening-rail, .opening-list")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
   await expect(opening).not.toBeAttached();
 });

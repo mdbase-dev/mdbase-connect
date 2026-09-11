@@ -294,7 +294,7 @@ export function TypeInspector({ type, availableTypes = [], contracts = [], docum
         </div>
       }
       {(error || visualError || parsed.error) && <p className="type-editor-error" role="alert">{error || visualError || parsed.error}</p>}
-      {loading ? <div className="type-source-loading" aria-label="Loading type definition"><span /><span /><span /></div>
+      {loading ? <div className="type-source-loading" role="status" aria-label="Loading type definition">Reading type definition…</div>
         : reviewing && impact ? <TypeChangeReview
           previousSource={document?.document}
           source={source}
@@ -974,9 +974,7 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
       </div>
       {catalog && <a href={catalog.sourceUrl} target="_blank" rel="noreferrer">Catalog source</a>}
     </div>
-    {loading && <div className="contract-catalog-loading" role="status" aria-label="Loading contract catalog">
-      <span /><span /><span />
-    </div>}
+    {loading && <div className="contract-catalog-loading" role="status" aria-label="Loading contract catalog">Loading available compatibility packs…</div>}
     {error && !loading && <div className="contract-catalog-error" role="alert">
       <div><strong>Catalog unavailable</strong><p>{error}</p></div>
       {onReload && <button onClick={onReload}>Try again</button>}
