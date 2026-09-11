@@ -295,14 +295,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Verify and cache the checked-in immediate predecessor
+      - name: Verify and cache the immutable beta95 regression fixture
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          source .github/previous-release.env
+          source .github/retained-v2-predecessor.env
           source test/upgrade/lib.sh
-          upgrade_verify_previous_release "$PWD"
+          upgrade_verify_retained_v2_release "$PWD"
           docker pull "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE" >/dev/null
           docker pull postgres:17-alpine >/dev/null
       - name: Preserve pending v2 state through beta95 rollback and reupgrade
@@ -358,14 +358,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @mdbase-dev/connect-protocol build
-      - name: Verify and cache the checked-in immediate predecessor
+      - name: Verify and cache the immutable beta95 regression fixture
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          source .github/previous-release.env
+          source .github/retained-v2-predecessor.env
           source test/upgrade/lib.sh
-          upgrade_verify_previous_release "$PWD"
+          upgrade_verify_retained_v2_release "$PWD"
           docker pull "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
           docker pull postgres:18-alpine >/dev/null
       - name: Qualify candidate-issued v2 through beta95 rollback and reupgrade
