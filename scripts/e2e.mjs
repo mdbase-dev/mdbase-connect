@@ -296,7 +296,7 @@ secret: connector scope test
       .getByRole("button", { name: "Review access", exact: true })
       .click();
   }
-  await onboardingPage.getByRole("button", { name: "Allow MVP Workout App" }).click();
+  await onboardingPage.getByRole("button", { name: "Allow access", exact: true }).click();
   const callback = await finishSignedWebAuthorization(initialAuthorization);
   await onboardingContext.close();
   await onboardingBrowser.close();
@@ -618,7 +618,7 @@ implements:
       throw new Error(`The approval UI did not suggest exact field mappings: ${mappings}`);
     }
     await setupPage.getByRole("button", {
-      name: "Set up and allow Planning E2E"
+      name: "Set up and allow access", exact: true
     }).waitFor();
     await setupContext.close();
   } finally {
@@ -776,7 +776,7 @@ implements:
     await taskNotesPage.getByText("x-obsidian → bases → include").waitFor();
     await taskNotesPage.getByText("views/tasknotes/**/*.base").waitFor();
     await taskNotesPage.getByRole("button", {
-      name: "Set up and allow TaskNotes setup E2E"
+      name: "Set up and allow access", exact: true
     }).waitFor();
     await taskNotesContext.close();
   } finally {

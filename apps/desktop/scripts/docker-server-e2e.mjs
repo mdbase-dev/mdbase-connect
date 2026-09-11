@@ -237,7 +237,7 @@ try {
     .filter({ hasText: "Docker fixture" })
     .waitFor({ state: "attached", timeout: 15_000 });
   await portalPage
-    .getByRole("button", { name: "Allow Docker fixture consumer" })
+    .getByRole("button", { name: "Allow access", exact: true })
     .click();
   await portalPage.waitForURL("https://desktop-docker-e2e.example/callback**", {
     timeout: 15_000
