@@ -385,13 +385,13 @@ async function startPostgres() {
   throw new Error("PostgreSQL did not start");
 }
 async function startObjects() {
-  await execute("docker", ["run", "--rm", "-d", "--name", objects, "-e", `MINIO_ROOT_USER=${objectAccess}`, "-e", `MINIO_ROOT_PASSWORD=${objectSecret}`, "-p", "127.0.0.1::9000", "minio/minio:RELEASE.2025-09-07T16-13-09Z", "server", "/data", "--address", ":9000"]);
+  await execute("docker", ["run", "--rm", "-d", "--name", objects, "-e", `MINIO_ROOT_USER=${objectAccess}`, "-e", `MINIO_ROOT_PASSWORD=${objectSecret}`, "-p", "127.0.0.1::9000", "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e", "server", "/data", "--address", ":9000"]);
   const port = (await execute("docker", ["port", objects, "9000/tcp"])).stdout.match(/:(\d+)/)[1];
   for (let i = 0; i < 120; i += 1) { if (await fetch(`http://127.0.0.1:${port}/minio/health/ready`).then(r => r.ok, () => false)) break; await delay(250); }
   await mc("mb", "--ignore-existing", `local/${bucket}`);
   return `http://127.0.0.1:${port}`;
 }
-async function mc(...args) { return (await execute("docker", ["run", "--rm", "--network", `container:${objects}`, "--entrypoint", "/bin/sh", "minio/mc:RELEASE.2025-08-13T08-35-41Z", "-c", `mc alias set local http://127.0.0.1:9000 ${objectAccess} ${objectSecret} >/dev/null && mc ${args.join(" ")}`])).stdout; }
+async function mc(...args) { return (await execute("docker", ["run", "--rm", "--network", `container:${objects}`, "--entrypoint", "/bin/sh", "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727", "-c", `mc alias set local http://127.0.0.1:9000 ${objectAccess} ${objectSecret} >/dev/null && mc ${args.join(" ")}`])).stdout; }
 async function startProvider(databaseUrl, endpoint) {
   const child = spawn(providerBinary, [], { cwd: root, env: { ...process.env, DATABASE_URL: databaseUrl, MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: internalToken, MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY: masterKey, MDBASE_CONNECT_R2_ENDPOINT: endpoint, MDBASE_CONNECT_R2_BUCKET: bucket, MDBASE_CONNECT_R2_ACCESS_KEY_ID: objectAccess, MDBASE_CONNECT_R2_SECRET_ACCESS_KEY: objectSecret, MDBASE_CONNECT_ALLOW_INSECURE_R2: "true", HOST: "127.0.0.1", PORT: "0", RUST_LOG: "warn" }, stdio: ["ignore", "pipe", "pipe"] });
   let logs = ""; child.stderr.on("data", chunk => { logs += chunk; });
