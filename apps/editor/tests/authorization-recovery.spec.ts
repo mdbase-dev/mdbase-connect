@@ -20,6 +20,10 @@ test("recovers from a stale local grant without bypassing the connector", async 
   });
   await page.context().route(`${serverUrl}/**`, async (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname === "/health") {
+      await json(route, { ok: true, capabilities: ["application-authorization-v2-issuance"] });
+      return;
+    }
     if (url.pathname === "/v1/apps/register") {
       expectEditorRegistration(route.request().postDataJSON());
       await json(route, {

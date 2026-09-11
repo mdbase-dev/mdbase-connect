@@ -54,14 +54,13 @@ import {
   relativeTime,
   scopeDescription
 } from "./portal-model";
-import { Loading, PageBrand, useSystemTheme } from "./portal-ui";
+import { Loading, PageBrand } from "./portal-ui";
 export function DeviceAuthorization() {
   const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? "");
   const [code, setCode] = useState(initialCode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const automaticallyClaimed = useRef(false);
-  useSystemTheme();
 
   async function openRequest(value: string) {
     const userCode = formatDeviceCode(value);
@@ -95,7 +94,7 @@ export function DeviceAuthorization() {
 
   return (
     <main className="center-page">
-      <PageBrand label="Downloaded application" themePicker={false} />
+      <PageBrand label="Downloaded application" />
       <form className="decision-panel device-panel" onSubmit={(event) => {
         event.preventDefault();
         void openRequest(code);
@@ -140,7 +139,6 @@ export function Authorization({ requestId }: { requestId: string }) {
   const [error, setError] = useState("");
   const [decisionError, setDecisionError] = useState("");
   const returning = useRef(false);
-  useSystemTheme();
 
   useEffect(() => {
     let active = true;
@@ -215,7 +213,6 @@ export function Authorization({ requestId }: { requestId: string }) {
     <main className="center-page">
       <PageBrand
         label="Application request"
-        themePicker={false}
         markMotion={setupMotionActive ? (preparingStructure ? "rebalance" : "conveyor") : undefined}
       />
       <section className="decision-panel authorization-panel">
@@ -261,7 +258,7 @@ export function RequestIdentity({ request, large = false }: { request: PendingAu
           ? `Downloaded HTML file${request.project_url ? ` · ${host(request.project_url)}` : ""}`
           : host(request.homepage)} · expires {relativeTime(request.expires_at)}</small>
         {request.distribution !== "portable" && (
-          <small className="request-guidance">Only continue if you recognize this exact site. An approved application can use the selected data until you revoke it.</small>
+          <small className="request-guidance">Only continue if you recognize this exact site.</small>
         )}
         <small className="request-scope">Requests access to the entire selected collection.</small>
         {request.requirements.contracts.length > 0 && (
@@ -964,7 +961,7 @@ function SupportedApprovalForm({
         <div className="approval-receipt">
           <strong>{request.application_name} · {selected?.display_name}</strong>
           {higherImpactLabels.length > 0 && <span>{higherImpactLabels.join(" · ")}</span>}
-          <small>Access continues until you revoke it in mdbase connect.</small>
+          {request.distribution !== "portable" && <small>Access continues until you revoke it in mdbase connect.</small>}
         </div>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>

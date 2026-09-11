@@ -1,5 +1,5 @@
 {
   "policy_version": 1,
-  "phase": "compatibility-prelude",
-  "fresh_semantic_versions": [1]
+  "phase": "v2-enablement",
+  "fresh_semantic_versions": [1, 2]
 }

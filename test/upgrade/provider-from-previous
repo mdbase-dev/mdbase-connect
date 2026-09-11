@@ -8,7 +8,15 @@ repo_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 source "$repo_root/test/upgrade/lib.sh"
 # The release pin is resolved from the repository root above.
 # shellcheck disable=SC1091
-source "$repo_root/.github/previous-release.env"
+UPGRADE_SCENARIO=${1:---retained-v2}
+case "$UPGRADE_SCENARIO" in
+  --legacy-prelude) source "$repo_root/.github/historical-prelude.env" ;;
+  --retained-v2)
+    source "$repo_root/test/upgrade/retained-v2.sh"
+    retained_v2_inputs
+    ;;
+  *) printf 'Unknown provider upgrade scenario.\n' >&2; exit 2 ;;
+esac
 
 CANDIDATE_IMAGE=${CANDIDATE_IMAGE:-mdbase-connect-hosted-provider:upgrade-candidate}
 PROVIDER_INTERNAL_TOKEN=${PROVIDER_INTERNAL_TOKEN:-previous-provider-upgrade-internal-token}
@@ -46,7 +54,13 @@ upgrade_require \
   MDBASE_CONNECT_PREVIOUS_RELEASE \
   MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT \
   MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE
-upgrade_verify_previous_release "$repo_root"
+if [[ $UPGRADE_SCENARIO == --legacy-prelude ]]; then
+  # This explicitly historical lane retains all beta94 migration regressions.
+  # The separate retained-v2 lane qualifies beta95 as beta96's predecessor.
+  [[ $MDBASE_CONNECT_PREVIOUS_RELEASE == v0.1.0-beta.94 &&
+     $MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT == 8d1b5fb1647edcadd716d4ee671f0ba04d34fa5e &&
+     $(git -C "$repo_root" rev-parse "$MDBASE_CONNECT_PREVIOUS_RELEASE^{commit}") == "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT" ]]
+fi
 
 r2_pid=
 projection_diagnostics_dir=
@@ -587,6 +601,12 @@ rollback_assert_preserved() {
   [[ $(rollback_receipt_inventory) == "$rollback_receipts_before" ]]
 }
 
+if [[ $UPGRADE_SCENARIO == --retained-v2 ]]; then
+  trap - EXIT
+  retained_v2_run
+  exit
+fi
+
 upgrade_phase 'building candidate provider'
 if [[ ${SKIP_CANDIDATE_BUILD:-false} != true ]]; then
   docker build \
@@ -801,4 +821,4 @@ rollback_assert_preserved
 verify_synthetic_projection 'after predecessor writes and candidate reupgrade'
 rollback_assert_preserved
 
-printf 'Immediate-predecessor persisted-state upgrade path passed.\n'
+printf 'Historical beta94 v1 prelude persisted-state path passed; not v2 rollback qualification.\n'

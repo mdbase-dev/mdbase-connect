@@ -261,15 +261,24 @@ fn hosted_cli_timer_operations_are_not_authorizable() {
             "execute_view",
             "read_view_source",
             "validate",
-            "read_type",
-            "assess_type_pack"
+            "read_type"
         ]
     );
     let create = hosted_cli_authorization_operations(vec!["create".to_string()], false).unwrap();
     assert_eq!(create, vec!["create"]);
+    let partial_edit =
+        hosted_cli_authorization_operations(vec!["update".to_string()], false).unwrap_err();
+    assert_eq!(partial_edit.code, "unsupported_cli_operation");
+    assert!(partial_edit
+        .message
+        .contains("complete version-2 capability groups"));
     assert_eq!(
-        hosted_cli_authorization_operations(vec!["update".to_string()], false).unwrap(),
-        vec!["update"]
+        hosted_cli_authorization_operations(
+            vec!["update".to_string(), "rename".to_string()],
+            false
+        )
+        .unwrap(),
+        vec!["update", "rename"]
     );
     assert!(hosted_cli_authorization_operations(vec!["unknown".to_string()], false).is_err());
 

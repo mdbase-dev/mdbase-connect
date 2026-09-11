@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, CONNECT_CONTRACT_SUPPORT,
+import { APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY, APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, CONNECT_CONTRACT_SUPPORT,
   authorizationContractRequirements } from "@mdbase-dev/connect-protocol";
 import { RelayHub } from "./relay.js";
 
@@ -9,7 +9,7 @@ function fixture() {
   Object.assign(hub, { connectors: sessions, closed: false,
     currentGeneration: async (id: string) => sessions.get(id)?.generation ?? null });
   const current = () => ({ ready: true, generation: "1", socket: { readyState: 1 },
-    capabilities: [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY],
+    capabilities: [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY],
     contractSupport: structuredClone(CONNECT_CONTRACT_SUPPORT) });
   sessions.set("selected", current());
   sessions.set("other", current());
@@ -19,6 +19,17 @@ const v2 = authorizationContractRequirements(["read"]);
 const v1 = authorizationContractRequirements(["read"], undefined, [], 1);
 
 describe("exact selected local authority", () => {
+  it.each([{ capabilities: [] }, { capabilities: ["unknown-issuance"] },
+    { capabilities: [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY] }])(
+    "retained readers do not prove fresh issuance: $capabilities", ({ capabilities }) => {
+      const { hub, sessions } = fixture();
+      sessions.get("selected").capabilities = [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, ...capabilities];
+      expect(hub.supportsContracts("selected", v2)).toBe(true);
+      expect(() => hub.authorizationAuthority("selected", v2)).toThrow();
+      expect(hub.authorizationAuthority("selected", v1)).toBe("1");
+      expect(hub.authorizationAuthority("other", v2)).toBe("1");
+    }
+  );
   it("requires both semantic and declaration evidence support, not some other connector", () => {
     const { hub, sessions } = fixture();
     expect(hub.supportsContracts("selected", v2)).toBe(true);
@@ -52,7 +63,7 @@ describe("exact selected local authority", () => {
     input.grant.application_authorization.binding.contracts = v2;
     await expect(hub.activateAuthorization("selected", input)).rejects.toThrow();
     expect(messages).toHaveLength(1);
-    sessions.get("selected").capabilities = [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY];
+    sessions.get("selected").capabilities = [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY];
     sessions.get("selected").contractSupport.semantic_capabilities = [2, 1];
     await hub.activateAuthorization("selected", input);
     expect(messages[1].grant.application_declaration).toEqual({ retained: "complete" });
@@ -64,6 +75,9 @@ describe("exact selected local authority", () => {
     sessions.get("selected").generation = "2";
     await expect(hub.assertAuthorizationAuthority("selected", selected, v2)).rejects.toThrow();
     sessions.get("selected").generation = selected;
+    sessions.get("selected").capabilities = [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY];
+    expect(hub.supportsContracts("selected", v2)).toBe(true);
+    await expect(hub.assertAuthorizationAuthority("selected", selected, v2)).rejects.toThrow();
     sessions.get("selected").contractSupport.semantic_capabilities = [1];
     await expect(hub.assertAuthorizationAuthority("selected", selected, v2)).rejects.toThrow();
   });

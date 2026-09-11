@@ -42,6 +42,7 @@ import type { MdbaseConnectOptions } from "./connect-options.js";
 import type { MdbaseConnectionInfo } from "./connection-types.js";
 import { addConnectionId, connectionIds, removeConnectionId } from "./connection-index.js";
 import {
+  assertFreshV2AuthorizationSupport,
   authorizationAbort,
   declarationIdFromFamilyIdentity
 } from "./connect-authorization-helpers.js";
@@ -274,6 +275,9 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     });
     try {
       validateAuthorizationSelection(application.requirements, options);
+      if (application.requirements.capabilities?.contract_version === 2) {
+        await assertFreshV2AuthorizationSupport(this.serverUrl, options.signal);
+      }
     } catch (error) {
       popup?.close();
       throw error;

@@ -16,6 +16,10 @@ on:
       - ".github/workflows/editor-pages.yml"
   workflow_dispatch:
     inputs:
+      production_verified_commit:
+        description: Full tagged SHA independently verified by the release owner after guarded production deployment, including exact service digests and hosted fresh-v2 readiness
+        required: false
+        type: string
       target:
         description: Deploy staging by default; production requires an explicit dispatch
         required: true
@@ -26,6 +30,7 @@ on:
           - production
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -83,7 +88,7 @@ jobs:
   deploy-cloudflare:
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' &&
+      startsWith(github.ref, 'refs/tags/v') &&
       inputs.target == 'production' &&
       vars.CLOUDFLARE_PAGES_ENABLED == '1'
     needs: test
@@ -113,6 +118,15 @@ jobs:
           VITE_MDBASE_TURNSTILE_SITE_KEY: ${{ vars.MDBASE_FEEDBACK_TURNSTILE_SITE_KEY }}
       - name: Verify editor manifest
         run: node apps/editor/scripts/verify-deployment-manifest.mjs apps/editor/dist/.well-known/mdbase-app.json https://editor.mdbase.dev/
+      - name: Require exact full Server CI qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/ci/verify-qualified-commit "$GITHUB_SHA"
+      - name: Verify exact production candidate before client publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
+        run: node scripts/verify-client-publication.mjs
       - name: Deploy editor
         run: npx --yes --package wrangler@4.114.0 wrangler pages deploy apps/editor/dist --project-name=mdbase-editor --branch=main
         env:

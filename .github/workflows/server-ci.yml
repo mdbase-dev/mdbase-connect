@@ -285,8 +285,31 @@ jobs:
       - name: Exercise the previous-server upgrade contract
         run: test/upgrade/server-from-previous
 
+  retained-v2-server-pending:
+    name: Exact beta95 pending-v2 rollback
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Verify and cache the checked-in immediate predecessor
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          source .github/previous-release.env
+          source test/upgrade/lib.sh
+          upgrade_verify_previous_release "$PWD"
+          docker pull "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE" >/dev/null
+          docker pull postgres:17-alpine >/dev/null
+      - name: Preserve pending v2 state through beta95 rollback and reupgrade
+        run: env -u DATABASE_URL -u UPGRADE_SERVER_URL test/upgrade/server-from-previous --retained-v2-pending
+
   previous-provider-upgrade:
-    name: Immediate-predecessor provider persisted-state upgrade
+    name: Historical beta94 v1 prelude migration coverage
     needs: classify
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-24.04
@@ -311,8 +334,42 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Exercise immediate-predecessor persisted-state recovery
-        run: test/upgrade/provider-from-previous
+        with:
+          fetch-depth: 0
+      - name: Retain historical beta94 v1 migration and recovery regressions
+        run: test/upgrade/provider-from-previous --legacy-prelude
+
+  retained-v2-provider-upgrade:
+    name: Exact beta95 retained-v2 rollback
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @mdbase-dev/connect-protocol build
+      - name: Verify and cache the checked-in immediate predecessor
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          source .github/previous-release.env
+          source test/upgrade/lib.sh
+          upgrade_verify_previous_release "$PWD"
+          docker pull "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
+          docker pull postgres:18-alpine >/dev/null
+      - name: Qualify candidate-issued v2 through beta95 rollback and reupgrade
+        run: test/upgrade/provider-from-previous --retained-v2
 
   hosted-provider-rust:
     name: Hosted provider Rust workspace
@@ -476,7 +533,9 @@ jobs:
       - node
       - server-container-full
       - previous-release-upgrade
+      - retained-v2-server-pending
       - previous-provider-upgrade
+      - retained-v2-provider-upgrade
       - hosted-provider-rust
       - hosted-provider-system
     runs-on: ubuntu-24.04
@@ -490,13 +549,15 @@ jobs:
           NODE: ${{ needs.node.result }}
           CONTAINER: ${{ needs.server-container-full.result }}
           SERVER_UPGRADE: ${{ needs.previous-release-upgrade.result }}
+          SERVER_RETAINED_V2: ${{ needs.retained-v2-server-pending.result }}
           PROVIDER_UPGRADE: ${{ needs.previous-provider-upgrade.result }}
+          RETAINED_V2: ${{ needs.retained-v2-provider-upgrade.result }}
           PROVIDER_RUST: ${{ needs.hosted-provider-rust.result }}
           PROVIDER_SYSTEM: ${{ needs.hosted-provider-system.result }}
         run: |
           if [[ "$RUN_FULL" == true ]]; then
             for result in "$WINDOWS" "$RUNTIME" "$NODE" "$CONTAINER" \
-              "$SERVER_UPGRADE" "$PROVIDER_UPGRADE" "$PROVIDER_RUST" \
+              "$SERVER_UPGRADE" "$SERVER_RETAINED_V2" "$PROVIDER_UPGRADE" "$RETAINED_V2" "$PROVIDER_RUST" \
               "$PROVIDER_SYSTEM"
             do
               [[ $result == success ]]

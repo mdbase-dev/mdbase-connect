@@ -50,14 +50,16 @@ describe("server fresh application issuance policy", () => {
       expect(invalid.statusCode).toBe(400);
       expect(invalid.json().error.code).toBe("invalid_application_authorization");
       const response = await app.inject({ method: "POST", url, payload });
-      expect(response.statusCode).toBe(version === 1 ? 200 : 400);
-      if (version === 2) expect(response.json().error).toEqual({ code: "invalid_request", message: "Fresh application authorization issuance is disabled for semantic capability contract version 2." });
-      const requests = await db.query("SELECT id FROM authorization_requests WHERE application_id = $1", [applicationId]);
-      expect(requests.rows).toHaveLength(version === 1 ? 1 : 0);
+      expect(response.statusCode, response.body).toBe(200);
+      const requests = await db.query("SELECT application_authorization FROM authorization_requests WHERE application_id = $1", [applicationId]);
+      expect(requests.rows).toHaveLength(1);
+      expect(requests.rows[0].application_authorization.binding.contracts.semantic_capabilities).toBe(version);
+      // Creating a pending request is not approval or installed authority.
+      expect((await db.query("SELECT id FROM grants")).rows).toHaveLength(0);
     }
   });
 
-  it("denies direct v2 grant issuance without creating a grant", async () => {
+  it("enabling v2 does not allow unsigned direct grant creation",  async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const { app } = await buildApp({ db, devAuth: true, publicUrl: "http://connect.test", allowInsecureManifests: true });
@@ -79,8 +81,8 @@ describe("server fresh application issuance policy", () => {
     const response = await app.inject({ method: "POST", url: "/v1/grants", headers: { cookie }, payload: {
       application_id: registered.json().application.id, collection_id: collectionId, operations: ["read", "query"]
     } });
-    expect(response.statusCode).toBe(400);
-    expect(response.json().error.message).toContain("issuance is disabled");
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("application_authorization_required");
     expect((await db.query("SELECT id FROM grants")).rows).toHaveLength(0);
   });
 });

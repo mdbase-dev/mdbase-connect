@@ -27,10 +27,10 @@ test("upgrade pins the exact immediate predecessor", async () => {
   );
   assert.equal(fixture, `# Exact server image from the release immediately preceding this candidate.
 # Update this file as part of each release-preparation change.
-MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.94
-MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=8d1b5fb1647edcadd716d4ee671f0ba04d34fa5e
-MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:f1243c22160489d5d9044df2a1a14e05b36e00f7d01aaeca865d797bdd31aa94
-MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:caf69fea20acf7da3dac91a9babbb175f4789c7455684664734956237cd7667c
+MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.95
+MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=408c67bc10f128e0833f0da62cb3efb9d94657d7
+MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:95a89fd6f13de72bd9e45fbfa5f00df5f7b599d8fb9a4da22d1f22c5d0391970
+MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:1ef08bfa18431357a29e2565bc9a490a182e73f9e2b532594ac968a3c3563048
 `);
 });
 
@@ -47,14 +47,20 @@ test("both upgrade programs execute release and pulled-image verification", asyn
 
   for (const [script, imageVariable] of [
     ["test/upgrade/server-from-previous", "MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"],
-    ["test/upgrade/provider-from-previous", "MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"]
+    ["test/upgrade/retained-v2.sh", "MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"]
   ]) {
     const program = await readFile(resolve(repoRoot, script), "utf8");
     const releaseCheck = program.indexOf('upgrade_verify_previous_release "$repo_root"');
-    const pull = program.indexOf(`docker pull "$${imageVariable}"`);
     const imageCheck = program.indexOf(`upgrade_verify_previous_image "$${imageVariable}"`);
-    assert.ok(releaseCheck >= 0 && releaseCheck < pull, `${script} must verify the release before use`);
-    assert.ok(pull >= 0 && imageCheck > pull, `${script} must inspect the image after pulling it`);
+    assert.ok(releaseCheck >= 0 && releaseCheck < imageCheck, `${script} must verify the release before use`);
+    if (script.endsWith('retained-v2.sh')) {
+      const cachedImage = program.indexOf(`docker image inspect "$${imageVariable}"`);
+      assert.ok(cachedImage >= 0 && cachedImage < imageCheck, 'provider must verify its cached immutable image');
+      assert.match(program, /source "\$repo_root\/\.github\/previous-release\.env"/);
+    } else {
+      const pull = program.indexOf(`docker pull "$${imageVariable}"`);
+      assert.ok(pull >= 0 && imageCheck > pull, `${script} must inspect the image after pulling it`);
+    }
   }
 });
 
@@ -164,7 +170,7 @@ test("provider rollback uses the verified unchanged predecessor after existing r
     'start_candidate_provider',
     'wait_candidate_recovery',
     "verify_synthetic_projection 'after predecessor writes and candidate reupgrade'",
-    "printf 'Immediate-predecessor persisted-state upgrade path passed."
+    "printf 'Historical beta94 v1 prelude persisted-state path passed; not v2 rollback qualification."
   ];
   let position = -1;
   for (const phase of phases) {
