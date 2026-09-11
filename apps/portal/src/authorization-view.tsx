@@ -246,7 +246,7 @@ export function Authorization({ requestId }: { requestId: string }) {
   );
 }
 
-export function RequestIdentity({ request, large = false }: { request: PendingAuthorization; large?: boolean }) {
+function RequestIdentity({ request, large = false }: { request: PendingAuthorization; large?: boolean }) {
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
 
   return (
