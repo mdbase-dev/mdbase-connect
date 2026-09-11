@@ -4,7 +4,7 @@ Run the registered scenario through the existing server upgrade entry point:
 
 ```sh
 export PATH=/home/calluma/.local/share/fnm/node-versions/v24.19.0/installation/bin:$PATH
-# Preload postgres:17-alpine and the exact server digest from .github/previous-release.env.
+# Preload postgres:17-alpine and the exact server digest from .github/retained-v2-predecessor.env.
 # This scenario neither pulls predecessor images nor accesses registry credentials.
 env -u DATABASE_URL -u UPGRADE_SERVER_URL test/upgrade/server-from-previous --retained-v2-pending
 ```
@@ -21,7 +21,12 @@ env -u DATABASE_URL -u UPGRADE_SERVER_URL \
 ```
 
 Inputs require beta.95, commit `408c67bc10f128e0833f0da62cb3efb9d94657d7`,
-and the digest-only server image in the parent's pin file. The helper verifies
+and the digest-only server image in `.github/retained-v2-predecessor.env`.
+The full release/commit/image pair is fixed, its published non-draft release is
+verified by tag, and the annotated origin tag must peel to that exact commit.
+The default lane separately uses `.github/previous-release.env` and requires the
+newest published release (currently beta96); historical beta95 is not substituted
+for that immediate predecessor. The helper verifies
 OCI source/revision labels, source policy phases, and the actual images'
 generated fresh semantic ceilings `[1]` and `[1,2]`. Containers run by resolved
 image ID throughout. This is local binary evidence, not signature/attestation,

@@ -14,7 +14,7 @@ Use Node 24 and build the protocol package first:
 ```sh
 export PATH=/home/calluma/.local/share/fnm/node-versions/v24.19.0/installation/bin:$PATH
 pnpm --filter @mdbase-dev/connect-protocol build
-# The exact beta95 digest is read from .github/previous-release.env.
+# The exact beta95 digest is read from .github/retained-v2-predecessor.env.
 # It must already be in the local Docker cache. Overrides must match that pin.
 env -u DATABASE_URL -u MDBASE_CONNECT_R2_ENDPOINT \
   test/upgrade/provider-from-previous --retained-v2
@@ -24,9 +24,16 @@ The immutable source binding is `v0.1.0-beta.95` at
 `408c67bc10f128e0833f0da62cb3efb9d94657d7`, whose fresh policy is `[1]`.
 The harness checks the local tag commit, that source's policy, the candidate's
 `v2-enablement` `[1,2]` policy, and the cached predecessor image's OCI source and
-revision labels. Server CI verifies that the checked-in predecessor is the
-unique newest non-draft release with its exact annotated origin tag, then caches
-the pinned digest. A mutable repository variable cannot select the fixture.
+revision labels. Server CI and the harness verify the fixed published, non-draft
+beta95 release by tag and its exact annotated origin commit, then CI caches the
+pinned digest. All four historical pin fields must match the immutable beta95
+release/commit/image pair. A mutable repository variable cannot select the fixture.
+
+This historical regression is intentionally independent of
+`.github/previous-release.env`, which advances to the actual newest published
+release (currently beta96) and retains its mandatory newest-release check.
+Preserving beta95 coverage does not establish a later candidate's immediate-
+predecessor provider rollback or authorize production recovery.
 Image labels are not signature verification: the release contract's independent
 signature/attestation verification remains required for release qualification.
 No signature or deployment qualification is claimed by this local scenario.
