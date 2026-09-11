@@ -39,9 +39,14 @@ export async function verifyManifest(
 }
 
 export function assertEditorManifest(manifest, expectedHomepage, expectedConnectOrigin) {
-  const required = manifest?.requirements?.capabilities?.required;
-  const actions = manifest?.requirements?.files?.actions;
-  const scope = manifest?.requirements?.files?.scope;
+  const capabilities = manifest?.requirements?.capabilities;
+  const version = capabilities?.contract_version === undefined ? 1 : capabilities.contract_version;
+  const required = capabilities?.required;
+  const files = manifest?.requirements?.files;
+  // Check Editor-specific file intent in the original declared semantics.
+  // Optional v2 actions and legacy field names cannot satisfy required access.
+  const actions = version === 2 ? files?.required : files?.actions;
+  const scope = files?.scope;
   const problems = [];
 
   if (manifest?.homepage !== expectedHomepage) problems.push(`homepage must be ${expectedHomepage}`);
@@ -56,8 +61,14 @@ export function assertEditorManifest(manifest, expectedHomepage, expectedConnect
     }
   }
   if (manifest?.requirements?.access !== "full_collection") problems.push("access must be full_collection");
-  if (!Array.isArray(required) || !required.includes("files.list")) problems.push("files.list capability is required");
-  if (!Array.isArray(required) || !required.includes("files.read")) problems.push("files.read capability is required");
+  if (version === 1) {
+    if (!Array.isArray(required) || !required.includes("files.list")) problems.push("files.list capability is required");
+    if (!Array.isArray(required) || !required.includes("files.read")) problems.push("files.read capability is required");
+  } else if (version === 2) {
+    if (files && Object.hasOwn(files, "actions")) problems.push("v2 file requirements must not contain legacy actions");
+  } else {
+    problems.push("unsupported capability contract version");
+  }
   if (!Array.isArray(actions) || !actions.includes("list")) problems.push("file list action is required");
   if (!Array.isArray(actions) || !actions.includes("read")) problems.push("file read action is required");
   if (scope?.kind !== "collection") problems.push("file scope must cover the collection");
