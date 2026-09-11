@@ -165,6 +165,12 @@ The implementation requires:
 - an isolated recovery using the Sydney replica and restored database/object
   set before the production key hierarchy is considered complete.
 
+The final requirement passed in staging on 2026-08-03 against the exact beta26
+provider image and a non-empty retained object set. The private operations
+evidence records the signed archive identity, all three PostgreSQL restores,
+Sydney KMS decrypt coverage, semantic file/collection checks, measured recovery
+objectives, failed attempts, corrective commits, and exact cleanup.
+
 ## Consequences
 
 The provider gains an asynchronous dependency at DEK wrap/unwrap boundaries
