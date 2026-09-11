@@ -26,7 +26,7 @@ export function Login() {
   const [name, setName] = useState("Callum");
   const [email, setEmail] = useState("callum@example.com");
   const [config, setConfig] = useState<AuthConfig | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(authenticationFlowError);
   const continuingAuthorization = isAuthorizationReturnTarget();
 
   useEffect(() => {
@@ -82,7 +82,7 @@ export function Login() {
         <p>{continuingAuthorization
           ? "Sign in, review the request, and return to the application."
           : config.registration === "open"
-            ? "Enter your email and password, or use a connected identity provider."
+            ? "Sign in with email or an identity provider. New accounts can continue through signup."
             : "Sign in with the method connected to your invited account."}</p>
         {error && <div className="message error" role="alert">{error}</div>}
         {config.password_login && (
@@ -92,20 +92,7 @@ export function Login() {
             onSignedIn={() => { location.href = returnTarget(); }}
           />
         )}
-        {providers.length > 0 && <div className="auth-providers">
-          {config.password_login && providers.length > 0 && (
-            <div className="provider-divider"><span>or</span></div>
-          )}
-          {providers.map((provider, index) => <React.Fragment key={provider.id}>
-            {index > 0 && <div className="provider-divider"><span>or</span></div>}
-            {provider.id === "google"
-              ? <GoogleSignIn returnTo={returnTarget()} onError={setError} />
-              : <a className="button link-button provider-button github-button" href={`${provider.login_url}?return_to=${encodeURIComponent(returnTarget())}`}>
-                  <GitHubMark />
-                  <span>{provider.label}</span>
-                </a>}
-          </React.Fragment>)}
-        </div>}
+        <AuthProviders providers={providers} divider={config.password_login === true} onError={setError} />
         {config.registration !== "open" && (
           <p className="auth-footnote">
             Don’t have an invite? <a href="https://mdbase.dev/beta/">Public signup is opening soon</a>.
@@ -114,7 +101,7 @@ export function Login() {
             )}
           </p>
         )}
-        {config.registration === "open" && config.password_public_registration && (
+        {config.registration === "open" && (config.password_public_registration || config.external_public_registration) && (
           <p className="auth-footnote">
             New to mdbase Connect? <a href={`/signup?return_to=${encodeURIComponent(returnTarget())}`}>Create an account</a>.
           </p>
@@ -379,15 +366,18 @@ export function Signup({
   invitationToken: string;
   verificationToken: string;
 }) {
+  const externalSignup = !invitationToken && !verificationToken
+    && new URLSearchParams(location.search).get("external") === "1";
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [verifiedEmail, setVerifiedEmail] = useState("");
+  const [externalProofId, setExternalProofId] = useState("");
   const [email, setEmail] = useState("");
   const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [agreementsAccepted, setAgreementsAccepted] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(authenticationFlowError);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const prepared = useRef(false);
@@ -421,6 +411,13 @@ export function Signup({
             }
           );
           setVerifiedEmail(result.verification.email);
+        } else if (externalSignup && authentication.external_public_registration) {
+          const result = await api<{ proof_id: string; email: string; name: string }>(
+            "/v1/auth/external/signup/preview", { method: "POST", body: "{}" }
+          );
+          setVerifiedEmail(result.email);
+          setName(result.name);
+          setExternalProofId(result.proof_id);
         }
       } catch (reason) {
         setError(message(reason));
@@ -429,7 +426,7 @@ export function Signup({
       }
     }
     void prepare();
-  }, [invitationToken, verificationToken]);
+  }, [invitationToken, verificationToken, externalSignup]);
 
   async function requestVerification(event: React.FormEvent) {
     event.preventDefault();
@@ -450,8 +447,8 @@ export function Signup({
 
   async function createAccount(event: React.FormEvent) {
     event.preventDefault();
-    if (!config?.agreements || !verifiedEmail) return;
-    if (password !== passwordConfirmation) {
+    if (!config?.agreements || !verifiedEmail || !agreementsAccepted) return;
+    if (!externalSignup && password !== passwordConfirmation) {
       setError("Passwords do not match.");
       return;
     }
@@ -460,26 +457,29 @@ export function Signup({
     try {
       const publicSignup = Boolean(verificationToken && !invitationToken);
       const result = await api<{
+        redirect_to?: string;
         onboarding?: { starter_collection?: "pending" } | null;
-      }>(publicSignup
-        ? "/v1/auth/password/signup/public"
-        : "/v1/auth/password/signup", {
+      }>(externalSignup
+        ? "/v1/auth/external/signup"
+        : publicSignup ? "/v1/auth/password/signup/public" : "/v1/auth/password/signup", {
         method: "POST",
         body: JSON.stringify({
-          ...(publicSignup
-            ? { verification_token: verificationToken }
-            : { invitation_token: invitationToken }),
+          ...(!externalSignup ? {
+            ...(publicSignup
+              ? { verification_token: verificationToken }
+              : { invitation_token: invitationToken }),
+            password
+          } : { proof_id: externalProofId }),
           name,
-          password,
           terms_version: config.agreements.terms.version,
           privacy_version: config.agreements.privacy.version,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
         })
       });
-      location.href = result.onboarding?.starter_collection === "pending"
+      location.href = result.redirect_to ?? (result.onboarding?.starter_collection === "pending"
         && !isAuthorizationReturnTarget()
         ? "/getting-started"
-        : returnTarget();
+        : returnTarget());
     } catch (reason) {
       setError(message(reason));
       setBusy(false);
@@ -493,7 +493,8 @@ export function Signup({
   const canRequest = Boolean(
     !isInvitation
     && !hasVerification
-    && config.password_public_registration
+    && !externalSignup
+    && (config.password_public_registration || config.external_public_registration)
   );
   if (canRequest) return (
     <MinimalAuthPage>
@@ -502,10 +503,17 @@ export function Signup({
         <p role={requestSubmitted ? "status" : undefined} aria-live={requestSubmitted ? "polite" : undefined}>
           {requestSubmitted
             ? "If that address can be used, its one-time verification link is on the way."
-            : "Enter your email address. We’ll send a one-time link to verify it. After verification, you’ll choose a password and receive a small starter collection."}
+            : config.external_public_registration
+              ? `Continue with an identity provider${config.password_public_registration ? ", or verify your email to use a password" : ""}.`
+              : "Enter your email address. We’ll send a one-time link to verify it. After verification, you’ll choose a password and receive a small starter collection."}
         </p>
         {error && <div className="message error" role="alert">{error}</div>}
-        {!requestSubmitted && (
+        {!requestSubmitted && config.external_public_registration && (
+          <AuthProviders providers={config.providers} onError={setError} />
+        )}
+        {!requestSubmitted && config.password_public_registration && (
+          <>
+          {config.external_public_registration && <div className="provider-divider"><span>or use email</span></div>}
           <form className="password-auth-form" onSubmit={(event) => void requestVerification(event)}>
             <label>
               <span>Email</span>
@@ -523,6 +531,7 @@ export function Signup({
               {busy ? "Sending link…" : "Send verification link"}
             </button>
           </form>
+          </>
         )}
         <p className="auth-footnote">Already have an account? <a href={signInUrl()}>Sign in</a>.</p>
       </section>
@@ -533,8 +542,10 @@ export function Signup({
       <section className="auth-panel">
         <h1>{ready ? "Create an account" : "This account setup link can’t be opened"}</h1>
         <p>{ready
-          ? `${isInvitation ? "Your invitation verified your email" : "Your email is verified"}. Choose a password and we’ll prepare a small starter collection.`
-          : isInvitation || hasVerification
+          ? externalSignup
+            ? "Your identity provider verified your email. Confirm your name and the terms, and we’ll prepare a small starter collection. No password is needed."
+            : `${isInvitation ? "Your invitation verified your email" : "Your email is verified"}. Choose a password and we’ll prepare a small starter collection.`
+          : isInvitation || hasVerification || externalSignup
             ? "The link is invalid, expired, already used, or account setup is temporarily unavailable."
             : "Public account creation is temporarily unavailable."}</p>
         {error && <div className="message error" role="alert">{error}</div>}
@@ -559,6 +570,7 @@ export function Signup({
                 onChange={(event) => setName(event.target.value)}
               />
             </label>
+            {!externalSignup && <>
             <label>
               <span>Password</span>
               <input
@@ -587,6 +599,7 @@ export function Signup({
                 onChange={(event) => setPasswordConfirmation(event.target.value)}
               />
             </label>
+            </>}
             <label className="auth-agreement">
               <input
                 type="checkbox"
@@ -614,10 +627,39 @@ export function Signup({
             </button>
           </form>
         )}
+        {externalSignup && (!ready || error) && <a className="quiet-auth-link" href={`/signup?return_to=${encodeURIComponent(returnTarget())}`}>Start signup again</a>}
         <a className="quiet-auth-link" href={signInUrl()}>Return to sign in</a>
       </section>
     </MinimalAuthPage>
   );
+}
+
+function authenticationFlowError(): string {
+  switch (new URLSearchParams(location.search).get("auth_error")) {
+    case "cancelled": return "Sign-in was cancelled. You can try again or choose another method.";
+    case "verified_email_required": return "A verified primary email is required. Verify your primary email with GitHub, or sign up using another method.";
+    default: return "";
+  }
+}
+
+function AuthProviders({ providers, divider = false, onError }: {
+  providers: AuthProviderOption[];
+  divider?: boolean;
+  onError(value: string): void;
+}) {
+  if (!providers.length) return null;
+  return <div className="auth-providers">
+    {divider && <div className="provider-divider"><span>or</span></div>}
+    {providers.map((provider, index) => <React.Fragment key={provider.id}>
+      {index > 0 && <div className="provider-divider"><span>or</span></div>}
+      {provider.id === "google"
+        ? <GoogleSignIn returnTo={returnTarget()} onError={onError} />
+        : <a className="button link-button provider-button github-button" href={`${provider.login_url}?return_to=${encodeURIComponent(returnTarget())}`}>
+            <GitHubMark />
+            <span>{provider.label}</span>
+          </a>}
+    </React.Fragment>)}
+  </div>;
 }
 
 interface AuthProviderOption {
@@ -636,6 +678,7 @@ interface AuthConfig {
   password_registration?: true;
   password_invitation_registration?: true;
   password_public_registration?: true;
+  external_public_registration?: true;
   agreements?: {
     terms: { version: string; url: string };
     privacy: { version: string; url: string };
@@ -682,9 +725,13 @@ let googleLibrary: Promise<GoogleAccountsApi> | null = null;
 function GoogleSignIn({ returnTo, onError }: { returnTo: string; onError(value: string): void }) {
   return <GoogleIdentityButton
     startUrl={`/auth/google?return_to=${encodeURIComponent(returnTo)}`}
-    onComplete={(redirectTo) => { location.href = redirectTo; }}
+    onComplete={navigateAfterAuthentication}
     onError={onError}
   />;
+}
+
+function navigateAfterAuthentication(redirectTo: string): void {
+  location.href = redirectTo;
 }
 
 export function GoogleIdentityButton({ startUrl, onComplete, onError }: {

@@ -16,6 +16,7 @@ const browser = await chromium.launch({ headless: true });
 
 try {
   await auditPortalLogin();
+  await auditPortalSignup();
   await auditPortalRecovery();
   if (!process.argv.includes("--portal-only")) await auditEditorConnect();
   await auditPortalColdStartAuthorization();
@@ -117,6 +118,88 @@ async function auditPortalLogin() {
     errors.filter((error) => !error.includes("status of 401")),
     []
   );
+  await page.close();
+}
+
+async function auditPortalSignup() {
+  const page = await localPage({ viewport: { width: 390, height: 844 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  let submitted;
+  let googleStarts = 0;
+  const returnTo = "/authorize/11111111-1111-4111-8111-111111111111?request=signup";
+  const config = {
+    provider: "github", registration: "open",
+    providers: [
+      { id: "google", label: "Continue with Google", login_url: "/auth/google" },
+      { id: "github", label: "Continue with GitHub", login_url: "/auth/github" }
+    ],
+    external_public_registration: true, password_public_registration: true,
+    agreements: {
+      terms: { version: "terms-v1", url: "https://example.test/terms" },
+      privacy: { version: "privacy-v1", url: "https://example.test/privacy" }
+    }
+  };
+  // Exercise our browser flow without contacting identity providers or any
+  // deployed Connect service. Provider verification has separate server tests.
+  await page.route("https://accounts.google.com/gsi/client", (route) => route.fulfill({
+    contentType: "application/javascript",
+    body: `window.google = { accounts: { id: {
+      initialize(config) { this.config = config; },
+      renderButton(element) {
+        const button = document.createElement('button');
+        button.textContent = 'Continue with Google';
+        button.onclick = () => this.config.callback({ credential: 'test-credential' });
+        element.append(button);
+      }
+    } } };`
+  }));
+  await page.route("**/auth/google**", (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === "/auth/google/callback") return route.fulfill({ json: { redirect_to: `/signup?external=1&return_to=${encodeURIComponent(returnTo)}` } });
+    googleStarts++;
+    return route.fulfill({ json: { client_id: "test-client", nonce: "test-nonce" } });
+  });
+  await page.route("**/v1/**", (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === "/v1/auth/config") return route.fulfill({ json: config });
+    if (pathname === "/v1/auth/external/signup/preview") return route.fulfill({ json: { proof_id: "a".repeat(64), provider: "google", name: "Provider Name", email: "person@example.com" } });
+    if (pathname === "/v1/auth/external/signup") {
+      submitted = route.request().postDataJSON();
+      return route.fulfill({ json: { redirect_to: returnTo } });
+    }
+    return route.fulfill({ status: 404, json: { error: { code: "not_found" } } });
+  });
+  await page.goto(`${servers[0].origin}/signup?return_to=${encodeURIComponent(returnTo)}`);
+  await page.getByRole("button", { name: "Continue with Google" }).waitFor();
+  const github = new URL(await page.getByRole("link", { name: "Continue with GitHub" }).getAttribute("href"), servers[0].origin);
+  assert.equal(new URL(github.searchParams.get("return_to"), servers[0].origin).pathname, returnTo.split("?")[0]);
+  const startsBeforeTyping = googleStarts;
+  await page.getByRole("textbox", { name: "Email", exact: true }).fill("typing@example.com");
+  // Typing into the email alternative must not invalidate Google's nonce.
+  await page.waitForTimeout(100);
+  assert.equal(googleStarts, startsBeforeTyping);
+  await auditPage(page, "public signup choices", { keyboard: true });
+  await page.getByRole("button", { name: "Continue with Google" }).click();
+  await page.getByRole("textbox", { name: "Name", exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Email", { exact: true }).inputValue(), "person@example.com");
+  assert.equal(await page.locator('input[type="password"]').count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Create account", exact: true }).isEnabled(), false);
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Chosen Name");
+  await auditPage(page, "provider signup confirmation", { keyboard: true });
+  await page.getByRole("checkbox").check();
+  await page.route(`**/authorize/**`, (route) => route.fulfill({ contentType: "text/html", body: "<h1>Continue authorization</h1>" }));
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await page.getByRole("heading", { name: "Continue authorization" }).waitFor();
+  assert.equal(new URL(page.url()).pathname + new URL(page.url()).search, returnTo);
+  assert.equal(submitted.proof_id, "a".repeat(64));
+  assert.equal(submitted.name, "Chosen Name");
+  assert.equal(submitted.terms_version, "terms-v1");
+  assert.equal(submitted.privacy_version, "privacy-v1");
+  assert.equal(typeof submitted.timezone, "string");
+  assert.equal("password" in submitted, false);
+  assert.equal("credential" in submitted, false);
+  assert.deepEqual(errors, []);
   await page.close();
 }
 

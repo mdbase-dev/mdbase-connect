@@ -31,6 +31,65 @@ plus-tags, remove dots, or apply provider-specific alias rules. Active
 normalized addresses are unique; retired identities remain available for
 audit while no longer reserving the address.
 
+## Public Google and GitHub signup
+
+`/signup` offers the configured identity providers alongside verified
+email/password registration. A provider callback for an existing identity signs
+in directly. In `open` mode, a new identity instead goes to a short account
+confirmation page: confirm the name and accept the current terms/privacy
+versions. No account or session exists before that confirmation succeeds.
+This also applies when a new person starts from `/login`, so the login button
+cannot bypass signup requirements.
+
+Google must supply a verified email. GitHub login requests only `user:email`
+(no repository access); Connect reads `/user/emails` and accepts only the
+verified primary email, including private addresses. An unverified or missing
+primary address cannot create an account: verify it at the provider, or use
+email signup. GitHub account-linking and deletion reauthentication retain their
+existing identity-only scope. Provider tokens are never persisted.
+
+The callback stores only the verified identity and the validated same-origin
+return target in `external_signup_challenges`, keyed by a random token's digest.
+The raw token is carried in a ten-minute HTTP-only, same-site cookie (`__Host-`
+and Secure on HTTPS), not a URL or browser storage. Expired proofs are removed
+when another proof is issued; consumed proofs are deleted immediately. Preview
+and confirmation use exact-origin POSTs at `/v1/auth/external/signup/preview`
+and `/v1/auth/external/signup`. Neither endpoint accepts a provider identity or
+credential from the browser. Preview returns a non-bearer `proof_id` (the
+random token's digest), which confirmation must echo alongside the HTTP-only
+cookie. This binds acceptance to the displayed identity and rejects a stale
+form when another tab replaces the cookie with a different provider proof.
+
+Confirmation locks and rereads the current registration/legal policy and
+atomically consumes the proof, claims the email, creates the account, verified
+primary email identity and session, records legal acceptance, grants
+`open_beta_v1`, schedules the welcome email, and schedules the starter
+collection. Password and provider signup share the onboarding implementation.
+The provider subject is transaction-locked, so independent concurrent proofs
+cannot duplicate onboarding; verified-email claims prevent cross-provider or
+password/provider races from creating duplicate accounts. Any failure rolls
+back proof consumption and all account writes. Existing accounts are not
+silently linked by email, renamed, or granted another signup allowance.
+
+`external_public_registration` is advertised only when registration is open,
+a provider is configured, current legal versions/URLs exist, and the shared
+authentication limiter is configured. Unlike password signup, provider signup
+does not depend on the password or email-delivery switches: the provider has
+already verified the address. Welcome email remains subject to the delivery
+policy. Issuance, preview and completion use separate PostgreSQL-backed rate
+scopes with keyed digests (10 attempts per proof/subject, 30 per network, and
+300 globally per hour). Preview does not consume completion's attempt budget.
+Closing registration blocks in-flight proofs as well as new issuance.
+Deconfiguring a provider also prevents its outstanding proofs being redeemed.
+
+The additive migration `0029_external_signup.sql` must run before the new
+server. Release the server and its bundled portal together; an older portal
+does not understand the confirmation page. Old server builds
+ignore the added table, but rolling back the server also restores its previous
+external-account-creation behavior. Allowlisted bootstrap creation in closed
+or invite mode is unchanged; existing external accounts are not retroactively
+converted into public-signup accounts.
+
 ## Password credentials
 
 New passwords are hashed with Argon2id using a unique library-generated salt
