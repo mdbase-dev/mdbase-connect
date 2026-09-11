@@ -4,7 +4,19 @@ set -euo pipefail
 repo_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 # shellcheck source=test/upgrade/lib.sh
 source "$repo_root/test/upgrade/lib.sh"
-# The release pin is resolved from the repository root above.
+case ${1:-} in
+  --retained-v2-pending)
+    [[ $# == 1 ]] || exit 2
+    source "$repo_root/.github/retained-v2-predecessor.env"
+    source "$repo_root/test/upgrade/server-retained-v2.sh"
+    server_retained_v2_run
+    exit $?
+    ;;
+  '') ;;
+  *) printf 'Usage: server-from-previous [--retained-v2-pending]\n' >&2; exit 2 ;;
+esac
+
+# The immediate predecessor is independent of the immutable beta95 regression.
 # shellcheck disable=SC1091
 source "$repo_root/.github/previous-release.env"
 

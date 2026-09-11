@@ -85,44 +85,66 @@ export function searchNoteResults(
   query: string,
   limit = Number.POSITIVE_INFINITY
 ): NoteSearchResult[] {
-  const tokens = normalize(query).split(/\s+/).filter(Boolean);
+  const tokens = normalize(query).split(/\s+/).filter(Boolean).map((text) => ({
+    text,
+    wordStart: new RegExp(`(?:^|[\\s/_.-])${escapeRegExp(text)}`)
+  }));
+  const contextTokens = highlightTokens(query);
   if (!tokens.length) {
-    return index.slice(0, limit).map((entry) => ({
-      note: entry.note,
-      context: searchContext(entry.note.path, query, "path")
-    }));
+    return index.slice(0, limit).map((entry) => {
+      let context: NoteSearchContext | undefined;
+      return {
+        note: entry.note,
+        get context() {
+          return context ??= searchContext(entry.note.path, contextTokens, "path");
+        }
+      };
+    });
   }
   return index
     .map((entry, order) => ({ entry, order, score: noteScore(entry, tokens) }))
     .filter((candidate) => Number.isFinite(candidate.score))
     .sort((left, right) => left.score - right.score || left.order - right.order)
     .slice(0, limit)
-    .map((candidate) => ({
-      note: candidate.entry.note,
-      context: bestSearchContext(candidate.entry, query, tokens)
-    }));
+    .map((candidate) => {
+      let context: NoteSearchContext | undefined;
+      return {
+        note: candidate.entry.note,
+        get context() {
+          return context ??= bestSearchContext(candidate.entry, contextTokens, tokens);
+        }
+      };
+    });
 }
 
-function noteScore(entry: NoteSearchEntry, tokens: string[]): number {
+interface SearchToken {
+  text: string;
+  wordStart: RegExp;
+}
+
+function noteScore(entry: NoteSearchEntry, tokens: SearchToken[]): number {
   let score = 0;
   for (const token of tokens) {
-    const tokenScore = Math.min(
+    let tokenScore = Math.min(
       fuzzyScore(entry.title, token),
       fuzzyScore(entry.filename, token) + 0.35,
-      fuzzyScore(entry.path, token) + 0.75,
-      substringScore(entry.metadata, token) + 2,
-      substringScore(entry.body, token) + 4
+      fuzzyScore(entry.path, token) + 0.75
     );
+    // Substring positions are nonnegative: these fields cannot improve a
+    // score already at or below their minimum weight.
+    if (tokenScore > 2) tokenScore = Math.min(tokenScore, substringScore(entry.metadata, token) + 2);
+    if (tokenScore > 4) tokenScore = Math.min(tokenScore, substringScore(entry.body, token) + 4);
     if (!Number.isFinite(tokenScore)) return Number.POSITIVE_INFINITY;
     score += tokenScore;
   }
   return score + Math.min(entry.path.length / 1_000, 0.25);
 }
 
-function fuzzyScore(value: string, query: string): number {
+function fuzzyScore(value: string, token: SearchToken): number {
+  const query = token.text;
   if (value === query) return 0;
   if (value.startsWith(query)) return 0.4;
-  const wordIndex = value.search(new RegExp(`(?:^|[\\s/_.-])${escapeRegExp(query)}`));
+  const wordIndex = value.search(token.wordStart);
   if (wordIndex >= 0) return 0.8 + wordIndex / 1_000;
   const substring = value.indexOf(query);
   if (substring >= 0) return 1.4 + substring / 1_000;
@@ -140,8 +162,8 @@ function fuzzyScore(value: string, query: string): number {
   return 2.2 + (last - first - query.length + 1) * 0.08 + first * 0.005;
 }
 
-function substringScore(value: string, query: string): number {
-  const index = value.indexOf(query);
+function substringScore(value: string, token: SearchToken): number {
+  const index = value.indexOf(token.text);
   return index < 0 ? Number.POSITIVE_INFINITY : index / 10_000;
 }
 
@@ -159,10 +181,17 @@ function collectSearchValues(value: unknown, values: string[]) {
   }
 }
 
-export function searchTextRanges(text: string, query: string): SearchTextRange[] {
-  const haystack = text.toLocaleLowerCase();
-  const tokens = [...new Set(query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean))]
+function highlightTokens(query: string): string[] {
+  return [...new Set(query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean))]
     .sort((left, right) => right.length - left.length);
+}
+
+export function searchTextRanges(text: string, query: string): SearchTextRange[] {
+  return textRanges(text, highlightTokens(query));
+}
+
+function textRanges(text: string, tokens: string[]): SearchTextRange[] {
+  const haystack = text.toLocaleLowerCase();
   const ranges: SearchTextRange[] = [];
   for (const token of tokens) {
     let from = haystack.indexOf(token);
@@ -175,7 +204,7 @@ export function searchTextRanges(text: string, query: string): SearchTextRange[]
   return ranges.sort((left, right) => left.from - right.from);
 }
 
-function bestSearchContext(entry: NoteSearchEntry, query: string, tokens: string[]): NoteSearchContext {
+function bestSearchContext(entry: NoteSearchEntry, query: string[], tokens: SearchToken[]): NoteSearchContext {
   const fields = [
     { kind: "title" as const, score: combinedScore(entry.title, tokens, fuzzyScore) },
     { kind: "filename" as const, score: combinedScore(entry.filename, tokens, fuzzyScore) + 0.35 },
@@ -191,8 +220,8 @@ function bestSearchContext(entry: NoteSearchEntry, query: string, tokens: string
 
 function combinedScore(
   value: string,
-  tokens: string[],
-  score: (value: string, query: string) => number
+  tokens: SearchToken[],
+  score: (value: string, query: SearchToken) => number
 ): number {
   let total = 0;
   for (const token of tokens) {
@@ -205,20 +234,19 @@ function combinedScore(
 
 function searchContext(
   value: string,
-  query: string,
+  query: string[],
   kind: NoteSearchContext["kind"],
   excerpted = false
 ): NoteSearchContext {
   const text = excerpted ? searchExcerpt(value, query) : value;
-  return { kind, text, ranges: searchTextRanges(text, query) };
+  return { kind, text, ranges: textRanges(text, query) };
 }
 
-function searchExcerpt(value: string, query: string, maximumLength = 104): string {
+function searchExcerpt(value: string, query: string[], maximumLength = 104): string {
   const text = value.replace(/\s+/g, " ").trim();
   if (text.length <= maximumLength) return text;
   const folded = text.toLocaleLowerCase();
-  const matches = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
-    .map((token) => folded.indexOf(token))
+  const matches = query.map((token) => folded.indexOf(token))
     .filter((index) => index >= 0);
   const anchor = matches.length ? Math.min(...matches) : 0;
   let from = Math.max(0, anchor - Math.floor(maximumLength * 0.34));

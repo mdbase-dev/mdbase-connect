@@ -16,6 +16,8 @@ export type ResolvedNoteEmbed = MarkdownReference & {
   error?: string;
 };
 
+const EMPTY_REFERENCES: MarkdownReference[] = [];
+
 type EmbedCacheOwner = { collectionId: string | undefined; epoch: number };
 type EmbedCacheStore = {
   gateway: Pick<CollectionGateway, "read">;
@@ -36,7 +38,7 @@ export function useEmbeddedNoteReferences(
   sourcePath?: string,
   visibleKeys?: ReadonlySet<string>
 ): ResolvedNoteEmbed[] {
-  const [, rerender] = useState(0);
+  const [cacheVersion, rerender] = useState(0);
   const store = useMemo<EmbedCacheStore>(() => ({
     gateway, collectionId: owner.collectionId, epoch: owner.epoch,
     documents: new Map(), errors: new Map(), pending: new Map()
@@ -55,8 +57,8 @@ export function useEmbeddedNoteReferences(
   const cache = store.documents;
   const errors = store.errors;
 
-  const [parsed, setParsed] = useState<{ source: string; references: MarkdownReference[] }>(() => ({ source: "", references: [] }));
-  const references = parsed.source === source ? parsed.references : [];
+  const [parsed, setParsed] = useState<{ source: string; references: MarkdownReference[] }>(() => ({ source: "", references: EMPTY_REFERENCES }));
+  const references = parsed.source === source ? parsed.references : EMPTY_REFERENCES;
   useEffect(() => {
     let active = true;
     void import("./markdown-references").then(({ markdownReferences }) => {
@@ -70,7 +72,8 @@ export function useEmbeddedNoteReferences(
     return () => { active = false; };
   }, [source]);
 
-  const resolved = references.flatMap((reference): ResolvedNoteEmbed[] => {
+  const notesByPath = useMemo(() => new Map(notes.map((note) => [note.path, note])), [notes]);
+  const resolved = useMemo(() => references.flatMap((reference): ResolvedNoteEmbed[] => {
     const key = `${reference.from}:${reference.to}`;
     const matches = reference.target
       ? resolveLinkSuggestionMatches(reference.target, suggestions, sourcePath, reference.format)
@@ -93,7 +96,7 @@ export function useEmbeddedNoteReferences(
     if (path === sourcePath) {
       return [{ ...reference, key, status: "cycle", path, title: suggestion.title }];
     }
-    const note = notes.find((candidate) => candidate.path === path);
+    const note = notesByPath.get(path);
     const cached = cache.get(path);
     const body = typeof note?.body === "string" ? note.body : cached?.body;
     const error = errors.get(path);
@@ -118,7 +121,7 @@ export function useEmbeddedNoteReferences(
       body: fragment,
       revision: cached?.revision
     }];
-  });
+  }), [references, suggestions, sourcePath, files, notesByPath, store, cache, errors, cacheVersion]);
 
   const requests = resolved.filter((reference) => (
     reference.status === "loading"

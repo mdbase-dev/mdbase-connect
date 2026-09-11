@@ -14,12 +14,17 @@ const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
 const operationCatalog = JSON.parse(readFileSync(operationCatalogPath, "utf8"));
 const manifestSchema = JSON.parse(readFileSync(manifestSchemaPath, "utf8"));
 const check = process.argv.includes("--check");
+const freshV2Capability = "application-authorization-v2-issuance";
 const issuancePolicy = JSON.parse(readFileSync(resolve(root, "config/application-issuance-policy.json"), "utf8"));
 // This is an artifact policy, not part of either immutable capability catalog.
 // Enabling v2 issuance requires a separately reviewed source/artifact change.
-if (issuancePolicy.policy_version !== 1 || issuancePolicy.phase !== "compatibility-prelude"
-    || JSON.stringify(issuancePolicy.fresh_semantic_versions) !== "[1]") {
-  throw new Error("The compatibility prelude must permit fresh authorization only for semantic version 1.");
+if (issuancePolicy.policy_version !== 1 || !(
+  (issuancePolicy.phase === "compatibility-prelude"
+    && JSON.stringify(issuancePolicy.fresh_semantic_versions) === "[1]")
+  || (issuancePolicy.phase === "v2-enablement"
+    && JSON.stringify(issuancePolicy.fresh_semantic_versions) === "[1,2]")
+)) {
+  throw new Error("Invalid application issuance policy phase/version combination.");
 }
 
 validateCatalog(catalog, operationCatalog, manifestSchema);
@@ -32,6 +37,9 @@ function issuanceTypescriptSource() {
 /** Fresh issuance only; never use this ceiling to reject retained authority or terminal replay. */
 export const FRESH_APPLICATION_AUTHORIZATION_VERSIONS = Object.freeze(${JSON.stringify(issuancePolicy.fresh_semantic_versions)} as const);
 
+export const APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY = ${JSON.stringify(freshV2Capability)} as const;
+export const FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES: readonly string[] = Object.freeze(${JSON.stringify(issuancePolicy.fresh_semantic_versions.includes(2) ? [freshV2Capability] : [])});
+
 export function permitsFreshApplicationAuthorization(version: number): boolean {
   return FRESH_APPLICATION_AUTHORIZATION_VERSIONS.some((supported) => supported === version);
 }
@@ -42,6 +50,10 @@ function issuanceRustSource() {
   return `
 /// Fresh issuance only, not retained authority enforcement or terminal replay.
 pub const FRESH_APPLICATION_AUTHORIZATION_VERSIONS: &[u32] = &[${issuancePolicy.fresh_semantic_versions.join(", ")}];
+
+pub const APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY: &str =
+    ${JSON.stringify(freshV2Capability)};
+pub const FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES: &[&str] =${issuancePolicy.fresh_semantic_versions.includes(2) ? '\n    &[' + JSON.stringify(freshV2Capability) + ']' : ' &[]'};
 
 pub fn permits_fresh_application_authorization(version: u32) -> bool {
     FRESH_APPLICATION_AUTHORIZATION_VERSIONS.contains(&version)

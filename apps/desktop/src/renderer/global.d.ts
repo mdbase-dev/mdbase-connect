@@ -348,6 +348,8 @@ interface Window {
     getCloudConfig(): Promise<CloudSetting>;
     openAccount(): Promise<void>;
     openAuthorization(requestId: string): Promise<void>;
+    approveAuthorization(input: { requestId: string; collectionId: string; operations: string[] }): Promise<unknown>;
+    denyAuthorization(requestId: string): Promise<unknown>;
     setCloudConfig(input: { serverUrl: string; connectorToken: string }): Promise<CloudSetting>;
     clearCloudConfig(): Promise<CloudSetting>;
     beginPairing(input: { serverUrl: string; connectorName: string }): Promise<{

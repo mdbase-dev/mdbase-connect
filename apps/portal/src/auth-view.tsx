@@ -27,6 +27,7 @@ export function Login() {
         }
         try {
           setConfig(await api<AuthConfig>("/v1/auth/config"));
+          setError("");
         } catch (configError) {
           setError(message(configError));
         }

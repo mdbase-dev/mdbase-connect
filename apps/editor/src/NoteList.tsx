@@ -8,7 +8,7 @@ import { noteSortSummary, moveListIndex, type NoteSort, type ListNavigationKey }
 import { NoteListViewOptions } from "./NoteListViewOptions";
 import { notePreviewPopoverId, type NotePreviewAnchor, type NotePreviewSource } from "./NotePreview";
 import { isPhosphorIconName, PhosphorIcon, collectionTypeIcon } from "./PhosphorIcon";
-import { searchTextRanges, type NoteSearchContext } from "./note-search";
+import { searchTextRanges, type NoteSearchResult } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
 import { browserListItems, collectionFileFormat, collectionFileTitle, formatFileSize, type CollectionBrowserEntry } from "./collection-browser";
 
@@ -35,7 +35,7 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
   statuses: Map<string, NoteRowStatus>;
   search: string;
   searchQuery: string;
-  searchContexts: Map<string, NoteSearchContext>;
+  searchContexts: Map<string, NoteSearchResult>;
   sort: NoteSort;
   scopeLabel?: string;
   collectionName: string;
@@ -132,7 +132,7 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
         }
         const note = entry.note;
         const status: NoteRowStatus | undefined = pendingPath === note.path ? { label: "Opening", tone: "busy", busy: true } : statuses.get(note.path);
-        const searchContext = searchQuery.trim() ? searchContexts.get(note.path) : undefined;
+        const searchContext = searchQuery.trim() ? searchContexts.get(note.path)?.context : undefined;
         const title = noteTitle(note, types);
         const typeIcon = note.types.map((type) => typeIcons.get(type)).find(isPhosphorIconName);
         const requestPreview = (target: HTMLButtonElement) => {

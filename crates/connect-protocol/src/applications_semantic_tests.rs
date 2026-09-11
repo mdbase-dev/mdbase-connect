@@ -2,6 +2,21 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn fresh_issuance_advertisement_matches_artifact_policy_not_retained_readers() {
+    assert_eq!(
+        FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES
+            .contains(&APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY),
+        permits_fresh_application_authorization(2)
+    );
+    assert!(ConnectContractSupport::default()
+        .semantic_capabilities
+        .contains(&2));
+    assert!(FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES
+        .iter()
+        .all(|capability| *capability == APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY));
+}
+
+#[test]
 fn file_declaration_versions_roundtrip_without_synthesizing_legacy_fields() {
     for (version, files) in [
         (

@@ -258,7 +258,7 @@ impl AgentState {
             .snapshot()
             .await
             .map_err(crate::cloud::CloudSnapshotError::into_connect_error)?;
-        let pending = snapshot
+        snapshot
             .pending_authorizations
             .iter()
             .find(|pending| pending.id == params.request_id)
@@ -276,17 +276,9 @@ impl AgentState {
                 description.display_name
             )));
         }
-        let contracts = self
-            .ensure_application_types(
-                params.collection_id,
-                &pending.application_family_identity,
-                &pending.application_manifest_digest,
-                &pending.requirements,
-                &pending.provisions,
-                &params.contract_setups,
-            )
-            .await?;
-        cloud.approve_authorization(params, &contracts).await
+        // The snapshot is discovery only. Setup must run inside authenticated
+        // relay activation after explicit approval, including for v2.
+        cloud.approve_authorization(params).await
     }
 
     pub(super) async fn create_grant(

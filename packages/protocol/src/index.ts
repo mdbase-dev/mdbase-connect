@@ -1,3 +1,4 @@
+import { FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES } from "./capabilities.js";
 import type { ConnectProblem } from "./connect-problems.generated.js";
 import type {
   ApplicationFileRequirement,
@@ -50,12 +51,14 @@ export const HOSTED_PROVIDER_REQUIRED_CAPABILITIES = [
 export const HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY =
   "candidate-b-activation-v1" as const;
 export const HOSTED_PROVIDER_CAPABILITIES = [
+  ...FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES,
   ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
   "mutation-replay-after-credential-retirement-v1",
   HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY
 ] as const;
 export const APPLICATION_DECLARATION_EVIDENCE_CAPABILITY = "application-declaration-evidence-v1" as const;
 export const RELAY_CAPABILITIES = [
+  ...FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES,
   APPLICATION_DECLARATION_EVIDENCE_CAPABILITY,
   ...RELAY_REQUIRED_CAPABILITIES,
   POLICY_FRESHNESS_LEASE_CAPABILITY,

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { RELAY_CAPABILITIES, RELAY_REQUIRED_CAPABILITIES, HOSTED_PROVIDER_CAPABILITIES,
+  APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY, FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES } from "../dist/index.js";
 import {
   APPLICATION_CAPABILITY_V1_DEFINITIONS,
   APPLICATION_CAPABILITY_V1_CONTRACT_VERSION,
@@ -18,12 +20,22 @@ import {
   operationsForApplicationCapabilities
 } from "../dist/capabilities.js";
 
-test("prelude issuance ceiling is independent of v2 reader support", () => {
-  assert.deepEqual(FRESH_APPLICATION_AUTHORIZATION_VERSIONS, [1]);
+test("fresh receiver advertisements track artifact issuance without raising the handshake floor", () => {
+  const flag = APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY;
+  for (const capabilities of [RELAY_CAPABILITIES, HOSTED_PROVIDER_CAPABILITIES,
+    FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES]) {
+    assert.equal(capabilities.includes(flag), permitsFreshApplicationAuthorization(2));
+  }
+  assert.equal(RELAY_REQUIRED_CAPABILITIES.includes(flag), false);
+});
+
+test("enablement explicitly permits both versions without permitting unknown semantics", () => {
+  assert.deepEqual(FRESH_APPLICATION_AUTHORIZATION_VERSIONS, [1, 2]);
   assert.equal(Object.isFrozen(FRESH_APPLICATION_AUTHORIZATION_VERSIONS), true);
   assert.throws(() => FRESH_APPLICATION_AUTHORIZATION_VERSIONS.push(2), TypeError);
   assert.equal(permitsFreshApplicationAuthorization(1), true);
-  for (const version of [0, 2, 3, -1, 1.5, NaN, Infinity, undefined, null, "1"]) {
+  assert.equal(permitsFreshApplicationAuthorization(2), true);
+  for (const version of [0, 3, -1, 1.5, NaN, Infinity, undefined, null, "1", "2"]) {
     assert.equal(permitsFreshApplicationAuthorization(version), false, String(version));
   }
   assert.equal(APPLICATION_CAPABILITY_CONTRACT_VERSION, 2);
@@ -144,9 +156,10 @@ test("generated Rust compiles and resolves both catalogs exactly like TypeScript
         }
       }
     }
-    assertions.push("assert_eq!(FRESH_APPLICATION_AUTHORIZATION_VERSIONS, &[1]);");
+    assertions.push("assert_eq!(FRESH_APPLICATION_AUTHORIZATION_VERSIONS, &[1, 2]);");
     assertions.push("assert!(permits_fresh_application_authorization(1));");
-    for (const version of [0, 2, 3, 4294967295]) {
+    assertions.push("assert!(permits_fresh_application_authorization(2));");
+    for (const version of [0, 3, 4294967295]) {
       assertions.push(`assert!(!permits_fresh_application_authorization(${version}));`);
     }
     for (const version of [0, 3, 4294967295]) {

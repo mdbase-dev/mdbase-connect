@@ -11,6 +11,33 @@ use support::FileLifecycleFixture;
 use test_postgres::DisposablePostgres;
 use uuid::Uuid;
 
+// Snapshot every ordinary table in this fixture's UUID-scoped schema, including
+// collection resources, contracts, receipts/journal, and retained replica state.
+// Sort both tables and complete rows so physical row order cannot affect equality.
+async fn snapshot_setup_fixture_tables(
+    pool: &sqlx::PgPool,
+) -> std::collections::BTreeMap<String, Value> {
+    let tables: Vec<String> = sqlx::query_scalar(
+        "SELECT c.relname::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relkind='r' ORDER BY c.relname",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert!(!tables.is_empty(), "fixture schema must contain tables");
+    let mut snapshot = std::collections::BTreeMap::new();
+    for table in tables {
+        let quoted = table.replace('"', "\"\"");
+        let rows: Value = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT COALESCE(jsonb_agg(row_data ORDER BY row_data::text), '[]'::jsonb) FROM (SELECT to_jsonb(t) AS row_data FROM \"{quoted}\" t) rows"
+        )))
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        snapshot.insert(table, rows);
+    }
+    snapshot
+}
+
 #[tokio::test]
 #[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
 async fn setup_evidence_denials_precede_journal_and_collection_effects() {
@@ -44,20 +71,19 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
         token: token.clone(),
         token_ttl_seconds: None,
     };
-    let denied = fixture
+    // Install fresh v2 through the actual provider, without seeding authority.
+    fixture
         .provider
         .register_application_replica_v2(fixture.collection_id, policy.clone())
         .await
-        .unwrap_err();
-    assert_eq!(denied.code, "application_authorization_issuance_disabled");
-    let absent: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM hosted_provider_replicas WHERE id=$1")
+        .unwrap();
+    let installed: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM hosted_provider_replicas WHERE id=$1 AND application_semantic_version=2")
             .bind(replica_id)
             .fetch_one(&fixture.pool)
             .await
             .unwrap();
-    assert_eq!(absent, 0);
-    fixture::seed_committed_v2(&fixture.pool, fixture.collection_id, &policy).await;
+    assert_eq!(installed, 1);
     fixture
         .provider
         .register_application_replica_v2(fixture.collection_id, policy.clone())
@@ -89,6 +115,62 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
     });
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let client = reqwest::Client::new();
+    // Reuse the actual internal router. A nonexistent collection ensures the
+    // version check wins over any provider setup lookup, not just over writes.
+    for version in [None, Some(0), Some(1), Some(3), Some(255)] {
+        let mut setup = exact.clone();
+        setup["requirements"]["capabilities"] = match version {
+            Some(version) => json!({"contract_version": version, "required": ["collection.read"]}),
+            None => Value::Null,
+        };
+        let denied = client
+            .post(format!(
+                "http://{address}/internal/v1/collections/{}/fresh-application-setup-v2",
+                Uuid::new_v4()
+            ))
+            .bearer_auth(&internal_token)
+            .json(&setup)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), reqwest::StatusCode::BAD_REQUEST);
+        let denied: Value = denied.json().await.unwrap();
+        assert_eq!(
+            denied["error"]["code"],
+            "application_semantic_version_mismatch"
+        );
+    }
+    // The same gate must leave an existing collection unchanged even when the
+    // request contains the exact declaration's effectful setup provisions.
+    for version in [None, Some(0), Some(1), Some(3), Some(255)] {
+        let mut setup = exact.clone();
+        setup["requirements"]["capabilities"] = match version {
+            Some(version) => json!({"contract_version": version, "required": ["collection.read"]}),
+            None => Value::Null,
+        };
+        let before = snapshot_setup_fixture_tables(&fixture.pool).await;
+        let denied = client
+            .post(format!(
+                "http://{address}/internal/v1/collections/{}/fresh-application-setup-v2",
+                fixture.collection_id
+            ))
+            .bearer_auth(&internal_token)
+            .json(&setup)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), reqwest::StatusCode::BAD_REQUEST);
+        let denied: Value = denied.json().await.unwrap();
+        assert_eq!(
+            denied["error"]["code"],
+            "application_semantic_version_mismatch"
+        );
+        let after = snapshot_setup_fixture_tables(&fixture.pool).await;
+        assert!(
+            before == after,
+            "fresh setup denial must have no durable effects (semantic version {version:?})"
+        );
+    }
     let url = format!("http://{address}/internal/v2/replicas/{replica_id}/policy");
     let mut missing = update.clone();
     missing
@@ -129,6 +211,8 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
     assert_eq!(accepted.status(), reqwest::StatusCode::CREATED);
     let mut fresh = registration.clone();
     fresh["replica_id"] = json!(Uuid::new_v4());
+    fresh["application_setup_evidence"]["application_authorization"]["signature"] =
+        json!("invalid");
     let before_denials: Value = sqlx::query_scalar(
         "SELECT jsonb_build_array(head, encode(resources_ciphertext,'hex'), (SELECT count(*) FROM hosted_provider_mutation_journal), (SELECT count(*) FROM hosted_provider_replicas), (SELECT count(*) FROM hosted_provider_retired_replay_credentials)) FROM hosted_provider_collections WHERE id=$1"
     ).bind(fixture.collection_id).fetch_one(&fixture.pool).await.unwrap();
@@ -153,12 +237,14 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
     ] {
         let mut expanded = update.clone();
         expanded[field] = value;
+        expanded["application_setup_evidence"]["application_authorization"]["signature"] =
+            json!("invalid");
         let denied = fixture
             .provider
             .update_application_replica_v2(replica_id, serde_json::from_value(expanded).unwrap())
             .await
             .unwrap_err();
-        assert_eq!(denied.code, "application_authorization_issuance_disabled");
+        assert_eq!(denied.code, "application_declaration_mismatch");
     }
     let after_denials: Value = sqlx::query_scalar(
         "SELECT jsonb_build_array(head, encode(resources_ciphertext,'hex'), (SELECT count(*) FROM hosted_provider_mutation_journal), (SELECT count(*) FROM hosted_provider_replicas), (SELECT count(*) FROM hosted_provider_retired_replay_credentials)) FROM hosted_provider_collections WHERE id=$1"
@@ -172,7 +258,11 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
     revoked_policy.replica_id = Uuid::new_v4();
     revoked_policy.grant_id = Some(Uuid::new_v4());
     revoked_policy.token = format!("revoked-fixture-{}", Uuid::new_v4());
-    fixture::seed_committed_v2(&fixture.pool, fixture.collection_id, &revoked_policy).await;
+    fixture
+        .provider
+        .register_application_replica_v2(fixture.collection_id, revoked_policy.clone())
+        .await
+        .unwrap();
     fixture
         .provider
         .revoke_replica(revoked_policy.replica_id)
@@ -258,12 +348,14 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
     assert_eq!(version, 1);
     let mut promotion = update.clone();
     promotion["grant_id"] = registration["grant_id"].clone();
+    promotion["application_setup_evidence"]["application_authorization"]["signature"] =
+        json!("invalid");
     let denied = fixture
         .provider
         .update_application_replica_v2(legacy_id, serde_json::from_value(promotion).unwrap())
         .await
         .unwrap_err();
-    assert_eq!(denied.code, "application_authorization_issuance_disabled");
+    assert_eq!(denied.code, "application_declaration_mismatch");
     let mut legacy_input = exact.clone();
     legacy_input["requirements"]["configuration"][0]["value"] = json!("legacy-original-semantics");
     legacy_input["provisions"]["configuration"][0]["value"] = json!("legacy-original-semantics");
@@ -469,8 +561,7 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
     assert_eq!(applied["valid"], true, "{applied}");
 
     // A terminal receipt belongs to the exact request, not to today's declaration.
-    // Valid B is fresh issuance and must be denied by the real policy API.
-    // A test-only precommitted B fixture retains historical receipt coverage.
+    // Install valid B through fresh issuance, then recover A's exact receipt.
     let mut update_b = update.clone();
     update_b["application_declaration_digest"] = json!(format!(
         "sha256:{}",
@@ -486,8 +577,7 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
             serde_json::from_value(update_b.clone()).unwrap(),
         )
         .await
-        .unwrap_err();
-    fixture::seed_committed_v2_declaration(&fixture.pool, replica_id, &update_b).await;
+        .unwrap();
     let committed: (i64, Vec<u8>) = sqlx::query_as(
         "SELECT head, resources_ciphertext FROM hosted_provider_collections WHERE id=$1",
     )
@@ -604,7 +694,7 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
         "tombstone responses must not re-journal the request"
     );
 
-    // Retained authority can genuinely narrow, but cannot re-expand or resurrect.
+    // Fresh enablement permits a valid policy change after narrowing, not resurrection.
     let mut narrowing = update_b;
     narrowing["allowed_operations"] = json!(["assess_collection_setup"]);
     narrowing["mode"] = json!("read_only");
@@ -618,12 +708,11 @@ async fn setup_evidence_denials_precede_journal_and_collection_effects() {
         .unwrap();
     narrowing["allowed_operations"] = json!(["assess_collection_setup", "apply_collection_setup"]);
     narrowing["mode"] = json!("read_write");
-    let denied = fixture
+    fixture
         .provider
         .update_application_replica_v2(replica_id, serde_json::from_value(narrowing).unwrap())
         .await
-        .unwrap_err();
-    assert_eq!(denied.code, "application_authorization_issuance_disabled");
+        .unwrap();
     fixture.provider.revoke_replica(replica_id).await.unwrap();
     assert!(fixture
         .provider

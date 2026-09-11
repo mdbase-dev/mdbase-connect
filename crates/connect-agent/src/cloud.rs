@@ -610,18 +610,17 @@ impl CloudControlClient {
     pub async fn approve_authorization(
         &self,
         params: &AuthorizationApproveParams,
-        contracts: &[mdbase_connect_protocol::CollectionContractDescriptor],
     ) -> Result<Value, ConnectError> {
-        self.json(
+        self.external_json(
             Method::POST,
             &format!(
-                "/v1/connectors/authorization-requests/{}/approve",
-                params.request_id
+                "{}/v1/connectors/authorization-requests/{}/approve",
+                self.server_url, params.request_id
             ),
+            &self.connector_token,
             Some(serde_json::json!({
                 "collection_id": params.collection_id,
                 "operations": params.operations,
-                "contracts": contracts,
                 "contract_setups": params.contract_setups,
             })),
         )

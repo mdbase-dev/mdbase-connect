@@ -1876,13 +1876,9 @@ schema:
         contracts,
         ...(access ? { access } : {}),
         capabilities: {
-          contract_version: 1,
-          required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"],
-          optional: [
-            "records.create", "records.update", "records.rename", "records.delete",
-            "views.source.create", "views.source.update", "views.source.delete",
-            "definitions.create", "definitions.update", "definitions.type-pack.inspect", "definitions.type-pack.apply"
-          ]
+          contract_version: 2,
+          required: ["collection.read"],
+          optional: ["records.create", "records.edit", "records.delete", "views.manage", "definitions.manage"]
         }
       }
     }));
@@ -1900,13 +1896,9 @@ schema:
       contracts,
       ...(access ? { access } : {}),
       capabilities: {
-        contract_version: 1,
-        required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"],
-        optional: [
-          "records.create", "records.update", "records.rename", "records.delete",
-          "views.source.create", "views.source.update", "views.source.delete",
-          "definitions.create", "definitions.update", "definitions.type-pack.inspect", "definitions.type-pack.apply"
-        ]
+        contract_version: 2,
+        required: ["collection.read"],
+        optional: ["records.create", "records.edit", "records.delete", "views.manage", "definitions.manage"]
       }
     }
   };

@@ -504,6 +504,23 @@ function registerIpc(): void {
     }
     return requestReadyAgent("account.rename-computer", { name: name.trim() }, 10_000);
   });
+  ipcMain.handle("connect:authorizations:approve", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid authorization input.");
+    if (typeof value.requestId !== "string" || typeof value.collectionId !== "string"
+      || !Array.isArray(value.operations) || !value.operations.every((operation) => typeof operation === "string")) {
+      throw new Error("Choose a request, collection, and permissions.");
+    }
+    return requestReadyAgent("authorizations.approve", {
+      request_id: value.requestId, collection_id: value.collectionId,
+      operations: value.operations, contract_setups: []
+    }, 75_000);
+  });
+  ipcMain.handle("connect:authorizations:deny", async (event, requestId: unknown) => {
+    trustedIpc(event);
+    if (typeof requestId !== "string") throw new Error("Invalid authorization request.");
+    return requestReadyAgent("authorizations.deny", { request_id: requestId }, 10_000);
+  });
   ipcMain.handle("connect:grants:create", async (event, input: unknown) => {
     trustedIpc(event);
     return requestReadyAgent("grants.create", grantInput(input, true), 10_000);

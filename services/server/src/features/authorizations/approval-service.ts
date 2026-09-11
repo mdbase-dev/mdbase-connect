@@ -601,6 +601,8 @@ export async function approveHostedAuthorization(
       pending.notifications,
       pending.provisions
     );
+    const freshV2 = pending.requirements.capabilities?.contract_version === 2;
+    if (freshV2) await provider.assertFreshV2AuthorizationSupport();
     const hostedCollection = await connection.query(
       `SELECT id FROM hosted_collections
        WHERE id = $1 AND quarantined_at IS NULL
@@ -724,11 +726,7 @@ export async function approveHostedAuthorization(
           pending.redirect_uri!,
           pending.application_homepage
         );
-    const allowedOrigin = pending.flow === "device_code"
-      ? pending.device_origin ?? "null"
-      : ["http:", "https:"].includes(new URL(pending.redirect_uri!).protocol)
-        ? new URL(pending.redirect_uri!).origin
-        : undefined;
+    const allowedOrigin = applicationOrigin;
     const applicationInstallationId =
       pending.application_authorization.binding.application_installation_id;
     const existing = await retainedReplicaPolicy.loadCandidates(connection, {
@@ -818,6 +816,7 @@ export async function approveHostedAuthorization(
       applicationDeclaration: pending.application_declaration,
       applicationAuthorization: pending.application_authorization
     };
+    if (freshV2) await provider.assertFreshV2AuthorizationSupport();
     if (retained) {
       compensateRetainedReplica = retainedReplicaPolicy.compensation(
         provider,
@@ -920,6 +919,7 @@ export async function approveHostedAuthorization(
       source: "portal"
     });
     await syncHostedNotificationGrant(connection, provider, grantId);
+    if (freshV2) await provider.assertFreshV2AuthorizationSupport();
     await connection.query("COMMIT");
     return true;
   } catch (error) {

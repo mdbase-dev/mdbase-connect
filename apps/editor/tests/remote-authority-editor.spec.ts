@@ -144,6 +144,9 @@ class RemoteAuthorityHarness {
   private async control(route: Route) {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname === "/health") {
+      return json(route, { ok: true, capabilities: ["application-authorization-v2-issuance"] });
+    }
     if (url.pathname === "/v1/apps/register") {
       expectEditorRegistration(request.postDataJSON());
       return json(route, {
