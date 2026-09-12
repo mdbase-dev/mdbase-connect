@@ -27,10 +27,10 @@ test("upgrade pins the exact immediate predecessor", async () => {
   );
   assert.equal(fixture, `# Exact server image from the release immediately preceding this candidate.
 # Update this file as part of each release-preparation change.
-MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.96
-MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=56ed32ffde055d2ab2b22ff95722df8ef06bdb1d
-MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:84bb6bf960046d303a7333a3d52ffeeab96feb06a8b3d311a75ccd1f3af09b59
-MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:dbd58b57dc280d2ee1de5cac53e92e813be02f108de4c1327ee53ee2d363625d
+MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.97
+MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=b34ba70fd0a13d13b42d5de20f29dd04d5582272
+MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:028e4218195134f24390ed8630548a1a65a4e3e05b2b1e5c705be38660121cbc
+MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:5f2b772c0c76ebcf2fa9ca74ad3a0531272ccab3466eec4657522bec013d4b87
 `);
 });
 
