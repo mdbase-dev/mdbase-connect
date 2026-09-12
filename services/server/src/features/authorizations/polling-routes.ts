@@ -11,7 +11,7 @@ import {
 } from "../../security.js";
 import { apiError, oauthError } from "../../platform/http-errors.js";
 import type { AuthorizationRouteOptions } from "./route-options.js";
-import { issueApplicationTokens } from "./token-service.js";
+import { issueApplicationTokens, lockApplicationGrantAuthority } from "./token-service.js";
 
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
@@ -108,6 +108,7 @@ export function registerAuthorizationPollingRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
+        await lockApplicationGrantAuthority(connection, pending.grant_id);
         const consumed = await connection.query<{ grant_id: string }>(
           `UPDATE authorization_requests SET device_consumed_at = now()
            WHERE id = $1 AND device_consumed_at IS NULL
@@ -161,14 +162,27 @@ export function registerAuthorizationPollingRoutes(
         || !safeEqual(authorizationCode.code_challenge, pkceChallenge(input.code_verifier))) {
         return reply.code(400).send(apiError("invalid_grant", "Authorization code is invalid or expired."));
       }
-      const consumed = await options.db.query(
-        "UPDATE authorization_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id",
-        [authorizationCode.id]
-      );
-      if (!consumed.rows[0]) {
-        return reply.code(400).send(apiError("invalid_grant", "Authorization code has already been used."));
+      const connection = await options.db.connect();
+      try {
+        await connection.query("BEGIN");
+        await lockApplicationGrantAuthority(connection, authorizationCode.grant_id);
+        const consumed = await connection.query(
+          "UPDATE authorization_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id",
+          [authorizationCode.id]
+        );
+        if (!consumed.rows[0]) {
+          await connection.query("ROLLBACK");
+          return reply.code(400).send(apiError("invalid_grant", "Authorization code has already been used."));
+        }
+        const tokens = await issueApplicationTokens(connection, options.hostedProvider, authorizationCode.grant_id);
+        await connection.query("COMMIT");
+        return tokens;
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally {
+        connection.release();
       }
-      return issueApplicationTokens(options.db, options.hostedProvider, authorizationCode.grant_id);
     }
 
     const refresh = await options.db.query<{
@@ -215,14 +229,27 @@ export function registerAuthorizationPollingRoutes(
         ));
       }
     }
-    const rotated = await options.db.query(
-      `UPDATE refresh_tokens SET used_at = now()
-       WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL RETURNING id`,
-      [current.id]
-    );
-    if (!rotated.rows[0]) {
-      return reply.code(400).send(apiError("invalid_grant", "Refresh token has already been used."));
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      await lockApplicationGrantAuthority(connection, current.grant_id);
+      const rotated = await connection.query(
+        `UPDATE refresh_tokens SET used_at = now()
+         WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL RETURNING id`,
+        [current.id]
+      );
+      if (!rotated.rows[0]) {
+        await connection.query("ROLLBACK");
+        return reply.code(400).send(apiError("invalid_grant", "Refresh token has already been used."));
+      }
+      const tokens = await issueApplicationTokens(connection, options.hostedProvider, current.grant_id);
+      await connection.query("COMMIT");
+      return tokens;
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
     }
-    return issueApplicationTokens(options.db, options.hostedProvider, current.grant_id);
   });
 }

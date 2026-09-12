@@ -321,6 +321,19 @@ export function registerHostedToLocalTransferRoutes(
             "Authority transfer is no longer active."
           ));
         }
+        await connection.query("SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE", [current.hosted_collection_id]);
+        const shared = await connection.query(
+          `SELECT id FROM collection_memberships WHERE collection_id = $1 AND state <> 'revoked'
+           UNION SELECT id FROM collection_invitations WHERE collection_id = $1 AND state = 'pending'`,
+          [current.hosted_collection_id]
+        );
+        if (shared.rows.length > 0) {
+          await connection.query("ROLLBACK");
+          return reply.code(409).send(apiError(
+            "authority_transfer_shared_collection",
+            "Remove shared members and cancel pending invitations before moving this collection to a computer."
+          ));
+        }
         const prepared = options.hostedProvider
           ? await options.hostedProvider.prepareAuthorityTransfer(
               current.hosted_collection_id,

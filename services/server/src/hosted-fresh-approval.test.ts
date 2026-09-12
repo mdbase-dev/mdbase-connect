@@ -30,5 +30,5 @@ it("v2-enabled approval refuses a prelude provider before any setup, replica or 
   expect(register).not.toHaveBeenCalled();
   expect(update).not.toHaveBeenCalled();
   expect(fetch.mock.calls.map(([, init]) => init?.method)).toEqual(["GET"]);
-  expect(query.mock.calls.map(([sql]) => sql.trim().split(/\s/u)[0])).toEqual(["BEGIN", "SELECT", "ROLLBACK"]);
+  expect(query.mock.calls.map(([sql]) => sql.trim().split(/\s/u)[0])).toEqual(["BEGIN", "SELECT", "SELECT", "ROLLBACK"]);
 });

@@ -134,6 +134,47 @@ describe("ConnectManagementClient", () => {
       });
   });
 
+  it("uses exact collection sharing routes and payloads", async () => {
+    const fetch = vi.fn(async () => Response.json({
+      members: [],
+      invitations: [],
+      invitation: { token: "cinv_token" },
+      membership: { id: "membership", collection_id: "collection" }
+    }));
+    vi.stubGlobal("fetch", fetch);
+    const client = new ConnectManagementClient("https://connect.example");
+
+    await client.collectionMembers("collection");
+    await client.collectionInvitations("collection");
+    await client.createCollectionInvitation("collection", {
+      email: "member@example.com",
+      role: "editor"
+    });
+    await client.changeCollectionMemberRole("collection", "membership", "viewer");
+    await client.revokeCollectionMember("collection", "membership");
+    await client.cancelCollectionInvitation("collection", "invitation");
+    await client.acceptCollectionInvitation("cinv_token");
+
+    expect(fetch).toHaveBeenNthCalledWith(3,
+      new URL("https://connect.example/v1/hosted/collections/collection/invitations"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email: "member@example.com", role: "editor" })
+      })
+    );
+    expect(fetch).toHaveBeenNthCalledWith(4,
+      new URL("https://connect.example/v1/hosted/collections/collection/members/membership"),
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ role: "viewer" }) })
+    );
+    expect(fetch).toHaveBeenNthCalledWith(7,
+      new URL("https://connect.example/v1/hosted/collection-invitations/accept"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ token: "cinv_token" })
+      })
+    );
+  });
+
   it("exposes account management without leaking editor URLs into OAuth state", async () => {
     const fetch = vi.fn(async () => Response.json({
       client_id: "google-client",

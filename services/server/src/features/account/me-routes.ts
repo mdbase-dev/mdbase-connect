@@ -29,6 +29,7 @@ interface AccountOverviewRouteOptions {
   authenticationPolicy: AuthenticationPolicyStore;
   tailscaleAuth?: boolean;
   hostedCollections?: boolean;
+  hostedSharing?: boolean;
   hostedProvider?: HostedProviderClient;
   hostedReference?: HostedAuthorityRegistry;
 }
@@ -127,6 +128,19 @@ export function registerAccountOverviewRoute(
         ))
       })))
     };
+    if (!options.hostedSharing) {
+      const history = await options.db.query<{ collection_id: string }>(
+        `SELECT collection_id FROM collection_memberships WHERE state <> 'revoked'
+           AND collection_id IN (SELECT id FROM hosted_collections WHERE user_id = $1)
+         UNION SELECT collection_id FROM collection_invitations WHERE state = 'pending'
+           AND collection_id IN (SELECT id FROM hosted_collections WHERE user_id = $1)`,
+        [user.id]
+      );
+      const shared = new Set(history.rows.map((row) => row.collection_id));
+      for (const collection of hostedCollections.rows) {
+        collection.access.can_manage_members &&= shared.has(collection.id);
+      }
+    }
     const hostedReplicas = {
       rows: await hostedMirrorReplicas(
         options.db,
@@ -238,7 +252,8 @@ export function registerAccountOverviewRoute(
           max_application_replicas_per_collection:
             entitlement.maxApplicationReplicasPerCollection,
           max_hosted_collections: entitlement.maxHostedCollections,
-          max_files_per_collection: entitlement.maxFilesPerCollection
+          max_files_per_collection: entitlement.maxFilesPerCollection,
+          max_collection_member_seats: entitlement.maxCollectionMemberSeats
         },
         usage: hostedUsage ? {
           hosted_collections: hostedUsage.collection_count,
@@ -254,6 +269,7 @@ export function registerAccountOverviewRoute(
         } : null
       } : null,
       hosted_collections_available: options.hostedCollections === true,
+      collection_sharing_available: options.hostedCollections === true && options.hostedSharing === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),
         registration: authenticationSettings.registrationMode

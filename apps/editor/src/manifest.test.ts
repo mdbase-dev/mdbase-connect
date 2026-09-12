@@ -17,8 +17,8 @@ describe("Editor application declarations", () => {
     const { capabilities, files } = parsed.manifest.requirements;
     expect(capabilities).toEqual({
       contract_version: 2,
-      required: ["collection.read", "records.create", "records.edit", "records.delete", "definitions.manage"],
-      optional: []
+      required: ["collection.read"],
+      optional: ["records.create", "records.edit", "records.delete", "definitions.manage"]
     });
     const operations = operationsForApplicationCapabilities(capabilities!);
     expect(operations).toEqual([

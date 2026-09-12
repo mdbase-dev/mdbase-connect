@@ -404,39 +404,35 @@ export async function renameHostedCollectionForUser(
   options: HostedServiceOptions,
   userId: string,
   collectionId: string,
-  displayName: string
+  displayName: string,
+  source: "desktop" | "account" = "desktop"
 ): Promise<{ id: string; display_name: string } | null> {
-  if (!await permitsHostedCollectionAction(
-    options.db,
-    userId,
-    collectionId,
-    "collection.rename"
-  )) {
-    return null;
-  }
-  if (options.hostedProvider) {
-    await options.hostedProvider.renameCollection(
-      collectionId,
-      displayName
+  const connection = await options.db.connect();
+  try {
+    await connection.query("BEGIN");
+    await connection.query("SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE", [collectionId]);
+    if (!await permitsHostedCollectionAction(connection, userId, collectionId, "collection.rename", true)) {
+      await connection.query("ROLLBACK");
+      return null;
+    }
+    if (options.hostedProvider) await options.hostedProvider.renameCollection(collectionId, displayName);
+    const renamed = await connection.query<{ id: string; display_name: string }>(
+      `UPDATE hosted_collections SET display_name = $2
+       WHERE id = $1 AND authority_state = 'active'
+       RETURNING id, display_name`,
+      [collectionId, displayName]
     );
+    await audit(connection, userId, "hosted_collection.renamed", collectionId, {
+      display_name: displayName, source
+    });
+    await connection.query("COMMIT");
+    return renamed.rows[0] ?? null;
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
   }
-  const renamed = await options.db.query<{
-    id: string;
-    display_name: string;
-  }>(
-    `UPDATE hosted_collections SET display_name = $3
-     WHERE id = $1 AND user_id = $2
-     RETURNING id, display_name`,
-    [collectionId, userId, displayName]
-  );
-  await audit(
-    options.db,
-    userId,
-    "hosted_collection.renamed",
-    collectionId,
-    { display_name: displayName, source: "desktop" }
-  );
-  return renamed.rows[0] ?? null;
 }
 
 export async function deleteHostedCollectionForUser(
@@ -463,13 +459,22 @@ export async function deleteHostedCollectionForUser(
     await connection.query("BEGIN");
     await connection.query(
       `DELETE FROM grants
-       WHERE hosted_collection_id = $1 AND user_id = $2`,
+       WHERE hosted_collection_id = $1`,
+      [collectionId]
+    );
+    const deleted = await connection.query<{ id: string }>(
+      `DELETE FROM hosted_collections
+       WHERE id = $1 AND user_id = $2
+       RETURNING id`,
       [collectionId, userId]
     );
+    if (!deleted.rows[0]) {
+      await connection.query("ROLLBACK");
+      return false;
+    }
     await connection.query(
-      `DELETE FROM hosted_collections
-       WHERE id = $1 AND user_id = $2`,
-      [collectionId, userId]
+      "DELETE FROM collection_identities WHERE id = $1",
+      [collectionId]
     );
     await audit(
       connection,
@@ -736,7 +741,7 @@ export async function revokeHostedGrantForUser(
 }
 
 export async function permitsHostedCollectionAction(
-  db: DatabasePool,
+  db: DatabaseQueryable,
   userId: string,
   collectionId: string,
   action: CollectionAction,

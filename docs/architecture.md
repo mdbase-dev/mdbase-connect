@@ -89,25 +89,50 @@ portable `local_id`; hosted locators use the hosted collection ID. Routes do
 not infer identity from a mutable name or filesystem location.
 
 All user-to-collection decisions pass through the collection catalog and
-access-policy modules. The current resolver emits only owner access. Its
-context already carries relationship, policy revision, product actions,
-operation ceiling, and collection-authorization ceiling, so adding membership
-later is confined to those repository and policy boundaries.
-Collection responses include an access summary and explicit authority
-metadata rather than asking clients to infer permissions from ownership.
+access-policy modules. Hosted access comes from ownership or an active membership
+bound to an immutable policy revision. Local access remains owner-only.
+Collection responses include an access summary and explicit authority metadata.
 
-Application capabilities are computed by a pure grant planner. It intersects
-the operations selected by the user, the application's request and manifest,
-and the user's current operation and collection-authorization ceilings. Provisioning is a
-separate `schema.manage` action. Token renewal re-resolves access, which makes
-membership removal fail closed without rewriting OAuth.
+Application capabilities are computed by a pure grant planner. It checks the
+selected operations and file actions against the application declaration and the
+approving user's exact ceilings. V2 groups remain atomic; denied optional write
+groups allow a viewer to authorize a read-only application. Required writes must
+be rejected. Provisioning separately requires `schema.manage`.
 
-Every hosted replica records the user whose access authorized it, while the
-provider records the source replica on each record change. Revocation first
-atomically disables the grant, tokens, and replica in the control plane, then
-delivers provider cleanup from a durable retry queue. These attribution and
-lifecycle boundaries allow later member removal and role changes to target
-derived capabilities without taking the service offline.
+New membership presets use version 2. Viewers may read records and files and
+create read-only mirrors. Editors may edit records, files and schema, rename the
+collection, and authorize applications within their ceiling. Sharing management,
+collection deletion and authority transfer remain owner actions. Existing stored
+presets retain their exact authority until an explicit membership transition.
+
+Every member application grant and mirror binds the member, policy ID and revision.
+Direct mirror enrollment, browser/desktop pairing, and renewal use the same ceiling
+checks. A partial policy that the whole-collection mirror protocol cannot represent
+is rejected. Token issuance rechecks current authority inside the collection
+transaction. Removal disables grants, tokens and pairing credentials locally, then
+uses the existing durable provider cleanup worker. Removal may supersede a pending
+role change and is idempotent. Seats stay reserved until cleanup completes, including
+when account deletion has removed the membership rows. Pending invitations require
+the inviter's current management authority when accepted.
+
+`MDBASE_CONNECT_HOSTED_SHARING_ENABLED=1` enables new invitations, invitation codes,
+acceptance and role upgrades. It defaults off. Disabling it preserves existing member
+access and permits listing, revocation, invitation cancellation and downgrades; it
+is an admission switch, not automatic revocation. Both invited and open Beta profiles
+have ten account-wide member seats. New entitlement profiles default to zero seats.
+Hosted-to-local transfer requires removing members and cancelling pending invitations
+first, since local membership authority is not implemented.
+
+The Editor requires collection and file reads; writes and schema management are
+optional. Its controls follow the approved grant. Email invitations match an
+already registered verified account; a recipient who registers later needs a new
+invitation. A private one-use sharing code provides an alternative recipient binding.
+
+The sharing implementation adds six server modules: immutable policies, membership
+bindings, membership cleanup, invitations, sharing routes, and common mirror policy
+checks. They use the existing database transactions, provider cleanup worker and v2
+capability compiler. The reviewed architecture budget includes these boundaries and
+their cross-module declarations/imports; existing file-size limits are unchanged.
 
 ## Components
 

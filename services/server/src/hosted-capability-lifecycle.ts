@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
+import { finalizeReadyMembershipTransitions } from "./collection-membership-lifecycle.js";
 import { audit } from "./platform/audit-events.js";
 import {
   HostedProviderResponseError,
@@ -375,8 +376,9 @@ export async function queueAccountProviderCleanup(
     id: string;
     collection_id: string;
     revoked_at: string | Date | null;
+    membership_id: string | null;
   }>(
-    `SELECT id, collection_id, revoked_at
+    `SELECT id, collection_id, revoked_at, membership_id
      FROM hosted_replicas
      WHERE authorized_user_id = $1
      ORDER BY id
@@ -390,6 +392,22 @@ export async function queueAccountProviderCleanup(
 
   let activeCrossAccountReplicas = 0;
   for (const replica of crossAccountReplicas) {
+    const seat = replica.membership_id
+      ? await db.query<{ owner_user_id: string }>(
+          "SELECT owner_user_id FROM collection_identities WHERE id = $1",
+          [replica.collection_id]
+        )
+      : { rows: [] };
+    const seatOwner = seat.rows[0]?.owner_user_id ?? null;
+    if (replica.membership_id && !seatOwner) throw new Error("Member replica has no collection owner.");
+    if (seatOwner) {
+      await db.query(
+        `UPDATE provider_revocation_jobs
+         SET seat_membership_id = $2, seat_owner_user_id = $3
+         WHERE replica_id = $1 AND completed_at IS NULL`,
+        [replica.id, replica.membership_id, seatOwner]
+      );
+    }
     const grant = replica.revoked_at === null
       ? await db.query<{ id: string }>(
           `SELECT id FROM grants
@@ -398,10 +416,18 @@ export async function queueAccountProviderCleanup(
           [replica.id]
         )
       : { rows: [] };
+    // Keep job identifiers before deleting the account's grant. The replica
+    // outlives the member for durable provider cleanup, so detach its complete
+    // membership binding together after dependent grants have been removed.
+    await db.query(
+      "DELETE FROM grants WHERE hosted_replica_id = $1 AND user_id = $2",
+      [replica.id, userId]
+    );
     await db.query(
       `UPDATE hosted_replicas
        SET revoked_at = COALESCE(revoked_at, now()), token_hash = NULL,
-           authorized_user_id = NULL
+           authorized_user_id = NULL, membership_id = NULL,
+           membership_policy_id = NULL, membership_policy_revision = NULL
        WHERE id = $1`,
       [replica.id]
     );
@@ -413,10 +439,10 @@ export async function queueAccountProviderCleanup(
     activeCrossAccountReplicas += 1;
     await db.query(
       `INSERT INTO provider_revocation_jobs
-         (id, replica_id, grant_id, collection_id, reason)
-       VALUES ($1, $2, $3, $4, 'account_deletion')
+         (id, replica_id, grant_id, collection_id, reason, seat_membership_id, seat_owner_user_id)
+       VALUES ($1, $2, $3, $4, 'account_deletion', $5, $6)
        ON CONFLICT DO NOTHING`,
-      [randomUUID(), replica.id, grant.rows[0]?.id ?? null, replica.collection_id]
+      [randomUUID(), replica.id, grant.rows[0]?.id ?? null, replica.collection_id, replica.membership_id, seatOwner]
     );
   }
 
@@ -482,6 +508,7 @@ export class ProviderRevocationWorker {
   private async drainAvailable(limit: number): Promise<number> {
     let attempted = 0;
     let completed = 0;
+    await finalizeReadyMembershipTransitions(this.db);
     while (attempted < limit) {
       const job = await claimProviderCleanupJob(this.db);
       if (!job) break;
@@ -510,6 +537,7 @@ export class ProviderRevocationWorker {
         this.onError(error);
       }
     }
+    await finalizeReadyMembershipTransitions(this.db);
     return completed;
   }
 }

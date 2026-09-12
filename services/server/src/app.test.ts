@@ -23,6 +23,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import {
+  createHostedCollectionMembership,
+  membershipPolicyPreset
+} from "./collection-policy.js";
+import {
   HostedProviderClient,
   HostedProviderUnavailableError,
   HostedProviderResponseError
@@ -1445,6 +1449,444 @@ describe("mdbase connect server", () => {
       deviceCode: expiredDevice.json().device_code,
       verifier
     })).json()).toMatchObject({ error: "expired_token" });
+  });
+
+  it("authorizes a hosted member with an exact persisted policy binding", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const hostedProvider = {
+      url: "https://sync.example",
+      ready: vi.fn(),
+      assertFreshV2AuthorizationSupport: vi.fn(),
+      upsertAccount: vi.fn().mockResolvedValue({}),
+      createCollection: vi.fn(),
+      renameCollection: vi.fn(),
+      deleteCollection: vi.fn(),
+      provisionTypePacks: vi.fn(),
+      provisionApplicationSetup: vi.fn(),
+      registerReplica: vi.fn(),
+      updateApplicationReplica: vi.fn(),
+      revokeReplica: vi.fn(),
+      upsertNotificationGrant: vi.fn(),
+      revokeNotificationGrant: vi.fn(),
+      rotateReplicaToken: vi.fn(),
+      compactThrough: vi.fn()
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedSharing: true,
+      hostedProvider,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const ownerSession = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Sharing owner", email: "sharing-owner@example.com" }
+    });
+    const ownerSetCookie = ownerSession.headers["set-cookie"]!;
+    const ownerCookie = (Array.isArray(ownerSetCookie) ? ownerSetCookie[0] : ownerSetCookie)
+      .split(";")[0];
+    const memberSession = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Sharing member", email: "sharing-member@example.com" }
+    });
+    const memberSetCookie = memberSession.headers["set-cookie"]!;
+    const memberCookie = (Array.isArray(memberSetCookie) ? memberSetCookie[0] : memberSetCookie)
+      .split(";")[0];
+    const owner = await db.query<{ id: string }>(
+      "SELECT id FROM users WHERE email = 'sharing-owner@example.com'"
+    );
+    const member = await db.query<{ id: string }>(
+      "SELECT id FROM users WHERE email = 'sharing-member@example.com'"
+    );
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collections",
+      headers: { cookie: ownerCookie },
+      payload: {
+        display_name: "Shared hosted notes",
+        template: "mdbase",
+        timezone: "Australia/Melbourne"
+      }
+    });
+    expect(created.statusCode, JSON.stringify(created.json())).toBe(201);
+    const collectionId = created.json().collection.id as string;
+    const membership = await createHostedCollectionMembership(db, {
+      collectionId,
+      ownerUserId: owner.rows[0]!.id,
+      userId: member.rows[0]!.id,
+      role: "editor"
+    });
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/v1/hosted/collections/${collectionId}`,
+      headers: { cookie: memberCookie },
+      payload: { display_name: "Renamed by editor" }
+    });
+    expect(renamed.statusCode, JSON.stringify(renamed.json())).toBe(200);
+    expect(hostedProvider.renameCollection).toHaveBeenCalledWith(
+      collectionId,
+      "Renamed by editor"
+    );
+    await expect(db.query<{ display_name: string }>(
+      "SELECT display_name FROM hosted_collections WHERE id = $1",
+      [collectionId]
+    )).resolves.toMatchObject({ rows: [{ display_name: "Renamed by editor" }] });
+    const deniedDelete = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}`,
+      headers: { cookie: memberCookie }
+    });
+    expect(deniedDelete.statusCode).toBe(404);
+    expect(hostedProvider.deleteCollection).not.toHaveBeenCalled();
+
+    const capabilities = { contract_version: 2 as const, required: ["collection.read", "records.edit"] as const };
+    const sharedOperations = operationsForApplicationCapabilities(capabilities);
+    const manifest: MdbaseAppManifest = {
+      manifest_version: 1,
+      distribution: "portable",
+      id: "dev.mdbase.shared-editor-test",
+      name: "Shared editor test",
+      project_url: "https://apps.example/shared-editor-test",
+      requirements: {
+        contracts: [],
+        access: "full_collection",
+        collection_kind: "hosted",
+        capabilities
+      }
+    };
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest }
+    });
+    const applicationId = registration.json().application.id as string;
+    const applicationManifestDigest = registration.json().application.manifest_digest as string;
+    const verifier = "shared-member-verifier-that-is-long-enough-0001";
+    const proof = await testApplicationAuthorization({
+      applicationId,
+      applicationDeclarationId: manifest.id,
+      applicationManifestDigest,
+      flow: "device_code",
+      codeChallenge: pkceChallenge(verifier),
+      requestedOperations: sharedOperations,
+      collectionId,
+      grantAgreementPublicKey: p256PublicKey(),
+      grantSigningPublicKey: p256PublicKey()
+    });
+    const device = await app.inject({
+      method: "POST",
+      url: "/oauth/device_authorization",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        client_id: applicationId,
+        operations: sharedOperations.join(","),
+        collection_id: collectionId,
+        code_challenge: pkceChallenge(verifier),
+        code_challenge_method: "S256",
+        application_authorization: JSON.stringify(proof)
+      }).toString()
+    });
+    expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
+    const lookup = await app.inject({
+      method: "POST",
+      url: "/v1/device-authorization-requests/lookup",
+      headers: { cookie: memberCookie },
+      payload: { user_code: device.json().user_code }
+    });
+    expect(lookup.statusCode, JSON.stringify(lookup.json())).toBe(200);
+    const requestId = lookup.json().request_id as string;
+    const available = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${requestId}`,
+      headers: { cookie: memberCookie }
+    });
+    expect(available.json().collections).toContainEqual(
+      expect.objectContaining({
+        id: collectionId,
+        kind: "hosted",
+        access: expect.objectContaining({ role: "editor", relationship: "member" })
+      })
+    );
+    const viewerPolicyId = randomUUID();
+    const viewerPolicy = membershipPolicyPreset("viewer");
+    await db.query(
+      `INSERT INTO collection_membership_policies
+         (id, membership_id, revision, role, preset_version, actions,
+          operations, scope_ceiling, file_ceiling)
+       VALUES ($1, $2, 2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb)`,
+      [
+        viewerPolicyId,
+        membership.membershipId,
+        viewerPolicy.role,
+        viewerPolicy.presetVersion,
+        JSON.stringify(viewerPolicy.actions),
+        JSON.stringify(viewerPolicy.operations),
+        JSON.stringify(viewerPolicy.scopeCeiling),
+        JSON.stringify(viewerPolicy.fileCeiling)
+      ]
+    );
+    await db.query(
+      `UPDATE collection_memberships
+       SET current_policy_id = $2, current_policy_revision = 2
+       WHERE id = $1`,
+      [membership.membershipId, viewerPolicyId]
+    );
+    const staleApproval = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie: memberCookie },
+      payload: {
+        collection_id: collectionId,
+        operations: sharedOperations
+      }
+    });
+    expect(staleApproval.statusCode).toBe(400);
+    expect(hostedProvider.registerReplica).not.toHaveBeenCalled();
+
+    await db.query(
+      `UPDATE collection_memberships
+       SET current_policy_id = $2, current_policy_revision = 1
+       WHERE id = $1`,
+      [membership.membershipId, membership.id]
+    );
+    const approved = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie: memberCookie },
+      payload: {
+        collection_id: collectionId,
+        operations: sharedOperations
+      }
+    });
+    expect(approved.statusCode, JSON.stringify(approved.json())).toBe(200);
+
+    const binding = await db.query<{
+      user_id: string;
+      logical_collection_id: string;
+      membership_id: string;
+      membership_policy_id: string;
+      membership_policy_revision: number;
+      replica_membership_id: string;
+      replica_membership_policy_id: string;
+      replica_membership_policy_revision: number;
+    }>(
+      `SELECT grant_record.user_id, grant_record.logical_collection_id,
+              grant_record.membership_id, grant_record.membership_policy_id,
+              grant_record.membership_policy_revision,
+              replica.membership_id AS replica_membership_id,
+              replica.membership_policy_id AS replica_membership_policy_id,
+              replica.membership_policy_revision AS replica_membership_policy_revision
+       FROM grants grant_record
+       JOIN hosted_replicas replica ON replica.id = grant_record.hosted_replica_id
+       WHERE grant_record.user_id = $1 AND grant_record.hosted_collection_id = $2
+         AND grant_record.revoked_at IS NULL`,
+      [member.rows[0]!.id, collectionId]
+    );
+    expect(binding.rows).toEqual([{
+      user_id: member.rows[0]!.id,
+      logical_collection_id: collectionId,
+      membership_id: membership.membershipId,
+      membership_policy_id: membership.id,
+      membership_policy_revision: membership.revision,
+      replica_membership_id: membership.membershipId,
+      replica_membership_policy_id: membership.id,
+      replica_membership_policy_revision: membership.revision
+    }]);
+    expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
+      collectionId,
+      expect.objectContaining({
+        mode: "read_write",
+        allowedOperations: sharedOperations
+      })
+    );
+  });
+
+  it("manages hosted invitations and memberships without leaking collection access", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const hostedProvider = {
+      url: "https://sync.example",
+      ready: vi.fn(),
+      upsertAccount: vi.fn().mockResolvedValue({}),
+      createCollection: vi.fn(),
+      renameCollection: vi.fn(),
+      deleteCollection: vi.fn(),
+      provisionTypePacks: vi.fn(),
+      provisionApplicationSetup: vi.fn(),
+      registerReplica: vi.fn(),
+      updateApplicationReplica: vi.fn(),
+      revokeReplica: vi.fn(),
+      upsertNotificationGrant: vi.fn(),
+      revokeNotificationGrant: vi.fn(),
+      rotateReplicaToken: vi.fn(),
+      compactThrough: vi.fn()
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedSharing: true,
+      hostedProvider,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+    const session = async (name: string, email: string) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/dev/session",
+        payload: { name, email }
+      });
+      const setCookie = response.headers["set-cookie"]!;
+      return (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    };
+    const ownerCookie = await session("Owner", "route-owner@example.com");
+    const memberCookie = await session("Member", "route-member@example.com");
+    const outsiderCookie = await session("Outsider", "route-outsider@example.com");
+    await db.query(
+      `INSERT INTO email_identities
+         (id, user_id, email, normalized_email, verified_at, is_primary)
+       SELECT $1, id, email, email, now(), true FROM users
+       WHERE email = 'route-member@example.com'`,
+      [randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO email_identities
+         (id, user_id, email, normalized_email, verified_at, is_primary)
+       SELECT $1, id, email, email, now(), true FROM users
+       WHERE email = 'route-outsider@example.com'`,
+      [randomUUID()]
+    );
+    const collection = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collections",
+      headers: { cookie: ownerCookie },
+      payload: {
+        display_name: "Route sharing",
+        template: "mdbase",
+        timezone: "Australia/Melbourne"
+      }
+    });
+    const collectionId = collection.json().collection.id as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/v1/hosted/collections/${collectionId}/invitations`,
+      headers: { cookie: ownerCookie },
+      payload: { email: "route-member@example.com", role: "viewer" }
+    });
+    expect(created.statusCode, JSON.stringify(created.json())).toBe(202);
+    expect(created.headers["cache-control"]).toBe("no-store");
+    const token = created.json().invitation.token as string;
+    expect(token).toMatch(/^cinv_/);
+
+    const hidden = await app.inject({
+      method: "GET",
+      url: `/v1/hosted/collections/${collectionId}/members`,
+      headers: { cookie: outsiderCookie }
+    });
+    expect(hidden.statusCode).toBe(404);
+    expect(hidden.json()).toMatchObject({
+      error: { code: "collection_sharing_not_found" }
+    });
+    const wrongAccount = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collection-invitations/accept",
+      headers: { cookie: outsiderCookie },
+      payload: { token }
+    });
+    expect(wrongAccount.statusCode).toBe(400);
+    expect(wrongAccount.json()).toMatchObject({
+      error: { code: "invalid_collection_invitation" }
+    });
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collection-invitations/accept",
+      headers: { cookie: memberCookie },
+      payload: { token }
+    });
+    expect(accepted.statusCode, JSON.stringify(accepted.json())).toBe(201);
+    const membershipId = accepted.json().membership.id as string;
+
+    const members = await app.inject({
+      method: "GET",
+      url: `/v1/hosted/collections/${collectionId}/members`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(members.statusCode).toBe(200);
+    expect(members.headers["cache-control"]).toBe("no-store");
+    expect(members.json().members).toEqual([
+      expect.objectContaining({ kind: "owner", role: "owner" }),
+      expect.objectContaining({
+        kind: "member",
+        id: membershipId,
+        role: "viewer",
+        state: "active"
+      })
+    ]);
+    expect(JSON.stringify(members.json())).not.toContain("route-member@example.com");
+
+    const promoted = await app.inject({
+      method: "PATCH",
+      url: `/v1/hosted/collections/${collectionId}/members/${membershipId}`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "editor" }
+    });
+    expect(promoted.statusCode, JSON.stringify(promoted.json())).toBe(200);
+    expect(promoted.json().membership).toMatchObject({
+      id: membershipId,
+      role: "editor",
+      state: "active",
+      policy_revision: 2
+    });
+    const editorInvitation = await app.inject({
+      method: "POST",
+      url: `/v1/hosted/collections/${collectionId}/invitations`,
+      headers: { cookie: memberCookie },
+      payload: { email: "route-outsider@example.com", role: "viewer" }
+    });
+    expect(editorInvitation.statusCode).toBe(404);
+    const ownerInvitation = await app.inject({
+      method: "POST", url: `/v1/hosted/collections/${collectionId}/invitations`,
+      headers: { cookie: ownerCookie }, payload: { email: "route-outsider@example.com", role: "viewer" }
+    });
+    expect(ownerInvitation.statusCode, ownerInvitation.body).toBe(202);
+    const invitationId = ownerInvitation.json().invitation.id as string;
+    const cancelled = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}/invitations/${invitationId}`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(cancelled.statusCode).toBe(204);
+
+    const revoked = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}/members/${membershipId}`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(revoked.statusCode, JSON.stringify(revoked.json())).toBe(200);
+    expect(revoked.json().membership).toMatchObject({ state: "revoked" });
+    const seat = await db.query<{ released_at: Date | string | null }>(
+      `SELECT released_at FROM account_collection_member_seats
+       WHERE membership_id = $1`,
+      [membershipId]
+    );
+    expect(seat.rows[0]?.released_at).not.toBeNull();
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(deleted.statusCode, JSON.stringify(deleted.json())).toBe(200);
+    await expect(db.query(
+      "SELECT id FROM collection_identities WHERE id = $1",
+      [collectionId]
+    )).resolves.toMatchObject({ rows: [] });
   });
 
   it.each([

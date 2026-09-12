@@ -10,6 +10,9 @@ interface RetainedReplicaPolicySource {
   id: string;
   hosted_replica_id: string;
   application_installation_id: string | null;
+  membership_id: string | null;
+  membership_policy_id: string | null;
+  membership_policy_revision: number | null;
   scope: GrantScope;
   operations: string[];
   file_capability: GrantPolicy["file_capability"] | null;
@@ -66,6 +69,7 @@ async function loadRetainedReplicaPolicyCandidates(
   return connection.query<RetainedReplicaPolicySource>(
     `SELECT g.id, g.hosted_replica_id, g.application_installation_id,
             g.scope, g.operations, g.file_capability, g.application_origin,
+            g.membership_id, g.membership_policy_id, g.membership_policy_revision,
             g.proof_public_key, g.application_authorization,
             a.family_identity AS application_family_identity,
             a.manifest_digest AS application_manifest_digest,

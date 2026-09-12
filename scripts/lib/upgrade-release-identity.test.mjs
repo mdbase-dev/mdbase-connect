@@ -9,9 +9,9 @@ import { promisify } from "node:util";
 const execute = promisify(execFile);
 const root = resolve(import.meta.dirname, "../..");
 const beta95 = "408c67bc10f128e0833f0da62cb3efb9d94657d7";
-const beta96 = "56ed32ffde055d2ab2b22ff95722df8ef06bdb1d";
+const beta97 = "b34ba70fd0a13d13b42d5de20f29dd04d5582272";
 const release95 = { id: 95, tag_name: "v0.1.0-beta.95", draft: false, published_at: "2026-09-08T00:00:00Z" };
-const release96 = { ...release95, id: 96, tag_name: "v0.1.0-beta.96" };
+const release97 = { ...release95, id: 97, tag_name: "v0.1.0-beta.97" };
 const annotated = (tag, commit) => `${"a".repeat(40)}\trefs/tags/${tag}\n${commit}\trefs/tags/${tag}^{}\n`;
 
 async function verify(context, { historical = false, metadata, refs, override = "", network = "ok", image = false, inspection } = {}) {
@@ -41,8 +41,8 @@ printf '%s' \"$INSPECTION\"
 `
   };
   for (const [name, content] of Object.entries(scripts)) await writeFile(join(bin, name), content, { mode: 0o700 });
-  const tag = historical ? release95.tag_name : release96.tag_name;
-  const commit = historical ? beta95 : beta96;
+  const tag = historical ? release95.tag_name : release97.tag_name;
+  const commit = historical ? beta95 : beta97;
   const calls = join(work, "calls");
   const pin = historical ? "retained-v2-predecessor.env" : "previous-release.env";
   const verifier = historical ? "upgrade_verify_retained_v2_release" : "upgrade_verify_previous_release";
@@ -62,7 +62,7 @@ ${image ? 'upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
         EXPECTED_URL: historical
           ? "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/tags/v0.1.0-beta.95"
           : "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=100",
-        METADATA: typeof metadata === "string" ? metadata : JSON.stringify(metadata ?? (historical ? release95 : [release96, release95])),
+        METADATA: typeof metadata === "string" ? metadata : JSON.stringify(metadata ?? (historical ? release95 : [release97, release95])),
         REFS: refs ?? annotated(tag, commit),
         INSPECTION: JSON.stringify(inspection ?? [{ Config: { Labels: {
           "org.opencontainers.image.source": "https://github.com/mdbase-dev/mdbase-connect",
@@ -78,13 +78,13 @@ ${image ? 'upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
   return { code, stderr, calls: await readFile(calls, "utf8").catch(() => "") };
 }
 
-test("ordinary predecessor verifies newest beta96 and its annotated origin tag", async (context) => {
+test("ordinary predecessor verifies newest beta97 and its annotated origin tag", async (context) => {
   const result = await verify(context);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.calls, /releases\?per_page=100\ngit\n$/);
 });
 
-test("ordinary qualification cannot substitute the historical beta95 pin for newest beta96", async (context) => {
+test("ordinary qualification cannot substitute the historical beta95 pin for newest beta97", async (context) => {
   const result = await verify(context, { override: 'source "$ROOT/.github/retained-v2-predecessor.env"' });
   assert.equal(result.code, 1);
   assert.match(result.stderr, /not the unique newest non-draft/);
@@ -92,11 +92,11 @@ test("ordinary qualification cannot substitute the historical beta95 pin for new
 });
 
 for (const [name, metadata] of [
-  ["older pin", [release95, release96]],
-  ["duplicate release", [release96, release96]],
-  ["draft only", [{ ...release96, draft: true }]],
+  ["older pin", [release95, release97]],
+  ["duplicate release", [release97, release97]],
+  ["draft only", [{ ...release97, draft: true }]],
   ["missing release", []],
-  ["object instead of inventory", release96],
+  ["object instead of inventory", release97],
   ["malformed JSON", "not-json"]
 ]) test(`ordinary predecessor rejects ${name}`, async (context) => {
   const result = await verify(context, { metadata });
@@ -105,8 +105,8 @@ for (const [name, metadata] of [
 });
 
 for (const historical of [false, true]) {
-  const tag = historical ? release95.tag_name : release96.tag_name;
-  const commit = historical ? beta95 : beta96;
+  const tag = historical ? release95.tag_name : release97.tag_name;
+  const commit = historical ? beta95 : beta97;
   for (const [name, refs] of [
     ["wrong peeled commit", annotated(tag, "b".repeat(40))],
     ["lightweight tag", `${commit}\trefs/tags/${tag}\n`],
@@ -132,7 +132,7 @@ test("historical regression verifies published beta95 by exact tag, independentl
 });
 
 for (const metadata of [
-  { ...release95, draft: true }, { ...release95, tag_name: release96.tag_name },
+  { ...release95, draft: true }, { ...release95, tag_name: release97.tag_name },
   { ...release95, published_at: null }, { ...release95, published_at: "" },
   { ...release95, id: "95" }, [release95], {}, "not-json"
 ]) test(`historical rejects unqualified release metadata ${JSON.stringify(metadata)}`, async (context) => {

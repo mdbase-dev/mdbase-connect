@@ -157,7 +157,7 @@ export function TypeAccessPrompt({ leadingActions, onAuthorize, onBack }: {
 export function EmptyEditor({ leadingActions, notice, onCreate, onRetry }: {
   leadingActions?: ReactNode;
   notice?: string;
-  onCreate: () => void;
+  onCreate?: () => void;
   onRetry: () => void;
 }) {
   return <div className="empty-editor">
@@ -168,7 +168,7 @@ export function EmptyEditor({ leadingActions, notice, onCreate, onRetry }: {
       <button onClick={onRetry}>Try again</button>
     </div> : <>
       <p>Select a note, or start a new one.</p>
-      <button onClick={onCreate}>New note</button>
+      {onCreate && <button onClick={onCreate}>New note</button>}
     </>}
   </div>;
 }

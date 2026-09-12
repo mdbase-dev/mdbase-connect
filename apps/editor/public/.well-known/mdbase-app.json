@@ -11,13 +11,14 @@
     "capabilities": {
       "contract_version": 2,
       "required": [
-        "collection.read",
+        "collection.read"
+      ],
+      "optional": [
         "records.create",
         "records.edit",
         "records.delete",
         "definitions.manage"
-      ],
-      "optional": []
+      ]
     },
     "files": {
       "required": [

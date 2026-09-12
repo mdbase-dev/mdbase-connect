@@ -11,14 +11,13 @@ export function expectEditorRegistration(body: unknown): void {
     access: "full_collection",
     capabilities: {
       contract_version: 2,
-      required: [
-        "collection.read",
+      required: ["collection.read"],
+      optional: [
         "records.create",
         "records.edit",
         "records.delete",
         "definitions.manage"
-      ],
-      optional: []
+      ]
     },
     files: {
       required: ["list", "read"],

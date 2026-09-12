@@ -1,4 +1,4 @@
-import { collectionGrantScope } from "./application-grant-scope.js";
+import { collectionGrantScope, isCanonicalCollectionGrantScope } from "./application-grant-scope.js";
 import type {
   CollectionOperation,
   FileAction,
@@ -7,6 +7,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   APPLICATION_SETUP_OPERATIONS,
+  capabilityOperations,
   FILE_PROTOCOL_VERSION,
   applicationOperationSelectionIsAtomic
 } from "@mdbase-dev/connect-protocol";
@@ -22,6 +23,47 @@ export interface GrantPlan {
   scope: GrantScope;
   replicaMode: "read_only" | "read_write";
   fileCapability?: FileCapability;
+}
+
+/** Consent choices are a preview; approval rechecks the current locked policy. */
+export function previewCollectionGrant(input: {
+  applicationOperationCeiling: readonly CollectionOperation[];
+  requirements: ApplicationRequirements;
+  access: CollectionAccessContext;
+}): { available: true; operations: CollectionOperation[]; file_actions: FileAction[] }
+  | { available: false; detail: string } {
+  const allowed = new Set(input.applicationOperationCeiling.filter((operation) =>
+    input.access.operationCeiling.has(operation)
+  ));
+  const declared = input.requirements.capabilities;
+  const operations = declared?.contract_version === 2
+    ? [...new Set([
+        ...[...declared.required, ...(declared.optional ?? [])].flatMap((capability) => {
+          const group = capabilityOperations(capability);
+          return group.every((operation) => allowed.has(operation)) ? group : [];
+        }),
+        ...APPLICATION_SETUP_OPERATIONS.filter((operation) => allowed.has(operation))
+      ])]
+    : [...allowed];
+  const files = fileRequestForRequirements(input.requirements);
+  try {
+    const plan = planCollectionGrant({
+      ...input,
+      requestedOperations: operations,
+      ...(files ? {
+        requestedFileActions: files.actions.filter((action) =>
+          input.access.fileCeiling.actions.includes(action)
+        )
+      } : {})
+    });
+    return { available: true, operations: plan.operations, file_actions: plan.fileCapability?.actions ?? [] };
+  } catch (error) {
+    if (!(error instanceof GrantPlanningError)) throw error;
+    return {
+      available: false,
+      detail: "Your access to this collection does not include the permissions this application requires."
+    };
+  }
 }
 
 /**
@@ -99,6 +141,9 @@ export function planCollectionGrant(input: {
       "Applications must explicitly request full collection access; legacy or omitted access is not widened."
     );
   }
+  if (!isCanonicalCollectionGrantScope(input.access.scopeCeiling)) {
+    throw new GrantPlanningError("The approving user may not grant full-collection access.");
+  }
   const setupOperations = new Set<string>(APPLICATION_SETUP_OPERATIONS);
   const semanticOperations = operations.filter((operation) => !setupOperations.has(operation));
   if (
@@ -125,6 +170,9 @@ export function planCollectionGrant(input: {
     input.requirements,
     selectedFileActions
   );
+  if (fileCapability) {
+    assertFileRequirementWithinCeiling(fileCapability, input.access.fileCeiling);
+  }
   return {
     operations,
     scope,
@@ -134,6 +182,30 @@ export function planCollectionGrant(input: {
       : "read_only",
     ...(fileCapability ? { fileCapability } : {})
   };
+}
+
+function assertFileRequirementWithinCeiling(
+  requirement: FileCapability,
+  ceiling: FileCapability
+): void {
+  const allowedActions = new Set(ceiling.actions);
+  if (requirement.actions.some((action) => !allowedActions.has(action))) {
+    throw new GrantPlanningError(
+      "The approving user may not grant one or more requested file actions."
+    );
+  }
+  if (ceiling.scope.kind === "collection") return;
+  if (requirement.scope.kind === "collection") {
+    throw new GrantPlanningError(
+      "The approving user may not grant collection-wide file access."
+    );
+  }
+  const allowedFolders = new Set(ceiling.scope.folders);
+  if (requirement.scope.folders.some((folder) => !allowedFolders.has(folder))) {
+    throw new GrantPlanningError(
+      "The approving user may not grant access to one or more requested file folders."
+    );
+  }
 }
 
 export function fileCapabilityForRequirements(

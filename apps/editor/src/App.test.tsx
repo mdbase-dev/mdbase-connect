@@ -18,8 +18,8 @@ import type {
 } from "./model";
 
 vi.mock("./CodeEditor", () => ({
-  CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) =>
-    <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />
+  CodeEditor: ({ value, onChange, label, readOnly }: { value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean }) =>
+    <textarea aria-label={label} readOnly={readOnly} value={value} onChange={(event) => onChange?.(event.target.value)} />
 }));
 
 vi.mock("@tanstack/react-virtual", () => ({
@@ -30,6 +30,31 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 describe("mdbase editor", () => {
+  it("opens a v2 viewer grant for reading without writable controls", async () => {
+    class ViewerGateway extends DemoCollectionGateway {
+      protected currentConnection(): ConnectionSummary {
+        return { collectionId: "demo", operations: ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type"],
+          fileActions: ["list", "read"], missingCapabilities: ["records.create", "records.edit", "records.delete", "definitions.manage", "files.add"] };
+      }
+    }
+    const gateway = new ViewerGateway(3);
+    const create = vi.spyOn(gateway, "create");
+    const update = vi.spyOn(gateway, "updateDocument");
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    const body = await screen.findByRole("textbox", { name: "Note body" });
+    expect(body).toHaveAttribute("readonly");
+    expect(screen.getByText("Read only")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New note" })).not.toBeInTheDocument();
+    expect(screen.getByTitle("Rename Markdown path")).toBeDisabled();
+    await user.keyboard("{Control>}n{/Control}");
+    expect(create).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Types (1)" }));
+    expect(await screen.findByRole("heading", { name: "Types" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New type" })).not.toBeInTheDocument();
+  });
+
   it("clamps a widened notes sidebar when an inspector reduces the available space", async () => {
     vi.stubGlobal("innerWidth", 1_150);
     localStorage.setItem("mdbase-editor:layout", JSON.stringify({
@@ -1138,14 +1163,14 @@ describe("mdbase editor", () => {
     const connection = {
       collectionId: "partial",
       operations: ["describe", "read", "query"],
-      missingCapabilities: ["records.edit", "definitions.manage"]
+      missingCapabilities: ["collection.read"]
     };
     partial.sessionSnapshot = () => ({ status: "ready", connection, connections: [connection] });
     partial.authorize = authorize;
     render(<App gateway={partial} />);
 
     expect(await screen.findByRole("button", { name: "Update access" })).toBeInTheDocument();
-    expect(screen.getByText(/edit and move notes/i)).toBeInTheDocument();
+    expect(screen.getByText(/open and search notes/i)).toBeInTheDocument();
     expect(screen.getByText(/shows only what needs to be added/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Update access" }));
     expect(authorize).toHaveBeenCalledWith("selected", { presentation: "popup" });
@@ -1157,7 +1182,7 @@ describe("mdbase editor", () => {
     const authorize = vi.fn(async () => undefined);
     const connection = {
       collectionId: "notes-only",
-      operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
+      operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type"],
       missingCapabilities: ["definitions.manage"]
     };
     partial.sessionSnapshot = () => ({ status: "ready", connection, connections: [connection] });
@@ -1167,10 +1192,9 @@ describe("mdbase editor", () => {
     expect(await screen.findByRole("heading", { name: "Writing" })).toBeInTheDocument();
     expect(await screen.findByRole("textbox", { name: "Note body" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Types (1)" }));
-    expect(await screen.findByRole("heading", { name: "Type access needed" })).toBeInTheDocument();
-    expect(screen.getByText(/Notes are ready/i)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Update access" }));
-    expect(authorize).toHaveBeenCalledWith("selected", { presentation: "popup" });
+    expect(await screen.findByRole("heading", { name: "Types" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New type" })).not.toBeInTheDocument();
+    expect(authorize).not.toHaveBeenCalled();
   });
 
   it("shows a dropped connection and offers an immediate retry", async () => {

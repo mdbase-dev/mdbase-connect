@@ -24,14 +24,13 @@ await writeFile(target, `${JSON.stringify({
     contracts: [],
     capabilities: {
       contract_version: 2,
-      required: [
-        "collection.read",
+      required: ["collection.read"],
+      optional: [
         "records.create",
         "records.edit",
         "records.delete",
         "definitions.manage"
-      ],
-      optional: []
+      ]
     },
     files: {
       required: ["list", "read"],
