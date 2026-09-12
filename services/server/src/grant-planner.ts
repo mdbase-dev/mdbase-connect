@@ -7,6 +7,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   APPLICATION_SETUP_OPERATIONS,
+  capabilityOperations,
   FILE_PROTOCOL_VERSION,
   applicationOperationSelectionIsAtomic
 } from "@mdbase-dev/connect-protocol";
@@ -22,6 +23,47 @@ export interface GrantPlan {
   scope: GrantScope;
   replicaMode: "read_only" | "read_write";
   fileCapability?: FileCapability;
+}
+
+/** Consent choices are a preview; approval rechecks the current locked policy. */
+export function previewCollectionGrant(input: {
+  applicationOperationCeiling: readonly CollectionOperation[];
+  requirements: ApplicationRequirements;
+  access: CollectionAccessContext;
+}): { available: true; operations: CollectionOperation[]; file_actions: FileAction[] }
+  | { available: false; detail: string } {
+  const allowed = new Set(input.applicationOperationCeiling.filter((operation) =>
+    input.access.operationCeiling.has(operation)
+  ));
+  const declared = input.requirements.capabilities;
+  const operations = declared?.contract_version === 2
+    ? [...new Set([
+        ...[...declared.required, ...(declared.optional ?? [])].flatMap((capability) => {
+          const group = capabilityOperations(capability);
+          return group.every((operation) => allowed.has(operation)) ? group : [];
+        }),
+        ...APPLICATION_SETUP_OPERATIONS.filter((operation) => allowed.has(operation))
+      ])]
+    : [...allowed];
+  const files = fileRequestForRequirements(input.requirements);
+  try {
+    const plan = planCollectionGrant({
+      ...input,
+      requestedOperations: operations,
+      ...(files ? {
+        requestedFileActions: files.actions.filter((action) =>
+          input.access.fileCeiling.actions.includes(action)
+        )
+      } : {})
+    });
+    return { available: true, operations: plan.operations, file_actions: plan.fileCapability?.actions ?? [] };
+  } catch (error) {
+    if (!(error instanceof GrantPlanningError)) throw error;
+    return {
+      available: false,
+      detail: "Your access to this collection does not include the permissions this application requires."
+    };
+  }
 }
 
 /**

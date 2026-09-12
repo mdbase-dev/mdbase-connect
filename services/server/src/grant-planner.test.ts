@@ -5,7 +5,7 @@ import {
   ownerAccess,
   type CollectionAccessContext
 } from "./collection-access.js";
-import { planCollectionGrant } from "./grant-planner.js";
+import { planCollectionGrant, previewCollectionGrant } from "./grant-planner.js";
 
 const owner = ownerAccess({
   collectionId: "collection",
@@ -16,6 +16,52 @@ const owner = ownerAccess({
   authorityState: "active",
   displayName: "Tasks"
 }, "owner");
+
+describe("previewCollectionGrant", () => {
+  const capabilities = {
+    contract_version: 2 as const,
+    required: ["collection.read"] as const,
+    optional: ["records.edit", "records.delete", "definitions.manage"] as const
+  };
+  const readOperations = operationsForApplicationCapabilities({
+    contract_version: 2, required: ["collection.read"]
+  });
+  const viewer: CollectionAccessContext = {
+    ...owner,
+    relationship: "member",
+    role: "viewer",
+    operationCeiling: new Set(readOperations),
+    fileCeiling: { ...owner.fileCeiling, actions: ["list", "read"] }
+  };
+  const input = {
+    applicationOperationCeiling: operationsForApplicationCapabilities(capabilities),
+    requirements: {
+      contracts: [], access: "full_collection" as const, capabilities,
+      files: { required: ["list", "read"] as const, optional: ["add"] as const, scope: { kind: "collection" as const } }
+    },
+    access: viewer
+  };
+
+  it("offers a viewer only complete read capabilities and required file reads", () => {
+    const preview = previewCollectionGrant(input);
+    expect(preview).toEqual({ available: true, operations: readOperations, file_actions: ["list", "read"] });
+    if (!preview.available) throw new Error("Expected a viewer offer");
+    expect(planCollectionGrant({ ...input, requestedOperations: preview.operations, requestedFileActions: preview.file_actions }).replicaMode).toBe("read_only");
+  });
+
+  it("omits an optional group when a stored policy permits only part of it", () => {
+    const preview = previewCollectionGrant({ ...input, access: { ...viewer, operationCeiling: new Set([...readOperations, "update"]) } });
+    expect(preview).toEqual({ available: true, operations: readOperations, file_actions: ["list", "read"] });
+  });
+
+  it("marks required writes and required file writes unavailable to a viewer", () => {
+    for (const requirements of [
+      { ...input.requirements, capabilities: { contract_version: 2 as const, required: ["collection.read", "records.edit"] as const } },
+      { ...input.requirements, files: { ...input.requirements.files, required: ["list", "read", "add"] as const, optional: [] } }
+    ]) expect(previewCollectionGrant({ ...input, requirements }).available).toBe(false);
+    expect(previewCollectionGrant({ ...input, access: owner }).available).toBe(true);
+  });
+});
 
 describe("planCollectionGrant", () => {
   it("plans every operation compiled for type-pack application sessions", () => {

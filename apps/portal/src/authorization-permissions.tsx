@@ -109,11 +109,12 @@ const FILE_ACTION_LABELS: Record<ApplicationFileAction, string> = {
   delete: "Delete files"
 };
 
-export function FilePermissionSummary({ files, selected, disabled, onToggle }: {
+export function FilePermissionSummary({ files, selected, disabled, onToggle, allowedActions }: {
   files: NonNullable<PendingAuthorization["requirements"]["files"]>;
   selected: ReadonlySet<string>;
   disabled: boolean;
   onToggle(action: ApplicationFileAction): void;
+  allowedActions?: readonly ApplicationFileAction[];
 }) {
   const scope = files.scope.kind === "collection"
     ? "Every visible folder in this collection. Hidden folders are always excluded."
@@ -140,7 +141,7 @@ export function FilePermissionSummary({ files, selected, disabled, onToggle }: {
             <input type="checkbox" checked disabled />
             <span>{FILE_ACTION_LABELS[action]} (required)</span>
           </label>)}</div>
-          {(files.optional ?? []).length > 0 && <div>{(files.optional ?? []).map((action) => <label key={action}>
+          {(files.optional ?? []).length > 0 && <div>{(files.optional ?? []).filter((action) => !allowedActions || allowedActions.includes(action)).map((action) => <label key={action}>
             <input
               type="checkbox"
               checked={selected.has(action)}

@@ -489,7 +489,7 @@ function SupportedApprovalForm({
     [visibleChoices]
   );
   const savedReview = useMemo(() => storedAuthorizationReview(request.id), [request.id]);
-  const permissionGroups = useMemo(
+  const requestedPermissionGroups = useMemo(
     () => authorizationCapabilityGroups(
       request.requirements,
       request.requested_operations
@@ -505,12 +505,12 @@ function SupportedApprovalForm({
     Boolean(initialSelection.collectionId)
   );
   const [reviewing, setReviewing] = useState(initialSelection.reviewing);
-  const [operations, setOperations] = useState(() => {
+  const [chosenOperations, setOperations] = useState(() => {
     const selected = selectedOperationsForCapabilityGroups(
-      permissionGroups,
+      requestedPermissionGroups,
       savedReview?.operations
     );
-    const grouped = new Set(permissionGroups.flatMap((group) => group.operations));
+    const grouped = new Set(requestedPermissionGroups.flatMap((group) => group.operations));
     for (const operation of request.requested_operations) {
       if (!grouped.has(operation) && (!savedReview?.operations
         || request.requirements.capabilities?.contract_version === 2
@@ -518,7 +518,7 @@ function SupportedApprovalForm({
     }
     return selected;
   });
-  const [fileActions, setFileActions] = useState(() => request.requirements.files
+  const [chosenFileActions, setFileActions] = useState(() => request.requirements.files
     ? selectedFileActions(request.requirements.files, savedReview?.fileActions)
     : new Set<string>()
   );
@@ -532,6 +532,18 @@ function SupportedApprovalForm({
   const focusCollectionOnReturn = useRef(false);
   const focusHostedTriggerOnCancel = useRef(false);
   const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
+  const approval = selected?.authorization;
+  const allowedOperations = approval?.available ? approval.operations : undefined;
+  const allowedFiles = approval?.available ? approval.file_actions : undefined;
+  const permissionGroups = useMemo(() => requestedPermissionGroups.filter((group) =>
+    !allowedOperations || group.operations.every((operation) => allowedOperations.includes(operation))
+  ), [allowedOperations, requestedPermissionGroups]);
+  const operations = useMemo(() => new Set([...chosenOperations].filter((operation) =>
+    !allowedOperations || allowedOperations.includes(operation)
+  )), [allowedOperations, chosenOperations]);
+  const fileActions = useMemo(() => new Set([...chosenFileActions].filter((action) =>
+    !allowedFiles || allowedFiles.includes(action as ApplicationFileAction)
+  )), [allowedFiles, chosenFileActions]);
   const setup = selected ? neededProvisions(request, selected) : [];
   const configurationSetup = request.provisions.configuration ?? [];
   const hasSetup = setup.length > 0 || configurationSetup.length > 0;
@@ -900,6 +912,7 @@ function SupportedApprovalForm({
           />}
           {request.requirements.files && <FilePermissionSummary
             files={request.requirements.files}
+            allowedActions={allowedFiles}
             selected={fileActions}
             disabled={submitting !== null}
             onToggle={toggleFileAction}

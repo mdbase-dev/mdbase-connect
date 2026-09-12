@@ -8,7 +8,7 @@ export type CollectionCompatibility =
   | { compatible: true }
   | {
       compatible: false;
-      code: "collection_kind" | "legacy_spec" | "missing_contracts";
+      code: "collection_kind" | "legacy_spec" | "missing_contracts" | "permissions";
       label: string;
       detail: string;
     };
@@ -17,6 +17,14 @@ export function collectionCompatibility(
   request: Pick<PendingAuthorization, "distribution" | "requirements" | "provisions" | "requested_operations">,
   collection: AvailableCollection
 ): CollectionCompatibility {
+  if (collection.authorization?.available === false) {
+    return {
+      compatible: false,
+      code: "permissions",
+      label: "More access required",
+      detail: collection.authorization.detail
+    };
+  }
   if (request.requirements.collection_kind === "hosted" && collection.kind !== "hosted") {
     return {
       compatible: false,

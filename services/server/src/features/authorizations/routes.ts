@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { planCollectionGrant } from "../../grant-planner.js";
+import { planCollectionGrant, previewCollectionGrant } from "../../grant-planner.js";
 import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
 import type {
   ApplicationNotifications,
@@ -781,7 +781,12 @@ export function registerAuthorizationRoutes(
         spec_version: "0.3.0",
         contracts: contractRequirements(contracts),
         types,
-        access: accessView(access)
+        access: accessView(access),
+        authorization: previewCollectionGrant({
+          applicationOperationCeiling: authorization.rows[0].requested_operations,
+          requirements: authorization.rows[0].requirements,
+          access
+        })
       };
     }));
     const availableCollections = [

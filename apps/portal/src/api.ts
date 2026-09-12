@@ -106,6 +106,9 @@ export interface AvailableCollection {
   spec_version: string;
   contracts: CollectionContractDescriptor[];
   types?: CollectionTypeDescriptor[];
+  authorization?:
+    | { available: true; operations: string[]; file_actions: ApplicationFileAction[] }
+    | { available: false; detail: string };
 }
 
 export interface CollectionTypeDescriptor {
