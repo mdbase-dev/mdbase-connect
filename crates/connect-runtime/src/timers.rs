@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::fmt;
+use uuid::Uuid;
 
 use crate::{NotificationCatalog, TIMER_EVENT_ID};
 
@@ -86,6 +87,25 @@ struct DesiredTimer {
     data: Value,
 }
 
+/// Atomically cancel all scheduled or firing Connect timers owned by a grant,
+/// across every namespace, and invalidate their outstanding leases.
+///
+/// Returns the number of timers newly cancelled. Repeated cleanup returns zero;
+/// already fired or cancelled timers are preserved. This does not prevent later
+/// scheduling or retract timer events that have already been admitted.
+pub async fn cancel_grant_timers(
+    runtime: &Runtime,
+    grant_id: Uuid,
+) -> mdbase_runtime::RuntimeResult<usize> {
+    let outcome = runtime
+        .reconcile_timers(TimerReconcileRequest {
+            id_prefix: format!("connect:{grant_id}:"),
+            timers: Vec::new(),
+        })
+        .await?;
+    Ok(outcome.cancelled_ids.len())
+}
+
 pub async fn perform_timer_operation(
     runtime: &Runtime,
     catalog: &NotificationCatalog,
@@ -123,22 +143,10 @@ pub async fn perform_timer_operation(
                 &prefix,
                 input.timer,
             )?;
-            let timer_id = timer.id.clone();
             let timer = runtime
-                .reconcile_timers(TimerReconcileRequest {
-                    id_prefix: timer_id,
-                    timers: vec![timer],
-                })
+                .reconcile_timer_exact(timer)
                 .await
-                .map_err(TimerOperationError::runtime)?
-                .timers
-                .into_iter()
-                .next()
-                .ok_or_else(|| {
-                    TimerOperationError::runtime(RuntimeError::Store(
-                        "Timer reconciliation omitted its desired timer.".to_string(),
-                    ))
-                })?;
+                .map_err(TimerOperationError::runtime)?;
             timer_summary(&timer, &prefix)
         }
         "cancel_timer" => {
@@ -373,11 +381,359 @@ mod tests {
     };
     use mdbase_runtime::{
         DenyAllAuthorizer, ImplementationIdentity, InMemoryRuntimeStore, ManualClock,
-        ProviderRegistry, RuntimeConfig, RuntimeStore,
+        PreparedEvent, ProviderRegistry, RuntimeConfig, RuntimeStore, TimerFireOutcome,
     };
     use std::sync::Arc;
     use std::time::Duration;
     use uuid::Uuid;
+
+    #[tokio::test]
+    async fn grant_cleanup_cancels_all_namespaces_and_preserves_other_prefixes() {
+        let (runtime, store) = runtime();
+        let grant_a = grant("reminder");
+        let grant_b = grant("reminder");
+        let catalog = catalog(&[grant_a.clone(), grant_b.clone()]);
+        for namespace in ["one", "two", "three"] {
+            put(&runtime, &catalog, &grant_a, namespace, "a", "10:00:00", 1).await;
+        }
+        put(&runtime, &catalog, &grant_b, "one", "a", "10:00:00", 1).await;
+
+        // Similar IDs outside the exact colon-delimited Connect grant prefix
+        // must not be treated as owned timers.
+        let template = runtime
+            .timers(&timer_prefix(&grant_b, "one"))
+            .await
+            .unwrap()[0]
+            .clone();
+        for id in [
+            format!("connect:{}suffix:one:timer.61", grant_a.id),
+            format!("other:{}:one:timer.61", grant_a.id),
+        ] {
+            let mut timer = template.clone();
+            timer.id = id;
+            store.upsert_timer(timer).await.unwrap();
+        }
+        let prefix = format!("connect:{}:", grant_a.id);
+        let before = store.snapshot().await.unwrap();
+        assert_eq!(cancel_grant_timers(&runtime, grant_a.id).await.unwrap(), 3);
+        let after = store.snapshot().await.unwrap();
+        assert_eq!(after.timers.len(), before.timers.len());
+        for timer in &after.timers {
+            let original = before.timers.iter().find(|old| old.id == timer.id).unwrap();
+            if timer.id.starts_with(&prefix) {
+                assert_eq!(timer.status, TimerStatus::Cancelled);
+                assert_eq!(timer.generation, original.generation);
+            } else {
+                assert_eq!(timer, original);
+            }
+        }
+        assert_eq!(cancel_grant_timers(&runtime, grant_a.id).await.unwrap(), 0);
+        assert_eq!(store.snapshot().await.unwrap(), after);
+        assert_eq!(
+            cancel_grant_timers(&runtime, Uuid::new_v4()).await.unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn grant_cleanup_invalidates_firing_leases_and_preserves_fired_timers() {
+        let (runtime, store) = runtime();
+        let grant = grant("reminder");
+        let catalog = catalog(std::slice::from_ref(&grant));
+        put(&runtime, &catalog, &grant, "done", "fired", "00:00:00", 1).await;
+        assert!(matches!(
+            runtime.fire_due_timer(catalog.admission()).await.unwrap(),
+            TimerFireOutcome::Fired { .. }
+        ));
+        let fired = runtime.timers(&timer_prefix(&grant, "done")).await.unwrap();
+        put(
+            &runtime,
+            &catalog,
+            &grant,
+            "pending",
+            "scheduled",
+            "10:00:00",
+            1,
+        )
+        .await;
+        put(
+            &runtime, &catalog, &grant, "claimed", "firing", "00:00:00", 1,
+        )
+        .await;
+        let now = Utc.with_ymd_and_hms(2026, 7, 25, 0, 0, 0).unwrap();
+        let claim = store
+            .claim_due_timer("worker", now, Duration::from_secs(30))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(claim.timer.status, TimerStatus::Firing);
+        assert_eq!(cancel_grant_timers(&runtime, grant.id).await.unwrap(), 2);
+        for namespace in ["pending", "claimed"] {
+            let timers = runtime
+                .timers(&timer_prefix(&grant, namespace))
+                .await
+                .unwrap();
+            assert_eq!(timers.len(), 1);
+            assert_eq!(timers[0].status, TimerStatus::Cancelled);
+        }
+        assert_eq!(
+            runtime.timers(&timer_prefix(&grant, "done")).await.unwrap(),
+            fired
+        );
+        let mut attempted = claim.timer.clone();
+        attempted.status = TimerStatus::Fired;
+        let error = store
+            .fire_timer(
+                claim,
+                attempted,
+                PreparedEvent {
+                    source_runtime: "test".to_string(),
+                    event_id: "stale-timer".to_string(),
+                    envelope: json!({}),
+                    received_at: now,
+                    runs: Vec::new(),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "stale_lease");
+        assert!(store
+            .claim_due_timer(
+                "worker",
+                now + chrono::Duration::days(1),
+                Duration::from_secs(30)
+            )
+            .await
+            .unwrap()
+            .is_none());
+        let after = store.snapshot().await.unwrap();
+        assert_eq!(cancel_grant_timers(&runtime, grant.id).await.unwrap(), 0);
+        assert_eq!(store.snapshot().await.unwrap(), after);
+        assert!(!after
+            .events
+            .iter()
+            .any(|event| event.event_id == "stale-timer"));
+    }
+
+    #[tokio::test]
+    async fn put_timer_upserts_only_the_exact_encoded_id() {
+        let (runtime, _) = runtime();
+        let grant = grant("reminder");
+        let catalog = catalog(std::slice::from_ref(&grant));
+
+        put(&runtime, &catalog, &grant, "forward", "ab", "10:00:00", 1).await;
+        put(&runtime, &catalog, &grant, "forward", "a", "11:00:00", 2).await;
+        let replaced = put(&runtime, &catalog, &grant, "forward", "a", "12:00:00", 3).await;
+        assert_eq!(replaced["id"], "a");
+        assert_eq!(replaced["generation"], 2);
+        assert_eq!(replaced["data"]["revision"], 3);
+
+        put(&runtime, &catalog, &grant, "reverse", "a", "10:00:00", 1).await;
+        put(&runtime, &catalog, &grant, "reverse", "ab", "11:00:00", 2).await;
+        put(&runtime, &catalog, &grant, "reverse", "ab", "12:00:00", 3).await;
+
+        for (namespace, untouched_id, replaced_id) in
+            [("forward", "ab", "a"), ("reverse", "a", "ab")]
+        {
+            let listed = list(&runtime, &catalog, &grant, namespace).await;
+            let timers = listed["timers"].as_array().unwrap();
+            assert_eq!(timers.len(), 2);
+            let untouched = timers
+                .iter()
+                .find(|timer| timer["id"] == untouched_id)
+                .unwrap();
+            assert_eq!(untouched["status"], "scheduled");
+            assert_eq!(untouched["generation"], 1);
+            assert_eq!(untouched["fire_at"], "2026-07-25T10:00:00+00:00");
+            assert_eq!(untouched["data"]["revision"], 1);
+            let replaced = timers
+                .iter()
+                .find(|timer| timer["id"] == replaced_id)
+                .unwrap();
+            assert_eq!(replaced["status"], "scheduled");
+            assert_eq!(replaced["generation"], 2);
+            assert_eq!(replaced["fire_at"], "2026-07-25T12:00:00+00:00");
+            assert_eq!(replaced["data"]["revision"], 3);
+        }
+    }
+
+    #[tokio::test]
+    async fn put_timer_preserves_identical_lifecycle_state_and_created_at() {
+        let (runtime, store) = runtime();
+        let grant = grant("reminder");
+        let catalog = catalog(std::slice::from_ref(&grant));
+
+        let scheduled = put(
+            &runtime,
+            &catalog,
+            &grant,
+            "lifecycle",
+            "scheduled",
+            "01:00:00",
+            1,
+        )
+        .await;
+        let identical_scheduled = put(
+            &runtime,
+            &catalog,
+            &grant,
+            "lifecycle",
+            "scheduled",
+            "01:00:00",
+            1,
+        )
+        .await;
+        assert_eq!(identical_scheduled, scheduled);
+
+        let fired = put(
+            &runtime,
+            &catalog,
+            &grant,
+            "lifecycle",
+            "fired",
+            "00:00:00",
+            1,
+        )
+        .await;
+        assert!(matches!(
+            runtime.fire_due_timer(catalog.admission()).await.unwrap(),
+            TimerFireOutcome::Fired { .. }
+        ));
+        let identical_fired = put(
+            &runtime,
+            &catalog,
+            &grant,
+            "lifecycle",
+            "fired",
+            "00:00:00",
+            1,
+        )
+        .await;
+        assert_eq!(identical_fired["status"], "fired");
+        assert_eq!(identical_fired["generation"], 1);
+        assert_eq!(identical_fired["created_at"], fired["created_at"]);
+        assert!(identical_fired["fired_at"].is_string());
+        let changed_fired = put(
+            &runtime,
+            &catalog,
+            &grant,
+            "lifecycle",
+            "fired",
+            "02:00:00",
+            2,
+        )
+        .await;
+        assert_eq!(changed_fired["status"], "scheduled");
+        assert_eq!(changed_fired["generation"], 2);
+        assert_eq!(changed_fired["created_at"], fired["created_at"]);
+        assert!(changed_fired["fired_at"].is_null());
+
+        let firing = put(
+            &runtime,
+            &catalog,
+            &grant,
+            "lifecycle",
+            "firing",
+            "00:00:00",
+            1,
+        )
+        .await;
+        let claim = store
+            .claim_due_timer(
+                "worker",
+                Utc.with_ymd_and_hms(2026, 7, 25, 0, 0, 0).unwrap(),
+                Duration::from_secs(30),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(claim.timer.id.ends_with("timer.666972696e67"));
+        let identical_firing = put(
+            &runtime,
+            &catalog,
+            &grant,
+            "lifecycle",
+            "firing",
+            "00:00:00",
+            1,
+        )
+        .await;
+        assert_eq!(identical_firing["status"], "firing");
+        assert_eq!(identical_firing["generation"], 1);
+        assert_eq!(identical_firing["created_at"], firing["created_at"]);
+    }
+
+    #[tokio::test]
+    async fn reconcile_timers_still_cancels_an_omitted_exact_timer() {
+        let (runtime, _) = runtime();
+        let grant = grant("reminder");
+        let catalog = catalog(std::slice::from_ref(&grant));
+        put(&runtime, &catalog, &grant, "reminders", "a", "10:00:00", 1).await;
+        let omitted_before =
+            put(&runtime, &catalog, &grant, "reminders", "ab", "11:00:00", 1).await;
+
+        let reconciled = perform_timer_operation(
+            &runtime,
+            &catalog,
+            &grant,
+            "reconcile_timers",
+            json!({
+                "namespace": "reminders",
+                "criterion_id": "reminder",
+                "timers": [{
+                    "id": "a",
+                    "fire_at": "2026-07-25T12:00:00Z",
+                    "data": {"revision": 2}
+                }]
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(reconciled["cancelled_ids"], json!(["ab"]));
+        assert_eq!(reconciled["timers"][0]["id"], "a");
+        assert_eq!(reconciled["timers"][0]["generation"], 2);
+        let listed = list(&runtime, &catalog, &grant, "reminders").await;
+        let omitted = listed["timers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|timer| timer["id"] == "ab")
+            .unwrap();
+        assert_eq!(omitted["status"], "cancelled");
+        let rescheduled = put(&runtime, &catalog, &grant, "reminders", "ab", "11:00:00", 1).await;
+        assert_eq!(rescheduled["status"], "scheduled");
+        assert_eq!(rescheduled["generation"], 2);
+        assert_eq!(rescheduled["created_at"], omitted_before["created_at"]);
+        assert!(rescheduled["fired_at"].is_null());
+    }
+
+    #[tokio::test]
+    async fn put_timer_preserves_grant_and_namespace_isolation() {
+        let (runtime, _) = runtime();
+        let grant_a = grant("reminder");
+        let grant_b = grant("reminder");
+        let catalog = catalog(&[grant_a.clone(), grant_b.clone()]);
+
+        put(&runtime, &catalog, &grant_a, "one", "ab", "10:00:00", 1).await;
+        put(&runtime, &catalog, &grant_a, "two", "a", "11:00:00", 2).await;
+        put(&runtime, &catalog, &grant_b, "one", "a", "12:00:00", 3).await;
+
+        let grant_a_one = list(&runtime, &catalog, &grant_a, "one").await;
+        assert_eq!(grant_a_one["timers"].as_array().unwrap().len(), 1);
+        assert_eq!(grant_a_one["timers"][0]["id"], "ab");
+        assert_eq!(grant_a_one["timers"][0]["status"], "scheduled");
+        assert_eq!(grant_a_one["timers"][0]["generation"], 1);
+        assert_eq!(grant_a_one["timers"][0]["data"]["revision"], 1);
+        assert_eq!(
+            list(&runtime, &catalog, &grant_a, "two").await["timers"][0]["id"],
+            "a"
+        );
+        assert_eq!(
+            list(&runtime, &catalog, &grant_b, "one").await["timers"][0]["id"],
+            "a"
+        );
+    }
 
     #[tokio::test]
     async fn reconciles_only_the_calling_grants_namespace() {
@@ -468,6 +824,51 @@ mod tests {
         assert_eq!(error.code, "timer_criterion_not_authorized");
     }
 
+    async fn put(
+        runtime: &Runtime,
+        catalog: &NotificationCatalog,
+        grant: &GrantSummary,
+        namespace: &str,
+        id: &str,
+        time: &str,
+        revision: u64,
+    ) -> Value {
+        perform_timer_operation(
+            runtime,
+            catalog,
+            grant,
+            "put_timer",
+            json!({
+                "namespace": namespace,
+                "criterion_id": "reminder",
+                "timer": {
+                    "id": id,
+                    "fire_at": format!("2026-07-25T{time}Z"),
+                    "data": {"revision": revision}
+                }
+            }),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn list(
+        runtime: &Runtime,
+        catalog: &NotificationCatalog,
+        grant: &GrantSummary,
+        namespace: &str,
+    ) -> Value {
+        perform_timer_operation(
+            runtime,
+            catalog,
+            grant,
+            "list_timers",
+            json!({"namespace": namespace}),
+        )
+        .await
+        .unwrap()
+    }
+
     fn runtime() -> (Runtime, Arc<InMemoryRuntimeStore>) {
         let store = Arc::new(InMemoryRuntimeStore::new());
         let clock = ManualClock::new(Utc.with_ymd_and_hms(2026, 7, 25, 0, 0, 0).single().unwrap());
@@ -499,6 +900,7 @@ mod tests {
 
     fn grant(criterion_id: &str) -> GrantSummary {
         GrantSummary {
+            application_declaration: None,
             contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
             id: Uuid::new_v4(),
             application_id: Uuid::new_v4(),
@@ -508,7 +910,7 @@ mod tests {
             application_distribution: "web".to_string(),
             application_homepage: "https://tasks.example".to_string(),
             application_project_url: None,
-            application_origin: "https://tasks.example".to_string(),
+            application_origin: Some("https://tasks.example".to_string()),
             application_icon: None,
             collection_id: Uuid::new_v4(),
             collection_name: "Tasks".to_string(),

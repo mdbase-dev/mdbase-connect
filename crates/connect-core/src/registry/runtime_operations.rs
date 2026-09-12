@@ -1,9 +1,22 @@
 use super::*;
 
 pub(super) struct RuntimeExecution {
-    pub(super) result: mdbase::v03::OperationResult,
-    #[allow(dead_code)]
+    /// Authoritative semantic result. The v0.3 envelope is produced only by
+    /// `operation_response_value` at the Connect compatibility boundary.
+    pub(super) operation: mdbase::runtime::CanonicalOperationOutcome,
     pub(super) outcome: Option<mdbase::runtime::ExecutionOutcome>,
+}
+
+pub(super) fn v03_operation_result(
+    operation: &mdbase::runtime::CanonicalOperationOutcome,
+) -> mdbase::v03::OperationResult {
+    operation.to_v03()
+}
+
+pub(super) fn operation_response_value(
+    operation: &mdbase::runtime::CanonicalOperationOutcome,
+) -> Result<Value, ConnectError> {
+    serde_json::to_value(v03_operation_result(operation)).map_err(Into::into)
 }
 
 struct ScopedRuntimePlan {
@@ -22,9 +35,10 @@ enum QueryCursorAction<'a> {
 pub(super) fn operation_context(
     cancellation: &mdbase::OperationCancellation,
 ) -> mdbase::runtime::OperationContext {
-    mdbase::runtime::OperationContext::new(
+    mdbase::runtime::OperationContext::with_capture_limits(
         cancellation,
-        mdbase::runtime::OperationDeadline::after(std::time::Duration::from_secs(24 * 60 * 60)),
+        mdbase::runtime::OperationDeadline::after(std::time::Duration::from_secs(30)),
+        local_capture_limits(),
     )
 }
 
@@ -35,9 +49,9 @@ pub(super) fn execute_runtime_request(
     context: &mdbase::runtime::OperationContext,
 ) -> Result<RuntimeExecution, ConnectError> {
     if !request.operation.is_mutation() {
-        let outcome = runtime.read(request, context)?;
+        let outcome = runtime.execute_typed_with_context(request, context)?;
         return Ok(RuntimeExecution {
-            result: outcome.result.clone(),
+            operation: outcome.operation.clone(),
             outcome: Some(outcome),
         });
     }
@@ -52,9 +66,9 @@ pub(super) fn execute_runtime_request(
     if let Some((commit_id, state)) = runtime.resolve_claim(claim, context)? {
         return resolve_runtime_execution(runtime, claim, commit_id, state, context);
     }
-    match runtime.prepare(request, claim, context)? {
+    match runtime.prepare_typed(request, claim, context)? {
         mdbase::runtime::PreparationOutcome::NoMutation(outcome) => Ok(RuntimeExecution {
-            result: outcome.result.clone(),
+            operation: outcome.operation.clone(),
             outcome: Some(outcome),
         }),
         mdbase::runtime::PreparationOutcome::Prepared(prepared) => {
@@ -72,9 +86,9 @@ pub(super) fn execute_runtime_read(
 ) -> Result<RuntimeExecution, ConnectError> {
     match query_cursor_action(request.operation, input)? {
         QueryCursorAction::Ordinary => executor.with_foreground(context, |runtime| {
-            let outcome = require_runtime(runtime)?.read(request, context)?;
+            let outcome = require_runtime(runtime)?.execute_typed_with_context(request, context)?;
             Ok(RuntimeExecution {
-                result: outcome.result.clone(),
+                operation: outcome.operation.clone(),
                 outcome: Some(outcome),
             })
         }),
@@ -88,29 +102,23 @@ pub(super) fn execute_runtime_read(
             }
             let page = executor.open_read(&request, scope_binding, context)?;
             Ok(RuntimeExecution {
-                result: read_page_result(page.result, page.next),
+                operation: read_page_operation(page.operation, page.next),
                 outcome: None,
             })
         }
         QueryCursorAction::Page(cursor) => {
             let page = executor.read_page(cursor, scope_binding, context)?;
             Ok(RuntimeExecution {
-                result: read_page_result(page.result, page.next),
+                operation: read_page_operation(page.operation, page.next),
                 outcome: None,
             })
         }
         QueryCursorAction::Release(cursor) => {
             executor.release_read(cursor, scope_binding, context)?;
             Ok(RuntimeExecution {
-                result: mdbase::v03::OperationResult {
-                    valid: true,
-                    result: json!({
-                        "released": true,
-                        "results": [],
-                        "meta": {"total_count": 0, "has_more": false}
-                    }),
-                    diagnostics: Vec::new(),
-                },
+                operation: mdbase::runtime::CanonicalOperationOutcome::cursor_release(
+                    mdbase::runtime::CursorReleaseOutcome { released: true },
+                ),
                 outcome: None,
             })
         }
@@ -143,21 +151,23 @@ fn query_cursor_action(
     Ok(QueryCursorAction::Ordinary)
 }
 
-fn read_page_result(
-    mut result: mdbase::v03::OperationResult,
+fn read_page_operation(
+    mut operation: mdbase::runtime::CanonicalOperationOutcome,
     next: Option<String>,
-) -> mdbase::v03::OperationResult {
-    if let Some(meta) = result.result.get_mut("meta").and_then(Value::as_object_mut) {
-        match next {
-            Some(cursor) => {
-                meta.insert("cursor".to_string(), Value::String(cursor));
-            }
-            None => {
-                meta.remove("cursor");
+) -> mdbase::runtime::CanonicalOperationOutcome {
+    if let Some(query) = operation.query_value_mut() {
+        if let Some(meta) = query.meta.as_object_mut() {
+            match next {
+                Some(cursor) => {
+                    meta.insert("cursor".to_string(), Value::String(cursor));
+                }
+                None => {
+                    meta.remove("cursor");
+                }
             }
         }
     }
-    result
+    operation
 }
 
 pub(super) fn scope_binding(scope: &GrantScope) -> Result<String, ConnectError> {
@@ -198,13 +208,13 @@ fn resolve_runtime_execution(
             }
             mdbase::runtime::DurableCommitState::Committed { outcome } => {
                 return Ok(RuntimeExecution {
-                    result: outcome.result.clone(),
+                    operation: outcome.operation.clone(),
                     outcome: Some(outcome),
                 });
             }
             mdbase::runtime::DurableCommitState::RejectedBeforeCommit { rejection } => {
                 return Ok(RuntimeExecution {
-                    result: rejection.result,
+                    operation: rejection.operation,
                     outcome: None,
                 });
             }
@@ -229,12 +239,12 @@ fn finish_commit_attempt(
 ) -> Result<RuntimeExecution, ConnectError> {
     match attempt {
         mdbase::runtime::CommitAttempt::Committed(outcome) => Ok(RuntimeExecution {
-            result: outcome.result.clone(),
+            operation: outcome.operation.clone(),
             outcome: Some(outcome),
         }),
         mdbase::runtime::CommitAttempt::RejectedBeforeCommit { rejection } => {
             Ok(RuntimeExecution {
-                result: rejection.result,
+                operation: rejection.operation,
                 outcome: None,
             })
         }
@@ -251,6 +261,19 @@ fn finish_commit_attempt(
             Err(manual_recovery_error(&commit_id))
         }
     }
+}
+
+fn bind_preflight_revision(
+    request: &mut mdbase::runtime::OperationRequest,
+    revision: &mdbase::api::Revision,
+) -> Result<(), ConnectError> {
+    let input = request.input.as_object_mut().ok_or_else(|| {
+        ConnectError::InvalidInput("The scoped mutation input must be an object.".to_string())
+    })?;
+    if !input.contains_key("if_revision") {
+        input.insert("if_revision".to_string(), serde_json::to_value(revision)?);
+    }
+    Ok(())
 }
 
 fn manual_recovery_error(commit_id: &mdbase::runtime::CommitId) -> ConnectError {
@@ -275,6 +298,7 @@ impl CollectionRegistry {
         cancellation: &mdbase::OperationCancellation,
         claim: Option<&mdbase::runtime::HostClaimId>,
     ) -> Result<Value, ConnectError> {
+        validate_application_scope(scope)?;
         let context = operation_context(cancellation);
         let provider = executor.provider();
         let sync_store = crate::LocalSyncStore::for_registry(self);
@@ -288,27 +312,65 @@ impl CollectionRegistry {
                         collection,
                         operation,
                         input,
-                        scope,
                         cancellation,
                     )
                 })
             });
         }
 
-        let plan = provider.with_collection_read(|collection| {
-            self.scoped_runtime_plan(
-                registered,
-                collection,
-                operation,
-                input,
-                scope,
-                cancellation,
-            )
+        // Mapping, selector/path checks, and control-field authorization happen
+        // before a record read or acquisition of the mutation gate.
+        let mut plan = provider.with_collection_read(|collection| {
+            self.scoped_runtime_plan(registered, collection, operation, input)
         })?;
+        let serialized_scoped_preflight =
+            plan.projection.is_some() && matches!(operation, "update" | "delete" | "rename");
         let execution = if plan.request.operation.is_mutation() {
             sync_store.assert_mutation_allowed(registered.id)?;
             executor.with_mutation(&context, |runtime| {
-                execute_runtime_request(require_runtime(runtime)?, &plan.request, claim, &context)
+                let runtime = require_runtime(runtime)?;
+                let local_claim = (serialized_scoped_preflight && claim.is_none())
+                    .then(mdbase::runtime::HostClaimId::generate);
+                let execution_claim = claim.or(local_claim.as_ref());
+                if serialized_scoped_preflight {
+                    let (resolved_scope, selector) = plan
+                        .projection
+                        .as_ref()
+                        .expect("scoped preflight has a projection");
+                    let path = match operation {
+                        "update" | "delete" => required_string(&plan.request.input, "path")?,
+                        "rename" => required_string(&plan.request.input, "from")?,
+                        _ => unreachable!(),
+                    };
+                    let preflight = runtime.execute_typed_with_context(
+                        &runtime_operation_request("read", &json!({"path": path}))?,
+                        &context,
+                    )?;
+                    let current = operation_record(&preflight.operation).ok_or_else(|| {
+                        ConnectError::AccessDenied(
+                            "The connector could not verify the record's type scope.".to_string(),
+                        )
+                    })?;
+                    provider.with_collection_read(|collection| {
+                        authorize_scoped_mutation_preflight(
+                            collection,
+                            operation,
+                            &plan.request.input,
+                            resolved_scope,
+                            selector.as_ref(),
+                            current,
+                        )
+                    })?;
+                    bind_preflight_revision(&mut plan.request, &current.revision)?;
+                }
+                let execution =
+                    execute_runtime_request(runtime, &plan.request, execution_claim, &context)?;
+                if let Some(local_claim) = local_claim.as_ref() {
+                    if let Some((commit_id, _)) = runtime.resolve_claim(local_claim, &context)? {
+                        runtime.ack_commit_resolution(&commit_id, &context)?;
+                    }
+                }
+                Ok(execution)
             })?
         } else {
             execute_runtime_read(
@@ -319,13 +381,19 @@ impl CollectionRegistry {
                 &context,
             )?
         };
-        let result = serde_json::to_value(execution.result)?;
+        debug_assert!(execution
+            .outcome
+            .as_ref()
+            .is_none_or(|outcome| outcome.operation == execution.operation));
         let Some((resolved_scope, selector)) = plan.projection else {
-            return Ok(result);
+            return operation_response_value(&execution.operation);
         };
-        if plan.ensure_result_scope && result.get("valid").and_then(Value::as_bool) != Some(false) {
-            ensure_result_in_scope(&result, &resolved_scope.allowed_types)?;
+        if plan.ensure_result_scope && input.get("release_cursor").is_none() {
+            ensure_operation_in_scope(&execution.operation, &resolved_scope.allowed_types)?;
         }
+        // Contract authorization has observed the authoritative typed records.
+        // Projection below is the final compatibility serialization step.
+        let result = operation_response_value(&execution.operation)?;
         resolved_scope
             .project_result(result, selector.as_ref())
             .map_err(contract_scope_error)
@@ -340,6 +408,7 @@ impl CollectionRegistry {
         claim: &mdbase::runtime::HostClaimId,
         cancellation: &mdbase::OperationCancellation,
     ) -> Result<Value, ConnectError> {
+        validate_application_scope(scope)?;
         let registered = self.get(id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(
@@ -460,12 +529,9 @@ impl CollectionRegistry {
         collection: &Collection,
         operation: &str,
         input: &Value,
-        scope: &GrantScope,
-        cancellation: &mdbase::OperationCancellation,
     ) -> Result<ScopedRuntimePlan, ConnectError> {
-        let Some(resolved_scope) = self.resolve_operation_contract_scope_loaded(
-            registered, collection, scope, operation, input,
-        )?
+        let Some(resolved_scope) =
+            self.resolve_operation_contract_scope_loaded(registered, collection, operation, input)?
         else {
             return Ok(ScopedRuntimePlan {
                 request: runtime_operation_request(operation, input)?,
@@ -479,7 +545,7 @@ impl CollectionRegistry {
                 let (input, selector) = resolved_scope
                     .query_input(input)
                     .map_err(contract_scope_error)?;
-                (input, selector, false)
+                (input, selector, true)
             }
             "read" => {
                 let (input, selector) = resolved_scope
@@ -496,8 +562,7 @@ impl CollectionRegistry {
                     .cloned()
                     .unwrap_or_else(|| json!({}));
                 let path = input.get("path").and_then(Value::as_str);
-                let mut prospective_types =
-                    collection.determine_types_for_path(&frontmatter, path);
+                let mut prospective_types = collection.determine_types_for_path(&frontmatter, path);
                 if let Some(requested_type) = input.get("type").and_then(Value::as_str) {
                     prospective_types.push(requested_type.to_lowercase());
                 }
@@ -513,136 +578,39 @@ impl CollectionRegistry {
                 let (input, selector) = resolved_scope
                     .map_write_input(input, false)
                     .map_err(contract_scope_error)?;
-                let path = required_string(&input, "path")?;
-                let current = execute_loaded_cancellable(
-                    collection,
-                    &registered.spec_version,
-                    "read",
-                    &json!({"path": path}),
-                    cancellation,
-                )?;
-                ensure_result_in_scope(&current, allowed_types)?;
-                let current_types = result_types(&current);
-                let mut prospective = current
-                    .pointer("/result/frontmatter")
-                    .and_then(Value::as_object)
-                    .cloned()
-                    .unwrap_or_default();
-                if let Some(fields) = input.get("patch").and_then(Value::as_object) {
-                    for (field, value) in fields {
-                        if value.is_null() {
-                            prospective.remove(field);
-                        } else {
-                            prospective.insert(field.clone(), value.clone());
-                        }
-                    }
-                }
-                let prospective_types = collection
-                    .determine_types_for_path(&Value::Object(prospective), Some(path));
-                ensure_types_in_scope(&prospective_types, allowed_types)?;
-                ensure_no_new_out_of_scope_types(
-                    &prospective_types,
-                    &current_types,
-                    allowed_types,
-                )?;
+                required_string(&input, "path")?;
                 (input, Some(selector), false)
             }
             "delete" => {
                 let (mut input, selector) = resolved_scope
                     .identity_input(input)
                     .map_err(contract_scope_error)?;
-                let path = required_string(&input, "path")?;
-                let current = execute_loaded_cancellable(
-                    collection,
-                    &registered.spec_version,
-                    "read",
-                    &json!({"path": path}),
-                    cancellation,
-                )?;
-                ensure_result_in_scope(&current, allowed_types)?;
-                resolved_scope
-                    .authorize_record_result(&current, selector.as_ref())
-                    .map_err(contract_scope_error)?;
+                required_string(&input, "path")?;
                 if let Some(object) = input.as_object_mut() {
                     object.insert("check_backlinks".to_string(), Value::Bool(false));
                 }
                 (input, selector, false)
             }
             "rename" => {
-                let (input, selector) = resolved_scope
+                let (mut input, selector) = resolved_scope
                     .identity_input(input)
                     .map_err(contract_scope_error)?;
-                let from = required_string(&input, "from")?;
-                let to = required_string(&input, "to")?;
+                required_string(&input, "from")?;
+                required_string(&input, "to")?;
                 if input.get("update_refs").and_then(Value::as_bool) == Some(true) {
                     return Err(ConnectError::AccessDenied(
                         "Reference updates can affect records outside this application's scope."
                             .to_string(),
                     ));
                 }
-                let current = execute_loaded_cancellable(
-                    collection,
-                    &registered.spec_version,
-                    "read",
-                    &json!({"path": from}),
-                    cancellation,
-                )?;
-                ensure_result_in_scope(&current, allowed_types)?;
-                resolved_scope
-                    .authorize_record_result(&current, selector.as_ref())
-                    .map_err(contract_scope_error)?;
-                let current_types = result_types(&current);
-                let frontmatter = current
-                    .pointer("/result/frontmatter")
-                    .cloned()
-                    .unwrap_or_else(|| json!({}));
-                let prospective_types =
-                    collection.determine_types_for_path(&frontmatter, Some(to));
-                ensure_types_in_scope(&prospective_types, allowed_types)?;
-                ensure_no_new_out_of_scope_types(
-                    &prospective_types,
-                    &current_types,
-                    allowed_types,
-                )?;
+                if let Some(object) = input.as_object_mut() {
+                    object.insert("update_refs".to_string(), Value::Bool(false));
+                }
                 (input, selector, false)
-            }
-            "list_views"
-            | "execute_view"
-            | "read_view_source"
-            | "create_view_source"
-            | "update_view_source"
-            | "delete_view_source" => {
-                return Err(ConnectError::AccessDenied(
-                    "Saved views require full collection access because their source may select any record type."
-                        .to_string(),
-                ))
-            }
-            "validate" => {
-                return Err(ConnectError::AccessDenied(
-                    "Collection-wide validation is unavailable to a contract-scoped application."
-                        .to_string(),
-                ))
-            }
-            "batch" => {
-                return Err(ConnectError::AccessDenied(
-                    "Batch operations require full collection access.".to_string(),
-                ))
-            }
-            "list_types"
-            | "read_type"
-            | "create_type"
-            | "update_type"
-            | "assess_type_pack"
-            | "apply_type_pack"
-            | "assess_collection_setup"
-            | "apply_collection_setup" => {
-                return Err(ConnectError::AccessDenied(
-                    "Collection schemas can only be managed by an application with full collection access."
-                        .to_string(),
-                ))
             }
             other => return Err(ConnectError::UnsupportedOperation(other.to_string())),
         };
+        validate_scoped_mutation_request(operation, &runtime_input)?;
         Ok(ScopedRuntimePlan {
             request: runtime_operation_request(operation, &runtime_input)?,
             projection: Some((resolved_scope, selector)),
@@ -680,12 +648,7 @@ impl CollectionRegistry {
         cancellation
             .check()
             .map_err(|_| ConnectError::OperationCancelled)?;
-        if scope.access == mdbase_connect_protocol::ApplicationAccess::Contract {
-            return Err(ConnectError::AccessDenied(
-                "Contract-scoped replicas are not available because the sync document format contains whole records. Use projected read/query/create/update operations, or request explicit full-collection access."
-                    .to_string(),
-            ));
-        }
+        validate_application_scope(scope)?;
         let registered = self.get(id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(
@@ -770,9 +733,10 @@ impl CollectionRegistry {
                 .check()
                 .map_err(|_| ConnectError::OperationCancelled)?;
             store.assert_authority_available(id)?;
-            replica.allowed_types = self
-                .resolve_scope_types_loaded(&registered, collection, scope)?
-                .unwrap_or_default();
+            // Canonical application grants expose the whole collection. Keep the
+            // replica field for wire/state compatibility, but never derive it
+            // from legacy grant contracts.
+            replica.allowed_types.clear();
             let snapshot = collection.snapshot()?;
             cancellation
                 .check()
@@ -818,7 +782,7 @@ impl CollectionRegistry {
                     serde_json::to_value(store.changes(id, replica.id, after, limit)?)
                         .map_err(Into::into)
                 }
-                other => Err(ConnectError::AccessDenied(format!(
+                other => Err(ConnectError::InvalidInput(format!(
                     "Unsupported sync action: {other}"
                 ))),
             };
@@ -841,4 +805,61 @@ pub(super) fn require_runtime(
             "the legacy collection has no coordinated runtime".to_string(),
         )
     })
+}
+
+#[cfg(test)]
+mod typed_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn typed_cursor_release_serializes_to_the_exact_existing_connect_envelope() {
+        let operation = mdbase::runtime::CanonicalOperationOutcome::cursor_release(
+            mdbase::runtime::CursorReleaseOutcome { released: true },
+        );
+        assert_eq!(
+            operation_response_value(&operation).unwrap(),
+            json!({
+                "valid": true,
+                "result": {
+                    "released": true,
+                    "results": [],
+                    "meta": {"total_count": 0, "has_more": false}
+                },
+                "diagnostics": []
+            })
+        );
+    }
+
+    #[test]
+    fn canonical_query_serializes_to_the_exact_existing_connect_envelope() {
+        let operation = mdbase::runtime::CanonicalOperationOutcome::try_completed(
+            mdbase::runtime::CanonicalOperationValue::Query(Some(
+                mdbase::runtime::CanonicalQueryValue {
+                    records: vec![mdbase::api::ProjectedValue::new(json!({
+                        "path": "tasks/one.md",
+                        "types": ["task"]
+                    }))],
+                    total_count: Some(1),
+                    has_more: false,
+                    meta: mdbase::api::QueryMetadata::new(json!({"source": "index"})),
+                    embedded_diagnostics: Vec::new(),
+                },
+            )),
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            operation_response_value(&operation).unwrap(),
+            json!({
+                "valid": true,
+                "result": {
+                    "results": [{"path": "tasks/one.md", "types": ["task"]}],
+                    "meta": {"source": "index", "total_count": 1, "has_more": false},
+                    "diagnostics": []
+                },
+                "diagnostics": []
+            })
+        );
+    }
 }

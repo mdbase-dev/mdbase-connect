@@ -15,6 +15,7 @@ interface PropertiesPanelProps {
   types: CollectionTypeDescriptor[];
   recordPaths?: string[];
   error?: string;
+  readOnly?: boolean;
   onClose: () => void;
   onSave: (path: string, value: JsonObject) => Promise<void>;
   onSaveDocument?: (document: string, previousDocument: string) => Promise<NoteDocument | false> | NoteDocument | false;
@@ -25,6 +26,7 @@ export function PropertiesPanel({
   types,
   recordPaths = [],
   error,
+  readOnly = false,
   onClose,
   onSave,
   onSaveDocument
@@ -41,6 +43,7 @@ export function PropertiesPanel({
   const sourceBaseline = useRef(initialDocument);
   const latestSource = useRef(source);
   const sourceSaveCallback = useRef(onSaveDocument);
+  const readOnlyRef = useRef(readOnly);
   const sourceSavePromise = useRef<Promise<NoteDocument | false> | undefined>(undefined);
   const lastSourceSubmitted = useRef(initialDocument);
   const [rawError, setRawError] = useState<string>();
@@ -65,6 +68,7 @@ export function PropertiesPanel({
   useEffect(() => { saveCallback.current = onSave; }, [onSave]);
   latestSource.current = source;
   sourceSaveCallback.current = onSaveDocument;
+  readOnlyRef.current = readOnly;
   useEffect(() => {
     const previous = fieldsBaseline.current;
     fieldsBaseline.current = initial;
@@ -89,7 +93,7 @@ export function PropertiesPanel({
     });
   }, [initialDocument]);
   useEffect(() => {
-    if (!changed || fieldsInvalid) {
+    if (readOnly || !changed || fieldsInvalid) {
       if (!changed) {
         lastSubmitted.current = draftFingerprint;
         setAutoSaveState("saved");
@@ -108,29 +112,31 @@ export function PropertiesPanel({
       });
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [changed, draft, draftFingerprint, fieldsInvalid, note.path, validationFingerprint]);
+  }, [changed, draft, draftFingerprint, fieldsInvalid, note.path, readOnly, validationFingerprint]);
   useEffect(() => () => {
     const latest = latestDraft.current;
     const fingerprint = JSON.stringify(latest);
-    if (!latestFieldsInvalid.current && fingerprint !== lastSubmitted.current) {
+    if (!readOnlyRef.current && !latestFieldsInvalid.current && fingerprint !== lastSubmitted.current) {
       void Promise.resolve(saveCallback.current(note.path, latest)).catch(() => undefined);
     }
   }, [note.path]);
   useEffect(() => () => {
     const latest = latestSource.current;
     const baseline = sourceBaseline.current;
-    if (latest === baseline || latest === lastSourceSubmitted.current || sourceSavePromise.current) return;
+    if (readOnlyRef.current || latest === baseline || latest === lastSourceSubmitted.current || sourceSavePromise.current) return;
     lastSourceSubmitted.current = latest;
     void Promise.resolve(sourceSaveCallback.current?.(latest, baseline)).catch(() => undefined);
   }, [note.path]);
 
   function change(next: JsonObject) {
+    if (readOnly) return;
     setDraft(next);
     setRaw(JSON.stringify(next, null, 2));
     setRawError(undefined);
   }
 
   function updateRaw(value: string) {
+    if (readOnly) return;
     setRaw(value);
     try {
       const parsed = JSON.parse(value) as unknown;
@@ -145,6 +151,7 @@ export function PropertiesPanel({
   }
 
   async function saveSource(closeAfterSave = false) {
+    if (readOnly) return;
     if (!sourceChanged) {
       if (closeAfterSave) onClose();
       return;
@@ -227,8 +234,8 @@ export function PropertiesPanel({
       <button id="properties-source-tab" role="tab" aria-controls="properties-source-panel" aria-selected={mode === "source"} tabIndex={mode === "source" ? 0 : -1} onClick={() => setMode("source")}><FileCode2 aria-hidden="true" /> Source</button>
     </div>
 
-    {mode === "fields" ? <div id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">
-      <StructuredPropertiesEditor
+    {mode === "fields" ? <fieldset disabled={readOnly} id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">
+      <StructuredPropertiesEditor readOnly={readOnly}
         value={draft}
         contract={contract}
         effectiveValues={note.effectiveFrontmatter}
@@ -236,13 +243,13 @@ export function PropertiesPanel({
         onChange={change}
         onValidityChange={setStructuredFieldsValid}
       />
-    </div> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
+    </fieldset> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
       <p className="raw-properties-note">Persisted frontmatter only. For the complete Markdown record, use Source.</p>
-      <CodeEditor value={raw} onChange={updateRaw} label="Raw frontmatter JSON" language="json" lineWrapping={false} />
+      <CodeEditor value={raw} onChange={updateRaw} label="Raw frontmatter JSON" language="json" lineWrapping={false} readOnly={readOnly} />
       {rawError && <p className="property-error" role="alert">{rawError}</p>}
     </div> : <div id="properties-source-panel" className="record-source" role="tabpanel" aria-labelledby="properties-source-tab">
       <p>Exact Markdown source, including YAML frontmatter and body.</p>
-      <CodeEditor value={source} onChange={setSource} onBlur={() => void saveSource()} label="Complete record source" language="markdown" lineWrapping={false} />
+      <CodeEditor value={source} onChange={(value) => { if (!readOnly) setSource(value); }} onBlur={() => { if (!readOnly) void saveSource(); }} label="Complete record source" language="markdown" lineWrapping={false} readOnly={readOnly} />
     </div>}
 
     <div className="property-footer">
@@ -254,7 +261,7 @@ export function PropertiesPanel({
             : sourceChanged
               ? "Source saves when focus leaves the editor"
               : "Source saved"}</p>
-          <button className="property-save" disabled={!sourceChanged || saving} onClick={() => void saveSource(true)}>{saving ? "Saving…" : "Save source"}</button>
+          <button className="property-save" disabled={readOnly || !sourceChanged || saving} onClick={() => void saveSource(true)}>{saving ? "Saving…" : "Save source"}</button>
         </div>
         : <p className="property-save-state" aria-live="polite">{rawError
           ? "Fix the JSON to continue saving"

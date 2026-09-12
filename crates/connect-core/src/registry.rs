@@ -32,6 +32,17 @@ pub struct ApplicationSetupResult {
     pub receipt: Value,
 }
 
+/// A registered collection and its current resource-only description.
+///
+/// Invalid or temporarily unreadable collection resources leave `description`
+/// empty without hiding other registered collections. Local paths in the
+/// summary must never cross the connector boundary.
+#[derive(Debug, Clone)]
+pub struct CollectionCatalogEntry {
+    pub summary: CollectionSummary,
+    pub description: Option<CollectionDescription>,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RuntimeResidencyDiagnostics {
     pub capacity: usize,
@@ -47,6 +58,21 @@ const CONNECT_EXTENSION: &str = "x-mdbase-connect";
 const CONNECT_COLLECTION_ID: &str = "collection_id";
 const MIRROR_MARKER_DIRECTORY: &str = ".mdbase";
 const MIRROR_MARKER_FILE: &str = "connect-role.json";
+
+/// Connect-owned local authority capture policy. The entry and retained-byte
+/// ceilings align with Connect's 100k-record / 4 GiB admitted authority shape;
+/// individual exact documents retain mdbase's 64 MiB ceiling, while resource
+/// discovery is separately capped at 10k entries.
+fn local_capture_limits() -> mdbase::runtime::CaptureLimits {
+    mdbase::runtime::CaptureLimits::builder()
+        .max_entries(100_000)
+        .max_file_bytes(64 * 1024 * 1024)
+        .max_aggregate_bytes(4 * 1024 * 1024 * 1024)
+        .max_depth(128)
+        .max_resource_entries(10_000)
+        .max_retained_bytes(4 * 1024 * 1024 * 1024)
+        .build()
+}
 
 mod agent_state;
 mod authority;
@@ -75,6 +101,9 @@ use authority_store::{AuthorityStore, AuthorityWritePriority};
 pub use encrypted_requests::{
     encrypted_request_fingerprint, EncryptedReplayClass, EncryptedRequestClaim,
 };
+pub use grants::{
+    canonical_policy_authority_digest, RemotePolicyAuthority, RemotePolicyAuthorityMode,
+};
 use identity::{
     assert_local_authority_folder, clear_collection_identity, collection_display_name,
     ensure_collection_id, normalized_optional, read_collection_id, read_collection_metadata,
@@ -93,13 +122,14 @@ use operation_execution::{
 pub use receipts::AuthorityReceiptDiagnostics;
 use runtime_executor::CollectionExecutor;
 use runtime_operations::{
-    execute_runtime_read, execute_runtime_request, operation_context, require_runtime,
-    scope_binding,
+    execute_runtime_read, execute_runtime_request, operation_context, operation_response_value,
+    require_runtime, scope_binding, v03_operation_result,
 };
 use scope::{
-    change_is_in_scope, contract_scope_error, ensure_no_new_out_of_scope_types,
-    ensure_result_in_scope, ensure_types_in_scope, required_string, required_uuid, result_types,
-    sync_resources,
+    authorize_scoped_mutation_preflight, contract_scope_error, ensure_no_new_out_of_scope_types,
+    ensure_operation_in_scope, ensure_result_in_scope, ensure_types_in_scope, operation_record,
+    required_string, required_uuid, result_types, sync_resources, validate_application_scope,
+    validate_scoped_mutation_request,
 };
 
 #[derive(Debug, Error)]

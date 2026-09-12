@@ -27,8 +27,8 @@ pub(crate) fn execution_timeout(deadline_unix_ms: Option<u64>) -> Duration {
     Duration::from_millis(remaining_ms.min(MAX_OPERATION_EXECUTION.as_millis()) as u64)
 }
 
-pub(crate) fn queue_deadline(deadline_unix_ms: Option<u64>) -> TokioInstant {
-    TokioInstant::now() + execution_timeout(deadline_unix_ms).min(DEFAULT_QUEUE_WAIT)
+pub(crate) fn queue_deadline(operation_deadline: TokioInstant) -> TokioInstant {
+    operation_deadline.min(TokioInstant::now() + DEFAULT_QUEUE_WAIT)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -167,13 +167,23 @@ impl Drop for QueueTicket {
     }
 }
 
+#[cfg(test)]
+#[path = "admission/tests/diagnostics.rs"]
+mod diagnostics;
+#[cfg(test)]
+use diagnostics::AdmissionTrace;
+
 #[derive(Debug)]
 pub(crate) struct AdmissionPermit {
+    #[cfg(test)]
+    trace_id: u64,
     _permits: Vec<OwnedSemaphorePermit>,
     pub queue_wait_us: u64,
 }
 
 pub(crate) struct AdmissionScheduler {
+    #[cfg(test)]
+    trace: Arc<AdmissionTrace>,
     limits: AdmissionLimits,
     operations: Arc<Semaphore>,
     reads: Arc<Semaphore>,
@@ -201,6 +211,8 @@ impl AdmissionScheduler {
         debug_assert!(limits.reads_per_grant < limits.operations_per_grant);
         debug_assert!(limits.background_per_grant < limits.reads_per_grant);
         Self {
+            #[cfg(test)]
+            trace: Arc::new(AdmissionTrace::default()),
             limits,
             operations: Arc::new(Semaphore::new(limits.operations)),
             reads: Arc::new(Semaphore::new(limits.reads)),
@@ -230,6 +242,13 @@ impl AdmissionScheduler {
         deadline: TokioInstant,
     ) -> Result<AdmissionPermit, AdmissionError> {
         let started = Instant::now();
+        #[cfg(test)]
+        let trace_id = self
+            .trace
+            .next
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(test)]
+        self.trace.record(trace_id, request.class, "requested");
         let ticket = QueueTicket::new(
             self.queue_counts.clone(),
             self.limits,
@@ -271,7 +290,25 @@ impl AdmissionScheduler {
                     acquire_before(self.operation_grant_semaphore(request.grant_id), deadline)
                         .await?,
                 );
-                permits.push(acquire_before(self.reads.clone(), deadline).await?);
+                let read = acquire_before(self.reads.clone(), deadline);
+                #[cfg(test)]
+                let read = {
+                    use std::future::Future;
+                    let mut read = std::pin::pin!(read);
+                    let mut observed = false;
+                    std::future::poll_fn(|cx| {
+                        let result = read.as_mut().poll(cx);
+                        if result.is_pending() && !observed {
+                            observed = true;
+                            self.trace.record(trace_id, request.class, "read_pending");
+                        }
+                        result
+                    })
+                    .await
+                };
+                #[cfg(not(test))]
+                let read = read.await;
+                permits.push(read?);
                 permits.push(acquire_before(self.operations.clone(), deadline).await?);
             }
             WorkClass::Background => {
@@ -292,7 +329,11 @@ impl AdmissionScheduler {
             }
         }
         drop(ticket);
+        #[cfg(test)]
+        self.trace.record(trace_id, request.class, "admitted");
         Ok(AdmissionPermit {
+            #[cfg(test)]
+            trace_id,
             _permits: permits,
             queue_wait_us: started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
         })
@@ -464,6 +505,17 @@ mod tests {
             class,
             weight_bytes: 1,
         }
+    }
+
+    #[tokio::test]
+    async fn near_expiry_after_queue_uses_the_original_absolute_deadline() {
+        let operation_deadline = TokioInstant::now() + Duration::from_millis(1);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert!(
+            tokio::time::timeout_at(operation_deadline, std::future::pending::<()>(),)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -687,17 +739,50 @@ mod tests {
     }
 
     #[test]
-    fn operation_classification_is_conservative_before_decryption() {
+    fn operation_classification_is_conservative_before_and_after_decryption() {
         assert_eq!(classify_operation("query", None), WorkClass::Foreground);
         assert_eq!(classify_operation("changes", None), WorkClass::Background);
         assert_eq!(classify_operation("sync", None), WorkClass::Mutation);
+        assert_eq!(classify_operation("create_type", None), WorkClass::Mutation);
+
         assert_eq!(
             classify_operation("batch", Some(&serde_json::json!({"operations": []}))),
             WorkClass::Mutation
         );
+
+        for operation in ["delete", "rename"] {
+            assert_eq!(
+                classify_operation(operation, Some(&serde_json::json!({"dry_run": true}))),
+                WorkClass::Foreground,
+                "catalog-declared {operation} preflight should be nonmutating"
+            );
+        }
+
+        for operation in [
+            "create",
+            "create_type",
+            "apply_type_pack",
+            "apply_collection_setup",
+        ] {
+            assert_eq!(
+                classify_operation(operation, Some(&serde_json::json!({"dry_run": true}))),
+                WorkClass::Mutation,
+                "injected dry_run must not downgrade {operation}"
+            );
+        }
         assert_eq!(
-            classify_operation("create", Some(&serde_json::json!({"dry_run": true}))),
-            WorkClass::Foreground
+            classify_operation(
+                "sync",
+                Some(&serde_json::json!({"action": "mutate", "dry_run": true}))
+            ),
+            WorkClass::Mutation
+        );
+        assert_eq!(
+            classify_operation(
+                "file_control",
+                Some(&serde_json::json!({"type": "move_file", "dry_run": true}))
+            ),
+            WorkClass::Mutation
         );
     }
 }

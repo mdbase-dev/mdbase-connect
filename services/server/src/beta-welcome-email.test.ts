@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  OPEN_BETA_WELCOME_MESSAGE_KIND,
   renderBetaWelcomeEmail,
+  renderOpenBetaWelcomeEmail,
   renderScheduledEmail
 } from "./beta-welcome-email.js";
 
@@ -37,6 +39,25 @@ describe("Beta welcome email", () => {
       text: APPROVED_TEXT
     });
     expect(message.text).toMatch(/^[\x00-\x7f]*$/u);
+  });
+
+  it("renders the open Beta collection and replica limits", () => {
+    const message = renderOpenBetaWelcomeEmail({
+      name: "Person Example",
+      email: "person@example.com"
+    });
+    expect(message.text).toContain("2 GB retained-file allowance");
+    expect(message.text).toContain("up to 10,000 files");
+    expect(message.text).toContain("up to 3 hosted collections in total");
+    expect(message.text).toContain("including the starter collection");
+    expect(message.text).toContain("10 synced folders and 50 application installations");
+    expect(renderScheduledEmail({
+      userId: "user-1",
+      name: "Person Example",
+      email: "person@example.com",
+      messageKind: OPEN_BETA_WELCOME_MESSAGE_KIND,
+      templateVersion: 1
+    })).toEqual(message);
   });
 
   it("escapes recipient names in the matching HTML version", () => {

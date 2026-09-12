@@ -413,7 +413,23 @@ impl AgentState {
         let state = Arc::clone(self);
         let execution = operation_executor::spawn_blocking(class, move || {
             let _permit = permit;
-            state.execute_local_operation(collection_id, &operation, &input, &worker_cancellation)
+            #[cfg(test)]
+            let mutation_trace = (class == WorkClass::Mutation).then_some(_permit.trace_id());
+            #[cfg(test)]
+            if let Some(id) = mutation_trace {
+                state
+                    .admission()
+                    .trace()
+                    .record(id, class, "worker_entered");
+            }
+            state.execute_local_operation(
+                collection_id,
+                &operation,
+                &input,
+                &worker_cancellation,
+                #[cfg(test)]
+                mutation_trace,
+            )
         });
         if class == WorkClass::Mutation {
             return execution.await.map_err(local_operation_task_error)?;

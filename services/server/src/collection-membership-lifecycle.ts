@@ -1,18 +1,11 @@
 import { randomUUID } from "node:crypto";
-import {
-  requireCollectionAction,
-  resolveHostedCollectionAccess
-} from "./collection-access.js";
+import { requireCollectionAction, resolveHostedCollectionAccess } from "./collection-access.js";
 import {
   CollectionMembershipPolicyError,
   membershipPolicyPreset,
   type CollectionMembershipRole
 } from "./collection-policy.js";
-import type {
-  DatabaseConnection,
-  DatabasePool,
-  DatabaseQueryable
-} from "./db.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "./db.js";
 import { audit } from "./platform/audit-events.js";
 
 export interface MembershipTransitionResult {
@@ -40,11 +33,17 @@ export async function changeHostedCollectionMembershipRole(
       await resolveHostedCollectionAccess(connection, input.actorUserId, input.collectionId),
       "members.manage"
     );
-    const membership = await activeMembershipForUpdate(
+    const membership = await membershipForUpdate(
       connection,
       input.collectionId,
       input.membershipId
     );
+    if (membership.state !== "active") {
+      throw new CollectionMembershipPolicyError(
+        "membership_unavailable",
+        "Wait for the current permission change to complete."
+      );
+    }
     const revision = Number(membership.current_policy_revision) + 1;
     const policyId = randomUUID();
     const preset = membershipPolicyPreset(input.role);
@@ -142,11 +141,15 @@ export async function revokeHostedCollectionMembership(
       await resolveHostedCollectionAccess(connection, input.actorUserId, input.collectionId),
       "members.manage"
     );
-    const membership = await activeMembershipForUpdate(
+    const membership = await membershipForUpdate(
       connection,
       input.collectionId,
       input.membershipId
     );
+    if (membership.state === "revoked") {
+      await connection.query("COMMIT");
+      return { membershipId: membership.id, state: "revoked", pendingProviderRevocations: 0 };
+    }
     const pendingProviderRevocations = await revokeDerivedCapabilities(
       connection,
       membership.id,
@@ -157,7 +160,8 @@ export async function revokeHostedCollectionMembership(
     if (pendingProviderRevocations === 0) {
       await connection.query(
         `UPDATE collection_memberships
-         SET state = 'revoked', revoked_at = now(), updated_at = now()
+         SET state = 'revoked', revoked_at = now(), updated_at = now(),
+             pending_policy_id = NULL, pending_policy_revision = NULL
          WHERE id = $1`,
         [membership.id]
       );
@@ -170,7 +174,8 @@ export async function revokeHostedCollectionMembership(
     } else {
       await connection.query(
         `UPDATE collection_memberships
-         SET state = 'revoking', updated_at = now()
+         SET state = 'revoking', updated_at = now(),
+             pending_policy_id = NULL, pending_policy_revision = NULL
          WHERE id = $1`,
         [membership.id]
       );
@@ -186,13 +191,9 @@ export async function revokeHostedCollectionMembership(
       }
     );
     if (pendingProviderRevocations === 0) {
-      await audit(
-        connection,
-        input.actorUserId,
-        "collection_membership.revoked",
-        membership.id,
-        { collection_id: input.collectionId }
-      );
+      await audit(connection, input.actorUserId, "collection_membership.revoked", membership.id, {
+        collection_id: input.collectionId
+      });
     }
     await connection.query("COMMIT");
     return {
@@ -208,22 +209,25 @@ export async function revokeHostedCollectionMembership(
   }
 }
 
-export async function finalizeReadyMembershipTransitions(
-  db: DatabasePool
-): Promise<number> {
+export async function finalizeReadyMembershipTransitions(db: DatabasePool): Promise<number> {
   const candidates = await db.query<{ id: string; collection_id: string }>(
     `SELECT id, collection_id FROM collection_memberships
-     WHERE state IN ('changing', 'revoking')`
+     WHERE state IN ('changing', 'revoking')
+       AND id NOT IN (
+         SELECT replica.membership_id FROM hosted_replicas replica
+         JOIN provider_revocation_jobs job ON job.replica_id = replica.id
+         WHERE replica.membership_id IS NOT NULL AND job.completed_at IS NULL
+       )
+     ORDER BY updated_at, id LIMIT 100`
   );
   let finalized = 0;
   for (const candidate of candidates.rows) {
     const connection = await db.connect();
     try {
       await connection.query("BEGIN");
-      await connection.query(
-        "SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE",
-        [candidate.collection_id]
-      );
+      await connection.query("SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE", [
+        candidate.collection_id
+      ]);
       const current = await connection.query<{
         state: "changing" | "revoking";
         pending_policy_id: string | null;
@@ -254,8 +258,7 @@ export async function finalizeReadyMembershipTransitions(
       }
       if (membership.state === "changing") {
         if (!membership.pending_policy_id || !membership.pending_policy_revision) {
-          await connection.query("ROLLBACK");
-          continue;
+          throw new Error("Changing membership has no pending policy.");
         }
         const updated = await connection.query(
           `UPDATE collection_memberships
@@ -265,20 +268,13 @@ export async function finalizeReadyMembershipTransitions(
                state = 'active', updated_at = now()
            WHERE id = $1 AND state = 'changing'
              AND pending_policy_id = $2 AND pending_policy_revision = $3`,
-          [candidate.id, membership.pending_policy_id,
-            membership.pending_policy_revision]
+          [candidate.id, membership.pending_policy_id, membership.pending_policy_revision]
         );
         if (updated.rowCount === 1) {
-          await audit(
-            connection,
-            null,
-            "collection_membership.role_changed",
-            candidate.id,
-            {
-              collection_id: candidate.collection_id,
-              policy_revision: membership.pending_policy_revision
-            }
-          );
+          await audit(connection, null, "collection_membership.role_changed", candidate.id, {
+            collection_id: candidate.collection_id,
+            policy_revision: membership.pending_policy_revision
+          });
         }
         finalized += updated.rowCount ?? 0;
       } else {
@@ -298,13 +294,9 @@ export async function finalizeReadyMembershipTransitions(
           );
         }
         if (updated.rowCount === 1) {
-          await audit(
-            connection,
-            null,
-            "collection_membership.revoked",
-            candidate.id,
-            { collection_id: candidate.collection_id }
-          );
+          await audit(connection, null, "collection_membership.revoked", candidate.id, {
+            collection_id: candidate.collection_id
+          });
         }
         finalized += updated.rowCount ?? 0;
       }
@@ -337,7 +329,7 @@ async function lockActiveHostedCollection(
   }
 }
 
-async function activeMembershipForUpdate(
+async function membershipForUpdate(
   db: DatabaseQueryable,
   collectionId: string,
   membershipId: string
@@ -345,16 +337,17 @@ async function activeMembershipForUpdate(
   id: string;
   user_id: string;
   current_policy_revision: number;
+  state: "active" | "changing" | "revoking" | "revoked";
 }> {
   const result = await db.query<{
     id: string;
     user_id: string;
     current_policy_revision: number;
+    state: "active" | "changing" | "revoking" | "revoked";
   }>(
-    `SELECT id, user_id, current_policy_revision
+    `SELECT id, user_id, current_policy_revision, state
      FROM collection_memberships
      WHERE id = $1 AND collection_id = $2
-       AND state = 'active' AND revoked_at IS NULL
      FOR UPDATE`,
     [membershipId, collectionId]
   );
@@ -395,9 +388,7 @@ async function revokeDerivedCapabilities(
        )`,
     [membershipId, collectionId, userId]
   );
-  const grantByReplica = new Map(
-    grants.rows.map((grant) => [grant.hosted_replica_id, grant.id])
-  );
+  const grantByReplica = new Map(grants.rows.map((grant) => [grant.hosted_replica_id, grant.id]));
   await db.query(
     `UPDATE grants
      SET revoked_at = COALESCE(revoked_at, now())
@@ -446,9 +437,26 @@ async function revokeDerivedCapabilities(
          (id, replica_id, grant_id, collection_id, reason)
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT DO NOTHING`,
-      [randomUUID(), replica.id, grantByReplica.get(replica.id) ?? null,
-        collectionId, reason]
+      [randomUUID(), replica.id, grantByReplica.get(replica.id) ?? null, collectionId, reason]
     );
   }
-  return replicas.rows.length;
+  await db.query(
+    `UPDATE collection_invitations
+    SET state = 'revoked', revoked_at = now(), updated_at = now()
+    WHERE collection_id = $1 AND invited_by_user_id = $2 AND state = 'pending'`,
+    [collectionId, userId]
+  );
+  // Pending pairings need invalidation even before a replica has been issued.
+  await db.query(
+    `UPDATE mirror_pairing_requests SET revoked_at = COALESCE(revoked_at, now())
+    WHERE collection_id = $1 AND user_id = $2`,
+    [collectionId, userId]
+  );
+  const pending = await db.query<{ count: string | number }>(
+    `SELECT count(*) AS count FROM provider_revocation_jobs job
+     JOIN hosted_replicas replica ON replica.id = job.replica_id
+     WHERE replica.membership_id = $1 AND job.completed_at IS NULL`,
+    [membershipId]
+  );
+  return Number(pending.rows[0]?.count ?? 0);
 }

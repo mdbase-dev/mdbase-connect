@@ -17,15 +17,27 @@ test("release workflow signs the permanent channel document and legacy bootstrap
   );
   const verify = workflow.indexOf("cosign verify-blob", sign);
   const publish = workflow.indexOf('gh release create "$GITHUB_REF_NAME"');
+  const appToken = workflow.indexOf("actions/create-github-app-token@", publish);
+  const dispatch = workflow.indexOf('"repos/mdbase-dev/mdbase.dev/dispatches"', appToken);
   assert.ok(generate >= 0);
   assert.ok(sign > generate);
   assert.ok(verify > sign);
   assert.ok(publish > verify);
+  assert.ok(appToken > publish);
+  assert.ok(dispatch > appToken);
   assert.match(workflow, /mdbase-connect-channel-v1\.json/);
   assert.match(workflow, /mdbase-connect-update\.json/);
   assert.match(
     workflow,
     /certificate-identity "https:\/\/github\.com\/\$\{GITHUB_REPOSITORY\}\/\.github\/workflows\/desktop-release\.yml@\$\{GITHUB_REF\}"/
+  );
+  assert.match(workflow, /website-update:[\s\S]*needs: publish/);
+  assert.match(workflow, /release_type=\(\)[\s\S]*\*-\*[\s\S]*release_type\+=\(--prerelease\)/);
+  assert.match(workflow, /event_type:"connect-client-release-published"/);
+  assert.match(workflow, /private-key: \$\{\{ secrets\.RELEASE_AUTOMATION_APP_PRIVATE_KEY \}\}/);
+  assert.doesNotMatch(
+    workflow.slice(appToken, dispatch),
+    /GH_TOKEN: \$\{\{ github\.token \}\}/
   );
 });
 

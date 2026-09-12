@@ -136,6 +136,56 @@ describe("selected connection request coordination", () => {
     );
   });
 
+  it.each(["query", "update"] as const)("releases canceled %s queue capacity before active work finishes", async (operation) => {
+    const held = deferred<string>();
+    const calls: string[] = [];
+    const coordinator = new CollectionRequestCoordinator({
+      async operation<Result>(_operation, input) {
+        const name = (input as { name: string }).name;
+        calls.push(name);
+        return (name === "held" ? await held.promise : name) as Result;
+      }
+    }, null, { foregroundCapacity: 1, foregroundQueueCapacity: 1, mutationQueueCapacity: 1 });
+    const active = coordinator.operation<string>(operation, { name: "held" });
+    const controller = new AbortController();
+    const canceled = coordinator.operation<string>(operation, { name: "canceled" }, { signal: controller.signal });
+    controller.abort();
+    await expect(canceled).rejects.toMatchObject({ code: "operation_cancelled" });
+    const replacement = coordinator.operation<string>(operation, { name: "replacement" });
+    const replacementResult = expect(replacement).resolves.toBe("replacement");
+    expect(calls).toEqual(["held"]);
+    held.resolve("held");
+    await expect(active).resolves.toBe("held");
+    await replacementResult;
+    expect(calls).toEqual(["held", "replacement"]);
+  });
+
+  it("admits the latest read when superseded reads fill the waiting queue", async () => {
+    const held = deferred<string>();
+    const calls: string[] = [];
+    const coordinator = new CollectionRequestCoordinator({
+      async operation<Result>(_operation, input) {
+        const name = (input as { name: string }).name;
+        calls.push(name);
+        return (name === "held" ? await held.promise : name) as Result;
+      }
+    }, null, { foregroundCapacity: 1, foregroundQueueCapacity: 1 });
+    const active = coordinator.operation<string>("query", { name: "held" });
+    const coordination = { family: "library-search", latestWins: true };
+    const first = coordinator.operation<string>("query", { name: "first" }, { coordination });
+    const second = coordinator.operation<string>("query", { name: "second" }, { coordination });
+    const latest = coordinator.operation<string>("query", { name: "latest" }, { coordination });
+    const results = Promise.allSettled([first, second, latest]);
+    held.resolve("held");
+    await expect(active).resolves.toBe("held");
+    expect(await results).toMatchObject([
+      { status: "rejected", reason: { code: "operation_cancelled", problem: { operation_outcome: "not_sent" } } },
+      { status: "rejected", reason: { code: "operation_cancelled", problem: { operation_outcome: "not_sent" } } },
+      { status: "fulfilled", value: "latest" }
+    ]);
+    expect(calls).toEqual(["held", "latest"]);
+  });
+
   it("charges queue time to the original deadline and never sends expired work", async () => {
     vi.useFakeTimers();
     try {
@@ -148,14 +198,17 @@ describe("selected connection request coordination", () => {
           if (name === "held") return await held.promise as Result;
           return name as Result;
         }
-      }, null, { foregroundCapacity: 1 });
+      }, null, { foregroundCapacity: 1, foregroundQueueCapacity: 1 });
       const first = coordinator.operation<string>("query", { name: "held" });
       const expired = coordinator.operation<string>("query", { name: "expired" }, { timeoutMs: 10 });
       await vi.advanceTimersByTimeAsync(11);
       await expect(expired).rejects.toMatchObject({ code: "timeout" });
+      const replacement = coordinator.operation<string>("query", { name: "replacement" });
+      const replacementResult = expect(replacement).resolves.toBe("replacement");
       held.resolve("held");
       await expect(first).resolves.toBe("held");
-      expect(calls).toEqual(["held"]);
+      await replacementResult;
+      expect(calls).toEqual(["held", "replacement"]);
     } finally {
       vi.useRealTimers();
     }

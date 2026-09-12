@@ -7,6 +7,7 @@ import {
   IdentityRemovalForbiddenError
 } from "../account-management.js";
 import { AccountUnavailableError } from "../external-auth.js";
+import { InvalidExternalSignupError, ExternalSignupEmailRequiredError } from "../external-signup.js";
 import { HostedEntitlementRequiredError } from "../entitlements.js";
 import { GitHubIdentityError } from "../github-auth.js";
 import { GoogleIdentityError } from "../google-auth.js";
@@ -171,7 +172,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
     if (error instanceof AccountUnavailableError) {
       return reply.code(403).send(apiError(
         "account_not_allowed",
-        "This account does not have access."
+        "This account cannot be opened with this identity. If you already have an account, sign in with its existing method and connect this provider in account settings."
       ));
     }
     if (error instanceof ExternalIdentityConflictError) {
@@ -215,6 +216,9 @@ export function registerErrorHandler(app: FastifyInstance): void {
         "invalid_password_reset",
         "This password reset link is invalid, expired, or has already been used."
       ));
+    }
+    if (error instanceof InvalidExternalSignupError || error instanceof ExternalSignupEmailRequiredError) {
+      return reply.code(400).send(apiError("invalid_external_signup", error.message));
     }
     if (error instanceof InvalidPublicSignupVerificationError) {
       return reply.code(400).send(apiError(

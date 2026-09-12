@@ -1,0 +1,75 @@
+{
+  "source_revision": "mdbase-rs@aac02c5",
+  "cases": [
+    {
+      "name": "body_only",
+      "document": "Body only",
+      "outcome": "parsed"
+    },
+    {
+      "name": "empty_mapping",
+      "document": "---\n---\nBody",
+      "outcome": "parsed"
+    },
+    {
+      "name": "malformed_yaml",
+      "document": "---\na: [broken\n---\n",
+      "outcome": "invalid_yaml"
+    },
+    {
+      "name": "duplicate_yaml_key",
+      "document": "---\na: 1\na: 2\n---\n",
+      "outcome": "invalid_yaml"
+    },
+    {
+      "name": "null_frontmatter",
+      "document": "---\nnull\n---\n",
+      "outcome": "non_mapping_frontmatter"
+    },
+    {
+      "name": "list_frontmatter",
+      "document": "---\n- item\n---\n",
+      "outcome": "non_mapping_frontmatter"
+    },
+    {
+      "name": "scalar_frontmatter",
+      "document": "---\nscalar\n---\n",
+      "outcome": "non_mapping_frontmatter"
+    },
+    {
+      "name": "later_horizontal_rule_block",
+      "document": "Intro body\n\n---\nnull\n---\n",
+      "outcome": "parsed"
+    },
+    {
+      "name": "single_bom_frontmatter",
+      "document": "﻿---\nnull\n---\n",
+      "outcome": "non_mapping_frontmatter"
+    },
+    {
+      "name": "double_bom_body_only",
+      "document": "﻿﻿---\nnull\n---\n",
+      "outcome": "parsed"
+    },
+    {
+      "name": "crlf_frontmatter",
+      "document": "---\r\nnull\r\n---\r\nBody\r\n",
+      "outcome": "non_mapping_frontmatter"
+    },
+    {
+      "name": "unclosed_opening_fence",
+      "document": "---\na: [broken\nBody",
+      "outcome": "parsed"
+    },
+    {
+      "name": "trailing_whitespace_fences",
+      "document": "--- \t\r\nnull\r\n--- \t\r\nBody",
+      "outcome": "non_mapping_frontmatter"
+    },
+    {
+      "name": "invalid_utf8",
+      "bytes_base64": "YmFk/3V0ZjgubWQ=",
+      "outcome": "invalid_utf8"
+    }
+  ]
+}

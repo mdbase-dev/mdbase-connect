@@ -12,7 +12,10 @@ import {
   HostedProviderUnavailableError
 } from "./hosted-provider.js";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 function readinessDocument(contractSupport: ConnectContractSupport = CONNECT_CONTRACT_SUPPORT) {
   return {
@@ -79,6 +82,252 @@ describe("hosted provider control client", () => {
 
     await expect(provider.advanceProjection("collection", "generation"))
       .resolves.toEqual(active);
+  });
+
+  it("yields to the exact projection worker lease and reconciles activation", async () => {
+    const building = {
+      collection_id: "collection",
+      ready: false,
+      head: 42,
+      resource_revision: "catalog-v1",
+      active_generation_id: null,
+      building_generation: {
+        collection_id: "collection",
+        generation_id: "generation",
+        source_head: 42,
+        phase: "projection",
+        status: "building"
+      }
+    };
+    const active = {
+      ...building,
+      ready: true,
+      active_generation_id: "generation",
+      building_generation: null
+    };
+    const leaseUnavailable = () => new Response(JSON.stringify({
+      error: {
+        code: "projection_lease_unavailable",
+        message: "The projection generation lease is unavailable or fenced."
+      }
+    }), { status: 409 });
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(leaseUnavailable())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: building })))
+      .mockResolvedValueOnce(leaseUnavailable())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: active })));
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+
+    await expect(provider.advanceProjection("collection", "generation"))
+      .resolves.toEqual(active);
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ["https://provider.example/internal/v1/collections/collection/projection/advance", "POST"],
+      ["https://provider.example/internal/v1/collections/collection/projection", "GET"],
+      ["https://provider.example/internal/v1/collections/collection/projection/advance", "POST"],
+      ["https://provider.example/internal/v1/collections/collection/projection", "GET"]
+    ]);
+  });
+
+  it.each([
+    ["wrong collection", {
+      collection_id: "other",
+      ready: false,
+      head: 42,
+      resource_revision: "catalog-v1",
+      active_generation_id: null,
+      building_generation: null
+    }, "invalid_provider_response"],
+    ["missing requested building generation", {
+      collection_id: "collection",
+      ready: false,
+      head: 42,
+      resource_revision: "catalog-v1",
+      active_generation_id: null,
+      building_generation: null
+    }, "projection_lease_unavailable"],
+    ["competing building generation", {
+      collection_id: "collection",
+      ready: false,
+      head: 42,
+      resource_revision: "catalog-v1",
+      active_generation_id: null,
+      building_generation: {
+        collection_id: "collection",
+        generation_id: "other-generation",
+        source_head: 42,
+        phase: "projection",
+        status: "building"
+      }
+    }, "projection_lease_unavailable"],
+    ["exact terminal generation", {
+      collection_id: "collection",
+      ready: false,
+      head: 42,
+      resource_revision: "catalog-v1",
+      active_generation_id: null,
+      building_generation: null,
+      latest_terminal_generation_id: "generation",
+      latest_terminal_error_code: "projection_authority_invalid"
+    }, "projection_authority_invalid"]
+  ])("fails closed for %s", async (_name, status, expectedCode) => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: {
+          code: "projection_lease_unavailable",
+          message: "The generation is leased."
+        }
+      }), { status: 409 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: status })));
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+
+    await expect(provider.advanceProjection("collection", "generation"))
+      .rejects.toMatchObject({ code: expectedCode });
+  });
+
+  it("preserves old active A while retrying requested Candidate B", async () => {
+    const candidateB = {
+      collection_id: "collection",
+      ready: true,
+      head: 42,
+      resource_revision: "catalog-v2",
+      active_generation_id: "generation-a",
+      building_generation: {
+        collection_id: "collection",
+        generation_id: "generation-b",
+        source_head: 42,
+        phase: "projection",
+        status: "building"
+      }
+    };
+    const activeB = {
+      ...candidateB,
+      active_generation_id: "generation-b",
+      building_generation: null
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { code: "projection_lease_unavailable", message: "leased" }
+      }), { status: 409 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: candidateB })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: activeB })));
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+
+    await expect(provider.advanceProjection("collection", "generation-b"))
+      .resolves.toEqual(activeB);
+  });
+
+  it("enforces one hard authority-operation wall across a hung fetch", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      })
+    );
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+    const completion = provider.completeAuthorityImport(
+      "transfer",
+      "sha256:manifest",
+      "source-v1",
+      { deadline: 11_000 }
+    );
+
+    const rejected = expect(completion).rejects.toBeInstanceOf(HostedProviderUnavailableError);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await rejected;
+    expect(Date.now()).toBe(11_000);
+  });
+
+  it("returns typed pending at the shared wall for an exact persistent lease", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(20_000);
+    const building = {
+      collection_id: "collection",
+      ready: false,
+      head: 42,
+      resource_revision: "catalog-v1",
+      active_generation_id: null,
+      building_generation: {
+        collection_id: "collection",
+        generation_id: "generation",
+        source_head: 42,
+        phase: "projection",
+        status: "building"
+      }
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
+      String(url).endsWith("/projection")
+        ? new Response(JSON.stringify({ projection: building }))
+        : new Response(JSON.stringify({
+            error: { code: "projection_lease_unavailable", message: "leased" }
+          }), { status: 409 })
+    );
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+    const advanced = provider.advanceProjection(
+      "collection", "generation", { deadline: 20_100 }
+    );
+    const rejected = expect(advanced).rejects.toMatchObject({
+      code: "projection_activation_pending"
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    await rejected;
+    expect(Date.now()).toBe(20_100);
+  });
+
+  it("propagates caller abort during provider fetch", async () => {
+    const controller = new AbortController();
+    const reason = new Error("caller cancelled fetch");
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      })
+    );
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+    const completion = provider.completeAuthorityImport(
+      "transfer", "sha256:manifest", "source-v1", { signal: controller.signal }
+    );
+    controller.abort(reason);
+    await expect(completion).rejects.toBe(reason);
+  });
+
+  it("propagates caller abort during request retry sleep", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const reason = new Error("caller cancelled backoff");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: "busy", message: "busy" } }), { status: 503 })
+    );
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+    const completion = provider.completeAuthorityImport(
+      "transfer", "sha256:manifest", "source-v1", { signal: controller.signal }
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort(reason);
+    await expect(completion).rejects.toBe(reason);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
   });
 
   it("preserves an idempotent completed authority import without restarting projection work", async () => {

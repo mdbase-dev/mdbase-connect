@@ -28,7 +28,7 @@ use mdbase_connect_protocol::{
     HostedConnectionAuthorizationPollParams, HostedConnectionAuthorizationStatus,
     HostedConnectionAuthorizeParams, MirrorAddParams, MirrorApplyParams,
     MirrorConfigureSelectiveSyncParams, MirrorIdParams, MirrorResolution, MirrorResolveParams,
-    SyncReplicaMode, COLLECTION_OPERATIONS, LOCAL_CONTROL_PROTOCOL_VERSION,
+    SyncReplicaMode, LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use serde_json::Value;
 use std::io::IsTerminal;
@@ -568,12 +568,11 @@ fn hosted_cli_authorization_operations(
     operations: Vec<String>,
     read_only: bool,
 ) -> Result<Vec<String>, CliError> {
-    if operations
-        .iter()
-        .any(|operation| operation == "collection.setup.apply")
-    {
+    if operations.iter().any(|operation| {
+        mdbase_connect_protocol::APPLICATION_SETUP_OPERATIONS.contains(&operation.as_str())
+    }) {
         return Err(CliError::unsupported_cli_operation(
-            "The mdbase CLI cannot request collection.setup.apply because it declares no setup provisions.",
+            "The mdbase CLI cannot request collection setup operations because it declares no setup provisions.",
         ));
     }
     if let Some(operation) = operations
@@ -584,19 +583,45 @@ fn hosted_cli_authorization_operations(
             "The mdbase CLI cannot request {operation} because it has no timer notification criteria."
         )));
     }
+    if let Some(operation) = operations.iter().find(|operation| {
+        !mdbase_connect_protocol::COLLECTION_OPERATIONS.contains(&operation.as_str())
+    }) {
+        return Err(CliError::unsupported_cli_operation(format!(
+            "The mdbase CLI cannot request the unknown {operation} operation."
+        )));
+    }
     if !operations.is_empty() {
+        let selected = operations
+            .iter()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        let atomic = mdbase_connect_protocol::APPLICATION_CAPABILITY_IDS
+            .iter()
+            .filter(|capability| **capability != "background.schedule")
+            .all(|capability| {
+                let group = mdbase_connect_protocol::application_capability_operations(capability)
+                    .expect("CLI v2 capability must exist in the generated catalog");
+                !group.iter().any(|operation| selected.contains(operation))
+                    || group.iter().all(|operation| selected.contains(operation))
+            });
+        if !atomic {
+            return Err(CliError::unsupported_cli_operation(
+                "Hosted CLI permissions must select complete version-2 capability groups.",
+            ));
+        }
         return Ok(operations);
     }
-    Ok(COLLECTION_OPERATIONS
+    Ok(mdbase_connect_protocol::COLLECTION_OPERATIONS
         .iter()
         .filter(|operation| {
             !mdbase_connect_protocol::operation_requires_timer_criterion(operation)
-                && **operation != "collection.setup.apply"
+                && !mdbase_connect_protocol::APPLICATION_SETUP_OPERATIONS.contains(operation)
                 && (!read_only
-                    || (**operation != "sync"
-                        && !mdbase_connect_protocol::MUTATING_OPERATION_IDENTIFIERS
-                            .iter()
-                            .any(|mutation| mutation.split(':').next() == Some(**operation))))
+                    || mdbase_connect_protocol::application_capability_operations(
+                        "collection.read",
+                    )
+                    .expect("generated collection.read capability")
+                    .contains(operation))
         })
         .map(|operation| (*operation).to_string())
         .collect())

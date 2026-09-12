@@ -144,15 +144,32 @@ export function planReconciliation(
   inspection: InspectionSummary,
   digest: (value: string) => string
 ): ReconciliationPlan {
+  const blocked = inspection.issues.some((issue) => issue.blocking);
   let drafts: ActionDraft[] = [];
-  for (const object of [...inspection.objects].sort(compareObject)) {
-    planObject(inspection, object, drafts);
+  const repairable = blocked
+    && inspection.mode === "read_only"
+    && inspection.issues.every((issue) => !issue.blocking || issue.code === "invalid_frontmatter");
+  if (!blocked || repairable) {
+    for (const object of [...inspection.objects].sort(compareObject)) {
+      const { local, remote } = object;
+      const repair = repairable
+        && local.state === "exact"
+        && inspection.issues.some((issue) => issue.blocking && issue.path === local.object.path)
+        && remote.state === "exact"
+        && remote.object.path === local.object.path;
+      if (!blocked || repair) planObject(inspection, object, drafts, repair);
+    }
+    if (repairable && drafts.length !== inspection.issues.filter((issue) => issue.blocking).length) {
+      drafts = [];
+    }
+    drafts = orderLocalPathTransitions(drafts, inspection.objects, digest);
+    drafts = orderRemotePathTransitions(drafts, inspection.objects);
   }
-  drafts = orderLocalPathTransitions(drafts, inspection.objects, digest);
-  drafts = orderRemotePathTransitions(drafts, inspection.objects);
   const requiresCheckpoint = drafts.length > 0
-    || inspection.kind !== "incremental"
-    || inspection.boundary.checkpoint.cursor !== inspection.boundary.authority_cursor;
+    || (!blocked && (
+      inspection.kind !== "incremental"
+      || inspection.boundary.checkpoint.cursor !== inspection.boundary.authority_cursor
+    ));
   if (requiresCheckpoint) {
     const effectKeys = drafts.map((draft) => draft.key);
     drafts.push({
@@ -161,7 +178,7 @@ export function planReconciliation(
       command: "advance_checkpoint",
       reason: inspection.kind === "incremental" ? "remote_change" : inspection.kind,
       expected: inspection.boundary.checkpoint,
-      next: {
+      next: blocked ? inspection.boundary.checkpoint : {
         generation: inspection.boundary.checkpoint.generation + 1,
         cursor: inspection.boundary.authority_cursor
       }
@@ -549,7 +566,8 @@ function stableTopologicalOrder(drafts: readonly ActionDraft[]): ActionDraft[] {
 function planObject(
   inspection: InspectionSummary,
   object: InspectedObject,
-  drafts: ActionDraft[]
+  drafts: ActionDraft[],
+  repair: boolean
 ): void {
   if (object.frozen_conflict) {
     drafts.push(sameConflictContent(object.frozen_conflict.local, object.frozen_conflict.remote)
@@ -583,7 +601,7 @@ function planObject(
     return;
   }
   if (inspection.mode === "read_only") {
-    if (!localChanged) planRemoteToLocal(object, drafts);
+    if (!localChanged || repair) planRemoteToLocal(object, drafts);
     return;
   }
   if (localChanged && remoteChanged) {
@@ -783,8 +801,21 @@ function compareObject(left: InspectedObject, right: InspectedObject): number {
 }
 
 function compareIssue(left: InspectionIssue, right: InspectionIssue): number {
-  return `${left.path ?? ""}\0${left.code}\0${left.message}`
-    .localeCompare(`${right.path ?? ""}\0${right.code}\0${right.message}`);
+  return compareUtf8(
+    `${left.path ?? ""}\0${left.code}\0${left.message}`,
+    `${right.path ?? ""}\0${right.code}\0${right.message}`
+  );
+}
+
+function compareUtf8(left: string, right: string): number {
+  const encoder = new TextEncoder();
+  const leftBytes = encoder.encode(left);
+  const rightBytes = encoder.encode(right);
+  const length = Math.min(leftBytes.length, rightBytes.length);
+  for (let index = 0; index < length; index += 1) {
+    if (leftBytes[index] !== rightBytes[index]) return leftBytes[index]! - rightBytes[index]!;
+  }
+  return leftBytes.length - rightBytes.length;
 }
 
 function isUpload(action: SyncAction): boolean {

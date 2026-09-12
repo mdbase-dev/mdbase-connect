@@ -68,7 +68,21 @@ test("loopback feed rejects invalid methods and ranges", async (context) => {
   assert.throws(() => parseRange("bytes=2-1", 10), /Invalid update range/);
 });
 
-test("runtime reconciliation covers stale and stopped services without restarting a match", () => {
+test("runtime reconciliation installs missing services and repairs stale or stopped services", () => {
+  assert.equal(
+    runtimeNeedsReconciliation(
+      { installed: false, running: false },
+      "0.1.0-beta.9"
+    ),
+    true
+  );
+  assert.equal(
+    runtimeNeedsReconciliation(
+      { installed: false, running: true, binaryVersion: "0.1.0-beta.9" },
+      "0.1.0-beta.9"
+    ),
+    true
+  );
   assert.equal(
     runtimeNeedsReconciliation(
       { installed: true, running: true, binaryVersion: "0.1.0-beta.8" },

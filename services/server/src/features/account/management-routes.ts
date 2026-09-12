@@ -1,14 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
-  AccountDeletionAuthorizationError,
   accountSignInMethodCounts,
-  consumeAccountActionToken,
+  deleteAccountLocally,
   removeExternalIdentity
 } from "../../account-management.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
-import type { HostedAuthorityRegistry } from "../../hosted.js";
 import type {
   HostedCollectionUsage,
   HostedProviderClient
@@ -35,10 +33,11 @@ interface AccountManagementRoutesOptions {
   tailscaleAuth?: boolean;
   developmentAuth?: boolean;
   passwordAuthenticationAvailable?: boolean;
+  accountDeletionEnabled?: boolean;
   githubAvailable?: boolean;
   googleAvailable?: boolean;
   hostedProvider?: HostedProviderClient;
-  hostedReference?: HostedAuthorityRegistry;
+  triggerProviderCleanup?: () => void;
 }
 
 interface ExternalIdentityRow {
@@ -93,6 +92,7 @@ export function registerAccountManagementRoutes(
         options.db.query<HostedCollectionRow>(
           `SELECT id, display_name FROM hosted_collections
            WHERE user_id = $1 AND authority_state <> 'transferred'
+             AND quarantined_at IS NULL
            ORDER BY display_name`,
           [user.id]
         ),
@@ -153,7 +153,13 @@ export function registerAccountManagementRoutes(
       },
       storage,
       deletion: {
-        available: authenticationProvider !== "tailscale",
+        available: authenticationProvider !== "tailscale"
+          && options.accountDeletionEnabled !== false,
+        unavailable_reason: authenticationProvider === "tailscale"
+          ? "managed_identity"
+          : options.accountDeletionEnabled === false
+            ? "temporarily_disabled"
+            : null,
         hosted_collections: hostedCollections.rows.length,
         local_collections: Number(counts.rows[0]?.local_collections ?? 0),
         computers: Number(counts.rows[0]?.connectors ?? 0),
@@ -216,6 +222,12 @@ export function registerAccountManagementRoutes(
     requireSameOrigin(request, options.publicUrl, options.managementOrigins);
     const authenticated = await requireSessionContext(request, reply, options.db);
     if (!authenticated) return;
+    if (options.accountDeletionEnabled === false) {
+      return reply.code(503).send(apiError(
+        "account_deletion_unavailable",
+        "Account deletion is temporarily unavailable."
+      ));
+    }
     const input = z.object({
       confirmation: z.literal("DELETE"),
       current_password: z.string().min(1).max(PASSWORD_MAX_UTF8_BYTES).optional(),
@@ -228,37 +240,15 @@ export function registerAccountManagementRoutes(
         input.current_password
       );
     }
-    if (!authorized && input.reauth_token) {
-      authorized = await consumeAccountActionToken(
-        options.db,
-        authenticated.user.id,
-        authenticated.sessionId,
-        "delete_account",
-        input.reauth_token
-      );
-    }
-    if (!authorized) throw new AccountDeletionAuthorizationError();
 
-    const hosted = await options.db.query<HostedCollectionRow>(
-      "SELECT id, display_name FROM hosted_collections WHERE user_id = $1",
-      [authenticated.user.id]
-    );
-    await deleteHostedAuthorities(hosted.rows, options);
-    const localCount = await options.db.query<{ count: string | number }>(
-      "SELECT count(*) AS count FROM collections WHERE user_id = $1 AND present = true",
-      [authenticated.user.id]
-    );
-    await audit(
-      options.db,
-      authenticated.user.id,
-      "account.deleted",
-      authenticated.user.id,
-      {
-        hosted_collections_deleted: hosted.rows.length,
-        local_collections_preserved: Number(localCount.rows[0]?.count ?? 0)
-      }
-    );
-    await options.db.query("DELETE FROM users WHERE id = $1", [authenticated.user.id]);
+    await deleteAccountLocally(options.db, {
+      userId: authenticated.user.id,
+      sessionId: authenticated.sessionId,
+      authorized,
+      reauthToken: input.reauth_token,
+      queueProviderCleanup: options.hostedProvider !== undefined
+    });
+    options.triggerProviderCleanup?.();
     clearSessionCookies(reply);
     return { ok: true };
   });
@@ -337,17 +327,4 @@ async function storageSnapshot(
       usage: usage[index]
     }))
   };
-}
-
-async function deleteHostedAuthorities(
-  collections: HostedCollectionRow[],
-  options: AccountManagementRoutesOptions
-): Promise<void> {
-  await Promise.all(collections.map(async (collection) => {
-    if (options.hostedProvider) {
-      await options.hostedProvider.deleteCollection(collection.id);
-    } else if (options.hostedReference) {
-      await options.hostedReference.delete(collection.id);
-    }
-  }));
 }

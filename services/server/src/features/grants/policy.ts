@@ -1,47 +1,34 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import {
+  APPLICATION_SETUP_OPERATIONS,
+  applicationOperationSelectionIsAtomic,
   areCollectionOperations,
   isCollectionOperation,
   MDBASE_TIMER_FIRED_CONTRACT,
-  operationRequiresTimerCriterion,
-  operationsForApplicationCapabilities
+  operationRequiresTimerCriterion
 } from "@mdbase-dev/connect-protocol";
 import type {
   ApplicationNotifications,
   ApplicationProvisions,
-  ApplicationRequirements,
   CollectionContractDescriptor,
   ContractRequirement,
+  ContractSetupChoice,
   GrantEncryption,
   GrantScope,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
-import type { DatabasePool } from "../../database-types.js";
-import { typesForContracts } from "../../hosted.js";
+import { legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "../../application-requirements.js";
+import { collectionGrantScope } from "../../application-grant-scope.js";
+import type { DatabaseQueryable } from "../../database-types.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
-import {
-  requiresFullCollectionAccess,
-  requiresPortableProfile
-} from "../../collection-operation-policy.js";
+import { requiresPortableProfile } from "../../collection-operation-policy.js";
 
 export function scopeForRequirements(
-  requirements: ApplicationRequirements | null | undefined,
-  available: CollectionContractDescriptor[] = []
+  _requirements: ApplicationRequirements | null | undefined,
+  _available: CollectionContractDescriptor[] = []
 ): GrantScope {
-  if (requirements?.access === "full_collection") {
-    return { access: "full_collection", contracts: [] };
-  }
-  const required = new Set(
-    (requirements?.contracts ?? []).map(
-      ({ id, version }) => `${id}@${version}`
-    )
-  );
-  return {
-    access: "contract",
-    contracts: available.filter(
-      ({ id, version }) => required.has(`${id}@${version}`)
-    )
-  };
+  return collectionGrantScope();
 }
 
 export function collectionSupportsOperations(
@@ -78,35 +65,29 @@ export function operationsAllowedByRequirements(
   requirements: ApplicationRequirements | null | undefined
 ): boolean {
   if (!areCollectionOperations(operations)) return false;
-  if (
-    requirements?.access !== "full_collection"
-    && operations.some(requiresFullCollectionAccess)
-  ) return false;
   const declared = requirements?.capabilities;
-  if (!declared) return true;
-  const allowed = new Set(operationsForApplicationCapabilities(declared));
-  return operations.every((operation) => allowed.has(operation));
+  if (requirementContractVersion(requirements) === 1) {
+    return legacyOperationSelectionAllowed(requirements, operations);
+  }
+  const setup = new Set<string>(APPLICATION_SETUP_OPERATIONS);
+  const requestedSetup = operations.filter((operation) => setup.has(operation));
+  if (
+    requestedSetup.length !== 0
+    && requestedSetup.length !== APPLICATION_SETUP_OPERATIONS.length
+  ) return false;
+  const semantic = operations.filter((operation) => !setup.has(operation));
+  return declared?.contract_version === 2
+    ? applicationOperationSelectionIsAtomic(declared, semantic)
+    : true;
 }
 
 export function assertOperationsAllowedByRequirements(
   operations: readonly string[],
   requirements: ApplicationRequirements | null | undefined
 ): void {
-  if (
-    operations.length > 0
-    &&
-    requirements?.access !== "full_collection"
-    && (requirements?.contracts?.length ?? 0) === 0
-  ) {
-    throw new RequestValidationError(
-      "Contract-scoped application manifests must declare at least one required contract; use full_collection for collection-wide access."
-    );
-  }
   if (!operationsAllowedByRequirements(operations, requirements)) {
     throw new RequestValidationError(
-      requirements?.capabilities
-        ? "The requested collection operations exceed the application's declared capabilities."
-        : "Saved views, collection-wide validation, and type definitions require the application manifest to request full collection access."
+      "The requested collection operations exceed the application's declared capabilities."
     );
   }
 }
@@ -114,9 +95,25 @@ export function assertOperationsAllowedByRequirements(
 export function assertOperationsAllowedByApplication(
   operations: readonly string[],
   requirements: ApplicationRequirements | null | undefined,
-  notifications: ApplicationNotifications
+  notifications: ApplicationNotifications,
+  provisions: ApplicationProvisions = { type_packs: [] }
 ): void {
   assertOperationsAllowedByRequirements(operations, requirements);
+  if (requirementContractVersion(requirements) === 2) {
+    const hasSetup = provisions.type_packs.length > 0
+      || (provisions.configuration?.length ?? 0) > 0;
+    const requestedSetup = operations.filter((operation) =>
+      (APPLICATION_SETUP_OPERATIONS as readonly string[]).includes(operation)
+    );
+    if (
+      (hasSetup && requestedSetup.length !== APPLICATION_SETUP_OPERATIONS.length)
+      || (!hasSetup && requestedSetup.length !== 0)
+    ) {
+      throw new RequestValidationError(
+        "Collection setup operations must exactly match the application's declared provisions."
+      );
+    }
+  }
   if (
     areCollectionOperations(operations)
     && operations.some(operationRequiresTimerCriterion)
@@ -142,16 +139,83 @@ export function requiredContractsForRequirements(
   ])).values()];
 }
 
-export function allowedTypesForRequirements(
-  descriptors: CollectionContractDescriptor[],
-  requirements: ApplicationRequirements
-): string[] {
-  return requirements.access === "full_collection"
-    ? []
-    : typesForContracts(
-        descriptors,
-        requiredContractsForRequirements(requirements)
+export function verifyContractSetupAcknowledgement(
+  requested: ContractSetupChoice[],
+  acknowledged: ContractSetupChoice[] | undefined,
+  contracts: CollectionContractDescriptor[]
+): void {
+  if (requested.length === 0) return;
+  if (!acknowledged || !isDeepStrictEqual(acknowledged, requested)) {
+    throw new RequestValidationError(
+      "The collection authority did not acknowledge the exact contract setup that was approved."
+    );
+  }
+  for (const setup of requested) {
+    const contract = contracts.find((candidate) =>
+      candidate.id === setup.contract.id
+      && candidate.version === setup.contract.version
+    );
+    if (!contract) {
+      throw new RequestValidationError(
+        `Contract setup did not provide ${setup.contract.id} ${setup.contract.version}.`
       );
+    }
+    if (setup.mode === "starter") continue;
+    const implementation = contract.implementations.find((candidate) =>
+      candidate.type_name === setup.type_name
+      && isDeepStrictEqual(candidate.fields, setup.fields)
+      && isDeepStrictEqual(candidate.binding, setup.binding)
+    );
+    if (!implementation) {
+      throw new RequestValidationError(
+        `Contract setup did not apply the approved mapping to type '${setup.type_name}'.`
+      );
+    }
+  }
+}
+
+export function validateContractSetupChoices(
+  setups: ContractSetupChoice[],
+  required: ContractRequirement[],
+  available: CollectionContractDescriptor[]
+): void {
+  const keys = new Set(setups.map(
+    (setup) => `${setup.contract.id}@${setup.contract.version}#${setup.contract.digest}`
+  ));
+  if (
+    keys.size !== setups.length
+    || setups.some((setup) => !required.some((contract) =>
+      contract.id === setup.contract.id
+        && contract.version === setup.contract.version
+        && contract.digest === setup.contract.digest
+    ))
+  ) {
+    throw new RequestValidationError(
+      "Contract setup may configure each contract required by this application only once."
+    );
+  }
+  if (setups.length === 0) return;
+  const missing = required.filter((contract) => !available.some((candidate) =>
+    candidate.id === contract.id
+      && candidate.version === contract.version
+      && candidate.digest === contract.digest
+  ));
+  if (
+    keys.size !== missing.length
+    || missing.some((contract) =>
+      !keys.has(`${contract.id}@${contract.version}#${contract.digest}`))
+  ) {
+    throw new RequestValidationError(
+      "Choose starter or existing-type setup for each missing contract only."
+    );
+  }
+}
+
+export function allowedTypesForRequirements(
+  _descriptors: CollectionContractDescriptor[],
+  _requirements: ApplicationRequirements
+): string[] {
+  return [];
 }
 
 export function requiresHostedCollection(
@@ -161,7 +225,7 @@ export function requiresHostedCollection(
 }
 
 export async function rotateGrantEncryption(
-  db: DatabasePool,
+  db: DatabaseQueryable,
   grantId: string
 ): Promise<void> {
   const grant = await db.query<{ encryption: GrantEncryption | null }>(

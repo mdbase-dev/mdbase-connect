@@ -7,11 +7,29 @@ import { PropertiesPanel } from "./PropertiesPanel";
 import { schemaDateInputValue } from "./schema-date";
 
 vi.mock("./CodeEditor", () => ({
-  CodeEditor: ({ value, onChange, onBlur, label }: { value: string; onChange?: (value: string) => void; onBlur?: () => void; label: string }) =>
-    <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} onBlur={onBlur} />
+  CodeEditor: ({ value, onChange, onBlur, label, readOnly }: { value: string; onChange?: (value: string) => void; onBlur?: () => void; label: string; readOnly?: boolean }) =>
+    <textarea aria-label={label} value={value} readOnly={readOnly} onChange={(event) => onChange?.(event.target.value)} onBlur={onBlur} />
 }));
 
 describe("typed note properties", () => {
+  it("visibly rejects structured, JSON, source, and autosave edits while frozen", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onSaveDocument = vi.fn();
+    render(<PropertiesPanel note={eventNote} types={[eventType]} readOnly onClose={() => undefined}
+      onSave={onSave} onSaveDocument={onSaveDocument} />);
+    expect(screen.getByLabelText("event_date value")).toBeDisabled();
+    await user.click(screen.getByRole("tab", { name: "JSON" }));
+    expect(screen.getByLabelText("Raw frontmatter JSON")).toHaveAttribute("readonly");
+    fireEvent.change(screen.getByLabelText("Raw frontmatter JSON"), { target: { value: "{}" } });
+    await user.click(screen.getByRole("tab", { name: "Source" }));
+    expect(screen.getByLabelText("Complete record source")).toHaveAttribute("readonly");
+    fireEvent.blur(screen.getByLabelText("Complete record source"));
+    expect(screen.getByRole("button", { name: "Save source" })).toBeDisabled();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onSaveDocument).not.toHaveBeenCalled();
+  });
+
   it("edits date and date-time strings with native pickers", async () => {
     const onSave = vi.fn();
     render(<PropertiesPanel note={eventNote} types={[eventType]} onClose={() => undefined} onSave={onSave} />);

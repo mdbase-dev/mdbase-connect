@@ -659,7 +659,12 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             request_id: ids[0],
             revision: format!("sha256:{}", "0".repeat(64)),
+            connector_id: Some(ids[2]),
+            sequence: Some(1),
+            lease_issued_at_ms: Some(1_700_000_000_000),
+            lease_expires_at_ms: Some(1_700_000_060_000),
             grants: vec![GrantPolicy {
+                application_declaration: None,
                 id: ids[1],
                 application_id: ids[3],
                 collection_id: ids[2],
@@ -699,6 +704,40 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
 }
 
 #[test]
+fn policy_snapshot_accepts_frozen_legacy_shape_and_exposes_partial_metadata() {
+    let request_id = Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap();
+    let legacy = serde_json::json!({
+        "type": "policy_snapshot",
+        "protocol_version": 1,
+        "request_id": request_id,
+        "revision": format!("sha256:{}", "0".repeat(64)),
+        "grants": []
+    });
+    let parsed: RelayMessage = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(serde_json::to_value(parsed).unwrap(), legacy);
+
+    let partial: RelayMessage = serde_json::from_value(serde_json::json!({
+        "type": "policy_snapshot",
+        "protocol_version": 1,
+        "request_id": request_id,
+        "revision": format!("sha256:{}", "0".repeat(64)),
+        "connector_id": "01922222-2222-7222-8222-222222222222",
+        "grants": []
+    }))
+    .unwrap();
+    assert!(matches!(
+        partial,
+        RelayMessage::PolicySnapshot {
+            connector_id: Some(_),
+            sequence: None,
+            lease_issued_at_ms: None,
+            lease_expires_at_ms: None,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn portable_policy_keeps_v1_and_the_exact_opaque_origin() {
     let ids = [
         Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap(),
@@ -711,7 +750,12 @@ fn portable_policy_keeps_v1_and_the_exact_opaque_origin() {
         protocol_version: CONTROL_PROTOCOL_VERSION,
         request_id: ids[3],
         revision: format!("sha256:{}", "0".repeat(64)),
+        connector_id: Some(ids[2]),
+        sequence: Some(1),
+        lease_issued_at_ms: Some(1_700_000_000_000),
+        lease_expires_at_ms: Some(1_700_000_060_000),
         grants: vec![GrantPolicy {
+            application_declaration: None,
             id: ids[0],
             application_id: ids[1],
             collection_id: ids[2],
@@ -954,27 +998,176 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
 }
 
 #[test]
+fn protocol_discriminator_rejections_are_separate_from_the_generated_catalog_oracle() {
+    for (operation, input, message) in [
+        (
+            "unknown_operation",
+            serde_json::json!({}),
+            "Unknown collection operation.",
+        ),
+        (
+            "file_control",
+            serde_json::json!({"type": "unknown_file_control"}),
+            "Unknown file-control message type.",
+        ),
+        (
+            "sync",
+            serde_json::json!({"action": "unknown"}),
+            "Unknown sync action.",
+        ),
+        (
+            "create_type",
+            serde_json::json!({"action": "mutate"}),
+            "Collection operation input must not contain a sync action discriminator.",
+        ),
+        (
+            "file_control",
+            serde_json::json!({"type": "list_files", "operation": "read"}),
+            "Operation input must not contain a nested operation discriminator.",
+        ),
+    ] {
+        assert_eq!(
+            validate_operation_discriminators(operation, &input),
+            Err(message),
+            "{operation}: {input}"
+        );
+    }
+}
+
+#[test]
+fn every_implemented_sync_action_has_a_valid_discriminator() {
+    for action in [
+        "open_session",
+        "snapshot",
+        "file_snapshot",
+        "changes",
+        "mutate",
+    ] {
+        assert_eq!(
+            validate_operation_discriminators("sync", &serde_json::json!({"action": action})),
+            Ok(()),
+            "{action}"
+        );
+    }
+}
+
+#[test]
 fn generated_operation_catalog_classifies_collection_and_file_mutations() {
     assert!(is_mutating_operation("create", &serde_json::json!({})));
-    assert!(!is_mutating_operation(
-        "delete",
-        &serde_json::json!({ "dry_run": true })
-    ));
-    assert_eq!(
-        mutation_operation_identifier("sync", &serde_json::json!({ "action": "mutate" })),
-        Some("sync:mutate")
-    );
+
+    for operation in ["delete", "rename"] {
+        assert_eq!(
+            mutation_operation_identifier(operation, &serde_json::json!({ "dry_run": true })),
+            None
+        );
+    }
+
+    for operation in [
+        "create_type",
+        "apply_type_pack",
+        "apply_collection_setup",
+        "update_type",
+        "create_view_source",
+        "update_view_source",
+        "delete_view_source",
+    ] {
+        assert_eq!(
+            mutation_operation_identifier(operation, &serde_json::json!({ "dry_run": true })),
+            Some(operation)
+        );
+    }
+
     assert_eq!(
         mutation_operation_identifier(
-            "file_control",
-            &serde_json::json!({ "type": "commit_file_upload" })
+            "sync",
+            &serde_json::json!({ "action": "mutate", "dry_run": true })
         ),
-        Some("file_control:commit_file_upload")
+        Some("sync:mutate")
     );
-    assert!(!is_mutating_operation(
-        "file_control",
-        &serde_json::json!({ "type": "list_files" })
-    ));
+    for (message_type, identifier) in [
+        ("open_file_upload", "file_control:open_file_upload"),
+        ("move_file", "file_control:move_file"),
+        ("delete_file", "file_control:delete_file"),
+        ("commit_file_upload", "file_control:commit_file_upload"),
+        ("abort_file_transfer", "file_control:abort_file_transfer"),
+    ] {
+        assert_eq!(
+            mutation_operation_identifier(
+                "file_control",
+                &serde_json::json!({ "type": message_type, "dry_run": true })
+            ),
+            Some(identifier)
+        );
+    }
+    for message_type in [
+        "list_files",
+        "open_file_download",
+        "get_file_transfer_status",
+    ] {
+        assert!(!is_mutating_operation(
+            "file_control",
+            &serde_json::json!({ "type": message_type, "dry_run": true })
+        ));
+    }
+
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../packages/protocol/schemas/operation-mutation-classification.v1.json"
+    ))
+    .unwrap();
+    let mut covered_operations = std::collections::BTreeSet::new();
+    let mut covered_file_types = std::collections::BTreeSet::new();
+    for case in fixture["cases"].as_array().unwrap() {
+        let operation = case["operation"].as_str().unwrap();
+        let input = &case["input"];
+        assert_eq!(
+            mutation_operation_identifier(operation, input),
+            case["identifier"].as_str(),
+            "{operation} {input}"
+        );
+        assert_eq!(
+            operation_input_schema_version(operation, input).map(u64::from),
+            case["schema_version"].as_u64(),
+            "{operation} schema"
+        );
+        if COLLECTION_OPERATIONS.contains(&operation) {
+            covered_operations.insert(operation);
+        }
+        if operation == "file_control" {
+            if let Some(message_type) = input.get("type").and_then(serde_json::Value::as_str) {
+                if FILE_CONTROL_MESSAGE_TYPES.contains(&message_type) {
+                    covered_file_types.insert(message_type);
+                }
+            }
+        }
+    }
+    assert_eq!(covered_operations.len(), COLLECTION_OPERATIONS.len());
+    assert_eq!(covered_file_types.len(), FILE_CONTROL_MESSAGE_TYPES.len());
+
+    assert_eq!(
+        MUTATING_OPERATION_IDENTIFIERS,
+        &[
+            "create_view_source",
+            "update_view_source",
+            "delete_view_source",
+            "create",
+            "update",
+            "delete",
+            "rename",
+            "create_type",
+            "update_type",
+            "apply_type_pack",
+            "apply_collection_setup",
+            "put_timer",
+            "cancel_timer",
+            "reconcile_timers",
+            "sync:mutate",
+            "file_control:open_file_upload",
+            "file_control:move_file",
+            "file_control:delete_file",
+            "file_control:commit_file_upload",
+            "file_control:abort_file_transfer",
+        ]
+    );
 }
 
 #[test]

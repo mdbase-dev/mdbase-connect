@@ -1,4 +1,3 @@
-import { groupAuthorizationOperations } from "@mdbase/connect-ui/access";
 import {
   assessMapping,
   contractFields,
@@ -15,6 +14,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ApiError,
+  type ApplicationFileAction,
   type AvailableCollection,
   type ContractSetupChoice as ContractSetupRequestChoice,
   type HostedCollection,
@@ -22,9 +22,19 @@ import {
   type UnavailableConnector
 } from "./api";
 import { collectionCompatibility } from "./compatibility";
-import { configurationSetupSummary } from "./application-setup";
+import {
+  authorizationCapabilityGroups,
+  authorizationRequirementsError,
+  toggleAuthorizationGroup,
+  selectedFileActions,
+  selectedOperationsForCapabilityGroups,
+  type AuthorizationCapabilityGroup
+} from "./authorization-capabilities";
+import { configurationSetupSummary, initialContractSetupChoice } from "./application-setup";
 import {
   clearAuthorizationReview,
+  disambiguatedCollectionLocations,
+  initialAuthorizationSelection,
   saveAuthorizationReview,
   storedAuthorizationReview
 } from "./authorization-review-state";
@@ -44,14 +54,13 @@ import {
   relativeTime,
   scopeDescription
 } from "./portal-model";
-import { Loading, PageBrand, useSystemTheme } from "./portal-ui";
+import { Loading, PageBrand } from "./portal-ui";
 export function DeviceAuthorization() {
   const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? "");
   const [code, setCode] = useState(initialCode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const automaticallyClaimed = useRef(false);
-  useSystemTheme();
 
   async function openRequest(value: string) {
     const userCode = formatDeviceCode(value);
@@ -85,7 +94,7 @@ export function DeviceAuthorization() {
 
   return (
     <main className="center-page">
-      <PageBrand label="Downloaded application" themePicker={false} />
+      <PageBrand label="Downloaded application" />
       <form className="decision-panel device-panel" onSubmit={(event) => {
         event.preventDefault();
         void openRequest(code);
@@ -130,7 +139,6 @@ export function Authorization({ requestId }: { requestId: string }) {
   const [error, setError] = useState("");
   const [decisionError, setDecisionError] = useState("");
   const returning = useRef(false);
-  useSystemTheme();
 
   useEffect(() => {
     let active = true;
@@ -202,10 +210,9 @@ export function Authorization({ requestId }: { requestId: string }) {
     setContinuingInDesktop(value);
   }
   return (
-    <main className="center-page">
+    <main className="center-page approval-page">
       <PageBrand
         label="Application request"
-        themePicker={false}
         markMotion={setupMotionActive ? (preparingStructure ? "rebalance" : "conveyor") : undefined}
       />
       <section className="decision-panel authorization-panel">
@@ -216,7 +223,6 @@ export function Authorization({ requestId }: { requestId: string }) {
             onReviewHere={() => continueInDesktop(false)}
           />
         ) : status === "pending" ? <>
-          <p>{authorization.application_name} wants to use one collection.</p>
           {(decisionError || error) && <div className="message error" role="alert">{decisionError || error}</div>}
           <ApprovalForm
             request={authorization}
@@ -240,22 +246,24 @@ export function Authorization({ requestId }: { requestId: string }) {
   );
 }
 
-export function RequestIdentity({ request, large = false }: { request: PendingAuthorization; large?: boolean }) {
+function RequestIdentity({ request, large = false }: { request: PendingAuthorization; large?: boolean }) {
+  const [failedIcon, setFailedIcon] = useState<string | null>(null);
+
   return (
     <div className={`request-identity ${large ? "large" : ""}`}>
-      <span aria-hidden="true">{initials(request.application_name)}</span>
+      <span className="request-identity-mark" aria-hidden="true">{request.icon && request.icon !== failedIcon
+        ? <img src={request.icon} alt="" referrerPolicy="no-referrer" onError={() => setFailedIcon(request.icon)} />
+        : initials(request.application_name)}</span>
       <div>
-        {large && <p className="eyebrow">Application access</p>}
         {large ? <h1>{request.application_name}</h1> : <strong>{request.application_name}</strong>}
         <small className="request-metadata">{request.distribution === "portable"
           ? `Downloaded HTML file${request.project_url ? ` · ${host(request.project_url)}` : ""}`
           : host(request.homepage)} · expires {relativeTime(request.expires_at)}</small>
         {request.distribution !== "portable" && (
-          <small className="request-guidance">Only continue if you recognize this exact site. An approved application can use the selected data until you revoke it.</small>
+          <small className="request-guidance">Only continue if you recognize this exact site.</small>
         )}
-        {request.requirements.access === "full_collection" ? (
-          <small className="request-scope">Requests access to all record types in the selected collection.</small>
-        ) : request.requirements.contracts.length > 0 && (
+        <small className="request-scope">Requests access to the entire selected collection.</small>
+        {request.requirements.contracts.length > 0 && (
           <small className="request-scope">{scopeDescription(request.requirements.contracts)}</small>
         )}
         {request.requirements.collection_kind === "hosted" && (
@@ -289,25 +297,7 @@ function DesktopContinuation({ request, onReviewHere }: {
   );
 }
 
-interface ContractSetupChoice {
-  mode: "starter" | "existing";
-  typeName: string;
-  fields: Record<string, string>;
-  binding: Record<string, unknown>;
-}
-
-function initialContractSetupChoice(
-  contract: SetupContract,
-  types: SetupType[]
-): ContractSetupChoice {
-  const suggestion = suggestTypes(contract, types)[0];
-  return {
-    mode: "starter",
-    typeName: suggestion?.type.name ?? "",
-    fields: suggestion?.fields ?? {},
-    binding: initialSchemaValue(contract.binding_schema)
-  };
-}
+type ContractSetupChoice = ReturnType<typeof initialContractSetupChoice>;
 
 function ContractSetupEditor({
   applicationName,
@@ -440,18 +430,13 @@ function SchemaInput({ field, required, value, disabled, onChange }: {
   </label>;
 }
 
-function initialSchemaValue(schema?: Record<string, unknown>): Record<string, unknown> {
-  if (!schema || !schema.properties || typeof schema.properties !== "object") return {};
-  return Object.fromEntries(Object.entries(schema.properties as Record<string, unknown>).flatMap(
-    ([key, candidate]) => {
-      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
-      const value = candidate as Record<string, unknown>;
-      return "default" in value ? [[key, structuredClone(value.default)]] : [];
-    }
-  ));
+export function ApprovalForm(props: React.ComponentProps<typeof SupportedApprovalForm>) {
+  const error = authorizationRequirementsError(props.request.requirements);
+  if (error) return <div className="message error" role="alert">{error}</div>;
+  return <SupportedApprovalForm {...props} />;
 }
 
-export function ApprovalForm({
+function SupportedApprovalForm({
   request,
   collections,
   canCreateHosted,
@@ -504,25 +489,48 @@ export function ApprovalForm({
     [visibleChoices]
   );
   const savedReview = useMemo(() => storedAuthorizationReview(request.id), [request.id]);
-  const savedCollectionId = savedReview?.collectionId
-    && compatible.some((choice) => choice.collection.id === savedReview.collectionId)
-      ? savedReview.collectionId
-      : "";
-  const initialCollectionId = savedCollectionId
-    || (compatible.length === 1 ? compatible[0].collection.id : "");
-  const [collectionId, setCollectionId] = useState(initialCollectionId);
-  const [reviewing, setReviewing] = useState(
-    savedCollectionId ? savedReview?.reviewing === true : compatible.length === 1
+  const permissionGroups = useMemo(
+    () => authorizationCapabilityGroups(
+      request.requirements,
+      request.requested_operations
+    ),
+    [request.requirements, request.requested_operations]
   );
-  const [operations, setOperations] = useState(() => new Set(
-    savedReview?.operations
-      ? savedReview.operations.filter((operation) => request.requested_operations.includes(operation))
-      : request.requested_operations
-  ));
+  const initialSelection = initialAuthorizationSelection(
+    compatible.map((choice) => choice.collection.id),
+    savedReview
+  );
+  const [collectionId, setCollectionId] = useState(initialSelection.collectionId);
+  const [collectionConfirmed, setCollectionConfirmed] = useState(
+    Boolean(initialSelection.collectionId)
+  );
+  const [reviewing, setReviewing] = useState(initialSelection.reviewing);
+  const [operations, setOperations] = useState(() => {
+    const selected = selectedOperationsForCapabilityGroups(
+      permissionGroups,
+      savedReview?.operations
+    );
+    const grouped = new Set(permissionGroups.flatMap((group) => group.operations));
+    for (const operation of request.requested_operations) {
+      if (!grouped.has(operation) && (!savedReview?.operations
+        || request.requirements.capabilities?.contract_version === 2
+        || savedReview.operations.includes(operation))) selected.add(operation);
+    }
+    return selected;
+  });
+  const [fileActions, setFileActions] = useState(() => request.requirements.files
+    ? selectedFileActions(request.requirements.files, savedReview?.fileActions)
+    : new Set<string>()
+  );
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
   const [creatingHosted, setCreatingHosted] = useState(false);
+  const [showAlternateCollections, setShowAlternateCollections] = useState(false);
   const [collectionName, setCollectionName] = useState("");
   const [error, setError] = useState("");
+  const collectionChoicesRef = useRef<HTMLFieldSetElement>(null);
+  const createHostedTriggerRef = useRef<HTMLButtonElement>(null);
+  const focusCollectionOnReturn = useRef(false);
+  const focusHostedTriggerOnCancel = useRef(false);
   const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
   const setup = selected ? neededProvisions(request, selected) : [];
   const configurationSetup = request.provisions.configuration ?? [];
@@ -547,47 +555,52 @@ export function ApprovalForm({
     ...setupTypes.map((type) => `${type.name}@${type.revision ?? ""}`)
   ].join("|");
   const [setupChoices, setSetupChoices] = useState<Record<string, ContractSetupChoice>>({});
-  const permissionGroups = useMemo(
-    () => groupAuthorizationOperations(request.requested_operations),
-    [request.requested_operations]
-  );
-  const permissionCount = permissionGroups.reduce(
-    (count, group) => count + group.operations.length,
-    0
-  ) + (request.requirements.files?.actions.length ?? 0);
-  const permissionCategoryCount = permissionGroups.length
+  const permissionCount = permissionGroups.length
     + (request.requirements.files ? 1 : 0);
-  const selectedPermissionCount = permissionGroups.reduce(
-    (count, group) =>
-      count + group.operations.filter((operation) => operations.has(operation.id)).length,
-    0
-  );
   const selectedPermissionGroups = permissionGroups.filter((group) =>
-    group.operations.some((operation) => operations.has(operation.id))
+    group.operations.every((operation) => operations.has(operation))
   );
+  const selectedPermissionCount = selectedPermissionGroups.length
+    + (fileActions.size > 0 ? 1 : 0);
   const higherImpactLabels = [
     ...selectedPermissionGroups.flatMap((group) =>
-      group.id === "delete" || group.id === "manage" ? [group.label] : []
+      group.higherImpact ? [group.label] : []
     ),
-    ...(request.requirements.files?.actions.includes("delete") ? ["Delete files"] : []),
+    ...(fileActions.has("delete") ? ["Delete files"] : []),
     ...(hasSetup ? ["Changes collection setup"] : [])
   ];
 
   useEffect(() => {
-    if (!compatible.some((choice) => choice.collection.id === collectionId)) {
-      const onlyCollectionId = compatible.length === 1 ? compatible[0].collection.id : "";
-      setCollectionId(onlyCollectionId);
-      setReviewing(Boolean(onlyCollectionId));
+    if (collectionId && !compatible.some((choice) => choice.collection.id === collectionId)) {
+      setCollectionId("");
+      setCollectionConfirmed(false);
+      setReviewing(false);
     }
   }, [collectionId, compatible]);
 
   useEffect(() => {
     saveAuthorizationReview(request.id, {
       collectionId,
+      collectionConfirmed,
       operations: [...operations],
+      fileActions: [...fileActions],
       reviewing
     });
-  }, [collectionId, operations, request.id, reviewing]);
+  }, [collectionConfirmed, collectionId, fileActions, operations, request.id, reviewing]);
+
+  useEffect(() => {
+    if (!reviewing && focusCollectionOnReturn.current) {
+      focusCollectionOnReturn.current = false;
+      collectionChoicesRef.current?.querySelector<HTMLInputElement>("input:checked")?.focus();
+    }
+  }, [reviewing]);
+
+  useEffect(() => {
+    if (!creatingHosted && focusHostedTriggerOnCancel.current) {
+      focusHostedTriggerOnCancel.current = false;
+      createHostedTriggerRef.current?.focus();
+    }
+  }, [creatingHosted]);
 
   useEffect(() => {
     setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [
@@ -636,11 +649,16 @@ export function ApprovalForm({
     }];
   });
 
-  function toggleOperation(operation: string) {
-    setOperations((current) => {
+  function toggleCapability(group: AuthorizationCapabilityGroup) {
+    if (group.required) return;
+    setOperations((current) => toggleAuthorizationGroup(current, group));
+  }
+
+  function toggleFileAction(action: ApplicationFileAction) {
+    setFileActions((current) => {
       const next = new Set(current);
-      if (next.has(operation)) next.delete(operation);
-      else next.add(operation);
+      if (next.has(action)) next.delete(action);
+      else next.add(action);
       return next;
     });
   }
@@ -660,6 +678,7 @@ export function ApprovalForm({
             collection_id: collectionId,
             ...(selected?.offer_id ? { offer_id: selected.offer_id } : {}),
             operations: [...operations],
+            ...(request.requirements.files ? { file_actions: [...fileActions] } : {}),
             contract_setups: contractSetups
           })
         } : {})
@@ -700,6 +719,7 @@ export function ApprovalForm({
       setCreatedCollections((current) => [...current, collection]);
       onCollectionCreated(collection);
       setCollectionId(collection.id);
+      setCollectionConfirmed(true);
       setReviewing(true);
       setCollectionName("");
       setCreatingHosted(false);
@@ -713,39 +733,25 @@ export function ApprovalForm({
   return (
     <div className="approval-form" aria-busy={submitting !== null}>
       {request.distribution === "portable" && <div className="portable-authorization-warning" role="note">
-        <div>
-          <p className="eyebrow">Downloaded file, unverified origin</p>
-          <strong>Only continue if you intentionally opened this HTML file.</strong>
-        </div>
-        {request.user_code && <p>Confirm that it shows <code>{request.user_code}</code>. The code binds this approval to the file’s one-time device request.</p>}
-        <p>{request.project_url
-          ? `${host(request.project_url)} is a developer-supplied project link, not proof that the downloaded file came from that site.`
-          : "A downloaded file has no website origin that mdbase can verify."}</p>
+        <p><strong>Downloaded file; origin unverified.</strong> Continue only if you opened it intentionally{request.user_code ? <> and it shows <code>{request.user_code}</code></> : null}.{request.project_url ? <> {host(request.project_url)} does not verify its origin.</> : null}</p>
       </div>}
-      <div className="authorization-progress" aria-label="Application access review progress">
-        <span className={!reviewing ? "current" : "complete"}><b>1</b> Collection</span>
-        <span className={reviewing ? "current" : undefined}><b>2</b> Review access</span>
-      </div>
       <section className="approval-section">
         <div className="approval-section-intro">
           <strong>{reviewing ? "Collection" : "Choose a collection"}</strong>
-          <small>{reviewing
-            ? `Where ${request.application_name} will work.`
-            : request.collection_id
-              ? `${request.application_name} requested this specific collection.`
-              : `Choose where ${request.application_name} can work.`}</small>
         </div>
         <div className="approval-section-content">
           {reviewing && selected ? <div className="selected-collection-summary">
             <div>
-              <span>Using</span>
               <strong>{selected.display_name}</strong>
               <small>{collectionLocations.get(selected.id)}</small>
             </div>
-            {!request.collection_id && <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => setReviewing(false)}>Change</button>}
+            {!request.collection_id && <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => {
+              focusCollectionOnReturn.current = true;
+              setReviewing(false);
+            }}>Change</button>}
           </div> : <>
-          {compatible.length > 0 && <fieldset className="collection-choice-field">
-            <legend>Collection and location</legend>
+          {compatible.length > 0 && <fieldset className="collection-choice-field" ref={collectionChoicesRef}>
+            <legend className="sr-only">Collection</legend>
             <div className="collection-choice-list">
               {compatible.map(({ collection }) => {
                 const provisions = neededProvisions(request, collection);
@@ -756,9 +762,12 @@ export function ApprovalForm({
                     value={collection.id}
                     checked={collection.id === collectionId}
                     disabled={submitting !== null}
-                    onChange={() => setCollectionId(collection.id)}
+                    onChange={() => {
+                      setCollectionId(collection.id);
+                      setCollectionConfirmed(true);
+                    }}
                   />
-                  <span>
+                  <span className="collection-choice-copy">
                     <strong>{collection.display_name}</strong>
                     <small>{collectionLocations.get(collection.id)}</small>
                   </span>
@@ -774,8 +783,16 @@ export function ApprovalForm({
           {(unavailable.length > 0
             || unavailableConnectors.length > 0
             || (request.requirements.collection_kind !== "hosted" && !request.collection_id)
-            || (canCreateHosted && !request.collection_id)) && <details className="alternate-collection-options" open={compatible.length === 0 || creatingHosted ? true : undefined}>
-            <summary>{compatible.length > 0 ? "Need a different collection?" : "Choose another way"}</summary>
+            || (canCreateHosted && !request.collection_id)) && <details
+              className="alternate-collection-options"
+              open={compatible.length === 0 || creatingHosted || showAlternateCollections}
+              onToggle={(event) => {
+                if (compatible.length > 0 && !creatingHosted) {
+                  setShowAlternateCollections(event.currentTarget.open);
+                }
+              }}
+            >
+            <summary>{compatible.length > 0 ? "Add or connect another collection" : "Choose another way"}</summary>
             <div>
               {unavailable.length > 0 && <div className="collection-compatibility">
                 <strong>{unavailable.length} {unavailable.length === 1 ? "collection is" : "collections are"} unavailable</strong>
@@ -823,6 +840,7 @@ export function ApprovalForm({
                   type="button"
                   disabled={submitting !== null}
                   onClick={() => {
+                    focusHostedTriggerOnCancel.current = true;
                     setCreatingHosted(false);
                     setCollectionName("");
                     setError("");
@@ -838,6 +856,7 @@ export function ApprovalForm({
               <button
                 className="button secondary"
                 type="button"
+                ref={createHostedTriggerRef}
                 aria-controls={`create-hosted-${request.id}`}
                 disabled={submitting !== null}
                 onClick={() => {
@@ -849,9 +868,18 @@ export function ApprovalForm({
               ))}
             </div>
           </details>}
+          {!collectionId && compatible.length > 0 && (
+            <p className="collection-selection-help" id={`collection-selection-help-${request.id}`}>Select a collection to continue.</p>
+          )}
           <footer className="collection-step-actions">
             <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
-            <button className="button primary" type="button" disabled={submitting !== null || !collectionId} onClick={() => setReviewing(true)}>Review access</button>
+            <button
+              className="button primary"
+              type="button"
+              aria-describedby={!collectionId && compatible.length > 0 ? `collection-selection-help-${request.id}` : undefined}
+              disabled={submitting !== null || !collectionId || !collectionConfirmed}
+              onClick={() => setReviewing(true)}
+            >Review access</button>
           </footer>
           </>}
         </div>
@@ -859,24 +887,28 @@ export function ApprovalForm({
       {reviewing && <section className="approval-section">
         <div className="approval-section-intro">
           <strong>What it can do</strong>
-          <small>{permissionCount} requested actions across {permissionCategoryCount} {permissionCategoryCount === 1 ? "capability" : "capabilities"}.</small>
+          <small>{permissionCount} requested {permissionCount === 1 ? "capability" : "capabilities"}.</small>
         </div>
         <div className="approval-section-content authorization-permissions">
-          {selected && <PermissionDelta existingAccess={request.existing_access} collectionId={selected.id} selected={operations} />}
-          <PermissionCapabilitySummary groups={permissionGroups} selected={operations} files={request.requirements.files} />
+          {selected && <PermissionDelta existingAccess={request.existing_access} collectionId={selected.id} groups={permissionGroups} selected={operations} />}
+          <PermissionCapabilitySummary groups={permissionGroups} selected={operations} files={request.requirements.files} selectedFiles={fileActions} />
           {permissionGroups.length > 0 && <PermissionChoices
             groups={permissionGroups}
             selected={operations}
             disabled={submitting !== null}
-            onToggle={toggleOperation}
+            onToggle={toggleCapability}
           />}
-          {request.requirements.files && <FilePermissionSummary files={request.requirements.files} />}
+          {request.requirements.files && <FilePermissionSummary
+            files={request.requirements.files}
+            selected={fileActions}
+            disabled={submitting !== null}
+            onToggle={toggleFileAction}
+          />}
         </div>
       </section>}
       {reviewing && hasSetup && <section className="approval-section collection-changes-section">
         <div className="approval-section-intro">
           <strong>Collection changes</strong>
-          <small>These happen only after you allow access and the collection validates them.</small>
         </div>
         <div className="approval-section-content contract-setup-list">
           {setup.length > 0 && <div className="configuration-setup-list">
@@ -925,11 +957,11 @@ export function ApprovalForm({
         <div className="approval-receipt">
           <strong>{request.application_name} · {selected?.display_name}</strong>
           {higherImpactLabels.length > 0 && <span>{higherImpactLabels.join(" · ")}</span>}
-          <small>Access continues until you revoke it in mdbase connect.</small>
+          {request.distribution !== "portable" && <small>Access continues until you revoke it in mdbase connect.</small>}
         </div>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
-          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || (selectedPermissionCount === 0 && !request.requirements.files) || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (hasSetup ? "Setting up and allowing…" : "Approving…") : hasSetup ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
+          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || !collectionConfirmed || (selectedPermissionCount === 0 && !request.requirements.files) || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (hasSetup ? "Setting up and allowing…" : "Allowing…") : hasSetup ? "Set up and allow access" : "Allow access"}</button>
         </div>
       </footer>}
     </div>
@@ -952,49 +984,4 @@ function authorizationNeedsSetup(
           && contract.digest === required.digest
       ) && Boolean(provisionedContract(required, request.provisions.type_packs))
     );
-}
-
-function disambiguatedCollectionLocations(
-  collections: AvailableCollection[]
-): Map<string, string> {
-  const groups = new Map<string, AvailableCollection[]>();
-  for (const collection of collections) {
-    const key = [
-      collection.display_name.normalize("NFKC").toLocaleLowerCase(),
-      collection.connector_name.normalize("NFKC").toLocaleLowerCase()
-    ].join("\u0000");
-    const group = groups.get(key) ?? [];
-    group.push(collection);
-    groups.set(key, group);
-  }
-
-  const labels = new Map<string, string>();
-  for (const group of groups.values()) {
-    for (const collection of group) {
-      labels.set(
-        collection.id,
-        group.length === 1
-          ? collection.connector_name
-          : `${collection.connector_name} · ID …${uniqueIdSuffix(
-              collection.id,
-              group.map((candidate) => candidate.id)
-            )}`
-      );
-    }
-  }
-  return labels;
-}
-
-function uniqueIdSuffix(id: string, candidates: string[]): string {
-  let length = Math.min(8, id.length);
-  while (
-    length < id.length &&
-    candidates.some(
-      (candidate) =>
-        candidate !== id && candidate.slice(-length) === id.slice(-length)
-    )
-  ) {
-    length += 1;
-  }
-  return id.slice(-length);
 }

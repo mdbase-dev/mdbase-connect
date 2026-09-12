@@ -1,10 +1,28 @@
 use super::*;
 
 impl HostedProvider {
-    /// Hold the database-wide shared admission lock for a complete HTTP
-    /// data/control request. The exclusive cutover transaction cannot persist
-    /// its fence until every already-admitted request has finished.
+    /// Hold the database-wide shared admission lock for a complete request
+    /// that can change canonical or projection-relevant state. A cutover lease
+    /// never admits this class while semantic reads exercise the candidate.
     pub async fn acquire_runtime_admission(&self) -> ApiResult<Transaction<'static, Postgres>> {
+        self.acquire_runtime_admission_class(false).await
+    }
+
+    /// Hold the database-wide shared admission lock for a semantic query. A
+    /// live cutover lease admits queries after the exclusive drain; rollback
+    /// fences, expired leases, and fully suspended admission do not. Query
+    /// cursor lifecycle and protocol accounting may still update bounded
+    /// runtime metadata, but cannot change canonical records or projections.
+    pub async fn acquire_runtime_read_admission(
+        &self,
+    ) -> ApiResult<Transaction<'static, Postgres>> {
+        self.acquire_runtime_admission_class(true).await
+    }
+
+    async fn acquire_runtime_admission_class(
+        &self,
+        read_only: bool,
+    ) -> ApiResult<Transaction<'static, Postgres>> {
         let mut transaction = self.pool.begin().await?;
         // The session default is intentionally short, but this transaction is
         // the operation-lifetime admission permit. It must never disappear
@@ -22,13 +40,15 @@ impl HostedProvider {
                     AND (
                       admission_fence_token IS NULL
                       OR (
-                        admission_fence_kind = 'cutover'
+                        $1
+                        AND admission_fence_kind = 'cutover'
                         AND admission_lease_expires_at > clock_timestamp()
                       )
                     )
                FROM hosted_provider_runtime_control
                WHERE singleton = true"#,
         )
+        .bind(read_only)
         .fetch_optional(&mut *transaction)
         .await?
         .unwrap_or(false);

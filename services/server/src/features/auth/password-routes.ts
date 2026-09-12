@@ -52,6 +52,12 @@ const PASSWORD_LOGIN_IP_LIMIT: AuthRateLimitRule = {
   baseBlockSeconds: 5 * 60,
   maxBlockSeconds: 60 * 60
 };
+const PASSWORD_SIGNUP_PREVIEW_TOKEN_LIMIT: AuthRateLimitRule = {
+  maxAttempts: 5,
+  windowSeconds: 60 * 60,
+  baseBlockSeconds: 15 * 60,
+  maxBlockSeconds: 6 * 60 * 60
+};
 const PASSWORD_SIGNUP_TOKEN_LIMIT: AuthRateLimitRule = {
   maxAttempts: 5,
   windowSeconds: 60 * 60,
@@ -158,6 +164,11 @@ export function registerPasswordAuthRoutes(
       && legalReady;
     const passwordRegistration =
       passwordInvitationRegistration || passwordPublicRegistration;
+    const externalPublicRegistration =
+      authenticationSettings.registrationMode === "open"
+      && (options.providers.google || options.providers.github)
+      && authenticationRateLimiter !== null
+      && legalReady;
     const passwordRecoveryAvailable =
       passwordLogin
       && authenticationSettings.emailDeliveryEnabled
@@ -192,6 +203,19 @@ export function registerPasswordAuthRoutes(
       providers,
       registration: authenticationSettings.registrationMode,
       development_login: options.providers.development,
+      ...(externalPublicRegistration ? { external_public_registration: true } : {}),
+      ...(passwordRegistration || externalPublicRegistration ? {
+        agreements: {
+          terms: {
+            version: authenticationSettings.termsVersion!,
+            url: options.authenticationLegalDocuments!.termsUrl
+          },
+          privacy: {
+            version: authenticationSettings.privacyVersion!,
+            url: options.authenticationLegalDocuments!.privacyUrl
+          }
+        }
+      } : {}),
       ...(passwordLogin
         ? {
             password_login: true,
@@ -206,17 +230,7 @@ export function registerPasswordAuthRoutes(
                     : {}),
                   ...(passwordPublicRegistration
                     ? { password_public_registration: true }
-                    : {}),
-                  agreements: {
-                    terms: {
-                      version: authenticationSettings.termsVersion!,
-                      url: options.authenticationLegalDocuments!.termsUrl
-                    },
-                    privacy: {
-                      version: authenticationSettings.privacyVersion!,
-                      url: options.authenticationLegalDocuments!.privacyUrl
-                    }
-                  }
+                    : {})
                 }
               : {})
           }
@@ -339,17 +353,17 @@ export function registerPasswordAuthRoutes(
       authenticationRateLimiter,
       [
         {
-          scope: "password.signup_verification.token",
+          scope: "password.signup_verification_preview.token",
           key: input.verification_token,
-          rule: PASSWORD_SIGNUP_TOKEN_LIMIT
+          rule: PASSWORD_SIGNUP_PREVIEW_TOKEN_LIMIT
         },
         {
-          scope: "password.signup_verification.ip",
+          scope: "password.signup_verification_preview.ip",
           key: request.ip,
           rule: PASSWORD_SIGNUP_IP_LIMIT
         },
         {
-          scope: "password.signup_verification.global",
+          scope: "password.signup_verification_preview.global",
           key: "global",
           rule: PASSWORD_AUTH_GLOBAL_LIMIT
         }
@@ -387,17 +401,17 @@ export function registerPasswordAuthRoutes(
       authenticationRateLimiter,
       [
         {
-          scope: "password.signup_verification.token",
+          scope: "password.signup_redemption.token",
           key: input.verification_token,
           rule: PASSWORD_SIGNUP_TOKEN_LIMIT
         },
         {
-          scope: "password.signup_verification.ip",
+          scope: "password.signup_redemption.ip",
           key: request.ip,
           rule: PASSWORD_SIGNUP_IP_LIMIT
         },
         {
-          scope: "password.signup_verification.global",
+          scope: "password.signup_redemption.global",
           key: "global",
           rule: PASSWORD_AUTH_GLOBAL_LIMIT
         }

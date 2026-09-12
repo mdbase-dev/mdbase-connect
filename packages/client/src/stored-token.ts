@@ -1,5 +1,6 @@
 import type { StoredToken } from "./internal-types.js";
 import {
+  isCanonicalGrantScope,
   parseGrantScope,
   parseStored,
   validFileCapability,
@@ -11,7 +12,10 @@ interface ReadStoredTokenOptions {
   stored: string | null;
   collectionId: string;
   relayEncryption: "required" | "disabled";
-  invalidate(keyHandle?: string): void;
+  invalidate(
+    keyHandle?: string,
+    reason?: "invalid_stored_grant" | "legacy_scope_reauthorization_required"
+  ): void;
   directCapable(token: StoredToken): boolean;
 }
 
@@ -23,8 +27,11 @@ export function readStoredToken({
   directCapable
 }: ReadStoredTokenOptions): StoredToken | null {
   const token = parseStored<StoredToken>(stored);
-  const reject = (keyHandle?: unknown): null => {
-    invalidate(typeof keyHandle === "string" ? keyHandle : undefined);
+  const reject = (
+    keyHandle?: unknown,
+    reason: "invalid_stored_grant" | "legacy_scope_reauthorization_required" = "invalid_stored_grant"
+  ): null => {
+    invalidate(typeof keyHandle === "string" ? keyHandle : undefined, reason);
     return null;
   };
   if (!token) {
@@ -53,7 +60,11 @@ export function readStoredToken({
       && (typeof token.refreshExpiresAt !== "number" || !Number.isFinite(token.refreshExpiresAt))
     )
   ) return reject(token.keyHandle);
-  if (!parseGrantScope(token.scope)) return reject(token.keyHandle);
+  const scope = parseGrantScope(token.scope);
+  if (!scope) return reject(token.keyHandle);
+  if (!isCanonicalGrantScope(scope)) {
+    return reject(token.keyHandle, "legacy_scope_reauthorization_required");
+  }
   if (token.fileCapability && !validFileCapability(token.fileCapability)) {
     return reject(token.keyHandle);
   }

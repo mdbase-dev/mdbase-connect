@@ -148,6 +148,16 @@ pub(super) fn encrypted_response(
     ))
 }
 
+pub(super) fn owner_only_operation_problem(operation: &str) -> Option<ConnectProblem> {
+    (operation == "batch").then(|| {
+        ConnectProblem::new(
+            "invalid_request",
+            "Batch operations are available only to the local collection owner.",
+        )
+        .with_operation_outcome(ConnectOperationOutcome::Rejected)
+    })
+}
+
 pub(super) fn encrypted_problem_response(
     keys: &RelayKeys,
     metadata: RelayMetadata<'_>,

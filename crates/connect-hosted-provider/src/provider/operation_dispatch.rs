@@ -1,5 +1,6 @@
 use super::mutation_journal::{HostedMutationClaim, HostedMutationLease};
 use super::mutation_metrics::{duplicate_replay, lease_takeover};
+use super::replicas::{collection_setup_declaration_mismatch, validate_setup_runtime_choices};
 use super::*;
 
 const OPERATION_MUTATION_DATABASE_RETRIES: usize = 3;
@@ -15,6 +16,11 @@ impl HostedProvider {
         input: Value,
         request_origin: Option<&str>,
     ) -> ApiResult<Value> {
+        // Protocol discriminators are public request syntax, not capability
+        // information. Reject malformed syntax before authentication or retired
+        // replay can make the same request appear credential- or state-dependent.
+        validate_operation_discriminators(operation, &input)
+            .map_err(|message| ApiError::bad_request("invalid_request", message))?;
         let replica = match self
             .authenticate_for(collection_id, token, ReplicaPurpose::Application)
             .await
@@ -49,6 +55,15 @@ impl HostedProvider {
                 duplicate_replay(operation);
                 return result;
             }
+        }
+        if matches!(
+            operation,
+            "assess_collection_setup" | "apply_collection_setup"
+        ) {
+            // Exact terminal replay above cannot create new work. Authenticate
+            // current evidence before parsing or admitting any new journal entry.
+            self.authorize_collection_setup_declaration(collection_id, replica.id, &input)
+                .await?;
         }
         validate_hosted_operation_input(operation, &input)?;
         let portable_selector = matches!(
@@ -184,12 +199,6 @@ impl HostedProvider {
                 .timer_operation(collection_id, grant_id, operation, input)
                 .await;
         }
-        if is_full_collection_operation(operation) && !replica.full_collection {
-            return Err(ApiError::forbidden(
-                "scope_denied",
-                "This operation requires full collection access.",
-            ));
-        }
         match operation {
             "describe" => self.describe_operation(collection_id, replica).await,
             "changes" => self.changes_operation(collection_id, replica, &input).await,
@@ -202,31 +211,17 @@ impl HostedProvider {
             | "list_views"
             | "execute_view"
             | "read_view_source" => {
-                if operation == "assess_collection_setup" {
-                    let request =
-                        serde_json::from_value::<AssessCollectionSetupInput>(input.clone())
-                            .map_err(|error| {
-                                ApiError::bad_request(
-                                    "invalid_collection_setup",
-                                    format!("The collection setup assessment is invalid: {error}"),
-                                )
-                            })?;
-                    self.authorize_collection_setup_declaration(
-                        replica.id,
-                        &request.application_id,
-                        &request.declaration_digest,
-                    )
-                    .await?;
-                }
                 let (scoped_input, selector) = match (&contract_scope, operation) {
                     (Some(scope), "query") => scope.query_input(&input).map_err(scope_error)?,
                     (Some(scope), "read") => scope.read_input(&input).map_err(scope_error)?,
-                    _ => (
-                        scope_read_input(operation, input, &replica.allowed_types)?,
-                        None,
-                    ),
+                    _ => (input, None),
                 };
-                let result = if operation == "query" {
+                let result = if operation == "read" {
+                    let typed = self
+                        .execute_direct_point_read_typed(collection_id, &scoped_input)
+                        .await?;
+                    typed.to_v03()
+                } else if operation == "query" {
                     self.execute_hosted_query(collection_id, replica, request_id, &scoped_input)
                         .await?
                 } else if operation == "execute_view" {
@@ -241,9 +236,7 @@ impl HostedProvider {
                     self.execute_read_operation(collection_id, operation, &scoped_input)
                         .await?
                 };
-                if contract_scope.is_none() && matches!(operation, "read" | "validate") {
-                    ensure_operation_result_visible(&result, &replica.allowed_types)?;
-                }
+
                 if let Some(scope) = &contract_scope {
                     self.project_contract_operation(scope, result, selector.as_ref())
                         .await
@@ -384,12 +377,6 @@ impl HostedProvider {
                         )
                     },
                 )?;
-                self.authorize_collection_setup_declaration(
-                    replica.id,
-                    &request.setup.application_id,
-                    &request.setup.declaration_digest,
-                )
-                .await?;
                 self.write_collection_setup_apply_operation(
                     collection_id,
                     &request,
@@ -417,12 +404,15 @@ impl HostedProvider {
 
     async fn authorize_collection_setup_declaration(
         &self,
+        collection_id: Uuid,
         replica_id: Uuid,
-        application_id: &str,
-        declaration_digest: &str,
+        input: &Value,
     ) -> ApiResult<()> {
         let binding = sqlx::query(
-            r#"SELECT application_declaration_id, application_declaration_digest
+            r#"SELECT purpose, application_declaration_id, application_declaration_digest,
+                      application_setup_evidence, application_semantic_version, proof_public_key, allowed_operations,
+                      operation_transport_protocol, operation_transport_recovery_protocols,
+                      file_capability
                FROM hosted_provider_replicas
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
         )
@@ -432,16 +422,71 @@ impl HostedProvider {
         let Some(binding) = binding else {
             return Err(collection_setup_declaration_mismatch());
         };
-        ensure_collection_setup_declaration_binding(
+        let evidence = binding.get::<Option<Value>, _>("application_setup_evidence");
+        match super::replicas::decode_persisted_semantics(
+            &binding.get::<String, _>("purpose"),
+            binding.get("application_semantic_version"),
+            evidence.as_ref(),
+        )
+        .map_err(|_| collection_setup_declaration_mismatch())?
+        {
+            Some(1) => {
+                // Bounded predecessor semantics (c2596a6e): only ID/digest binding,
+                // not v2 authenticity or exact declaration projection guarantees.
+                return ensure_collection_setup_declaration_binding(
+                    binding
+                        .get::<Option<String>, _>("application_declaration_id")
+                        .as_deref(),
+                    binding
+                        .get::<Option<String>, _>("application_declaration_digest")
+                        .as_deref(),
+                    input
+                        .get("application_id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(collection_setup_declaration_mismatch)?,
+                    input
+                        .get("declaration_digest")
+                        .and_then(Value::as_str)
+                        .ok_or_else(collection_setup_declaration_mismatch)?,
+                );
+            }
+            Some(2) => {}
+            _ => return Err(collection_setup_declaration_mismatch()),
+        }
+        let evidence = evidence.ok_or_else(collection_setup_declaration_mismatch)?;
+        let files = binding
+            .get::<Option<Value>, _>("file_capability")
+            .map(serde_json::from_value::<FileCapability>)
+            .transpose()
+            .map_err(|_| collection_setup_declaration_mismatch())?;
+        let verified = super::replicas::verified_setup_evidence(
+            collection_id,
+            ReplicaPurpose::Application,
+            binding
+                .get::<Option<String>, _>("proof_public_key")
+                .as_deref(),
             binding
                 .get::<Option<String>, _>("application_declaration_id")
                 .as_deref(),
             binding
                 .get::<Option<String>, _>("application_declaration_digest")
                 .as_deref(),
-            application_id,
-            declaration_digest,
-        )
+            binding
+                .get::<Option<i32>, _>("operation_transport_protocol")
+                .map(|v| v as u32),
+            &binding
+                .get::<Vec<i32>, _>("operation_transport_recovery_protocols")
+                .iter()
+                .map(|v| *v as u32)
+                .collect::<Vec<_>>(),
+            &binding.get::<Vec<String>, _>("allowed_operations"),
+            files.as_ref(),
+            &evidence,
+        )?;
+        verified
+            .validate_setup_input(input)
+            .map_err(|_| collection_setup_declaration_mismatch())?;
+        validate_setup_runtime_choices(input)
     }
 
     pub(super) async fn contract_scope(
@@ -450,32 +495,11 @@ impl HostedProvider {
         replica: &Replica,
         portable_selector: bool,
     ) -> ApiResult<Option<ContractScope>> {
-        if replica.full_collection {
-            if !portable_selector {
-                return Ok(None);
-            }
-            return ContractScope::new(self.collection_resources(collection_id).await?.contracts)
-                .map(Some)
-                .map_err(scope_error);
+        ensure_canonical_application_replica(replica)?;
+        if !portable_selector {
+            return Ok(None);
         }
-        let current = self.collection_resources(collection_id).await?.contracts;
-        for pinned in &replica.contract_scope {
-            let matching = current.iter().find(|contract| {
-                contract.id == pinned.id
-                    && contract.version == pinned.version
-                    && contract.digest == pinned.digest
-            });
-            if matching != Some(pinned) {
-                return Err(ApiError::forbidden(
-                    "contract_scope_changed",
-                    format!(
-                        "The approved provider set for {} version {} has changed.",
-                        pinned.id, pinned.version
-                    ),
-                ));
-            }
-        }
-        ContractScope::new(replica.contract_scope.clone())
+        ContractScope::new(self.collection_resources(collection_id).await?.contracts)
             .map(Some)
             .map_err(scope_error)
     }
@@ -616,7 +640,7 @@ impl HostedProvider {
                     contract_setups: existing_setups.clone(),
                 };
                 let assessment = self
-                    .execute_read_operation(
+                    .execute_direct_definition_assessment_typed(
                         collection_id,
                         "assess_type_pack",
                         &serde_json::to_value(&assessment_input).map_err(|error| {
@@ -626,13 +650,11 @@ impl HostedProvider {
                         })?,
                     )
                     .await?;
-                if !assessment.valid || assessment.result["applicable"].as_bool() != Some(true) {
-                    return Err(type_pack_provision_error(&assessment));
+                let assessment_value = type_pack_assessment(&assessment)?;
+                if !assessment.is_valid() || !assessment_value.applicable {
+                    return Err(type_pack_provision_error(&assessment.to_v03()));
                 }
-                let expected_assessment_digest = assessment.result["assessment_digest"]
-                    .as_str()
-                    .ok_or_else(|| ApiError::internal("Type-pack assessment returned no digest."))?
-                    .to_string();
+                let expected_assessment_digest = assessment_value.assessment_digest.clone();
                 let applied = self
                     .write_type_pack_apply_operation(
                         collection_id,
@@ -762,7 +784,7 @@ impl HostedProvider {
             type_pack_adoptions: BTreeMap::new(),
         };
         let mut assessment = self
-            .execute_read_operation(
+            .execute_direct_definition_assessment_typed(
                 collection_id,
                 "assess_collection_setup",
                 &serde_json::to_value(&setup).map_err(|error| {
@@ -772,13 +794,19 @@ impl HostedProvider {
                 })?,
             )
             .await?;
-        if assessment.result["applicable"].as_bool() != Some(true) {
+        if !collection_setup_assessment(&assessment)?.applicable {
+            let assessment_wire = serde_json::to_value(collection_setup_assessment(&assessment)?)
+                .map_err(|error| {
+                ApiError::internal(format!(
+                    "Collection setup assessment could not serialize: {error}"
+                ))
+            })?;
             let adoptions =
-                mdbase_connect_protocol::reviewable_type_pack_adoptions(&assessment.result);
+                mdbase_connect_protocol::reviewable_type_pack_adoptions(&assessment_wire);
             if !adoptions.is_empty() {
                 setup.type_pack_adoptions = adoptions;
                 assessment = self
-                    .execute_read_operation(
+                    .execute_direct_definition_assessment_typed(
                         collection_id,
                         "assess_collection_setup",
                         &serde_json::to_value(&setup).map_err(|error| {
@@ -790,25 +818,18 @@ impl HostedProvider {
                     .await?;
             }
         }
-        if !assessment.valid || assessment.result["applicable"].as_bool() != Some(true) {
-            return Err(type_pack_provision_error(&assessment));
+        let assessment_value = collection_setup_assessment(&assessment)?;
+        if !assessment.is_valid() || !assessment_value.applicable {
+            return Err(type_pack_provision_error(&assessment.to_v03()));
         }
-        let required = |key: &str| {
-            assessment.result[key]
-                .as_str()
-                .map(str::to_string)
-                .ok_or_else(|| {
-                    ApiError::internal(format!("Collection setup assessment returned no {key}."))
-                })
-        };
         let applied = self
             .write_collection_setup_apply_operation(
                 collection_id,
                 &ApplyCollectionSetupInput {
                     setup,
-                    expected_assessment_digest: required("assessment_digest")?,
-                    expected_collection_revision: required("collection_revision")?,
-                    expected_provision_digest: required("provision_digest")?,
+                    expected_assessment_digest: assessment_value.assessment_digest.clone(),
+                    expected_collection_revision: assessment_value.collection_revision.clone(),
+                    expected_provision_digest: assessment_value.provision_digest.clone(),
                     allow_type_pack_downgrades: BTreeSet::new(),
                 },
                 None,
@@ -883,6 +904,35 @@ impl HostedProvider {
     }
 }
 
+fn type_pack_assessment(
+    operation: &mdbase::runtime::CanonicalOperationOutcome,
+) -> ApiResult<&mdbase::runtime::CanonicalTypePackValue> {
+    match operation.value() {
+        mdbase::runtime::CanonicalOperationValue::AssessTypePack(Some(value)) => Ok(value),
+        _ => Err(ApiError::internal(
+            "Canonical type-pack assessment returned the wrong typed operation family.",
+        )),
+    }
+}
+
+fn collection_setup_assessment(
+    operation: &mdbase::runtime::CanonicalOperationOutcome,
+) -> ApiResult<&mdbase::v03::CollectionSetupAssessment> {
+    match operation.value() {
+        mdbase::runtime::CanonicalOperationValue::AssessCollectionSetup(Some(value)) => match value
+            .as_ref()
+        {
+            mdbase::runtime::CanonicalCollectionSetupValue::Assessment(value) => Ok(value),
+            _ => Err(ApiError::internal(
+                "Canonical collection-setup assessment returned the wrong typed operation family.",
+            )),
+        },
+        _ => Err(ApiError::internal(
+            "Canonical collection-setup assessment returned the wrong typed operation family.",
+        )),
+    }
+}
+
 fn retryable_hosted_database_mutation(operation: &str) -> bool {
     matches!(
         operation,
@@ -913,13 +963,6 @@ pub(super) fn ensure_collection_setup_declaration_binding(
     } else {
         Err(collection_setup_declaration_mismatch())
     }
-}
-
-fn collection_setup_declaration_mismatch() -> ApiError {
-    ApiError::forbidden(
-        "application_declaration_mismatch",
-        "Collection setup must exactly match the application declaration bound to this capability.",
-    )
 }
 
 #[cfg(test)]

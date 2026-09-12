@@ -30,9 +30,9 @@ function manifest() {
     requirements: {
       contracts: [],
       capabilities: {
-        contract_version: 1,
-        required: ["collection.inspect", "collection.setup.apply"],
-        optional: ["records.query"]
+        contract_version: 2,
+        required: ["collection.read"],
+        optional: ["records.create"]
       },
       access: "full_collection"
     },
@@ -79,23 +79,47 @@ test("semantic capabilities and provision ownership share one canonical validato
   );
 });
 
-test("generic editors may apply user-selected packs without bundling one", () => {
+test("legacy contract-scoped declarations are rejected rather than widened", () => {
+  const scoped = manifest();
+  scoped.requirements.access = "contract";
+  const result = validateAppManifest(scoped);
+  assert.equal(result.valid, false);
+  assert.ok(result.issues.some((issue) =>
+    issue.path === "/requirements/access"
+    && ["const", "collectionAccess"].includes(issue.keyword)
+  ));
+  assert.throws(
+    () => parseAppManifest(scoped),
+    (error) => error instanceof AppManifestValidationError
+      && error.message.includes("/requirements/access")
+  );
+
+  const omitted = manifest();
+  delete omitted.requirements.access;
+  const omittedResult = validateAppManifest(omitted);
+  assert.equal(omittedResult.valid, false);
+  assert.ok(omittedResult.issues.some((issue) =>
+    issue.path === "/requirements/access"
+    && ["required", "collectionAccess"].includes(issue.keyword)
+  ));
+  assert.throws(
+    () => parseAppManifest(omitted),
+    (error) => error instanceof AppManifestValidationError
+      && error.message.includes("/requirements/access")
+  );
+});
+
+test("setup provisions and ongoing definition management are independent", () => {
+  const setupOnly = manifest();
+  assert.deepEqual(validateAppManifest(setupOnly), { valid: true, issues: [] });
+
   const editor = manifest();
   editor.provisions.type_packs = [];
   editor.requirements.capabilities.required = [
-    "collection.inspect",
-    "definitions.type-pack.apply"
+    "collection.read",
+    "definitions.manage"
   ];
   assert.deepEqual(validateAppManifest(editor), { valid: true, issues: [] });
-
-  const missingCapability = manifest();
-  missingCapability.requirements.capabilities.required = ["collection.inspect"];
-  const result = validateAppManifest(missingCapability);
-  assert.equal(result.valid, false);
-  assert.ok(result.issues.some((issue) =>
-    issue.path === "/requirements/capabilities/required"
-    && issue.keyword === "collectionSetupCapability"
-  ));
 });
 
 test("portable declarations validate without inventing a web origin", () => {
@@ -105,23 +129,29 @@ test("portable declarations validate without inventing a web origin", () => {
     id: "dev.example.portable",
     name: "Portable app",
     project_url: "https://portable.example/project",
-    icon: "https://portable.example/icon.png"
+    icon: "https://portable.example/icon.png",
+    requirements: { access: "full_collection", contracts: [] }
   }), { valid: true, issues: [] });
 
   const parsed = parseAppManifest({
     manifest_version: 1,
     distribution: "portable",
     id: "dev.example.portable",
-    name: "Portable app"
+    name: "Portable app",
+    requirements: { access: "full_collection", contracts: [] }
   });
-  assert.deepEqual(parsed.requirements, { contracts: [], configuration: [] });
+  assert.deepEqual(parsed.requirements, {
+    access: "full_collection",
+    contracts: [],
+    configuration: []
+  });
   assert.deepEqual(parsed.provisions, { type_packs: [], configuration: [] });
   assert.deepEqual(parsed.notifications, { criteria: [] });
 });
 
 test("semantic diagnostics expose exact paths", () => {
   const invalid = manifest();
-  invalid.requirements.capabilities.optional = ["collection.inspect"];
+  invalid.requirements.capabilities.optional = ["collection.read"];
   invalid.provisions.type_packs[0].manifest.resources[0].digest =
     `sha256:${"0".repeat(64)}`;
   const result = validateAppManifest(invalid);

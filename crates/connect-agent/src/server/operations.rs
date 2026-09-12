@@ -1,88 +1,61 @@
-use super::{metrics, operation_responses::*, runtime_mutations::runtime_host_claim, *};
+use super::{operation_responses::*, runtime_mutations::runtime_host_claim, *};
 impl AgentState {
-    pub(crate) fn handle_direct_encrypted_operation_cancellable(
-        &self,
-        origin: &str,
-        envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
-        cancellation: &mdbase::OperationCancellation,
-        execution_state: &OperationExecutionState,
-    ) -> RelayMessage {
-        let origin_matches = self
-            .registry
-            .grant_replay_context(envelope.grant_id, &envelope.key_id)
-            .ok()
-            .flatten()
-            .is_some_and(|context| context.grant.application_origin == origin);
-        if !origin_matches {
-            return encrypted_rejection(envelope.protocol_version, envelope.request_id);
-        }
-        metrics::direct_operation_transport(envelope.protocol_version);
-        self.handle_encrypted_operation(envelope, cancellation, execution_state)
-    }
-
-    pub fn handle_relay_message(&self, message: RelayMessage) -> Option<RelayMessage> {
-        self.handle_relay_message_cancellable(
-            message,
-            &mdbase::OperationCancellation::new(),
-            &OperationExecutionState::default(),
-        )
-    }
-
-    pub(crate) fn handle_relay_message_cancellable(
+    pub(super) fn handle_relay_message_cancellable_inner(
         &self,
         message: RelayMessage,
         cancellation: &mdbase::OperationCancellation,
         execution_state: &OperationExecutionState,
     ) -> Option<RelayMessage> {
-        match message {
+        let operation_registration = matches!(
+            &message,
+            RelayMessage::OperationRequest { .. } | RelayMessage::EncryptedOperationRequest { .. }
+        )
+        .then(|| self.register_remote_operation(cancellation));
+        let response = match message {
             RelayMessage::PolicySnapshot {
                 protocol_version,
                 request_id,
                 revision,
+                connector_id,
+                sequence,
+                lease_issued_at_ms,
+                lease_expires_at_ms,
                 grants,
             } => {
-                if protocol_version != CONTROL_PROTOCOL_VERSION {
-                    return Some(RelayMessage::PolicyApplied {
-                        protocol_version: CONTROL_PROTOCOL_VERSION,
+                let response = match (
+                    connector_id,
+                    sequence,
+                    lease_issued_at_ms,
+                    lease_expires_at_ms,
+                ) {
+                    (
+                        Some(connector_id),
+                        Some(sequence),
+                        Some(lease_issued_at_ms),
+                        Some(lease_expires_at_ms),
+                    ) => super::policy::apply_policy_snapshot(
+                        self,
+                        protocol_version,
+                        super::policy::PolicySnapshot {
+                            request_id,
+                            revision,
+                            connector_id,
+                            sequence,
+                            lease_issued_at_ms,
+                            lease_expires_at_ms,
+                            grants,
+                        },
+                    ),
+                    (None, None, None, None) => super::policy::apply_legacy_policy_snapshot(
+                        self,
+                        protocol_version,
                         request_id,
                         revision,
-                        ok: false,
-                        error: Some(ControlError {
-                            code: "unsupported_protocol_version".to_string(),
-                            message: format!(
-                                "Relay protocol {protocol_version} is unsupported; expected {}.",
-                                CONTROL_PROTOCOL_VERSION
-                            ),
-                            details: None,
-                        }),
-                    });
-                }
-                match self.registry.replace_grants_at_revision(&revision, &grants) {
-                    Ok(()) => {
-                        tracing::debug!(grants = grants.len(), %revision, "relay policy snapshot applied");
-                        Some(RelayMessage::PolicyApplied {
-                            protocol_version: CONTROL_PROTOCOL_VERSION,
-                            request_id,
-                            revision,
-                            ok: true,
-                            error: None,
-                        })
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, %revision, "failed to apply relay policy snapshot");
-                        Some(RelayMessage::PolicyApplied {
-                            protocol_version: CONTROL_PROTOCOL_VERSION,
-                            request_id,
-                            revision,
-                            ok: false,
-                            error: Some(ControlError {
-                                code: error.code().to_string(),
-                                message: error.to_string(),
-                                details: None,
-                            }),
-                        })
-                    }
-                }
+                        grants,
+                    ),
+                    _ => super::policy::reject_partial_policy_snapshot(request_id, revision),
+                };
+                Some(response)
             }
             RelayMessage::AuthorizationOfferRequest {
                 request_id,
@@ -95,12 +68,12 @@ impl AgentState {
                     Vec::new()
                 } else {
                     self.registry
-                        .list()
+                        .catalog()
                         .unwrap_or_default()
                         .into_iter()
-                        .filter(|collection| collection.enabled)
-                        .filter_map(|collection| {
-                            let mut description = self.registry.describe(collection.id).ok()?;
+                        .filter(|entry| entry.summary.enabled)
+                        .filter_map(|entry| {
+                            let mut description = entry.description?;
                             let types = if requirements_can_be_provisioned(
                                 &requirements,
                                 &provisions,
@@ -115,7 +88,7 @@ impl AgentState {
                                 Vec::new()
                             };
                             Some(AuthorizationCollectionOffer {
-                                collection_id: collection.id,
+                                collection_id: entry.summary.id,
                                 display_name: description.display_name,
                                 spec_version: description.spec_version,
                                 contracts: description.contracts,
@@ -165,43 +138,52 @@ impl AgentState {
                     });
                 }
                 let result = (|| {
-                    if self.registry.paused()? {
-                        return Err(ConnectError::AccessDenied(
-                            "Remote access is paused on this computer.".to_string(),
-                        ));
-                    }
                     if grant.collection_id != collection_id {
                         return Err(ConnectError::AccessDenied(
                             "The proposed grant names a different collection.".to_string(),
                         ));
                     }
-                    if grant.scope.access
-                        != requirements.access.unwrap_or(ApplicationAccess::Contract)
+                    if requirements.access != Some(ApplicationAccess::FullCollection)
+                        || grant.scope.access != ApplicationAccess::FullCollection
                     {
                         return Err(ConnectError::AccessDenied(
-                            "The proposed grant scope does not match the application request."
+                            "Applications must explicitly request full collection access; legacy or omitted access is not widened."
                                 .to_string(),
                         ));
                     }
-                    let registered = self.registry.get(collection_id)?;
-                    if !registered.enabled {
-                        return Err(ConnectError::AccessDenied(
-                            "This collection is disabled on its computer.".to_string(),
-                        ));
-                    }
-                    let before = self.registry.describe(collection_id)?;
-                    if let Some(operation) = grant
-                        .operations
-                        .iter()
-                        .find(|operation| !before.operations.contains(operation))
-                    {
-                        return Err(ConnectError::AccessDenied(format!(
-                            "{} does not support the requested {operation} operation.",
-                            before.display_name
-                        )));
-                    }
-                    // Authorization is not itself a collection mutation. Only enter the
-                    // setup transaction when a declared requirement is not yet satisfied.
+                    setup_binding::validate_activation_setup_binding(
+                        &grant,
+                        &requirements,
+                        &provisions,
+                    )?;
+                    let validate_target = || {
+                        if self.registry.paused()? {
+                            return Err(ConnectError::AccessDenied(
+                                "Remote access is paused on this computer.".to_string(),
+                            ));
+                        }
+                        let registered = self.registry.get(collection_id)?;
+                        if !registered.enabled {
+                            return Err(ConnectError::AccessDenied(
+                                "This collection is disabled on its computer.".to_string(),
+                            ));
+                        }
+                        self.registry.ensure_authority_available(collection_id)?;
+                        let description = self.registry.describe(collection_id)?;
+                        if let Some(operation) = grant
+                            .operations
+                            .iter()
+                            .find(|operation| !description.operations.contains(operation))
+                        {
+                            return Err(ConnectError::AccessDenied(format!(
+                                "{} does not support the requested {operation} operation.",
+                                description.display_name
+                            )));
+                        }
+                        Ok(description)
+                    };
+                    let before = validate_target()?;
+                    // Enter setup only when a declared requirement is not yet satisfied.
                     let needs_setup = !requirements.configuration.is_empty()
                         || requirements.contracts.iter().any(|required| {
                             !before.contracts.iter().any(|available| {
@@ -216,7 +198,7 @@ impl AgentState {
                                 .to_string(),
                         ));
                     }
-                    let (contracts, setup_assessment, provision_receipt) = if needs_setup {
+                    let (setup_assessment, provision_receipt) = if needs_setup {
                         let setup = self.registry.provision_application_setup(
                             collection_id,
                             &application_declaration_id,
@@ -227,27 +209,26 @@ impl AgentState {
                             &provisions,
                             &contract_setups,
                         )?;
-                        (setup.contracts, Some(setup.assessment), Some(setup.receipt))
+                        (Some(setup.assessment), Some(setup.receipt))
                     } else {
-                        (before.contracts.clone(), None, None)
+                        (None, None)
                     };
-                    grant.scope.contracts =
-                        if grant.scope.access == ApplicationAccess::FullCollection {
-                            Vec::new()
-                        } else {
-                            contracts
-                                .iter()
-                                .filter(|available| {
-                                    requirements.contracts.iter().any(|required| {
-                                        available.id == required.id
-                                            && available.version == required.version
-                                            && available.digest == required.digest
-                                    })
-                                })
-                                .cloned()
-                                .collect()
-                        };
                     self.watcher.rescan(collection_id);
+                    let final_description = validate_target()?;
+                    if let Some(required) = requirements.contracts.iter().find(|required| {
+                        !final_description.contracts.iter().any(|available| {
+                            available.id == required.id
+                                && available.version == required.version
+                                && available.digest == required.digest
+                        })
+                    }) {
+                        return Err(ConnectError::AccessDenied(format!(
+                            "The collection no longer provides required contract {} {}.",
+                            required.id, required.version
+                        )));
+                    }
+                    let contracts = final_description.contracts;
+                    grant.scope.contracts = Vec::new();
                     self.registry.upsert_grant(&grant)?;
                     Ok((contracts, setup_assessment, provision_receipt))
                 })();
@@ -293,6 +274,18 @@ impl AgentState {
                 operation,
                 input,
             } => {
+                if !self.registry.remote_policy_is_usable().unwrap_or(false) {
+                    return Some(RelayMessage::OperationResponse {
+                        protocol_version,
+                        request_id,
+                        ok: false,
+                        result: None,
+                        problem: Some(mdbase_connect_protocol::ConnectProblem::new(
+                            "access_denied",
+                            "The remote application policy lease has expired.",
+                        )),
+                    });
+                }
                 if !mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS
                     .contains(&protocol_version)
                 {
@@ -473,15 +466,22 @@ impl AgentState {
             | RelayMessage::EncryptedOperationResponse { .. }
             | RelayMessage::EncryptedOperationRejected { .. }
             | RelayMessage::ProtocolUsageReport { .. } => None,
+        };
+        if let Some(id) = operation_registration {
+            self.unregister_remote_operation(id);
         }
+        response
     }
 
-    fn handle_encrypted_operation(
+    pub(super) fn handle_encrypted_operation(
         &self,
         envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
         cancellation: &mdbase::OperationCancellation,
         execution_state: &OperationExecutionState,
     ) -> RelayMessage {
+        if !self.registry.remote_policy_is_usable().unwrap_or(false) {
+            return encrypted_rejection(envelope.protocol_version, envelope.request_id);
+        }
         if !mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS
             .contains(&envelope.protocol_version)
         {
@@ -553,15 +553,15 @@ impl AgentState {
         let Ok(input) = serde_json::from_slice::<serde_json::Value>(&plaintext) else {
             return rejected();
         };
-        if envelope.operation == "batch" {
+        if let Some(problem) = owner_only_operation_problem(&envelope.operation) {
+            return encrypted_problem_response(&keys, metadata, problem);
+        }
+        if let Err(message) = validate_operation_discriminators(&envelope.operation, &input) {
             return encrypted_problem_response(
                 &keys,
                 metadata,
-                ConnectProblem::new(
-                    "invalid_request",
-                    "Batch operations are available only to the local collection owner.",
-                )
-                .with_operation_outcome(ConnectOperationOutcome::Rejected),
+                ConnectProblem::new("invalid_request", message)
+                    .with_operation_outcome(ConnectOperationOutcome::Rejected),
             );
         }
         if let Some(problem) =

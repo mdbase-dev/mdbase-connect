@@ -390,14 +390,23 @@ describe("password authentication HTTP boundary", () => {
       "SELECT token_hash FROM authentication_challenges"
     )).rows)).not.toContain(verificationToken);
 
-    const preview = await app.inject({
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const preview = await app.inject({
+        method: "POST",
+        url: "/v1/auth/password/signup/verification",
+        headers: { origin },
+        payload: { verification_token: verificationToken }
+      });
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json().verification.email).toBe("person@example.com");
+    }
+    const exhaustedPreview = await app.inject({
       method: "POST",
       url: "/v1/auth/password/signup/verification",
       headers: { origin },
       payload: { verification_token: verificationToken }
     });
-    expect(preview.statusCode).toBe(200);
-    expect(preview.json().verification.email).toBe("person@example.com");
+    expect(exhaustedPreview.statusCode).toBe(429);
     const completed = await app.inject({
       method: "POST",
       url: "/v1/auth/password/signup/public",
@@ -412,6 +421,20 @@ describe("password authentication HTTP boundary", () => {
       }
     });
     expect(completed.statusCode).toBe(201);
+    const signupScopes = await db.query<{ scope: string }>(
+      `SELECT scope FROM auth_rate_limit_buckets
+       WHERE scope LIKE 'password.signup_%' ORDER BY scope`
+    );
+    expect(signupScopes.rows.map(({ scope }) => scope)).toEqual(
+      expect.arrayContaining([
+        "password.signup_redemption.global",
+        "password.signup_redemption.ip",
+        "password.signup_redemption.token",
+        "password.signup_verification_preview.global",
+        "password.signup_verification_preview.ip",
+        "password.signup_verification_preview.token"
+      ])
+    );
     expect(completed.cookies.find(
       ({ name }) => name === "__Host-mdbase_session"
     )).toMatchObject({ httpOnly: true, secure: true, sameSite: "Lax" });

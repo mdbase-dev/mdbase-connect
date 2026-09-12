@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
+import type { RelayHub } from "../../relay.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
@@ -13,6 +14,7 @@ import {
 interface ConnectorManagementRoutesOptions {
   db: DatabasePool;
   tailscaleAuth?: boolean;
+  relay: RelayHub;
 }
 
 const connectorNameSchema = z.object({
@@ -114,23 +116,46 @@ export function registerConnectorManagementRoutes(
     const { connectorId } = z.object({
       connectorId: z.uuid()
     }).parse(request.params);
-    const removed = await options.db.query(
-      "DELETE FROM connectors WHERE id = $1 AND user_id = $2 RETURNING id",
-      [connectorId, user.id]
-    );
-    if (!removed.rows[0]) {
-      return reply.code(404).send(apiError(
-        "connector_not_found",
-        "Computer not found."
-      ));
+    const connection = await options.db.connect();
+    let fenceGeneration: string;
+    try {
+      await connection.query("BEGIN");
+      const removed = await connection.query<{ fence_generation: string | number }>(
+        `UPDATE connectors
+         SET revoked_at = now(), relay_generation = relay_generation + 1
+         WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+         RETURNING relay_generation AS fence_generation`,
+        [connectorId, user.id]
+      );
+      if (!removed.rows[0]) {
+        await connection.query("ROLLBACK");
+        return reply.code(404).send(apiError(
+          "connector_not_found",
+          "Computer not found."
+        ));
+      }
+      fenceGeneration = String(removed.rows[0].fence_generation);
+      await audit(connection, user.id, "connector.revoked", connectorId, {
+        fence_generation: fenceGeneration,
+        result: "committed"
+      });
+      await connection.query("COMMIT");
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
     }
-    await audit(
-      options.db,
-      user.id,
-      "connector.revoked",
-      connectorId,
-      {}
-    );
-    return { ok: true };
+    try {
+      const fence = await options.relay.fenceConnector(connectorId, fenceGeneration);
+      return {
+        ok: true,
+        committed: true,
+        fence: fence === "closed" ? "closed" : "committed_with_degraded_fence"
+      };
+    } catch {
+      // Deletion, the generation fence, and its audit are already committed.
+      return { ok: true, committed: true, fence: "committed_with_degraded_fence" };
+    }
   });
 }

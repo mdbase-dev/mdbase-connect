@@ -10,6 +10,7 @@ import websocket from "@fastify/websocket";
 import rawBody from "fastify-raw-body";
 import Fastify, { LogController } from "fastify";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
+import { ApplicationReconciliationWorker } from "./application-reconciliation.js";
 import type { DatabasePool } from "./db.js";
 import type { EmailTransport } from "./email.js";
 import { registerResendWebhookRoute } from "./email-provider-webhooks.js";
@@ -56,6 +57,7 @@ import { registerNotificationRoutes } from "./features/notifications/routes.js";
 import { registerOnboardingRoutes } from "./features/onboarding/routes.js";
 import { registerLocalOperationRoutes } from "./features/operations/local-routes.js";
 import { registerSystemRoutes } from "./features/system/routes.js";
+import { registerLifecycleDiagnosticRoute } from "./features/system/lifecycle-diagnostics.js";
 import { registerErrorHandler } from "./platform/error-handler.js";
 import { authorityUrl } from "./platform/authority-url.js";
 import { apiError } from "./platform/http-errors.js";
@@ -77,7 +79,9 @@ interface BuildOptions {
   authenticationLegalDocuments?: AuthenticationLegalDocuments;
   emailTransport?: EmailTransport;
   resendWebhookSecret?: string;
+  accountDeletionEnabled?: boolean;
   hostedCollections?: boolean;
+  hostedSharing?: boolean;
   hostedProvider?: HostedProviderClient;
   hostedReferenceAuthority?: boolean;
   publicUrl?: string;
@@ -141,13 +145,22 @@ export async function buildApp(options: BuildOptions) {
   const hostedReference = options.hostedReferenceAuthority
     ? new HostedAuthorityRegistry(options.db)
     : undefined;
+  const applicationReconciliation = new ApplicationReconciliationWorker(
+    options.db,
+    relay,
+    options.hostedProvider,
+    (event) => app.log.error(
+      { phase: event.phase, errorClass: event.errorClass },
+      "application reconciliation operation failed"
+    )
+  );
   const providerRevocations = options.hostedProvider
     ? new ProviderRevocationWorker(
         options.db,
         options.hostedProvider,
         (error) => app.log.error(
           { err: error },
-          "hosted provider revocation worker failed"
+          "hosted provider cleanup worker failed"
         )
       )
     : undefined;
@@ -166,7 +179,7 @@ export async function buildApp(options: BuildOptions) {
         formAction: ["'self'"],
         frameSrc: options.googleAuth ? ["https://accounts.google.com/gsi/"] : ["'none'"],
         frameAncestors: ["'none'"],
-        imgSrc: ["'self'", "data:"],
+        imgSrc: ["'self'", "data:", "https:"],
         objectSrc: ["'none'"],
         scriptSrc: ["'self'", ...(options.googleAuth ? ["https://accounts.google.com/gsi/client"] : [])],
         styleSrc: ["'self'", "'unsafe-inline'", ...(options.googleAuth ? ["https://accounts.google.com/gsi/style"] : [])],
@@ -203,11 +216,18 @@ export async function buildApp(options: BuildOptions) {
 
   app.addHook("onClose", async () => {
     await scheduledEmails?.close();
+    await applicationReconciliation.close();
     await providerRevocations?.close();
     await notifications?.close();
     await relay.close();
   });
   notifications?.start();
+  // Test hook intentionally drains the same production worker; it does not
+  // bypass leases, cursors, result rows, or provider/relay behavior.
+  app.decorate("drainApplicationReconciliation", () =>
+    applicationReconciliation.drainUntilIdle()
+  );
+  applicationReconciliation.start();
   providerRevocations?.start();
 
   app.addHook("onRequest", async (request, reply) => {
@@ -289,7 +309,9 @@ export async function buildApp(options: BuildOptions) {
     managementOrigins: options.managementOrigins,
     authenticationPolicy,
     githubAuth: options.githubAuth,
-    googleAuth: options.googleAuth
+    googleAuth: options.googleAuth,
+    authRateLimitSecret: options.authRateLimitSecret,
+    authenticationLegalDocuments: options.authenticationLegalDocuments
   });
   registerConnectorPairingRoutes(app, {
     db: options.db,
@@ -310,10 +332,17 @@ export async function buildApp(options: BuildOptions) {
     tailscaleAuth: options.tailscaleAuth,
     developmentAuth: options.devAuth,
     passwordAuthenticationAvailable: Boolean(options.authRateLimitSecret),
+    accountDeletionEnabled: options.accountDeletionEnabled !== false
+      && hostedReference === undefined,
     githubAvailable: options.githubAuth !== undefined,
     googleAvailable: options.googleAuth !== undefined,
     hostedProvider: options.hostedProvider,
-    hostedReference
+    triggerProviderCleanup: () => {
+      void providerRevocations?.drain().catch((error) => app.log.error(
+        { err: error },
+        "hosted account cleanup trigger failed"
+      ));
+    }
   });
   registerMirrorPairingRoutes(app, {
     db: options.db,
@@ -324,7 +353,8 @@ export async function buildApp(options: BuildOptions) {
   });
   registerConnectorManagementRoutes(app, {
     db: options.db,
-    tailscaleAuth: options.tailscaleAuth
+    tailscaleAuth: options.tailscaleAuth,
+    relay
   });
   registerConnectorInventoryRoutes(app, { db: options.db });
   registerAuthorityConflictRoutes(app, { db: options.db, relay });
@@ -358,6 +388,10 @@ export async function buildApp(options: BuildOptions) {
     transports: options.notifications?.transports,
     hostedProvider: options.hostedProvider
   });
+  registerLifecycleDiagnosticRoute(app, {
+    db: options.db,
+    hostedProvider: options.hostedProvider
+  });
   registerLocalOperationRoutes(app, { db: options.db, relay });
   registerLocalFileRoutes(app, { db: options.db, relay });
   registerConnectorHostedRoutes(app, {
@@ -383,6 +417,7 @@ export async function buildApp(options: BuildOptions) {
   registerHostedSharingRoutes(app, {
     db: options.db,
     hostedCollections: options.hostedCollections,
+    hostedSharing: options.hostedSharing,
     tailscaleAuth: options.tailscaleAuth
   });
   registerOnboardingRoutes(app, {
@@ -399,8 +434,6 @@ export async function buildApp(options: BuildOptions) {
   registerConnectorRelayRoute(app, { db: options.db, relay });
   registerApplicationRoutes(app, {
     db: options.db,
-    relay,
-    hostedProvider: options.hostedProvider,
     allowInsecureManifests: options.allowInsecureManifests
   });
   registerAccountOverviewRoute(app, {
@@ -410,6 +443,7 @@ export async function buildApp(options: BuildOptions) {
     authenticationPolicy,
     tailscaleAuth: options.tailscaleAuth,
     hostedCollections: options.hostedCollections,
+    hostedSharing: options.hostedSharing,
     hostedProvider: options.hostedProvider,
     hostedReference
   });

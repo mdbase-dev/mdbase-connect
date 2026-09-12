@@ -6,7 +6,6 @@ import {
   type CollectionDescription,
   type MdbaseConnection,
   type MdbaseConnectionInfo,
-  type ApplicationCapabilityId,
   type MdbaseApplicationSession,
   type MdbaseApplicationSessionSnapshot,
   type JsonObject,
@@ -17,6 +16,10 @@ import {
   type TypePackAssessment,
   type TypePackProvision
 } from "@mdbase-dev/connect";
+import {
+  applyConnectServerOverride,
+  connectServerUrl
+} from "./connect-endpoint";
 import { persistedBody, titlePatch } from "./note";
 import type {
   CollectionGateway,
@@ -42,36 +45,40 @@ import type {
   TypePackApplyResult
 } from "./model";
 
-export const CORE_CAPABILITIES: ApplicationCapabilityId[] = [
-  "collection.inspect",
-  "records.watch",
-  "records.read",
-  "records.query",
-  "records.validate",
-  "records.create",
-  "records.update",
-  "records.delete",
-  "records.rename",
-  "files.list",
-  "files.read"
+// Readiness supports legacy release declarations and explicit v2 fixtures.
+export const CORE_CAPABILITIES: readonly string[] = [
+  "collection.inspect", "records.watch", "records.read", "records.query",
+  "records.validate", "records.update", "records.rename", "files.list", "files.read",
+  "collection.read"
 ];
 
-export const TYPE_DEFINITION_CAPABILITIES: ApplicationCapabilityId[] = [
-  "definitions.read",
-  "definitions.create",
-  "definitions.update"
+export const TYPE_DEFINITION_CAPABILITIES: readonly string[] = [
+  "definitions.read", "definitions.create", "definitions.update"
 ];
 
 export function missingCoreCapabilities(connection: ConnectionSummary | null): string[] {
   return connection?.missingCapabilities?.filter((capability) =>
-    CORE_CAPABILITIES.includes(capability as ApplicationCapabilityId)
+    CORE_CAPABILITIES.includes(capability)
   ) ?? [];
 }
 
 export function missingTypeCapabilities(connection: ConnectionSummary | null): string[] {
   return connection?.missingCapabilities?.filter((capability) =>
-    TYPE_DEFINITION_CAPABILITIES.includes(capability as ApplicationCapabilityId)
+    TYPE_DEFINITION_CAPABILITIES.includes(capability)
   ) ?? [];
+}
+
+export function editorPermissions(connection: ConnectionSummary | null) {
+  const permits = (operation: string) => Boolean(connection?.operations.some((allowed) => allowed === "all" || allowed === operation));
+  return {
+    canCreateNotes: permits("create"),
+    canEditNotes: permits("update"),
+    canRenameNotes: permits("rename"),
+    canDeleteNotes: permits("delete"),
+    canManageTypes: permits("create_type") && permits("update_type"),
+    canInstallTypes: permits("apply_type_pack"),
+    canAttachFiles: Boolean(connection?.fileActions?.includes("add"))
+  };
 }
 
 const FIRST_PAGE_SIZE = 200;
@@ -82,14 +89,9 @@ export class ConnectCollectionGateway implements CollectionGateway {
   private readonly renamePreflights = new Map<string, import("@mdbase-dev/connect").RenamePreflightResult>();
   private readonly deletePreflights = new Map<string, import("@mdbase-dev/connect").DeletePreflightResult>();
 
-  constructor(serverUrl = new URLSearchParams(location.search).get("server")
-      ?? import.meta.env.VITE_MDBASE_CONNECT_URL
-      ?? "https://connect.mdbase.dev") {
+  constructor(serverUrl = connectServerUrl()) {
     const appRoot = new URL(import.meta.env.BASE_URL, location.href);
-    const redirectUri = new URL(appRoot);
-    if (new URLSearchParams(location.search).has("server")) {
-      redirectUri.searchParams.set("server", new URL(serverUrl).origin);
-    }
+    const redirectUri = applyConnectServerOverride(new URL(appRoot), serverUrl);
     const connect = new MdbaseConnect<NoteFrontmatter>({
       serverUrl,
       manifest: new URL(".well-known/mdbase-app.json", appRoot).href,

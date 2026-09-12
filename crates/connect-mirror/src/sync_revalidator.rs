@@ -23,9 +23,22 @@ impl DirectoryMirror {
                     target,
                     expected_local,
                     expected_path_owner,
+                    invalid_local_revision,
                     ..
+                } => {
+                    if let Some(revision) = invalid_local_revision {
+                        self.revalidate_raw_revision(&target.path, revision)?;
+                        self.revalidate_path_owner_without_bytes(
+                            state,
+                            &target.path,
+                            expected_path_owner,
+                        )?;
+                    } else {
+                        self.revalidate_expected(expected_local)?;
+                        self.revalidate_at(&target.path, expected_path_owner)?;
+                    }
                 }
-                | SyncAction::DeleteLocal {
+                SyncAction::DeleteLocal {
                     target,
                     expected_local,
                     expected_path_owner,
@@ -60,6 +73,58 @@ impl DirectoryMirror {
                 } => self.revalidate_at(&target.path, expected_local)?,
                 SyncAction::AdvanceCheckpoint { .. } => {}
             }
+        }
+        Ok(())
+    }
+
+    pub(super) fn revalidate_raw_revision(
+        &self,
+        path: &str,
+        expected: &str,
+    ) -> Result<(), MirrorError> {
+        let revision = match self.record_reader.read(&safe_path(&self.root, path)?) {
+            Ok(LocalRecordRead::Parsed { revision, .. })
+            | Ok(LocalRecordRead::Invalid { revision, .. }) => revision,
+            Ok(LocalRecordRead::Missing) | Err(_) => String::new(),
+        };
+        if revision != expected {
+            return Err(MirrorError::new(
+                "sync_plan_stale",
+                format!("{path} no longer matches inspected invalid bytes."),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn revalidate_path_owner_without_bytes(
+        &self,
+        state: Option<&DurableMirrorState>,
+        path: &str,
+        expected: &ExpectedObjectState,
+    ) -> Result<(), MirrorError> {
+        let ExpectedObjectState::Exact { object } = expected else {
+            return Err(MirrorError::new(
+                "sync_plan_stale",
+                format!("{path} is no longer vacant."),
+            ));
+        };
+        let owned = state.is_some_and(|state| match object.entity {
+            SyncObjectKind::Record => state.records.iter().any(|(identity, entry)| {
+                identity.to_string() == object.identity && entry.path == path
+            }),
+            SyncObjectKind::Resource => state
+                .resources
+                .get(&object.identity)
+                .is_some_and(|entry| entry.path == path),
+            SyncObjectKind::File => state.files.iter().any(|(identity, entry)| {
+                identity.to_string() == object.identity && entry.file.path == path
+            }),
+        });
+        if object.path != path || !owned {
+            return Err(MirrorError::new(
+                "sync_plan_stale",
+                format!("{path} has a different path owner."),
+            ));
         }
         Ok(())
     }

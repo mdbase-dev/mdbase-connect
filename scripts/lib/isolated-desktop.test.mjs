@@ -5,6 +5,7 @@ import {
   isolatedDesktopConfiguration,
   stagingDesktop
 } from "../isolated-desktop.mjs";
+import { managedEnvironments } from "./managed-environments.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "../..");
 
@@ -66,23 +67,43 @@ test("explicit development overrides remain available without reading production
   assert.equal(configuration.childEnvironment.MDBASE_CONNECT_REGISTER_DEEP_LINKS, "1");
 });
 
-test("registry-provided environments configure Electron without staging-only flags", async () => {
+test("managed environments configure exact Connect and editor origins", async () => {
+  for (const [name, target] of Object.entries(managedEnvironments)) {
+    const configuration = await isolatedDesktopConfiguration({
+      MDBASE_ENV: name,
+      MDBASE_CONNECT_URL: `${target.connectOrigin}/`,
+      MDBASE_EDITOR_URL: `${target.editorOrigin}/`,
+      MDBASE_CONNECT_LOOPBACK_PORT: "28487"
+    }, [], async () => 1);
+
+    assert.equal(configuration.namedEnvironment, name);
+    assert.equal(configuration.loopbackPort, "28487");
+    assert.equal(
+      configuration.childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL,
+      target.connectOrigin
+    );
+    assert.equal(
+      configuration.childEnvironment.MDBASE_EDITOR_URL,
+      `${target.editorOrigin}/`
+    );
+  }
+});
+
+test("registry preview environments retain explicit paired origins", async () => {
   const configuration = await isolatedDesktopConfiguration({
-    MDBASE_ENV: "lab",
-    MDBASE_CONNECT_URL: "https://mdbase-connect-lab.onrender.com",
-    MDBASE_EDITOR_URL: "https://candidate-b.mdbase-editor.pages.dev",
-    MDBASE_CONNECT_LOOPBACK_PORT: "28487"
+    MDBASE_ENV: "candidate-x",
+    MDBASE_CONNECT_URL: "https://connect-candidate-x.example/",
+    MDBASE_EDITOR_URL: "https://editor-candidate-x.example/"
   }, [], async () => 1);
 
-  assert.equal(configuration.namedEnvironment, "lab");
-  assert.equal(configuration.loopbackPort, "28487");
+  assert.equal(configuration.namedEnvironment, "candidate-x");
   assert.equal(
     configuration.childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL,
-    "https://mdbase-connect-lab.onrender.com"
+    "https://connect-candidate-x.example"
   );
   assert.equal(
     configuration.childEnvironment.MDBASE_EDITOR_URL,
-    "https://candidate-b.mdbase-editor.pages.dev"
+    "https://editor-candidate-x.example/"
   );
 });
 
@@ -108,12 +129,67 @@ test("named environments reject incomplete or conflicting endpoint pairs", async
   );
 });
 
-test("staging flags reject endpoint overrides from another environment", async () => {
+test("managed names reject endpoints from another environment", async () => {
+  await assert.rejects(
+    isolatedDesktopConfiguration({
+      MDBASE_ENV: "lab",
+      MDBASE_CONNECT_URL: managedEnvironments.production.connectOrigin,
+      MDBASE_EDITOR_URL: managedEnvironments.production.editorOrigin
+    }, [], async () => 1),
+    /lab desktop requires the lab Connect service/
+  );
+  await assert.rejects(
+    isolatedDesktopConfiguration({
+      MDBASE_ENV: "production",
+      MDBASE_CONNECT_URL: managedEnvironments.production.connectOrigin,
+      MDBASE_EDITOR_URL: managedEnvironments.staging.editorOrigin
+    }, [], async () => 1),
+    /production desktop requires the production editor/
+  );
+});
+
+test("staging flags reject endpoint and environment overrides", async () => {
   await assert.rejects(
     isolatedDesktopConfiguration({
       MDBASE_CONNECT_URL: "https://connect.mdbase.dev",
       MDBASE_EDITOR_URL: "https://editor.mdbase.dev"
     }, ["--staging"], async () => 1),
     /requires the staging Connect service/
+  );
+  await assert.rejects(
+    isolatedDesktopConfiguration({ MDBASE_ENV: "production" }, ["--staging"], async () => 1),
+    /cannot be combined with another MDBASE_ENV/
+  );
+});
+
+test("managed environments override inherited renderer labels", async () => {
+  const configuration = await isolatedDesktopConfiguration({
+    VITE_MDBASE_ENV: "production"
+  }, ["--staging"], async () => 1);
+  assert.equal(configuration.childEnvironment.VITE_MDBASE_ENV, "staging");
+});
+
+test("environment endpoint configuration rejects unsafe values", async () => {
+  await assert.rejects(
+    isolatedDesktopConfiguration({
+      MDBASE_ENV: "candidate-x",
+      MDBASE_CONNECT_URL: "https://user:secret@connect.example",
+      MDBASE_EDITOR_URL: "https://editor.example"
+    }, [], async () => 1),
+    /credential-free HTTP or HTTPS origin/
+  );
+  await assert.rejects(
+    isolatedDesktopConfiguration({
+      MDBASE_ENV: "../../outside",
+      MDBASE_CONNECT_URL: "https://connect.example",
+      MDBASE_EDITOR_URL: "https://editor.example"
+    }, [], async () => 1),
+    /lowercase environment identifier/
+  );
+  await assert.rejects(
+    isolatedDesktopConfiguration({
+      MDBASE_CONNECT_LOOPBACK_PORT: "70000"
+    }, [], async () => 1),
+    /valid TCP port/
   );
 });

@@ -94,7 +94,7 @@ describe("collection access policy", () => {
 
     const editor = await resolveHostedCollectionAccess(database, editorId, collectionId);
     expect(editor?.actions.has("schema.manage")).toBe(true);
-    expect(editor?.actions.has("members.manage")).toBe(true);
+    expect(editor?.actions.has("members.manage")).toBe(false);
     expect(editor?.actions.has("collection.rename")).toBe(true);
     expect(editor?.actions.has("collection.delete")).toBe(false);
     expect(editor?.actions.has("authority.transfer")).toBe(false);
@@ -102,7 +102,7 @@ describe("collection access policy", () => {
       can_manage_collection: false,
       can_rename_collection: true,
       can_delete_collection: false,
-      can_manage_members: true
+      can_manage_members: false
     });
     await expect(resolveHostedCollectionAccess(database, outsiderId, collectionId))
       .resolves.toBeNull();

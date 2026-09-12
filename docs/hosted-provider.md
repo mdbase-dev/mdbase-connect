@@ -31,10 +31,11 @@ The Connect control plane owns accounts, applications, grants, and replica
 enrollment. It issues short-lived, grant-bound capabilities to the provider.
 Record payloads go directly between an authorized client and the provider; the
 control plane does not proxy or persist them. The provider rechecks collection,
-operation, mode, contract scope, scope epoch, expiry, and revocation before it
-opens authoritative state.
+operation, replica mode, authorization epoch, expiry, and revocation before it
+opens authoritative state. Application grants cover the entire selected
+collection; contracts do not filter provider authority.
 
-Application capabilities also authorize the scoped replication stream used by
+Application capabilities also authorize the collection replication stream used by
 offline caches. Session and snapshot reads require record-read access, change
 pages require change access, and each queued mutation requires its corresponding
 create, update, rename, or delete permission. Browser requests are checked
@@ -85,8 +86,9 @@ The production schema is normalized around these relations:
 - `hosted_changes`: the ordered per-collection replication log;
 - `hosted_mutation_receipts`: durable idempotency results keyed by replica and
   mutation ID;
-- `hosted_replicas`: mode, contract/type scope, scope epoch, acknowledgement,
-  credential state, and revocation;
+- `hosted_replicas`: mode, legacy scope evidence, authorization epoch,
+  acknowledgement, credential state, and revocation; active replicas are
+  collection-wide;
 - `hosted_snapshot_leases`: bounded leases pinning an authority sequence and
   resource revision while pages are downloaded; and
 - `hosted_provider_backup_holds`: short-lived administrative leases fencing
@@ -234,7 +236,10 @@ staging objects are outside this recovery set.
 
 ## Mirrors and authority transfer
 
-Application caches and filesystem mirrors are replicas. Receive-only mirrors
+Application caches and filesystem mirrors are replicas, not additional
+application grants or authorities. A mirror materializes authorized collection
+state; an application cache may project that state into its own domain model.
+Neither changes the collection-level authorization boundary. Receive-only mirrors
 materialize configuration, types, and canonical Markdown with atomic writes.
 Local divergence is reported before replacement. Writable mirrors translate
 filesystem changes into conditional mutations, isolate a conflict to its record,

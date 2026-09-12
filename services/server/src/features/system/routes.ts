@@ -1,3 +1,4 @@
+import { FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import type { DatabasePool } from "../../database-types.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
@@ -25,6 +26,7 @@ export function registerSystemRoutes(
     ok: true,
     service: "mdbase-connect",
     protocol_version: 1,
+    capabilities: FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES,
     ...(environment
       ? { environment, public_origin: new URL(options.publicUrl).origin }
       : {}),

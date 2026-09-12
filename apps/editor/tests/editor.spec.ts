@@ -250,13 +250,14 @@ async function expectSharedSelectControls(scope: Locator) {
   )).toBe(true);
 }
 
-test("keeps the application geometry visible while a collection opens", async ({ page }) => {
+test("shows an explicit status while a collection opens", async ({ page }) => {
   await page.goto("?demo=80&delay=450");
   const opening = page.getByRole("main", { name: "Opening collection" });
   await expect(opening).toBeVisible();
   await expect(opening).toHaveAttribute("aria-busy", "true");
+  await expect(opening).toHaveAttribute("data-loading-state", "opening");
   await expect(page.getByText("Reading its notes and types")).toBeVisible();
-  expect(await opening.locator(":scope > *").count()).toBe(3);
+  await expect(opening.locator(".opening-rail, .opening-list")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
   await expect(opening).not.toBeAttached();
 });
@@ -698,7 +699,7 @@ test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
   await page.keyboard.press("Control+p");
   const quickOpen = page.getByRole("dialog", { name: "Quick open" });
   await expect(quickOpen).toBeVisible();
-  const finder = quickOpen.getByRole("combobox", { name: "Find a note" });
+  const finder = quickOpen.getByRole("combobox", { name: "Find a note or action" });
   await expect(finder).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await finder.fill("qstn kpng");
   await expect(quickOpen.getByRole("option", { name: /Questions worth keeping 7/ })).toBeVisible();
@@ -710,11 +711,15 @@ test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
 test("shows the matching note text in sidebar and quick-open search results", async ({ page }) => {
   await page.goto("?demo=12");
   const query = "Record 4 remains lightweight";
-  // The collection shell renders before its demo record page is installed.
-  // Wait for the exact searched record so initialization cannot clear a query
-  // typed against the empty shell on a slower runner.
-  await expect(page.getByRole("option", { name: /Reading list 4/ })).toBeVisible();
-  await page.getByRole("textbox", { name: "Search notes and files" }).fill(query);
+  // A visible title proves only that the structural page is installed. Search
+  // for it and wait for the non-progress result label so the content page is
+  // also hydrated before issuing the body-only query.
+  const sidebarSearch = page.getByRole("textbox", { name: "Search notes and files" });
+  await sidebarSearch.fill("Reading list 4");
+  await expect(page.locator(".list-header p")).toHaveText("1 found · relevance", {
+    timeout: 15_000,
+  });
+  await sidebarSearch.fill(query);
   const sidebarResult = page.getByRole("option", { name: /Reading list 4/ });
   await expect(sidebarResult.locator(".note-search-context")).toContainText(query, {
     timeout: 15_000,
@@ -723,7 +728,7 @@ test("shows the matching note text in sidebar and quick-open search results", as
 
   await page.keyboard.press("Control+p");
   const quickOpen = page.getByRole("dialog", { name: "Quick open" });
-  await quickOpen.getByRole("combobox", { name: "Find a note" }).fill(query);
+  await quickOpen.getByRole("combobox", { name: "Find a note or action" }).fill(query);
   const quickResult = quickOpen.getByRole("option", { name: /Reading list 4/ });
   await expect(quickResult.locator(".search-result-context")).toContainText(query, {
     timeout: 15_000,
@@ -1151,6 +1156,39 @@ test("resizes, collapses, and restores the desktop sidebars", async ({ page }) =
   await expect(page.getByRole("separator", { name: "Resize collections sidebar" })).toHaveAttribute("aria-valuenow", "184");
   const restored = await page.locator(".note-list-pane").evaluate((element) => element.getBoundingClientRect().width);
   expect(restored).toBeCloseTo(after, 0);
+});
+
+test("contains a long collection heading when a saved notes sidebar is clamped", async ({ page }) => {
+  await page.setViewportSize({ width: 1_150, height: 760 });
+  await page.addInitScript(() => localStorage.setItem("mdbase-editor:layout", JSON.stringify({
+    collectionWidth: 176,
+    listWidth: 520,
+    inspectorWidth: 340,
+    collectionCollapsed: false,
+    listCollapsed: false
+  })));
+  await page.goto("?demo=12");
+  await expect(page.getByRole("textbox", { name: "Note body" })).toBeVisible();
+  await page.locator(".list-header h1").evaluate((heading) => {
+    heading.textContent = "A-collection-title-that-is-much-too-long-to-fit-in-the-notes-sidebar-without-being-contained";
+  });
+
+  await page.getByRole("button", { name: "Note properties" }).click();
+  const pane = page.locator(".note-list-pane");
+  const search = page.locator(".note-list-controls .search-field");
+  await expect.poll(async () => pane.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(314, 0);
+  const bounds = await Promise.all([pane, search].map((locator) => locator.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, right: rect.right };
+  })));
+  expect(bounds[1].left).toBeGreaterThanOrEqual(bounds[0].left);
+  expect(bounds[1].right).toBeLessThanOrEqual(bounds[0].right);
+
+  const resize = page.getByRole("separator", { name: "Resize notes sidebar" });
+  await expect(resize).toHaveAttribute("aria-valuenow", "314");
+  await resize.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(async () => pane.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(306, 0);
 });
 
 test("keeps the current note inspector open and resizable between note switches", async ({ page }) => {

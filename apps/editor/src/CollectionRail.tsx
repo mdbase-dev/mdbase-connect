@@ -35,11 +35,11 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   directAccess?: ConnectionSummary["directAccess"];
   directAccessBusy: boolean;
   onFilter: (filter?: NoteFilter) => void;
-  onCreateFolder: () => void;
-  onCreateNoteInFolder: (folder: string) => void;
-  onCreateSubfolder: (parent: string) => void;
-  onCreateNoteWithTag: (tag: string) => void;
-  onCreateNoteWithType: (type: string) => void;
+  onCreateFolder?: () => void;
+  onCreateNoteInFolder?: (folder: string) => void;
+  onCreateSubfolder?: (parent: string) => void;
+  onCreateNoteWithTag?: (tag: string) => void;
+  onCreateNoteWithType?: (type: string) => void;
   onOpenType: (type: string) => void;
   onCopyFacet: (value: string, label: string) => void;
   onTypes: () => void;
@@ -118,9 +118,9 @@ function FolderFilterSection({ collectionId, items, activeFilter, loading, onFil
   activeFilter?: NoteFilter;
   loading: boolean;
   onFilter: (filter: NoteFilter) => void;
-  onCreate: () => void;
-  onCreateNote: (folder: string) => void;
-  onCreateSubfolder: (parent: string) => void;
+  onCreate?: () => void;
+  onCreateNote?: (folder: string) => void;
+  onCreateSubfolder?: (parent: string) => void;
   onCopy: (path: string) => void;
 }) {
   const [open, setOpen] = useState(true);
@@ -198,8 +198,8 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
   onFilter: (filter: NoteFilter) => void;
   onToggle: (path: string) => void;
   onSetDescendants: (node: FolderTreeNode, expanded: boolean) => void;
-  onCreateNote: (folder: string) => void;
-  onCreateSubfolder: (parent: string) => void;
+  onCreateNote?: (folder: string) => void;
+  onCreateSubfolder?: (parent: string) => void;
   onCopy: (path: string) => void;
 }) {
   const hasChildren = node.children.length > 0;
@@ -211,8 +211,8 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
       className="rail-tree-row"
       label={`${node.path} folder actions`}
       items={[
-        { label: "New note here", icon: <FilePlus2 aria-hidden="true" />, onSelect: () => onCreateNote(node.path) },
-        { label: "New subfolder", icon: <FolderPlus aria-hidden="true" />, onSelect: () => onCreateSubfolder(node.path) },
+        { label: "New note here", disabled: !onCreateNote, icon: <FilePlus2 aria-hidden="true" />, onSelect: () => onCreateNote?.(node.path) },
+        { label: "New subfolder", disabled: !onCreateSubfolder, icon: <FolderPlus aria-hidden="true" />, onSelect: () => onCreateSubfolder?.(node.path) },
         { label: "Copy path", icon: <Copy aria-hidden="true" />, onSelect: () => onCopy(node.path) },
         ...(hasChildren ? [{
           label: descendantsExpanded ? "Collapse descendants" : "Expand descendants",
@@ -263,7 +263,7 @@ function RailFilterSection({ label, kind, items, activeFilter, loading, onFilter
   activeFilter?: NoteFilter;
   loading: boolean;
   onFilter: (filter: NoteFilter) => void;
-  onCreateNote: (value: string) => void;
+  onCreateNote?: (value: string) => void;
   onOpenType?: (type: string) => void;
   onCopy: (value: string) => void;
 }) {
@@ -287,7 +287,8 @@ function RailFilterSection({ label, kind, items, activeFilter, loading, onFilter
           {
             label: kind === "tag" ? "New note with tag" : "New note of type",
             icon: <FilePlus2 aria-hidden="true" />,
-            onSelect: () => onCreateNote(item.name)
+            disabled: !onCreateNote,
+            onSelect: () => onCreateNote?.(item.name)
           },
           {
             label: kind === "tag" ? "Copy tag" : "Copy type name",

@@ -1,4 +1,5 @@
 import { SyncError } from "./sync-error.js";
+import { runtimeDocumentRevision } from "./mirror-format.js";
 import type { MirrorFileSystem, MirrorRuntime, MirrorState } from "./mirror-state.js";
 import type { ExpectedObjectState, SyncAction, SyncObjectRef } from "./sync-model.js";
 import type { ReconciliationPlan } from "./sync-planner.js";
@@ -58,38 +59,53 @@ export class PlanRevalidator {
 
   async validateExpectedAt(path: string, expected: ExpectedObjectState): Promise<void> {
     if (expected.state === "absent") {
-      if (await this.pathExists(path)) throw stale(`${path} is no longer vacant.`);
+      if (await this.fileSystem.exists(path)) throw stale(`${path} is no longer vacant.`);
       return;
     }
-    if (expected.object.path !== path || !await this.matches(expected.object)) {
+    if (
+      expected.object.path !== path
+      || !await matchesLocalRef(this.fileSystem, this.runtime, expected.object, true)
+    ) {
       throw stale(`${path} no longer has the inspected owner and bytes.`);
     }
   }
 
   async validateExpected(expected: ExpectedObjectState): Promise<void> {
     if (expected.state === "absent") return;
-    if (!await this.matches(expected.object)) {
+    if (!await matchesLocalRef(this.fileSystem, this.runtime, expected.object, true)) {
       throw stale(`${expected.object.path} no longer matches the inspected bytes.`);
     }
   }
 
-  private async matches(ref: SyncObjectRef): Promise<boolean> {
-    if (ref.entity === "file") {
-      const info = await this.fileSystem.inspectBinary(ref.path);
-      return info !== null
-        && info.content_digest === ref.payload_revision
-        && (ref.size === undefined || info.size === ref.size);
-    }
-    const document = await this.fileSystem.read(ref.path);
-    return document !== null
-      && `sha256:${this.runtime.digest(document)}` === ref.payload_revision;
-  }
-
-  private async pathExists(path: string): Promise<boolean> {
-    return this.fileSystem.exists(path);
-  }
 }
 
-function stale(message: string): SyncError {
+export async function matchesLocalRef(
+  fileSystem: MirrorFileSystem,
+  runtime: MirrorRuntime,
+  ref: SyncObjectRef,
+  revalidating: boolean
+): Promise<boolean> {
+  if (ref.entity === "file") {
+    const info = await fileSystem.inspectBinary(ref.path);
+    return !!info
+      && info.content_digest === ref.payload_revision
+      && (ref.size === undefined || info.size === ref.size);
+  }
+  let read;
+  try {
+    read = await fileSystem.readText(ref.path);
+  } catch (error) {
+    if (
+      error instanceof SyncError
+      && error.code === "file_read_failed"
+      && revalidating
+    ) throw stale(error.message);
+    throw error;
+  }
+  return (typeof read === "string" ? runtimeDocumentRevision(read, runtime) : read?.revision)
+    === ref.payload_revision;
+}
+
+export function stale(message: string): SyncError {
   return new SyncError("sync_plan_stale", message);
 }

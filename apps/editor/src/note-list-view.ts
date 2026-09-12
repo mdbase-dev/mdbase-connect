@@ -75,3 +75,16 @@ function modifiedTime(note: NoteSummary): number | undefined {
   const value = Date.parse(note.file?.mtime ?? "");
   return Number.isFinite(value) ? value : undefined;
 }
+
+export type ListNavigationKey = "ArrowDown" | "ArrowUp" | "Home" | "End" | "PageDown" | "PageUp";
+
+export function moveListIndex(current: number, count: number, key: ListNavigationKey, pageSize = 10): number {
+  if (count <= 0) return -1;
+  const clamped = Math.min(Math.max(current, -1), count - 1);
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  if (key === "ArrowDown") return clamped >= count - 1 ? count - 1 : clamped + 1;
+  if (key === "ArrowUp") return clamped <= 0 ? 0 : clamped - 1;
+  if (key === "PageDown") return Math.min(count - 1, (clamped < 0 ? 0 : clamped) + pageSize);
+  return Math.max(0, (clamped < 0 ? 0 : clamped) - pageSize);
+}

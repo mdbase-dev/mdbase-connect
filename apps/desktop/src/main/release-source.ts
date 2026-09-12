@@ -1,4 +1,6 @@
 import { verify, type Bundle } from "sigstore";
+import { randomUUID } from "node:crypto";
+import { rename, rm } from "node:fs/promises";
 import {
   channelForVersion,
   compareVersions,
@@ -157,15 +159,76 @@ async function verifyReleaseBundle(
   identity: string,
   trustCacheDirectory: string
 ): Promise<void> {
-  await verify(bundle as Bundle, payload, {
-    certificateIssuer: OIDC_ISSUER,
-    certificateIdentityURI: identity,
-    tlogThreshold: 1,
-    ctLogThreshold: 1,
-    tufCachePath: trustCacheDirectory,
-    timeout: 10_000,
-    retry: { retries: 2 }
-  });
+  const verifyAt = async (cachePath: string): Promise<void> => {
+    await verify(bundle as Bundle, payload, {
+      certificateIssuer: OIDC_ISSUER,
+      certificateIdentityURI: identity,
+      tlogThreshold: 1,
+      ctLogThreshold: 1,
+      tufCachePath: cachePath,
+      timeout: 10_000,
+      retry: { retries: 2 }
+    });
+  };
+  try {
+    await verifyAt(trustCacheDirectory);
+  } catch (error) {
+    if (!isRecoverableTrustCacheError(error)) throw error;
+    await recoverTrustCache(trustCacheDirectory, verifyAt, error);
+  }
+}
+
+export async function recoverTrustCache(
+  trustCacheDirectory: string,
+  verifyAt: (cachePath: string) => Promise<void>,
+  originalError: unknown
+): Promise<void> {
+  const nonce = randomUUID();
+  const recovery = `${trustCacheDirectory}.recovery-${nonce}`;
+  const stale = `${trustCacheDirectory}.stale-${nonce}`;
+  try {
+    // A new Sigstore cache still bootstraps from the library's pinned TUF root
+    // and performs the complete certificate, transparency-log and CT checks.
+    // It is not a verification fallback or an alternate trust source.
+    await verifyAt(recovery);
+  } catch (recoveryError) {
+    await rm(recovery, { recursive: true, force: true });
+    throw new AggregateError(
+      [originalError, recoveryError],
+      "The cached and freshly bootstrapped Sigstore trust metadata both failed verification."
+    );
+  }
+
+  let movedStale = false;
+  try {
+    await rename(trustCacheDirectory, stale);
+    movedStale = true;
+  } catch (error) {
+    if (!isMissingPath(error)) {
+      await rm(recovery, { recursive: true, force: true });
+      throw error;
+    }
+  }
+  try {
+    await rename(recovery, trustCacheDirectory);
+  } catch (error) {
+    if (movedStale) await rename(stale, trustCacheDirectory).catch(() => undefined);
+    throw error;
+  }
+  if (movedStale) await rm(stale, { recursive: true, force: true }).catch(() => undefined);
+}
+
+export function isRecoverableTrustCacheError(error: unknown): boolean {
+  for (let current: unknown = error; current instanceof Error; current = current.cause) {
+    if (/root was signed by \d+\/\d+ keys|expired (?:root|TUF) metadata/i.test(current.message)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isMissingPath(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 async function request(fetchImpl: typeof fetch, url: string): Promise<Response> {

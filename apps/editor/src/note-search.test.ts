@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   buildNoteSearchIndex,
@@ -86,6 +86,88 @@ describe("note search", () => {
     const [metadataResult] = searchNoteResults(index, "roadmap");
     expect(metadataResult.context.kind).toBe("metadata");
     expect(metadataResult.context.text).toContain("#roadmap");
+  });
+
+  it("keeps all 10,000 tied results in input order without constructing contexts", () => {
+    const many = Array.from({ length: 10_000 }, (_, i) =>
+      summary(`Notes/${String(9999 - i).padStart(4, "0")}.md`, {}, [], "needle body"));
+    const entries = buildNoteSearchIndex(many);
+    const reads = vi.fn(() => "needle body");
+    for (const entry of entries) Object.defineProperty(entry, "bodyText", { get: reads });
+    const results = searchNoteResults(entries, "needle");
+    expect(results.map((result) => result.note)).toEqual(many);
+    expect(reads).not.toHaveBeenCalled();
+    expect(searchNotes(entries, "needle")).toEqual(many);
+    expect(reads).not.toHaveBeenCalled();
+    const context = results[9000].context;
+    expect(context.kind).toBe("body");
+    expect(results[9000].context).toBe(context);
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(searchNoteResults(entries, "needle", 12).map((result) => result.note)).toEqual(many.slice(0, 12));
+  });
+
+  it("defers field rescoring and caches whitespace and metadata contexts too", () => {
+    const [entry] = buildNoteSearchIndex([summary("Notes/one.md", { tag: "needle" }, [], "")]);
+    const metadata = vi.fn(() => "tag: needle");
+    const body = vi.fn(() => "");
+    Object.defineProperty(entry, "metadataText", { get: metadata });
+    Object.defineProperty(entry, "body", { get: body });
+    const [result] = searchNoteResults([entry], "needle");
+    expect(metadata).not.toHaveBeenCalled();
+    expect(body).not.toHaveBeenCalled();
+    expect(result.context.kind).toBe("metadata");
+    expect(result.context).toBe(result.context);
+    expect(metadata).toHaveBeenCalledTimes(1);
+    expect(body).toHaveBeenCalledTimes(1);
+    const path = vi.fn(() => "Notes/one.md");
+    Object.defineProperty(entry.note, "path", { get: path });
+    const [empty] = searchNoteResults([entry], "   ");
+    searchNotes([entry], "   ");
+    expect(path).not.toHaveBeenCalled();
+    expect(empty.context).toBe(empty.context);
+    expect(path).toHaveBeenCalledTimes(1);
+  });
+
+  it("still lets body matches outrank expensive fuzzy matches and combines fields per token", () => {
+    const slow = summary("a------------------------------b.md", {}, [], "ab");
+    const title = summary("ab.md", {}, [], "unrelated");
+    const metadata = summary("other.md", { value: "ab" }, [], "");
+    const mixed = summary("alpha.md", {}, [], "omega");
+    const entries = buildNoteSearchIndex([slow, metadata, title, mixed]);
+    expect(searchNotes(entries, "ab")).toEqual([title, metadata, slow]);
+    expect(searchNoteResults(entries, "ab").at(-1)?.context.kind).toBe("body");
+    expect(searchNotes(entries, "alpha omega")).toEqual([mixed]);
+  });
+
+  it("compiles matching expressions once per query, including lazy contexts", () => {
+    const entries = buildNoteSearchIndex(Array.from({ length: 100 }, (_, i) =>
+      summary(`Notes/${i}.md`, {}, [], "needle body")));
+    const OriginalRegExp = globalThis.RegExp;
+    const compile = vi.fn(function (pattern: string, flags?: string) {
+      return new OriginalRegExp(pattern, flags);
+    });
+    vi.stubGlobal("RegExp", compile);
+    try {
+      const results = searchNoteResults(entries, "needle body");
+      expect(compile).toHaveBeenCalledTimes(2);
+      for (const result of results) expect(result.context.kind).toBe("body");
+      expect(compile).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("retains literal punctuation, accent normalization, and whitespace behavior", () => {
+    const special = summary("Notes/special.md", {}, [], "Café [a+b] \\ end");
+    const entries = buildNoteSearchIndex([special]);
+    expect(searchNotes(entries, "CAFÉ [a+b]")).toEqual([special]);
+    expect(searchNoteResults(entries, "CAFÉ [a+b]")[0].context.ranges).toEqual([
+      { from: 0, to: 4 }, { from: 5, to: 10 }
+    ]);
+    expect(searchNotes(index, "  \t\n")).toEqual(notes);
+    expect(searchNoteResults(index, "  \t\n")[0].context).toEqual({
+      kind: "path", text: notes[0].path, ranges: []
+    });
   });
 
   it("finds every non-overlapping literal search token for quiet highlighting", () => {

@@ -11,7 +11,8 @@ import {
 } from "@codemirror/language";
 import { lintGutter, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
 import { closeSearchPanel, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorSelection, EditorState, Prec, type Extension, type Range } from "@codemirror/state";
+import { registerActiveEditor, unregisterActiveEditor } from "./code-editor-reveal";
+import { Compartment, EditorSelection, EditorState, Prec, Transaction, type Extension, type Range } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -77,6 +78,7 @@ interface CodeEditorProps {
   onVisibleNoteEmbeds?: (keys: string[]) => void;
   insertion?: { id: number; text: string; block?: boolean };
   onBlur?: () => void;
+  remoteApplyToken?: number;
 }
 
 interface RememberedEditor {
@@ -93,8 +95,16 @@ interface MarkdownEdit {
   head: number;
 }
 
+const EMPTY_STRINGS: string[] = [];
+const EMPTY_SUGGESTIONS: LinkSuggestion[] = [];
+const EMPTY_FILE_EMBEDS: ResolvedFileReference[] = [];
+const EMPTY_NOTE_EMBEDS: ResolvedNoteEmbed[] = [];
+const EMPTY_FILES: CollectionFile[] = [];
+const EMPTY_NOTES: NoteSummary[] = [];
+
 const rememberedEditors = new Map<string, RememberedEditor>();
 const rememberedEditorLimit = 40;
+const EMPTY_HISTORY_STATE = EditorState.create({ extensions: [history()] }).field(historyField);
 
 export { internalLinkPathAt } from "./code-editor-writer-interactions";
 export { linkCompletion, mentionScope } from "./code-editor-completions";
@@ -114,28 +124,31 @@ export function CodeEditor({
   className = "",
   documentId,
   currentPath,
-  recentPaths = [],
-  linkSuggestions = [],
-  linkTypes = [],
+  recentPaths = EMPTY_STRINGS,
+  linkSuggestions = EMPTY_SUGGESTIONS,
+  linkTypes = EMPTY_STRINGS,
   onOpenLink,
   onCreateLink,
   onPreviewLink,
   onDismissLinkPreview,
-  embeddedFiles = [],
-  embeddedNotes = [],
+  embeddedFiles = EMPTY_FILE_EMBEDS,
+  embeddedNotes = EMPTY_NOTE_EMBEDS,
   onOpenFile,
-  files = [],
-  notes = [],
+  files = EMPTY_FILES,
+  notes = EMPTY_NOTES,
   onOpenFileLink,
   onVisibleFileEmbeds,
   onVisibleNoteEmbeds,
   insertion,
-  onBlur
+  onBlur,
+  remoteApplyToken
 }: CodeEditorProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | undefined>(undefined);
+  const appliedRemoteToken = useRef<number | null>(null);
   const onChangeRef = useRef(onChange);
   const syncing = useRef(false);
+  const historyMode = useRef(new Compartment());
   const vimMode = useRef(new Compartment());
   const wrapping = useRef(new Compartment());
   const completions = useRef(new Compartment());
@@ -158,6 +171,12 @@ export function CodeEditor({
   const embeddedFilesRef = useRef(embeddedFiles);
   const embeddedNotesRef = useRef(embeddedNotes);
   const onOpenFileRef = useRef(onOpenFile);
+  // Widgets capture callbacks during decoration creation; retained DOM must
+  // forward to the latest prop rather than capture that render's callback.
+  const openEmbeddedNote = useRef((path: string) => onOpenLinkRef.current?.(path)).current;
+  const openEmbeddedFile = useRef((asset: Extract<FileAssetSnapshot, { status: "ready" }>) => onOpenFileRef.current?.(asset)).current;
+  const canOpenEmbeddedNote = Boolean(onOpenLink);
+  const canOpenEmbeddedFile = Boolean(onOpenFile);
   const filesRef = useRef(files);
   const notesRef = useRef(notes);
   const onOpenFileLinkRef = useRef(onOpenFileLink);
@@ -189,6 +208,7 @@ export function CodeEditor({
     if (!parentRef.current) return;
     const extensions: Extension[] = [
       vimMode.current.of([]),
+      historyMode.current.of([history()]),
       editorSetup(variant),
       syntaxHighlighting(mdbaseHighlightStyle),
       variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
@@ -211,12 +231,12 @@ export function CodeEditor({
       writerPresentation.current.of(variant === "writer" && quietMarkdown ? quietMarkdownPresentation : []),
       fileEmbeds.current.of(variant === "writer" && language === "markdown" ? fileEmbedPresentation(
         () => embeddedFilesRef.current,
-        () => onOpenFileRef.current,
+        () => onOpenFileRef.current ? openEmbeddedFile : undefined,
         () => onVisibleFileEmbedsRef.current
       ) : []),
       noteEmbeds.current.of(variant === "writer" && language === "markdown" ? noteEmbedPresentation(
         () => embeddedNotesRef.current,
-        () => onOpenLinkRef.current,
+        () => onOpenLinkRef.current ? openEmbeddedNote : undefined,
         () => onVisibleNoteEmbedsRef.current
       ) : []),
       variant === "writer" ? writerInteractions(
@@ -248,15 +268,28 @@ export function CodeEditor({
     const state = remembered && rememberedValue(remembered) === value
       ? EditorState.fromJSON(remembered.state, config, { history: historyField })
       : EditorState.create({ doc: value, extensions });
+    const focusBeforeMount = parentRef.current.ownerDocument.activeElement;
     const view = new EditorView({ parent: parentRef.current, state });
     viewRef.current = view;
+    if (documentId) registerActiveEditor(documentId, view);
     requestAnimationFrame(() => {
       if (viewRef.current !== view) return;
       if (remembered) view.scrollDOM.scrollTop = remembered.scrollTop;
-      if (autoFocus) view.focus();
+      const ownerDocument = view.dom.ownerDocument;
+      const activeElement = ownerDocument.activeElement;
+      const HTMLElement = ownerDocument.defaultView?.HTMLElement;
+      const editableOwner = HTMLElement && activeElement instanceof HTMLElement
+        && (activeElement.matches("input, textarea, select") || activeElement.isContentEditable
+          || activeElement.closest('[contenteditable]:not([contenteditable="false"])'));
+      // Preserve another control's focus, including focus moved after mounting
+      // but before this frame, and keep dialogs in charge of their own focus.
+      if (autoFocus && activeElement === focusBeforeMount
+          && (!editableOwner || view.dom.contains(activeElement))
+          && !activeElement?.closest("[role='dialog'], [role='alertdialog'], [role='combobox']")) view.focus();
     });
     return () => {
       if (documentId) rememberEditor(documentId, view, lineSeparator.current);
+      if (documentId) unregisterActiveEditor(documentId, view);
       onDismissLinkPreviewRef.current?.();
       view.destroy();
       viewRef.current = undefined;
@@ -344,12 +377,12 @@ export function CodeEditor({
       effects: fileEmbeds.current.reconfigure(
         variant === "writer" && language === "markdown" ? fileEmbedPresentation(
           () => embeddedFilesRef.current,
-          () => onOpenFileRef.current,
+          () => onOpenFileRef.current ? openEmbeddedFile : undefined,
           () => onVisibleFileEmbedsRef.current
         ) : []
       )
     });
-  }, [embeddedFiles, language, onOpenFile, onVisibleFileEmbeds, variant]);
+  }, [embeddedFiles, language, canOpenEmbeddedFile, variant]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -358,12 +391,12 @@ export function CodeEditor({
       effects: noteEmbeds.current.reconfigure(
         variant === "writer" && language === "markdown" ? noteEmbedPresentation(
           () => embeddedNotesRef.current,
-          () => onOpenLinkRef.current,
+          () => onOpenLinkRef.current ? openEmbeddedNote : undefined,
           () => onVisibleNoteEmbedsRef.current
         ) : []
       )
     });
-  }, [embeddedNotes, language, onOpenLink, onVisibleNoteEmbeds, variant]);
+  }, [embeddedNotes, language, canOpenEmbeddedNote, variant]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -422,14 +455,24 @@ export function CodeEditor({
 
   useEffect(() => {
     const view = viewRef.current;
-    if (!view || restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
+    if (!view) return;
+    let externalReset = false;
+    if (remoteApplyToken !== undefined && appliedRemoteToken.current !== remoteApplyToken) {
+      externalReset = appliedRemoteToken.current !== null;
+      appliedRemoteToken.current = remoteApplyToken;
+    }
+    if (!externalReset && restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
     syncing.current = true;
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
-      selection: EditorSelection.cursor(Math.min(view.state.selection.main.head, value.length))
+      selection: EditorSelection.cursor(Math.min(view.state.selection.main.head, value.length)),
+      effects: externalReset
+        ? historyMode.current.reconfigure([history(), historyField.init(() => EMPTY_HISTORY_STATE)])
+        : undefined,
+      annotations: externalReset ? Transaction.addToHistory.of(false) : undefined
     });
     syncing.current = false;
-  }, [value]);
+  }, [value, remoteApplyToken]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -505,7 +548,6 @@ export function markdownEdit(doc: string, from: number, to: number, format: Mark
 
 const editorSetup = (variant: EditorVariant): Extension => [
   highlightSpecialChars(),
-  history(),
   search({ top: true }),
   highlightSelectionMatches({ minSelectionLength: 2 }),
   bracketMatching(),

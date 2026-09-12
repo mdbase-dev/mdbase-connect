@@ -1,3 +1,5 @@
+import { SyncError } from "@mdbase-dev/connect-sync";
+import { insertHostedMirror, lockHostedMirrorAccess, lockMirrorForRenewal } from "../../hosted-mirror-policy.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -13,6 +15,7 @@ import { requireUser } from "../../platform/request-authentication.js";
 import { ianaTimezoneSchema } from "../../platform/timezones.js";
 import {
   createHostedCollectionForUser,
+  renameHostedCollectionForUser,
   canManageHostedReplica,
   permitsHostedCollectionAction,
   type HostedServiceOptions
@@ -86,71 +89,42 @@ export function registerHostedAccountRoutes(
           z.string().min(1).max(100)
         ).max(100).default([])
       }).strict().parse(request.body);
-      if (!await permitsHostedCollectionAction(
-        options.db,
-        user.id,
-        collectionId,
-        "mirror.enroll",
-        true
-      )) {
-        return hostedCollectionNotFound(reply);
-      }
       const replicaId = randomUUID();
       const token = randomToken("hsr");
-      if (options.hostedProvider) {
-        await options.hostedProvider.registerReplica(collectionId, {
-          id: replicaId,
-          name: input.name,
-          mode: input.mode,
-          allowedTypes: input.allowed_types,
-          token
-        });
-      } else {
-        await options.hostedReference!.registerReplica(collectionId, {
-          id: replicaId,
-          name: input.name,
-          mode: input.mode,
-          allowedTypes: input.allowed_types
-        });
-      }
+      const connection = await options.db.connect();
+      let registered = false;
       try {
-        await options.db.query(
-          `INSERT INTO hosted_replicas
-             (id, collection_id, authorized_user_id, name, mode,
-              allowed_types, token_hash)
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
-          [
-            replicaId,
-            collectionId,
-            user.id,
-            input.name,
-            input.mode,
-            JSON.stringify(input.allowed_types),
-            options.hostedProvider ? null : tokenHash(token)
-          ]
-        );
-      } catch (error) {
+        await connection.query("BEGIN");
+        const access = await lockHostedMirrorAccess(connection, user.id, collectionId, input.mode);
+        registered = true;
         if (options.hostedProvider) {
-          await options.hostedProvider.revokeReplica(replicaId);
+          await options.hostedProvider.registerReplica(collectionId, {
+            id: replicaId, name: input.name, mode: input.mode,
+            allowedTypes: input.allowed_types, token
+          });
         } else {
-          await options.hostedReference!.revokeReplica(
-            collectionId,
-            replicaId
-          );
+          await options.hostedReference!.registerReplica(collectionId, {
+            id: replicaId, name: input.name, mode: input.mode, allowedTypes: input.allowed_types
+          });
+        }
+        await insertHostedMirror(connection, access, {
+          id: replicaId, name: input.name, mode: input.mode, allowedTypes: input.allowed_types,
+          tokenHash: options.hostedProvider ? null : tokenHash(token)
+        });
+        await audit(connection, user.id, "hosted_replica.created", replicaId, {
+          collection_id: collectionId, mode: input.mode, allowed_types: input.allowed_types
+        });
+        await connection.query("COMMIT");
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        if (registered) {
+          if (options.hostedProvider) await options.hostedProvider.revokeReplica(replicaId).catch(() => undefined);
+          else await options.hostedReference!.revokeReplica(collectionId, replicaId).catch(() => undefined);
         }
         throw error;
+      } finally {
+        connection.release();
       }
-      await audit(
-        options.db,
-        user.id,
-        "hosted_replica.created",
-        replicaId,
-        {
-          collection_id: collectionId,
-          mode: input.mode,
-          allowed_types: input.allowed_types
-        }
-      );
       return reply.code(201).send({
         replica: {
           id: replicaId,
@@ -184,40 +158,11 @@ export function registerHostedAccountRoutes(
       const input = z.object({
         display_name: z.string().trim().min(1).max(200)
       }).strict().parse(request.body);
-      if (!await permitsHostedCollectionAction(
-        options.db,
-        user.id,
-        collectionId,
-        "collection.rename"
-      )) {
-        return hostedCollectionNotFound(reply);
-      }
-      if (options.hostedProvider) {
-        await options.hostedProvider.renameCollection(
-          collectionId,
-          input.display_name
-        );
-      }
-      const renamed = await options.db.query<{
-        id: string;
-        display_name: string;
-      }>(
-        `UPDATE hosted_collections SET display_name = $2
-         WHERE id = $1 AND authority_state = 'active'
-         RETURNING id, display_name`,
-        [collectionId, input.display_name]
+      const renamed = await renameHostedCollectionForUser(
+        options, user.id, collectionId, input.display_name, "account"
       );
-      if (!renamed.rows[0]) {
-        return hostedCollectionNotFound(reply);
-      }
-      await audit(
-        options.db,
-        user.id,
-        "hosted_collection.renamed",
-        collectionId,
-        { display_name: input.display_name }
-      );
-      return { collection: renamed.rows[0] };
+      if (!renamed) return hostedCollectionNotFound(reply);
+      return { collection: renamed };
     }
   );
 
@@ -252,8 +197,8 @@ export function registerHostedAccountRoutes(
         await connection.query("BEGIN");
         await connection.query(
           `DELETE FROM grants
-           WHERE hosted_collection_id = $1 AND user_id = $2`,
-          [collectionId, user.id]
+           WHERE hosted_collection_id = $1`,
+          [collectionId]
         );
         const deleted = await connection.query<{ id: string }>(
           `DELETE FROM hosted_collections
@@ -300,23 +245,21 @@ export function registerHostedAccountRoutes(
       const { replicaId } = z.object({
         replicaId: z.uuid()
       }).parse(request.params);
-      const active = await activeReplicaForUser(
-        options,
-        user.id,
-        replicaId
-      );
-      if (!active) {
-        return replicaNotFound(reply);
-      }
+      const connection = await options.db.connect();
       const token = randomToken("hsr");
-      if (options.hostedProvider) {
-        await options.hostedProvider.rotateReplicaToken(replicaId, token);
-      } else {
-        await options.db.query(
-          `UPDATE hosted_replicas SET token_hash = $2
-           WHERE id = $1`,
-          [replicaId, tokenHash(token)]
-        );
+      let active;
+      try {
+        await connection.query("BEGIN");
+        active = await lockMirrorForRenewal(connection, user.id, replicaId);
+        if (options.hostedProvider) await options.hostedProvider.rotateReplicaToken(replicaId, token);
+        else await connection.query("UPDATE hosted_replicas SET token_hash = $2 WHERE id = $1", [replicaId, tokenHash(token)]);
+        await connection.query("COMMIT");
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        if (error instanceof SyncError && error.code === "replica_revoked") return replicaNotFound(reply);
+        throw error;
+      } finally {
+        connection.release();
       }
       return {
         token,

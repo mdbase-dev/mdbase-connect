@@ -8,12 +8,27 @@ export function mirrorStatusFromPlan(
   if (["planned", "applying", "cancelled", "stale", "blocked", "failed"].includes(
     checkpoint.state
   )) return checkpoint;
+  const localIssues = [...checkpoint.local_issues];
+  for (const issue of plan.issues) {
+    if (
+      issue.path
+      && (issue.code === "invalid_frontmatter" || issue.code === "file_read_failed")
+      && !localIssues.some(({ path, code, message }) =>
+        path === issue.path && code === issue.code && message === issue.message)
+    ) {
+      localIssues.push({
+        path: issue.path,
+        code: issue.code,
+        message: issue.message
+      });
+    }
+  }
   if (
     checkpoint.conflicts.length > 0
-    || checkpoint.local_issues.length > 0
+    || localIssues.length > 0
     || plan.summary.blocking_issues > 0
     || plan.summary.conflicts > 0
-  ) return { ...checkpoint, state: "attention" };
+  ) return { ...checkpoint, state: "attention", local_issues: localIssues };
   return {
     ...checkpoint,
     state: plan.actions.some((action) => action.command !== "advance_checkpoint")

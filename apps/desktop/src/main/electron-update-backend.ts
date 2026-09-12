@@ -25,6 +25,7 @@ import {
 } from "./update-policy";
 import type { UpdateTransaction } from "./update-state";
 import { artifactMatches, downloadArtifact, downloadBytes } from "./update-download";
+import { connectCliEnvironment, daemonCliArguments } from "./daemon-lifecycle";
 
 const execFile = promisify(execFileCallback);
 const AUTO_UPDATER_TIMEOUT_MS = 180_000;
@@ -61,11 +62,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
     const status = await this.daemonStatus();
     const needsReconciliation = runtimeNeedsReconciliation(status, this.currentVersion);
     if (!needsReconciliation) return null;
-    await this.activateRuntime(
-      this.options.binaryPath(),
-      this.currentVersion,
-      status.installed
-    );
+    await this.activateRuntime(this.options.binaryPath(), this.currentVersion);
     return `Connector runtime ${this.currentVersion} was reconciled with this application.`;
   }
 
@@ -144,7 +141,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
   async stopDaemon(): Promise<void> {
     const status = await this.daemonStatus();
     if (!status.running) return;
-    await this.runCli(this.options.binaryPath(), ["connect", "daemon", "stop"], 35_000);
+    await this.runCli(this.options.binaryPath(), ["stop"], 35_000);
   }
 
   installAutomatic(): void {
@@ -175,8 +172,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
       try {
         await this.activateRuntime(
           this.options.binaryPath(),
-          transaction.target_version,
-          transaction.service_installed
+          transaction.target_version
         );
         return {
           healthy: true,
@@ -187,8 +183,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
         if (!transaction.previous_runtime) throw error;
         await this.activateRuntime(
           transaction.previous_runtime,
-          transaction.previous_version,
-          transaction.service_installed
+          transaction.previous_version
         );
         return {
           healthy: true,
@@ -202,8 +197,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
     if (runningPrevious) {
       await this.activateRuntime(
         this.options.binaryPath(),
-        transaction.previous_version,
-        transaction.service_installed
+        transaction.previous_version
       );
       return {
         healthy: true,
@@ -219,8 +213,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
     }
     await this.activateRuntime(
       transaction.previous_runtime,
-      transaction.previous_version,
-      transaction.service_installed
+      transaction.previous_version
     );
     return {
       healthy: true,
@@ -231,18 +224,13 @@ export class ElectronUpdateBackend implements UpdateBackend {
 
   private async activateRuntime(
     binary: string,
-    expectedVersion: string,
-    serviceInstalled: boolean
+    expectedVersion: string
   ): Promise<void> {
-    const current = await this.daemonStatus().catch(() => ({ installed: serviceInstalled, running: false }));
+    const current = await this.daemonStatus().catch(() => ({ running: false }));
     if (current.running) {
-      await this.runCli(binary, ["connect", "daemon", "stop"], 35_000).catch(() => undefined);
+      await this.runCli(binary, ["stop"], 35_000).catch(() => undefined);
     }
-    await this.runCli(
-      binary,
-      ["connect", "daemon", serviceInstalled ? "install" : "start"],
-      35_000
-    );
+    await this.runCli(binary, ["install"], 35_000);
     const deadline = Date.now() + 30_000;
     let lastVersion: string | undefined;
     while (Date.now() < deadline) {
@@ -263,7 +251,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
     running: boolean;
     binaryVersion?: string;
   }> {
-    const value = await this.runCli(binary, ["connect", "daemon", "status"], 10_000);
+    const value = await this.runCli(binary, ["status"], 10_000);
     return {
       installed: value.installed === true,
       running: value.running === true,
@@ -284,15 +272,18 @@ export class ElectronUpdateBackend implements UpdateBackend {
   ): Promise<Record<string, unknown>> {
     const { stdout } = await execFile(
       binary,
-      [
-        "--state-dir",
+      daemonCliArguments(
+        this.packaged,
         this.options.stateDirectory(),
-        "--endpoint",
         this.options.endpoint(),
-        "--json",
-        ...command
-      ],
-      { env: process.env, timeout, windowsHide: true }
+        command,
+        true
+      ),
+      {
+        env: connectCliEnvironment(this.packaged),
+        timeout,
+        windowsHide: true
+      }
     );
     const parsed = JSON.parse(stdout) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -306,10 +297,7 @@ export function runtimeNeedsReconciliation(
   status: { installed: boolean; running: boolean; binaryVersion?: string },
   currentVersion: string
 ): boolean {
-  return (
-    (status.running && status.binaryVersion !== currentVersion) ||
-    (!status.running && status.installed)
-  );
+  return !status.installed || !status.running || status.binaryVersion !== currentVersion;
 }
 
 async function stageMacUpdate(

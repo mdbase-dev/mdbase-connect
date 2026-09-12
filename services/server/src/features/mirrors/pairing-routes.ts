@@ -1,3 +1,6 @@
+import { listHostedCollectionsVisibleToUser } from "../../collection-catalog.js";
+import { resolveHostedCollectionAccess } from "../../collection-access.js";
+import { approveMirrorPairing, assertMirrorAccess, lockHostedMirrorAccess, insertHostedMirror, lockMirrorForRenewal } from "../../hosted-mirror-policy.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -89,17 +92,16 @@ export function registerMirrorPairingRoutes(
         "Mirror approval expired or was not found."
       ));
     }
-    const collections = await options.db.query<{
-      id: string;
-      display_name: string;
-    }>(
-      `SELECT id, display_name FROM hosted_collections
-       WHERE user_id = $1 AND authority_state = 'active'
-       ORDER BY display_name`,
-      [user.id]
-    );
+    const catalog = await listHostedCollectionsVisibleToUser(options.db, user.id);
+    const collections = [];
+    for (const entry of catalog) {
+      const access = await resolveHostedCollectionAccess(options.db, user.id, entry.locator.collectionId);
+      if (!access) continue;
+      try { assertMirrorAccess(access, pending.mode); } catch { continue; }
+      collections.push({id: entry.locator.collectionId, display_name: entry.locator.displayName});
+    }
     const { user_id: _userId, ...publicPairing } = pending;
-    return { pairing: publicPairing, collections: collections.rows };
+    return { pairing: publicPairing, collections };
   });
 
   app.post(
@@ -118,23 +120,19 @@ export function registerMirrorPairingRoutes(
       const input = z.object({
         collection_id: z.uuid()
       }).strict().parse(request.body);
-      const approved = await options.db.query<{
-        id: string;
-        mirror_name: string;
-        mode: "read_only" | "read_write";
-      }>(
-        `UPDATE mirror_pairing_requests
-         SET user_id = $2, collection_id = $3, approved_at = now()
-         WHERE id = $1 AND approved_at IS NULL AND consumed_at IS NULL
-           AND revoked_at IS NULL AND expires_at > now()
-           AND EXISTS (
-             SELECT 1 FROM hosted_collections
-             WHERE id = $3 AND user_id = $2 AND authority_state = 'active'
-           )
-         RETURNING id, mirror_name, mode`,
-        [pairingId, user.id, input.collection_id]
-      );
-      if (!approved.rows[0]) {
+      const connection = await options.db.connect();
+      let approved;
+      try {
+        await connection.query("BEGIN");
+        approved = await approveMirrorPairing(connection, user.id, input.collection_id, pairingId);
+        await connection.query("COMMIT");
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally {
+        connection.release();
+      }
+      if (!approved) {
         return reply.code(404).send(apiError(
           "mirror_pairing_not_found",
           "Mirror approval expired, was already used, or the collection was not found."
@@ -147,7 +145,7 @@ export function registerMirrorPairingRoutes(
         pairingId,
         {
           collection_id: input.collection_id,
-          mode: approved.rows[0].mode
+          mode: approved.mode
         }
       );
       return { ok: true };
@@ -208,6 +206,7 @@ export function registerMirrorPairingRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
+        const access = await lockHostedMirrorAccess(connection, pending.user_id, pending.collection_id, pending.mode);
         const locked = await connection.query<{
           mirror_name: string;
           mode: "read_only" | "read_write";
@@ -240,6 +239,7 @@ export function registerMirrorPairingRoutes(
           await connection.query("COMMIT");
           return rotateMirrorPairingToken(options, pairingId, secret);
         }
+        registered = true;
         if (options.hostedProvider) {
           await options.hostedProvider.registerReplica(current.collection_id, {
             id: replicaId,
@@ -259,21 +259,10 @@ export function registerMirrorPairingRoutes(
             }
           );
         }
-        registered = true;
-        await connection.query(
-          `INSERT INTO hosted_replicas
-             (id, collection_id, authorized_user_id, name, mode, allowed_types,
-              token_hash)
-           VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, $6)`,
-          [
-            replicaId,
-            current.collection_id,
-            current.user_id,
-            current.mirror_name,
-            current.mode,
-            options.hostedProvider ? null : tokenHash(token)
-          ]
-        );
+        await insertHostedMirror(connection, access, {
+          id: replicaId, name: current.mirror_name, mode: current.mode, allowedTypes: [],
+          tokenHash: options.hostedProvider ? null : tokenHash(token)
+        });
         await connection.query(
           `UPDATE mirror_pairing_requests
            SET replica_id = $2, consumed_at = now()
@@ -354,30 +343,19 @@ async function rotateMirrorPairingToken(
   const connection = await options.db.connect();
   try {
     await connection.query("BEGIN");
-    const active = await connection.query<{
-      id: string;
-      collection_id: string;
-      name: string;
-      mode: "read_only" | "read_write";
-    }>(
-      `SELECT replica.id, replica.collection_id, replica.name, replica.mode
-       FROM mirror_pairing_requests pairing
-       JOIN users account ON account.id = pairing.user_id
-       JOIN hosted_replicas replica ON replica.id = pairing.replica_id
-       WHERE pairing.id = $1 AND pairing.secret_hash = $2
-         AND pairing.consumed_at IS NOT NULL
-         AND pairing.revoked_at IS NULL
-         AND account.suspended_at IS NULL
-         AND replica.collection_id = pairing.collection_id
-         AND replica.purpose = 'mirror'
-         AND replica.revoked_at IS NULL
-       FOR UPDATE`,
-      [pairingId, tokenHash(secret)]
-    );
-    const replica = active.rows[0];
-    if (!replica) {
-      throw new SyncError("replica_revoked", "This mirror has been revoked.");
-    }
+    const located = await connection.query<{replica_id: string; user_id: string}>(
+      `SELECT replica_id, user_id FROM mirror_pairing_requests
+       WHERE id = $1 AND secret_hash = $2 AND consumed_at IS NOT NULL AND revoked_at IS NULL`,
+      [pairingId, tokenHash(secret)]);
+    const pairing = located.rows[0];
+    if (!pairing) throw new SyncError("replica_revoked", "This mirror has been revoked.");
+    const replica = await lockMirrorForRenewal(connection, pairing.user_id, pairing.replica_id);
+    const active = await connection.query(
+      `SELECT id FROM mirror_pairing_requests WHERE id = $1 AND secret_hash = $2
+       AND replica_id = $3 AND user_id = $4 AND collection_id = $5
+       AND consumed_at IS NOT NULL AND revoked_at IS NULL FOR UPDATE`,
+      [pairingId, tokenHash(secret), replica.id, pairing.user_id, replica.collection_id]);
+    if (!active.rows[0]) throw new SyncError("replica_revoked", "This mirror has been revoked.");
     const token = randomToken("hsr");
     if (options.hostedProvider) {
       await options.hostedProvider.rotateReplicaToken(replica.id, token);

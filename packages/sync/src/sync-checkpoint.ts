@@ -1,4 +1,4 @@
-import { SyncError } from "./sync-error.js";
+import { invalidMirrorState } from "./sync-error.js";
 import type { MirrorRuntime, MirrorState } from "./mirror-state.js";
 import type { ReconciliationPlan } from "./sync-planner.js";
 import type { SyncJournalStore } from "./sync-journal.js";
@@ -12,14 +12,11 @@ export async function advanceSyncCheckpoint(
 ): Promise<string> {
   const batch = requireBatch(state);
   if (batch.phase !== "effects_complete") {
-    throw new SyncError(
-      "invalid_mirror_state",
-      "A checkpoint cannot advance before every prepared effect is durable."
-    );
+    throw invalidMirrorState("A checkpoint cannot advance before every prepared effect is durable.");
   }
   const action = batch.plan.actions[batch.next_action];
   if (!action || action.command !== "advance_checkpoint") {
-    throw new SyncError("invalid_mirror_state", "Prepared checkpoint action is missing.");
+    throw invalidMirrorState("Prepared checkpoint action is missing.");
   }
   if (
     action.expected.generation !== batch.checkpoint_before.generation
@@ -27,7 +24,7 @@ export async function advanceSyncCheckpoint(
     || action.next.generation !== batch.checkpoint_after.generation
     || action.next.cursor !== batch.checkpoint_after.cursor
   ) {
-    throw new SyncError("invalid_mirror_state", "Prepared checkpoint boundary is inconsistent.");
+    throw invalidMirrorState("Prepared checkpoint boundary is inconsistent.");
   }
   const fingerprint = batch.plan.fingerprint;
   state.generation = action.next.generation;
@@ -57,7 +54,7 @@ export async function advanceEmptySyncCheckpoint(
     || action.next.cursor !== plan.authority_cursor
     || state.batch !== undefined
   ) {
-    throw new SyncError("invalid_mirror_state", "Empty checkpoint plan is inconsistent.");
+    throw invalidMirrorState("Empty checkpoint plan is inconsistent.");
   }
   state.generation = action.next.generation;
   state.cursor = action.next.cursor ?? 0;

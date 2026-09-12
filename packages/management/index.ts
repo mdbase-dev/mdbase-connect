@@ -64,6 +64,7 @@ export interface AccountData {
   };
   deletion: {
     available: boolean;
+    unavailable_reason: "managed_identity" | "temporarily_disabled" | null;
     hosted_collections: number;
     local_collections: number;
     computers: number;
@@ -170,6 +171,7 @@ export interface ManagementOverview {
     };
   };
   hosted_collections_available?: boolean;
+  collection_sharing_available?: boolean;
   authentication: {
     provider: "google" | "github" | "password" | "tailscale" | "session";
     registration: "closed" | "invite" | "open";
@@ -184,6 +186,7 @@ export interface ManagementOverview {
     last_incompatible_at?: string | null;
     minimum_connector_version?: string | null;
     update_url?: string | null;
+    update_recommended?: boolean;
   }>;
   collections: Array<{
     id: string;
@@ -204,6 +207,8 @@ export interface ManagementOverview {
     created_at: string;
     revoked_at: string | null;
     revocation_status: "active" | "revoking" | "revoked";
+    reauthorization_required_at: string | null;
+    reauthorization_reason: string | null;
     collection_id: string;
     collection_name: string;
     collection_kind: "local" | "hosted";

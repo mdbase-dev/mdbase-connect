@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import {
+  backfillLegacyAccountCreationEmailClaims
+} from "./account-creation-email-claims.js";
+import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
 import type {
   DatabaseConnection,
   DatabasePool,
@@ -22,6 +26,10 @@ export interface MigrationOptions {
   directory?: string;
 }
 
+export interface MigrationEvidence {
+  legacyContractScopedGrantsRetired: number;
+}
+
 interface AppliedMigration {
   id: string;
   checksum: string;
@@ -30,8 +38,9 @@ interface AppliedMigration {
 export async function runControlPlaneMigrations(
   pool: DatabasePool,
   options: MigrationOptions = {}
-): Promise<void> {
+): Promise<MigrationEvidence> {
   const connection = await pool.connect();
+  let legacyContractScopedGrantsRetired = 0;
   try {
     if (options.lock) {
       await connection.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
@@ -42,6 +51,14 @@ export async function runControlPlaneMigrations(
       connection,
       options.directory ?? resolve(import.meta.dirname, "../migrations")
     );
+    if (await tableExists(connection, "application_reconciliation_jobs")) {
+      legacyContractScopedGrantsRetired = await retireLegacyContractScopedGrants(
+        connection
+      );
+    }
+    if (await tableExists(connection, "account_creation_email_claims")) {
+      await backfillLegacyAccountCreationEmailClaims(connection);
+    }
   } finally {
     if (options.lock) {
       await connection
@@ -50,6 +67,7 @@ export async function runControlPlaneMigrations(
     }
     connection.release();
   }
+  return { legacyContractScopedGrantsRetired };
 }
 
 export async function assertControlPlaneMigrationsCurrent(
@@ -84,7 +102,7 @@ export async function assertControlPlaneMigrationsCurrent(
 async function ensureMigrationLedger(db: DatabaseQueryable): Promise<void> {
   const existing = await db.query(
     `SELECT table_name FROM information_schema.tables
-     WHERE table_schema = 'public' AND table_name = 'schema_migrations'`
+     WHERE table_schema = current_schema() AND table_name = 'schema_migrations'`
   );
   if (existing.rows[0]) return;
   await db.query(`
@@ -107,7 +125,7 @@ async function establishLegacyBaseline(db: DatabaseQueryable): Promise<void> {
   }
   const existingLegacySchema = await db.query(
     `SELECT table_name FROM information_schema.tables
-     WHERE table_schema = 'public' AND table_name = 'users'`
+     WHERE table_schema = current_schema() AND table_name = 'users'`
   );
   if (!existingLegacySchema.rows[0]) {
     await bootstrapLegacyBaseline(db);
@@ -200,7 +218,7 @@ async function tableExists(
 ): Promise<boolean> {
   const existing = await db.query(
     `SELECT table_name FROM information_schema.tables
-     WHERE table_schema = 'public' AND table_name = $1`,
+     WHERE table_schema = current_schema() AND table_name = $1`,
     [tableName]
   );
   return Boolean(existing.rows[0]);

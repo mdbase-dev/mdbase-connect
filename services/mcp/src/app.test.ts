@@ -1,10 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { applicationOperationSelectionIsAtomic } from "@mdbase-dev/connect-protocol";
+import { parseVersionedAppManifest } from "@mdbase-dev/connect-protocol/manifest";
+import { READ_OPERATIONS, WRITE_OPERATIONS } from "./oauth.js";
+import { ConnectGateway } from "./connect.js";
+import { PostgresGrantKeyStore } from "./key-store.js";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import type { McpRuntimeConfig } from "./config.js";
 import { SecretBox, pkceChallenge } from "./security.js";
+
+const MCP_CAPABILITIES = {
+  contract_version: 2 as const,
+  required: ["collection.read"] as const,
+  optional: ["records.create", "records.edit", "records.delete", "definitions.manage"] as const
+};
 
 const applicationId = "10000000-0000-4000-8000-000000000001";
 const firstCollectionId = "20000000-0000-4000-8000-000000000001";
@@ -27,9 +38,11 @@ describe("mdbase MCP gateway", () => {
     });
     const manifest = await app.inject({ method: "GET", url: "/.well-known/mdbase-app.json" });
     expect(manifest.statusCode).toBe(200);
+    expect(parseVersionedAppManifest(manifest.json()).contractVersion).toBe(2);
     expect(manifest.json().requirements).toEqual({
       access: "full_collection",
-      contracts: []
+      contracts: [],
+      capabilities: MCP_CAPABILITIES
     });
     const denied = await app.inject({
       method: "POST",
@@ -38,6 +51,76 @@ describe("mdbase MCP gateway", () => {
     });
     expect(denied.statusCode).toBe(401);
     expect(denied.headers["www-authenticate"]).toContain("oauth-protected-resource/mcp");
+    await app.close();
+    await db.end();
+  });
+
+  it.each([
+    ["read-only", READ_OPERATIONS],
+    ["writing", [...READ_OPERATIONS, ...WRITE_OPERATIONS]]
+  ] as const)("signs explicit v2 requests for new %s connections", async (_profile, operations) => {
+    const upstream = await fakeUpstream(globalThis.fetch);
+    vi.stubGlobal("fetch", upstream.fetch);
+    const db = await createDatabase("memory");
+    const config = testConfig();
+    const { app, gateway } = await buildApp({ db, config });
+    const keyStore = new PostgresGrantKeyStore(db, config.masterKey);
+    const key = await keyStore.create("new-v2-key");
+    await gateway.createAuthorizationRequest({
+      state: "new", codeChallenge: pkceChallenge("new-v2-verifier"),
+      operations: [...operations], collectionId: null, grantKey: key
+    });
+    expect(upstream.authorizationProofs[0]!.binding.contracts).toMatchObject({ semantic_capabilities: 2 });
+    expect(upstream.authorizationProofs[0]!.binding.requested_operations).toEqual(operations);
+    const registered = JSON.parse(String(upstream.fetch.mock.calls.find(
+      ([url]) => String(url).endsWith("/v1/apps/register")
+    )![1]!.body));
+    expect(registered.manifest.requirements.capabilities).toEqual(MCP_CAPABILITIES);
+    expect(applicationOperationSelectionIsAtomic(MCP_CAPABILITIES, operations)).toBe(true);
+    await app.close();
+    await db.end();
+  });
+
+  it("keeps retained v1 proofs and exact connections usable after loading the v2 application", async () => {
+    const upstream = await fakeUpstream(globalThis.fetch);
+    vi.stubGlobal("fetch", upstream.fetch);
+    const db = await createDatabase("memory");
+    const config = testConfig();
+    const keyStore = new PostgresGrantKeyStore(db, config.masterKey);
+    const key = await keyStore.create("retained-v1-key");
+    const legacy = new ConnectGateway(db, config.masterKey, keyStore, config.connectUrl, {
+      manifest_version: 1,
+      id: "dev.mdbase.mcp",
+      name: "mdbase",
+      homepage: config.publicUrl,
+      redirect_uris: [`${config.publicUrl}/oauth/connect/callback`],
+      requirements: { access: "full_collection", contracts: [] }
+    }, `${config.publicUrl}/oauth/connect/callback`);
+    await legacy.createAuthorizationRequest({
+      state: "retained", codeChallenge: pkceChallenge("retained-v1-verifier"), operations: ["query", "update"],
+      collectionId: null, grantKey: key
+    });
+    expect(upstream.authorizationProofs[0]!.binding.contracts).toMatchObject({ semantic_capabilities: 1 });
+    expect(upstream.authorizationProofs[0]!.binding.requested_operations).toEqual(["query", "update"]);
+    const setId = "90000000-0000-4000-8000-000000000001";
+    await db.query("INSERT INTO mcp_connection_sets (id) VALUES ($1)", [setId]);
+    const connection = await legacy.exchangeAuthorization({
+      code: "first-upstream-code", verifier: "verifier", applicationId,
+      connectionSetId: setId, keyHandle: key.handle
+    });
+    const { app, gateway } = await buildApp({ db, config });
+    expect(await gateway.listConnections(setId)).toEqual([connection]);
+    await db.query("UPDATE mcp_connections SET access_expires_at = now() - interval '1 second'");
+    await expect(gateway.operation(setId, connection.id, "query", {})).resolves.toMatchObject({ valid: true });
+    expect(upstream.refreshProofs).toHaveLength(1);
+    expect((await gateway.listConnections(setId))[0]).toMatchObject({
+      id: connection.id, operations: ["query", "update"]
+    });
+    await expect(gateway.operation(setId, connection.id, "rename", {})).rejects.toMatchObject({
+      code: "insufficient_collection_access"
+    });
+    expect(upstream.authorizationProofs).toHaveLength(1);
+    expect(await keyStore.get(key.handle)).not.toBeNull();
     await app.close();
     await db.end();
   });
@@ -119,12 +202,16 @@ describe("mdbase MCP gateway", () => {
       contracts: {
         operation_transport: 3,
         authorization_binding: 5,
-        semantic_capabilities: 1,
+        semantic_capabilities: 2,
         durable_mutation: 1
       }
     });
     expect(upstream.authorizationProofs[0]?.binding.requested_operations)
-      .toContain("create");
+      .toEqual([...READ_OPERATIONS, ...WRITE_OPERATIONS]);
+    expect(upstream.authorizationProofs[0]?.binding.requested_operations)
+      .toContain("assess_type_pack");
+    expect(upstream.authorizationProofs[0]?.binding.requested_operations)
+      .not.toContain("create_view_source");
 
     const firstCallback = await app.inject({
       method: "GET",
@@ -468,7 +555,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
         refresh_expires_in: 2_592_000,
         collection_id: second ? secondCollectionId : firstCollectionId,
         collection_name: second ? "Second collection" : "First collection",
-        operations: ["describe", "changes", "read", "query", "validate", "read_type", "create", "update", "delete", "rename", "create_type", "update_type"],
+        operations: authorizationProofs[second ? 1 : 0]!.binding.requested_operations,
         scope: { contracts: [], access: "full_collection" },
         grant_id: second ? secondGrantId : firstGrantId,
         encryption: second ? null : {

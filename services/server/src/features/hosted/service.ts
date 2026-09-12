@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
+import type { ApplicationRequirements } from "../../application-requirements.js";
 import type {
-  ApplicationRequirements,
+  ApplicationNotifications,
+  ApplicationProvisions,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
   FileCapability,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
   accessView,
   requireCollectionAction,
@@ -26,8 +29,7 @@ import {
   effectiveHostedContractDescriptors,
   hostedContractDescriptors,
   type HostedAuthorityRegistry,
-  type HostedTemplate,
-  typesForContracts
+  type HostedTemplate
 } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { reconcileHostedAccount } from "../../entitlements.js";
@@ -50,7 +52,8 @@ import { bearerToken } from "../../platform/request-authentication.js";
 import {
   recoverExpiredAuthorityTransfers
 } from "../authority-transfer/lifecycle.js";
-import { assertOperationsAllowedByRequirements } from "../grants/policy.js";
+import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
+import { assertOperationsAllowedByApplication } from "../grants/policy.js";
 
 export interface HostedServiceOptions {
   db: DatabasePool;
@@ -264,12 +267,7 @@ export async function hostedControlSnapshot(
           sync_status: statuses.get(replica.id) ?? null
         }))
     })),
-    grants: grants.rows.map((grant) => ({
-      ...grant,
-      application_origin: normalizedApplicationOrigin(
-        grant.application_origin
-      )
-    })),
+    grants: grants.rows.map(grantWithCompatibleApplicationOrigin),
     pending_authorizations: pending.rows.map((authorization) => ({
       ...authorization,
       compatible_collection_ids: [],
@@ -406,39 +404,35 @@ export async function renameHostedCollectionForUser(
   options: HostedServiceOptions,
   userId: string,
   collectionId: string,
-  displayName: string
+  displayName: string,
+  source: "desktop" | "account" = "desktop"
 ): Promise<{ id: string; display_name: string } | null> {
-  if (!await permitsHostedCollectionAction(
-    options.db,
-    userId,
-    collectionId,
-    "collection.rename"
-  )) {
-    return null;
-  }
-  if (options.hostedProvider) {
-    await options.hostedProvider.renameCollection(
-      collectionId,
-      displayName
+  const connection = await options.db.connect();
+  try {
+    await connection.query("BEGIN");
+    await connection.query("SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE", [collectionId]);
+    if (!await permitsHostedCollectionAction(connection, userId, collectionId, "collection.rename", true)) {
+      await connection.query("ROLLBACK");
+      return null;
+    }
+    if (options.hostedProvider) await options.hostedProvider.renameCollection(collectionId, displayName);
+    const renamed = await connection.query<{ id: string; display_name: string }>(
+      `UPDATE hosted_collections SET display_name = $2
+       WHERE id = $1 AND authority_state = 'active'
+       RETURNING id, display_name`,
+      [collectionId, displayName]
     );
+    await audit(connection, userId, "hosted_collection.renamed", collectionId, {
+      display_name: displayName, source
+    });
+    await connection.query("COMMIT");
+    return renamed.rows[0] ?? null;
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
   }
-  const renamed = await options.db.query<{
-    id: string;
-    display_name: string;
-  }>(
-    `UPDATE hosted_collections SET display_name = $2
-     WHERE id = $1 AND authority_state = 'active'
-     RETURNING id, display_name`,
-    [collectionId, displayName]
-  );
-  await audit(
-    options.db,
-    userId,
-    "hosted_collection.renamed",
-    collectionId,
-    { display_name: displayName, source: "desktop" }
-  );
-  return renamed.rows[0] ?? null;
 }
 
 export async function deleteHostedCollectionForUser(
@@ -465,8 +459,8 @@ export async function deleteHostedCollectionForUser(
     await connection.query("BEGIN");
     await connection.query(
       `DELETE FROM grants
-       WHERE hosted_collection_id = $1 AND user_id = $2`,
-      [collectionId, userId]
+       WHERE hosted_collection_id = $1`,
+      [collectionId]
     );
     const deleted = await connection.query<{ id: string }>(
       `DELETE FROM hosted_collections
@@ -586,31 +580,42 @@ export async function narrowHostedGrantForUser(
     operations: string[];
     scope: GrantScope;
     requirements: ApplicationRequirements;
-    template: HostedTemplate;
-    hosted_contracts: CollectionContractDescriptor[];
+    notifications: ApplicationNotifications;
+    provisions: ApplicationProvisions;
+    allowed_types: string[];
     file_capability: FileCapability | null;
     application_origin: string;
     proof_public_key: string;
     application_family_identity: string;
     application_manifest_digest: string;
+    application_declaration?: unknown;
     application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
   }>(
     `SELECT g.id, g.hosted_replica_id, g.operations, g.scope, g.file_capability,
             g.application_origin, g.proof_public_key, g.application_authorization,
-            a.requirements,
+            a.requirements, a.notifications, a.provisions,
             a.family_identity AS application_family_identity,
             a.manifest_digest AS application_manifest_digest,
-            h.template,
-            h.contracts AS hosted_contracts
+            a.application_declaration,
+            replica.allowed_types
      FROM grants g
      JOIN applications a ON a.id = g.application_id
      JOIN hosted_collections h ON h.id = g.hosted_collection_id
+     JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
      WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
        AND g.activated_at IS NOT NULL`,
     [grantId, userId]
   );
   const current = active.rows[0];
   if (!current) return null;
+  if (
+    !isCanonicalCollectionGrantScope(current.scope)
+    || current.allowed_types.length > 0
+  ) {
+    throw new RequestValidationError(
+      "Legacy scoped access must be explicitly reauthorized for the collection."
+    );
+  }
   const operations = [...new Set(requestedOperations)];
   if (
     operations.some(
@@ -621,7 +626,12 @@ export async function narrowHostedGrantForUser(
       "Existing access can be narrowed here, but broader access requires a new application request."
     );
   }
-  assertOperationsAllowedByRequirements(operations, current.requirements);
+  assertOperationsAllowedByApplication(
+    operations,
+    current.requirements,
+    current.notifications,
+    current.provisions
+  );
   if (!options.hostedProvider) {
     throw new RequestValidationError(
       "Hosted application access is temporarily unavailable."
@@ -650,17 +660,9 @@ export async function narrowHostedGrantForUser(
     {
       grantId,
       mode: write ? "read_write" : "read_only",
-      allowedTypes: typesForContracts(
-        effectiveHostedContractDescriptors(
-          current.hosted_contracts,
-          current.template
-        ),
-        current.scope.contracts
-      ),
-      contractScope: current.scope.access === "contract"
-        ? current.scope.contracts
-        : [],
-      fullCollection: current.scope.access === "full_collection",
+      allowedTypes: [],
+      contractScope: [],
+      fullCollection: true,
       allowedOperations: hostedReplicaCollectionOperations(operations),
       operationTransportProtocol:
         current.application_authorization.binding.contracts.operation_transport,
@@ -673,7 +675,9 @@ export async function narrowHostedGrantForUser(
       applicationDeclarationId: declarationIdFromFamilyIdentity(
         current.application_family_identity
       ),
-      applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`
+      applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`,
+      applicationDeclaration: current.application_declaration,
+      applicationAuthorization: current.application_authorization
     }
   );
   const updated = await options.db.query<{
@@ -737,7 +741,7 @@ export async function revokeHostedGrantForUser(
 }
 
 export async function permitsHostedCollectionAction(
-  db: DatabasePool,
+  db: DatabaseQueryable,
   userId: string,
   collectionId: string,
   action: CollectionAction,
@@ -795,10 +799,6 @@ export async function requireHostedReplica(
     return null;
   }
   return result.rows[0];
-}
-
-function normalizedApplicationOrigin(value: string): string {
-  return value === "null" ? "null" : new URL(value).origin;
 }
 
 function sqlPlaceholders(count: number): string {

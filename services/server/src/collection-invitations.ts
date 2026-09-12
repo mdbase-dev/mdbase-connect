@@ -11,23 +11,21 @@ import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { normalizeEmailAddress } from "./email-identity.js";
 import { effectiveEntitlement } from "./entitlements.js";
 import { audit } from "./platform/audit-events.js";
-import {
-  canonicalUserCode,
-  randomToken,
-  randomUserCode,
-  tokenHash
-} from "./security.js";
+import { canonicalUserCode, randomToken, randomUserCode, tokenHash } from "./security.js";
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export class CollectionInvitationError extends Error {
-  constructor(readonly code: string, message: string) {
+  constructor(
+    readonly code: string,
+    message: string
+  ) {
     super(message);
     this.name = "CollectionInvitationError";
   }
 }
 
-export interface CreatedCollectionInvitation {
+interface CreatedCollectionInvitation {
   id: string;
   collectionId: string;
   targetMode: "email" | "invitee_code";
@@ -87,16 +85,8 @@ export async function createHostedCollectionInvitation(
   try {
     await connection.query("BEGIN");
     const collection = await lockActiveCollection(connection, input.collectionId);
-    await ensureCollectionIdentity(
-      connection,
-      input.collectionId,
-      collection.user_id
-    );
-    await requireSharingManager(
-      connection,
-      input.actorUserId,
-      input.collectionId
-    );
+    await ensureCollectionIdentity(connection, input.collectionId, collection.user_id);
+    await requireSharingManager(connection, input.actorUserId, input.collectionId);
     const token = randomToken("cinv");
     const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
     const snapshot = membershipPolicyPreset(input.role);
@@ -173,13 +163,11 @@ export async function createHostedCollectionInvitation(
       expiresAt,
       snapshot
     });
-    await audit(
-      connection,
-      input.actorUserId,
-      "collection_invitation.created",
-      invitationId,
-      { collection_id: input.collectionId, role: input.role, target_mode: targetMode }
-    );
+    await audit(connection, input.actorUserId, "collection_invitation.created", invitationId, {
+      collection_id: input.collectionId,
+      role: input.role,
+      target_mode: targetMode
+    });
     await connection.query("COMMIT");
     return {
       id: invitationId,
@@ -222,14 +210,18 @@ export async function acceptHostedCollectionInvitation(
     );
     const row = invitation.rows[0];
     if (
-      !row
-      || row.state !== "pending"
-      || new Date(row.expires_at).getTime() <= Date.now()
-      || row.target_user_id !== input.userId
-      || row.target_user_id === collection.user_id
+      !row ||
+      row.state !== "pending" ||
+      new Date(row.expires_at).getTime() <= Date.now() ||
+      row.target_user_id !== input.userId ||
+      row.target_user_id === collection.user_id
     ) {
       throw invalidInvitation();
     }
+    const inviter = row.invited_by_user_id
+      ? await resolveHostedCollectionAccess(connection, row.invited_by_user_id, collectionId)
+      : null;
+    if (!inviter?.actions.has("members.manage")) throw invalidInvitation();
     const activeTarget = await connection.query<{ id: string }>(
       `SELECT id FROM users
        WHERE id = $1 AND suspended_at IS NULL
@@ -238,12 +230,8 @@ export async function acceptHostedCollectionInvitation(
     );
     if (!activeTarget.rows[0]) throw invalidInvitation();
     if (
-      row.submitted_email
-      && !await hasVerifiedEmail(
-        connection,
-        input.userId,
-        row.submitted_email
-      )
+      row.submitted_email &&
+      !(await hasVerifiedEmail(connection, input.userId, row.submitted_email))
     ) {
       throw invalidInvitation();
     }
@@ -257,8 +245,13 @@ export async function acceptHostedCollectionInvitation(
     const entitlement = await effectiveEntitlement(connection, collection.user_id);
     if (!entitlement) throw seatUnavailable();
     const seatUsage = await connection.query<{ count: string | number }>(
-      `SELECT count(*) AS count FROM account_collection_member_seats
-       WHERE owner_user_id = $1 AND released_at IS NULL`,
+      `SELECT count(*) AS count FROM (
+         SELECT membership_id FROM account_collection_member_seats
+         WHERE owner_user_id = $1 AND released_at IS NULL
+         UNION
+         SELECT seat_membership_id AS membership_id FROM provider_revocation_jobs
+         WHERE seat_owner_user_id = $1 AND completed_at IS NULL
+       ) AS reservations`,
       [collection.user_id]
     );
     if (Number(seatUsage.rows[0]?.count ?? 0) >= entitlement.maxCollectionMemberSeats) {
@@ -284,8 +277,7 @@ export async function acceptHostedCollectionInvitation(
       `INSERT INTO account_collection_member_seats
          (id, owner_user_id, membership_id, collection_id, member_user_id)
        VALUES ($1, $2, $3, $4, $5)`,
-      [randomUUID(), collection.user_id, policy.membershipId,
-        collectionId, input.userId]
+      [randomUUID(), collection.user_id, policy.membershipId, collectionId, input.userId]
     );
     const accepted = await connection.query(
       `UPDATE collection_invitations
@@ -295,17 +287,11 @@ export async function acceptHostedCollectionInvitation(
       [row.id, policy.membershipId]
     );
     if (accepted.rowCount !== 1) throw invalidInvitation();
-    await audit(
-      connection,
-      input.userId,
-      "collection_invitation.accepted",
-      row.id,
-      {
-        collection_id: collectionId,
-        membership_id: policy.membershipId,
-        role: policy.role
-      }
-    );
+    await audit(connection, input.userId, "collection_invitation.accepted", row.id, {
+      collection_id: collectionId,
+      membership_id: policy.membershipId,
+      role: policy.role
+    });
     await connection.query("COMMIT");
     return { collectionId, membershipId: policy.membershipId, role: policy.role };
   } catch (error) {
@@ -324,11 +310,7 @@ export async function revokeHostedCollectionInvitation(
   try {
     await connection.query("BEGIN");
     await lockActiveCollection(connection, input.collectionId);
-    await requireSharingManager(
-      connection,
-      input.actorUserId,
-      input.collectionId
-    );
+    await requireSharingManager(connection, input.actorUserId, input.collectionId);
     const revoked = await connection.query(
       `UPDATE collection_invitations
        SET state = 'revoked', revoked_at = now(), updated_at = now()
@@ -439,10 +421,10 @@ export async function listHostedCollectionInvitations(
     target_mode: row.target_mode,
     submitted_email: row.submitted_email,
     role: row.role,
-    state: row.state === "pending"
-      && new Date(row.expires_at).getTime() <= Date.now()
-      ? "expired"
-      : row.state,
+    state:
+      row.state === "pending" && new Date(row.expires_at).getTime() <= Date.now()
+        ? "expired"
+        : row.state,
     expires_at: row.expires_at,
     created_at: row.created_at
   }));
@@ -530,8 +512,7 @@ async function resolveEligibleTargetUser(
            AND account.suspended_at IS NULL`,
         [normalizedEmail]
       );
-  const userId = emailIdentity.rows[0]?.user_id
-    ?? externalIdentity.rows[0]?.user_id;
+  const userId = emailIdentity.rows[0]?.user_id ?? externalIdentity.rows[0]?.user_id;
   if (!userId || userId === ownerUserId) return null;
   const existing = await db.query<{ id: string }>(
     `SELECT id FROM collection_memberships

@@ -1,6 +1,178 @@
 # Changelog
 
+## 0.1.0-beta.94
+
+Beta.94 replaces type-scoped application grants with explicit collection-level
+authorization and strengthens release compatibility gates.
+
+- Applications request and receive one canonical full-collection scope while
+  operation, file, origin, proof-of-possession, and collection boundaries remain
+  independently enforced.
+- Existing scoped grants, tokens, hosted replicas, and notification authority
+  retire fail closed and surface an actionable reauthorization outcome rather
+  than being silently widened or reported as corrupt state.
+- Local and hosted execution reject legacy scope at every admission boundary;
+  exact terminal hosted mutation replay remains available only to still-valid
+  retired credentials and cannot authorize changed or new work.
+- Authorization approval compensates retained provider policy changes if the
+  control-plane transaction fails, revoking the replica when restoration cannot
+  be proved.
+- Immediate-predecessor persisted-state CI attempts a candidate write before
+  projection normalization, runtime diagnostics compare persisted projections
+  with the running engine, and release tooling blocks undeclared projection
+  format or semantic-engine transitions.
+- A live projection-cutover lease admits semantic queries while canonical,
+  synchronization, file, import, and provider-control writes remain fenced.
+- Exact Editor qualification preserves immediate revalidation on immutable
+  Pages assets while separately verifying the canonical domain's bounded,
+  managed four-hour policy for edge-cache-eligible asset classes.
+
+## 0.1.0-beta.93
+
+Beta.93 consolidates collection semantics behind typed, capability-bound
+runtime APIs and completes cross-platform authority safety.
+
+- Local and hosted reads, queries, mutations, batches, and runtime receipts now
+  share canonical typed outcomes while preserving exact v0.3 wire behavior and
+  durable replay.
+- Collection snapshots are fallible and deterministic; merged-spec resolution
+  uses one Unicode-aware, target-filtered ranking contract with bounded
+  selection evidence.
+- Every post-open filesystem operation, watcher rescan, cache decision, and
+  publication remains bound to the acquired collection authority instead of
+  reacquiring an ambient display path.
+- Capture, cancellation, journal recovery, and compatibility seams are bounded,
+  checked, authenticated, and covered by enforceable retirement inventories.
+- Unix and Windows publication is capability-relative and atomic. Windows uses
+  destination-replacing handle-relative rename, delete-sharing readers, and
+  bounded sharing-denial retries without a remove-then-rename fallback.
+- Hosted mutation receipts and exact journal replay report the authoritative
+  persisted database mtime rather than temporary staging metadata.
+
+## 0.1.0-beta.92
+
+Beta.92 restores relay compatibility with signed beta.90 connectors while
+preserving the stronger policy-freshness lease as an optional beta capability.
+
+- Relay policy negotiation now selects explicit `lease_v1` or frozen
+  `legacy_ack_v0` behavior; beta.90 receives its original policy wire shape and
+  acknowledgement revision without claiming bounded offline revocation.
+- Lease negotiation and acknowledged adoption are durable and monotonic, so a
+  concurrent, failed, or incomplete attach cannot reopen legacy admission after
+  a connector has crossed either boundary.
+- Initial and changed-policy acknowledgements fence routing and publication;
+  stale mutation responses surface an unknown outcome instead of publishing
+  through superseded authority.
+- Advisory replacement broadcasts now use a bounded broker flush, so a stalled
+  broker acknowledgement cannot prevent the initial policy from reaching an
+  otherwise authenticated connector session.
+- Connector-side lease adoption remains sticky, partial lease metadata fails
+  closed, and websocket shutdown aborts the policy coordinator before it can
+  restore a disconnected session to `Connected`.
+- Account surfaces truthfully recommend updates for legacy acknowledgements and
+  retain beta.91 as the lease capability floor while the baseline connector
+  floor remains independent.
+- `policy-freshness-lease-v1` stays optional for every beta. Stable `v0.1.0` is
+  only the earliest possible enforcement boundary and remains subject to the
+  documented production-observation and rollback gates.
+
+## 0.1.0-beta.91
+
+Beta.91 hardens collection ownership, filesystem convergence, and authorization
+revocation across the Editor, local connector, hosted provider, and mirrors.
+
+- Editor collection transitions freeze and drain owned work before changing
+  authority, fence stale publication, isolate transclusions, and keep detached
+  type-definition saves generation-safe.
+- Watcher and mirror paths preserve typed invalid-record outcomes, capability-
+  bound filesystem reads, exact cache acknowledgement, bounded retry state, and
+  feed silence for invalid private observations.
+- Hosted authority imports, mutation recovery, account snapshots, selected-folder
+  scopes, and exact timer reconciliation now retain their execution-time
+  authority and fail closed under contention or stale completion.
+- Connector policy leases use exact-session acknowledgements, bounded renewal,
+  cross-instance coalescing, and transport-bound publication fences so revoked
+  work cannot publish through a successor policy.
+- Release tooling can bind an exact signed candidate, client, and Editor revision
+  to guarded LAB-only deployment and rollback evidence without permitting a
+  staging or production target.
+
+## 0.1.0-beta.90
+
+Beta.90 makes account deletion transactional, isolates stale hosted grants, and
+extends the production canary through application registration.
+
+- Account deletion revokes local capabilities and commits the user teardown in
+  one transaction before durable, retryable provider cleanup begins.
+- Cross-account replicas, failed local transactions, transferred authorities,
+  provider outages, and duplicate cleanup delivery are handled explicitly.
+- Confirmed missing provider collections are quarantined locally; their grants,
+  tokens, replicas, and pairing requests fail closed without conflating
+  ownership conflicts or transient provider failures.
+- One confirmed-missing grant no longer blocks another account from registering
+  the same application, while ownership conflicts remain visible failures.
+- The hosted-read canary now registers the exact portable CLI application before
+  authenticated describe, marker read, and digest verification.
+- `MDBASE_CONNECT_ACCOUNT_DELETION=disabled` retains a fail-closed operational
+  hold for future incident response.
+
+## 0.1.0-beta.89
+
+Beta.89 temporarily pauses account deletion while the hosted deletion workflow
+is corrected.
+
+- Account deletion fails closed after same-origin and session authentication,
+  without consuming reauthentication tokens or changing account state.
+- The account surface explains that deletion is temporarily unavailable.
+- Hosted provider data and credentials are never mutated by a blocked request.
+
+## 0.1.0-beta.88
+
+Beta.88 improves the editor's loading continuity, navigation, and feedback.
+
+- Loading skeletons align with the editor surface on desktop and mobile.
+- Note lists gain grouped headers and accessible arrow-key navigation.
+- The editor adds word counts, document outlines, action-palette commands,
+  unified toasts, and smoother preview transitions.
+
+## 0.1.0-beta.88
+
+Beta.87 makes local multi-collection discovery fast and resilient and corrects
+editor authorization redirects.
+
+- Local collection listing is metadata-only, while authorization descriptions
+  use read-only resource snapshots without opening record runtimes.
+- Catalog discovery isolates malformed collection resources, reuses one catalog
+  per authorization offer, and preserves fresh authorization checks at the
+  connector boundary.
+- Notification recovery keeps idle and future work cold, opens runtimes only for
+  actionable persisted work, and rechecks collection authority before dispatch.
+- Relay inventory synchronization is single-flight, and high-frequency runtime
+  finalization is bounded to resident enabled collections.
+- Editor authorization now preserves valid same-origin return targets and uses
+  the correct production editor fallback.
+
 ## Unreleased
+
+## 0.1.0-beta.86
+
+Beta.86 opens verified public password signup and makes non-production Connect
+environments explicit and isolated.
+
+- Public signup verifies email ownership before accepting a password, preserves
+  same-origin authorization return targets, rate-limits requests and token
+  redemption, and avoids revealing whether an account already exists.
+- New public accounts receive the permanent open-beta entitlement, including
+  1 GiB hosted storage and three hosted collections, plus a starter collection,
+  legal agreement records, and a signed-in browser session atomically.
+- Account creation claims canonical verified emails across password, invitation,
+  and external-provider flows so concurrent signups cannot create duplicate
+  owners without authenticated account linking.
+- Invitation signup retains its original ten-collection beta allowance while
+  registration is open, and the retired beta-access request endpoint no longer
+  stores submissions.
+- Server health identifies the deployment environment, while editor and desktop
+  tooling reject mismatched lab, staging, and production endpoint combinations.
 
 ## 0.1.0-beta.85
 

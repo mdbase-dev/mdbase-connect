@@ -1,15 +1,13 @@
 use crate::admission::{
-    classify_operation, execution_timeout, queue_deadline, AdmissionPermit, AdmissionRequest,
-    WorkClass,
+    classify_operation, queue_deadline, AdmissionPermit, AdmissionRequest, WorkClass,
 };
 use crate::operation_executor;
 use crate::server::{AgentState, OperationExecutionState};
 use futures_util::{SinkExt, StreamExt};
 use mdbase_connect_protocol::{
     AgentConnectionState, ConnectContractSupport, ConnectOperationOutcome, ConnectProblem,
-    RelayFileFrame, RelayFileKind, RelayMessage, CONTROL_PROTOCOL_VERSION,
-    PROTOCOL_USAGE_REPORT_CAPABILITY, RELAY_CAPABILITIES, RELAY_HANDSHAKE_TIMEOUT_SECONDS,
-    RELAY_REQUIRED_CAPABILITIES,
+    RelayFileFrame, RelayMessage, CONTROL_PROTOCOL_VERSION, PROTOCOL_USAGE_REPORT_CAPABILITY,
+    RELAY_CAPABILITIES, RELAY_HANDSHAKE_TIMEOUT_SECONDS, RELAY_REQUIRED_CAPABILITIES,
 };
 use reqwest::Client;
 use std::sync::Arc;
@@ -22,7 +20,23 @@ use url::Url;
 
 struct EncodedOperationResponse {
     body: String,
-    _permit: AdmissionPermit,
+    policy: crate::server::policy::PolicyRevisionPermit,
+    deadline: tokio::time::Instant,
+    _permit: Option<AdmissionPermit>,
+}
+
+struct FileResponse {
+    frame: RelayFileFrame,
+    policy: crate::server::policy::PolicyRevisionPermit,
+    deadline: tokio::time::Instant,
+}
+
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 pub async fn run(server_url: String, connector_token: String, state: Arc<AgentState>) {
@@ -62,6 +76,10 @@ async fn connect_once(
                 connector_version: env!("CARGO_PKG_VERSION").to_string(),
                 capabilities: RELAY_CAPABILITIES
                     .iter()
+                    .chain(
+                        mdbase_connect_protocol::FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES
+                            .iter(),
+                    )
                     .map(|capability| (*capability).to_string())
                     .collect(),
                 contract_support: ConnectContractSupport::default(),
@@ -79,21 +97,30 @@ async fn connect_once(
     let Message::Text(welcome) = welcome else {
         return Err("relay returned a non-text handshake response".into());
     };
-    let usage_reporting = match serde_json::from_str::<RelayMessage>(welcome.as_ref())? {
+    let (usage_reporting, server_semantics, declaration_evidence) = match serde_json::from_str::<
+        RelayMessage,
+    >(welcome.as_ref())?
+    {
         RelayMessage::RelayWelcome {
             protocol_version,
             capabilities,
             contract_support,
             ..
         } if protocol_version == CONTROL_PROTOCOL_VERSION
-            && contract_support.supports_current()
+            && contract_support.supports_relay_baseline()
             && RELAY_REQUIRED_CAPABILITIES
                 .iter()
                 .all(|required| capabilities.iter().any(|value| value == required)) =>
         {
-            capabilities
-                .iter()
-                .any(|value| value == PROTOCOL_USAGE_REPORT_CAPABILITY)
+            (
+                capabilities
+                    .iter()
+                    .any(|value| value == PROTOCOL_USAGE_REPORT_CAPABILITY),
+                contract_support.semantic_capabilities,
+                capabilities.iter().any(|value| {
+                    value == mdbase_connect_protocol::APPLICATION_DECLARATION_EVIDENCE_CAPABILITY
+                }),
+            )
         }
         RelayMessage::RelayIncompatible { message, .. } => return Err(message.into()),
         _ => return Err("relay returned an incompatible handshake response".into()),
@@ -102,12 +129,14 @@ async fn connect_once(
     let (responses, mut response_rx) = tokio::sync::mpsc::channel::<RelayMessage>(64);
     let (operation_responses, mut operation_response_rx) =
         tokio::sync::mpsc::channel::<EncodedOperationResponse>(8);
-    let (file_responses, mut file_response_rx) = tokio::sync::mpsc::channel::<RelayFileFrame>(8);
+    let (file_responses, mut file_response_rx) = tokio::sync::mpsc::channel::<FileResponse>(8);
     let (policy_jobs, mut policy_job_rx) = tokio::sync::mpsc::channel::<(u64, RelayMessage)>(8);
-    let (policy_applied, policy_applied_rx) = tokio::sync::watch::channel((0_u64, true));
+    let (policy_applied, policy_applied_rx) = tokio::sync::watch::channel((0_u64, false));
+    // Only this session owns the sender; detached controls receive clones only.
+    let (_session_owner, session_open) = tokio::sync::watch::channel(());
     let policy_state = state.clone();
     let policy_responses = responses.clone();
-    tokio::spawn(async move {
+    let _policy_worker = AbortOnDrop(tokio::spawn(async move {
         while let Some((generation, message)) = policy_job_rx.recv().await {
             let state = policy_state.clone();
             let mut usable = false;
@@ -119,14 +148,23 @@ async fn connect_once(
                 Ok(None) => {}
                 Err(error) => tracing::warn!(%error, generation, "relay policy task failed"),
             }
-            policy_applied.send_replace((generation, usable));
+            let ready = policy_state.finish_policy_update(generation, usable);
+            if usable && ready {
+                policy_state.set_connection_state(AgentConnectionState::Connected);
+            }
+            policy_applied.send_replace((generation, usable && ready));
         }
-    });
+    }));
     let mut received_policy_generation = 0_u64;
     let control_slots = Arc::new(tokio::sync::Semaphore::new(2));
-    state.set_connection_state(AgentConnectionState::Connected);
-    tracing::info!(server = server_url, "connected to cloud relay");
-    let mut sync_interval = tokio::time::interval(Duration::from_secs(15));
+    tracing::info!(
+        server = server_url,
+        "connected to cloud relay; awaiting initial policy"
+    );
+    let sync_period = Duration::from_secs(15);
+    let mut sync_interval =
+        tokio::time::interval_at(tokio::time::Instant::now() + sync_period, sync_period);
+    let mut inventory_sync = tokio::task::JoinSet::new();
 
     loop {
         tokio::select! {
@@ -135,37 +173,51 @@ async fn connect_once(
                 match message? {
                     Message::Text(text) => {
                         let relay_message: RelayMessage = serde_json::from_str(text.as_ref())?;
+                        let supported_grant = |grant: &mdbase_connect_protocol::GrantPolicy| {
+                            let version = grant.application_authorization.binding.contracts.semantic_capabilities;
+                            server_semantics.contains(&version) && (version != 2 || declaration_evidence)
+                        };
+                        let supported = match &relay_message {
+                            RelayMessage::PolicySnapshot { grants, .. } => grants.iter().all(supported_grant),
+                            RelayMessage::AuthorizationActivationRequest { grant, .. } => supported_grant(grant),
+                            _ => true,
+                        };
+                        if !supported {
+                            return Err("relay attempted an unadvertised authorization contract".into());
+                        }
                         if matches!(&relay_message, RelayMessage::PolicySnapshot { .. }) {
                             // A dedicated single consumer preserves snapshot order without
                             // blocking websocket pings or reads on SQLite. Every subsequent
                             // operation captures this generation and waits for its commit.
-                            received_policy_generation = received_policy_generation
-                                .checked_add(1)
-                                .ok_or("relay policy generation overflow")?;
+                            received_policy_generation =
+                                state.next_policy_update_generation()?;
+                            state.prepare_policy_update(
+                                received_policy_generation,
+                                &relay_message,
+                            )?;
                             policy_jobs
                                 .try_send((received_policy_generation, relay_message))
                                 .map_err(|_| "relay policy queue is full")?;
                         } else if let Some(admission) = relay_admission_request(&relay_message) {
                             let state_for_operation = state.clone();
-                            let responses = responses.clone();
                             let operation_responses = operation_responses.clone();
                             let policy_applied = policy_applied_rx.clone();
                             let required_policy_generation = received_policy_generation;
+                            let execution_deadline = state
+                                .remote_policy_execution_deadline(relay_operation_deadline(&relay_message));
                             tokio::spawn(async move {
-                                if !wait_for_policy(policy_applied, required_policy_generation).await.unwrap_or(false) {
-                                    if let Some(response) = relay_operation_rejection(
-                                        &relay_message,
-                                        "connector_busy",
-                                        "The connector could not install the required policy snapshot.",
-                                    ) {
-                                        let _ = responses.send(response).await;
-                                    }
+                                if tokio::time::timeout_at(
+                                    execution_deadline,
+                                    wait_for_policy(policy_applied, required_policy_generation),
+                                ).await.ok().and_then(Result::ok) != Some(true) {
                                     return;
                                 }
-                                let deadline_unix_ms = relay_operation_deadline(&relay_message);
+                                let Ok(policy_permit) = state_for_operation.capture_policy_revision() else {
+                                    return;
+                                };
                                 let permit = match state_for_operation
                                     .admission()
-                                    .admit_before(admission, queue_deadline(deadline_unix_ms))
+                                    .admit_before(admission, queue_deadline(execution_deadline))
                                     .await {
                                     Ok(permit) => permit,
                                     Err(_) => {
@@ -174,21 +226,39 @@ async fn connect_once(
                                             "connector_busy",
                                             "The connector is processing its bounded operation queue.",
                                         ) {
-                                            let _ = responses.send(response).await;
+                                            if let Ok(body) = serde_json::to_string(&response) {
+                                                let _ = operation_responses.send(
+                                                    EncodedOperationResponse {
+                                                        body,
+                                                        policy: policy_permit,
+                                                        deadline: execution_deadline,
+                                                        _permit: None,
+                                                    },
+                                                ).await;
+                                            }
                                         }
                                         return;
                                     }
                                 };
+                                if state_for_operation
+                                    .admit_policy_revision(&policy_permit)
+                                    .is_err()
+                                {
+                                    return;
+                                }
                                 tracing::debug!(
                                     queue_wait_us = permit.queue_wait_us,
                                     "admitted relayed connector operation"
                                 );
                                 let cancellation = mdbase::OperationCancellation::new();
+                                let registration_state = state_for_operation.clone();
+                                let registration =
+                                    registration_state.register_remote_operation(&cancellation);
                                 let worker_cancellation = cancellation.clone();
                                 let execution_state = Arc::new(OperationExecutionState::default());
                                 let worker_execution_state = execution_state.clone();
-                                let timeout_request = RelayTimeoutRequest::from_message(&relay_message)
-                                    .expect("admitted operation has timeout response metadata");
+                                let timeout_request_id = relay_operation_request_id(&relay_message)
+                                    .expect("admitted operation has request metadata");
                                 let execution = operation_executor::spawn_blocking(admission.class, move || {
                                     let response = state_for_operation.handle_relay_message_cancellable(
                                         relay_message,
@@ -199,13 +269,15 @@ async fn connect_once(
                                         Some(response) => serde_json::to_string(&response).map(|body| {
                                             Some(EncodedOperationResponse {
                                                 body,
-                                                _permit: permit,
+                                                policy: policy_permit,
+                                                deadline: execution_deadline,
+                                                _permit: Some(permit),
                                             })
                                         }),
                                         None => Ok(None),
                                     }
                                 });
-                                match tokio::time::timeout(execution_timeout(deadline_unix_ms), execution).await {
+                                match tokio::time::timeout_at(execution_deadline, execution).await {
                                     Ok(Ok(Ok(Some(response)))) => {
                                         let _ = operation_responses.send(response).await;
                                     }
@@ -218,19 +290,15 @@ async fn connect_once(
                                         let durable_mutation = execution_state.begin_timeout();
                                         cancellation.cancel();
                                         tracing::warn!(
-                                            request_id = %timeout_request.request_id,
+                                            request_id = %timeout_request_id,
                                             class = ?admission.class,
                                             durable_mutation,
                                             "relayed connector operation exceeded its execution deadline"
                                         );
-                                        if let Some(response) = relay_operation_timeout(
-                                            &timeout_request,
-                                            durable_mutation,
-                                        ) {
-                                            let _ = responses.send(response).await;
-                                        }
+                                        let _ = durable_mutation;
                                     }
                                 }
+                                registration_state.unregister_remote_operation(registration);
                             });
                         } else {
                             let state_for_control = state.clone();
@@ -238,17 +306,15 @@ async fn connect_once(
                             let policy_applied = policy_applied_rx.clone();
                             let required_policy_generation = received_policy_generation;
                             let control_slots = control_slots.clone();
+                            let session_open = session_open.clone();
                             tokio::spawn(async move {
-                                if !wait_for_policy(policy_applied, required_policy_generation).await.unwrap_or(false) {
-                                    return;
-                                }
-                                let Ok(permit) = control_slots.acquire_owned().await else {
-                                    return;
-                                };
-                                match tokio::task::spawn_blocking(move || {
-                                    let _permit = permit;
-                                    state_for_control.handle_relay_message(relay_message)
-                                }).await {
+                                match dispatch_control(
+                                    policy_applied,
+                                    required_policy_generation,
+                                    control_slots,
+                                    session_open,
+                                    move || state_for_control.handle_relay_message(relay_message),
+                                ).await {
                                     Ok(Some(response)) => {
                                         let _ = responses.send(response).await;
                                     }
@@ -276,27 +342,42 @@ async fn connect_once(
                         let file_responses = file_responses.clone();
                         let policy_applied = policy_applied_rx.clone();
                         let required_policy_generation = received_policy_generation;
+                        let execution_deadline = state.remote_policy_execution_deadline(None);
                         tokio::spawn(async move {
-                            if !wait_for_policy(policy_applied, required_policy_generation).await.unwrap_or(false) {
-                                let _ = file_responses.send(rejected_file_frame(&request)).await;
+                            if tokio::time::timeout_at(
+                                execution_deadline,
+                                wait_for_policy(policy_applied, required_policy_generation),
+                            ).await.ok().and_then(Result::ok) != Some(true) {
                                 return;
                             }
-                            let permit = match state_for_file.admission().admit(admission).await {
-                                Ok(permit) => permit,
-                                Err(_) => {
-                                    let _ = file_responses.send(rejected_file_frame(&request)).await;
-                                    return;
-                                }
+                            let Ok(policy_permit) = state_for_file.capture_policy_revision() else {
+                                return;
                             };
+                            let permit = match state_for_file
+                                .admission()
+                                .admit_before(admission, queue_deadline(execution_deadline))
+                                .await
+                            {
+                                Ok(permit) => permit,
+                                Err(_) => return,
+                            };
+                            if state_for_file.admit_policy_revision(&policy_permit).is_err() {
+                                return;
+                            }
                             let response = tokio::task::spawn_blocking(move || {
                                 let _permit = permit;
                                 state_for_file.handle_relay_file_frame(request)
-                            }).await;
-                            match response {
-                                Ok(response) => {
-                                    let _ = file_responses.send(response).await;
+                            });
+                            match tokio::time::timeout_at(execution_deadline, response).await {
+                                Ok(Ok(frame)) => {
+                                    let _ = file_responses.send(FileResponse {
+                                        frame,
+                                        policy: policy_permit,
+                                        deadline: execution_deadline,
+                                    }).await;
                                 }
-                                Err(error) => tracing::warn!(%error, "relay file task failed"),
+                                Ok(Err(error)) => tracing::warn!(%error, "relay file task failed"),
+                                Err(_) => tracing::warn!("relay file task exceeded its deadline"),
                             }
                         });
                     }
@@ -315,18 +396,47 @@ async fn connect_once(
                 let Some(response) = response else {
                     return Err("relay operation response channel closed".into());
                 };
-                tokio::time::timeout(
-                    execution_timeout(None),
+                let Ok(publication) = state.acquire_publication_permit(
+                    &response.policy,
+                    response.deadline,
+                ) else {
+                    continue;
+                };
+                let delivery = tokio::time::timeout_at(
+                    response.deadline,
                     writer.send(Message::Text(response.body.into())),
-                )
-                .await
-                .map_err(|_| "relay operation response delivery timed out")??;
+                ).await;
+                drop(publication);
+                match delivery {
+                    Ok(result) => result?,
+                    Err(_) => tracing::debug!("suppressed expired relay operation response"),
+                }
             }
             response = file_response_rx.recv() => {
                 let Some(response) = response else {
                     return Err("relay file response channel closed".into());
                 };
-                writer.send(Message::Binary(response.encode()?.into())).await?;
+                let Ok(publication) = state.acquire_publication_permit(
+                    &response.policy,
+                    response.deadline,
+                ) else {
+                    continue;
+                };
+                let encoded = response.frame.encode()?;
+                let delivery = tokio::time::timeout_at(
+                    response.deadline,
+                    writer.send(Message::Binary(encoded.into())),
+                ).await;
+                drop(publication);
+                match delivery {
+                    Ok(result) => result?,
+                    Err(_) => tracing::debug!("suppressed expired relay file response"),
+                }
+            }
+            result = inventory_sync.join_next(), if !inventory_sync.is_empty() => {
+                if let Some(Err(error)) = result {
+                    tracing::warn!(%error, "collection sync task failed");
+                }
             }
             _ = sync_interval.tick() => {
                 if usage_reporting {
@@ -340,20 +450,22 @@ async fn connect_once(
                         )?.into())).await?;
                     }
                 }
-                let client = client.clone();
-                let server_url = server_url.to_string();
-                let connector_token = connector_token.to_string();
-                let state = state.clone();
-                tokio::spawn(async move {
-                    if let Err(error) = sync_collections(
-                        &client,
-                        &server_url,
-                        &connector_token,
-                        &state,
-                    ).await {
-                        tracing::warn!(%error, "collection sync failed");
-                    }
-                });
+                if inventory_sync.is_empty() {
+                    let client = client.clone();
+                    let server_url = server_url.to_string();
+                    let connector_token = connector_token.to_string();
+                    let state = state.clone();
+                    inventory_sync.spawn(async move {
+                        if let Err(error) = sync_collections(
+                            &client,
+                            &server_url,
+                            &connector_token,
+                            &state,
+                        ).await {
+                            tracing::warn!(%error, "collection sync failed");
+                        }
+                    });
+                }
             }
         }
     }
@@ -376,6 +488,7 @@ fn relay_operation_rejection(
     )
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 struct RelayTimeoutRequest {
     protocol_version: u32,
@@ -383,6 +496,7 @@ struct RelayTimeoutRequest {
     encrypted: bool,
 }
 
+#[cfg(test)]
 impl RelayTimeoutRequest {
     fn from_message(request: &RelayMessage) -> Option<Self> {
         match request {
@@ -405,6 +519,7 @@ impl RelayTimeoutRequest {
     }
 }
 
+#[cfg(test)]
 fn relay_operation_timeout(
     request: &RelayTimeoutRequest,
     durable_mutation: bool,
@@ -471,6 +586,14 @@ fn relay_operation_problem(
     }
 }
 
+fn relay_operation_request_id(message: &RelayMessage) -> Option<uuid::Uuid> {
+    match message {
+        RelayMessage::OperationRequest { request_id, .. } => Some(*request_id),
+        RelayMessage::EncryptedOperationRequest { envelope } => Some(envelope.request_id),
+        _ => None,
+    }
+}
+
 fn relay_operation_deadline(message: &RelayMessage) -> Option<u64> {
     match message {
         RelayMessage::EncryptedOperationRequest { envelope } => envelope.deadline_unix_ms,
@@ -502,15 +625,42 @@ fn relay_admission_request(message: &RelayMessage) -> Option<AdmissionRequest> {
     }
 }
 
-fn rejected_file_frame(request: &RelayFileFrame) -> RelayFileFrame {
-    RelayFileFrame {
-        kind: RelayFileKind::Rejected,
-        header: mdbase_connect_protocol::RelayFileHeader {
-            message_type: RelayFileKind::Rejected,
-            ..request.header.clone()
-        },
-        payload: Vec::new(),
+async fn dispatch_control<T: Send + 'static>(
+    policy_applied: tokio::sync::watch::Receiver<(u64, bool)>,
+    required_generation: u64,
+    control_slots: Arc<tokio::sync::Semaphore>,
+    mut session_open: tokio::sync::watch::Receiver<()>,
+    handler: impl FnOnce() -> Option<T> + Send + 'static,
+) -> Result<Option<T>, tokio::task::JoinError> {
+    let ready = tokio::select! {
+        biased;
+        _ = session_open.changed() => return Ok(None),
+        ready = wait_for_policy(policy_applied.clone(), required_generation) => ready.unwrap_or(false),
+    };
+    if !ready {
+        return Ok(None);
     }
+    let permit = tokio::select! {
+        biased;
+        _ = session_open.changed() => return Ok(None),
+        permit = control_slots.acquire_owned() => match permit {
+            Ok(permit) => permit,
+            Err(_) => return Ok(None),
+        },
+    };
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        // Narrow entry guarantee, including time queued in the blocking pool.
+        // Release watch borrows before entering the handler. This does not abort
+        // or undo setup that has already entered when policy/session changes.
+        if session_open.has_changed().is_err()
+            || *policy_applied.borrow() != (required_generation, true)
+        {
+            return None;
+        }
+        handler()
+    })
+    .await
 }
 
 async fn wait_for_policy(
@@ -530,7 +680,7 @@ async fn sync_collections(
     connector_token: &str,
     state: &AgentState,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let collections = state.collections()?;
+    let collections = state.collection_inventory()?;
     let inventory_revision = state.next_inventory_revision()?;
     let payload = serde_json::json!({
         "relay_public_key": state.relay_public_key(),
@@ -576,147 +726,4 @@ fn websocket_url(server_url: &str) -> Result<Url, Box<dyn std::error::Error + Se
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn maps_http_server_to_websocket_relay() {
-        assert_eq!(
-            websocket_url("https://connect.example/base")
-                .unwrap()
-                .as_str(),
-            "wss://connect.example/v1/relay"
-        );
-    }
-
-    #[tokio::test]
-    async fn policy_barrier_orders_generations_and_fails_closed() {
-        let (sender, receiver) = tokio::sync::watch::channel((0_u64, true));
-        let waiting = tokio::spawn(wait_for_policy(receiver.clone(), 2));
-        sender.send_replace((1, true));
-        tokio::task::yield_now().await;
-        assert!(!waiting.is_finished());
-        sender.send_replace((2, true));
-        assert!(waiting.await.unwrap().unwrap());
-
-        let failed = tokio::spawn(wait_for_policy(receiver, 3));
-        sender.send_replace((3, false));
-        assert!(!failed.await.unwrap().unwrap());
-    }
-
-    #[test]
-    fn overload_rejections_preserve_request_identity() {
-        let request_id = uuid::Uuid::new_v4();
-        let request = RelayMessage::OperationRequest {
-            protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
-            request_id,
-            grant_id: uuid::Uuid::new_v4(),
-            collection_id: uuid::Uuid::new_v4(),
-            application_id: uuid::Uuid::new_v4(),
-            operation: "read".to_string(),
-            input: serde_json::json!({}),
-        };
-        assert!(matches!(
-            relay_operation_rejection(&request, "connector_busy", "busy"),
-            Some(RelayMessage::OperationResponse {
-                request_id: returned,
-                problem: Some(problem),
-                ..
-            }) if returned == request_id && problem.code == "connector_busy"
-        ));
-    }
-
-    #[test]
-    fn execution_deadlines_report_durable_mutations_as_unknown() {
-        let request_id = uuid::Uuid::new_v4();
-        let encrypted = RelayMessage::EncryptedOperationRequest {
-            envelope: mdbase_connect_protocol::EncryptedRelayEnvelope {
-                protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
-                suite: "P256-HKDF-SHA256-AES256GCM".to_string(),
-                request_id,
-                grant_id: uuid::Uuid::new_v4(),
-                application_id: uuid::Uuid::new_v4(),
-                connector_id: uuid::Uuid::new_v4(),
-                collection_id: uuid::Uuid::new_v4(),
-                operation: "create".to_string(),
-                scope_epoch: 1,
-                key_id: "deadline-test".to_string(),
-                counter: "1".to_string(),
-                deadline_unix_ms: Some(1),
-                ciphertext: "ciphertext".to_string(),
-            },
-        };
-        let timeout = RelayTimeoutRequest::from_message(&encrypted).unwrap();
-        assert!(matches!(
-            relay_operation_timeout(&timeout, true),
-            Some(RelayMessage::EncryptedOperationRejected {
-                request_id: returned,
-                problem,
-                ..
-            }) if returned == request_id
-                && problem.code == "operation_outcome_unknown"
-                && problem.operation_outcome == Some(ConnectOperationOutcome::Unknown)
-                && problem.details == Some(serde_json::json!({ "request_id": request_id }))
-        ));
-    }
-
-    #[test]
-    fn conservative_admission_does_not_make_encrypted_reads_outcome_unknown() {
-        for operation in ["sync", "file_control"] {
-            let request_id = uuid::Uuid::new_v4();
-            let encrypted = RelayMessage::EncryptedOperationRequest {
-                envelope: mdbase_connect_protocol::EncryptedRelayEnvelope {
-                    protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
-                    suite: "P256-HKDF-SHA256-AES256GCM".to_string(),
-                    request_id,
-                    grant_id: uuid::Uuid::new_v4(),
-                    application_id: uuid::Uuid::new_v4(),
-                    connector_id: uuid::Uuid::new_v4(),
-                    collection_id: uuid::Uuid::new_v4(),
-                    operation: operation.to_string(),
-                    scope_epoch: 1,
-                    key_id: "deadline-test".to_string(),
-                    counter: "1".to_string(),
-                    deadline_unix_ms: Some(1),
-                    ciphertext: "ciphertext".to_string(),
-                },
-            };
-            let timeout = RelayTimeoutRequest::from_message(&encrypted).unwrap();
-            assert!(matches!(
-                relay_operation_timeout(&timeout, false),
-                Some(RelayMessage::EncryptedOperationRejected {
-                    request_id: returned,
-                    problem,
-                    ..
-                }) if returned == request_id
-                    && problem.code == "operation_cancelled"
-                    && problem.operation_outcome == Some(ConnectOperationOutcome::NotSent)
-            ));
-        }
-    }
-
-    #[test]
-    fn execution_deadlines_cancel_reads_as_not_sent() {
-        let request_id = uuid::Uuid::new_v4();
-        let request = RelayMessage::OperationRequest {
-            protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
-            request_id,
-            grant_id: uuid::Uuid::new_v4(),
-            collection_id: uuid::Uuid::new_v4(),
-            application_id: uuid::Uuid::new_v4(),
-            operation: "query".to_string(),
-            input: serde_json::json!({}),
-        };
-        let timeout = RelayTimeoutRequest::from_message(&request).unwrap();
-        assert!(matches!(
-            relay_operation_timeout(&timeout, false),
-            Some(RelayMessage::OperationResponse {
-                request_id: returned,
-                problem: Some(problem),
-                ..
-            }) if returned == request_id
-                && problem.code == "operation_cancelled"
-                && problem.operation_outcome == Some(ConnectOperationOutcome::NotSent)
-        ));
-    }
-}
+mod tests;

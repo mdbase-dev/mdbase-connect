@@ -1,12 +1,135 @@
 use super::*;
 
+trait CollectionDescriptionSource {
+    fn spec_profile(&self) -> SpecProfile;
+    fn types(&self) -> &HashMap<String, mdbase::types::schema::TypeDef>;
+    fn list_data_contracts(&self) -> Vec<mdbase::data_contracts::DataContractDefinition>;
+    fn get_data_contract_implementations(
+        &self,
+        contract: &str,
+        version: &str,
+    ) -> Vec<mdbase::data_contracts::DataContractImplementationDescriptor>;
+}
+
+impl CollectionDescriptionSource for Collection {
+    fn spec_profile(&self) -> SpecProfile {
+        Collection::spec_profile(self)
+    }
+
+    fn types(&self) -> &HashMap<String, mdbase::types::schema::TypeDef> {
+        Collection::types(self)
+    }
+
+    fn list_data_contracts(&self) -> Vec<mdbase::data_contracts::DataContractDefinition> {
+        Collection::list_data_contracts(self)
+    }
+
+    fn get_data_contract_implementations(
+        &self,
+        contract: &str,
+        version: &str,
+    ) -> Vec<mdbase::data_contracts::DataContractImplementationDescriptor> {
+        Collection::get_data_contract_implementations(self, contract, version)
+    }
+}
+
+impl CollectionDescriptionSource for mdbase::CollectionResources {
+    fn spec_profile(&self) -> SpecProfile {
+        self.spec_profile()
+    }
+
+    fn types(&self) -> &HashMap<String, mdbase::types::schema::TypeDef> {
+        self.types()
+    }
+
+    fn list_data_contracts(&self) -> Vec<mdbase::data_contracts::DataContractDefinition> {
+        self.list_data_contracts()
+    }
+
+    fn get_data_contract_implementations(
+        &self,
+        contract: &str,
+        version: &str,
+    ) -> Vec<mdbase::data_contracts::DataContractImplementationDescriptor> {
+        self.get_data_contract_implementations(contract, version)
+    }
+}
+
+fn open_registered_resources(
+    registered: &CollectionSummary,
+) -> Result<mdbase::CollectionResources, ConnectError> {
+    let path = Path::new(&registered.path);
+    assert_local_authority_folder(path)?;
+    mdbase::CollectionResources::open(path).map_err(|error| {
+        if registered.spec_version.starts_with("0.3") {
+            let report = mdbase::v03::inspect_collection(path);
+            if !report.valid {
+                return ConnectError::invalid_collection(report.diagnostics);
+            }
+        }
+        ConnectError::CollectionOpen(format!("resource catalog is invalid: {error}"))
+    })
+}
+
+fn contract_descriptors(
+    source: &impl CollectionDescriptionSource,
+) -> Vec<CollectionContractDescriptor> {
+    let mut contracts = source
+        .list_data_contracts()
+        .into_iter()
+        .filter_map(|definition| {
+            let implementations = source
+                .get_data_contract_implementations(&definition.id, &definition.version)
+                .into_iter()
+                .map(|implementation| {
+                    mdbase_connect_protocol::CollectionContractImplementationDescriptor {
+                        type_name: implementation.type_name,
+                        type_version: implementation.type_version,
+                        type_path: implementation.source_path,
+                        digest: implementation.implementation_digest,
+                        fields: implementation.fields,
+                        binding: implementation.binding,
+                    }
+                })
+                .collect::<Vec<_>>();
+            (!implementations.is_empty()).then_some(CollectionContractDescriptor {
+                implementations,
+                contract_type: definition.contract_type,
+                id: definition.id,
+                version: definition.version,
+                digest: definition.digest,
+                schema: definition
+                    .record_schema
+                    .expect("record implementations require record_schema"),
+                binding_schema: definition.binding_schema,
+            })
+        })
+        .collect::<Vec<_>>();
+    contracts.sort_by(|left, right| (&left.id, &left.version).cmp(&(&right.id, &right.version)));
+    contracts
+}
+
 impl CollectionRegistry {
     pub fn describe(&self, id: Uuid) -> Result<CollectionDescription, ConnectError> {
         let registered = self.get(id)?;
-        let provider = self.provider_for(&registered)?;
-        provider
-            .with_collection_read(|collection| self.describe_loaded(&registered, collection))
-            .map_err(|error| classify_collection_error(&registered, error))
+        self.describe_registered(&registered)
+    }
+
+    pub(super) fn describe_registered(
+        &self,
+        registered: &CollectionSummary,
+    ) -> Result<CollectionDescription, ConnectError> {
+        let resources = open_registered_resources(registered)?;
+        self.describe_source(registered, &resources)
+            .map_err(|error| classify_collection_error(registered, error))
+    }
+
+    pub(super) fn describe_contracts_registered(
+        &self,
+        registered: &CollectionSummary,
+    ) -> Result<Vec<CollectionContractDescriptor>, ConnectError> {
+        let resources = open_registered_resources(registered)?;
+        Ok(contract_descriptors(&resources))
     }
 
     pub(super) fn describe_loaded(
@@ -14,25 +137,35 @@ impl CollectionRegistry {
         registered: &CollectionSummary,
         collection: &Collection,
     ) -> Result<CollectionDescription, ConnectError> {
+        self.describe_source(registered, collection)
+    }
+
+    fn describe_source(
+        &self,
+        registered: &CollectionSummary,
+        collection: &impl CollectionDescriptionSource,
+    ) -> Result<CollectionDescription, ConnectError> {
         let mut types = Vec::new();
         let mut contracts = Vec::new();
         let mut configuration = None;
         if collection.spec_profile() == SpecProfile::V03 {
-            let report = mdbase::v03::inspect_collection(Path::new(&registered.path));
-            if !report.valid {
-                return Err(ConnectError::invalid_collection(report.diagnostics));
-            }
-            configuration = report.config.as_ref().and_then(portable_configuration);
-            for type_file in report.types {
-                let description = type_file
-                    .frontmatter
-                    .get("description")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
-                let collection_metadata = type_file.frontmatter.get("collection").cloned();
-                let lifecycle = type_file.frontmatter.get("lifecycle").cloned();
-                let extensions = type_file
-                    .frontmatter
+            let path = Path::new(&registered.path);
+            let raw_configuration = mdbase::v03::inspect_configuration(path)
+                .map_err(ConnectError::invalid_collection)?;
+            configuration = portable_configuration(&raw_configuration);
+            for type_definition in collection.types().values() {
+                let Some(frontmatter) = type_definition.v03_frontmatter.as_ref() else {
+                    continue;
+                };
+                let Some(type_path) = type_definition.source_path.as_ref() else {
+                    continue;
+                };
+                let Some(schema) = type_definition.json_schema.as_ref() else {
+                    continue;
+                };
+                let collection_metadata = frontmatter.get("collection").cloned();
+                let lifecycle = frontmatter.get("lifecycle").cloned();
+                let extensions = frontmatter
                     .as_object()
                     .into_iter()
                     .flatten()
@@ -40,55 +173,23 @@ impl CollectionRegistry {
                     .map(|(key, value)| (key.clone(), value.clone()))
                     .collect::<serde_json::Map<_, _>>();
                 types.push(CollectionTypeDescriptor {
-                    name: type_file.name,
-                    version: type_file.version,
-                    description,
-                    revision: fs::read(Path::new(&registered.path).join(&type_file.path))
-                        .ok()
-                        .map(|bytes| format!("sha256:{:x}", Sha256::digest(&bytes))),
-                    path: Some(type_file.path),
-                    definition: type_file
-                        .frontmatter
-                        .as_object()
-                        .cloned()
-                        .map(Value::Object),
-                    schema: type_file.schema,
+                    name: frontmatter
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&type_definition.name)
+                        .to_string(),
+                    version: type_definition.version,
+                    description: type_definition.description.clone(),
+                    revision: type_definition.source_revision.clone(),
+                    path: Some(type_path.clone()),
+                    definition: frontmatter.as_object().cloned().map(Value::Object),
+                    schema: schema.clone(),
                     collection: collection_metadata,
                     lifecycle,
                     extensions,
                 });
             }
-            contracts = collection
-                .list_data_contracts()
-                .into_iter()
-                .filter_map(|definition| {
-                    let implementations = collection
-                        .get_data_contract_implementations(&definition.id, &definition.version)
-                        .into_iter()
-                        .map(|implementation| {
-                            mdbase_connect_protocol::CollectionContractImplementationDescriptor {
-                                type_name: implementation.type_name,
-                                type_version: implementation.type_version,
-                                type_path: implementation.source_path,
-                                digest: implementation.implementation_digest,
-                                fields: implementation.fields,
-                                binding: implementation.binding,
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    (!implementations.is_empty()).then_some(CollectionContractDescriptor {
-                        implementations,
-                        contract_type: definition.contract_type,
-                        id: definition.id,
-                        version: definition.version,
-                        digest: definition.digest,
-                        schema: definition
-                            .record_schema
-                            .expect("record implementations require record_schema"),
-                        binding_schema: definition.binding_schema,
-                    })
-                })
-                .collect();
+            contracts = contract_descriptors(collection);
         }
         types.sort_by(|left, right| left.name.cmp(&right.name));
         contracts
@@ -185,6 +286,9 @@ impl CollectionRegistry {
             || collection.description != description
             || collection.spec_version != metadata.spec_version
         {
+            collection.display_name = display_name;
+            collection.description = description;
+            collection.spec_version = metadata.spec_version;
             self.connection()?.execute(
                 "UPDATE collections
                  SET display_name = ?2, description = ?3, spec_version = ?4,
@@ -192,14 +296,11 @@ impl CollectionRegistry {
                  WHERE id = ?1",
                 params![
                     collection.id.to_string(),
-                    display_name,
-                    description,
-                    metadata.spec_version
+                    collection.display_name,
+                    collection.description,
+                    collection.spec_version
                 ],
             )?;
-            collection.display_name = display_name;
-            collection.description = description;
-            collection.spec_version = metadata.spec_version;
         }
         Ok(())
     }

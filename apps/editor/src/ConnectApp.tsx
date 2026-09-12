@@ -16,6 +16,10 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEve
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import { MdbaseMark } from "./Brand";
 import {
+  applyConnectServerOverride,
+  connectServerUrl
+} from "./connect-endpoint";
+import {
   ConfirmAction,
   ConnectEmpty as Empty,
   ConnectPage as Page,
@@ -23,6 +27,8 @@ import {
   InlineRename
 } from "./ConnectPrimitives";
 import { EditorRail } from "./EditorRail";
+import { FeedbackPage } from "./FeedbackPage";
+import { feedbackEndpoint as configuredFeedbackEndpoint, recordFeedbackFailure, turnstileSiteKey, type FeedbackSourceView } from "./feedback";
 import {
   BracketsCurlyIcon as Braces,
   GearSixIcon as Settings,
@@ -34,7 +40,7 @@ import {
 } from "./icons";
 import "./connect.css";
 
-type ConnectView = "overview" | "storage" | "access" | "collections" | "applications" | "computers" | "account";
+type ConnectView = FeedbackSourceView;
 type Grant = ManagementOverview["grants"][number];
 type BusyOperations = ReadonlySet<string>;
 type PerformOperation = (
@@ -42,9 +48,7 @@ type PerformOperation = (
   action: (options: ManagementRequestOptions) => Promise<void>
 ) => Promise<boolean>;
 
-const serverUrl = new URLSearchParams(location.search).get("server")
-  ?? import.meta.env.VITE_MDBASE_CONNECT_URL
-  ?? "https://connect.mdbase.dev";
+const serverUrl = connectServerUrl();
 const management = new ConnectManagementClient(serverUrl);
 const desktopReleaseUrl = "https://mdbase.dev/downloads/";
 const allOperations = [
@@ -57,6 +61,7 @@ const allOperations = [
 export function ConnectApp() {
   const [accountDeleted, setAccountDeleted] = useState(location.pathname === "/connect/account-deleted");
   const [view, setView] = useState<ConnectView>(viewFromPath);
+  const [feedbackSourceView, setFeedbackSourceView] = useState<FeedbackSourceView>("overview");
   const [data, setData] = useState<ManagementOverview>();
   const [sessions, setSessions] = useState<Awaited<ReturnType<typeof management.sessions>>["sessions"]>();
   const [refreshError, setRefreshError] = useState("");
@@ -90,6 +95,7 @@ export function ConnectApp() {
         }
       } catch (reason) {
         if (signal?.aborted) return;
+        recordFeedbackFailure("management_refresh_failed", reason);
         if (reason instanceof ManagementApiError && reason.status === 401) {
           location.href = new URL("/login", management.baseUrl).href;
           return;
@@ -142,7 +148,10 @@ export function ConnectApp() {
       await action({ signal: controller.signal });
       succeeded = true;
     } catch (reason) {
-      if (!lifecycle.aborted) setMutationError(errorMessage(reason));
+      if (!lifecycle.aborted) {
+        recordFeedbackFailure("management_request_failed", reason);
+        setMutationError(errorMessage(reason));
+      }
     } finally {
       lifecycle.removeEventListener("abort", abort);
       if (!lifecycle.aborted) await refresh(lifecycle);
@@ -171,6 +180,7 @@ export function ConnectApp() {
   }
 
   function navigate(next: ConnectView, collectionId?: string) {
+    if (next === "feedback" && view !== "feedback") setFeedbackSourceView(view);
     const path = next === "overview" ? "/connect" : `/connect/${next}`;
     const url = new URL(location.href);
     url.pathname = path;
@@ -216,8 +226,19 @@ export function ConnectApp() {
   if (!data) return <ConnectLoading error={refreshError} />;
 
   const activeView = selectedCollection || !isCollectionView(view) ? view : "collections";
-  const activeGrants = data.grants.filter((grant) => grant.revocation_status !== "revoked");
+  const freshlyAuthorized = new Set(data.grants
+    .filter((grant) => grant.revocation_status === "active"
+      && grant.scope.access === "full_collection"
+      && grant.scope.contracts.length === 0)
+    .map((grant) => `${grant.application_id}\0${grant.collection_id}`));
+  const activeGrants = data.grants.filter((grant) => grant.revocation_status !== "revoked"
+    || (typeof grant.reauthorization_required_at === "string"
+      && !freshlyAuthorized.has(`${grant.application_id}\0${grant.collection_id}`)));
   const applications = groupApplicationAccess(activeGrants);
+  const feedbackEndpoint = configuredFeedbackEndpoint();
+  const feedbackApplicationOrigins = [...new Set((selectedCollection
+    ? activeGrants.filter((grant) => grant.collection_id === selectedCollection.id)
+    : activeGrants).map((grant) => normalizedOrigin(grant.application_origin)).filter(Boolean))].sort();
   const selectedGrants = selectedCollection
     ? activeGrants.filter((grant) => grant.collection_id === selectedCollection.id)
     : [];
@@ -240,6 +261,7 @@ export function ConnectApp() {
       onSwitch={() => navigate("collections", selectedCollection?.id)}
       footer={<>
         {selectedCollection && <p role="status"><span className={`status-dot ${selectedCollection.available ? "connected" : "reconnecting"}`} aria-hidden="true" /><span>{selectedCollection.status}</span></p>}
+        {feedbackEndpoint && <RouteLink className="connect-rail-feedback" view="feedback" collectionId={selectedCollection?.id} navigate={navigate}>Send feedback</RouteLink>}
         <RouteLink className="connect-rail-account" view="account" collectionId={selectedCollection?.id} navigate={navigate} ariaLabel="Open account and sessions"><span className="connect-avatar" aria-hidden="true">{initials(data.user.name)}</span><span><strong>{data.user.name}</strong><small>{identityLabel(data.user)}</small></span></RouteLink>
       </>}
     />
@@ -258,6 +280,7 @@ export function ConnectApp() {
           <NavLink label="Applications" icon={<Package />} selected={activeView === "applications"} view="applications" collectionId={selectedCollection?.id} navigate={navigate} />
           <NavLink label="Computers" icon={<Braces />} selected={activeView === "computers"} view="computers" collectionId={selectedCollection?.id} navigate={navigate} />
           <NavLink label="Account & sessions" icon={<Settings />} selected={activeView === "account"} view="account" collectionId={selectedCollection?.id} navigate={navigate} />
+          {feedbackEndpoint && <RouteLink className="connect-feedback-mobile-link" view="feedback" collectionId={selectedCollection?.id} navigate={navigate}>Send feedback</RouteLink>}
         </section>
       </nav>
     </aside>
@@ -270,7 +293,7 @@ export function ConnectApp() {
       />}
       {pendingRequest && <PendingRequestBanner request={pendingRequest} collectionName={pendingCollection?.name} count={data.pending_authorizations.length} />}
       {activeView === "overview" && (selectedCollection
-        ? <CollectionOverview collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} navigate={navigate} />
+        ? <CollectionOverview sharingAvailable={data.collection_sharing_available === true} collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} navigate={navigate} />
         : <Collections data={data} busy={busy} perform={perform} navigate={navigate} />)}
       {activeView === "storage" && selectedCollection && <Storage collection={selectedCollection} busy={busy} perform={perform} />}
       {activeView === "access" && selectedCollection && <CollectionAccess collection={selectedCollection} groups={selectedApplications} busy={busy} perform={perform} />}
@@ -278,6 +301,15 @@ export function ConnectApp() {
       {activeView === "applications" && <Applications groups={applications} busy={busy} perform={perform} />}
       {activeView === "computers" && <Computers data={data} busy={busy} perform={perform} />}
       {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onDeleted={() => setAccountDeleted(true)} />}
+      {activeView === "feedback" && feedbackEndpoint && <FeedbackPage
+        endpoint={feedbackEndpoint}
+        turnstileSiteKey={turnstileSiteKey()}
+        sourceView={feedbackSourceView}
+        collectionName={selectedCollection?.name}
+        applicationOrigins={feedbackApplicationOrigins}
+        onDone={() => navigate(feedbackSourceView === "feedback" ? "overview" : feedbackSourceView, selectedCollection?.id)}
+      />}
+      {activeView === "feedback" && !feedbackEndpoint && <Page title="Feedback unavailable" intro="This deployment has not configured a feedback destination."><section><Empty title="Feedback is unavailable" body="Contact the person who operates this mdbase connect deployment." /></section></Page>}
     </main>
   </div>;
 }
@@ -310,7 +342,8 @@ function PendingRequestBanner({ request, collectionName, count }: {
   </a>;
 }
 
-function CollectionOverview({ collection, applications, busy, perform, navigate }: {
+function CollectionOverview({ collection, applications, busy, perform, navigate, sharingAvailable }: {
+  sharingAvailable: boolean;
   collection: CollectionRow;
   applications: ApplicationAccessGroup<Grant>[];
   busy: BusyOperations;
@@ -327,7 +360,7 @@ function CollectionOverview({ collection, applications, busy, perform, navigate 
       {applications.map((application) => <div className="connect-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0].homepage)}</small></div><span>{permissionSummary(application.grants)}</span><RouteLink view="access" collectionId={collection.id} navigate={navigate}>Review</RouteLink></div>)}
       {applications.length === 0 && <Empty title="No connected applications" body="Applications appear after you approve access to this collection." />}
     </section>
-    {collection.kind === "hosted" && collection.source.access.can_manage_members && <CollectionSharingPanel collection={collection.source} busy={busy} perform={perform} />}
+    {collection.kind === "hosted" && collection.source.access.can_manage_members && <CollectionSharingPanel sharingAvailable={sharingAvailable} collection={collection.source} busy={busy} perform={perform} />}
     <section>
       <SectionTitle title="Connection" />
       <div className="connect-row"><div><strong>{collection.status}</strong><small>{connectionDescription(collection)}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span></div>
@@ -335,7 +368,8 @@ function CollectionOverview({ collection, applications, busy, perform, navigate 
   </Page>;
 }
 
-function CollectionSharingPanel({ collection, busy, perform }: {
+function CollectionSharingPanel({ collection, busy, perform, sharingAvailable }: {
+  sharingAvailable: boolean;
   collection: HostedCollection;
   busy: BusyOperations;
   perform: PerformOperation;
@@ -370,6 +404,14 @@ function CollectionSharingPanel({ collection, busy, perform }: {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  const hasPendingMembers = members?.some((member) => member.state === "changing" || member.state === "revoking") ?? false;
+  useEffect(() => {
+    if (!hasPendingMembers) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void load(controller.signal), 3_000);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [hasPendingMembers, members, load]);
 
   async function invite(event: FormEvent) {
     event.preventDefault();
@@ -415,22 +457,22 @@ function CollectionSharingPanel({ collection, busy, perform }: {
     <SectionTitle
       title="People & sharing"
       count={members?.length}
-      action={<button onClick={() => { setInviting(true); setShareLink(""); }}><Plus aria-hidden="true" />Invite person</button>}
+      action={sharingAvailable && <button onClick={() => { setInviting(true); setShareLink(""); }}><Plus aria-hidden="true" />Invite person</button>}
     />
     {loadError && <div className="connect-notice error" role="alert">{loadError}<button onClick={() => void load()}>Try again</button></div>}
-    {inviting && <form className="connect-inline-form connect-sharing-form" onSubmit={(event) => void invite(event)}>
+    {sharingAvailable && inviting && <form className="connect-inline-form connect-sharing-form" onSubmit={(event) => void invite(event)}>
       <label><span>Invite using</span><select value={targetMode} onChange={(event) => { setTargetMode(event.target.value as "email" | "invitee_code"); setTarget(""); }}><option value="email">Verified email</option><option value="invitee_code">Sharing code</option></select></label>
       <label><span>{targetMode === "email" ? "Email address" : "Sharing code"}</span><input autoFocus type={targetMode === "email" ? "email" : "text"} maxLength={targetMode === "email" ? 320 : 32} value={target} onChange={(event) => setTarget(event.target.value)} placeholder={targetMode === "email" ? "person@example.com" : "ABCD-EFGH"} /></label>
       <label><span>Role</span><select value={role} onChange={(event) => setRole(event.target.value as "viewer" | "editor")}><option value="viewer">Viewer</option><option value="editor">Editor</option></select></label>
-      <p>{role === "viewer" ? "Can read this collection and connect read-only apps or folders." : "Can edit, configure apps, rename, and manage non-owner members."}</p>
+      <p>{role === "viewer" ? "Can read this collection and connect read-only apps or folders." : "Can edit notes, manage types, rename this collection, and connect apps."}</p>
       <div><button type="button" onClick={() => setInviting(false)}>Cancel</button><button className="connect-primary-action" disabled={!target.trim() || busy.has(`sharing-invite-${collection.id}`)}>{busy.has(`sharing-invite-${collection.id}`) ? "Creating…" : "Create invitation"}</button></div>
     </form>}
-    {shareLink && <div className="connect-sharing-link" role="status"><div><strong>Invitation ready</strong><small>Send this private link to the invited person. It only works for the matching verified account.</small></div><input aria-label="Collection invitation link" readOnly value={shareLink} onFocus={(event) => event.currentTarget.select()} /><button onClick={() => void copyLink()}>{copied ? "Copied" : "Copy link"}</button></div>}
+    {shareLink && <div className="connect-sharing-link" role="status"><div><strong>Invitation ready</strong><small>Send this private link to the invited person. Email invitations require an already registered, verified account. If they have just signed up, create a new invitation.</small></div><input aria-label="Collection invitation link" readOnly value={shareLink} onFocus={(event) => event.currentTarget.select()} /><button onClick={() => void copyLink()}>{copied ? "Copied" : "Copy link"}</button></div>}
     {members?.map((member) => <div className="connect-row connect-member-row" key={member.id ?? "owner"}>
-      <div><strong>{member.name}</strong><small>{member.kind === "owner" ? "Collection owner" : member.state === "changing" ? "Changing permissions after provider cleanup" : member.state === "revoking" ? "Removing access from every replica" : member.role === "editor" ? "Can edit and manage members" : "Can view and connect read-only apps"}</small></div>
+      <div><strong>{member.name}</strong><small>{member.kind === "owner" ? "Collection owner" : member.state === "changing" ? "Updating access…" : member.state === "revoking" ? "Removing application and folder access…" : member.role === "editor" ? "Can edit notes and manage types" : "Can view and connect read-only apps"}</small></div>
       {member.kind === "owner" ? <span>Owner</span> : <>
-        <label className="connect-role-select"><span className="sr-only">Role for {member.name}</span><select value={member.role} disabled={member.state !== "active" || busy.has(`member-role-${member.id}`)} onChange={(event) => void mutate(`member-role-${member.id}`, (options) => management.changeCollectionMemberRole(collection.id, member.id!, event.target.value as "viewer" | "editor", options))}><option value="viewer">Viewer</option><option value="editor">Editor</option></select></label>
-        <ConfirmAction className="danger" label={member.state === "revoking" ? "Removing…" : "Remove"} question={`Remove ${member.name} from ${collection.display_name}? Their application and folder access will also be revoked.`} confirmLabel="Remove access" busy={member.state !== "active" || busy.has(`member-revoke-${member.id}`)} onConfirm={() => void mutate(`member-revoke-${member.id}`, (options) => management.revokeCollectionMember(collection.id, member.id!, options))} />
+        <label className="connect-role-select"><span className="sr-only">Role for {member.name}</span><select value={member.role} disabled={member.state !== "active" || (!sharingAvailable && member.role === "viewer") || busy.has(`member-role-${member.id}`)} onChange={(event) => void mutate(`member-role-${member.id}`, (options) => management.changeCollectionMemberRole(collection.id, member.id!, event.target.value as "viewer" | "editor", options))}><option value="viewer">Viewer</option><option value="editor">Editor</option></select></label>
+        <ConfirmAction className="danger" label={member.state === "revoking" ? "Removing…" : "Remove"} question={`Remove ${member.name} from ${collection.display_name}? Their application and folder access will also be revoked.`} confirmLabel="Remove access" busy={member.state === "revoking" || busy.has(`member-revoke-${member.id}`)} onConfirm={() => void mutate(`member-revoke-${member.id}`, (options) => management.revokeCollectionMember(collection.id, member.id!, options))} />
       </>}
     </div>)}
     {members === undefined && !loadError && <p className="connect-muted" role="status">Loading people…</p>}
@@ -592,6 +634,9 @@ function GrantEditor({ grant, busy, perform }: {
   if (grant.revocation_status === "revoking") {
     return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Local access is disabled. Waiting for the hosted authority to confirm revocation.</small></span><b>Revoking…</b></div>;
   }
+  if (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0) {
+    return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</small></span><b>Reauthorization required</b></div>;
+  }
   const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))];
   const [operations, setOperations] = useState(() => new Set(grant.operations));
   useEffect(() => setOperations(new Set(grant.operations)), [grant.operations]);
@@ -604,7 +649,7 @@ function GrantEditor({ grant, busy, perform }: {
         if (next.has(operation)) next.delete(operation); else next.add(operation);
         return next;
       })} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div>
-      <div className="connect-grant-meta"><span>Scope</span><strong>{grant.scope.access === "full_collection" ? "Full collection" : `${grant.scope.contracts.length} contract types`}</strong><span>Origin</span><strong>{grant.application_origin}</strong></div>
+      <div className="connect-grant-meta"><span>Scope</span><strong>Entire collection</strong><span>Origin</span><strong>{grant.application_origin}</strong></div>
       <div className="connect-row-actions"><button className="connect-primary-action" disabled={!changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => management.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}>Save narrower access</button><ConfirmAction className="danger" label="Revoke" question={`Revoke access to ${grant.collection_name}?`} confirmLabel="Revoke" busy={busy.has(`grant-${grant.id}`)} onConfirm={() => void perform(`grant-${grant.id}`, (options) => management.revokeGrant(grant.id, options))} /></div>
     </div>
   </details>;
@@ -620,12 +665,14 @@ function Computers({ data, busy, perform }: {
       <SectionTitle title="Connected computers" count={data.connectors.length} />
       {data.connectors.map((connector) => {
         const upgradeRequired = connector.compatibility === "upgrade_required";
+        const updateRecommended = connector.update_recommended === true;
         const online = !upgradeRequired && isConnectorOnline(connector.last_seen_at);
         const collections = data.collections.filter((collection) => collection.connector_id === connector.id);
         return <div className="connect-row" key={connector.id}>
           <div><strong>{connector.name}</strong><small>{collections.length} {collections.length === 1 ? "collection" : "collections"} · {connector.last_seen_at ? `Seen ${relativeTime(connector.last_seen_at)}` : "Not connected yet"}</small></div>
           <span className={`connect-status ${online ? "online" : "idle"}`}><i />{upgradeRequired ? "Update required" : online ? "Online" : "Offline"}</span>
           {upgradeRequired && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer">Install {connector.minimum_connector_version ? `version ${connector.minimum_connector_version} or later` : "the latest release"}</a>}
+          {!upgradeRequired && updateRecommended && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer">Update recommended for current policy protection</a>}
           <div className="connect-row-actions"><InlineRename value={connector.name} inputLabel={`Rename ${connector.name}`} busy={busy.has(`computer-${connector.id}`)} onSubmit={(name) => perform(`computer-${connector.id}`, (options) => management.renameConnector(connector.id, name, options))} /><ConfirmAction className="danger" label="Revoke" question={`Revoke ${connector.name} and the application grants routed through it?`} confirmLabel="Revoke computer" busy={busy.has(`computer-${connector.id}`)} onConfirm={() => void perform(`computer-${connector.id}`, (options) => management.revokeConnector(connector.id, options))} /></div>
         </div>;
       })}
@@ -727,7 +774,7 @@ function RouteLink({ view, collectionId, navigate, children, className = "", ari
 }
 
 function ConnectLoading({ error }: { error: string }) {
-  return <div className="connect-loading" aria-busy={!error}><MdbaseMark motion={error ? undefined : "bootstrap"} /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p></div>;
+  return <div className="connect-loading" aria-busy={!error}><MdbaseMark /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p></div>;
 }
 
 function DesktopRecoveryHelp({ action }: { action: string }) {
@@ -736,7 +783,7 @@ function DesktopRecoveryHelp({ action }: { action: string }) {
 
 function viewFromPath(): ConnectView {
   const segment = location.pathname.split("/")[2];
-  return segment === "storage" || segment === "access" || segment === "collections" || segment === "applications" || segment === "computers" || segment === "account" ? segment : "overview";
+  return segment === "storage" || segment === "access" || segment === "collections" || segment === "applications" || segment === "computers" || segment === "account" || segment === "feedback" ? segment : "overview";
 }
 
 function isCollectionView(view: ConnectView): boolean {
@@ -750,6 +797,7 @@ function viewLabel(view: ConnectView): string {
   if (view === "collections") return "All collections";
   if (view === "applications") return "Applications";
   if (view === "computers") return "Computers";
+  if (view === "feedback") return "Send feedback";
   return "Account & sessions";
 }
 
@@ -822,16 +870,20 @@ function joinWords(words: string[]): string {
 }
 
 function connectViewUrl(view: ConnectView, collectionId?: string): string {
-  const url = new URL(view === "overview" ? "/connect" : `/connect/${view}`, location.origin);
-  url.searchParams.set("server", new URL(management.baseUrl).origin);
+  const url = applyConnectServerOverride(
+    new URL(view === "overview" ? "/connect" : `/connect/${view}`, location.origin),
+    management.baseUrl
+  );
   if (collectionId) url.searchParams.set("collection", collectionId);
   return `${url.pathname}${url.search}`;
 }
 
 function editorSurfaceUrls(collectionId?: string): { notes: string; types: string; settings: string } {
   const surface = (name?: "types" | "settings") => {
-    const url = new URL("/", location.origin);
-    url.searchParams.set("server", new URL(management.baseUrl).origin);
+    const url = applyConnectServerOverride(
+      new URL("/", location.origin),
+      management.baseUrl
+    );
     if (collectionId) url.searchParams.set("collection", collectionId);
     if (name) url.searchParams.set("surface", name);
     return url.href;
@@ -842,7 +894,7 @@ function editorSurfaceUrls(collectionId?: string): { notes: string; types: strin
 function editorCollectionUrl(collectionId: string): string {
   const url = new URL("/", location.origin);
   url.searchParams.set("collection", collectionId);
-  url.searchParams.set("server", new URL(management.baseUrl).origin);
+  applyConnectServerOverride(url, management.baseUrl);
   return url.href;
 }
 
@@ -863,6 +915,10 @@ function identityLabel(user: ManagementOverview["user"]): string {
 
 function host(value: string): string {
   try { return new URL(value).host; } catch { return value; }
+}
+
+function normalizedOrigin(value: string): string {
+  try { return new URL(value).origin; } catch { return ""; }
 }
 
 function relativeTime(value: string): string {

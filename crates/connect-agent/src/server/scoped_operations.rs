@@ -7,7 +7,16 @@ impl AgentState {
         operation: &str,
         input: &serde_json::Value,
         cancellation: &mdbase::OperationCancellation,
+        #[cfg(test)] mutation_trace: Option<u64>,
     ) -> Result<serde_json::Value, ConnectError> {
+        #[cfg(test)]
+        let record = |stage| {
+            if let Some(id) = mutation_trace {
+                self.admission()
+                    .trace()
+                    .record(id, crate::admission::WorkClass::Mutation, stage);
+            }
+        };
         let started = Instant::now();
         let synchronize_us = std::cell::Cell::new(0_u64);
         let result = self.registry.operation_synchronized_cancellable(
@@ -17,11 +26,17 @@ impl AgentState {
             cancellation,
             || {
                 let synchronize_started = Instant::now();
+                #[cfg(test)]
+                record("execution_complete");
                 let finalized = self.watcher.finalize(collection_id);
+                #[cfg(test)]
+                record("finalization_complete");
                 synchronize_us.set(elapsed_us(synchronize_started));
                 finalized
             },
         );
+        #[cfg(test)]
+        record("worker_complete");
         profile_operation("control", operation, started, synchronize_us.get(), &result);
         result
     }

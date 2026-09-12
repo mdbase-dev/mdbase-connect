@@ -186,3 +186,47 @@ export function propertyPatch(before: JsonObject, after: JsonObject): JsonObject
 export function safeRenamePath(value: string): string {
   return value.trim().replaceAll("\\", "/").replace(/^\/+/, "");
 }
+
+export interface NoteHeading {
+  level: number;
+  text: string;
+  line: number;
+}
+
+export function noteHeadings(body: string): NoteHeading[] {
+  const headings: NoteHeading[] = [];
+  let fenceMarker: string | undefined;
+  const lines = body.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const fence = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      const marker = fence[1][0];
+      if (!fenceMarker) fenceMarker = marker;
+      else if (marker === fenceMarker && !fence[2].trim()) fenceMarker = undefined;
+      continue;
+    }
+    if (fenceMarker) continue;
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (heading) headings.push({ level: heading[1].length, text: cleanHeadingText(heading[2]), line: index + 1 });
+  }
+  return headings;
+}
+
+function cleanHeadingText(value: string): string {
+  return value.replace(/\s+#+\s*$/, "").trim();
+}
+
+export function noteWordCount(body: string): number {
+  if (!body.trim()) return 0;
+  const prose = body
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/~~~[\s\S]*?~~~/g, " ")
+    .replace(/`[^`\n]*`/g, " ")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*(?:[-+*>]|\d+[.)])\s+(?:\[[ xX]\]\s*)?/gm, "")
+    .replace(/[*_~]+/g, "");
+  const words = prose.match(/[\p{L}\p{N}]+(?:['’\u2010\u2011\u2012\u2013\u2014-][\p{L}\p{N}]+)*/gu);
+  return words ? words.length : 0;
+}

@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
+import { HostedProviderResponseError } from "./hosted-provider.js";
+import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
 import {
   hostedGrantRevocationStatus,
   hostedReplicaRevocationStatus,
   ProviderRevocationWorker,
+  quarantineMissingHostedCollection,
   queueHostedGrantRevocation,
   queueHostedReplicaRevocation
 } from "./hosted-capability-lifecycle.js";
@@ -61,6 +64,74 @@ describe("hosted capability lifecycle", () => {
     )).toBe("revoking");
   });
 
+  it("quarantines a confirmed missing collection and every local capability atomically", async () => {
+    const fixture = await capabilityFixture();
+    const applicationId = randomUUID();
+    const replicaId = randomUUID();
+    const grantId = randomUUID();
+    await fixture.db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris)
+       VALUES ($1, $2, 'Second app', 'https://second.example', '[]'::jsonb)`,
+      [applicationId, `test:${applicationId}`]
+    );
+    await fixture.db.query(
+      `INSERT INTO hosted_replicas
+         (id, collection_id, authorized_user_id, name, purpose, mode)
+       VALUES ($1, $2, $3, 'Second application', 'application', 'read_only')`,
+      [replicaId, fixture.collectionId, fixture.userId]
+    );
+    await fixture.db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, hosted_collection_id,
+          hosted_replica_id, operations)
+       VALUES ($1, $2, $3, $4, $5, '["read"]'::jsonb)`,
+      [grantId, fixture.userId, applicationId, fixture.collectionId, replicaId]
+    );
+
+    expect(await quarantineMissingHostedCollection(
+      fixture.db,
+      fixture.collectionId
+    )).toEqual({ changed: true, grantsRevoked: 2, replicasRevoked: 2 });
+    const collection = await fixture.db.query(
+      `SELECT quarantine_reason, quarantined_at
+       FROM hosted_collections WHERE id = $1`,
+      [fixture.collectionId]
+    );
+    expect(collection.rows[0]).toEqual({
+      quarantine_reason: "provider_collection_missing",
+      quarantined_at: expect.any(Date)
+    });
+    const grants = await fixture.db.query<{ revoked_at: Date | null }>(
+      "SELECT revoked_at FROM grants WHERE hosted_collection_id = $1",
+      [fixture.collectionId]
+    );
+    expect(grants.rows).toHaveLength(2);
+    expect(grants.rows.every(({ revoked_at }) => revoked_at !== null)).toBe(true);
+    const replicas = await fixture.db.query<{
+      revoked_at: Date | null;
+      token_hash: string | null;
+    }>(
+      "SELECT revoked_at, token_hash FROM hosted_replicas WHERE collection_id = $1",
+      [fixture.collectionId]
+    );
+    expect(replicas.rows.every(({ revoked_at, token_hash }) =>
+      revoked_at !== null && token_hash === null
+    )).toBe(true);
+    expect((await fixture.db.query(
+      `SELECT id FROM access_tokens WHERE revoked_at IS NULL
+       UNION ALL SELECT id FROM refresh_tokens WHERE revoked_at IS NULL`
+    )).rows).toEqual([]);
+    expect((await fixture.db.query(
+      `SELECT id FROM audit_events
+       WHERE event_type = 'hosted_collection.quarantined_missing'`
+    )).rows).toHaveLength(1);
+    expect(await quarantineMissingHostedCollection(
+      fixture.db,
+      fixture.collectionId
+    )).toEqual({ changed: false, grantsRevoked: 0, replicasRevoked: 0 });
+  });
+
   it("delivers queued revocation to both provider capability surfaces", async () => {
     const fixture = await capabilityFixture();
     await queueHostedGrantRevocation(
@@ -89,6 +160,134 @@ describe("hosted capability lifecycle", () => {
     );
     expect(job.rows[0].state).toBe("completed");
     expect(job.rows[0].completed_at).toBeTruthy();
+    expect(await hostedGrantRevocationStatus(
+      fixture.db,
+      fixture.userId,
+      fixture.grantId
+    )).toBe("revoked");
+  });
+
+  it.each([
+    ["semantic-v1", '{"binding":{"contracts":{"semantic_capabilities":1}}}'],
+    ["SQL null authorization", null],
+    ["JSON null authorization", "null"],
+    ["missing semantic metadata", '{"binding":{"contracts":{}}}'],
+    ["null semantic metadata", '{"binding":{"contracts":{"semantic_capabilities":null}}}'],
+    ["malformed semantic metadata", '{"binding":{"contracts":{"semantic_capabilities":{"invalid":true}}}}'],
+    ["malformed binding", '{"binding":"invalid"}']
+  ])("preserves full-collection grants with %s across repeated scope backfills", async (_name, authorization) => {
+    const fixture = await capabilityFixture();
+    // These are persisted legacy rows, not authorization-admission fixtures.
+    await fixture.db.query(
+      `UPDATE grants SET application_authorization = $2::jsonb WHERE id = $1`,
+      [fixture.grantId, authorization]
+    );
+    await fixture.db.query(
+      "UPDATE hosted_replicas SET token_hash = 'retained-replica-token-hash' WHERE id = $1",
+      [fixture.replicaId]
+    );
+    const channelId = randomUUID();
+    await fixture.db.query(
+      `INSERT INTO push_channels (id, grant_id, installation_id)
+       VALUES ($1, $2, 'legacy-installation')`,
+      [channelId, fixture.grantId]
+    );
+    await fixture.db.query(
+      `INSERT INTO notification_subscriptions
+         (id, grant_id, channel_id, criterion_id)
+       VALUES ($1, $2, $3, 'legacy-criterion')`,
+      [randomUUID(), fixture.grantId, channelId]
+    );
+
+    const snapshot = async () => {
+      const state: Record<string, unknown[]> = {};
+      for (const table of [
+        "grants", "access_tokens", "refresh_tokens", "hosted_replicas",
+        "push_channels", "notification_subscriptions", "provider_revocation_jobs"
+      ]) {
+        state[table] = (await fixture.db.query(`SELECT * FROM ${table} ORDER BY id`)).rows;
+      }
+      return state;
+    };
+    const before = await snapshot();
+    expect(before.grants).toEqual([expect.objectContaining({
+      scope: { access: "full_collection", contracts: [] },
+      revoked_at: null,
+      activated_at: expect.any(Date)
+    })]);
+    for (let run = 0; run < 2; run++) {
+      expect(await retireLegacyContractScopedGrants(fixture.db)).toBe(0);
+      expect(await snapshot()).toEqual(before);
+    }
+  });
+
+  it.each(["contract scope", "selective replica"])("retires legacy %s and its notification authority", async (legacyKind) => {
+    const fixture = await capabilityFixture();
+    if (legacyKind === "contract scope") {
+      await fixture.db.query(
+        `UPDATE grants
+         SET scope = '{"access":"contract","contracts":[]}'::jsonb
+         WHERE id = $1`,
+        [fixture.grantId]
+      );
+    } else {
+      await fixture.db.query(
+        `UPDATE hosted_replicas SET allowed_types = '["task"]'::jsonb WHERE id = $1`,
+        [fixture.replicaId]
+      );
+    }
+    const channelId = randomUUID();
+    await fixture.db.query(
+      `INSERT INTO push_channels (id, grant_id, installation_id)
+       VALUES ($1, $2, 'legacy-installation')`,
+      [channelId, fixture.grantId]
+    );
+    await fixture.db.query(
+      `INSERT INTO notification_subscriptions (id, grant_id, channel_id, criterion_id)
+       VALUES ($1, $2, $3, 'legacy-criterion')`,
+      [randomUUID(), fixture.grantId, channelId]
+    );
+
+    expect(await retireLegacyContractScopedGrants(fixture.db)).toBe(1);
+    expect(await retireLegacyContractScopedGrants(fixture.db)).toBe(0);
+    expect((await fixture.db.query(
+      "SELECT revoked_at, reauthorization_required_at, reauthorization_reason FROM grants WHERE id = $1",
+      [fixture.grantId]
+    )).rows).toEqual([{
+      revoked_at: expect.any(Date),
+      reauthorization_required_at: expect.any(Date),
+      reauthorization_reason: "collection_level_authorization"
+    }]);
+    expect((await fixture.db.query(
+      "SELECT reason FROM provider_revocation_jobs WHERE grant_id = $1",
+      [fixture.grantId]
+    )).rows).toEqual([{ reason: "collection_level_authorization" }]);
+    expect((await fixture.db.query(
+      "SELECT id FROM notification_subscriptions WHERE grant_id = $1",
+      [fixture.grantId]
+    )).rows).toEqual([]);
+    for (const table of ["access_tokens", "refresh_tokens"]) {
+      expect((await fixture.db.query(
+        `SELECT revoked_at FROM ${table} WHERE grant_id = $1`,
+        [fixture.grantId]
+      )).rows).toEqual([{ revoked_at: expect.any(Date) }]);
+    }
+    expect((await fixture.db.query(
+      "SELECT revoked_at, token_hash FROM hosted_replicas WHERE id = $1",
+      [fixture.replicaId]
+    )).rows).toEqual([{ revoked_at: expect.any(Date), token_hash: null }]);
+    const provider = {
+      revokeReplica: vi.fn(async () => undefined),
+      revokeNotificationGrant: vi.fn(async () => undefined)
+    };
+    const worker = new ProviderRevocationWorker(fixture.db, provider as never);
+
+    expect(await worker.drain()).toBe(1);
+    expect(provider.revokeReplica).toHaveBeenCalledWith(fixture.replicaId);
+    expect(provider.revokeNotificationGrant).toHaveBeenCalledWith(
+      fixture.collectionId,
+      fixture.grantId
+    );
     expect(await hostedGrantRevocationStatus(
       fixture.db,
       fixture.userId,
@@ -232,6 +431,95 @@ describe("hosted capability lifecycle", () => {
     expect(completed.rows[0]).toMatchObject({
       state: "completed",
       attempts: 2,
+      last_error: null
+    });
+  });
+
+  it("continues unrelated cleanup after one provider job fails", async () => {
+    const fixture = await capabilityFixture();
+    await queueHostedGrantRevocation(
+      fixture.db,
+      fixture.userId,
+      fixture.grantId,
+      "provider_outage"
+    );
+    await fixture.db.query(
+      `UPDATE provider_revocation_jobs
+       SET created_at = now() - interval '1 minute'
+       WHERE grant_id = $1`,
+      [fixture.grantId]
+    );
+    const secondReplicaId = randomUUID();
+    await fixture.db.query(
+      `INSERT INTO hosted_replicas
+         (id, collection_id, authorized_user_id, name, purpose, mode)
+       VALUES ($1, $2, $3, 'Second mirror', 'mirror', 'read_only')`,
+      [secondReplicaId, fixture.collectionId, fixture.userId]
+    );
+    await queueHostedReplicaRevocation(
+      fixture.db,
+      secondReplicaId,
+      fixture.collectionId,
+      "user_request"
+    );
+    const provider = {
+      revokeReplica: vi.fn(async (replicaId: string) => {
+        if (replicaId === fixture.replicaId) throw new Error("provider failure");
+      }),
+      revokeNotificationGrant: vi.fn(async () => undefined)
+    };
+    const errors: unknown[] = [];
+
+    expect(await new ProviderRevocationWorker(
+      fixture.db,
+      provider as never,
+      (error) => errors.push(error)
+    ).drain()).toBe(1);
+    expect(provider.revokeReplica).toHaveBeenCalledTimes(2);
+    expect(errors).toHaveLength(1);
+    const jobs = await fixture.db.query<{
+      replica_id: string;
+      state: string;
+    }>(
+      "SELECT replica_id, state FROM provider_revocation_jobs ORDER BY created_at"
+    );
+    expect(jobs.rows.find(({ replica_id }) => replica_id === fixture.replicaId)?.state)
+      .toBe("pending");
+    expect(jobs.rows.find(({ replica_id }) => replica_id === secondReplicaId)?.state)
+      .toBe("completed");
+  });
+
+  it("completes cleanup when the provider confirms the resource is already missing", async () => {
+    const fixture = await capabilityFixture();
+    await queueHostedGrantRevocation(
+      fixture.db,
+      fixture.userId,
+      fixture.grantId,
+      "missing_collection"
+    );
+    const provider = {
+      revokeReplica: vi.fn(async () => undefined),
+      revokeNotificationGrant: vi.fn(async () => {
+        throw new HostedProviderResponseError(
+          404,
+          "hosted_collection_not_found",
+          "Hosted collection not found."
+        );
+      })
+    };
+    const errors: unknown[] = [];
+
+    expect(await new ProviderRevocationWorker(
+      fixture.db,
+      provider as never,
+      (error) => errors.push(error)
+    ).drain()).toBe(1);
+    expect(errors).toEqual([]);
+    expect((await fixture.db.query(
+      "SELECT state, completed_at, last_error FROM provider_revocation_jobs"
+    )).rows[0]).toEqual({
+      state: "completed",
+      completed_at: expect.any(Date),
       last_error: null
     });
   });

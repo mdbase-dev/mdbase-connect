@@ -1,16 +1,20 @@
 import { randomUUID } from "node:crypto";
+import { planCollectionGrant } from "../../grant-planner.js";
+import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
 import type {
   ApplicationNotifications,
-  ApplicationRequirements,
+  ApplicationProvisions,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
   FileCapability,
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
+import { assertFreshApplicationAuthorization, fileRequestForRequirements, requirementContractVersion, type ApplicationRequirements } from "../../application-requirements.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { verifyApplicationAuthorization } from "../../application-authorization.js";
+import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
   accessView,
   COLLECTION_OPERATIONS,
@@ -24,12 +28,10 @@ import {
 } from "../../collection-catalog.js";
 import {
   contractRequirements,
-  effectiveHostedContractDescriptors,
-  typesForContracts
+  effectiveHostedContractDescriptors
 } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
-import { planCollectionGrant } from "../../grant-planner.js";
 import {
   canonicalUserCode,
   randomToken,
@@ -47,7 +49,6 @@ import {
 import {
   assertCollectionSupportsOperations,
   assertOperationsAllowedByApplication,
-  assertOperationsAllowedByRequirements,
   contractsSatisfy,
   requiredContractsForRequirements,
   requiredTypePackProvisions,
@@ -55,7 +56,6 @@ import {
   rotateGrantEncryption
 } from "../grants/policy.js";
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
-import { createOrUpdateGrant } from "../grants/service.js";
 import { liveAuthorizationCollections } from "./local-collections.js";
 import {
   approveHostedAuthorization,
@@ -84,21 +84,103 @@ export function registerAuthorizationRoutes(
   app.post("/v1/connectors/authorization-requests/:requestId/approve", async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return;
-    z.object({ requestId: z.uuid() }).parse(request.params);
-    return reply.code(409).send(apiError(
-      "portal_activation_required",
-      "Approve this signed request in the portal."
-    ));
+    const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
+    const input = z.object({
+      collection_id: z.uuid(),
+      operations: z.array(operationSchema),
+      file_actions: z.array(z.enum(["list", "read", "add", "replace", "move", "delete"])).optional(),
+      contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
+    }).parse(request.body);
+    // A connector credential represents only its own local authority. Do not
+    // accept a caller-supplied portal offer or use account-wide visibility here.
+    const selection = await options.db.query<{
+      authority_id: string;
+      authority_epoch: string | number;
+      inventory_revision: string | number;
+      requirements: ApplicationRequirements;
+      provisions: ApplicationProvisions;
+      application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof | null;
+    }>(
+      `SELECT col.id AS authority_id, col.authority_epoch, con.inventory_revision,
+              a.requirements, a.provisions, ar.application_authorization
+       FROM authorization_requests ar
+       JOIN applications a ON a.id = ar.application_id
+       JOIN connectors con ON con.id = $3 AND con.user_id = ar.user_id
+       JOIN collections col ON col.connector_id = con.id AND col.local_id = $4
+       WHERE ar.id = $1 AND ar.user_id = $2
+         AND ar.completed_at IS NULL AND ar.denied_at IS NULL
+         AND ar.grant_id IS NULL AND ar.expires_at > now()
+         AND (ar.collection_id IS NULL OR ar.collection_id = col.local_id)
+         AND con.revoked_at IS NULL AND col.present = true AND col.enabled = true
+         AND col.authority_state = 'active'`,
+      [requestId, connector.user_id, connector.id, input.collection_id]
+    );
+    const selected = selection.rows[0];
+    if (!selected) return reply.code(404).send(apiError("authorization_not_found", "Authorization request or local collection is unavailable."));
+    const files = selected.requirements.files;
+    if (files && "optional" in files && files.optional?.length && input.file_actions === undefined) {
+      return reply.code(400).send(apiError("invalid_request", "Choose optional file permissions explicitly in Connect before approving this request."));
+    }
+    const access = await resolveLocalCollectionAccess(options.db, connector.user_id, selected.authority_id);
+    requireCollectionAction(access, "application.authorize");
+    if (input.contract_setups.length) requireCollectionAction(access, "schema.manage");
+    assertFreshApplicationAuthorization(selected.requirements);
+    if (!selected.application_authorization) {
+      return reply.code(409).send(apiError("signed_authorization_required", "This request needs a signed application authorization."));
+    }
+    const binding = selected.application_authorization.binding;
+    if (binding.authorization_id !== requestId
+      || Date.parse(binding.expires_at) <= Date.now()
+      || !Number.isFinite(Date.parse(binding.expires_at))
+      || (binding.collection_id && binding.collection_id !== input.collection_id)) {
+      return reply.code(409).send(apiError("authorization_binding_mismatch", "The signed request is expired or belongs to a different approval."));
+    }
+    // Refuse permission escalation before creating even an offer. The service
+    // repeats planning against the locked request and current access policy.
+    planCollectionGrant({
+      requestedOperations: input.operations,
+      applicationOperationCeiling: binding.requested_operations,
+      requestedFileActions: input.file_actions,
+      requirements: selected.requirements,
+      access: requireCollectionAction(access, "application.authorize")
+    });
+    // This checks fresh issuance on this selected daemon, not server/read support.
+    relay.authorizationAuthority(connector.id, selected.application_authorization.binding.contracts);
+    const live = await relay.authorizationOffers(connector.id, requestId, selected.requirements, selected.provisions);
+    if (live.paused || !live.collections.some((collection) => collection.collection_id === input.collection_id)) {
+      return reply.code(409).send(apiError("collection_unavailable", "This computer is no longer offering that collection."));
+    }
+    const offerId = randomUUID();
+    await options.db.query(
+      `INSERT INTO authorization_collection_offers
+         (id, authorization_id, user_id, connector_id, collection_id, local_id,
+          authority_epoch, inventory_revision, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now() + interval '45 seconds')
+       ON CONFLICT(authorization_id, connector_id, collection_id) DO UPDATE SET
+         id = excluded.id, authority_epoch = excluded.authority_epoch,
+         inventory_revision = excluded.inventory_revision, expires_at = excluded.expires_at
+       WHERE authorization_collection_offers.consumed_at IS NULL`,
+      [offerId, requestId, connector.user_id, connector.id, selected.authority_id,
+        input.collection_id, Number(selected.authority_epoch), Number(selected.inventory_revision)]
+    );
+    const approved = await approvePortalAuthorization(options.db, relay, {
+      requestId, userId: connector.user_id, offerId,
+      collectionId: input.collection_id, operations: input.operations,
+      fileActions: input.file_actions, contractSetups: input.contract_setups
+    });
+    if (!approved) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
+    return { ok: true };
   });
 
   app.post("/v1/connectors/authorization-requests/:requestId/deny", async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return;
-    z.object({ requestId: z.uuid() }).parse(request.params);
-    return reply.code(409).send(apiError(
-      "portal_activation_required",
-      "Deny this signed request in the portal."
-    ));
+    const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
+    const denied = await denyAuthorization(options.db, {
+      requestId, userId: connector.user_id, connectorId: connector.id, source: "connector"
+    });
+    if (!denied) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
+    return { ok: true };
   });
 
   app.post("/oauth/device_authorization", {
@@ -119,9 +201,10 @@ export function registerAuthorizationRoutes(
       family_identity: string;
       manifest_digest: string | null;
       requirements: ApplicationRequirements;
+      provisions: ApplicationProvisions;
       notifications: ApplicationNotifications;
     }>(
-      "SELECT id, distribution, family_identity, manifest_digest, requirements, notifications FROM applications WHERE id = $1",
+      "SELECT id, distribution, family_identity, manifest_digest, requirements, provisions, notifications FROM applications WHERE id = $1",
       [input.client_id]
     );
     if (
@@ -147,7 +230,8 @@ export function registerAuthorizationRoutes(
     assertOperationsAllowedByApplication(
       requestedOperations,
       application.rows[0].requirements,
-      application.rows[0].notifications
+      application.rows[0].notifications,
+      application.rows[0].provisions
     );
     const proof = await verifyApplicationAuthorization(
       input.application_authorization,
@@ -160,10 +244,12 @@ export function registerAuthorizationRoutes(
         flow: "device_code",
         codeChallenge: input.code_challenge,
         requestedOperations,
-        requestedFiles: application.rows[0].requirements.files,
+        semanticCapabilityContractVersion: requirementContractVersion(application.rows[0].requirements),
+        requestedFiles: fileRequestForRequirements(application.rows[0].requirements),
         collectionId: input.collection_id
       }
     );
+    assertFreshApplicationAuthorization(application.rows[0].requirements);
     const authorizationId = proof.binding.authorization_id;
     const deviceCode = randomToken("device");
     const userCode = randomUserCode();
@@ -262,6 +348,7 @@ export function registerAuthorizationRoutes(
       [input.application_id]
     );
     if (!application.rows[0]) return reply.code(404).send(apiError("application_not_found", "Application not found."));
+    assertFreshApplicationAuthorization(application.rows[0].requirements);
     if (application.rows[0].distribution === "portable") {
       return reply.code(409).send(apiError(
         "portable_approval_required",
@@ -297,89 +384,138 @@ export function registerAuthorizationRoutes(
     const input = z.object({
       operations: z.array(operationSchema)
     }).strict().parse(request.body);
-    const active = await options.db.query<{
-      id: string;
-      connector_id: string | null;
-      hosted_replica_id: string | null;
-      operations: string[];
-      encryption: GrantEncryption | null;
-      scope: GrantScope;
-      requirements: ApplicationRequirements;
-      template: string | null;
-      hosted_contracts: CollectionContractDescriptor[] | null;
-      file_capability: FileCapability | null;
-      application_origin: string;
-      proof_public_key: string;
-      application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
-      application_family_identity: string;
-      application_manifest_digest: string;
-    }>(
-      `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
-              g.application_origin, g.proof_public_key, g.application_authorization,
-              a.requirements,
-              a.family_identity AS application_family_identity,
-              a.manifest_digest AS application_manifest_digest,
-              col.connector_id,
-              g.hosted_replica_id, hosted.template, hosted.contracts AS hosted_contracts
-       FROM grants g
-       JOIN applications a ON a.id = g.application_id
-       LEFT JOIN collections col ON col.id = g.collection_id
-       LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
-       WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
-         AND g.activated_at IS NOT NULL`,
-      [grantId, user.id]
-    );
-    const current = active.rows[0];
-    if (!current) return reply.code(404).send(apiError("grant_not_found", "Active grant not found."));
-    const operations = [...new Set(input.operations)];
-    if (operations.some((operation) => !current.operations.includes(operation))) {
-      return reply.code(409).send(apiError(
-        "permission_expansion_requires_approval",
-        "Existing access can be narrowed here, but broader access requires a new application request."
-      ));
-    }
-    assertOperationsAllowedByRequirements(operations, current.requirements);
-    if (current.hosted_replica_id) {
-      if (!options.hostedProvider) {
-        return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
+    const connection = await options.db.connect();
+    let providerAttempt: string | null = null;
+    let committed = false;
+    let narrowed;
+    try {
+      await connection.query("BEGIN");
+      // Only the active grant is locked: outer-join rows may be null. Revocation
+      // and approval update this same row; rotation must use this connection.
+      const active = await connection.query<{
+        id: string;
+        connector_id: string | null;
+        hosted_replica_id: string | null;
+        operations: string[];
+        encryption: GrantEncryption | null;
+        scope: GrantScope;
+        requirements: ApplicationRequirements;
+        notifications: ApplicationNotifications;
+        provisions: ApplicationProvisions;
+        allowed_types: string[] | null;
+        file_capability: FileCapability | null;
+        application_origin: string;
+        proof_public_key: string;
+        application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
+        application_family_identity: string;
+        application_manifest_digest: string;
+        application_declaration?: unknown;
+      }>(
+        `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
+                g.application_origin, g.proof_public_key, g.application_authorization,
+                a.requirements, a.notifications, a.provisions,
+                a.family_identity AS application_family_identity,
+                a.manifest_digest AS application_manifest_digest,
+                a.application_declaration,
+                col.connector_id,
+                g.hosted_replica_id, replica.allowed_types
+         FROM grants g
+         JOIN applications a ON a.id = g.application_id
+         LEFT JOIN collections col ON col.id = g.collection_id
+         LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
+         WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
+           AND g.activated_at IS NOT NULL
+         FOR UPDATE OF g`,
+        [grantId, user.id]
+      );
+      const current = active.rows[0];
+      if (!current) return reply.code(404).send(apiError("grant_not_found", "Active grant not found."));
+      if (
+        !isCanonicalCollectionGrantScope(current.scope)
+        || (current.hosted_replica_id && (current.allowed_types?.length ?? 0) > 0)
+      ) {
+        return reply.code(409).send(apiError(
+          "application_reauthorization_required",
+          "Legacy scoped access must be revoked and explicitly reauthorized for the collection."
+        ));
       }
-      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "apply_type_pack", "apply_collection_setup", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation))
-        || current.file_capability?.actions.some((action) => ["add", "replace", "move", "delete"].includes(action)) === true;
-      await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
-        grantId,
-        mode: write ? "read_write" : "read_only",
-        allowedTypes: typesForContracts(
-          effectiveHostedContractDescriptors(current.hosted_contracts, current.template!),
-          current.scope.contracts
-        ),
-        contractScope: current.scope.access === "contract" ? current.scope.contracts : [],
-        fullCollection: current.scope.access === "full_collection",
-        allowedOperations: hostedReplicaCollectionOperations(operations),
-        operationTransportProtocol:
-          current.application_authorization.binding.contracts.operation_transport,
-        operationTransportRecoveryProtocols:
-          current.application_authorization.binding.contracts
-            .operation_transport_recovery ?? [],
-        fileCapability: current.file_capability ?? undefined,
-        allowedOrigin: current.application_origin,
-        proofPublicKey: current.proof_public_key,
-        applicationDeclarationId: declarationIdFromFamilyIdentity(
-          current.application_family_identity
-        ),
-        applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`
-      });
+      const operations = [...new Set(input.operations)];
+      if (operations.some((operation) => !current.operations.includes(operation))) {
+        return reply.code(409).send(apiError(
+          "permission_expansion_requires_approval",
+          "Existing access can be narrowed here, but broader access requires a new application request."
+        ));
+      }
+      assertOperationsAllowedByApplication(
+        operations,
+        current.requirements,
+        current.notifications,
+        current.provisions
+      );
+      if (current.hosted_replica_id) {
+        if (!options.hostedProvider) {
+          return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
+        }
+        const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "apply_type_pack", "apply_collection_setup", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation))
+          || current.file_capability?.actions.some((action) => ["add", "replace", "move", "delete"].includes(action)) === true;
+        // Never compensate a failed commit by restoring the previous (broader)
+        // provider policy: revoke instead, including ambiguous provider failures.
+        providerAttempt = current.hosted_replica_id;
+        await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
+          grantId,
+          mode: write ? "read_write" : "read_only",
+          allowedTypes: [],
+          contractScope: [],
+          fullCollection: true,
+          allowedOperations: hostedReplicaCollectionOperations(operations),
+          operationTransportProtocol:
+            current.application_authorization.binding.contracts.operation_transport,
+          operationTransportRecoveryProtocols:
+            current.application_authorization.binding.contracts
+              .operation_transport_recovery ?? [],
+          fileCapability: current.file_capability ?? undefined,
+          allowedOrigin: current.application_origin,
+          proofPublicKey: current.proof_public_key,
+          applicationDeclarationId: declarationIdFromFamilyIdentity(
+            current.application_family_identity
+          ),
+          applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`,
+          applicationDeclaration: current.application_declaration,
+          applicationAuthorization: current.application_authorization
+        });
+      }
+      const updated = await connection.query<{ id: string; operations: string[] }>(
+        "UPDATE grants SET operations = $2::jsonb WHERE id = $1 RETURNING id, operations",
+        [grantId, JSON.stringify(operations)]
+      );
+      if (current.encryption) await rotateGrantEncryption(connection, grantId);
+      await connection.query("COMMIT");
+      committed = true;
+      narrowed = { current, operations, grant: updated.rows[0] };
+    } finally {
+      try {
+        if (!committed) await connection.query("ROLLBACK");
+      } finally {
+        connection.release();
+        if (!committed && providerAttempt) {
+          try {
+            await queueHostedGrantRevocation(options.db, user.id, grantId, "narrowing_failed");
+          } catch (error) {
+            // If persistence itself is unavailable, still attempt to close the
+            // data-authority boundary; never restore the earlier permissions.
+            await options.hostedProvider!.revokeReplica(providerAttempt);
+            throw error;
+          }
+          await options.drainProviderRevocations();
+        }
+      }
     }
-    const updated = await options.db.query<{ id: string; operations: string[] }>(
-      "UPDATE grants SET operations = $2::jsonb WHERE id = $1 RETURNING id, operations",
-      [grantId, JSON.stringify(operations)]
-    );
-    if (current.encryption) await rotateGrantEncryption(options.db, grantId);
-    if (current.connector_id) await relay.pushPolicy(current.connector_id);
+    if (narrowed.current.connector_id) await relay.pushPolicy(narrowed.current.connector_id);
     await audit(options.db, user.id, "grant.narrowed", grantId, {
-      previous_operations: current.operations,
-      operations
+      previous_operations: narrowed.current.operations,
+      operations: narrowed.operations
     });
-    return { grant: updated.rows[0] };
+    return { grant: narrowed.grant };
   });
 
   app.post("/oauth/authorization_request", {
@@ -402,8 +538,10 @@ export function registerAuthorizationRoutes(
       manifest_digest: string | null;
       redirect_uris: string[];
       requirements: ApplicationRequirements;
+      provisions: ApplicationProvisions;
+      notifications: ApplicationNotifications;
     }>(
-      "SELECT id, distribution, family_identity, manifest_digest, redirect_uris, requirements FROM applications WHERE id = $1",
+      "SELECT id, distribution, family_identity, manifest_digest, redirect_uris, requirements, provisions, notifications FROM applications WHERE id = $1",
       [input.client_id]
     );
     if (
@@ -423,7 +561,12 @@ export function registerAuthorizationRoutes(
         "At least one record operation or file capability is required."
       ));
     }
-    assertOperationsAllowedByRequirements(requestedOperations, application.rows[0].requirements);
+    assertOperationsAllowedByApplication(
+      requestedOperations,
+      application.rows[0].requirements,
+      application.rows[0].notifications,
+      application.rows[0].provisions
+    );
     const proof = await verifyApplicationAuthorization(
       input.application_authorization,
       {
@@ -437,10 +580,12 @@ export function registerAuthorizationRoutes(
         state: input.state,
         codeChallenge: input.code_challenge,
         requestedOperations,
-        requestedFiles: application.rows[0].requirements.files,
+        semanticCapabilityContractVersion: requirementContractVersion(application.rows[0].requirements),
+        requestedFiles: fileRequestForRequirements(application.rows[0].requirements),
         collectionId: input.collection_id
       }
     );
+    assertFreshApplicationAuthorization(application.rows[0].requirements);
     const authorizationId = proof.binding.authorization_id;
     const inserted = await options.db.query(
       `INSERT INTO authorization_requests
@@ -719,6 +864,7 @@ export function registerAuthorizationRoutes(
       collection_id: z.uuid(),
       offer_id: z.uuid().optional(),
       operations: z.array(operationSchema),
+      file_actions: z.array(z.enum(["list", "read", "add", "replace", "move", "delete"])).optional(),
       contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
     }).parse(request.body);
     let approved: boolean;
@@ -729,6 +875,7 @@ export function registerAuthorizationRoutes(
         offerId: input.offer_id,
         collectionId: input.collection_id,
         operations: input.operations,
+        fileActions: input.file_actions,
         contractSetups: input.contract_setups
       });
     } else {
@@ -758,6 +905,7 @@ export function registerAuthorizationRoutes(
         userId: user.id,
         collectionId: input.collection_id,
         operations: input.operations,
+        fileActions: input.file_actions,
         contracts: effectiveHostedContractDescriptors(
           hosted.contracts,
           hosted.template

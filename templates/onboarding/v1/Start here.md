@@ -13,4 +13,5 @@ Everything here is ordinary Markdown. The editor is one view of the collection, 
 ## When you are ready
 
 - Read [[How collections work]].
+- Learn [[Where your collection lives]] and how to sync it to your computer.
 - Open [[Build with mdbase]] when you want to connect another app or build one of your own.

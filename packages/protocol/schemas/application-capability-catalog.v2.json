@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalog_version": 2,
+  "capabilities": [
+    {
+      "id": "collection.read",
+      "operations": [
+        "describe",
+        "changes",
+        "read",
+        "query",
+        "list_views",
+        "execute_view",
+        "read_view_source",
+        "validate",
+        "read_type"
+      ]
+    },
+    {
+      "id": "records.create",
+      "operations": ["create"]
+    },
+    {
+      "id": "records.edit",
+      "operations": ["update", "rename"]
+    },
+    {
+      "id": "records.delete",
+      "operations": ["delete"]
+    },
+    {
+      "id": "views.manage",
+      "operations": [
+        "create_view_source",
+        "update_view_source",
+        "delete_view_source"
+      ]
+    },
+    {
+      "id": "definitions.manage",
+      "operations": [
+        "create_type",
+        "update_type",
+        "assess_type_pack",
+        "apply_type_pack"
+      ]
+    },
+    {
+      "id": "background.schedule",
+      "operations": [
+        "list_timers",
+        "put_timer",
+        "cancel_timer",
+        "reconcile_timers"
+      ]
+    },
+    {
+      "id": "offline.replica",
+      "operations": ["sync"]
+    }
+  ],
+  "structured_authorities": {
+    "application_setup": [
+      "assess_collection_setup",
+      "apply_collection_setup"
+    ]
+  }
+}

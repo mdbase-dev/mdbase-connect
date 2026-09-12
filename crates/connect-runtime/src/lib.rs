@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-pub use timers::{perform_timer_operation, TimerOperationError};
+pub use timers::{cancel_grant_timers, perform_timer_operation, TimerOperationError};
 
 pub const NOTIFICATION_ACTION_ID: &str = "mdbase.connect.notification.signal";
 pub const NOTIFICATION_EXECUTOR_ID: &str = "connect-notifications";
@@ -672,6 +672,7 @@ mod tests {
 
     fn grant(criterion_id: &str, event_id: &str, condition: Option<&str>) -> GrantSummary {
         GrantSummary {
+            application_declaration: None,
             contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
             id: Uuid::new_v4(),
             application_id: Uuid::new_v4(),
@@ -681,7 +682,7 @@ mod tests {
             application_distribution: "web".to_string(),
             application_homepage: "https://tasks.example".to_string(),
             application_project_url: None,
-            application_origin: "https://tasks.example".to_string(),
+            application_origin: Some("https://tasks.example".to_string()),
             application_icon: None,
             collection_id: Uuid::new_v4(),
             collection_name: "Tasks".to_string(),

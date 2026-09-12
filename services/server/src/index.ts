@@ -7,6 +7,7 @@ import { HostedProviderClient } from "./hosted-provider.js";
 import { createRelayBroker } from "./relay-broker.js";
 import { WebPushTransport } from "./web-push.js";
 import { FcmTransport } from "./fcm.js";
+import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
 import { SignedWebhookTransport } from "./webhook.js";
 import { ResendEmailTransport } from "./email.js";
 
@@ -17,12 +18,23 @@ const db = process.env.NODE_ENV === "production"
   : await createDatabase();
 if (process.env.NODE_ENV === "production") {
   await assertControlPlaneMigrationsCurrent(db);
+  const connection = await db.connect();
+  try {
+    const retired = await retireLegacyContractScopedGrants(connection);
+    if (retired > 0) {
+      console.info(JSON.stringify({
+        authorization_migration: { legacyContractScopedGrantsRetired: retired }
+      }));
+    }
+  } finally {
+    connection.release();
+  }
 }
 const relayBroker = await createRelayBroker(runtime.relayBroker);
 const portalDist = process.env.PORTAL_DIST ?? resolve(import.meta.dirname, "../../../apps/portal/dist");
 const { app } = await buildApp({
   db,
-  revision: process.env.RENDER_GIT_COMMIT,
+  revision: process.env.MDBASE_CONNECT_REVISION ?? process.env.RENDER_GIT_COMMIT,
   publicUrl: runtime.publicUrl,
   environment: runtime.environment,
   portalDist,
@@ -41,7 +53,9 @@ const { app } = await buildApp({
     ? new ResendEmailTransport(runtime.transactionalEmail)
     : undefined,
   resendWebhookSecret: runtime.resendWebhookSecret ?? undefined,
+  accountDeletionEnabled: runtime.accountDeletionEnabled,
   hostedCollections: runtime.hostedCollections,
+  hostedSharing: runtime.hostedSharing,
   hostedReferenceAuthority: runtime.hostedReferenceAuthority,
   hostedProvider: runtime.hostedProvider
     ? new HostedProviderClient(runtime.hostedProvider)

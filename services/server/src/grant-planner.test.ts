@@ -1,24 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type {
-  CollectionContractDescriptor,
-  CollectionOperation,
-  FileCapability,
-  GrantScope
-} from "@mdbase-dev/connect-protocol";
+import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
 import { operationsForApplicationCapabilities } from "@mdbase-dev/connect-protocol";
 import {
   ownerAccess,
   type CollectionAccessContext
 } from "./collection-access.js";
 import { planCollectionGrant } from "./grant-planner.js";
-
-const contract: CollectionContractDescriptor = {
-  id: "example.tasks",
-  version: "1.0.0",
-  digest: `sha256:${"a".repeat(64)}`,
-  schema: {},
-  implementations: []
-};
 
 const owner = ownerAccess({
   collectionId: "collection",
@@ -33,8 +20,8 @@ const owner = ownerAccess({
 describe("planCollectionGrant", () => {
   it("plans every operation compiled for type-pack application sessions", () => {
     const capabilities = {
-      contract_version: 1 as const,
-      required: ["definitions.type-pack.apply"] as const
+      contract_version: 2 as const,
+      required: ["definitions.manage"] as const
     };
     const operations = operationsForApplicationCapabilities(capabilities);
     const result = planCollectionGrant({
@@ -45,53 +32,64 @@ describe("planCollectionGrant", () => {
         access: "full_collection",
         capabilities
       },
-      availableContracts: [],
       access: owner
     });
 
     expect(result).toEqual({
-      operations: ["assess_type_pack", "apply_type_pack"],
+      operations: ["create_type", "update_type", "assess_type_pack", "apply_type_pack"],
       scope: { access: "full_collection", contracts: [] },
       replicaMode: "read_write"
     });
   });
 
-  it("intersects application, request, and human access ceilings", () => {
+  it("uses collection authority while retaining contracts as compatibility requirements", () => {
+    const capabilities = {
+      contract_version: 2 as const,
+      required: ["collection.read", "records.edit"] as const
+    };
+    const operations = operationsForApplicationCapabilities(capabilities);
     const result = planCollectionGrant({
-      requestedOperations: ["read", "update"],
-      applicationOperationCeiling: ["read", "query", "update"],
+      requestedOperations: operations,
+      applicationOperationCeiling: operations,
       requirements: {
-        contracts: [{ id: contract.id, version: contract.version, digest: contract.digest }]
+        access: "full_collection",
+        capabilities,
+        contracts: [{
+          id: "example.tasks",
+          version: "1.0.0",
+          digest: `sha256:${"a".repeat(64)}`
+        }]
       },
-      availableContracts: [contract],
       access: owner
     });
 
     expect(result).toEqual({
-      operations: ["read", "update"],
-      scope: { access: "contract", contracts: [contract] },
+      operations,
+      scope: { access: "full_collection", contracts: [] },
       replicaMode: "read_write"
     });
   });
 
-  it("plans file-only access independently from record scope", () => {
+  it("plans file-only access independently from collection record authority", () => {
     const result = planCollectionGrant({
       requestedOperations: [],
       applicationOperationCeiling: [],
       requirements: {
+        access: "full_collection",
         contracts: [],
+        capabilities: { contract_version: 2, required: [] },
         files: {
-          actions: ["list", "read", "add"],
+          required: ["list", "read"],
+          optional: ["add"],
           scope: { kind: "selected_folders", folders: ["Assets"] }
         }
       },
-      availableContracts: [],
       access: owner
     });
 
     expect(result).toEqual({
       operations: [],
-      scope: { access: "contract", contracts: [] },
+      scope: { access: "full_collection", contracts: [] },
       replicaMode: "read_write",
       fileCapability: {
         kind: "files",
@@ -102,88 +100,72 @@ describe("planCollectionGrant", () => {
     });
   });
 
-  it("rejects file actions and folders outside the approving user's ceiling", () => {
-    const viewerFiles: FileCapability = {
-      kind: "files",
-      protocol_version: 1,
-      actions: ["list", "read"],
-      scope: { kind: "selected_folders", folders: ["Shared"] }
+  it("allows optional file actions to be denied without dropping required actions", () => {
+    const requirements = {
+      access: "full_collection" as const,
+      contracts: [],
+      capabilities: { contract_version: 2 as const, required: [] },
+      files: {
+        required: ["list", "read"] as const,
+        optional: ["add", "delete"] as const,
+        scope: { kind: "collection" as const }
+      }
     };
-    const member = { ...owner, relationship: "member" as const, fileCeiling: viewerFiles };
-
+    const result = planCollectionGrant({
+      requestedOperations: [],
+      applicationOperationCeiling: [],
+      requestedFileActions: ["list", "read", "add"],
+      requirements,
+      access: owner
+    });
+    expect(result.fileCapability?.actions).toEqual(["list", "read", "add"]);
     expect(() => planCollectionGrant({
       requestedOperations: [],
       applicationOperationCeiling: [],
-      requirements: {
-        contracts: [],
-        files: {
-          actions: ["list", "read", "add"],
-          scope: { kind: "selected_folders", folders: ["Shared"] }
-        }
-      },
-      availableContracts: [],
-      access: member
-    })).toThrow("file actions");
-
-    expect(() => planCollectionGrant({
-      requestedOperations: [],
-      applicationOperationCeiling: [],
-      requirements: {
-        contracts: [],
-        files: {
-          actions: ["list", "read"],
-          scope: { kind: "collection" }
-        }
-      },
-      availableContracts: [],
-      access: member
-    })).toThrow("collection-wide file access");
-
-    expect(() => planCollectionGrant({
-      requestedOperations: [],
-      applicationOperationCeiling: [],
-      requirements: {
-        contracts: [],
-        files: {
-          actions: ["list", "read"],
-          scope: { kind: "selected_folders", folders: ["Private"] }
-        }
-      },
-      availableContracts: [],
-      access: member
-    })).toThrow("file folders");
+      requestedFileActions: ["list", "delete"],
+      requirements,
+      access: owner
+    })).toThrow("Required file actions");
   });
 
-  it("accepts an exact bounded file requirement without widening it", () => {
-    const member = {
-      ...owner,
-      relationship: "member" as const,
-      fileCeiling: {
-        kind: "files" as const,
-        protocol_version: 1 as const,
-        actions: ["list", "read"] as const,
-        scope: { kind: "selected_folders" as const, folders: ["Shared"] }
-      }
+  it("rejects partial optional capability groups", () => {
+    const capabilities = {
+      contract_version: 2 as const,
+      required: ["collection.read"] as const,
+      optional: ["records.edit"] as const
     };
-    expect(planCollectionGrant({
-      requestedOperations: [],
-      applicationOperationCeiling: [],
+    const required = operationsForApplicationCapabilities(
+      capabilities,
+      { includeOptional: false }
+    );
+    expect(() => planCollectionGrant({
+      requestedOperations: [...required, "update"],
+      applicationOperationCeiling: [...required, "update", "rename"],
       requirements: {
+        access: "full_collection",
         contracts: [],
-        files: {
-          actions: ["list", "read"],
-          scope: { kind: "selected_folders", folders: ["Shared"] }
-        }
+        capabilities
       },
-      availableContracts: [],
-      access: member
-    })).toMatchObject({
-      replicaMode: "read_only",
-      fileCapability: {
-        actions: ["list", "read"],
-        scope: { kind: "selected_folders", folders: ["Shared"] }
-      }
-    });
+      access: owner
+    })).toThrow("complete groups");
+  });
+
+  it("rejects legacy contract-scoped authorization instead of widening it", () => {
+    expect(() => planCollectionGrant({
+      requestedOperations: ["read"],
+      applicationOperationCeiling: ["read"],
+      requirements: { contracts: [], access: "contract" },
+      access: owner
+    })).toThrow("not widened");
+  });
+
+  it("rejects omitted access instead of defaulting to collection authority", () => {
+    expect(() => planCollectionGrant({
+      requestedOperations: ["read"],
+      applicationOperationCeiling: ["read"],
+      requirements: { contracts: [] },
+      access: owner
+    })).toThrow("not widened");
   });
 
   it("rejects an operation the application did not request", () => {
@@ -191,7 +173,6 @@ describe("planCollectionGrant", () => {
       requestedOperations: ["delete"],
       applicationOperationCeiling: ["read"],
       requirements: { contracts: [], access: "full_collection" },
-      availableContracts: [],
       access: owner
     })).toThrow("must be requested");
   });
@@ -201,64 +182,56 @@ describe("planCollectionGrant", () => {
       requestedOperations: ["update"],
       applicationOperationCeiling: ["update"],
       requirements: { contracts: [], access: "full_collection" },
-      availableContracts: [],
-      access: restricted(owner, ["read"], owner.scopeCeiling)
+      access: restricted(owner, ["read"])
     })).toThrow("approving user");
-  });
-
-  it("rejects full-collection access from a contract-scoped member", () => {
-    expect(() => planCollectionGrant({
-      requestedOperations: ["read"],
-      applicationOperationCeiling: ["read"],
-      requirements: { contracts: [], access: "full_collection" },
-      availableContracts: [contract],
-      access: restricted(owner, ["read"], {
-        access: "contract",
-        contracts: [contract]
-      })
-    })).toThrow("full-collection");
-  });
-
-  it("rejects required contracts outside a member's scope", () => {
-    expect(() => planCollectionGrant({
-      requestedOperations: ["read"],
-      applicationOperationCeiling: ["read"],
-      requirements: {
-        contracts: [{ id: contract.id, version: contract.version, digest: contract.digest }]
-      },
-      availableContracts: [contract],
-      access: restricted(owner, ["read"], {
-        access: "contract",
-        contracts: []
-      })
-    })).toThrow("required contracts");
-  });
-
-  it("does not treat a drifted contract digest as the same delegated scope", () => {
-    expect(() => planCollectionGrant({
-      requestedOperations: ["read"],
-      applicationOperationCeiling: ["read"],
-      requirements: {
-        contracts: [{ id: contract.id, version: contract.version, digest: contract.digest }]
-      },
-      availableContracts: [contract],
-      access: restricted(owner, ["read"], {
-        access: "contract",
-        contracts: [{ ...contract, digest: `sha256:${"b".repeat(64)}` }]
-      })
-    })).toThrow("required contracts");
   });
 });
 
 function restricted(
   source: CollectionAccessContext,
-  operations: CollectionOperation[],
-  scopeCeiling: GrantScope
+  operations: CollectionOperation[]
 ): CollectionAccessContext {
   return {
     ...source,
     relationship: "member",
-    operationCeiling: new Set(operations),
-    scopeCeiling
+    operationCeiling: new Set(operations)
   };
 }
+
+describe("membership ceilings with v2 capabilities", () => {
+  const read = operationsForApplicationCapabilities({ contract_version: 2, required: ["collection.read"] });
+  const viewer: CollectionAccessContext = {
+    ...owner, relationship: "member", role: "viewer", operationCeiling: new Set([...read, "sync"]),
+    fileCeiling: { kind: "files", protocol_version: 1, actions: ["list", "read"], scope: { kind: "collection" } }
+  };
+  const requirements = {
+    access: "full_collection" as const, contracts: [],
+    capabilities: { contract_version: 2 as const, required: ["collection.read"] as const, optional: ["records.edit"] as const },
+    files: { required: ["list", "read"] as const, optional: ["add"] as const, scope: { kind: "collection" as const } }
+  };
+  const input = { requirements, access: viewer, requestedOperations: read,
+    applicationOperationCeiling: operationsForApplicationCapabilities(requirements.capabilities) };
+
+  it("permits read-only approval after complete optional write groups and file actions are denied", () => {
+    expect(planCollectionGrant({ ...input, requestedFileActions: ["list", "read"] }))
+      .toMatchObject({ replicaMode: "read_only", operations: read, fileCapability: { actions: ["list", "read"] } });
+  });
+  it("checks selected optional file writes against membership authority", () => {
+    expect(() => planCollectionGrant(input)).toThrow("file actions");
+    expect(() => planCollectionGrant({ ...input, requestedFileActions: ["list", "read", "add"] })).toThrow("file actions");
+  });
+  it("rejects required writes instead of silently dropping them", () => {
+    expect(() => planCollectionGrant({ ...input, requirements: { ...requirements,
+      files: { required: ["list", "read", "add"], scope: { kind: "collection" } } } })).toThrow("file actions");
+    expect(() => planCollectionGrant({ ...input, requestedFileActions: ["list", "read"], requirements: { ...requirements,
+      capabilities: { contract_version: 2, required: ["collection.read", "records.edit"] } } })).toThrow("complete groups");
+  });
+  it("does not widen a member's file or collection scope", () => {
+    expect(() => planCollectionGrant({ ...input, requestedFileActions: ["list", "read"], access: {
+      ...viewer, fileCeiling: { ...viewer.fileCeiling, scope: { kind: "selected_folders", folders: ["Assets"] } }
+    } })).toThrow("collection-wide file access");
+    expect(() => planCollectionGrant({ ...input, requestedFileActions: ["list", "read"], access: {
+      ...viewer, scopeCeiling: { access: "contract", contracts: [] }
+    } })).toThrow("full-collection access");
+  });
+});

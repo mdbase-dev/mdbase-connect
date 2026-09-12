@@ -1,6 +1,12 @@
 use super::*;
 
 impl CollectionRegistry {
+    /// Verify that this computer still owns an unfenced collection authority.
+    pub fn ensure_authority_available(&self, id: Uuid) -> Result<(), ConnectError> {
+        self.get(id)?;
+        crate::LocalSyncStore::for_registry(self).assert_authority_available(id)
+    }
+
     /// Turn a fully verified hosted mirror into the local authority.
     ///
     /// The caller must fence and verify the hosted authority first. This

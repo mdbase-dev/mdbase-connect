@@ -5,6 +5,7 @@ import {
 import { openDatabase } from "./db.js";
 import { assertControlPlaneMigrationsCurrent } from "./migrations.js";
 import { ResendEmailTransport } from "./email.js";
+import { NatsRelayBroker, type RelayBroker } from "./relay-broker.js";
 import {
   HostedProviderClient,
   HostedProviderResponseError
@@ -16,6 +17,7 @@ import {
 
 const db = await openDatabase();
 const requestEnvelope = process.argv[2] === "request";
+let relayBroker: RelayBroker | null = null;
 try {
   await assertControlPlaneMigrationsCurrent(db);
   const emailTransport = resendTransport(process.env);
@@ -23,6 +25,17 @@ try {
   const hostedProvider = hostedProviderConfig
     ? new HostedProviderClient(hostedProviderConfig)
     : null;
+  const relayServers = (process.env.MDBASE_CONNECT_RELAY_NATS_URL ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const relayToken = process.env.MDBASE_CONNECT_RELAY_NATS_TOKEN?.trim();
+  if (relayServers.length > 0 && relayToken) {
+    relayBroker = await NatsRelayBroker.connect({
+      servers: relayServers,
+      token: relayToken
+    });
+  }
   const result = await runAuthAdminCommand(process.argv.slice(2), {
     db,
     defaultRegistrationMode: registrationMode(
@@ -30,6 +43,27 @@ try {
     ),
     ...(process.env.PUBLIC_URL ? { publicUrl: process.env.PUBLIC_URL } : {}),
     ...(emailTransport ? { emailTransport } : {}),
+    ...(relayBroker
+      ? {
+          connectorSessionFencer: {
+            async fenceUser(userId: string) {
+              const connectors = await db.query<{
+                id: string;
+                relay_generation: string | number;
+              }>(
+                "SELECT id, relay_generation FROM connectors WHERE user_id = $1",
+                [userId]
+              );
+              await Promise.all(connectors.rows.map((connector) =>
+                relayBroker!.publishReplacement(
+                  connector.id,
+                  String(connector.relay_generation)
+                )
+              ));
+            }
+          }
+        }
+      : {}),
     ...(hostedProvider
       ? {
           hostedProvider,
@@ -85,6 +119,7 @@ try {
     process.exitCode = 1;
   }
 } finally {
+  await relayBroker?.close();
   await db.end();
 }
 

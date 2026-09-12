@@ -4,7 +4,7 @@ import type {
   SyncRecord
 } from "@mdbase-dev/connect-protocol";
 import type { SyncTransport } from "./sync-types.js";
-import { SyncError } from "./sync-error.js";
+import { asError, errorCode, invalidMirrorState, SyncError } from "./sync-error.js";
 import {
   MemoryMirrorLease,
   normalizeMirrorState,
@@ -145,7 +145,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     signal?: AbortSignal
   ): Promise<MirrorApplyResult> {
     const plan = inspection.plan;
-    if (plan.issues.some((issue) => issue.blocking)) {
+    if (plan.issues.some((issue) => issue.blocking) && plan.actions.length === 0) {
       return mirrorApplyResult(
         "attention",
         plan,
@@ -166,9 +166,8 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       await new PlanRevalidator(this.fileSystem, this.runtime)
         .validate(plan, inspection.prior);
     } catch (error) {
-      const value = error instanceof Error ? error : new Error(String(error));
-      const code = error && typeof error === "object" && "code" in error
-        && typeof error.code === "string" ? error.code : "sync_revalidation_failed";
+      const value = asError(error);
+      const code = errorCode(error, "sync_revalidation_failed");
       return mirrorApplyResult(
         code === "sync_plan_stale" ? "stale" : "failed",
         plan,
@@ -328,8 +327,13 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
 
   async status(): Promise<MirrorStatus> {
     const checkpoint = await this.checkpointStatus();
-    if (checkpoint.state === "not_initialized") return checkpoint;
-    return mirrorStatusFromPlan(checkpoint, await this.inspect());
+    const plan = await this.inspect();
+    if (
+      checkpoint.state === "not_initialized"
+      && !plan.issues.some((issue) =>
+        issue.code === "invalid_frontmatter" || issue.code === "file_read_failed")
+    ) return checkpoint;
+    return mirrorStatusFromPlan(checkpoint, plan);
   }
 
   async checkpointStatus(): Promise<MirrorStatus> {
@@ -540,10 +544,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       return normalizeMirrorState(state, this.replicaId, this.mode);
     } catch (error) {
       if (error instanceof SyncError) throw error;
-      throw new SyncError(
-        "invalid_mirror_state",
-        "Mirror metadata is corrupt or belongs to another replica."
-      );
+      throw invalidMirrorState("Mirror metadata is corrupt or belongs to another replica.");
     }
   }
 

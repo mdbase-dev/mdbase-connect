@@ -25,11 +25,11 @@ describe("collection membership policy", () => {
     expect(viewer.operations).not.toContain("update");
     expect(viewer.operations).not.toContain("apply_collection_setup");
     expect(viewer.operations).toContain("read_type");
-    expect(viewer.operations).toContain("assess_collection_setup");
+    expect(viewer.operations).not.toContain("assess_collection_setup");
     expect(viewer.fileCeiling.actions).toEqual(["list", "read"]);
 
     const editor = membershipPolicyPreset("editor");
-    expect(editor.operations).toEqual(COLLECTION_OPERATIONS);
+    expect(new Set(editor.operations)).toEqual(new Set(COLLECTION_OPERATIONS));
     expect(editor.actions).toEqual([
       "collection.discover",
       "record.read",
@@ -37,8 +37,7 @@ describe("collection membership policy", () => {
       "mirror.enroll",
       "record.write",
       "schema.manage",
-      "collection.rename",
-      "members.manage"
+      "collection.rename"
     ]);
     expect(editor.actions).not.toContain("collection.delete");
     expect(editor.actions).not.toContain("authority.transfer");
@@ -67,7 +66,7 @@ describe("collection membership policy", () => {
 
     expect(resolved).toEqual(created);
     expect(resolved?.role).toBe("editor");
-    expect(resolved?.operations).toEqual(COLLECTION_OPERATIONS);
+    expect(new Set(resolved?.operations)).toEqual(new Set(COLLECTION_OPERATIONS));
     const stored = await database.query<{
       current_policy_id: string;
       current_policy_revision: number;

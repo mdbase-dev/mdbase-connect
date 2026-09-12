@@ -165,16 +165,15 @@ export async function portalLifecycleE2E({
     await expect(page).toHaveURL(/\/connect\/account-deleted(?:\?.*)?$/);
     await expect(page.getByRole("heading", { name: "Your account has been deleted." }))
       .toBeVisible();
-    assert.equal(
-      (
-        await rawRequest(
-          providerUrl,
-          `/internal/v1/collections/${deletionCollectionId}/usage`,
-          { token: internalToken }
-        )
-      ).status,
-      404
-    );
+    await expect(page.getByText(/Hosted data deletion continues automatically/))
+      .toBeVisible();
+    await expect.poll(async () => (
+      await rawRequest(
+        providerUrl,
+        `/internal/v1/collections/${deletionCollectionId}/usage`,
+        { token: internalToken }
+      )
+    ).status, { timeout: 20_000 }).toBe(404);
     assert.match(
       await readFile(join(browserMirrorDirectory, "mdbase.yaml"), "utf8"),
       /spec_version: 0\.3\.0/

@@ -8,7 +8,7 @@ import {
   authorizationSigningMessage,
   type ApplicationAuthorizationFlow,
   type ApplicationAuthorizationProof,
-  type ApplicationFileRequirement,
+  type ApplicationFileRequest,
   type CollectionOperation
 } from "@mdbase-dev/connect-protocol";
 import {
@@ -16,6 +16,7 @@ import {
   CONNECT_CONTRACT_SUPPORT,
   LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  SEMANTIC_CAPABILITY_CONTRACT_VERSION,
   isMutatingOperation,
   isSupportedAuthorizationBinding,
   isSupportedOperationTransport
@@ -83,7 +84,25 @@ const proofSchema = z.object({
   signature: z.string().min(1).max(200)
 }).strict();
 
+// Persisted grants can contain authorization-binding versions retained across
+// upgrades. Validate the production reconciliation access surface without
+// reinterpreting or re-verifying that already-approved proof.
+const persistedProofSchema = z.object({
+  binding: z.object({
+    application_id: z.uuid(),
+    application_declaration_id: z.string().min(1),
+    application_manifest_digest: z.string().regex(/^[0-9a-f]{64}$/),
+    contracts: z.object({
+      operation_transport: z.number().int().positive(),
+      operation_transport_recovery: z.array(z.number().int().positive()).optional()
+    }).passthrough()
+  }).passthrough(),
+  signature: z.string().min(1)
+}).passthrough();
+
 export interface ExpectedApplicationAuthorization {
+  /** Explicit declaration dispatch; public/default validation remains v2-only. */
+  semanticCapabilityContractVersion?: 1 | 2;
   applicationId: string;
   applicationDeclarationId: string;
   applicationManifestDigest: string;
@@ -92,7 +111,7 @@ export interface ExpectedApplicationAuthorization {
   state?: string;
   codeChallenge: string;
   requestedOperations: CollectionOperation[];
-  requestedFiles?: ApplicationFileRequirement;
+  requestedFiles?: ApplicationFileRequest;
   collectionId?: string;
   now?: Date;
 }
@@ -101,6 +120,13 @@ export class ApplicationAuthorizationError extends Error {
   constructor(message = "The application authorization proof is invalid.") {
     super(message);
     this.name = "ApplicationAuthorizationError";
+  }
+}
+
+export class MalformedPersistedApplicationAuthorizationError extends ApplicationAuthorizationError {
+  constructor() {
+    super("The persisted application authorization proof is malformed.");
+    this.name = "MalformedPersistedApplicationAuthorizationError";
   }
 }
 
@@ -120,6 +146,14 @@ export class ApplicationContractMismatchError extends ApplicationAuthorizationEr
   ) {
     super("A required Connect contract is not supported by the application.");
     this.name = "ApplicationContractMismatchError";
+  }
+}
+
+export function parsePersistedApplicationAuthorization(value: unknown): ApplicationAuthorizationProof {
+  try {
+    return persistedProofSchema.parse(value) as unknown as ApplicationAuthorizationProof;
+  } catch {
+    throw new MalformedPersistedApplicationAuthorizationError();
   }
 }
 
@@ -290,7 +324,11 @@ function assertContractRequirements(
     });
   }
   const axes = [
-    ["semantic_capabilities", "capability_contract_incompatible", 1],
+    [
+      "semantic_capabilities",
+      "capability_contract_incompatible",
+      expected.semanticCapabilityContractVersion ?? SEMANTIC_CAPABILITY_CONTRACT_VERSION
+    ],
     [
       "durable_mutation",
       "durable_mutation_unsupported",

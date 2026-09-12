@@ -18,6 +18,7 @@ import { requireUser } from "../../platform/request-authentication.js";
 import { sqlPlaceholders } from "../../platform/sql.js";
 import { recoverExpiredAuthorityTransfers } from "../authority-transfer/lifecycle.js";
 import { liveAuthorizationCollections } from "../authorizations/local-collections.js";
+import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { requiresHostedCollection } from "../grants/policy.js";
 import { hostedMirrorReplicas } from "../hosted/service.js";
 
@@ -28,6 +29,7 @@ interface AccountOverviewRouteOptions {
   authenticationPolicy: AuthenticationPolicyStore;
   tailscaleAuth?: boolean;
   hostedCollections?: boolean;
+  hostedSharing?: boolean;
   hostedProvider?: HostedProviderClient;
   hostedReference?: HostedAuthorityRegistry;
 }
@@ -42,6 +44,7 @@ interface AccountConnectorRow {
   incompatibility_code: string | null;
   minimum_connector_version: string | null;
   connector_update_url: string | null;
+  latest_policy_ack_mode: "lease_v1" | "legacy_ack_v0" | null;
 }
 
 export function registerAccountOverviewRoute(
@@ -68,7 +71,7 @@ export function registerAccountOverviewRoute(
       `SELECT c.id, c.name, c.last_seen_at, c.created_at,
               c.connector_version, c.last_incompatible_at,
               c.incompatibility_code, c.minimum_connector_version,
-              c.connector_update_url
+              c.connector_update_url, c.latest_policy_ack_mode
        FROM connectors c
        WHERE c.user_id = $1 AND c.revoked_at IS NULL
        ORDER BY c.created_at`,
@@ -125,6 +128,19 @@ export function registerAccountOverviewRoute(
         ))
       })))
     };
+    if (!options.hostedSharing) {
+      const history = await options.db.query<{ collection_id: string }>(
+        `SELECT collection_id FROM collection_memberships WHERE state <> 'revoked'
+           AND collection_id IN (SELECT id FROM hosted_collections WHERE user_id = $1)
+         UNION SELECT collection_id FROM collection_invitations WHERE state = 'pending'
+           AND collection_id IN (SELECT id FROM hosted_collections WHERE user_id = $1)`,
+        [user.id]
+      );
+      const shared = new Set(history.rows.map((row) => row.collection_id));
+      for (const collection of hostedCollections.rows) {
+        collection.access.can_manage_members &&= shared.has(collection.id);
+      }
+    }
     const hostedReplicas = {
       rows: await hostedMirrorReplicas(
         options.db,
@@ -157,6 +173,7 @@ export function registerAccountOverviewRoute(
     }
     const grants = await options.db.query(
       `SELECT g.id, g.operations, g.scope, g.file_capability, g.created_at, g.revoked_at,
+              g.reauthorization_required_at, g.reauthorization_reason,
               CASE
                 WHEN g.revoked_at IS NULL THEN 'active'
                 WHEN g.id IN (
@@ -171,7 +188,7 @@ export function registerAccountOverviewRoute(
               a.id AS application_id,
               a.family_identity AS application_family_id,
               a.distribution, a.name AS application_name,
-              a.homepage, a.project_url, a.icon,
+              a.homepage, a.project_url, a.icon, a.requirements,
               COALESCE(col.display_name, hosted.display_name) AS collection_name,
               CASE WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
        FROM grants g
@@ -252,6 +269,7 @@ export function registerAccountOverviewRoute(
         } : null
       } : null,
       hosted_collections_available: options.hostedCollections === true,
+      collection_sharing_available: options.hostedCollections === true && options.hostedSharing === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),
         registration: authenticationSettings.registrationMode
@@ -269,7 +287,8 @@ export function registerAccountOverviewRoute(
             : "unknown" as const,
         last_incompatible_at: connector.last_incompatible_at,
         minimum_connector_version: connector.minimum_connector_version,
-        update_url: connector.connector_update_url
+        update_url: connector.connector_update_url,
+        update_recommended: connector.latest_policy_ack_mode === "legacy_ack_v0"
       })),
       collections: await Promise.all(collections.rows.map(async (collection) => {
         const access = await resolveLocalCollectionAccess(
@@ -313,10 +332,7 @@ export function registerAccountOverviewRoute(
             sync_status: hostedReplicaStatuses.get(replica.id) ?? null
           }))
       })),
-      grants: grants.rows.map((grant) => ({
-        ...grant,
-        application_origin: normalizedApplicationOrigin(grant.application_origin)
-      })),
+      grants: grants.rows.map(grantWithCompatibleApplicationOrigin),
       pending_authorizations: await Promise.all(
         pendingAuthorizations.rows.map(async (authorization) => {
           const live = requiresHostedCollection(authorization.requirements)
@@ -336,8 +352,4 @@ export function registerAccountOverviewRoute(
       )
     };
   });
-}
-
-function normalizedApplicationOrigin(value: string): string {
-  return value === "null" ? value : new URL(value).origin;
 }

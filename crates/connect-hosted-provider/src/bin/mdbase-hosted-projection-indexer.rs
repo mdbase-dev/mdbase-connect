@@ -320,6 +320,7 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
         }
     }
     let cutover_connection = cutover_budget.is_some();
+    let verification_connection = matches!(&arguments.command, Command::Verify(_));
     let provider_future = async {
         if cutover_connection {
             HostedProvider::connect_pre_migrated(
@@ -336,6 +337,14 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
                     .command
                     .cutover_owner_token()
                     .expect("cutover connection has an owner"),
+            )
+            .await
+        } else if verification_connection {
+            HostedProvider::connect_for_verification(
+                &database_url,
+                crypto,
+                ProviderLimits::default(),
+                Arc::new(ProjectionOnlyBlobStore),
             )
             .await
         } else {
@@ -461,6 +470,11 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
             )
         }
         Command::Verify(page) => {
+            // An independent post-cutover verification is also the live
+            // semantic read-back gate. It must use the same admission class as
+            // hosted queries so a provisional lease cannot accidentally admit
+            // canonical writes while verification runs.
+            let admission = provider.acquire_runtime_read_admission().await?;
             let plan = provider
                 .projection_index_plan(page.after, page.limit)
                 .await?;
@@ -474,6 +488,7 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
             }
             let page_verified = verifications.iter().all(|result| result.verified);
             let ok = plan.migration_ledger_valid && plan.schema_valid && page_verified;
+            admission.commit().await?;
             (
                 ok,
                 "verify",

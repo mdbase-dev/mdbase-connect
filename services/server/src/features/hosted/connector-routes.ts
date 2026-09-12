@@ -1,3 +1,4 @@
+import { approveMirrorPairing } from "../../hosted-mirror-policy.js";
 import type {
   CollectionContractDescriptor,
   CollectionOperation,
@@ -141,23 +142,19 @@ export function registerConnectorHostedRoutes(
       const input = z.object({
         collection_id: z.uuid()
       }).strict().parse(request.body);
-      const approved = await options.db.query<{
-        id: string;
-        mode: "read_only" | "read_write";
-      }>(
-        `UPDATE mirror_pairing_requests
-         SET user_id = $2, collection_id = $3, approved_at = now()
-         WHERE id = $1 AND approved_at IS NULL AND consumed_at IS NULL
-           AND revoked_at IS NULL AND expires_at > now()
-           AND EXISTS (
-             SELECT 1 FROM hosted_collections
-             WHERE id = $3 AND user_id = $2
-               AND authority_state = 'active'
-           )
-         RETURNING id, mode`,
-        [pairingId, connector.user_id, input.collection_id]
-      );
-      if (!approved.rows[0]) {
+      const connection = await options.db.connect();
+      let approved;
+      try {
+        await connection.query("BEGIN");
+        approved = await approveMirrorPairing(connection, connector.user_id, input.collection_id, pairingId);
+        await connection.query("COMMIT");
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally {
+        connection.release();
+      }
+      if (!approved) {
         return reply.code(404).send(apiError(
           "mirror_pairing_not_found",
           "Mirror setup expired, was already used, or the collection was not found."
@@ -171,7 +168,7 @@ export function registerConnectorHostedRoutes(
         {
           collection_id: input.collection_id,
           connector_id: connector.id,
-          mode: approved.rows[0].mode,
+          mode: approved.mode,
           source: "desktop"
         }
       );

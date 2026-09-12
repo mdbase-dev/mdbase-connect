@@ -1,7 +1,9 @@
 use super::*;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use mdbase_connect_protocol::{
     CollectionFileDescriptor, FileMediaClass, SyncConflict, SyncMutationError, SyncResourceDocument,
 };
+use std::collections::VecDeque;
 use std::sync::Mutex;
 use tempfile::TempDir;
 
@@ -16,6 +18,56 @@ struct PortablePathFixtures {
 struct PortablePathAlias {
     left: String,
     right: String,
+}
+
+enum InjectedReadFailure {
+    Missing,
+    Interrupted,
+    Eio,
+}
+
+struct InjectedRecordReader {
+    failures: Mutex<BTreeMap<String, VecDeque<InjectedReadFailure>>>,
+}
+
+impl InjectedRecordReader {
+    fn new(failures: impl IntoIterator<Item = (String, InjectedReadFailure)>) -> Self {
+        let mut by_path = BTreeMap::<String, VecDeque<InjectedReadFailure>>::new();
+        for (path, failure) in failures {
+            by_path.entry(path).or_default().push_back(failure);
+        }
+        Self {
+            failures: Mutex::new(by_path),
+        }
+    }
+}
+
+impl LocalRecordReader for InjectedRecordReader {
+    fn read(&self, path: &Path) -> std::io::Result<LocalRecordRead> {
+        let path_key = path
+            .strip_prefix(
+                path.ancestors()
+                    .find(|ancestor| ancestor.ends_with("mirror"))
+                    .unwrap(),
+            )
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let failure = self
+            .failures
+            .lock()
+            .unwrap()
+            .get_mut(&path_key)
+            .and_then(VecDeque::pop_front);
+        match failure {
+            Some(InjectedReadFailure::Missing) => Ok(LocalRecordRead::Missing),
+            Some(InjectedReadFailure::Interrupted) => {
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            }
+            Some(InjectedReadFailure::Eio) => Err(std::io::Error::from_raw_os_error(5)),
+            None => FilesystemRecordReader.read(path),
+        }
+    }
 }
 
 struct FakeAuthority {
@@ -1432,22 +1484,267 @@ async fn writable_mirror_uploads_create_update_rename_and_delete() {
 }
 
 #[tokio::test]
-async fn malformed_frontmatter_is_uploaded_as_opaque_markdown() {
+async fn invalid_local_records_fence_valid_siblings_without_changing_exact_bytes() {
     let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, Vec::new());
     mirror.sync().await.unwrap();
-    fs::write(mirror.root().join("bad.md"), "---\n[invalid\n---\nBody").unwrap();
+    let state_before = mirror.read_state().unwrap().unwrap();
+    let fixtures = [
+        ("malformed.md", b"---\ntitle: [\n---\nBody".as_slice()),
+        (
+            "duplicate.md",
+            b"---\ntitle: first\ntitle: second\n---\nBody".as_slice(),
+        ),
+        ("nonmapping.md", b"---\n- one\n- two\n---\nBody".as_slice()),
+        ("invalid-utf8.md", b"---\ntitle: Bad\n---\n\xff".as_slice()),
+    ];
+    for (path, bytes) in fixtures {
+        fs::write(mirror.root().join(path), bytes).unwrap();
+    }
     fs::write(mirror.root().join("good.md"), "---\ntitle: Good\n---\nBody").unwrap();
-    mirror.sync().await.unwrap();
-    let status = mirror.status().unwrap();
-    assert_eq!(status.state, MirrorStatusState::UpToDate);
-    assert!(status.local_issues.is_empty());
-    let mutations = authority.mutations();
-    assert_eq!(mutations.len(), 2);
-    let bad = mutations
+    fs::write(mirror.root().join("body-only.md"), "Body-only Markdown").unwrap();
+
+    let plan = mirror.inspect().await.unwrap();
+    let invalid_issues = plan
+        .issues
         .iter()
-        .find(|mutation| mutation.path.as_deref() == Some("bad.md"))
+        .filter(|issue| issue.code == "invalid_frontmatter")
+        .collect::<Vec<_>>();
+    assert_eq!(invalid_issues.len(), 4);
+    assert!(invalid_issues
+        .iter()
+        .all(|issue| { issue.blocking && issue.path.is_some() && issue.message.len() <= 40 }));
+    let result = mirror.apply(&plan).await.unwrap();
+    assert_eq!(result.status, "attention");
+    assert_eq!(result.applied, 0);
+    assert!(authority.mutations().is_empty());
+    let state_after = mirror.read_state().unwrap().unwrap();
+    assert_eq!(state_after.cursor, state_before.cursor);
+    assert_eq!(state_after.generation, state_before.generation);
+    for (path, bytes) in fixtures {
+        assert_eq!(fs::read(mirror.root().join(path)).unwrap(), bytes);
+    }
+
+    for (path, _) in fixtures {
+        fs::write(
+            mirror.root().join(path),
+            format!("---\ntitle: Repaired {path}\n---\nBody"),
+        )
         .unwrap();
-    assert_eq!(bad.document.as_deref(), Some("---\n[invalid\n---\nBody"));
+    }
+    mirror.sync().await.unwrap();
+    assert_eq!(authority.mutations().len(), 6);
+    let repaired_state = mirror.read_state().unwrap().unwrap();
+    mirror.sync().await.unwrap();
+    assert_eq!(authority.mutations().len(), 6);
+    assert_eq!(
+        mirror.read_state().unwrap().unwrap().generation,
+        repaired_state.generation
+    );
+}
+
+#[tokio::test]
+async fn listed_record_read_failures_are_blocking_and_never_plan_remote_deletion() {
+    let records = vec![
+        record("interrupted.md", "Interrupted"),
+        record("eio.md", "Eio"),
+        record("missing.md", "Missing"),
+    ];
+    let (temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, records);
+    mirror.sync().await.unwrap();
+    fs::write(mirror.root().join("valid-sibling.md"), "valid sibling").unwrap();
+    let reader = Arc::new(InjectedRecordReader::new([
+        ("interrupted.md".into(), InjectedReadFailure::Interrupted),
+        ("interrupted.md".into(), InjectedReadFailure::Interrupted),
+        ("eio.md".into(), InjectedReadFailure::Eio),
+        ("eio.md".into(), InjectedReadFailure::Eio),
+        ("missing.md".into(), InjectedReadFailure::Missing),
+        ("missing.md".into(), InjectedReadFailure::Missing),
+    ]));
+    let mirror = DirectoryMirror::new(
+        mirror.root(),
+        temporary.path().join("state/state.json"),
+        temporary.path().join("locks/mirror.lock"),
+        authority.session.replica_id,
+        SyncReplicaMode::ReadWrite,
+        authority.clone(),
+    )
+    .unwrap()
+    .with_record_reader(reader);
+
+    let blocked = mirror.inspect().await.unwrap();
+    assert_eq!(
+        blocked
+            .issues
+            .iter()
+            .filter(|issue| issue.code == "file_read_failed")
+            .count(),
+        3
+    );
+    assert!(!blocked
+        .actions
+        .iter()
+        .any(|action| matches!(action, SyncAction::DeleteRemote { .. })));
+    let blocked_result = mirror.apply(&blocked).await.unwrap();
+    assert_eq!(blocked_result.status, "attention");
+    assert!(authority.mutations().is_empty());
+
+    mirror.sync().await.unwrap();
+    assert_eq!(authority.mutations().len(), 1);
+    assert_eq!(
+        authority.mutations()[0].path.as_deref(),
+        Some("valid-sibling.md")
+    );
+    let repaired_state = mirror.read_state().unwrap().unwrap();
+    mirror.sync().await.unwrap();
+    assert_eq!(authority.mutations().len(), 1);
+    assert_eq!(
+        mirror.read_state().unwrap().unwrap().generation,
+        repaired_state.generation
+    );
+}
+
+#[tokio::test]
+async fn receive_only_repair_is_blocked_by_an_unrelated_production_read_failure() {
+    let records = vec![
+        record("invalid.md", "Authority"),
+        record("eio.md", "Unreadable"),
+    ];
+    let (temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, records);
+    mirror.sync().await.unwrap();
+    fs::write(mirror.root().join("invalid.md"), "---\na: [broken\n---\n").unwrap();
+    let reader = Arc::new(InjectedRecordReader::new([
+        ("eio.md".into(), InjectedReadFailure::Eio),
+        ("eio.md".into(), InjectedReadFailure::Eio),
+    ]));
+    let blocked = DirectoryMirror::new(
+        mirror.root(),
+        temporary.path().join("state/state.json"),
+        temporary.path().join("locks/mirror.lock"),
+        authority.session.replica_id,
+        SyncReplicaMode::ReadOnly,
+        authority.clone(),
+    )
+    .unwrap()
+    .with_record_reader(reader)
+    .inspect()
+    .await
+    .unwrap();
+
+    assert!(blocked
+        .issues
+        .iter()
+        .any(|issue| issue.code == "invalid_frontmatter" && issue.blocking));
+    assert!(blocked
+        .issues
+        .iter()
+        .any(|issue| issue.code == "file_read_failed" && issue.blocking));
+    assert!(blocked.actions.is_empty());
+    assert!(authority.mutations().is_empty());
+}
+
+#[tokio::test]
+async fn receive_only_repairs_authority_records_over_exactly_sealed_invalid_local_bytes() {
+    let invalid_cases = [
+        ("invalid UTF-8", b"bad\xffbytes".as_slice()),
+        ("invalid YAML", b"---\na: [broken\n---\n".as_slice()),
+        ("nonmapping", b"---\n- item\n---\n".as_slice()),
+    ];
+    for (label, invalid) in invalid_cases {
+        let authority_record = record("managed.md", "Authority");
+        let (_temporary, mirror, authority) =
+            harness(SyncReplicaMode::ReadOnly, vec![authority_record.clone()]);
+        mirror.sync().await.unwrap();
+        let before = mirror.read_state().unwrap().unwrap();
+        fs::write(mirror.root().join("managed.md"), invalid).unwrap();
+
+        let plan = mirror.inspect().await.unwrap();
+        assert!(
+            matches!(
+                plan.actions.as_slice(),
+                [
+                    SyncAction::WriteLocal {
+                        invalid_local_revision: Some(_),
+                        ..
+                    },
+                    SyncAction::AdvanceCheckpoint { expected, next, .. }
+                ] if expected == next
+            ),
+            "{label}"
+        );
+        let result = mirror.apply(&plan).await.unwrap();
+        assert_eq!(result.status, "applied", "{label}");
+        assert_eq!(
+            fs::read_to_string(mirror.root().join("managed.md")).unwrap(),
+            record_markdown_document(&authority_record).unwrap(),
+            "{label}"
+        );
+        let after = mirror.read_state().unwrap().unwrap();
+        assert_eq!(after.cursor, before.cursor, "{label}");
+        assert_eq!(after.generation, before.generation, "{label}");
+        assert!(authority.mutations().is_empty(), "{label}");
+    }
+}
+
+#[tokio::test]
+async fn invalid_local_repair_rejects_concurrent_replacement_and_read_failures() {
+    let authority_record = record("managed.md", "Authority");
+    let (temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, vec![authority_record]);
+    mirror.sync().await.unwrap();
+    fs::write(mirror.root().join("managed.md"), "---\na: [broken\n---\n").unwrap();
+    let plan = mirror.inspect().await.unwrap();
+    let concurrent = b"---\na: [different\n---\n";
+    fs::write(mirror.root().join("managed.md"), concurrent).unwrap();
+    let stale = mirror.apply(&plan).await.unwrap();
+    assert_eq!(stale.status, "stale");
+    assert_eq!(
+        fs::read(mirror.root().join("managed.md")).unwrap(),
+        concurrent
+    );
+    assert!(authority.mutations().is_empty());
+
+    let reader = Arc::new(InjectedRecordReader::new([(
+        "managed.md".into(),
+        InjectedReadFailure::Eio,
+    )]));
+    let failed = DirectoryMirror::new(
+        mirror.root(),
+        temporary.path().join("state/state.json"),
+        temporary.path().join("locks/mirror.lock"),
+        authority.session.replica_id,
+        SyncReplicaMode::ReadOnly,
+        authority,
+    )
+    .unwrap()
+    .with_record_reader(reader)
+    .inspect()
+    .await
+    .unwrap();
+    assert!(failed.actions.is_empty());
+    assert!(failed
+        .issues
+        .iter()
+        .any(|issue| issue.code == "file_read_failed" && issue.blocking));
+}
+
+#[tokio::test]
+async fn receive_only_invalid_local_record_blocks_sibling_download_and_checkpoint() {
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, Vec::new());
+    mirror.sync().await.unwrap();
+    let state_before = mirror.read_state().unwrap().unwrap();
+    fs::write(mirror.root().join("bad.md"), "---\nvalue: [\n---\nBody").unwrap();
+    authority.emit_put(record("remote-sibling.md", "Remote sibling"));
+
+    let plan = mirror.inspect().await.unwrap();
+    assert!(plan
+        .issues
+        .iter()
+        .any(|issue| issue.code == "invalid_frontmatter" && issue.blocking));
+    let result = mirror.apply(&plan).await.unwrap();
+    assert_eq!(result.status, "attention");
+    assert!(!mirror.root().join("remote-sibling.md").exists());
+    let state_after = mirror.read_state().unwrap().unwrap();
+    assert_eq!(state_after.cursor, state_before.cursor);
+    assert_eq!(state_after.generation, state_before.generation);
 }
 
 #[tokio::test]
@@ -1526,7 +1823,9 @@ async fn action_journal_is_append_only_replayable_and_ignores_a_torn_tail() {
         panic!("first exact snapshot action should materialize the record");
     };
     let record = state.batch.as_ref().unwrap().payloads.records[&action_id].clone();
-    mirror.put_record(&mut state, record.clone(), None).unwrap();
+    mirror
+        .put_record(&mut state, record.clone(), None, false)
+        .unwrap();
     mirror
         .journal_receipt(
             &mut state,
@@ -2000,6 +2299,179 @@ fn rust_planner_matches_the_shared_cross_runtime_canonical_fixture() {
 }
 
 #[test]
+fn shared_record_structural_outcome_oracle_uses_the_production_reader() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../test-fixtures/record-structural-outcomes.json"
+    ))
+    .unwrap();
+    assert_eq!(fixture["source_revision"], "mdbase-rs@aac02c5");
+    let temporary = tempfile::tempdir().unwrap();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 14);
+    let mut observed = Vec::new();
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let bytes = case
+            .get("document")
+            .and_then(Value::as_str)
+            .map(|document| document.as_bytes().to_vec())
+            .unwrap_or_else(|| {
+                BASE64
+                    .decode(case["bytes_base64"].as_str().unwrap())
+                    .unwrap()
+            });
+        let path = temporary.path().join(format!("{name}.md"));
+        fs::write(&path, bytes).unwrap();
+        let outcome = match FilesystemRecordReader.read(&path).unwrap() {
+            LocalRecordRead::Parsed { .. } => "parsed",
+            LocalRecordRead::Invalid {
+                reason: "Document is not valid UTF-8.",
+                ..
+            } => "invalid_utf8",
+            LocalRecordRead::Invalid {
+                reason: "Frontmatter is not valid YAML.",
+                ..
+            } => "invalid_yaml",
+            LocalRecordRead::Invalid { .. } => "non_mapping_frontmatter",
+            LocalRecordRead::Missing => panic!("fixture record disappeared"),
+        };
+        assert_eq!(outcome, case["outcome"].as_str().unwrap(), "{name}");
+        observed.push((name, outcome));
+    }
+    assert_eq!(
+        observed.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        vec![
+            "body_only",
+            "empty_mapping",
+            "malformed_yaml",
+            "duplicate_yaml_key",
+            "null_frontmatter",
+            "list_frontmatter",
+            "scalar_frontmatter",
+            "later_horizontal_rule_block",
+            "single_bom_frontmatter",
+            "double_bom_body_only",
+            "crlf_frontmatter",
+            "unclosed_opening_fence",
+            "trailing_whitespace_fences",
+            "invalid_utf8",
+        ]
+    );
+}
+
+#[test]
+fn rust_planner_fences_all_sibling_effects_when_one_issue_blocks() {
+    let upload_identity = "33333333-3333-4333-8333-333333333333";
+    let download_identity = "44444444-4444-4444-8444-444444444444";
+    let object = |identity: &str, path: &str, document: &str| SyncObjectRef {
+        entity: SyncObjectKind::Record,
+        identity: identity.into(),
+        path: path.into(),
+        revision: format!("sha256:{}", digest(document)),
+        payload_revision: format!("sha256:{}", digest(document)),
+        size: None,
+    };
+    let upload_base = ExpectedObjectState::Exact {
+        object: object(upload_identity, "notes/upload.md", "upload base"),
+    };
+    let upload_local = ExpectedObjectState::Exact {
+        object: object(upload_identity, "notes/upload.md", "upload local"),
+    };
+    let download_base = ExpectedObjectState::Exact {
+        object: object(download_identity, "notes/download.md", "download base"),
+    };
+    let download_remote = ExpectedObjectState::Exact {
+        object: object(download_identity, "notes/download.md", "download remote"),
+    };
+    let mut inspection = crate::sync_planner::InspectionSummary {
+        boundary: crate::sync_planner::InspectionBoundary {
+            replica_id: "11111111-1111-4111-8111-111111111111".into(),
+            scope_epoch: 7,
+            authority_cursor: 19,
+            checkpoint: SyncCheckpoint {
+                generation: 3,
+                cursor: Some(11),
+            },
+        },
+        mode: SyncReplicaMode::ReadWrite,
+        kind: "incremental".into(),
+        selective_sync: SelectiveSyncPolicy::default(),
+        objects: vec![
+            crate::sync_planner::InspectedObject {
+                entity: SyncObjectKind::Record,
+                identity: upload_identity.into(),
+                base: upload_base.clone(),
+                local: upload_local.clone(),
+                remote: upload_base.clone(),
+                local_target_owner: upload_local,
+                remote_target_owner: upload_base,
+                frozen_conflict: None,
+            },
+            crate::sync_planner::InspectedObject {
+                entity: SyncObjectKind::Record,
+                identity: download_identity.into(),
+                base: download_base.clone(),
+                local: download_base.clone(),
+                remote: download_remote.clone(),
+                local_target_owner: download_base,
+                remote_target_owner: download_remote,
+                frozen_conflict: None,
+            },
+        ],
+        issues: vec![],
+    };
+    let control = crate::sync_planner::plan_reconciliation(inspection.clone()).unwrap();
+    assert!(matches!(control.actions[0], SyncAction::PutRemote { .. }));
+    assert!(matches!(control.actions[1], SyncAction::WriteLocal { .. }));
+    assert!(matches!(
+        control.actions[2],
+        SyncAction::AdvanceCheckpoint { .. }
+    ));
+
+    inspection.issues = vec![
+        MirrorPlanIssue {
+            code: "invalid_frontmatter".into(),
+            message: "Invalid frontmatter in notes/broken.md.".into(),
+            path: Some("notes/broken.md".into()),
+            blocking: true,
+        },
+        MirrorPlanIssue {
+            code: "notice".into(),
+            message: "Retained diagnostic.".into(),
+            path: None,
+            blocking: false,
+        },
+    ];
+
+    let first = crate::sync_planner::plan_reconciliation(inspection.clone()).unwrap();
+    let second = crate::sync_planner::plan_reconciliation(inspection).unwrap();
+    assert!(first.actions.is_empty());
+    assert_eq!(
+        first.issues,
+        vec![
+            MirrorPlanIssue {
+                code: "notice".into(),
+                message: "Retained diagnostic.".into(),
+                path: None,
+                blocking: false,
+            },
+            MirrorPlanIssue {
+                code: "invalid_frontmatter".into(),
+                message: "Invalid frontmatter in notes/broken.md.".into(),
+                path: Some("notes/broken.md".into()),
+                blocking: true,
+            },
+        ]
+    );
+    assert_eq!(first.summary.uploads, 0);
+    assert_eq!(first.summary.downloads, 0);
+    assert_eq!(first.summary.conflicts, 0);
+    assert_eq!(first.summary.blocking_issues, 1);
+    assert_eq!(second.fingerprint, first.fingerprint);
+    assert_ne!(first.fingerprint, control.fingerprint);
+}
+
+#[test]
 fn rust_planner_breaks_local_rename_cycles_with_the_same_staged_graph() {
     let object = |identity: &str, path: &str, document: &str| SyncObjectRef {
         entity: SyncObjectKind::Record,
@@ -2190,6 +2662,7 @@ fn rust_plan_only_architecture_has_enforced_responsibility_boundaries() {
         ("sync_executor", executor),
         ("sync_journal", include_str!("sync_journal.rs")),
         ("sync_revalidator", include_str!("sync_revalidator.rs")),
+        ("sync_snapshot", include_str!("sync_snapshot.rs")),
     ] {
         assert!(
             !source.contains("action: SyncAction::"),
@@ -2396,7 +2869,9 @@ async fn incremental_record_puts_recheck_the_live_collection_policy() {
     hostile.body = "malware".to_string();
     refresh_revision(&mut hostile);
 
-    let error = mirror.put_record(&mut state, hostile, None).unwrap_err();
+    let error = mirror
+        .put_record(&mut state, hostile, None, false)
+        .unwrap_err();
 
     assert_eq!(error.code, "invalid_sync_plan");
     assert!(!mirror.root().join("payload.exe").exists());

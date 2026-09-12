@@ -10,11 +10,16 @@ on:
       - "packages/management/**"
       - "packages/protocol/**"
       - "packages/ui/**"
+      - "services/feedback/**"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/editor-pages.yml"
   workflow_dispatch:
     inputs:
+      production_verified_commit:
+        description: Full tagged SHA independently verified by the release owner after guarded production deployment, including exact service digests and hosted fresh-v2 readiness
+        required: false
+        type: string
       target:
         description: Deploy staging by default; production requires an explicit dispatch
         required: true
@@ -25,6 +30,7 @@ on:
           - production
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -34,6 +40,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -47,8 +54,29 @@ jobs:
       - run: pnpm build:packages
       - run: pnpm --filter mdbase-editor typecheck
       - run: pnpm --filter mdbase-editor test
+      - run: pnpm --filter @mdbase/feedback-worker typecheck
+      - run: pnpm --filter @mdbase/feedback-worker test
       - run: pnpm --filter mdbase-editor test:deployment
-      - run: pnpm exec playwright install --with-deps chromium
+      - name: Restore Playwright cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: "Cache marker: playwright hit"
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: echo 'Playwright cache hit.'
+      - name: "Cache marker: playwright miss"
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: echo 'Playwright cache miss.'
+      - name: Install Chromium (cache miss)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 30
+      - name: Install Chromium (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install chromium
+        timeout-minutes: 5
       - run: pnpm --filter mdbase-editor test:e2e
       - run: pnpm --filter mdbase-editor build
         env:
@@ -60,7 +88,7 @@ jobs:
   deploy-cloudflare:
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' &&
+      startsWith(github.ref, 'refs/tags/v') &&
       inputs.target == 'production' &&
       vars.CLOUDFLARE_PAGES_ENABLED == '1'
     needs: test
@@ -84,8 +112,21 @@ jobs:
         env:
           MDBASE_EDITOR_ORIGIN: https://editor.mdbase.dev
           MDBASE_EDITOR_BASE_PATH: /
+          VITE_MDBASE_BUILD_REVISION: ${{ github.sha }}
+          VITE_MDBASE_ENV: production
+          VITE_MDBASE_FEEDBACK_URL: ${{ vars.MDBASE_FEEDBACK_URL }}
+          VITE_MDBASE_TURNSTILE_SITE_KEY: ${{ vars.MDBASE_FEEDBACK_TURNSTILE_SITE_KEY }}
       - name: Verify editor manifest
         run: node apps/editor/scripts/verify-deployment-manifest.mjs apps/editor/dist/.well-known/mdbase-app.json https://editor.mdbase.dev/
+      - name: Require exact full Server CI qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/ci/verify-qualified-commit "$GITHUB_SHA"
+      - name: Verify exact production candidate before client publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
+        run: node scripts/verify-client-publication.mjs
       - name: Deploy editor
         run: npx --yes --package wrangler@4.114.0 wrangler pages deploy apps/editor/dist --project-name=mdbase-editor --branch=main
         env:
@@ -131,6 +172,10 @@ jobs:
           MDBASE_EDITOR_BASE_PATH: /
           MDBASE_CONNECT_URL: https://connect-staging.mdbase.dev
           VITE_MDBASE_CONNECT_URL: https://connect-staging.mdbase.dev
+          VITE_MDBASE_BUILD_REVISION: ${{ github.sha }}
+          VITE_MDBASE_ENV: staging
+          VITE_MDBASE_FEEDBACK_URL: ${{ vars.MDBASE_FEEDBACK_URL }}
+          VITE_MDBASE_TURNSTILE_SITE_KEY: ${{ vars.MDBASE_FEEDBACK_TURNSTILE_SITE_KEY }}
       - name: Verify staging editor manifest
         run: node apps/editor/scripts/verify-deployment-manifest.mjs apps/editor/dist/.well-known/mdbase-app.json https://editor-staging.mdbase.dev/ https://connect-staging.mdbase.dev
       - name: Deploy staging editor

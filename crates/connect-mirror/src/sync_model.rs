@@ -68,6 +68,8 @@ pub enum SyncAction {
         payload_revision: String,
         expected_local: ExpectedObjectState,
         expected_path_owner: ExpectedObjectState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        invalid_local_revision: Option<String>,
     },
     DeleteLocal {
         action_id: String,

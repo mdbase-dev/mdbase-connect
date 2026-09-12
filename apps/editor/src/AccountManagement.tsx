@@ -220,13 +220,13 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       </div>}
     </section>
 
-    <section>
+    {overview.collection_sharing_available && <section>
       <SectionTitle title="Sharing code" note="Use this when someone cannot invite your verified email address." />
       <div className="connect-account-row">
         <div><strong>{sharingCode?.code ?? "No active code shown"}</strong><small>{sharingCode ? `One use · expires ${relativeTime(sharingCode.expiresAt)}` : "Generate a private code, then send it to the collection owner."}</small></div>
         <button className="connect-account-action" disabled={busy.has("sharing-code")} onClick={() => void createSharingCode()}>{busy.has("sharing-code") ? "Generating…" : sharingCode ? "Generate a new code" : "Generate code"}</button>
       </div>
-    </section>
+    </section>}
 
     {account.authentication.managed && <section>
       <SectionTitle title="Browser sessions" count={sessions?.length} action={otherSessions.length > 0 && <button className="danger" disabled={busy.has("sessions-others")} onClick={() => void run("sessions-others", () => client.revokeOtherSessions())}>Sign out other sessions</button>} />
@@ -246,7 +246,9 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 
     <section className="connect-danger-section">
       <SectionTitle title="Delete account" note="Permanent for hosted data. Local files are never removed from your computers." />
-      {!account.deletion.available ? <p>This account is managed by your tailnet and cannot be deleted here.</p> : !deletionOpen ? <button className="connect-account-danger" onClick={() => setDeletionOpen(true)}>Delete account…</button> : <form className="connect-account-form" onSubmit={(event) => void deleteAccount(event)}>
+      {!account.deletion.available ? <p>{account.deletion.unavailable_reason === "temporarily_disabled"
+        ? "Account deletion is temporarily unavailable while we complete a service correction."
+        : "This account is managed by your tailnet and cannot be deleted here."}</p> : !deletionOpen ? <button className="connect-account-danger" onClick={() => setDeletionOpen(true)}>Delete account…</button> : <form className="connect-account-form" onSubmit={(event) => void deleteAccount(event)}>
         <div className="connect-deletion-effects">
           <p><strong>This permanently deletes:</strong></p>
           <ul><li>{pluralLabel(account.deletion.hosted_collections, "hosted collection", "hosted collections")} and their stored data</li><li>Application access and {pluralLabel(account.deletion.computers, "connected computer", "connected computers")}</li><li>Every browser session and sign-in method</li></ul>
@@ -271,7 +273,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 }
 
 export function DeletedAccount({ client }: { client: ConnectManagementClient }) {
-  return <main className="connect-deleted-account"><div><h1>Your account has been deleted.</h1><span>Hosted data and access credentials were removed. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}>Return to sign in</a></div></main>;
+  return <main className="connect-deleted-account"><div><h1>Your account has been deleted.</h1><span>Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}>Return to sign in</a></div></main>;
 }
 
 function StorageRow({ collection }: { collection: AccountData["storage"]["collections"][number] }) {

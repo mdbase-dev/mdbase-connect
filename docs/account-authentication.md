@@ -18,7 +18,11 @@ the following tables:
 Matching email text never links accounts. Linking requires an authenticated
 session for the existing account plus fresh proof of the identity being added.
 An OAuth callback may update presentation data for its existing provider
-subject, but it cannot claim an email identity owned by another account.
+subject, but it cannot create another account with a verified email already
+claimed for account creation. The user must sign in to that account and link the
+provider from account settings instead. Account-creation claims are reserved in
+the same transaction as the new account; authenticated provider linking does
+not transfer them or infer ownership from matching email text.
 
 Email normalization is deliberately conservative and versioned. Version 1
 trims outer whitespace, applies Unicode NFC, lower-cases the local and domain
@@ -26,6 +30,65 @@ parts, and converts international domain names to ASCII. It does not remove
 plus-tags, remove dots, or apply provider-specific alias rules. Active
 normalized addresses are unique; retired identities remain available for
 audit while no longer reserving the address.
+
+## Public Google and GitHub signup
+
+`/signup` offers the configured identity providers alongside verified
+email/password registration. A provider callback for an existing identity signs
+in directly. In `open` mode, a new identity instead goes to a short account
+confirmation page: confirm the name and accept the current terms/privacy
+versions. No account or session exists before that confirmation succeeds.
+This also applies when a new person starts from `/login`, so the login button
+cannot bypass signup requirements.
+
+Google must supply a verified email. GitHub login requests only `user:email`
+(no repository access); Connect reads `/user/emails` and accepts only the
+verified primary email, including private addresses. An unverified or missing
+primary address cannot create an account: verify it at the provider, or use
+email signup. GitHub account-linking and deletion reauthentication retain their
+existing identity-only scope. Provider tokens are never persisted.
+
+The callback stores only the verified identity and the validated same-origin
+return target in `external_signup_challenges`, keyed by a random token's digest.
+The raw token is carried in a ten-minute HTTP-only, same-site cookie (`__Host-`
+and Secure on HTTPS), not a URL or browser storage. Expired proofs are removed
+when another proof is issued; consumed proofs are deleted immediately. Preview
+and confirmation use exact-origin POSTs at `/v1/auth/external/signup/preview`
+and `/v1/auth/external/signup`. Neither endpoint accepts a provider identity or
+credential from the browser. Preview returns a non-bearer `proof_id` (the
+random token's digest), which confirmation must echo alongside the HTTP-only
+cookie. This binds acceptance to the displayed identity and rejects a stale
+form when another tab replaces the cookie with a different provider proof.
+
+Confirmation locks and rereads the current registration/legal policy and
+atomically consumes the proof, claims the email, creates the account, verified
+primary email identity and session, records legal acceptance, grants
+`open_beta_v1`, schedules the welcome email, and schedules the starter
+collection. Password and provider signup share the onboarding implementation.
+The provider subject is transaction-locked, so independent concurrent proofs
+cannot duplicate onboarding; verified-email claims prevent cross-provider or
+password/provider races from creating duplicate accounts. Any failure rolls
+back proof consumption and all account writes. Existing accounts are not
+silently linked by email, renamed, or granted another signup allowance.
+
+`external_public_registration` is advertised only when registration is open,
+a provider is configured, current legal versions/URLs exist, and the shared
+authentication limiter is configured. Unlike password signup, provider signup
+does not depend on the password or email-delivery switches: the provider has
+already verified the address. Welcome email remains subject to the delivery
+policy. Issuance, preview and completion use separate PostgreSQL-backed rate
+scopes with keyed digests (10 attempts per proof/subject, 30 per network, and
+300 globally per hour). Preview does not consume completion's attempt budget.
+Closing registration blocks in-flight proofs as well as new issuance.
+Deconfiguring a provider also prevents its outstanding proofs being redeemed.
+
+The additive migration `0029_external_signup.sql` must run before the new
+server. Release the server and its bundled portal together; an older portal
+does not understand the confirmation page. Old server builds
+ignore the added table, but rolling back the server also restores its previous
+external-account-creation behavior. Allowlisted bootstrap creation in closed
+or invite mode is unchanged; existing external accounts are not retroactively
+converted into public-signup accounts.
 
 ## Password credentials
 
@@ -102,6 +165,12 @@ the link. Challenges are one-hour and single-use;
 requesting another invalidates the previous challenge. Account creation,
 verified email ownership, password credential, agreement acceptance, session,
 entitlement, and starter-collection scheduling commit in one transaction.
+Public signup assigns the permanent `open_beta_v1` profile: 1 GiB live hosted
+storage, 2 GiB retained file storage, three hosted collections in total
+(including the starter collection), 2 MiB per Markdown document, 250 MiB per
+file, 10,000 files per collection, 10 mirror replicas per collection, and 50
+application replicas per collection. Invitation-based `beta_v1` grants retain
+their existing ten-collection allowance.
 
 Password reset links use the same boundary:
 `/reset-password#reset=<token>`. The challenge expires after one hour.
@@ -143,10 +212,12 @@ Separate scopes cover normalized email, source network, account, and global
 send volume.
 
 Recovery and public-signup requests allow three attempts per normalized
-address and ten per source network per hour. Reset and signup-verification
-redemption are separately limited by token and source network. All scopes also
-consume the shared global authentication limit. The unauthenticated request
-response remains generic until a limit is crossed.
+address and ten per source network per hour. Signup-verification preview and
+account redemption use separate token, source-network, and global scopes so
+reloading a valid link cannot consume the budget needed to create the account.
+Reset and signup redemption remain independently limited by token and source
+network. The unauthenticated request response remains generic until a limit is
+crossed.
 
 The application will own limit duration, escalation, and cleanup policy. The
 database table owns only the shared counter state. This lets the beta use
@@ -180,6 +251,22 @@ revokes the rest. Mutations require the exact Connect origin. Session rows
 store a short browser/platform label for recognition; they do not store the
 source IP or raw user-agent string. `last_seen_at` is touched at most once per
 five minutes.
+
+## Account deletion
+
+`DELETE /v1/account` commits the complete control-plane teardown in one database
+transaction. The transaction revokes cross-account hosted replicas, records
+provider collection and capability cleanup as durable work, writes the
+`account.deleted` audit event, and deletes the user. A failed transaction leaves
+none of those effects committed. Irreversible provider cleanup starts only after
+the transaction commits and is idempotently retried until complete.
+
+`MDBASE_CONNECT_ACCOUNT_DELETION` is the operational hold. Its only accepted
+values are `enabled` and `disabled`; omitted means `enabled`. While disabled,
+`GET /v1/account` reports deletion as unavailable and `DELETE /v1/account`
+returns `503 account_deletion_unavailable` without changing account or provider
+state. The in-process development reference authority also fails account
+deletion closed because it has no durable provider-cleanup worker.
 
 ## Deployment
 

@@ -4,6 +4,7 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
+import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
   requireCollectionAction,
   resolveHostedCollectionAccess,
@@ -68,6 +69,7 @@ export async function issueApplicationTokens(
     replica_membership_id: string | null;
     replica_membership_policy_id: string | null;
     replica_membership_policy_revision: number | null;
+    allowed_types: string[] | null;
   }>(
     `SELECT g.user_id,
             COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,
@@ -80,6 +82,7 @@ export async function issueApplicationTokens(
             replica.membership_id AS replica_membership_id,
             replica.membership_policy_id AS replica_membership_policy_id,
             replica.membership_policy_revision AS replica_membership_policy_revision,
+            replica.allowed_types,
             CASE WHEN g.application_origin = '' THEN app.homepage
                  ELSE g.application_origin END AS application_origin
      FROM grants g
@@ -95,6 +98,15 @@ export async function issueApplicationTokens(
     [grantId]
   );
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
+  if (
+    !isCanonicalCollectionGrantScope(grant.rows[0].scope)
+    || (grant.rows[0].hosted_replica_id
+      && (grant.rows[0].allowed_types?.length ?? 0) > 0)
+  ) {
+    throw new RequestValidationError(
+      "Legacy scoped access must be explicitly reauthorized for the collection."
+    );
+  }
   if (grant.rows[0].hosted_collection_id) {
     const access = requireCollectionAction(
       await resolveHostedCollectionAccess(
@@ -206,4 +218,10 @@ function assertCurrentMembershipBinding(
       "The application grant no longer matches the current collection membership."
     );
   }
+}
+
+export async function lockApplicationGrantAuthority(db: DatabaseQueryable, grantId: string): Promise<void> {
+  await db.query(`SELECT id FROM hosted_collections WHERE id IN (
+    SELECT hosted_collection_id FROM grants WHERE id = $1
+  ) FOR UPDATE`, [grantId]);
 }

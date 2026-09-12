@@ -13,7 +13,7 @@ const WAIT_SLICE: Duration = Duration::from_millis(10);
 const MAX_EXTERNAL_READ_CURSORS: usize = 4_096;
 
 pub(super) struct CoordinatedReadPage {
-    pub result: mdbase::v03::OperationResult,
+    pub operation: mdbase::runtime::CanonicalOperationOutcome,
     pub next: Option<String>,
 }
 
@@ -60,9 +60,10 @@ impl CollectionExecutor {
     ) -> Result<Self, ConnectError> {
         let (runtime, provider, feed) = if coordinated {
             let runtime = Arc::new(FilesystemRuntime::open(root, Duration::from_millis(120))?);
-            let context = OperationContext::new(
+            let context = OperationContext::with_capture_limits(
                 &mdbase::OperationCancellation::new(),
                 mdbase::runtime::OperationDeadline::after(Duration::from_secs(30)),
+                local_capture_limits(),
             );
             let feed = runtime.open_change_feed(owner, &context)?;
             runtime.establish_change_feed_baseline(&feed, &context)?;
@@ -183,7 +184,7 @@ impl CollectionExecutor {
             None => None,
         };
         Ok(CoordinatedReadPage {
-            result: page.outcome.result,
+            operation: page.outcome.operation,
             next,
         })
     }
@@ -261,7 +262,7 @@ impl CollectionExecutor {
             }
         };
         Ok(CoordinatedReadPage {
-            result: page.outcome.result,
+            operation: page.outcome.operation,
             next,
         })
     }
@@ -461,9 +462,10 @@ mod tests {
     use super::*;
 
     fn context(duration: Duration) -> OperationContext {
-        OperationContext::new(
+        OperationContext::with_capture_limits(
             &mdbase::OperationCancellation::new(),
             mdbase::runtime::OperationDeadline::after(duration),
+            local_capture_limits(),
         )
     }
 

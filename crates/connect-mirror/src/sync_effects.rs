@@ -6,6 +6,7 @@ impl DirectoryMirror {
         state: &mut DurableMirrorState,
         record: SyncRecord,
         accepted_hash: Option<&str>,
+        replace_prevalidated_invalid: bool,
     ) -> Result<(), MirrorError> {
         // Path policy and exact-document integrity are inspection concerns. The
         // executor consumes the sealed payload and performs only safety and
@@ -19,7 +20,11 @@ impl DirectoryMirror {
         }
         self.validate_record_physical_path(state, &record.record_id.to_string(), &record.path)?;
         let document = record_markdown_document(&record)?;
-        let existing = self.read_file(&record.path)?;
+        let existing = if replace_prevalidated_invalid {
+            None
+        } else {
+            self.read_file(&record.path)?
+        };
         let prior = state.records.get(&record.record_id).cloned();
         if let Some(existing) = &existing {
             if existing != &document {

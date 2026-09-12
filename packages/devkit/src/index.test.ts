@@ -76,13 +76,17 @@ describe("canonical developer validation", () => {
       homepage: "https://capabilities.example/",
       redirect_uris: ["https://capabilities.example/callback"],
       requirements: {
+        access: "full_collection" as const,
         contracts: [],
         capabilities: {
-          contract_version: 1 as const,
-          required: ["collection.inspect", "files.read"],
-          optional: ["records.query"]
+          contract_version: 2 as const,
+          required: ["collection.read"],
+          optional: ["records.edit"]
         },
-        files: { scope: { kind: "selected_folders", folders: ["attachments"] }, actions: ["read"] }
+        files: {
+          scope: { kind: "selected_folders", folders: ["attachments"] },
+          required: ["read"]
+        }
       }
     };
     expect(validateAppManifest(base)).toEqual({ valid: true, issues: [] });
@@ -92,7 +96,7 @@ describe("canonical developer validation", () => {
         ...base.requirements,
         capabilities: {
           ...base.requirements.capabilities,
-          optional: ["collection.inspect"]
+          optional: ["collection.read"]
         }
       }
     }).valid).toBe(false);
@@ -102,7 +106,8 @@ describe("canonical developer validation", () => {
         ...base.requirements,
         files: {
           scope: { kind: "selected_folders", folders: ["attachments"] },
-          actions: ["read", "add"]
+          required: ["read"],
+          optional: ["read"]
         }
       }
     }).valid).toBe(false);
@@ -113,17 +118,16 @@ describe("canonical developer validation", () => {
     expect(validateAppManifest({
       ...base,
       provisions: { type_packs: [taskTypePack([])] }
-    }).valid).toBe(false);
+    }).valid).toBe(true);
     expect(validateAppManifest({
       ...base,
       requirements: {
         ...base.requirements,
-        access: "full_collection",
         capabilities: {
           ...base.requirements.capabilities,
           required: [
             ...base.requirements.capabilities.required,
-            "collection.setup.apply"
+            "definitions.manage"
           ]
         }
       },
@@ -147,6 +151,7 @@ describe("canonical developer validation", () => {
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
       requirements: {
+        access: "full_collection",
         contracts: [{ id: "example.work-item", version: "1.0.0", digest: workItemDigest }]
       }
     })).toEqual({ valid: true, issues: [] });
@@ -163,7 +168,8 @@ describe("canonical developer validation", () => {
       id: "example.tasks.desktop",
       name: "Tasks",
       homepage: "http://localhost:5179",
-      redirect_uris: ["http://localhost:5179/callback"]
+      redirect_uris: ["http://localhost:5179/callback"],
+      requirements: { access: "full_collection", contracts: [] }
     }, { allowLocal: true }).valid).toBe(true);
     expect(validateAppManifest({
       manifest_version: 1,
@@ -177,7 +183,8 @@ describe("canonical developer validation", () => {
       id: "example.tasks.desktop",
       name: "Tasks",
       homepage: "https://tasks.example/",
-      redirect_uris: ["example.tasks.desktop://auth/mdbase/callback"]
+      redirect_uris: ["example.tasks.desktop://auth/mdbase/callback"],
+      requirements: { access: "full_collection", contracts: [] }
     }).valid).toBe(true);
     expect(validateAppManifest({
       manifest_version: 1,
@@ -193,6 +200,7 @@ describe("canonical developer validation", () => {
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
       requirements: {
+        access: "full_collection",
         contracts: [{ id: "example.work-item", version: "1.0.0", digest: workItemDigest }]
       },
       provisions: {
@@ -206,6 +214,7 @@ describe("canonical developer validation", () => {
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
       requirements: {
+        access: "full_collection",
         contracts: [{ id: "example.work-item", version: "1.0.0", digest: workItemDigest }]
       },
       provisions: {
@@ -229,6 +238,7 @@ describe("canonical developer validation", () => {
         "dev.mdbase.tasks://auth/mdbase/callback"
       ],
       requirements: {
+        access: "full_collection" as const,
         contracts: [{ id: "example.work-item", version: "1.0.0", digest: workItemDigest }]
       },
       provisions: {

@@ -1,8 +1,196 @@
 use super::operation_dispatch::ensure_collection_setup_declaration_binding;
 use super::operation_input::validate_hosted_operation_input;
 use super::*;
+
+#[test]
+fn canonical_change_verifier_rejects_resource_descriptor_mismatch() {
+    let expected = mdbase::runtime::ResourceChange {
+        kind: mdbase::runtime::ResourceChangeKind::TypeDefinition,
+        path: mdbase::api::CollectionPath::new("_types/task.md").unwrap(),
+        before_revision: Some(mdbase::api::Revision::parse("sha256:before").unwrap()),
+        after_revision: Some(mdbase::api::Revision::parse("sha256:after").unwrap()),
+    };
+    let mut mismatched = expected.clone();
+    mismatched.kind = mdbase::runtime::ResourceChangeKind::ViewSource;
+    let actual = mdbase::runtime::ChangeSet::Exact(
+        mdbase::runtime::ChangeBatch::new(vec![mdbase::runtime::CanonicalChange::Resource(
+            mismatched,
+        )])
+        .unwrap(),
+    );
+    assert!(verify_canonical_change_set(
+        &actual,
+        vec![mdbase::runtime::CanonicalChange::Resource(expected)],
+        "test resource",
+    )
+    .is_err());
+}
+
+#[test]
+fn canonical_change_verifier_rejects_record_descriptor_mismatch() {
+    let expected = mdbase::runtime::RecordChange {
+        kind: mdbase::runtime::RecordChangeKind::Renamed,
+        path: mdbase::api::CollectionPath::new("tasks/new.md").unwrap(),
+        from: Some(mdbase::api::CollectionPath::new("tasks/old.md").unwrap()),
+        before_revision: Some(mdbase::api::Revision::parse("sha256:before").unwrap()),
+        after_revision: Some(mdbase::api::Revision::parse("sha256:after").unwrap()),
+        before_types: mdbase::runtime::CanonicalTypeSet::new(["task".to_string()]),
+        after_types: mdbase::runtime::CanonicalTypeSet::new(["task".to_string()]),
+        changed_fields: mdbase::runtime::CanonicalFieldChangeSet::new(Vec::<String>::new())
+            .unwrap(),
+        body_changed: false,
+    };
+    let mut mismatched = expected.clone();
+    mismatched.from = Some(mdbase::api::CollectionPath::new("tasks/wrong.md").unwrap());
+    let actual = mdbase::runtime::ChangeSet::Exact(
+        mdbase::runtime::ChangeBatch::new(vec![mdbase::runtime::CanonicalChange::Record(
+            mismatched,
+        )])
+        .unwrap(),
+    );
+    assert!(verify_canonical_change_set(
+        &actual,
+        vec![mdbase::runtime::CanonicalChange::Record(expected)],
+        "test record",
+    )
+    .is_err());
+}
+
+#[test]
+fn hosted_semantic_paths_use_only_typed_runtime_seams() {
+    const SOURCES: &[(&str, &str)] = &[
+        ("mutations", include_str!("mutations.rs")),
+        (
+            "direct_execution",
+            include_str!("mutations/direct_execution.rs"),
+        ),
+        ("operation_dispatch", include_str!("operation_dispatch.rs")),
+        ("operation_records", include_str!("operation_records.rs")),
+        ("operation_reads", include_str!("operation_reads.rs")),
+        (
+            "operation_resource_mutations",
+            include_str!("operation_resource_mutations.rs"),
+        ),
+        ("operation_types", include_str!("operation_types.rs")),
+        (
+            "operation_validation",
+            include_str!("operation_validation.rs"),
+        ),
+        ("policy", include_str!("policy.rs")),
+        (
+            "query_provider",
+            include_str!("operation_queries/provider_impl.rs"),
+        ),
+        (
+            "query_state",
+            include_str!("operation_queries/query_state.rs"),
+        ),
+    ];
+    const LEGACY_SEAMS: &[&str] = &[
+        ".plan_hosted_mutation(",
+        ".execute_hosted_resource_read(",
+        ".plan_hosted_resource_mutation(",
+        ".plan_hosted_definition_operation(",
+        ".execute_hosted_validation(",
+        ".plan_hosted_canonical_view(",
+        ".finalize_hosted_query_page(",
+    ];
+    const RESULT_INFERENCE: &[&str] = &[
+        ".result.pointer(",
+        ".result.get(",
+        ".result[",
+        "&assessment.result",
+    ];
+
+    for (name, source) in SOURCES {
+        for forbidden in LEGACY_SEAMS.iter().chain(RESULT_INFERENCE) {
+            assert!(
+                !source.contains(forbidden),
+                "hosted semantic source {name} contains forbidden pattern {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn typed_hosted_changes_are_not_reclassified_after_planning() {
+    let source = include_str!("mutations/direct_execution.rs");
+    let post_plan = source
+        .split_once(".plan_hosted_mutation_typed")
+        .expect("direct execution uses the typed planner")
+        .1
+        .split_once("fn hosted_mutation_context_record_budget")
+        .expect("direct execution helper boundary")
+        .0;
+    assert!(!post_plan.contains("classify_exact_sync_record"));
+}
+
+#[test]
+fn legacy_record_replay_never_uses_ambient_state_or_an_empty_success() {
+    let source = include_str!("operation_records.rs");
+    assert!(!source.contains("json!({})"));
+    assert!(!source.contains("hydrate_legacy"));
+    assert!(!source.contains("load_direct_record"));
+    assert!(!source.contains("compile_point_catalog"));
+    assert!(source.contains("legacy_replay_evidence_missing"));
+}
+
+#[test]
+fn definition_decisions_match_closed_typed_fields() {
+    let source = include_str!("operation_dispatch.rs");
+    assert!(source.contains("CanonicalOperationValue::AssessTypePack(Some(value))"));
+    assert!(source.contains("CanonicalOperationValue::AssessCollectionSetup(Some("));
+    assert!(!source.contains("WireOnlyOperationValue::TypePack"));
+    assert!(!source.contains("WireOnlyOperationValue::CollectionSetup"));
+}
+
 use mdbase_connect_protocol::CollectionFileDescriptor;
 use serde_json::Map;
+
+#[test]
+fn lifecycle_diagnostic_schema_is_additive_fixed_and_privacy_safe() {
+    assert_eq!(HOSTED_DIAGNOSTICS_SCHEMA_VERSION, 2);
+    let section = LifecycleDiagnosticSection::Ok {
+        value: HostedLifecycleWorkDiagnostic {
+            runtime_outbox: RuntimeOutboxLifecycleDiagnostic {
+                open: 3,
+                stale: 2,
+                poison: 1,
+                expired_leases: 1,
+                impossible: 2,
+                oldest_open_seconds: Some(1_801),
+            },
+            mutation_journal: MutationJournalLifecycleDiagnostic {
+                unfinished: 4,
+                stale: 2,
+                outcome_unknown: 1,
+                expired_leases: 1,
+                oldest_unfinished_seconds: Some(181),
+            },
+            stuck_deleting_collections: 1,
+        },
+    };
+    let serialized = serde_json::to_value(section).unwrap();
+    assert_eq!(serialized["state"], "ok");
+    assert_eq!(serialized["value"]["runtime_outbox"]["poison"], 1);
+    assert_eq!(
+        serialized["value"]["mutation_journal"]["outcome_unknown"],
+        1
+    );
+    let text = serialized.to_string();
+    for private in [
+        "11111111-1111-4111-8111-111111111111",
+        "fixture provider error",
+        "/customer/path",
+        "customer-123",
+    ] {
+        assert!(!text.contains(private));
+    }
+    assert_eq!(
+        serde_json::to_value(LifecycleDiagnosticSection::Unavailable).unwrap(),
+        json!({"state": "unavailable"})
+    );
+}
 
 #[test]
 fn rollback_binaries_tolerate_newer_additive_migrations() {
@@ -91,7 +279,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(resume.contains("GET DIAGNOSTICS affected_rows = ROW_COUNT"));
     assert!(resume.contains("affected_rows <> 1"));
     assert!(provisional.contains("admission_lease_expires_at"));
-    assert!(provisional.contains("lease_seconds < 30 OR lease_seconds > 600"));
+    assert!(provisional.contains("lease_seconds < 30 OR lease_seconds > 3600"));
     assert!(provisional.contains("admission_owner_expires_at >"));
     assert!(finalize.contains("admission_lease_expires_at > clock_timestamp()"));
     assert!(finalize.contains("admission_fence_token = NULL"));
@@ -114,8 +302,19 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
         assert!(!preflight.contains(&format!("DELETE FROM {canonical}")));
     }
     assert!(final_preflight.contains("REPEATABLE READ READ ONLY"));
-    assert!(final_preflight.contains("expected exact successful final ledger 1-37"));
+    assert!(final_preflight.contains("(('37', '37'), ('37', '38'))"));
+    assert!(final_preflight.contains("observed_endpoint NOT IN"));
+    assert!(final_preflight.contains("generate_series(1, observed_endpoint)"));
+    assert!(final_preflight.contains("migration_count <> observed_endpoint"));
+    assert!(final_preflight.contains(
+        "f26fc3ac983bf10bee1488a9653462e5f021332cf426b900e59317c525f73d25b5960c3a8451d12edfe7ef3dca219e08"
+    ));
+    assert!(final_preflight.contains("expected.version <= observed_endpoint"));
     assert!(final_preflight.contains("migration checksum mismatch at version(s)"));
+    assert!(final_preflight.contains("hosted_provider_retired_replay_credentials"));
+    assert!(final_preflight.contains("active_noncanonical_application_replicas"));
+    assert!(final_preflight.contains("purpose = 'application'"));
+    assert!(final_preflight.contains("revoked_at IS NULL"));
     assert!(final_preflight.contains("required final relation/index objects are absent"));
     assert!(final_preflight.contains("differ from the exact contract"));
     assert!(final_preflight.contains("pg_get_triggerdef"));
@@ -138,6 +337,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     );
     assert!(!final_preflight.contains("DELETE FROM"));
     assert!(!final_preflight.contains("UPDATE hosted_provider_"));
+    assert!(!final_preflight.contains("INSERT INTO"));
     assert!(cutover_preflight.contains("\\set fence_kind cutover"));
     assert!(cutover_preflight.contains("\\ir preflight-hosted-provider-final-rollback.sql"));
     assert!(cutover_preflight.contains("generation.status IS DISTINCT FROM 'complete'"));
@@ -277,6 +477,28 @@ fn concurrent_index_migrations_have_bounded_retry_cleanup() {
     assert!(lifecycle.contains("run_hosted_cutover_migrations"));
     assert!(lifecycle.contains("pg_get_indexdef"));
     assert!(lifecycle.contains("DROP INDEX CONCURRENTLY IF EXISTS"));
+}
+
+#[test]
+fn collection_authorization_migration_retires_scoped_provider_authority() {
+    let migration =
+        include_str!("../../migrations/0038_collection_level_application_authorization.sql");
+    let archive = migration
+        .find("INSERT INTO hosted_provider_retired_replay_credentials")
+        .unwrap();
+    let notifications = migration
+        .find("DELETE FROM hosted_provider_notification_grants")
+        .unwrap();
+    let revoke = migration.find("UPDATE hosted_provider_replicas").unwrap();
+    assert!(archive < notifications && notifications < revoke);
+    assert!(migration.contains("full_collection = false"));
+    assert!(migration.contains("cardinality(allowed_types) <> 0"));
+    assert!(migration.contains("contract_scope <> '[]'::jsonb"));
+    assert!(migration.contains("token_expires_at > now()"));
+    assert!(migration.contains("journal.state = 'completed'"));
+    assert!(migration.contains("LEAST(token_expires_at, now() + interval '365 days')"));
+    assert!(migration
+        .contains("IS DISTINCT FROM '{\"access\":\"full_collection\",\"contracts\":[]}'::jsonb"));
 }
 
 #[test]
@@ -503,11 +725,18 @@ fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() 
     let contract_document = "---\nkind: mdbase.contract\ncontract_type: record\nid: example.task\nversion: 1.0.0\nrecord_schema:\n  dialect: json-schema-2020-12\n  ref: ../_schemas/task.json\n---\n";
     let schema_document =
         "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}\n";
+    let type_pack_lock = "kind: mdbase.type-pack-lock\nlock_version: 1\npacks: []\n";
+    let provision_lock = "kind: mdbase.provision-lock\nlock_version: 1\ncontributions: []\n";
     let record_document = "---\ntitle: One\n---\n\nBody\n";
     let opaque_document = "---\ntitle: [unterminated\n---\nOpaque body\n";
     let workspace = AuthorityWorkspace::materialize(
         [
             ("mdbase.yaml".to_string(), configuration.to_string()),
+            ("mdbase.lock.yaml".to_string(), type_pack_lock.to_string()),
+            (
+                "mdbase.provisions.yaml".to_string(),
+                provision_lock.to_string(),
+            ),
             (
                 "_contracts/task.md".to_string(),
                 contract_document.to_string(),
@@ -600,6 +829,13 @@ fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() 
     assert_eq!(opaque.body, opaque_document);
     assert_eq!(opaque.document, opaque_document);
     assert_eq!(opaque.types, ["task"]);
+    for path in ["mdbase.lock.yaml", "mdbase.provisions.yaml"] {
+        assert!(manifest
+            .resources
+            .documents
+            .iter()
+            .any(|resource| resource.kind == "lock" && resource.path == path));
+    }
     assert!(manifest
         .resources
         .documents
@@ -711,6 +947,7 @@ fn applied_receipts_replay_exactly_without_changing_status_or_sequence() {
 #[test]
 fn application_capabilities_bind_operations_mode_and_origin() {
     let capability = RegisterReplica {
+        application_setup_evidence: None,
         replica_id: Uuid::new_v4(),
         name: "Tasks app".to_string(),
         purpose: ReplicaPurpose::Application,
@@ -793,67 +1030,70 @@ fn application_capabilities_bind_operations_mode_and_origin() {
             .code,
         "invalid_application_capability"
     );
-    let mut contract_capability = capability.clone();
-    contract_capability.full_collection = false;
+    let mut type_scoped_capability = capability.clone();
+    type_scoped_capability.allowed_types = vec!["task".to_string()];
     assert_eq!(
-        validate_replica_capability(&contract_capability)
+        validate_replica_capability(&type_scoped_capability)
             .unwrap_err()
             .code,
         "invalid_application_scope"
     );
-    contract_capability.allowed_types = vec!["task".to_string()];
-    contract_capability.allowed_operations = vec!["query".to_string()];
-    contract_capability.contract_scope = vec![CollectionContractDescriptor {
+    let mut contract_scoped_capability = capability.clone();
+    contract_scoped_capability.contract_scope = vec![CollectionContractDescriptor {
         contract_type: "record".to_string(),
         id: "example.task".to_string(),
         version: "1.0.0".to_string(),
         digest: format!("sha256:{}", "0".repeat(64)),
         schema: json!({"type": "object"}),
         binding_schema: None,
-        implementations: vec![
-            mdbase_connect_protocol::CollectionContractImplementationDescriptor {
-                type_name: "task".to_string(),
-                type_version: 1,
-                type_path: Some("_types/task.md".to_string()),
-                digest: format!("sha256:{}", "1".repeat(64)),
-                fields: BTreeMap::from([("title".to_string(), "summary".to_string())]),
-                binding: None,
-            },
-        ],
+        implementations: Vec::new(),
     }];
-    validate_replica_capability(&contract_capability).unwrap();
-    let mut contract_changes = contract_capability.clone();
-    contract_changes
-        .allowed_operations
-        .push("changes".to_string());
     assert_eq!(
-        validate_replica_capability(&contract_changes)
+        validate_replica_capability(&contract_scoped_capability)
             .unwrap_err()
             .code,
         "invalid_application_scope"
     );
-    let contract_replica = Replica {
-        id: contract_capability.replica_id,
-        purpose: contract_capability.purpose,
-        mode: contract_capability.mode,
-        allowed_types: contract_capability.allowed_types,
-        contract_scope: contract_capability.contract_scope,
-        full_collection: contract_capability.full_collection,
-        allowed_operations: contract_capability.allowed_operations,
-        operation_transport_protocol: contract_capability.operation_transport_protocol,
-        operation_transport_recovery_protocols: contract_capability
+    let mut legacy_capability = contract_scoped_capability;
+    legacy_capability.full_collection = false;
+    legacy_capability.allowed_types = vec!["task".to_string()];
+    legacy_capability.contract_scope = vec![CollectionContractDescriptor {
+        contract_type: "record".to_string(),
+        id: "example.task".to_string(),
+        version: "1.0.0".to_string(),
+        digest: format!("sha256:{}", "0".repeat(64)),
+        schema: json!({"type": "object"}),
+        binding_schema: None,
+        implementations: Vec::new(),
+    }];
+    assert_eq!(
+        validate_replica_capability(&legacy_capability)
+            .unwrap_err()
+            .code,
+        "invalid_application_scope"
+    );
+    let legacy_replica = Replica {
+        id: legacy_capability.replica_id,
+        purpose: legacy_capability.purpose,
+        mode: legacy_capability.mode,
+        allowed_types: legacy_capability.allowed_types,
+        contract_scope: legacy_capability.contract_scope,
+        full_collection: legacy_capability.full_collection,
+        allowed_operations: legacy_capability.allowed_operations,
+        operation_transport_protocol: legacy_capability.operation_transport_protocol,
+        operation_transport_recovery_protocols: legacy_capability
             .operation_transport_recovery_protocols,
-        file_capability: contract_capability.file_capability,
-        allowed_origin: contract_capability.allowed_origin,
-        proof_public_key: contract_capability.proof_public_key,
-        grant_id: contract_capability.grant_id,
+        file_capability: legacy_capability.file_capability,
+        allowed_origin: legacy_capability.allowed_origin,
+        proof_public_key: legacy_capability.proof_public_key,
+        grant_id: legacy_capability.grant_id,
         scope_epoch: 1,
     };
     assert_eq!(
-        authorize_sync_access(&contract_replica, "query", Some("https://tasks.example"))
+        ensure_canonical_application_replica(&legacy_replica)
             .unwrap_err()
             .code,
-        "scope_denied"
+        "application_reauthorization_required"
     );
     let replica = Replica {
         id: capability.replica_id,
@@ -916,6 +1156,7 @@ fn application_capabilities_bind_operations_mode_and_origin() {
 #[test]
 fn collection_setup_assess_and_apply_require_matching_declaration_binding() {
     let mut capability = RegisterReplica {
+        application_setup_evidence: None,
         replica_id: Uuid::new_v4(),
         name: "Tasks app".to_string(),
         purpose: ReplicaPurpose::Application,
@@ -980,6 +1221,7 @@ fn collection_setup_assess_and_apply_require_matching_declaration_binding() {
 #[test]
 fn assess_collection_setup_alone_requires_declaration_binding() {
     let capability = RegisterReplica {
+        application_setup_evidence: None,
         replica_id: Uuid::new_v4(),
         name: "Tasks app".to_string(),
         purpose: ReplicaPurpose::Application,
@@ -1084,6 +1326,7 @@ fn mirror_sync_credentials_are_not_browser_capabilities() {
 #[test]
 fn rejects_write_operations_on_read_only_application_capabilities() {
     let capability = RegisterReplica {
+        application_setup_evidence: None,
         replica_id: Uuid::new_v4(),
         name: "Tasks app".to_string(),
         purpose: ReplicaPurpose::Application,
@@ -1112,13 +1355,14 @@ fn rejects_write_operations_on_read_only_application_capabilities() {
 #[test]
 fn file_capabilities_are_independent_scoped_and_mode_checked() {
     let mut capability = RegisterReplica {
+        application_setup_evidence: None,
         replica_id: Uuid::new_v4(),
         name: "Asset viewer".to_string(),
         purpose: ReplicaPurpose::Application,
         mode: SyncReplicaMode::ReadOnly,
         allowed_types: Vec::new(),
         contract_scope: Vec::new(),
-        full_collection: false,
+        full_collection: true,
         allowed_operations: Vec::new(),
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
@@ -1139,13 +1383,21 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
         token_ttl_seconds: Some(3600),
     };
     validate_replica_capability(&capability).unwrap();
+    let mut legacy_file_only = capability.clone();
+    legacy_file_only.full_collection = false;
+    assert_eq!(
+        validate_replica_capability(&legacy_file_only)
+            .unwrap_err()
+            .code,
+        "invalid_application_scope"
+    );
     let replica = Replica {
         id: capability.replica_id,
         purpose: capability.purpose,
         mode: capability.mode,
         allowed_types: Vec::new(),
         contract_scope: Vec::new(),
-        full_collection: false,
+        full_collection: true,
         allowed_operations: Vec::new(),
         operation_transport_protocol: capability.operation_transport_protocol,
         operation_transport_recovery_protocols: capability
@@ -1157,24 +1409,55 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
         grant_id: capability.grant_id,
         scope_epoch: 1,
     };
+    let mut scoped_replica = replica.clone();
+    scoped_replica.mode = SyncReplicaMode::ReadWrite;
+    scoped_replica
+        .file_capability
+        .as_mut()
+        .unwrap()
+        .actions
+        .push(FileAction::Delete);
+    for action in [FileAction::List, FileAction::Read, FileAction::Delete] {
+        authorize_file_access(
+            &scoped_replica,
+            action,
+            Some("Assets/photo.png"),
+            Some("https://assets.example"),
+        )
+        .unwrap();
+        for denied in ["Assets", "Assets-old/photo.png"] {
+            assert_eq!(
+                authorize_file_access(
+                    &scoped_replica,
+                    action,
+                    Some(denied),
+                    Some("https://assets.example"),
+                )
+                .unwrap_err()
+                .code,
+                "scope_denied",
+                "{action:?} unexpectedly authorized {denied}"
+            );
+        }
+    }
+
+    let collection_replica = Replica {
+        file_capability: Some(FileCapability {
+            kind: mdbase_connect_protocol::FileCapabilityKind::Files,
+            protocol_version: FILE_PROTOCOL_VERSION,
+            actions: vec![FileAction::Read],
+            scope: FileScope::Collection,
+        }),
+        ..replica
+    };
     authorize_file_access(
-        &replica,
+        &collection_replica,
         FileAction::Read,
-        Some("Assets/photo.png"),
+        Some("Assets"),
         Some("https://assets.example"),
     )
     .unwrap();
-    assert_eq!(
-        authorize_file_access(
-            &replica,
-            FileAction::Read,
-            Some("Private/photo.png"),
-            Some("https://assets.example"),
-        )
-        .unwrap_err()
-        .code,
-        "scope_denied"
-    );
+
     capability
         .file_capability
         .as_mut()

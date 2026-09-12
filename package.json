@@ -1,6 +1,6 @@
 {
   "name": "mdbase-connect",
-  "version": "0.1.0-beta.85",
+  "version": "0.1.0-beta.97",
   "private": true,
   "packageManager": "pnpm@11.15.1",
   "engines": {
@@ -10,6 +10,7 @@
     "build": "pnpm -r build",
     "build:packages": "pnpm --filter \"./packages/**\" -r --if-present build",
     "check:architecture": "node scripts/check-architecture.mjs",
+    "check:cargo-features": "scripts/check-cargo-features",
     "check:npm-bootstrap": "node scripts/check-npm-package-bootstrap.mjs",
     "check:release-readiness": "node scripts/check-release-readiness.mjs",
     "check:release-components": "node scripts/release-components.mjs --check",
@@ -19,6 +20,8 @@
     "check:problems": "node scripts/generate-connect-problems.mjs --check",
     "generate:operations": "node scripts/generate-operation-catalog.mjs",
     "check:operations": "node scripts/generate-operation-catalog.mjs --check",
+    "generate:capabilities": "node scripts/generate-application-capabilities.mjs",
+    "check:capabilities": "node scripts/generate-application-capabilities.mjs --check",
     "audit:dependencies": "pnpm audit --audit-level high",
     "sync:runtime-contracts": "node scripts/sync-runtime-contracts.mjs",
     "dev:environment:up": "node scripts/dev-environment.mjs up",
@@ -32,6 +35,7 @@
     "dev:desktop:staging": "node scripts/isolated-desktop.mjs --staging",
     "dev:desktop:environment": "node scripts/isolated-desktop.mjs",
     "deploy:dev": "node scripts/deploy-editor-dev.mjs",
+    "deploy:lab": "node scripts/deploy-lab-local.mjs",
     "e2e": "node test/system/run.mjs --suite local",
     "e2e:container": "node test/system/run.mjs --suite container",
     "e2e:desktop:container": "node test/system/run.mjs --suite desktop",
@@ -42,7 +46,8 @@
     "e2e:files": "node test/system/run.mjs --suite files",
     "e2e:files:adversarial": "node test/system/run.mjs --suite files-adversarial",
     "e2e:authority:stress": "MDBASE_CONNECT_PROVIDER_E2E_PROMOTION_COUNT=2500 pnpm e2e:provider",
-    "e2e:provider:stress": "MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT=10000 pnpm e2e:provider",
+    "e2e:provider:stress": "MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT=10000 MDBASE_CONNECT_PROVIDER_E2E_RUST_LOG='mdbase_connect::metrics=info,warn' pnpm e2e:provider",
+    "profile:provider:observe": "MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT=10000 MDBASE_CONNECT_PROVIDER_E2E_RUST_LOG='mdbase_connect::metrics=info,warn' MDBASE_CONNECT_PROVIDER_E2E_OBSERVATION_ONLY=1 MDBASE_CONNECT_PROVIDER_E2E_PERFORMANCE_OUTPUT=target/performance-observations/provider/provider.json pnpm e2e:provider",
     "profile:mirror": "node --expose-gc scripts/mirror-profile.mjs",
     "profile:mirror:check": "pnpm --filter @mdbase-dev/connect-sync build && node scripts/assert-mirror-performance.mjs",
     "profile:mirror:vault": "pnpm --filter @mdbase-dev/connect-sync build && node scripts/mirror-live-vault.mjs",
@@ -63,7 +68,7 @@
     "stress:soak:smoke": "pnpm stress:prepare && node scripts/stress/functional-stress.mjs --profile soak --duration 10s --steps 100000 --clients 4 --initial-records 8 --checkpoint-every 100 --mirror-every 250",
     "test:stress-regressions": "pnpm stress:prepare && node scripts/stress/replay-regressions.mjs",
     "pretest": "pnpm build:packages",
-    "test": "node --test scripts/lib/*.test.mjs && pnpm --filter @mdbase/connect-desktop test && pnpm --filter '!@mdbase/connect-desktop' -r test",
+    "test": "node --test scripts/deploy-editor-dev.test.mjs scripts/deploy-lab-local.test.mjs scripts/lib/*.test.mjs && pnpm --filter @mdbase/connect-desktop test && pnpm --filter '!@mdbase/connect-desktop' -r test",
     "test:fast": "pnpm test && node test/rust/run.mjs",
     "test:integration": "pnpm test:browser-storage && pnpm test:accessibility",
     "test:system": "node test/system/run.mjs",
@@ -75,6 +80,7 @@
     "version:check": "node scripts/check-release-version.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1"
+    "@playwright/test": "^1.61.1",
+    "wrangler": "4.114.0"
   }
 }

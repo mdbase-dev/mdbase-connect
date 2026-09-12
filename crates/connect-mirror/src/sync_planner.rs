@@ -194,20 +194,37 @@ pub fn plan_reconciliation(
     inspection.objects.sort_by(|left, right| {
         (&left.entity, &left.identity).cmp(&(&right.entity, &right.identity))
     });
+    let blocked = inspection.issues.iter().any(|issue| issue.blocking);
     let mut drafts = Vec::new();
-    for object in &inspection.objects {
-        plan_object(&inspection, object, &mut drafts)?;
+    if blocked {
+        if inspection.mode == SyncReplicaMode::ReadOnly {
+            plan_invalid_local_repairs(&inspection, &mut drafts);
+        }
+    } else {
+        for object in &inspection.objects {
+            plan_object(&inspection, object, &mut drafts)?;
+        }
+        drafts = order_local_path_transitions(drafts, &inspection.objects)?;
+        drafts = order_remote_path_transitions(drafts, &inspection.objects)?;
     }
-    drafts = order_local_path_transitions(drafts, &inspection.objects)?;
-    drafts = order_remote_path_transitions(drafts, &inspection.objects)?;
-    let requires_checkpoint = !drafts.is_empty()
-        || inspection.kind != "incremental"
-        || inspection.boundary.checkpoint.cursor != Some(inspection.boundary.authority_cursor);
-    if requires_checkpoint {
+    if !drafts.is_empty()
+        || (!blocked
+            && (inspection.kind != "incremental"
+                || inspection.boundary.checkpoint.cursor
+                    != Some(inspection.boundary.authority_cursor)))
+    {
         let effect_keys = drafts
             .iter()
             .map(|draft| draft.key.clone())
             .collect::<Vec<_>>();
+        let next = if blocked {
+            inspection.boundary.checkpoint.clone()
+        } else {
+            SyncCheckpoint {
+                generation: inspection.boundary.checkpoint.generation + 1,
+                cursor: Some(inspection.boundary.authority_cursor),
+            }
+        };
         drafts.push(Draft {
             key: "checkpoint".into(),
             dependency_keys: effect_keys,
@@ -222,10 +239,7 @@ pub fn plan_reconciliation(
                     SyncPlanReason::Initial
                 },
                 expected: inspection.boundary.checkpoint.clone(),
-                next: SyncCheckpoint {
-                    generation: inspection.boundary.checkpoint.generation + 1,
-                    cursor: Some(inspection.boundary.authority_cursor),
-                },
+                next,
             },
         });
     }
@@ -437,6 +451,43 @@ fn same_conflict_content(left: &ExpectedObjectState, right: &ExpectedObjectState
     }
 }
 
+fn plan_invalid_local_repairs(inspection: &InspectionSummary, drafts: &mut Vec<Draft>) {
+    let mut repairs = Vec::new();
+    for issue in inspection.issues.iter().filter(|issue| issue.blocking) {
+        if issue.code != "invalid_frontmatter" {
+            return;
+        }
+        let Some(path) = issue.path.as_deref() else {
+            return;
+        };
+        let Some(object) = inspection.objects.iter().find(|object| {
+            object.entity == SyncObjectKind::Record
+                && object.local.exact().is_some_and(|local| local.path == path)
+                && object
+                    .remote
+                    .exact()
+                    .is_some_and(|remote| remote.path == path)
+        }) else {
+            return;
+        };
+        let local = object.local.exact().expect("matched exact invalid local");
+        let remote = object
+            .remote
+            .exact()
+            .expect("matched exact authority record");
+        let mut draft = write_local(object, remote.clone(), vec![]);
+        if let SyncAction::WriteLocal {
+            invalid_local_revision,
+            ..
+        } = &mut draft.action
+        {
+            *invalid_local_revision = Some(local.payload_revision.clone());
+        }
+        repairs.push(draft);
+    }
+    drafts.extend(repairs);
+}
+
 fn plan_remote_to_local(
     object: &InspectedObject,
     drafts: &mut Vec<Draft>,
@@ -524,6 +575,7 @@ fn write_local(
             } else {
                 object.local_target_owner.clone()
             },
+            invalid_local_revision: None,
         },
     }
 }

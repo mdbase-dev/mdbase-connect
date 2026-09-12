@@ -1,4 +1,19 @@
 use super::*;
+
+#[cfg(test)]
+#[path = "applications_semantic_tests.rs"]
+mod semantic_tests;
+
+fn deserialize_application_origin<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::String(origin) => Ok(Some(origin)),
+        _ => Ok(None),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplicationSummary {
     pub id: Uuid,
@@ -68,6 +83,45 @@ pub struct ApplicationRequirements {
     pub files: Option<ApplicationFileRequirement>,
 }
 
+impl ApplicationRequirements {
+    /// Check declaration evidence against the *signed* semantic version. This
+    /// does not upgrade the version, expand grants, or authenticate the evidence.
+    pub fn valid_for_semantic_contract(&self, version: u32) -> bool {
+        if !ConnectContractSupport::implemented()
+            .semantic_capabilities
+            .contains(&version)
+        {
+            return false;
+        }
+        if self
+            .files
+            .as_ref()
+            .is_some_and(|files| files.contract_version() != version)
+        {
+            return false;
+        }
+        let Some(capabilities) = &self.capabilities else {
+            // Historical declarations may omit capabilities; v2 may not.
+            return version == 1;
+        };
+        u32::from(capabilities.contract_version) == version
+            && capabilities
+                .required
+                .iter()
+                .chain(&capabilities.optional)
+                .all(|id| {
+                    application_capability_operations_for_contract_version(version, id).is_some()
+                })
+            && capabilities
+                .required
+                .iter()
+                .chain(&capabilities.optional)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == capabilities.required.len() + capabilities.optional.len()
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplicationCapabilityRequirements {
     pub contract_version: u8,
@@ -77,6 +131,11 @@ pub struct ApplicationCapabilityRequirements {
     pub optional: Vec<String>,
 }
 
+/// Application access spelling retained across the N-1 wire boundary.
+///
+/// New declarations and grants must use [`ApplicationAccess::FullCollection`].
+/// `Contract` remains parseable only so legacy authority can be diagnosed and
+/// retired without silently widening it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApplicationAccess {
@@ -324,6 +383,9 @@ impl GrantScope {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrantSummary {
+    /// Complete normalized declaration evidence authenticated before presentation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_declaration: Option<serde_json::Value>,
     pub id: Uuid,
     pub application_id: Uuid,
     pub application_declaration_id: String,
@@ -335,8 +397,15 @@ pub struct GrantSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub application_project_url: Option<String>,
     /// Exact browser origin authorized to use this grant over loopback.
-    #[serde(default)]
-    pub application_origin: String,
+    /// Missing, JSON-null, and malformed values carry no browser-origin
+    /// authority. String values are opaque; this preserves the legacy `"null"`
+    /// origin used by explicitly authorized portable applications.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_application_origin",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub application_origin: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub application_icon: Option<String>,
     pub collection_id: Uuid,
@@ -433,6 +502,9 @@ pub struct ActivityEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrantPolicy {
+    /// Retained complete normalized JSON; not authority until checked against the signed proof.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_declaration: Option<serde_json::Value>,
     pub id: Uuid,
     pub application_id: Uuid,
     pub collection_id: Uuid,

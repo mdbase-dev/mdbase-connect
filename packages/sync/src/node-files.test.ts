@@ -24,6 +24,37 @@ async function collect(source: AsyncIterable<Uint8Array>): Promise<Uint8Array> {
 }
 
 describe("Node collection file adapters", () => {
+  it("reports invalid UTF-8 without replacement decoding", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-node-text-"));
+    try {
+      const fileSystem = new NodeMirrorFileSystem(root);
+      await writeFile(join(root, "invalid.md"), Buffer.from("YmFk/3V0ZjgubWQ=", "base64"));
+
+      await expect(fileSystem.readText("invalid.md")).resolves.toEqual({
+        kind: "invalid",
+        code: "invalid_utf8",
+        reason: "File is not valid UTF-8.",
+        revision: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
+      });
+      await expect(fileSystem.read("invalid.md")).rejects.toMatchObject({ code: "invalid_utf8" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("types bounded platform text-read failures", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-node-read-failure-"));
+    try {
+      const fileSystem = new NodeMirrorFileSystem(root);
+      await mkdir(join(root, "directory.md"));
+      await expect(fileSystem.readText("directory.md")).rejects.toMatchObject({
+        code: "file_read_failed"
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("atomically writes and hashes binary files", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-node-files-"));
     try {

@@ -15,11 +15,11 @@ use mdbase::{
 };
 use mdbase_connect_protocol::{
     authority_file_hash, authority_manifest_digest as snapshot_manifest_digest,
-    ApplicationCollectionSetupProvisions, ApplicationCollectionSetupRequirements,
-    ApplicationProvisions, ApplicationRequirements, ApplyCollectionSetupInput, ApplyTypePackInput,
-    AssessCollectionSetupInput, AssessTypePackInput, AuthorityImportManifest,
-    AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollectionChange,
-    CollectionChangesPage, CollectionContractDescriptor,
+    validate_operation_discriminators, ApplicationCollectionSetupProvisions,
+    ApplicationCollectionSetupRequirements, ApplicationProvisions, ApplicationRequirements,
+    ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
+    AuthorityImportManifest, AuthorityImportRecord, AuthorityImportRecordPage,
+    AuthoritySnapshotRecord, CollectionChange, CollectionChangesPage, CollectionContractDescriptor,
     CollectionContractImplementationDescriptor, CollectionDescription, CollectionTypeDescriptor,
     ContractRequirement, ContractSetupChoice, ContractSetupMode, FileAction, FileCapability,
     FileScope, GrantSummary, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict,
@@ -42,6 +42,12 @@ use subtle::ConstantTimeEq;
 use tokio::sync::{oneshot, Mutex, OwnedSemaphorePermit, RwLock, Semaphore};
 use uuid::Uuid;
 
+const CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION: u32 = 6;
+const _: () = assert!(
+    mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION
+        == CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION
+);
+
 use crate::{
     backup_admin::lock_blob_deletion,
     blob_store::BlobStore,
@@ -58,6 +64,7 @@ use crate::{
 mod account_quotas;
 mod admission;
 mod authority_import_cleanup;
+mod authority_import_completion;
 mod authority_import_files;
 mod authority_import_prepare;
 mod authority_imports;
@@ -118,6 +125,7 @@ pub use projections::{
 };
 
 const SNAPSHOT_PAGE_SIZE: i64 = 200;
+pub const HOSTED_DIAGNOSTICS_SCHEMA_VERSION: u32 = 2;
 const DATABASE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const DATABASE_CONNECTION_BUDGET: u32 = 20;
 const QUERY_POOL_CONNECTIONS: u32 = 2;
@@ -256,6 +264,43 @@ pub struct HostedDiagnostics {
     pub migration_ledger: DiagnosticSection<MigrationLedgerDiagnostic>,
     pub storage: DiagnosticSection<StorageDiagnostic>,
     pub recent_resource_changes: DiagnosticSection<Vec<ResourceChangeDiagnostic>>,
+    pub lifecycle_work: LifecycleDiagnosticSection,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum LifecycleDiagnosticSection {
+    Ok {
+        value: HostedLifecycleWorkDiagnostic,
+    },
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default)]
+pub struct HostedLifecycleWorkDiagnostic {
+    pub runtime_outbox: RuntimeOutboxLifecycleDiagnostic,
+    pub mutation_journal: MutationJournalLifecycleDiagnostic,
+    /// Observational backlog only; ordinary `deleting` is not itself an error.
+    pub stuck_deleting_collections: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default)]
+pub struct RuntimeOutboxLifecycleDiagnostic {
+    pub open: u64,
+    pub stale: u64,
+    pub poison: u64,
+    pub expired_leases: u64,
+    pub impossible: u64,
+    pub oldest_open_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default)]
+pub struct MutationJournalLifecycleDiagnostic {
+    pub unfinished: u64,
+    pub stale: u64,
+    pub outcome_unknown: u64,
+    pub expired_leases: u64,
+    pub oldest_unfinished_seconds: Option<i64>,
 }
 
 /// A section that resolved, or the reason it did not. Keeping the failure in
@@ -602,6 +647,8 @@ pub struct RegisterReplica {
     pub application_declaration_id: Option<String>,
     #[serde(default)]
     pub application_declaration_digest: Option<String>,
+    #[serde(default)]
+    pub application_setup_evidence: Option<Value>,
     pub token: String,
     #[serde(default)]
     pub token_ttl_seconds: Option<u64>,
@@ -629,6 +676,8 @@ pub struct UpdateApplicationReplica {
     pub proof_public_key: Option<String>,
     pub application_declaration_id: String,
     pub application_declaration_digest: String,
+    #[serde(default)]
+    pub application_setup_evidence: Option<Value>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -767,6 +816,97 @@ impl AuthorizedRequest {
 }
 
 type PersistedRecord = SyncRecord;
+
+fn verify_hosted_record_change_set(
+    actual: &mdbase::runtime::ChangeSet,
+    changes: &[mdbase::runtime::HostedRecordChange],
+) -> ApiResult<()> {
+    let mut stable_ids = BTreeSet::new();
+    for item in changes {
+        let before_path = item.before.as_ref().map(|record| record.path.as_str());
+        let after_path = item.after.as_ref().map(|record| record.path.as_str());
+        let before_id = item
+            .before
+            .as_ref()
+            .and_then(|record| record.stable_id.as_deref());
+        let shape_matches = match item.change.kind {
+            mdbase::runtime::RecordChangeKind::Created => {
+                before_path.is_none()
+                    && after_path == Some(item.change.path.as_str())
+                    && item.change.from.is_none()
+                    && item.change.before_revision.is_none()
+                    && item.change.after_revision.is_some()
+            }
+            mdbase::runtime::RecordChangeKind::Updated => {
+                before_path == Some(item.change.path.as_str())
+                    && after_path == before_path
+                    && item.change.from.is_none()
+                    && item.change.before_revision.is_some()
+                    && item.change.after_revision.is_some()
+            }
+            mdbase::runtime::RecordChangeKind::Deleted => {
+                before_path == Some(item.change.path.as_str())
+                    && after_path.is_none()
+                    && item.change.from.is_none()
+                    && item.change.before_revision.is_some()
+                    && item.change.after_revision.is_none()
+            }
+            mdbase::runtime::RecordChangeKind::Renamed => {
+                before_path == item.change.from.as_ref().map(|path| path.as_str())
+                    && after_path == Some(item.change.path.as_str())
+                    && item.change.before_revision.is_some()
+                    && item.change.after_revision.is_some()
+            }
+        };
+        let after_matches = item.after.as_ref().is_none_or(|record| {
+            item.change.after_revision.as_ref().map(ToString::to_string)
+                == Some(record.revision.to_string())
+                && item.change.after_types.iter().collect::<Vec<_>>()
+                    == record.types.iter().map(String::as_str).collect::<Vec<_>>()
+        });
+        if !stable_ids.insert(&item.stable_id)
+            || before_id.is_some_and(|id| id != item.stable_id)
+            || item.before_path.as_deref() != before_path
+            || !shape_matches
+            || !after_matches
+        {
+            return Err(ApiError::internal(
+                "Canonical hosted record changes contain inconsistent identity or transition evidence.",
+            ));
+        }
+    }
+    verify_canonical_change_set(
+        actual,
+        changes
+            .iter()
+            .map(|change| mdbase::runtime::CanonicalChange::Record(change.change.clone()))
+            .collect(),
+        "hosted record mutation",
+    )
+}
+
+fn verify_canonical_change_set(
+    actual: &mdbase::runtime::ChangeSet,
+    expected: Vec<mdbase::runtime::CanonicalChange>,
+    family: &str,
+) -> ApiResult<()> {
+    if matches!(actual, mdbase::runtime::ChangeSet::None) && expected.is_empty() {
+        return Ok(());
+    }
+    let expected = mdbase::runtime::ChangeBatch::new(expected).map_err(|error| {
+        ApiError::internal(format!("Canonical {family} changes are invalid: {error}"))
+    })?;
+    match actual {
+        mdbase::runtime::ChangeSet::Exact(actual)
+            if actual.descriptor() == expected.descriptor() =>
+        {
+            Ok(())
+        }
+        _ => Err(ApiError::internal(format!(
+            "Canonical {family} change set disagrees with its complete typed changes."
+        ))),
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PreparedRecordOperation {

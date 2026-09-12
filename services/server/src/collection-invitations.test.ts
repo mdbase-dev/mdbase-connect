@@ -273,12 +273,14 @@ describe("hosted collection invitations", () => {
     const targetId = await insertAccount(database, "target@example.com");
     const codeTargetId = await insertAccount(database, "code-target@example.com");
     const collectionId = await insertHostedCollection(database, ownerId);
-    await createHostedCollectionMembership(database, {
+    const legacyEditor = await createHostedCollectionMembership(database, {
       collectionId,
       ownerUserId: ownerId,
       userId: editorId,
       role: "editor"
     });
+    await database.query(`UPDATE collection_membership_policies SET preset_version = 1,
+      actions = $2::jsonb WHERE id = $1`, [legacyEditor.id, JSON.stringify([...legacyEditor.actions, "members.manage"])]);
     const emailInvitation = await createHostedCollectionInvitation(database, {
       collectionId,
       actorUserId: editorId,
@@ -311,7 +313,7 @@ describe("hosted collection invitations", () => {
     )).resolves.toMatchObject({ rows: [] });
   });
 
-  it("allows editors to manage invitations and returns privacy-safe lists", async () => {
+  it("reserves invitations for owners and returns privacy-safe lists", async () => {
     database = await createDatabase("memory");
     const ownerId = await insertAccount(database, "owner@example.com", true);
     const editorId = await insertAccount(database, "editor@example.com");
@@ -324,16 +326,19 @@ describe("hosted collection invitations", () => {
       userId: editorId,
       role: "editor"
     });
+    await expect(createHostedCollectionInvitation(database, {
+      collectionId, actorUserId: editorId, role: "viewer", target: { email: "target@example.com" }
+    })).rejects.toMatchObject({ code: "collection_sharing_not_found" });
     const invitation = await createHostedCollectionInvitation(database, {
       collectionId,
-      actorUserId: editorId,
+      actorUserId: ownerId,
       role: "viewer",
       target: { email: "target@example.com" }
     });
 
     const invitations = await listHostedCollectionInvitations(
       database,
-      editorId,
+      ownerId,
       collectionId
     );
     expect(invitations).toEqual([
@@ -349,7 +354,7 @@ describe("hosted collection invitations", () => {
       .rejects.toMatchObject({ code: "collection_sharing_not_found" });
     await expect(revokeHostedCollectionInvitation(database, {
       collectionId,
-      actorUserId: editorId,
+      actorUserId: ownerId,
       invitationId: invitation.id
     })).resolves.toBe(true);
     await expect(acceptHostedCollectionInvitation(database, {

@@ -1,5 +1,13 @@
 use super::*;
+#[cfg(test)]
+#[path = "lifecycle/atomic_migrations_tests.rs"]
+mod atomic_migrations_tests;
 impl HostedProvider {
+    #[cfg(feature = "test-hooks")]
+    pub fn test_primary_pool(&self) -> PgPool {
+        self.pool.clone()
+    }
+
     pub async fn connect(
         database_url: &str,
         crypto: ProviderCrypto,
@@ -17,6 +25,18 @@ impl HostedProvider {
             None,
         )
         .await
+    }
+
+    /// Connect without running startup migrations for an independent semantic
+    /// read-back under runtime read admission. The candidate service or fixed
+    /// cutover command must already have applied and verified the exact ledger.
+    pub async fn connect_for_verification(
+        database_url: &str,
+        crypto: ProviderCrypto,
+        limits: ProviderLimits,
+        blob_store: Arc<dyn BlobStore>,
+    ) -> ApiResult<Self> {
+        Self::connect_internal(database_url, crypto, limits, blob_store, None, false, None).await
     }
 
     /// Connect after a cutover operator has applied the reviewed migration
@@ -52,6 +72,7 @@ impl HostedProvider {
         run_migrations: bool,
         cutover_connection: Option<(Duration, Uuid)>,
     ) -> ApiResult<Self> {
+        let initialize_database_key = run_migrations || cutover_connection.is_some();
         let started = Instant::now();
         let mut retry_delay = Duration::from_millis(100);
         loop {
@@ -64,7 +85,11 @@ impl HostedProvider {
                 } else {
                     Ok(())
                 } {
-                    Ok(()) => match verify_database_key(&pool, &crypto).await {
+                    Ok(()) => match if initialize_database_key {
+                        verify_database_key(&pool, &crypto).await
+                    } else {
+                        verify_stored_database_key_for_startup(&pool, &crypto).await
+                    } {
                         Ok(()) => {
                             let query_pool = hosted_query_pool_options()
                                 .connect_lazy(database_url)
@@ -443,10 +468,121 @@ pub(super) fn concurrent_migration_index_matches(
                     || normalized.ends_with(&default_c_and_nulls_suffix))))
 }
 
+fn migration_catalog() -> sqlx::migrate::Migrator {
+    // Older read-only compatibility is not permission to migrate an unknown ledger.
+    let mut migrator = hosted_migrator();
+    migrator.set_ignore_missing(false);
+    migrator
+}
+
+fn validate_atomic_catalog(migrator: &sqlx::migrate::Migrator) -> Result<(), String> {
+    for migration in migrator.iter().filter(|m| (39..=41).contains(&m.version)) {
+        let sql = migration
+            .sql
+            .as_str()
+            .lines()
+            .map(|line| line.split("--").next().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if migration.no_tx
+            || sql
+                .split(';')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .any(|s| !s.starts_with("ALTER TABLE ") && !s.starts_with("UPDATE "))
+        {
+            return Err(format!(
+                "hosted atomic migration {} is not transaction-compatible",
+                migration.version
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn validate_migration_prefix(connection: &mut sqlx::PgConnection) -> Result<(), String> {
+    let migrator = migration_catalog();
+    validate_atomic_catalog(&migrator)?;
+    let exists: bool = sqlx::query_scalar("SELECT to_regclass('_sqlx_migrations') IS NOT NULL")
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !exists {
+        return Ok(());
+    }
+    let applied: Vec<(i64, bool, Vec<u8>)> =
+        sqlx::query_as("SELECT version, success, checksum FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(connection)
+            .await
+            .map_err(|e| e.to_string())?;
+    let mut expected = migrator
+        .iter()
+        .filter(|m| !m.migration_type.is_down_migration());
+    for (version, success, checksum) in applied {
+        let valid = expected
+            .next()
+            .is_some_and(|m| m.version == version && success && m.checksum.as_ref() == checksum);
+        if !valid {
+            return Err(format!(
+                "hosted migration ledger is not an exact successful catalog prefix at {version}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn run_atomic_migrations(connection: &mut sqlx::PgConnection) -> Result<(), String> {
+    let migrator = migration_catalog();
+    // run_direct(Some(target)) is SQLx's run_to implementation, avoiding its
+    // Acquire lifetime/Send limitation when this startup future is spawned.
+    migrator
+        .run_direct(Some(38), &mut *connection, false)
+        .await
+        .map_err(|e| e.to_string())?;
+    // Use SQLx begin, not raw BEGIN: migration apply must nest savepoints.
+    let mut transaction = sqlx::Connection::begin(&mut *connection)
+        .await
+        .map_err(|e| e.to_string())?;
+    let result = async {
+        #[cfg(test)]
+        if atomic_migrations_tests::AFTER_40.try_with(|_| ()).is_ok() {
+            migrator
+                .run_direct(Some(40), &mut *transaction, false)
+                .await
+                .map_err(|e| e.to_string())?;
+            atomic_migrations_tests::after_40(&mut transaction).await?;
+        }
+        migrator
+            .run_direct(Some(41), &mut *transaction, false)
+            .await
+            .map_err(|e| e.to_string())
+    }
+    .await;
+    match result {
+        Ok(()) => transaction.commit().await.map_err(|e| e.to_string())?,
+        Err(error) => {
+            let rollback = transaction.rollback().await;
+            return Err(match rollback {
+                Ok(()) => error,
+                Err(rollback) => format!("{error}; rollback failed: {rollback}"),
+            });
+        }
+    }
+    // Future migrations are outside the reviewed 39–41 atomic group. A lost
+    // commit response is unknown (38 or 41); never infer rollback from it.
+    migrator
+        .run_direct(None, connection, false)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 const CUTOVER_LOCK_NAME: &str = "mdbase-candidate-b-cutover-v1";
 
 async fn run_hosted_migrations(pool: &PgPool) -> Result<(), String> {
     let mut connection = pool.acquire().await.map_err(|error| error.to_string())?;
+    // Session locks (including SQLx's lock on failure) must never reach the pool.
+    // Cancellation may skip every explicit unlock below.
+    connection.close_on_drop();
     let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtextextended($1, 0))")
         .bind(CUTOVER_LOCK_NAME)
         .fetch_one(&mut *connection)
@@ -472,6 +608,9 @@ async fn run_hosted_migrations(pool: &PgPool) -> Result<(), String> {
 
 /// Apply the migration ledger on the already locked cutover session. SQL
 /// deadlines are derived from the caller's remaining wall-clock budget.
+/// The caller must own a dedicated session and drop it on error/cancellation;
+/// pooled callers must mark it close_on_drop before acquiring session locks.
+/// The projection indexer owns a direct PgConnection, never a pooled session.
 pub async fn run_hosted_cutover_migrations(
     connection: &mut sqlx::PgConnection,
     remaining: Duration,
@@ -524,6 +663,7 @@ async fn run_hosted_migrations_on_connection(
         .await
         .map_err(|error| error.to_string())?;
 
+    validate_migration_prefix(connection).await?;
     for index in CONCURRENT_MIGRATION_INDEXES {
         let existing: Option<(bool, String, String)> = sqlx::query_as(
             r#"SELECT i.indisvalid, pg_get_indexdef(i.indexrelid),
@@ -569,10 +709,7 @@ async fn run_hosted_migrations_on_connection(
         }
     }
 
-    let migration = hosted_migrator()
-        .run(&mut *connection)
-        .await
-        .map_err(|error| error.to_string());
+    let migration = run_atomic_migrations(connection).await;
     let reset = async {
         sqlx::query("RESET statement_timeout")
             .execute(&mut *connection)

@@ -15,10 +15,18 @@ pub(super) async fn authority_import_row(
                   collection.max_content_bytes, collection.max_document_bytes,
                   collection.max_files, collection.max_file_bytes,
                   collection.max_stored_file_bytes, collection.max_single_file_bytes,
-                  collection.state AS collection_state
+                  collection.state AS collection_state,
+                  collection.authority_epoch AS collection_authority_epoch,
+                  collection.head AS collection_head,
+                  collection.resource_revision AS collection_resource_revision,
+                  collection.active_projection_generation_id,
+                  collection.active_projection_head,
+                  collection.active_projection_format_version AS collection_projection_format_version,
+                  collection.active_semantic_engine_version AS collection_projection_engine_version
            FROM hosted_provider_authority_imports import
            JOIN hosted_provider_collections collection ON collection.id = import.collection_id
-           WHERE import.id = $1 FOR UPDATE"#,
+           WHERE import.id = $1
+           FOR UPDATE OF import, collection"#,
     )
     .bind(import_id)
     .fetch_optional(&mut **transaction)
@@ -78,6 +86,12 @@ pub(super) async fn authority_import_contracts(
     provider: &HostedProvider,
     row: &PgRow,
 ) -> ApiResult<Vec<CollectionContractDescriptor>> {
+    #[cfg(feature = "test-hooks")]
+    crate::test_hooks::pause_authority_import(
+        row.get("id"),
+        crate::test_hooks::AuthorityImportHookPoint::BeforeAuthorityImportContracts,
+    )
+    .await;
     let collection_id: Uuid = row.get("collection_id");
     let wrapped_data_key: Vec<u8> = row.get("wrapped_data_key");
     let data_key = provider

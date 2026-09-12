@@ -100,6 +100,66 @@ function entryTitle(entry: CollectionBrowserEntry, types: CollectionTypeDescript
   return entry.kind === "file" ? collectionFileTitle(entry.file) : noteTitle(entry.note, types);
 }
 
+export function browserGroupLabel(entry: CollectionBrowserEntry, sort: NoteSort, types: CollectionTypeDescriptor[] = [], now = new Date()): string {
+  if (sort === "path-asc") return entryPathFolder(entry.path);
+  if (sort === "title-asc") return titleGroupLabel(entryTitle(entry, types));
+  return modifiedGroupLabel(modifiedTime(entry), now);
+}
+
+function entryPathFolder(path: string): string {
+  return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "Collection root";
+}
+
+function titleGroupLabel(title: string): string {
+  const letter = title.trim().toLocaleUpperCase().at(0);
+  return letter && /\p{L}/u.test(letter) ? letter : "#";
+}
+
+function modifiedGroupLabel(timestamp: number | undefined, now: Date): string {
+  if (timestamp === undefined) return "Undated";
+  const date = new Date(timestamp);
+  const startOfToday = startOfDay(now);
+  const day = Math.floor((startOfToday - startOfDay(date)) / 86_400_000);
+  if (day <= 0) return "Today";
+  if (day === 1) return "Yesterday";
+  if (day < 7) return "Previous 7 days";
+  if (day < 30) return "Previous 30 days";
+  return "Older";
+}
+
+function startOfDay(value: Date): number {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+}
+
+export interface BrowserListItem {
+  key: string;
+  kind: "header" | "entry";
+  label?: string;
+  entry?: CollectionBrowserEntry;
+  entryIndex?: number;
+}
+
+export function browserListItems(
+  entries: readonly CollectionBrowserEntry[],
+  sort: NoteSort,
+  types: CollectionTypeDescriptor[] = [],
+  now = new Date()
+): BrowserListItem[] {
+  const items: BrowserListItem[] = [];
+  let currentLabel: string | undefined;
+  let headerCount = 0;
+  entries.forEach((entry, entryIndex) => {
+    const label = browserGroupLabel(entry, sort, types, now);
+    if (label !== currentLabel) {
+      currentLabel = label;
+      items.push({ key: `header:${headerCount}:${label}`, kind: "header", label });
+      headerCount += 1;
+    }
+    items.push({ key: entry.kind === "file" ? `file:${entry.file.fileId}` : `note:${entry.note.path}`, kind: "entry", entry, entryIndex });
+  });
+  return items;
+}
+
 function trimNumber(value: number): string {
   return value.toFixed(value >= 10 ? 0 : 1).replace(/\.0$/, "");
 }

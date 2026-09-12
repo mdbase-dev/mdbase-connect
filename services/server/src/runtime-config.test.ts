@@ -22,7 +22,9 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     authenticationLegalDocuments: null,
     transactionalEmail: null,
     resendWebhookSecret: null,
+    accountDeletionEnabled: true,
     hostedCollections: false,
+    hostedSharing: false,
     hostedProvider: null,
     hostedReferenceAuthority: false,
     allowInsecureHostedProvider: false,
@@ -47,6 +49,23 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_ENVIRONMENT: "local"
     }).environment).toBe("local");
+  });
+
+  it("parses the account-deletion hold fail closed", () => {
+    expect(runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_ACCOUNT_DELETION: "disabled"
+    }).accountDeletionEnabled).toBe(false);
+    expect(runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1"
+    }).accountDeletionEnabled).toBe(true);
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_ACCOUNT_DELETION: "maybe"
+    })).toThrow(/MDBASE_CONNECT_ACCOUNT_DELETION/);
   });
 
   it("allows explicit loopback development authentication", () => {
@@ -419,4 +438,11 @@ describe("public runtime configuration", () => {
     });
     expect(value.webhookSigning?.previousPublicKeys).toEqual([old]);
   });
+});
+
+it("requires explicit opt-in for new hosted sharing", () => {
+  const local = { PUBLIC_URL: "http://localhost:8787", MDBASE_CONNECT_DEV_AUTH: "1" };
+  expect(runtimeConfigFromEnv(local).hostedSharing).toBe(false);
+  expect(runtimeConfigFromEnv({ ...local, MDBASE_CONNECT_HOSTED_SHARING_ENABLED: "0" }).hostedSharing).toBe(false);
+  expect(runtimeConfigFromEnv({ ...local, MDBASE_CONNECT_HOSTED_SHARING_ENABLED: "1" }).hostedSharing).toBe(true);
 });

@@ -22,9 +22,7 @@ fn encode_query_page_receipt_payload(
     maximum_bytes: u64,
 ) -> ApiResult<Vec<u8>> {
     let plaintext = serde_json::to_vec(result).map_err(|error| {
-        ApiError::internal(format!(
-            "Hosted query receipt could not serialize: {error}"
-        ))
+        ApiError::internal(format!("Hosted query receipt could not serialize: {error}"))
     })?;
     if plaintext.len() as u64 > maximum_bytes {
         return Err(query_budget_error(
@@ -35,11 +33,12 @@ fn encode_query_page_receipt_payload(
             plaintext.len() as u64,
         ));
     }
-    let compressed = zstd::bulk::compress(&plaintext, QUERY_RECEIPT_ZSTD_LEVEL).map_err(|error| {
-        ApiError::internal(format!(
-            "Hosted query receipt could not be compressed: {error}"
-        ))
-    })?;
+    let compressed =
+        zstd::bulk::compress(&plaintext, QUERY_RECEIPT_ZSTD_LEVEL).map_err(|error| {
+            ApiError::internal(format!(
+                "Hosted query receipt could not be compressed: {error}"
+            ))
+        })?;
     Ok(compressed)
 }
 
@@ -131,10 +130,8 @@ async fn store_query_page_receipt(
     expires_at: DateTime<Utc>,
 ) -> ApiResult<()> {
     let budgets = &HostedExecutionBudgetManifest::published().defaults;
-    let payload = encode_query_page_receipt_payload(
-        result,
-        budgets.query_receipt_ciphertext_bytes,
-    )?;
+    let payload =
+        encode_query_page_receipt_payload(result, budgets.query_receipt_ciphertext_bytes)?;
     let ciphertext = crypto.encrypt_bytes(
         data_key,
         &payload,
@@ -253,12 +250,8 @@ async fn store_query_page_receipt(
     .execute(&mut **transaction)
     .await?;
 
-    let collection_bytes = query_receipt_usage_bytes(
-        transaction,
-        "collection",
-        collection_id,
-    )
-    .await?;
+    let collection_bytes =
+        query_receipt_usage_bytes(transaction, "collection", collection_id).await?;
     ensure_query_receipt_byte_quota(
         "collection_query_receipt_bytes",
         budgets.query_receipt_bytes_per_collection,
@@ -272,8 +265,7 @@ async fn store_query_page_receipt(
     .fetch_one(&mut **transaction)
     .await?;
     if let Some(account_id) = account_id {
-        let account_bytes =
-            query_receipt_usage_bytes(transaction, "account", account_id).await?;
+        let account_bytes = query_receipt_usage_bytes(transaction, "account", account_id).await?;
         ensure_query_receipt_byte_quota(
             "account_query_receipt_bytes",
             budgets.query_receipt_bytes_per_account,
@@ -281,12 +273,7 @@ async fn store_query_page_receipt(
             ciphertext_bytes,
         )?;
     }
-    let global_bytes = query_receipt_usage_bytes(
-        transaction,
-        "global",
-        Uuid::nil(),
-    )
-    .await?;
+    let global_bytes = query_receipt_usage_bytes(transaction, "global", Uuid::nil()).await?;
     ensure_query_receipt_byte_quota(
         "global_query_receipt_bytes",
         budgets.query_receipt_bytes_global,
@@ -367,8 +354,7 @@ fn collection_projection_integrity_verified(collection: &PgRow) -> ApiResult<boo
         .get::<Option<i64>, _>("projection_integrity_verified_epoch")
         .map(|value| number(value, "verified projection integrity epoch"))
         .transpose()?;
-    let semantic_fallback_exists =
-        collection.get::<bool, _>("projection_semantic_fallback_exists");
+    let semantic_fallback_exists = collection.get::<bool, _>("projection_semantic_fallback_exists");
     Ok(epoch.is_some() && epoch == verified && !semantic_fallback_exists)
 }
 
@@ -595,34 +581,6 @@ async fn load_exact_context_by_path(
     }))
 }
 
-fn enforce_context_scope(
-    catalog: &mdbase::runtime::CompiledCatalog,
-    context: &mdbase::runtime::CanonicalRecordInput,
-    allowed_types: &[String],
-) -> ApiResult<()> {
-    if allowed_types.is_empty() {
-        return Ok(());
-    }
-    let classified = catalog.classify_record(context).map_err(|error| {
-        ApiError::forbidden(
-            "scope_classification_unavailable",
-            format!("Query context classification failed: {}.", error.code),
-        )
-    })?;
-    if classified.types.iter().any(|actual| {
-        allowed_types
-            .iter()
-            .any(|allowed| allowed.eq_ignore_ascii_case(actual))
-    }) {
-        Ok(())
-    } else {
-        Err(ApiError::forbidden(
-            "scope_denied",
-            "The query context record is outside this application's record scope.",
-        ))
-    }
-}
-
 fn enforce_exact_context_budget(
     plan: &mdbase::runtime::HostedQueryPlan,
     context: Option<&mdbase::runtime::CanonicalRecordInput>,
@@ -724,7 +682,13 @@ async fn validate_generation_binding(
         // the snapshot has a matching, digest-valid projection row. This scan
         // happens only when the generation epoch advances, not on every page.
         if integrity_verified_epoch != integrity_epoch {
-            if Box::pin(projection_fallback_exists(transaction, collection_id, state)).await? {
+            if Box::pin(projection_fallback_exists(
+                transaction,
+                collection_id,
+                state,
+            ))
+            .await?
+            {
                 return Err(query_cursor_conflict(
                     "query_projection_changed",
                     "The semantic projection changed while this hosted query was being paged.",

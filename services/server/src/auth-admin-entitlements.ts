@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseConnection, DatabasePool } from "./db.js";
 import { reconcileHostedAccountCollections } from "./entitlements.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
+import { quarantineMissingHostedCollection } from "./hosted-capability-lifecycle.js";
 import {
   InstanceAdminConflictError,
   type OperatorMutation
@@ -75,7 +76,12 @@ export async function reconcileActiveHostedEntitlements(
       const reconciled = await reconcileHostedAccountCollections(
         connection,
         provider,
-        userId
+        userId,
+        {
+          onMissingCollection: async (collectionId) => {
+            await quarantineMissingHostedCollection(db, collectionId);
+          }
+        }
       );
       state = await completeAccount(
         connection,
@@ -123,7 +129,7 @@ async function createOperation(
     `SELECT u.id, count(c.id) AS hosted_collections
      FROM users u
      JOIN hosted_collections c ON c.user_id = u.id
-     WHERE u.suspended_at IS NULL
+     WHERE u.suspended_at IS NULL AND c.quarantined_at IS NULL
      GROUP BY u.id
      ORDER BY u.id`
   );

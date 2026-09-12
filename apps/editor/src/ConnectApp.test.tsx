@@ -34,8 +34,8 @@ describe("ConnectApp", () => {
     const { container } = render(<ConnectApp />);
 
     expect(screen.getByText("Opening mdbase connect")).toBeInTheDocument();
-    expect(container.querySelector(".connect-loading .mdbase-motion-bootstrap")).toBeInTheDocument();
-    expect(container.querySelector(".mdbase-mark-conveyor-track")).toBeInTheDocument();
+    expect(container.querySelector(".connect-loading .mdbase-motion-mark")).toBeInTheDocument();
+    expect(container.querySelector(".connect-loading .mdbase-motion-bootstrap")).not.toBeInTheDocument();
   });
 
   it("opens account management without requesting a collection grant", async () => {
@@ -50,6 +50,21 @@ describe("ConnectApp", () => {
     await user.click(screen.getByRole("link", { name: /Applications/ }));
     await waitFor(() => expect(location.pathname).toBe("/connect/applications"));
     expect(screen.getByRole("heading", { name: "Applications" })).toBeInTheDocument();
+  });
+
+  it("opens feedback from the quiet Connect footer with current context available", async () => {
+    overview.grants = applicationGrants();
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await screen.findByRole("heading", { name: "Garden notes" });
+    await user.click(screen.getAllByRole("link", { name: "Send feedback" })[0]);
+
+    await waitFor(() => expect(location.pathname).toBe("/connect/feedback"));
+    expect(screen.getByRole("heading", { name: "Send feedback" })).toHaveFocus();
+    expect(screen.getByRole("checkbox", { name: /Include collection name: Garden notes/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Include application origin/ })).not.toBeChecked();
+    expect(screen.getByText(/Nothing here is included unless you choose it/)).toBeInTheDocument();
   });
 
   it("keeps Connect inside the editor collection shell", async () => {
@@ -133,6 +148,21 @@ describe("ConnectApp", () => {
     await user.click(screen.getByRole("link", { name: "Computers" }));
     expect(await screen.findByRole("link", { name: "Install version 0.1.0-beta.33 or later" }))
       .toHaveAttribute("href", "https://example.test/connect-update");
+  });
+
+  it("recommends the lease-capable update without claiming legacy is incompatible", async () => {
+    overview.connectors[0].update_recommended = true;
+    overview.connectors[0].minimum_connector_version = "0.1.0-beta.91";
+    overview.connectors[0].update_url = "https://example.test/connect-update";
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await user.click(await screen.findByRole("link", { name: "Computers" }));
+    expect(screen.getByText("Online")).toBeInTheDocument();
+    expect(screen.queryByText("Update required")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", {
+      name: "Update recommended for current policy protection"
+    })).toHaveAttribute("href", "https://example.test/connect-update");
   });
 
   it("pauses background refresh while the page is hidden and refreshes on return", async () => {
@@ -365,7 +395,9 @@ describe("ConnectApp", () => {
     }];
     overview.grants = [{
       id: "grant", operations: ["read", "update"], scope: { contracts: [], access: "full_collection" },
-      created_at: now, revoked_at: null, revocation_status: "active", collection_id: "collection", collection_name: "Garden notes",
+      created_at: now, revoked_at: null, revocation_status: "active",
+      reauthorization_required_at: null, reauthorization_reason: null,
+      collection_id: "collection", collection_name: "Garden notes",
       collection_kind: "local", application_id: "reading-list", application_name: "Reading list",
       distribution: "web", homepage: "https://reading.example", project_url: null,
       application_origin: "https://reading.example", icon: null
@@ -379,12 +411,50 @@ describe("ConnectApp", () => {
     expect(screen.getByRole("link", { name: "App access" })).not.toHaveTextContent("1");
   });
 
+  it("shows real revoked migration evidence until fresh collection authorization replaces it", async () => {
+    const now = new Date().toISOString();
+    const legacy = {
+      id: "legacy", operations: ["read"],
+      scope: { contracts: [], access: "contract" as const },
+      created_at: now, revoked_at: now, revocation_status: "revoked" as const,
+      reauthorization_required_at: now, reauthorization_reason: "collection_level_authorization",
+      collection_id: "collection", collection_name: "Garden notes",
+      collection_kind: "local" as const, application_id: "reading-list", application_name: "Reading list",
+      distribution: "web" as const, homepage: "https://reading.example", project_url: null,
+      application_origin: "https://reading.example", icon: null
+    };
+    overview.grants = [legacy];
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await screen.findByRole("heading", { name: "Garden notes" });
+    await user.click(screen.getByRole("link", { name: /Applications/ }));
+
+    expect(await screen.findByText("Legacy scoped access is revoked. Reauthorize this application for the entire collection.")).toBeInTheDocument();
+    expect(screen.getByText("Reauthorization required")).toBeInTheDocument();
+
+    overview.grants = [legacy, {
+      ...legacy,
+      id: "fresh",
+      scope: { contracts: [], access: "full_collection" },
+      revoked_at: null,
+      revocation_status: "active",
+      reauthorization_required_at: null,
+      reauthorization_reason: null
+    }];
+    fireEvent(document, new Event("visibilitychange"));
+
+    await waitFor(() => expect(screen.queryByText("Reauthorization required")).not.toBeInTheDocument());
+    expect(screen.getByText("Entire collection")).toBeInTheDocument();
+  });
+
   it("keeps provider-pending revocations visible without claiming success", async () => {
     overview.grants = [{
       id: "grant", operations: ["read"],
       scope: { contracts: [], access: "full_collection" },
       created_at: new Date().toISOString(), revoked_at: new Date().toISOString(),
-      revocation_status: "revoking", collection_id: "collection",
+      revocation_status: "revoking", reauthorization_required_at: null,
+      reauthorization_reason: null, collection_id: "collection",
       collection_name: "Garden notes", collection_kind: "hosted",
       application_id: "app", application_name: "Photo catalog",
       distribution: "web", homepage: "https://photos.example",
@@ -410,6 +480,8 @@ describe("ConnectApp", () => {
       created_at: now,
       revoked_at: null,
       revocation_status: "active" as const,
+      reauthorization_required_at: null,
+      reauthorization_reason: null,
       collection_id: index === 0 ? "collection" : "collection-two",
       collection_name: index === 0 ? "Garden notes" : "Research notes",
       collection_kind: "local" as const,
@@ -596,6 +668,34 @@ describe("ConnectApp", () => {
     expect(screen.getByText("A new one-use sharing code is ready.")).toBeInTheDocument();
   });
 
+  it("explains a temporary account-deletion hold without offering the destructive action", async () => {
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/v1/account/sessions") return Response.json({ sessions: [] });
+      if (path === "/v1/account") {
+        const account = accountFixture();
+        return Response.json({
+          ...account,
+          deletion: {
+            ...account.deletion,
+            available: false,
+            unavailable_reason: "temporarily_disabled"
+          }
+        });
+      }
+      return Response.json(overview);
+    });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await user.click(await screen.findByRole("link", { name: "Open account and sessions" }));
+    expect(await screen.findByText(
+      "Account deletion is temporarily unavailable while we complete a service correction."
+    )).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete account…" }))
+      .not.toBeInTheDocument();
+  });
+
   it("keeps hosted storage, sign-in methods, and account deletion in the editor", async () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
@@ -649,6 +749,7 @@ function overviewFixture(): ManagementOverview {
       reconciliation: { entitlement_revision: 1, provider_revision: 1 }
     },
     hosted_collections_available: true,
+    collection_sharing_available: true,
     authentication: { provider: "github", registration: "closed" },
     connectors: [{ id: "computer", name: "Home computer", last_seen_at: now, created_at: now }],
     collections: [{
@@ -670,6 +771,8 @@ function applicationGrants(): ManagementOverview["grants"] {
     created_at: now,
     revoked_at: null,
     revocation_status: "active" as const,
+    reauthorization_required_at: null,
+    reauthorization_reason: null,
     collection_id: index === 0 ? "collection" : "collection-two",
     collection_name: index === 0 ? "Garden notes" : "Research notes",
     collection_kind: "local" as const,
@@ -759,6 +862,7 @@ function accountFixture(): AccountData {
     },
     deletion: {
       available: true,
+      unavailable_reason: null,
       hosted_collections: 1,
       local_collections: 1,
       computers: 1,

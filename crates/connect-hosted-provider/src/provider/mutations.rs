@@ -7,12 +7,14 @@ struct MutationExecution<'a> {
     journal_lease: Option<&'a HostedMutationLease>,
     journal_result_is_public: bool,
     semantic: Option<(String, serde_json::Map<String, Value>)>,
-    semantic_result: Option<&'a mut Option<OperationResult>>,
+    semantic_operation: Option<&'a mut Option<mdbase::runtime::CanonicalOperationOutcome>>,
 }
 
 pub(super) struct ApplicationMutationResult {
     pub receipt: SyncMutationReceipt,
-    pub semantic_result: Option<OperationResult>,
+    pub semantic_operation: Option<mdbase::runtime::CanonicalOperationOutcome>,
+    /// Compatibility-only replay value from the existing durable journal.
+    pub replayed_semantic_result: Option<OperationResult>,
 }
 
 impl HostedProvider {
@@ -90,7 +92,7 @@ impl HostedProvider {
                         journal_lease: Some(&lease),
                         journal_result_is_public: true,
                         semantic: None,
-                        semantic_result: None,
+                        semantic_operation: None,
                     },
                 )
                 .await
@@ -128,11 +130,12 @@ impl HostedProvider {
             {
                 return Ok(ApplicationMutationResult {
                     receipt,
-                    semantic_result,
+                    semantic_operation: None,
+                    replayed_semantic_result: semantic_result,
                 });
             }
         }
-        let mut semantic_result = None;
+        let mut semantic_operation = None;
         let receipt = self
             .mutate_in_transaction(
                 transaction,
@@ -143,13 +146,14 @@ impl HostedProvider {
                     journal_lease,
                     journal_result_is_public: false,
                     semantic,
-                    semantic_result: Some(&mut semantic_result),
+                    semantic_operation: Some(&mut semantic_operation),
                 },
             )
             .await?;
         Ok(ApplicationMutationResult {
             receipt,
-            semantic_result,
+            semantic_operation,
+            replayed_semantic_result: None,
         })
     }
 
@@ -159,7 +163,6 @@ impl HostedProvider {
         mutation: &SyncMutation,
         operation: &str,
         input: serde_json::Map<String, Value>,
-        allowed_types: &[String],
     ) -> ApiResult<OperationResult> {
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
@@ -190,7 +193,7 @@ impl HostedProvider {
         )
         .await?
         .map(|(record, _, _)| record);
-        let (execution, before_records) = execute_direct_semantic(
+        let (execution, _before_records) = execute_direct_semantic(
             &mut transaction,
             self,
             &data_key,
@@ -202,21 +205,6 @@ impl HostedProvider {
             current,
         )
         .await?;
-        for (record_id, after, _) in &execution.changed {
-            let before = before_records.get(record_id);
-            if before.is_some_and(|record| !visible(record, allowed_types))
-                || after
-                    .as_ref()
-                    .is_some_and(|record| !visible(record, allowed_types))
-            {
-                return Ok(invalid_operation_result(
-                    "scope_denied",
-                    "The mutation would change a record outside the replica scope.",
-                    None,
-                    None,
-                ));
-            }
-        }
         Ok(execution.envelope)
     }
 
@@ -399,7 +387,10 @@ impl HostedProvider {
                 )
                 .await;
             };
-            if !semantic_requested && !visible(current, &replica.allowed_types) {
+            if replica.purpose == ReplicaPurpose::Mirror
+                && !semantic_requested
+                && !visible(current, &replica.allowed_types)
+            {
                 return store_rejection(
                     transaction,
                     &self.crypto,
@@ -441,11 +432,11 @@ impl HostedProvider {
 
         let MutationExecution {
             semantic,
-            semantic_result,
+            semantic_operation,
             ..
         } = execution;
         let direct_sync = semantic.is_none();
-        let (execution, before_records) = if let Some((operation, input)) = semantic {
+        let (mut execution, before_records) = if let Some((operation, input)) = semantic {
             execute_direct_semantic(
                 &mut transaction,
                 self,
@@ -533,9 +524,6 @@ impl HostedProvider {
                 .unwrap_or_default();
             (execution, before_records)
         };
-        if let Some(result) = semantic_result {
-            *result = Some(execution.envelope.clone());
-        }
         if !execution.envelope.valid {
             let (code, message) = operation_error(&execution.envelope);
             return store_rejection(
@@ -556,10 +544,11 @@ impl HostedProvider {
         }
         for (record_id, after, _) in &execution.changed {
             let before = before_records.get(record_id);
-            if before.is_some_and(|record| !visible(record, &replica.allowed_types))
-                || after
-                    .as_ref()
-                    .is_some_and(|record| !visible(record, &replica.allowed_types))
+            if replica.purpose == ReplicaPurpose::Mirror
+                && (before.is_some_and(|record| !visible(record, &replica.allowed_types))
+                    || after
+                        .as_ref()
+                        .is_some_and(|record| !visible(record, &replica.allowed_types)))
             {
                 return store_rejection(
                     transaction,
@@ -636,6 +625,7 @@ impl HostedProvider {
             false
         };
         let mut primary = None;
+        let mut primary_persisted_mtime = None;
         let mut projection_changes = Vec::with_capacity(execution.changed.len());
         for (record_id, after, document) in execution.changed {
             head = head.checked_add(1).ok_or_else(|| {
@@ -654,13 +644,12 @@ impl HostedProvider {
                     record,
                 )
                 .await?;
+                let persisted_mtime = modified_at.to_rfc3339_opts(SecondsFormat::Micros, true);
                 if record_id == execution.primary_record_id {
                     primary = Some(record.clone());
+                    primary_persisted_mtime = Some(persisted_mtime.clone());
                 }
-                (
-                    record.revision.clone(),
-                    Some(modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
-                )
+                (record.revision.clone(), Some(persisted_mtime))
             } else {
                 let before = before.as_ref().ok_or_else(|| {
                     ApiError::internal("The hosted write set deleted an unknown record.")
@@ -751,6 +740,20 @@ impl HostedProvider {
                     ));
                 }
             }
+        }
+        if let Some(operation) = execution.operation.as_mut() {
+            if let Some(persisted_mtime) = primary_persisted_mtime {
+                let record = operation.record_mutation_value_mut().ok_or_else(|| {
+                    ApiError::internal(
+                        "The hosted record mutation outcome omitted its primary record.",
+                    )
+                })?;
+                record.file.mtime = persisted_mtime;
+                execution.envelope = operation.to_v03();
+            }
+        }
+        if let Some(result) = semantic_operation {
+            *result = execution.operation.clone();
         }
         self.maintain_active_projection_changes(
             &mut transaction,

@@ -215,7 +215,7 @@ describe("hosted collection membership lifecycle", () => {
     )).resolves.toMatchObject({ rows: [{ state: "revoked" }] });
   });
 
-  it("allows an editor to manage another member but denies an outsider", async () => {
+  it("reserves membership management for the owner", async () => {
     database = await createDatabase("memory");
     const ownerId = await insertUser(database, "owner@example.com");
     const editorId = await insertUser(database, "editor@example.com");
@@ -240,6 +240,9 @@ describe("hosted collection membership lifecycle", () => {
       actorUserId: editorId,
       membershipId: viewer.membershipId,
       role: "editor"
+    })).rejects.toThrow("members.manage");
+    await expect(changeHostedCollectionMembershipRole(database, {
+      collectionId, actorUserId: ownerId, membershipId: viewer.membershipId, role: "editor"
     })).resolves.toMatchObject({ state: "active", policyRevision: 2 });
   });
 });

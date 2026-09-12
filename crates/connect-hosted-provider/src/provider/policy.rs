@@ -1,9 +1,100 @@
 use super::*;
+
+pub(super) fn ensure_fresh_application_issuance(semantics: i32) -> ApiResult<()> {
+    if mdbase_connect_protocol::permits_fresh_application_authorization(semantics as u32) {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden(
+            "application_authorization_issuance_disabled",
+            "Fresh application authorization is disabled for these semantics.",
+        ))
+    }
+}
+
+/// Called only while the persisted row is locked through the subsequent write.
+/// Changed consent bindings are issuance, even with a valid application signature.
+pub(super) fn retains_application_authority(
+    installed: &sqlx::postgres::PgRow,
+    policy: &RegisterReplica,
+) -> ApiResult<bool> {
+    let installed_files: Option<FileCapability> = installed
+        .get::<Option<Value>, _>("file_capability")
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|_| ApiError::forbidden("invalid_replica", "Invalid installed file policy."))?;
+    let files_narrow =
+        retained_files_narrow(policy.file_capability.as_ref(), installed_files.as_ref());
+    let old_mode: String = installed.get("mode");
+    let mode_narrow = old_mode == replica_mode(policy.mode)
+        || (old_mode == "read_write" && policy.mode == SyncReplicaMode::ReadOnly);
+    let old_operations: Vec<String> = installed.get("allowed_operations");
+    Ok(installed
+        .get::<Option<chrono::DateTime<Utc>>, _>("revoked_at")
+        .is_none()
+        && mode_narrow
+        && files_narrow
+        && policy
+            .allowed_operations
+            .iter()
+            .all(|op| old_operations.contains(op))
+        && installed.get::<Vec<String>, _>("allowed_types") == policy.allowed_types
+        && installed.get::<Value, _>("contract_scope") == json!(policy.contract_scope)
+        && installed.get::<bool, _>("full_collection") == policy.full_collection
+        && installed.get::<Option<i32>, _>("operation_transport_protocol")
+            == policy.operation_transport_protocol.map(|v| v as i32)
+        && installed.get::<Vec<i32>, _>("operation_transport_recovery_protocols")
+            == policy
+                .operation_transport_recovery_protocols
+                .iter()
+                .map(|v| *v as i32)
+                .collect::<Vec<_>>()
+        && installed.get::<Option<String>, _>("allowed_origin") == policy.allowed_origin
+        && installed.get::<Option<String>, _>("proof_public_key") == policy.proof_public_key
+        && installed.get::<Option<Uuid>, _>("grant_id") == policy.grant_id
+        && installed.get::<Option<String>, _>("application_declaration_id")
+            == policy.application_declaration_id
+        && installed.get::<Option<String>, _>("application_declaration_digest")
+            == policy.application_declaration_digest
+        && installed.get::<Option<Value>, _>("application_setup_evidence")
+            == policy.application_setup_evidence)
+}
+
+fn retained_files_narrow(next: Option<&FileCapability>, previous: Option<&FileCapability>) -> bool {
+    match (next, previous) {
+        (None, _) => true,
+        (Some(next), Some(previous)) => {
+            next.kind == previous.kind
+                && next.protocol_version == previous.protocol_version
+                && next.scope == previous.scope
+                && next
+                    .actions
+                    .iter()
+                    .all(|action| previous.actions.contains(action))
+        }
+        _ => false,
+    }
+}
+
+pub(super) fn ensure_canonical_application_replica(replica: &Replica) -> ApiResult<()> {
+    if replica.purpose == ReplicaPurpose::Application
+        && (!replica.full_collection
+            || !replica.allowed_types.is_empty()
+            || !replica.contract_scope.is_empty())
+    {
+        return Err(ApiError::forbidden(
+            "application_reauthorization_required",
+            "This legacy scoped application capability must be revoked and reauthorized.",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn authorize_application_operation(
     replica: &Replica,
     operation: &str,
     request_origin: Option<&str>,
 ) -> ApiResult<()> {
+    ensure_canonical_application_replica(replica)?;
     if operation == "batch" {
         return Err(ApiError::bad_request(
             "unsupported_operation",
@@ -42,12 +133,7 @@ pub(super) fn authorize_sync_access(
     required_operation: &str,
     request_origin: Option<&str>,
 ) -> ApiResult<()> {
-    if replica.purpose == ReplicaPurpose::Application && !replica.full_collection {
-        return Err(ApiError::forbidden(
-            "scope_denied",
-            "Contract-scoped replicas are unavailable because the sync document format contains whole records. Use projected collection operations or request explicit full-collection access.",
-        ));
-    }
+    ensure_canonical_application_replica(replica)?;
     match replica.purpose {
         ReplicaPurpose::Application => {
             authorize_application_operation(replica, required_operation, request_origin)
@@ -89,6 +175,7 @@ pub(super) fn authorize_file_access(
             Ok(())
         }
         ReplicaPurpose::Application => {
+            ensure_canonical_application_replica(replica)?;
             authorize_application_origin(replica, request_origin)?;
             let capability = replica.file_capability.as_ref().ok_or_else(|| {
                 insufficient_access(
@@ -112,7 +199,7 @@ pub(super) fn authorize_file_access(
                 (FileScope::SelectedFolders { folders }, Some(path))
                     if folders
                         .iter()
-                        .any(|folder| file_path_in_folder(path, folder)) =>
+                        .any(|folder| file_path_below_folder(path, folder)) =>
                 {
                     Ok(())
                 }
@@ -157,99 +244,6 @@ fn file_action_name(action: FileAction) -> &'static str {
 
 pub(super) fn scope_error(error: impl std::fmt::Display) -> ApiError {
     ApiError::forbidden("scope_denied", error.to_string())
-}
-
-pub(super) fn result_string<'a>(value: &'a Value, field: &str) -> ApiResult<&'a str> {
-    value.get(field).and_then(Value::as_str).ok_or_else(|| {
-        ApiError::internal(format!(
-            "The hosted collection operation omitted its {field} result."
-        ))
-    })
-}
-
-pub(super) fn scope_read_input(
-    operation: &str,
-    input: Value,
-    allowed_types: &[String],
-) -> ApiResult<Value> {
-    if operation != "query" || allowed_types.is_empty() {
-        return Ok(input);
-    }
-    let mut scoped = input.as_object().cloned().ok_or_else(|| {
-        ApiError::forbidden("scope_denied", "Scoped query input must be an object.")
-    })?;
-    if query_crosses_record_boundary(&Value::Object(scoped.clone())) {
-        return Err(ApiError::forbidden(
-            "scope_denied",
-            "Cross-record traversal is unavailable to a scoped application.",
-        ));
-    }
-    if let Some(requested) = scoped.get("types") {
-        let requested = requested.as_array().ok_or_else(|| {
-            ApiError::forbidden("scope_denied", "Scoped query types must be a list.")
-        })?;
-        if requested.is_empty() {
-            scoped.insert(
-                "types".to_string(),
-                Value::Array(allowed_types.iter().cloned().map(Value::String).collect()),
-            );
-        } else if requested.iter().any(|value| {
-            value
-                .as_str()
-                .is_none_or(|name| !allowed_types.iter().any(|allowed| allowed == name))
-        }) {
-            return Err(ApiError::forbidden(
-                "scope_denied",
-                "The query requests a record type outside this application's scope.",
-            ));
-        }
-    } else {
-        scoped.insert(
-            "types".to_string(),
-            Value::Array(allowed_types.iter().cloned().map(Value::String).collect()),
-        );
-    }
-    Ok(Value::Object(scoped))
-}
-
-pub(super) fn query_crosses_record_boundary(value: &Value) -> bool {
-    match value {
-        Value::String(source) => {
-            let compact = source
-                .chars()
-                .filter(|character| !character.is_whitespace())
-                .collect::<String>();
-            compact.contains(".asFile") || compact.contains(".backlinks")
-        }
-        Value::Array(values) => values.iter().any(query_crosses_record_boundary),
-        Value::Object(values) => values.values().any(query_crosses_record_boundary),
-        _ => false,
-    }
-}
-
-pub(super) fn ensure_operation_result_visible(
-    result: &OperationResult,
-    allowed_types: &[String],
-) -> ApiResult<()> {
-    if allowed_types.is_empty() || !result.valid {
-        return Ok(());
-    }
-    let visible = result
-        .result
-        .get("types")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .any(|record_type| allowed_types.iter().any(|allowed| allowed == record_type));
-    if visible {
-        Ok(())
-    } else {
-        Err(ApiError::forbidden(
-            "scope_denied",
-            "The requested record is outside this application's record scope.",
-        ))
-    }
 }
 
 pub(super) fn application_change(
@@ -382,4 +376,41 @@ pub(super) fn visible(record: &SyncRecord, allowed_types: &[String]) -> bool {
             .types
             .iter()
             .any(|record_type| allowed_types.contains(record_type))
+}
+
+#[cfg(test)]
+mod retained_policy_tests {
+    use super::*;
+
+    #[test]
+    fn files_only_allow_removal_or_same_scope_action_subset() {
+        let installed: FileCapability = serde_json::from_value(json!({
+            "kind": "files", "protocol_version": 1,
+            "actions": ["list", "read", "add"],
+            "scope": {"kind": "selected_folders", "folders": ["docs"]}
+        }))
+        .unwrap();
+        assert!(retained_files_narrow(Some(&installed), Some(&installed)));
+        assert!(retained_files_narrow(None, Some(&installed)));
+        assert!(retained_files_narrow(None, None));
+        assert!(!retained_files_narrow(Some(&installed), None));
+        let mut next = installed.clone();
+        next.actions = vec![FileAction::Read];
+        assert!(retained_files_narrow(Some(&next), Some(&installed)));
+        next.actions.push(FileAction::Delete);
+        assert!(!retained_files_narrow(Some(&next), Some(&installed)));
+        next = installed.clone();
+        next.protocol_version += 1;
+        assert!(!retained_files_narrow(Some(&next), Some(&installed)));
+        for scope in [
+            FileScope::Collection,
+            FileScope::SelectedFolders {
+                folders: vec!["docs/sub".into()],
+            },
+        ] {
+            next = installed.clone();
+            next.scope = scope;
+            assert!(!retained_files_narrow(Some(&next), Some(&installed)));
+        }
+    }
 }

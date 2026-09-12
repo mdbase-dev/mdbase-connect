@@ -1,9 +1,10 @@
-import type { ApplicationRequirements } from "@mdbase-dev/connect-protocol";
+import type { ApplicationRequirements } from "../../application-requirements.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
+import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 
 interface ConnectorControlRoutesOptions {
   db: DatabasePool;
@@ -23,11 +24,15 @@ export function registerConnectorControlRoutes(
       user_email: string;
     }>(
       `SELECT c.id AS connector_id, c.name AS connector_name,
-              u.name AS user_name,
-              COALESCE(i.email, '@' || i.login, u.email) AS user_email
+              COALESCE(u.name, '') AS user_name,
+              COALESCE(i.email, '@' || i.login, password_email.email, u.email, '') AS user_email
        FROM connectors c
        JOIN users u ON u.id = c.user_id
        LEFT JOIN external_identities i ON i.user_id = u.id
+       LEFT JOIN email_identities password_email
+         ON password_email.user_id = u.id
+        AND password_email.is_primary = true
+        AND password_email.retired_at IS NULL
        WHERE c.id = $1`,
       [connector.id]
     );
@@ -105,12 +110,7 @@ export function registerConnectorControlRoutes(
       configured: true,
       online: true,
       account: account.rows[0],
-      grants: grants.rows.map((grant) => ({
-        ...grant,
-        application_origin: normalizedApplicationOrigin(
-          grant.application_origin
-        )
-      })),
+      grants: grants.rows.map(grantWithCompatibleApplicationOrigin),
       pending_authorizations: pendingAuthorizations.rows.filter(
         (authorization) =>
           authorization.requirements?.collection_kind !== "hosted"
@@ -139,8 +139,4 @@ export function registerConnectorControlRoutes(
     }
     return { application: application.rows[0] };
   });
-}
-
-function normalizedApplicationOrigin(value: string): string {
-  return value === "null" ? "null" : new URL(value).origin;
 }

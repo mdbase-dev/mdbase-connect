@@ -1,18 +1,16 @@
 import { randomUUID } from "node:crypto";
 import {
   COLLECTION_OPERATIONS,
+  APPLICATION_SETUP_OPERATIONS,
+  operationsForApplicationCapabilities,
   type CollectionOperation,
   type FileAction,
   type FileCapability,
   type GrantScope
 } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
-import { requiresWriteReplica } from "./collection-operation-policy.js";
 import { collectionContractDescriptorSchema } from "./protocol-schemas.js";
-import type {
-  DatabasePool,
-  DatabaseQueryable
-} from "./db.js";
+import type { DatabasePool, DatabaseQueryable } from "./db.js";
 
 export const COLLECTION_ACTIONS = [
   "collection.discover",
@@ -27,13 +25,13 @@ export const COLLECTION_ACTIONS = [
   "members.manage"
 ] as const;
 
-export type CollectionAction = typeof COLLECTION_ACTIONS[number];
+export type CollectionAction = (typeof COLLECTION_ACTIONS)[number];
 
 export const COLLECTION_MEMBERSHIP_ROLES = ["viewer", "editor"] as const;
-export type CollectionMembershipRole = typeof COLLECTION_MEMBERSHIP_ROLES[number];
+export type CollectionMembershipRole = (typeof COLLECTION_MEMBERSHIP_ROLES)[number];
 export type CollectionRole = "owner" | CollectionMembershipRole;
 
-export const COLLECTION_MEMBERSHIP_PRESET_VERSION = 1;
+const COLLECTION_MEMBERSHIP_PRESET_VERSION = 2;
 
 const FILE_ACTIONS = ["list", "read", "add", "replace", "move", "delete"] as const;
 
@@ -48,66 +46,94 @@ const EDITOR_ACTIONS: readonly CollectionAction[] = [
   ...VIEWER_ACTIONS,
   "record.write",
   "schema.manage",
-  "collection.rename",
-  "members.manage"
+  "collection.rename"
 ];
 
-const VIEWER_OPERATIONS: readonly CollectionOperation[] = COLLECTION_OPERATIONS.filter(
-  (operation) => !requiresWriteReplica(operation)
-);
+const VIEWER_OPERATIONS = operationsForApplicationCapabilities({
+  contract_version: 2,
+  required: ["collection.read", "offline.replica"]
+});
+const EDITOR_OPERATIONS = [
+  ...operationsForApplicationCapabilities({
+    contract_version: 2,
+    required: [
+      "collection.read",
+      "records.create",
+      "records.edit",
+      "records.delete",
+      "views.manage",
+      "definitions.manage",
+      "background.schedule",
+      "offline.replica"
+    ]
+  }),
+  ...APPLICATION_SETUP_OPERATIONS
+];
 
 const VIEWER_FILE_ACTIONS: readonly FileAction[] = ["list", "read"];
 const EDITOR_FILE_ACTIONS: readonly FileAction[] = [...FILE_ACTIONS];
 
-const uniqueArray = <T extends z.ZodTypeAny>(item: T) => z.array(item).min(1).superRefine(
-  (values, context) => {
-    if (new Set(values).size !== values.length) {
-      context.addIssue({ code: "custom", message: "Values must be unique." });
-    }
-  }
-);
+const uniqueArray = <T extends z.ZodTypeAny>(item: T) =>
+  z
+    .array(item)
+    .min(1)
+    .superRefine((values, context) => {
+      if (new Set(values).size !== values.length) {
+        context.addIssue({ code: "custom", message: "Values must be unique." });
+      }
+    });
 
 const actionArraySchema = uniqueArray(z.enum(COLLECTION_ACTIONS));
 const operationArraySchema = uniqueArray(z.enum(COLLECTION_OPERATIONS));
 const fileActionArraySchema = uniqueArray(z.enum(FILE_ACTIONS));
 const grantScopeSchema = z.discriminatedUnion("access", [
-  z.object({
-    access: z.literal("full_collection"),
-    contracts: z.array(collectionContractDescriptorSchema).max(0)
-  }).strict(),
-  z.object({
-    access: z.literal("contract"),
-    contracts: z.array(collectionContractDescriptorSchema)
-  }).strict()
+  z
+    .object({
+      access: z.literal("full_collection"),
+      contracts: z.array(collectionContractDescriptorSchema).max(0)
+    })
+    .strict(),
+  z
+    .object({
+      access: z.literal("contract"),
+      contracts: z.array(collectionContractDescriptorSchema)
+    })
+    .strict()
 ]);
 const fileScopeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("collection") }).strict(),
-  z.object({
-    kind: z.literal("selected_folders"),
-    folders: uniqueArray(z.string().trim().min(1).max(1024))
-  }).strict()
+  z
+    .object({
+      kind: z.literal("selected_folders"),
+      folders: uniqueArray(z.string().trim().min(1).max(1024))
+    })
+    .strict()
 ]);
-const fileCapabilitySchema = z.object({
-  kind: z.literal("files"),
-  protocol_version: z.literal(1),
-  actions: fileActionArraySchema,
-  scope: fileScopeSchema
-}).strict();
+const fileCapabilitySchema = z
+  .object({
+    kind: z.literal("files"),
+    protocol_version: z.literal(1),
+    actions: fileActionArraySchema,
+    scope: fileScopeSchema
+  })
+  .strict();
 
-const storedPolicySchema = z.object({
-  id: z.string().uuid(),
-  membership_id: z.string().uuid(),
-  collection_id: z.string().uuid(),
-  user_id: z.string().uuid(),
-  owner_user_id: z.string().uuid(),
-  revision: z.coerce.number().int().positive(),
-  role: z.enum(COLLECTION_MEMBERSHIP_ROLES),
-  preset_version: z.coerce.number().int().positive(),
-  actions: actionArraySchema,
-  operations: operationArraySchema,
-  scope_ceiling: grantScopeSchema,
-  file_ceiling: fileCapabilitySchema
-}).strict();
+const storedPolicySchema = z
+  .object({
+    id: z.string().uuid(),
+    membership_id: z.string().uuid(),
+    collection_id: z.string().uuid(),
+    user_id: z.string().uuid(),
+    owner_user_id: z.string().uuid(),
+    revision: z.coerce.number().int().positive(),
+    role: z.enum(COLLECTION_MEMBERSHIP_ROLES),
+    preset_version: z.coerce.number().int().positive(),
+    actions: actionArraySchema,
+    operations: operationArraySchema,
+    scope_ceiling: grantScopeSchema,
+    file_ceiling: fileCapabilitySchema
+  })
+  .strict();
 
 export interface CollectionMembershipPolicy {
   id: string;
@@ -133,15 +159,13 @@ export interface MembershipPolicySnapshot {
   fileCeiling: FileCapability;
 }
 
-export function membershipPolicyPreset(
-  role: CollectionMembershipRole
-): MembershipPolicySnapshot {
+export function membershipPolicyPreset(role: CollectionMembershipRole): MembershipPolicySnapshot {
   const editor = role === "editor";
   return {
     role,
     presetVersion: COLLECTION_MEMBERSHIP_PRESET_VERSION,
     actions: [...(editor ? EDITOR_ACTIONS : VIEWER_ACTIONS)],
-    operations: [...(editor ? COLLECTION_OPERATIONS : VIEWER_OPERATIONS)],
+    operations: [...(editor ? EDITOR_OPERATIONS : VIEWER_OPERATIONS)],
     scopeCeiling: { access: "full_collection", contracts: [] },
     fileCeiling: {
       kind: "files",
@@ -177,9 +201,9 @@ export async function createHostedCollectionMembership(
     );
     const authority = collection.rows[0];
     if (
-      !authority
-      || authority.user_id !== input.ownerUserId
-      || authority.authority_state !== "active"
+      !authority ||
+      authority.user_id !== input.ownerUserId ||
+      authority.authority_state !== "active"
     ) {
       throw new CollectionMembershipPolicyError(
         "collection_unavailable",
@@ -247,21 +271,23 @@ export async function insertHostedCollectionMembershipPolicy(
       "The user already has an active membership for this collection."
     );
   }
-  const parsedSnapshot = storedPolicySchema.pick({
-    role: true,
-    preset_version: true,
-    actions: true,
-    operations: true,
-    scope_ceiling: true,
-    file_ceiling: true
-  }).safeParse({
-    role: input.snapshot.role,
-    preset_version: input.snapshot.presetVersion,
-    actions: input.snapshot.actions,
-    operations: input.snapshot.operations,
-    scope_ceiling: input.snapshot.scopeCeiling,
-    file_ceiling: input.snapshot.fileCeiling
-  });
+  const parsedSnapshot = storedPolicySchema
+    .pick({
+      role: true,
+      preset_version: true,
+      actions: true,
+      operations: true,
+      scope_ceiling: true,
+      file_ceiling: true
+    })
+    .safeParse({
+      role: input.snapshot.role,
+      preset_version: input.snapshot.presetVersion,
+      actions: input.snapshot.actions,
+      operations: input.snapshot.operations,
+      scope_ceiling: input.snapshot.scopeCeiling,
+      file_ceiling: input.snapshot.fileCeiling
+    });
   if (!parsedSnapshot.success) {
     throw new CollectionMembershipPolicyError(
       "invalid_policy_snapshot",
@@ -358,7 +384,10 @@ export async function resolveActiveMembershipPolicy(
 }
 
 export class CollectionMembershipPolicyError extends Error {
-  constructor(readonly code: string, message: string) {
+  constructor(
+    readonly code: string,
+    message: string
+  ) {
     super(message);
     this.name = "CollectionMembershipPolicyError";
   }

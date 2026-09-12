@@ -98,22 +98,22 @@ try {
   await portalPage
     .getByRole("heading", { name: "Docker test computer" })
     .waitFor();
+  const restarting = pairingWindow
+    .getByText("mdbase connect is restarting with the new secure connection.")
+    .waitFor();
   await portalPage
     .getByRole("button", { name: "Approve computer" })
     .click();
-  await portalPage
-    .getByRole("heading", { name: "Return to mdbase connect." })
-    .waitFor();
+  await Promise.all([
+    portalPage
+      .getByRole("heading", { name: "Return to mdbase connect." })
+      .waitFor(),
+    restarting
+  ]);
   const sessionCookie = (await portalContext.cookies(environment.serverUrl))
     .find((candidate) => candidate.name === "mdbase_session");
   assert.ok(sessionCookie, "Portal login did not retain a session cookie");
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
-  await pairingWindow
-    .getByText("Computer approved. Connecting securely…")
-    .waitFor({ timeout: 10_000 });
-  await pairingWindow
-    .getByText("mdbase connect is restarting with the new secure connection.")
-    .waitFor();
 
   const stored = JSON.parse(
     await readFile(join(pairingData, "connect-home", "cloud.json"), "utf8")
@@ -183,7 +183,16 @@ try {
     name: "Docker fixture consumer",
     homepage: "https://desktop-docker-e2e.example",
     redirect_uris: ["https://desktop-docker-e2e.example/callback"],
-    requirements: { contracts: [], access: "full_collection" },
+    requirements: {
+      contracts: [],
+      access: "full_collection",
+      // Positive prelude lifecycle: explicit predecessor intents, not v2 issuance.
+      capabilities: {
+        contract_version: 1,
+        required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"],
+        optional: []
+      }
+    },
     provisions: { type_packs: [] },
     notifications: { criteria: [] }
   };
@@ -207,29 +216,32 @@ try {
     navigate: (value) => { authorizationUrl = value; }
   });
   const authorization = consumer.authorize({
-    operations: ["describe"],
+    capabilities: manifest.requirements.capabilities.required,
     target: { kind: "collection", collectionId: collection.id }
   });
-  await waitForValue(
-    async () => authorizationUrl,
-    (value) => typeof value === "string",
-    15_000
-  );
+  // Await the SDK outcome so authorization errors are not disguised as a UI timeout.
+  assert.deepEqual(requireConnectSuccess(await authorization), { kind: "redirecting" });
+  assert.equal(typeof authorizationUrl, "string");
   await portalPage.goto(authorizationUrl);
   await portalPage
     .getByRole("heading", { name: "Docker fixture consumer" })
     .waitFor();
   await portalPage
+    .locator(`.collection-choice-list input[value="${collection.id}"]`)
+    .check();
+  await portalPage
+    .getByRole("button", { name: "Review access", exact: true })
+    .click();
+  await portalPage
     .locator(".selected-collection-summary")
     .filter({ hasText: "Docker fixture" })
     .waitFor({ state: "attached", timeout: 15_000 });
   await portalPage
-    .getByRole("button", { name: "Allow Docker fixture consumer" })
+    .getByRole("button", { name: "Allow access", exact: true })
     .click();
   await portalPage.waitForURL("https://desktop-docker-e2e.example/callback**", {
     timeout: 15_000
   });
-  assert.deepEqual(requireConnectSuccess(await authorization), { kind: "redirecting" });
   const authorized = requireConnectSuccess(
     await consumer.completeAuthorization(portalPage.url())
   );

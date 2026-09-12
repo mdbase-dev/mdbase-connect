@@ -1,0 +1,284 @@
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDatabase } from "./db.js";
+import { canonicalJson, canonicalSha256 } from "./canonical-json.js";
+import {
+  buildPolicySnapshot,
+  normalizePolicyGrant,
+  observeConnectorPolicyStage,
+  policyGrantCreatedAtIso,
+  PolicySequenceExhaustedError,
+  reportConnectorRelayClose,
+  resolvePolicyAppliedAck
+} from "./relay-policy.js";
+import type { DatabasePool } from "./database-types.js";
+
+const databases: DatabasePool[] = [];
+afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  await Promise.all(databases.splice(0).map((db) => db.end()));
+});
+
+describe("connector policy stage diagnostics", () => {
+  it("reports only a delayed stage and its privacy-safe outcome", async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    let settle!: (value: string) => void;
+    const operation = new Promise<string>((resolve) => { settle = resolve; });
+    const observed = observeConnectorPolicyStage("snapshot_build", () => operation);
+
+    await vi.advanceTimersByTimeAsync(2_001);
+    expect(warning).toHaveBeenCalledWith("connector policy stage delayed", {
+      class: "delivery_unavailable",
+      stage: "snapshot_build"
+    });
+    settle("done");
+    await expect(observed).resolves.toBe("done");
+    expect(warning).toHaveBeenLastCalledWith("connector policy delayed stage settled", {
+      stage: "snapshot_build",
+      outcome: "ok"
+    });
+  });
+
+  it("does not log a successful stage that settles within the threshold", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await expect(observeConnectorPolicyStage("generation_before", async () => true))
+      .resolves.toBe(true);
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it("reports a fast failure without exposing the error", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const failure = new Error("private provider detail");
+    await expect(observeConnectorPolicyStage("generation_before", async () => {
+      throw failure;
+    })).rejects.toBe(failure);
+    expect(warning).toHaveBeenCalledWith("connector policy stage failed", {
+      class: "delivery_unavailable",
+      stage: "generation_before",
+      outcome: "error"
+    });
+    expect(JSON.stringify(warning.mock.calls)).not.toContain(failure.message);
+  });
+
+  it.each([
+    [4001, "replacement", true],
+    [4003, "non_normal", false],
+    [1000, "normal", true],
+    [1001, "normal", false],
+    [1006, "non_normal", true]
+  ])("classifies relay close code %i without attributing peer details", (code, closeClass, ready) => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    reportConnectorRelayClose(code, ready);
+    expect(info).toHaveBeenCalledWith("connector relay closed", {
+      close_class: closeClass,
+      ready
+    });
+    expect(JSON.stringify(info.mock.calls)).not.toContain(String(code));
+  });
+});
+
+describe("connector policy sequence", () => {
+  it("matches the shared Rust protocol-v1 canonical fixture", () => {
+    const fixture = JSON.parse(readFileSync(new URL(
+      "../../../test-fixtures/protocol-v1-policy-canonical.json",
+      import.meta.url
+    ), "utf8")) as Record<string, any>;
+    const grants = fixture.db_like_grants
+      .map((stored: Parameters<typeof normalizePolicyGrant>[0]) =>
+        normalizePolicyGrant(stored))
+      .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+    const wireBody = {
+      connector_id: fixture.normalized_wire_body.connector_id,
+      sequence: fixture.normalized_wire_body.sequence,
+      lease_issued_at_ms: fixture.normalized_wire_body.lease_issued_at_ms,
+      lease_expires_at_ms: fixture.normalized_wire_body.lease_expires_at_ms,
+      grants
+    };
+    const authorityBody = { connector_id: wireBody.connector_id, grants };
+
+    expect(wireBody).toEqual(fixture.normalized_wire_body);
+    expect(canonicalJson(wireBody)).toBe(fixture.normalized_wire_canonical);
+    expect(canonicalJson(authorityBody)).toBe(fixture.authority_canonical);
+    expect(canonicalSha256(wireBody)).toBe(fixture.revision);
+    expect(canonicalSha256(authorityBody)).toBe(fixture.authority_digest);
+    expect(fixture.revision)
+      .toBe("sha256:ccfe7bb1eb75acbec1abe0ee2e8a0c13f1d2be3e2cb47aa30cf6ba6bc3d982ea");
+    expect(fixture.authority_digest)
+      .toBe("sha256:141ae510bcd2582cc075046327940a622d68a87355e1f11fb7358bf5fe0803fd");
+  });
+
+  it("retains complete declaration evidence and omits absent evidence without changing proofs", () => {
+    const fixture = JSON.parse(readFileSync(new URL(
+      "../../../test-fixtures/protocol-v1-policy-canonical.json", import.meta.url
+    ), "utf8"));
+    const source = fixture.db_like_grants[0];
+    const legacy = normalizePolicyGrant(source);
+    expect(legacy).not.toHaveProperty("application_declaration");
+    expect(normalizePolicyGrant({ ...source, application_declaration: null })).toEqual(legacy);
+    const evidence = {
+      id: "dev.mdbase.fixture",
+      requirements: { capabilities: { contract_version: 2, required: [], optional: [] } },
+      provisions: { configuration: {}, type_packs: [] },
+      unknown: { preserve: [3, 1, 2] }
+    };
+    expect(normalizePolicyGrant({ ...source, application_declaration: evidence })).toEqual(legacy);
+    const delivered = normalizePolicyGrant({ ...source, application_declaration: evidence }, true);
+    const v2 = { ...source, application_declaration: evidence,
+      application_authorization: { ...source.application_authorization,
+        binding: { ...source.application_authorization.binding,
+          contracts: { ...source.application_authorization.binding.contracts, semantic_capabilities: 2 } } } };
+    expect(() => normalizePolicyGrant(v2)).toThrow("complete declaration evidence");
+    expect(normalizePolicyGrant(v2, true).application_declaration).toEqual(evidence);
+    expect(() => normalizePolicyGrant({ ...v2, application_declaration: null }, true))
+      .toThrow("complete declaration evidence");
+    expect(delivered.application_declaration).toEqual(evidence);
+    expect(delivered.application_authorization).toEqual(legacy.application_authorization);
+    expect(delivered.operations).toEqual(legacy.operations);
+    expect(canonicalSha256(delivered)).not.toBe(canonicalSha256(legacy));
+  });
+
+  it("rejects invalid policy grant dates without normalizing garbage", () => {
+    expect(() => policyGrantCreatedAtIso("not-a-date")).toThrow(
+      "Policy grant created_at is invalid."
+    );
+    expect(() => policyGrantCreatedAtIso(new Date(Number.NaN))).toThrow(
+      "Policy grant created_at is invalid."
+    );
+    expect(policyGrantCreatedAtIso("2026-08-29T00:51:04.895Z"))
+      .toBe("2026-08-29T00:51:04.895Z");
+  });
+
+  it("omits every noncanonical legacy scope from connector policy", async () => {
+    const db = await createDatabase("memory");
+    databases.push(db);
+    const userId = randomUUID();
+    const connectorId = randomUUID();
+    const collectionId = randomUUID();
+    const applicationId = randomUUID();
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, 'legacy-policy@example.com', 'Policy')",
+      [userId]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash)
+       VALUES ($1, $2, 'Laptop', 'hash')`,
+      [connectorId, userId]
+    );
+    await db.query(
+      `INSERT INTO collections
+         (id, user_id, connector_id, local_id, display_name, spec_version)
+       VALUES ($1, $2, $3, $4, 'Notes', '0.3.0')`,
+      [collectionId, userId, connectorId, randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris)
+       VALUES ($1, $2, 'Legacy', 'https://legacy.example', '[]'::jsonb)`,
+      [applicationId, `test:${applicationId}`]
+    );
+    await db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, collection_id, operations, scope,
+          reauthorization_required_at)
+       VALUES
+         ($1, $3, $4, $5, '["read"]'::jsonb,
+          '{"access":"contract","contracts":[]}'::jsonb, now()),
+         ($2, $3, $4, $5, '["read"]'::jsonb,
+          '{"access":"full_collection","contracts":[{"id":"legacy","version":"1.0.0","digest":"sha256:${"0".repeat(64)}"}]}'::jsonb, now())`,
+      [randomUUID(), randomUUID(), userId, applicationId, collectionId]
+    );
+
+    expect((await buildPolicySnapshot(db, connectorId, 60_000))?.grants).toEqual([]);
+  });
+
+  it("atomically emits MAX_SAFE_INTEGER once then fails terminally without precision loss", async () => {
+    const db = await createDatabase("memory");
+    databases.push(db);
+    const userId = randomUUID();
+    const connectorId = randomUUID();
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, 'policy@example.com', 'Policy')",
+      [userId]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash, policy_sequence)
+       VALUES ($1, $2, 'Laptop', 'hash', $3::bigint)`,
+      [connectorId, userId, String(Number.MAX_SAFE_INTEGER - 1)]
+    );
+
+    const terminal = await buildPolicySnapshot(db, connectorId, 60_000);
+    expect(terminal?.sequence).toBe(Number.MAX_SAFE_INTEGER);
+    await expect(buildPolicySnapshot(db, connectorId, 60_000))
+      .rejects.toBeInstanceOf(PolicySequenceExhaustedError);
+    const stored = await db.query<{ policy_sequence: string | number }>(
+      "SELECT policy_sequence FROM connectors WHERE id = $1",
+      [connectorId]
+    );
+    expect(BigInt(stored.rows[0]!.policy_sequence)).toBe(BigInt(Number.MAX_SAFE_INTEGER));
+  });
+
+  it("rejects a stale reconnect acknowledgement and requires the fresh PG generation", async () => {
+    const db = await createDatabase("memory");
+    databases.push(db);
+    const userId = randomUUID();
+    const connectorId = randomUUID();
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, 'ack@example.com', 'Ack')",
+      [userId]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash, relay_generation)
+       VALUES ($1, $2, 'Laptop', 'hash', 2)`,
+      [connectorId, userId]
+    );
+    const staleReject = vi.fn();
+    await resolvePolicyAppliedAck({
+      db,
+      requestId: randomUUID(),
+      message: { revision: "fresh", ok: true },
+      expectedRevision: "fresh",
+      connectorId,
+      generation: "1",
+      mode: "lease_v1",
+      initial: true,
+      isStillCurrent: () => true,
+      resolve: vi.fn(),
+      reject: staleReject
+    });
+    expect(staleReject).toHaveBeenCalledWith(expect.objectContaining({
+      code: "stale_policy_acknowledgement"
+    }));
+
+    const resolve = vi.fn();
+    await resolvePolicyAppliedAck({
+      db,
+      requestId: randomUUID(),
+      message: { revision: "fresh", ok: true },
+      expectedRevision: "fresh",
+      connectorId,
+      generation: "2",
+      mode: "lease_v1",
+      initial: true,
+      isStillCurrent: () => true,
+      resolve,
+      reject: vi.fn()
+    });
+    expect(resolve).toHaveBeenCalledOnce();
+    const adopted = await db.query<{
+      policy_lease_adopted_at: Date | null;
+      latest_policy_ack_mode: string | null;
+      latest_policy_ack_generation: string | number | null;
+    }>(
+      `SELECT policy_lease_adopted_at, latest_policy_ack_mode,
+              latest_policy_ack_generation
+       FROM connectors WHERE id = $1`,
+      [connectorId]
+    );
+    expect(adopted.rows[0]?.policy_lease_adopted_at).not.toBeNull();
+    expect(adopted.rows[0]?.latest_policy_ack_mode).toBe("lease_v1");
+    expect(Number(adopted.rows[0]?.latest_policy_ack_generation)).toBe(2);
+  });
+});

@@ -1,22 +1,20 @@
 import { randomUUID } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
-import type {
-  ApplicationNotifications,
-  ApplicationAuthorizationProof,
-  ApplicationProvisions,
-  ApplicationRequirements,
-  CollectionContractDescriptor,
-  CollectionOperation,
-  ContractRequirement,
-  ContractSetupChoice,
-  GrantEncryption,
-  GrantPolicy
-} from "@mdbase-dev/connect-protocol";
+import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../../application-requirements.js";
 import {
+  type ApplicationNotifications,
+  type ApplicationAuthorizationProof,
+  type ApplicationProvisions,
+  type CollectionContractDescriptor,
+  type CollectionOperation,
+  type ContractSetupChoice,
+  type FileAction,
+  type GrantEncryption,
+  type GrantPolicy,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
   isSupportedOperationTransport,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
+import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
   requireCollectionAction,
   resolveHostedCollectionAccess,
@@ -30,20 +28,24 @@ import {
 } from "../../collection-membership-binding.js";
 import { contractRequirements } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
-import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
+import {
+  hostedReplicaCollectionOperations,
+  retainedReplicaPolicy
+} from "../../hosted-replica-policy.js";
 import { planCollectionGrant } from "../../grant-planner.js";
 import { RelayHub } from "../../relay.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import {
-  allowedTypesForRequirements,
   assertOperationsAllowedByApplication,
   assertCollectionSupportsOperations,
   contractsSatisfy,
   requiredContractsForRequirements,
   requiredTypePackProvisions,
-  requiresHostedCollection
+  requiresHostedCollection,
+  validateContractSetupChoices,
+  verifyContractSetupAcknowledgement
 } from "../grants/policy.js";
 import { syncHostedNotificationGrant } from "../grants/service.js";
 import {
@@ -61,12 +63,14 @@ export async function approvePortalAuthorization(
     offerId: string;
     collectionId: string;
     operations: CollectionOperation[];
+    fileActions?: FileAction[];
     contractSetups: ContractSetupChoice[];
   }
 ): Promise<boolean> {
   const connection = await db.connect();
   const grantId = randomUUID();
   let connectorId = "";
+  let authorityGeneration = "";
   let localCollectionId = "";
   let authorityRowId = "";
   let requirements: ApplicationRequirements;
@@ -86,6 +90,7 @@ export async function approvePortalAuthorization(
       application_homepage: string;
       application_project_url: string | null;
       application_icon: string | null;
+      application_declaration: unknown | null;
       requested_operations: string[];
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
@@ -107,6 +112,7 @@ export async function approvePortalAuthorization(
               a.name AS application_name,
               a.distribution, a.homepage AS application_homepage,
               a.project_url AS application_project_url, a.icon AS application_icon,
+              a.application_declaration,
               ar.requested_operations, a.requirements, a.provisions, a.notifications,
               ar.operation_transport_protocol, ar.application_agreement_public_key,
               ar.application_signing_public_key, ar.application_authorization,
@@ -124,10 +130,12 @@ export async function approvePortalAuthorization(
       await connection.query("ROLLBACK");
       return false;
     }
+    assertFreshApplicationAuthorization(pending.requirements);
     assertOperationsAllowedByApplication(
       pending.requested_operations,
       pending.requirements,
-      pending.notifications
+      pending.notifications,
+      pending.provisions
     );
     if (pending.collection_id && pending.collection_id !== input.collectionId) {
       throw new RequestValidationError(
@@ -213,6 +221,9 @@ export async function approvePortalAuthorization(
         "Update mdbase connect on this computer before approving this application."
       );
     }
+    authorityGeneration = relay.authorizationAuthority(
+      selected.connector_id, pending.application_authorization.binding.contracts
+    );
     grantAccess = requireCollectionAction(
       await resolveLocalCollectionAccess(
         connection,
@@ -233,8 +244,8 @@ export async function approvePortalAuthorization(
       requestedOperations: input.operations,
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
+      requestedFileActions: input.fileActions,
       requirements: pending.requirements,
-      availableContracts: selected.contracts,
       access: grantAccess
     });
     const operations = plan.operations;
@@ -323,6 +334,9 @@ export async function approvePortalAuthorization(
       created_at: new Date(inserted.rows[0].created_at).toISOString(),
       encryption,
       ...(plan.fileCapability ? { file_capability: plan.fileCapability } : {}),
+      ...(pending.application_declaration == null
+        ? {}
+        : { application_declaration: pending.application_declaration }),
       application_authorization: pending.application_authorization
     };
     await connection.query("COMMIT");
@@ -336,6 +350,8 @@ export async function approvePortalAuthorization(
   let activation: Awaited<ReturnType<RelayHub["activateAuthorization"]>>;
   try {
     activation = await relay.activateAuthorization(connectorId, {
+      authorityGeneration,
+      authorityRowId,
       authorizationId: input.requestId,
       applicationDeclarationId,
       applicationManifestDigest,
@@ -357,8 +373,21 @@ export async function approvePortalAuthorization(
   }
 
   const finalize = await db.connect();
+  let finalizeReleased = false;
   try {
     await finalize.query("BEGIN");
+    await relay.assertAuthorizationAuthority(
+      connectorId, authorityGeneration, grant!.application_authorization.binding.contracts,
+      finalize
+    );
+    const authority = await finalize.query(
+      `SELECT id FROM collections WHERE id = $1 AND connector_id = $2
+         AND authority_state = 'active' AND present = true FOR UPDATE`,
+      [authorityRowId, connectorId]
+    );
+    if (!authority.rows[0]) {
+      throw new RequestValidationError("The selected collection authority changed during activation.");
+    }
     const completed = await finalize.query(
       `UPDATE authorization_requests SET
          completed_at = now(),
@@ -376,8 +405,8 @@ export async function approvePortalAuthorization(
     const finalScope = planCollectionGrant({
       requestedOperations: grant!.operations,
       applicationOperationCeiling: grant!.operations,
+      requestedFileActions: grant!.file_capability?.actions,
       requirements,
-      availableContracts: activation.contracts,
       access: grantAccess!
     }).scope;
     await finalize.query(
@@ -445,14 +474,24 @@ export async function approvePortalAuthorization(
        WHERE id = $1`,
       [authorityRowId, JSON.stringify(activation.contracts)]
     );
+    // The transaction still owns the user, connector-generation and collection
+    // locks. Recheck in-memory liveness without another checkout or network I/O.
+    if (relay.authorizationAuthority(
+      connectorId, grant!.application_authorization.binding.contracts
+    ) !== authorityGeneration) {
+      throw new RequestValidationError("The connector session changed before publication.");
+    }
     await finalize.query("COMMIT");
   } catch (error) {
     await finalize.query("ROLLBACK");
+    // Compensation uses the pool; return the transaction's slot first.
+    finalize.release();
+    finalizeReleased = true;
     await abandonPendingAuthorizationGrant(db, input.requestId, grantId);
     await relay.pushPolicy(connectorId);
     throw error;
   } finally {
-    finalize.release();
+    if (!finalizeReleased) finalize.release();
   }
   await relay.pushPolicy(connectorId);
   await audit(db, input.userId, "authorization.approved", input.requestId, {
@@ -492,78 +531,6 @@ async function abandonPendingAuthorizationGrant(
   }
 }
 
-function verifyContractSetupAcknowledgement(
-  requested: ContractSetupChoice[],
-  acknowledged: ContractSetupChoice[] | undefined,
-  contracts: CollectionContractDescriptor[]
-): void {
-  if (requested.length === 0) return;
-  if (!acknowledged || !isDeepStrictEqual(acknowledged, requested)) {
-    throw new RequestValidationError(
-      "The collection authority did not acknowledge the exact contract setup that was approved."
-    );
-  }
-  for (const setup of requested) {
-    const contract = contracts.find((candidate) =>
-      candidate.id === setup.contract.id
-      && candidate.version === setup.contract.version
-    );
-    if (!contract) {
-      throw new RequestValidationError(
-        `Contract setup did not provide ${setup.contract.id} ${setup.contract.version}.`
-      );
-    }
-    if (setup.mode === "starter") continue;
-    const implementation = contract.implementations.find((candidate) =>
-      candidate.type_name === setup.type_name
-      && isDeepStrictEqual(candidate.fields, setup.fields)
-      && isDeepStrictEqual(candidate.binding, setup.binding)
-    );
-    if (!implementation) {
-      throw new RequestValidationError(
-        `Contract setup did not apply the approved mapping to type '${setup.type_name}'.`
-      );
-    }
-  }
-}
-
-function validateContractSetupChoices(
-  setups: ContractSetupChoice[],
-  required: ContractRequirement[],
-  available: CollectionContractDescriptor[]
-): void {
-  const keys = new Set(setups.map(
-    (setup) => `${setup.contract.id}@${setup.contract.version}#${setup.contract.digest}`
-  ));
-  if (
-    keys.size !== setups.length
-    || setups.some((setup) => !required.some((contract) =>
-      contract.id === setup.contract.id
-        && contract.version === setup.contract.version
-        && contract.digest === setup.contract.digest
-    ))
-  ) {
-    throw new RequestValidationError(
-      "Contract setup may configure each contract required by this application only once."
-    );
-  }
-  if (setups.length === 0) return;
-  const missing = required.filter((contract) => !available.some((candidate) =>
-    candidate.id === contract.id
-      && candidate.version === contract.version
-      && candidate.digest === contract.digest
-  ));
-  if (
-    keys.size !== missing.length
-    || missing.some((contract) =>
-      !keys.has(`${contract.id}@${contract.version}#${contract.digest}`))
-  ) {
-    throw new RequestValidationError(
-      "Choose starter or existing-type setup for each missing contract only."
-    );
-  }
-}
-
 export async function approveHostedAuthorization(
   db: DatabasePool,
   provider: HostedProviderClient,
@@ -572,18 +539,28 @@ export async function approveHostedAuthorization(
     userId: string;
     collectionId: string;
     operations: CollectionOperation[];
+    fileActions?: FileAction[];
     contracts: CollectionContractDescriptor[];
     contractSetups: ContractSetupChoice[];
     access: CollectionAccessContext;
   }
 ): Promise<boolean> {
   const connection = await db.connect();
-  let replicaId: string | null = null;
   let newReplicaId: string | null = null;
   let notificationGrantId: string | null = null;
+  let retainedReplicaUpdated = false;
+  let compensateRetainedReplica: (() => Promise<void>) | null = null;
   try {
     await connection.query("BEGIN");
+    const hostedCollection = await connection.query(
+      `SELECT id FROM hosted_collections
+       WHERE id = $1 AND quarantined_at IS NULL
+       FOR UPDATE`,
+      [input.collectionId]
+    );
+
     const authorization = await connection.query<{
+      application_declaration?: unknown;
       application_id: string;
       application_family_identity: string;
       application_manifest_digest: string;
@@ -609,6 +586,7 @@ export async function approveHostedAuthorization(
               a.name AS application_name,
               a.distribution, a.homepage AS application_homepage,
               ar.redirect_uri, ar.device_origin, ar.requested_operations,
+              a.application_declaration,
               a.requirements, a.provisions, a.notifications,
               ar.operation_transport_protocol, ar.application_agreement_public_key,
               ar.application_signing_public_key, ar.application_authorization, ar.flow,
@@ -625,15 +603,15 @@ export async function approveHostedAuthorization(
       await connection.query("ROLLBACK");
       return false;
     }
+    assertFreshApplicationAuthorization(pending.requirements);
     assertOperationsAllowedByApplication(
       pending.requested_operations,
       pending.requirements,
-      pending.notifications
+      pending.notifications,
+      pending.provisions
     );
-    await connection.query(
-      "SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE",
-      [input.collectionId]
-    );
+    const freshV2 = pending.requirements.capabilities?.contract_version === 2;
+    if (freshV2) await provider.assertFreshV2AuthorizationSupport();
     const currentAccess = requireCollectionAction(
       await resolveHostedCollectionAccess(
         connection,
@@ -642,7 +620,7 @@ export async function approveHostedAuthorization(
       ),
       "application.authorize"
     );
-    if (currentAccess.collection.authorityState !== "active") {
+    if (!hostedCollection.rows[0] || currentAccess.collection.authorityState !== "active") {
       throw new RequestValidationError(
         "This hosted collection is not available for application authorization."
       );
@@ -746,15 +724,12 @@ export async function approveHostedAuthorization(
       requestedOperations: input.operations,
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
+      requestedFileActions: input.fileActions,
       requirements: pending.requirements,
-      availableContracts: availableDescriptors,
       access: currentAccess
     });
     const scope = plan.scope;
-    const allowedTypes = allowedTypesForRequirements(
-      availableDescriptors,
-      pending.requirements
-    );
+    const allowedTypes: string[] = [];
     const operations = plan.operations;
     const applicationOrigin = pending.flow === "device_code"
       ? pending.device_origin ?? "null"
@@ -762,63 +737,82 @@ export async function approveHostedAuthorization(
           pending.redirect_uri!,
           pending.application_homepage
         );
-    const allowedOrigin = pending.flow === "device_code"
-      ? pending.device_origin ?? "null"
-      : ["http:", "https:"].includes(new URL(pending.redirect_uri!).protocol)
-        ? new URL(pending.redirect_uri!).origin
-        : undefined;
+    const allowedOrigin = applicationOrigin;
     const applicationInstallationId =
       pending.application_authorization.binding.application_installation_id;
     const membershipBinding = membershipBindingForAccess(currentAccess);
-    const existing = await connection.query<{
-      id: string;
-      hosted_replica_id: string;
-      application_installation_id: string | null;
-      membership_id: string | null;
-      membership_policy_id: string | null;
-      membership_policy_revision: number | null;
-    }>(
-      `SELECT id, hosted_replica_id, application_installation_id,
-              membership_id, membership_policy_id,
-              membership_policy_revision
-       FROM grants
-       WHERE user_id = $1 AND application_id = $2
-         AND hosted_collection_id = $3 AND revoked_at IS NULL
-         AND hosted_replica_id IS NOT NULL
-         AND (application_installation_id = $4 OR application_installation_id IS NULL)
-       ORDER BY (application_installation_id = $4) DESC, created_at ASC
-       FOR UPDATE`,
-      [
-        input.userId,
-        pending.application_id,
-        input.collectionId,
-        applicationInstallationId
-      ]
-    );
+    const existing = await retainedReplicaPolicy.loadCandidates(connection, {
+      userId: input.userId,
+      applicationId: pending.application_id,
+      collectionId: input.collectionId,
+      applicationInstallationId
+    });
     const retained = existing.rows.find((candidate) =>
       matchesMembershipBinding(candidate, membershipBinding)
+      && isCanonicalCollectionGrantScope(candidate.scope)
+      && candidate.allowed_types.length === 0
     );
     const grantId = retained?.id ?? randomUUID();
-    replicaId = retained?.hosted_replica_id ?? randomUUID();
+    const replicaId = retained?.hosted_replica_id ?? randomUUID();
 
-    for (const duplicate of existing.rows.filter((candidate) => candidate !== retained)) {
-      await provider.revokeReplica(duplicate.hosted_replica_id);
+    for (const obsolete of existing.rows.filter((candidate) =>
+      candidate.id !== retained?.id
+    )) {
       await connection.query(
-        "UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1",
-        [duplicate.hosted_replica_id]
+        `UPDATE hosted_replicas
+         SET revoked_at = COALESCE(revoked_at, now()), token_hash = NULL
+         WHERE id = $1`,
+        [obsolete.hosted_replica_id]
       );
       await connection.query(
-        "UPDATE grants SET revoked_at = now() WHERE id = $1",
-        [duplicate.id]
+        `UPDATE grants
+         SET revoked_at = COALESCE(revoked_at, now()),
+             reauthorization_required_at = COALESCE(reauthorization_required_at, now()),
+             reauthorization_reason = 'collection_level_authorization'
+         WHERE id = $1`,
+        [obsolete.id]
       );
+      await connection.query(
+        "UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+        [obsolete.id]
+      );
+      await connection.query(
+        "UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+        [obsolete.id]
+      );
+      const cleanup = await connection.query(
+        `SELECT id FROM provider_revocation_jobs
+         WHERE replica_id = $1 AND completed_at IS NULL`,
+        [obsolete.hosted_replica_id]
+      );
+      if (cleanup.rows[0]) {
+        await connection.query(
+          `UPDATE provider_revocation_jobs
+           SET grant_id = COALESCE(grant_id, $2)
+           WHERE id = $1`,
+          [cleanup.rows[0].id, obsolete.id]
+        );
+      } else {
+        await connection.query(
+          `INSERT INTO provider_revocation_jobs
+             (id, replica_id, grant_id, collection_id, reason)
+           VALUES ($1, $2, $3, $4, 'collection_level_authorization')`,
+          [
+            randomUUID(),
+            obsolete.hosted_replica_id,
+            obsolete.id,
+            input.collectionId
+          ]
+        );
+      }
     }
 
     const replicaPolicy = {
       grantId,
       mode: plan.replicaMode,
       allowedTypes,
-      contractScope: scope.access === "contract" ? scope.contracts : [],
-      fullCollection: scope.access === "full_collection",
+      contractScope: [],
+      fullCollection: true,
       allowedOperations: hostedReplicaCollectionOperations(operations),
       operationTransportProtocol:
         pending.application_authorization.binding.contracts.operation_transport,
@@ -831,9 +825,18 @@ export async function approveHostedAuthorization(
       applicationDeclarationId: declarationIdFromFamilyIdentity(
         pending.application_family_identity
       ),
-      applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`
+      applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`,
+      applicationDeclaration: pending.application_declaration,
+      applicationAuthorization: pending.application_authorization
     };
+    if (freshV2) await provider.assertFreshV2AuthorizationSupport();
     if (retained) {
+      compensateRetainedReplica = retainedReplicaPolicy.compensation(
+        provider,
+        replicaId,
+        retained
+      );
+      retainedReplicaUpdated = true;
       await provider.updateApplicationReplica(replicaId, replicaPolicy);
       await connection.query(
         `UPDATE hosted_replicas
@@ -954,16 +957,18 @@ export async function approveHostedAuthorization(
       source: "portal"
     });
     await syncHostedNotificationGrant(connection, provider, grantId);
+    if (freshV2) await provider.assertFreshV2AuthorizationSupport();
     await connection.query("COMMIT");
     return true;
   } catch (error) {
-    await connection.query("ROLLBACK");
+    await connection.query("ROLLBACK").catch(() => undefined);
     if (notificationGrantId) {
       await provider
         .revokeNotificationGrant(input.collectionId, notificationGrantId)
         .catch(() => undefined);
     }
     if (newReplicaId) await provider.revokeReplica(newReplicaId).catch(() => undefined);
+    if (retainedReplicaUpdated) await compensateRetainedReplica?.();
     throw error;
   } finally {
     connection.release();

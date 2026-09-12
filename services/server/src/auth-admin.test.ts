@@ -9,10 +9,11 @@ import {
   EmailDeliveryError,
   type EmailTransport
 } from "./email.js";
-import type {
-  HostedAccountLimits,
-  HostedAccountUsage,
-  HostedProviderClient
+import {
+  HostedProviderResponseError,
+  type HostedAccountLimits,
+  type HostedAccountUsage,
+  type HostedProviderClient
 } from "./hosted-provider.js";
 import { tokenHash } from "./security.js";
 
@@ -518,6 +519,7 @@ describe("authentication operator command", () => {
     const accountByUser = new Map(
       accounts.rows.map((row) => [row.user_id, row.provider_account_id])
     );
+    const missingCollectionId = "40000000-0000-4000-8000-000000000091";
     const calls: string[] = [];
     const usage = new Map<string, HostedAccountUsage>();
     let failOnce = true;
@@ -544,7 +546,14 @@ describe("authentication operator command", () => {
         usage.set(accountId, next);
         return next;
       },
-      async reconcileCollectionAccount(accountId: string) {
+      async reconcileCollectionAccount(accountId: string, collectionId: string) {
+        if (collectionId === missingCollectionId) {
+          throw new HostedProviderResponseError(
+            404,
+            "hosted_collection_not_found",
+            "Hosted collection not found."
+          );
+        }
         const current = usage.get(accountId);
         if (!current) throw new Error("Account was not reconciled.");
         usage.set(accountId, {
@@ -584,7 +593,7 @@ describe("authentication operator command", () => {
       scope: "active_hosted",
       reconciled_accounts: 2,
       hosted_collections: 3,
-      reconciled_collections: 3,
+      reconciled_collections: 2,
       users_inspected: 4
     });
     expect(JSON.stringify(result)).not.toContain(activeA);
@@ -608,6 +617,13 @@ describe("authentication operator command", () => {
       { user_id: activeA },
       { user_id: activeB }
     ]);
+    expect((await context.db.query(
+      `SELECT quarantine_reason FROM hosted_collections
+       WHERE id = $1 AND quarantined_at IS NOT NULL`,
+      [missingCollectionId]
+    )).rows).toEqual([{
+      quarantine_reason: "provider_collection_missing"
+    }]);
     await expect(runAuthAdminCommand([
       ...command.slice(0, -1),
       "Different request"

@@ -36,7 +36,10 @@ for (const name of ["img-src", "media-src", "frame-src", "worker-src", "connect-
 for (const required of [
   "https://accounts.google.com/gsi/client",
   "frame-src https://accounts.google.com/gsi/",
-  "https://accounts.google.com/gsi/style"
+  "https://accounts.google.com/gsi/style",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "https://challenges.cloudflare.com",
+  "frame-src https://accounts.google.com/gsi/ https://challenges.cloudflare.com"
 ]) {
   if (!policy.includes(required)) {
     throw new Error(`The Content-Security-Policy does not allow the account provider source: ${required}`);

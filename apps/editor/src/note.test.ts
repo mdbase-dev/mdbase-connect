@@ -4,8 +4,10 @@ import {
   editableNote,
   folderTree,
   folders,
+  noteHeadings,
   noteTags,
   noteTitle,
+  noteWordCount,
   persistedBody,
   propertyPatch,
   safeRenamePath,
@@ -165,3 +167,50 @@ function summary(path: string, frontmatter: Record<string, unknown>, noteTypes: 
     file: { path, name: path.split("/").at(-1)!, folder: "", size: 0, mtime: "", tags: fileTags }
   };
 }
+
+describe("noteHeadings", () => {
+  it("extracts headings with levels and 1-based line numbers", () => {
+    const body = "Intro\n\n## Second\n\n### Third level\nText\n# Top level\n";
+    expect(noteHeadings(body)).toEqual([
+      { level: 2, text: "Second", line: 3 },
+      { level: 3, text: "Third level", line: 5 },
+      { level: 1, text: "Top level", line: 7 }
+    ]);
+  });
+
+  it("ignores headings inside fenced code and trims closing hashes", () => {
+    const body = "```\n# not a heading\n~~~\n# also not\n```\n## Real #\n";
+    expect(noteHeadings(body)).toEqual([{ level: 2, text: "Real", line: 6 }]);
+  });
+
+  it("returns nothing for heading-less bodies", () => {
+    expect(noteHeadings("Just text.\nMore text.")).toEqual([]);
+  });
+});
+
+describe("noteWordCount", () => {
+  it("counts words while ignoring code, link URLs, and markdown marks", () => {
+    const body = [
+      "## Heading",
+      "",
+      "Two words here, and one hyphen-joined word.",
+      "",
+      "```",
+      "ignored code words",
+      "```",
+      "",
+      "A [link label](https://example.com/ignored) and `inline code`.",
+      "",
+      "- bullet word",
+      "> quote word"
+    ].join("\n");
+    // Heading(1) + Two words here and one hyphen-joined word(7) + A link label and(4)
+    // + inline code is skipped + bullet word(2) + quote word(2)
+    expect(noteWordCount(body)).toBe(16);
+  });
+
+  it("returns zero for empty or whitespace-only bodies", () => {
+    expect(noteWordCount("")).toBe(0);
+    expect(noteWordCount("  \n \n")).toBe(0);
+  });
+});

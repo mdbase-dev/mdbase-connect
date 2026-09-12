@@ -9,6 +9,9 @@ export interface ResolvedFileReference extends Omit<FileReference, "file"> {
   asset: FileAssetSnapshot;
 }
 
+const EMPTY_REFERENCES: Array<FileReference & { file: CollectionFile }> = [];
+const EMPTY_FILES: readonly CollectionFile[] = [];
+
 export function useFileAssetStore(gateway: CollectionGateway): FileAssetStore {
   const store = useMemo(() => new FileAssetStore(gateway), [gateway]);
   useEffect(() => () => store.reset(), [store]);
@@ -31,16 +34,16 @@ export function useEmbeddedFileAssets(
   sourcePath?: string,
   visibleKeys?: ReadonlySet<string>
 ): ResolvedFileReference[] {
-  useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
+  const version = useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
   const [parsed, setParsed] = useState<{
     source: string;
     files: readonly CollectionFile[];
     sourcePath?: string;
     references: Array<FileReference & { file: CollectionFile }>;
-  }>(() => ({ source: "", files: [], references: [] }));
+  }>(() => ({ source: "", files: EMPTY_FILES, references: EMPTY_REFERENCES }));
   const references = parsed.source === source && parsed.files === files && parsed.sourcePath === sourcePath
     ? parsed.references
-    : [];
+    : EMPTY_REFERENCES;
   useEffect(() => {
     let active = true;
     void import("./file-references").then(({ fileReferences }) => {
@@ -65,5 +68,5 @@ export function useEmbeddedFileAssets(
     // key captures file identity, revision, and viewport membership.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, store]);
-  return references.map((reference) => ({ ...reference, asset: store.get(reference.file) }));
+  return useMemo(() => references.map((reference) => ({ ...reference, asset: store.get(reference.file) })), [references, store, version]);
 }

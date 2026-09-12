@@ -3,11 +3,18 @@ use crate::sync_planner::{
     identify_objects, plan_reconciliation, FrozenConflict, InspectionBoundary, InspectionSummary,
     ObjectUniverse, ObservedObject,
 };
+use crate::sync_snapshot::stage_snapshot_collection;
 
 pub(super) struct Inspection {
     pub prior: Option<DurableMirrorState>,
     pub plan: MirrorSyncPlan,
     pub payloads: DurablePayloads,
+}
+
+struct LocalInspection {
+    observed: Vec<ObservedObject>,
+    documents: BTreeMap<String, String>,
+    issues: Vec<MirrorPlanIssue>,
 }
 
 struct FinishInspection<'a> {
@@ -53,7 +60,7 @@ impl DirectoryMirror {
     ) -> Result<Inspection, MirrorError> {
         let session = self.transport.open_session().await?;
         self.validate_session(&session)?;
-        let (_staging, collection) = self.stage_snapshot_collection(&session.resources)?;
+        let (_staging, collection) = stage_snapshot_collection(&session.resources)?;
         let mut physical_paths = session
             .resources
             .documents
@@ -306,7 +313,19 @@ impl DirectoryMirror {
             resources,
             collection,
         } = input;
-        let (local, documents) = self.inspect_local(prior.as_ref(), &resources, collection)?;
+        let LocalInspection {
+            observed: local,
+            documents,
+            issues: local_issues,
+        } = self.inspect_local(prior.as_ref(), &resources, collection)?;
+        if self.mode == SyncReplicaMode::ReadOnly
+            && kind == "incremental"
+            && local_issues
+                .iter()
+                .any(|issue| issue.code == "invalid_frontmatter")
+        {
+            return Box::pin(self.inspect_snapshot(prior, "rebuild")).await;
+        }
         validate_inspected_paths(
             remote_refs
                 .iter()
@@ -337,7 +356,7 @@ impl DirectoryMirror {
                 });
             }
         }
-        let mut issues = Vec::new();
+        let mut issues = local_issues;
         for object in &objects {
             if matches!(kind, "initial" | "rebuild")
                 && object.base == ExpectedObjectState::Absent
@@ -359,6 +378,12 @@ impl DirectoryMirror {
             if self.mode == SyncReplicaMode::ReadOnly
                 && object.entity != SyncObjectKind::Resource
                 && object.local != object.base
+                && !object.local.exact().is_some_and(|local| {
+                    issues.iter().any(|issue| {
+                        issue.code == "invalid_frontmatter"
+                            && issue.path.as_deref() == Some(local.path.as_str())
+                    })
+                })
             {
                 let path = object
                     .local
@@ -578,7 +603,7 @@ impl DirectoryMirror {
         state: Option<&DurableMirrorState>,
         resources: &[SyncResourceDocument],
         collection: Option<&mdbase::Collection>,
-    ) -> Result<(Vec<ObservedObject>, BTreeMap<String, String>), MirrorError> {
+    ) -> Result<LocalInspection, MirrorError> {
         let resource_paths = resources
             .iter()
             .map(|value| value.path.clone())
@@ -590,6 +615,7 @@ impl DirectoryMirror {
             .collect::<HashSet<_>>();
         let mut observed = Vec::new();
         let mut documents = BTreeMap::new();
+        let mut issues = Vec::new();
         let markdown = match collection {
             Some(collection) => self.list_markdown_with(&resource_paths, collection)?,
             None => self.list_markdown(&resource_paths)?,
@@ -601,10 +627,6 @@ impl DirectoryMirror {
             {
                 continue;
             }
-            let Some(document) = self.read_file(&path)? else {
-                continue;
-            };
-            let revision = format!("sha256:{}", digest(&document));
             let conflict_identity = state.and_then(|value| {
                 value
                     .planned_conflicts
@@ -638,6 +660,27 @@ impl DirectoryMirror {
                 .or(bound_identity)
                 .or(prior_identity)
                 .unwrap_or_default();
+            let read = self.record_reader.read(&safe_path(&self.root, &path)?);
+            let (document, revision) = match read {
+                Ok(LocalRecordRead::Parsed { document, revision }) => (document, revision),
+                Ok(LocalRecordRead::Invalid { reason, revision }) => {
+                    issues.push(local_record_issue("invalid_frontmatter", &path, reason));
+                    observed.push(ObservedObject {
+                        stable_identity: !identity.is_empty(),
+                        object: text_ref(SyncObjectKind::Record, identity, path.clone(), revision),
+                    });
+                    continue;
+                }
+                Ok(LocalRecordRead::Missing) | Err(_) => {
+                    issues.push(local_record_issue(
+                        "file_read_failed",
+                        &path,
+                        "The listed record could not be read.",
+                    ));
+                    observe_prior_record(state, &path, &mut observed);
+                    continue;
+                }
+            };
             observed.push(ObservedObject {
                 stable_identity: !identity.is_empty(),
                 object: text_ref(SyncObjectKind::Record, identity, path.clone(), revision),
@@ -737,7 +780,11 @@ impl DirectoryMirror {
                 });
             }
         }
-        Ok((observed, documents))
+        Ok(LocalInspection {
+            observed,
+            documents,
+            issues,
+        })
     }
 
     pub(super) fn validate_session(&self, session: &SyncSession) -> Result<(), MirrorError> {
@@ -777,89 +824,6 @@ impl DirectoryMirror {
             ));
         }
         Ok(())
-    }
-
-    fn stage_snapshot_collection(
-        &self,
-        resources: &SyncCollectionResources,
-    ) -> Result<(tempfile::TempDir, mdbase::Collection), MirrorError> {
-        let staging = tempfile::tempdir().map_err(|error| {
-            MirrorError::new(
-                "invalid_snapshot",
-                format!("Could not stage authority resources: {error}"),
-            )
-        })?;
-        for resource in &resources.documents {
-            validate_portable_mirror_path(&resource.path)
-                .map_err(|error| MirrorError::new("invalid_snapshot", error))?;
-            if format!("sha256:{}", digest(&resource.document)) != resource.revision {
-                return Err(MirrorError::new(
-                    "invalid_snapshot",
-                    format!(
-                        "Resource {} revision does not match its bytes.",
-                        resource.path
-                    ),
-                ));
-            }
-            atomic_write(
-                &safe_path(staging.path(), &resource.path)?,
-                resource.document.as_bytes(),
-            )?;
-        }
-        let collection = mdbase::Collection::open(staging.path()).map_err(|error| {
-            MirrorError::new(
-                "invalid_snapshot",
-                format!("Authority resources do not form a valid collection: {error}"),
-            )
-        })?;
-        let canonical = collection.snapshot().map_err(|error| {
-            MirrorError::new(
-                "invalid_snapshot",
-                format!("Authority resources could not be canonicalized: {error}"),
-            )
-        })?;
-        if canonical.spec_version != resources.spec_version
-            || canonical.resources.len() != resources.documents.len()
-        {
-            return Err(MirrorError::new(
-                "invalid_snapshot",
-                "Authority resources are not their declared canonical collection snapshot.",
-            ));
-        }
-        let declared = resources
-            .documents
-            .iter()
-            .map(|resource| (resource.path.as_str(), resource))
-            .collect::<BTreeMap<_, _>>();
-        for resource in canonical.resources {
-            let expected = declared.get(resource.path.as_str()).ok_or_else(|| {
-                MirrorError::new(
-                    "invalid_snapshot",
-                    format!("Authority resource {} is not canonical.", resource.path),
-                )
-            })?;
-            if expected.kind != resource_kind(resource.kind)
-                || expected.revision != resource.revision
-                || expected.document != resource.document
-            {
-                return Err(MirrorError::new(
-                    "invalid_snapshot",
-                    format!("Authority resource {} is not canonical.", resource.path),
-                ));
-            }
-        }
-        Ok((staging, collection))
-    }
-}
-
-fn resource_kind(kind: mdbase::runtime::CollectionSnapshotResourceKind) -> &'static str {
-    match kind {
-        mdbase::runtime::CollectionSnapshotResourceKind::Configuration => "configuration",
-        mdbase::runtime::CollectionSnapshotResourceKind::Lock => "lock",
-        mdbase::runtime::CollectionSnapshotResourceKind::Contract => "contract",
-        mdbase::runtime::CollectionSnapshotResourceKind::Schema => "schema",
-        mdbase::runtime::CollectionSnapshotResourceKind::Type => "type",
-        mdbase::runtime::CollectionSnapshotResourceKind::View => "view",
     }
 }
 
@@ -944,6 +908,36 @@ fn key(value: &SyncObjectRef) -> String {
         value.identity
     )
 }
+fn local_record_issue(code: &str, path: &str, message: &str) -> MirrorPlanIssue {
+    MirrorPlanIssue {
+        code: code.into(),
+        message: message.into(),
+        path: Some(path.into()),
+        blocking: true,
+    }
+}
+
+fn observe_prior_record(
+    state: Option<&DurableMirrorState>,
+    path: &str,
+    observed: &mut Vec<ObservedObject>,
+) {
+    let Some((identity, entry)) =
+        state.and_then(|state| state.records.iter().find(|(_, entry)| entry.path == path))
+    else {
+        return;
+    };
+    observed.push(ObservedObject {
+        stable_identity: true,
+        object: text_ref(
+            SyncObjectKind::Record,
+            identity.to_string(),
+            entry.path.clone(),
+            entry.revision.clone(),
+        ),
+    });
+}
+
 fn base_refs(state: &DurableMirrorState) -> Vec<SyncObjectRef> {
     state
         .records

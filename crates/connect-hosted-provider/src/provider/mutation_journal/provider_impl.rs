@@ -220,18 +220,12 @@ impl HostedProvider {
             };
         let credential_hash = token_hash(token);
         let replica_id: Option<Uuid> = sqlx::query_scalar(
-            r#"SELECT replica.id
-               FROM hosted_provider_replicas replica
+            r#"SELECT retired.replica_id
+               FROM hosted_provider_retired_replay_credentials retired
+               JOIN hosted_provider_replicas replica ON replica.id = retired.replica_id
                WHERE replica.collection_id = $1 AND replica.purpose = 'application'
-                 AND (
-                   replica.token_hash = $2
-                   OR EXISTS (
-                     SELECT 1 FROM hosted_provider_retired_replay_credentials retired
-                     WHERE retired.replica_id = replica.id
-                       AND retired.token_hash = $2 AND retired.expires_at > now()
-                   )
-                 )
-               ORDER BY (replica.token_hash = $2) DESC
+                 AND retired.token_hash = $2 AND retired.expires_at > now()
+               ORDER BY retired.retired_at DESC
                LIMIT 1"#,
         )
         .bind(collection_id)
@@ -321,21 +315,24 @@ impl HostedProvider {
         request_id: Uuid,
         input: &Value,
     ) -> ApiResult<HostedMutationClaim> {
-        let operation_kind = mdbase_connect_protocol::mutation_operation_identifier(
-            operation, input,
-        )
-        .ok_or_else(|| {
-            ApiError::bad_request("invalid_request", "Operation is not a canonical mutation.")
-        })?;
-        let input_schema_version = mdbase_connect_protocol::operation_input_schema_version(
-            operation, input,
-        )
-        .ok_or_else(|| {
-            ApiError::bad_request(
-                "invalid_request",
-                "Mutation input schema version is unavailable.",
-            )
-        })?;
+        let operation_kind =
+            mdbase_connect_protocol::mutation_operation_identifier(operation, input)
+                .ok_or_else(|| {
+                    ApiError::bad_request(
+                        "invalid_request",
+                        "Operation is not a canonical mutation.",
+                    )
+                })?
+                .to_string();
+        let input_schema_version =
+            mdbase_connect_protocol::operation_input_schema_version(operation, input).ok_or_else(
+                || {
+                    ApiError::bad_request(
+                        "invalid_request",
+                        "Mutation input schema version is unavailable.",
+                    )
+                },
+            )?;
         let input_digest = mdbase_connect_protocol::mutation_fingerprint_bytes(operation, input)
             .map_err(|error| ApiError::bad_request("invalid_request", error.to_string()))?
             .to_vec();

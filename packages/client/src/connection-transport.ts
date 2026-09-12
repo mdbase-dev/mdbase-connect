@@ -892,10 +892,10 @@ export class ConnectionTransport {
       stored: this.storage.getItem(this.internals.tokenKey(this.collectionId)),
       collectionId: this.collectionId,
       relayEncryption: this.internals.relayEncryption,
-      invalidate: (keyHandle) => this.internals.removeToken(
+      invalidate: (keyHandle, reason = "invalid_stored_grant") => this.internals.removeToken(
         this.collectionId,
         keyHandle,
-        "invalid_stored_grant"
+        reason
       ),
       directCapable: (token) => this.directCapable(token)
     });

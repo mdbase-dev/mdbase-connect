@@ -6,7 +6,7 @@ import type {
   SyncMutation,
   SyncRecord
 } from "@mdbase-dev/connect-protocol";
-import { SyncError } from "./sync-error.js";
+import { invalidMirrorState, SyncError } from "./sync-error.js";
 import {
   normalizeSelectiveSyncPolicy,
   validateCollectionFileDescriptor
@@ -33,9 +33,19 @@ export interface MirrorFileEntry {
 
 export interface MirrorLocalIssue {
   path: string;
-  code: "invalid_frontmatter";
+  code: "invalid_frontmatter" | "file_read_failed";
   message: string;
 }
+
+export interface MirrorInvalidTextRead {
+  kind: "invalid";
+  code: "invalid_utf8";
+  reason: string;
+  /** SHA-256 over the exact undecodable bytes observed by the adapter. */
+  revision: `sha256:${string}`;
+}
+
+export type MirrorTextReadResult = string | null | MirrorInvalidTextRead;
 
 export interface DurableSyncReceipt {
   action_id: string;
@@ -66,7 +76,7 @@ export interface DurableSyncBatch {
   receipts: DurableSyncReceipt[];
   payloads: DurableSyncPayloads;
   checkpoint_before: { generation: number; cursor: number | null };
-  checkpoint_after: { generation: number; cursor: number };
+  checkpoint_after: { generation: number; cursor: number | null };
   failure?: SyncFailure;
 }
 
@@ -138,6 +148,8 @@ export interface MirrorFileSystem {
   /** True when any filesystem entry occupies this exact portable path. */
   exists(path: string): Promise<boolean>;
   read(path: string): Promise<string | null>;
+  /** Classified byte-aware read; expected I/O failures reject as `SyncError("file_read_failed")`. */
+  readText(path: string): Promise<MirrorTextReadResult>;
   write(path: string, value: string): Promise<void>;
   /** Atomically rename one managed path without changing its bytes. */
   move(source: string, target: string): Promise<void>;
@@ -330,10 +342,7 @@ export function normalizeMirrorState(
   physicalPaths.sort();
   for (let index = 1; index < physicalPaths.length; index += 1) {
     if (physicalPaths[index - 1] === physicalPaths[index]) {
-      throw new SyncError(
-        "invalid_mirror_state",
-        "Mirror metadata contains paths that alias on a supported filesystem."
-      );
+      throw invalidMirrorState("Mirror metadata contains paths that alias on a supported filesystem.");
     }
   }
   for (const [identity, conflict] of Object.entries(state.planned_conflicts)) {

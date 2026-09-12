@@ -31,6 +31,21 @@ pub(super) async fn verify_database_key(
         .map_err(DatabaseKeyError::Invalid)
 }
 
+pub(super) async fn verify_stored_database_key_for_startup(
+    pool: &PgPool,
+    crypto: &ProviderCrypto,
+) -> Result<(), DatabaseKeyError> {
+    let key_check: Vec<u8> =
+        sqlx::query_scalar("SELECT key_check FROM hosted_provider_metadata WHERE singleton = true")
+            .fetch_one(pool)
+            .await
+            .map_err(DatabaseKeyError::Database)?;
+    crypto
+        .verify_key_check(&key_check)
+        .await
+        .map_err(DatabaseKeyError::Invalid)
+}
+
 pub(super) async fn verify_stored_database_key(
     pool: &PgPool,
     crypto: &ProviderCrypto,
@@ -66,7 +81,9 @@ pub(super) async fn authenticate_mutation_in(
     .bind(replica_purpose(purpose))
     .fetch_optional(&mut **transaction)
     .await?;
-    replica_from_row(row)
+    let replica = replica_from_row(row)?;
+    ensure_canonical_application_replica(&replica)?;
+    Ok(replica)
 }
 
 /// Recheck a previously authenticated full-collection writer while holding a
@@ -86,6 +103,8 @@ pub(super) async fn reauthorize_full_collection_mutation_in(
              WHERE collection_id = $1 AND id = $2 AND purpose = 'application'
                AND revoked_at IS NULL AND token_expires_at > now()
                AND mode = 'read_write' AND full_collection = true
+               AND cardinality(allowed_types) = 0
+               AND contract_scope = '[]'::jsonb
                AND scope_epoch = $3 AND $4 = ANY(allowed_operations)
              FOR SHARE
            )"#,

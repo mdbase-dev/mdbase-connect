@@ -24,6 +24,10 @@ export interface HostedReplicaRevoker {
   abortAuthorityImport?(transferId: string): Promise<void>;
 }
 
+export interface ConnectorSessionFencer {
+  fenceUser(userId: string): Promise<void>;
+}
+
 export interface OperatorMutation {
   actor: string;
   reason: string;
@@ -100,7 +104,8 @@ export class InstanceAdminConflictError extends Error {
 export class InstanceAdminService {
   constructor(
     private readonly db: DatabasePool,
-    private readonly hostedReplicaRevoker?: HostedReplicaRevoker
+    private readonly hostedReplicaRevoker?: HostedReplicaRevoker,
+    private readonly connectorSessionFencer?: ConnectorSessionFencer
   ) {}
 
   async listUsers(input: UserPageInput = {}) {
@@ -175,7 +180,7 @@ export class InstanceAdminService {
   }
 
   async suspendUser(reference: string, mutation: OperatorMutation) {
-    return this.withUserMutation(
+    const result = await this.withUserMutation(
       "user.suspend",
       reference,
       mutation,
@@ -204,6 +209,17 @@ export class InstanceAdminService {
         };
       }
     );
+    if (!this.connectorSessionFencer) {
+      return { ...result, fence: "committed_with_degraded_fence" as const };
+    }
+    try {
+      await this.connectorSessionFencer.fenceUser(result.user_id);
+      return { ...result, fence: "closed" as const };
+    } catch {
+      // Suspension and generation revocation committed first. Never describe a
+      // failed broker acceleration as a rollback of that durable server fence.
+      return { ...result, fence: "committed_with_degraded_fence" as const };
+    }
   }
 
   async restoreUser(reference: string, mutation: OperatorMutation) {
@@ -544,7 +560,8 @@ export class InstanceAdminService {
       [userId]
     );
     const connectors = await connection.query(
-      `UPDATE connectors SET revoked_at = COALESCE(revoked_at, now())
+      `UPDATE connectors SET revoked_at = COALESCE(revoked_at, now()),
+         relay_generation = relay_generation + 1
        WHERE user_id = $1 AND revoked_at IS NULL`,
       [userId]
     );

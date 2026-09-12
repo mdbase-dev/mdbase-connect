@@ -22,19 +22,54 @@ export function useCollectionWatch(input: {
   refreshAfterConnectionGap(): Promise<void>;
   setConnectionState: Dispatch<SetStateAction<ConnectionState>>;
   setConnectionIssue: Dispatch<SetStateAction<string | undefined>>;
-  setNotice: Dispatch<SetStateAction<string | undefined>>;
+  setNotice: (message?: string, tone?: "info" | "success" | "error") => void
 }) {
   useEffect(() => {
     if (input.phase !== "ready") return;
     const controller = new AbortController();
     let refreshTimer: number | undefined;
-    let resetHandled = false;
     const changedPaths = new Set<string>();
     const structuralChanges: CollectionChange[] = [];
     let filesChanged = false;
     let typesChanged = false;
     let indexChanged = false;
+    // One worker for the effect lifetime, not one limiter per debounce batch.
+    // Remove a path before reading so changes during that read enqueue a follow-up.
+    const pendingReads = new Map<string, boolean>();
+    let draining = false;
+    const drainReads = async () => {
+      if (draining || controller.signal.aborted) return;
+      draining = true;
+      try {
+        while (!controller.signal.aborted && pendingReads.size) {
+          const [path, confirmDeletion] = pendingReads.entries().next().value!;
+          pendingReads.delete(path);
+          try {
+            await input.refreshChangedNote(path);
+          } catch (error) {
+            if (controller.signal.aborted) return;
+            if (confirmDeletion) {
+              try {
+                await input.loadIndex();
+              } catch (error) {
+                if (!controller.signal.aborted) input.setConnectionIssue(gatewayError(error));
+              }
+            } else input.setNotice(gatewayError(error));
+          }
+        }
+      } finally {
+        draining = false;
+      }
+    };
+    const stop = () => {
+      controller.abort();
+      window.clearTimeout(refreshTimer);
+      changedPaths.clear();
+      structuralChanges.length = 0;
+      pendingReads.clear();
+    };
     const handleChange = (change?: CollectionChange) => {
+      if (controller.signal.aborted) return;
       if (change && isFileChange(change)) {
         filesChanged = true;
         reconcileFileChange(change, input.files, input.assets);
@@ -47,6 +82,7 @@ export function useCollectionWatch(input: {
 
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
+        if (controller.signal.aborted) return;
         const paths = [...changedPaths];
         changedPaths.clear();
         const shouldRefreshTypes = typesChanged;
@@ -61,14 +97,9 @@ export function useCollectionWatch(input: {
         if (shouldRefreshIndex) void input.loadIndex().catch((error) => {
           if (!controller.signal.aborted) input.setConnectionIssue(gatewayError(error));
         });
-        else for (const path of structural.deletedPathsToConfirm) {
-          void input.refreshChangedNote(path).catch(() => input.loadIndex().catch((error) => {
-            if (!controller.signal.aborted) input.setConnectionIssue(gatewayError(error));
-          }));
-        }
-        for (const path of paths) void input.refreshChangedNote(path).catch((error) => {
-          if (!controller.signal.aborted) input.setNotice(gatewayError(error));
-        });
+        else for (const path of structural.deletedPathsToConfirm) pendingReads.set(path, true);
+        for (const path of paths) pendingReads.set(path, pendingReads.get(path) ?? false);
+        void drainReads();
         if (shouldRefreshTypes) void input.refreshDescription();
         if (shouldRefreshFiles) void input.files.reload().catch(() => undefined);
       }, 180);
@@ -82,18 +113,15 @@ export function useCollectionWatch(input: {
         input.setConnectionState("connected");
         input.setConnectionIssue(undefined);
       } else if (status.state === "reset_required") {
-        resetHandled = true;
+        stop();
         void input.refreshAfterConnectionGap();
       }
     }).catch((error) => {
-      if (!controller.signal.aborted && !resetHandled) {
+      if (!controller.signal.aborted) {
         input.setConnectionState("reconnecting");
         input.setConnectionIssue(gatewayError(error));
       }
     });
-    return () => {
-      controller.abort();
-      window.clearTimeout(refreshTimer);
-    };
+    return stop;
   }, [input.assets, input.connectionRetry, input.files, input.gateway, input.index, input.loadIndex, input.phase, input.refreshAfterConnectionGap, input.refreshChangedNote, input.refreshDescription, input.setConnectionIssue, input.setConnectionState, input.setNotice]);
 }

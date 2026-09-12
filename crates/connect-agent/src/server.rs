@@ -15,10 +15,10 @@ use mdbase_connect_protocol::crypto::{
 };
 use mdbase_connect_protocol::{
     mutation_fingerprint, mutation_operation_identifier, operation_input_schema_version,
-    AgentConnectionState, AgentStatus, ApplicationAccess, AuthorityTarget,
-    AuthorizationCollectionOffer, AuthorizationCollectionTypes, ConnectOperationOutcome,
-    ConnectProblem, ContractSetupChoice, ControlCommand, ControlError, ControlRequest,
-    ControlResponse, RelayMessage, SyncReplicaMode, CONTROL_PROTOCOL_VERSION,
+    validate_operation_discriminators, AgentConnectionState, AgentStatus, ApplicationAccess,
+    AuthorityTarget, AuthorizationCollectionOffer, AuthorizationCollectionTypes,
+    ConnectOperationOutcome, ConnectProblem, ContractSetupChoice, ControlCommand, ControlError,
+    ControlRequest, ControlResponse, RelayMessage, SyncReplicaMode, CONTROL_PROTOCOL_VERSION,
     LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use std::io;
@@ -87,6 +87,11 @@ pub struct AgentState {
     state_dir: std::sync::RwLock<Option<std::path::PathBuf>>,
     account_configuration_lock: std::sync::Mutex<()>,
     admission: crate::admission::AdmissionScheduler,
+    policy_revision_gate: policy::PolicyRevisionGate,
+    publication_gate: Arc<policy::PublicationGate>,
+    policy_update_generation: std::sync::atomic::AtomicU64,
+    remote_operations:
+        std::sync::Mutex<std::collections::HashMap<uuid::Uuid, mdbase::OperationCancellation>>,
 }
 
 mod account;
@@ -97,6 +102,7 @@ mod files;
 mod metrics;
 mod operation_responses;
 mod operations;
+pub(crate) mod policy;
 mod runtime_mutations;
 mod scoped_operations;
 mod setup_binding;
@@ -123,6 +129,7 @@ impl AgentState {
         cloud: Option<CloudControlClient>,
         relay_identity: RelayIdentity,
     ) -> Self {
+        let policy_revision_gate = policy::PolicyRevisionGate::new(&registry);
         Self {
             registry,
             watcher,
@@ -139,6 +146,10 @@ impl AgentState {
             state_dir: std::sync::RwLock::new(None),
             account_configuration_lock: std::sync::Mutex::new(()),
             admission: crate::admission::AdmissionScheduler::default(),
+            policy_revision_gate,
+            publication_gate: Arc::new(policy::PublicationGate::default()),
+            policy_update_generation: std::sync::atomic::AtomicU64::new(0),
+            remote_operations: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -158,6 +169,62 @@ impl AgentState {
 
     pub fn relay_public_key(&self) -> String {
         self.relay_identity.public_key()
+    }
+
+    pub(crate) fn next_policy_update_generation(&self) -> Result<u64, ConnectError> {
+        self.policy_update_generation
+            .fetch_update(
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+                |current| current.checked_add(1),
+            )
+            .map(|previous| previous + 1)
+            .map_err(|_| {
+                ConnectError::InvalidInput(
+                    "The local policy update generation is exhausted.".to_string(),
+                )
+            })
+    }
+
+    pub(crate) fn remote_policy_execution_deadline(
+        &self,
+        client_deadline_unix_ms: Option<u64>,
+    ) -> tokio::time::Instant {
+        // This is created before any policy-generation wait. Lease expiry is
+        // enforced by exact-revision admission and publication rechecks rather
+        // than by deriving a second deadline from whichever snapshot happened
+        // to be installed when the frame entered the transport.
+        tokio::time::Instant::now() + crate::admission::execution_timeout(client_deadline_unix_ms)
+    }
+
+    pub(crate) fn register_remote_operation(
+        &self,
+        cancellation: &mdbase::OperationCancellation,
+    ) -> uuid::Uuid {
+        let id = uuid::Uuid::new_v4();
+        self.remote_operations
+            .lock()
+            .expect("remote operation lock poisoned")
+            .insert(id, cancellation.clone());
+        id
+    }
+
+    pub(crate) fn unregister_remote_operation(&self, id: uuid::Uuid) {
+        self.remote_operations
+            .lock()
+            .expect("remote operation lock poisoned")
+            .remove(&id);
+    }
+
+    fn cancel_remote_operations(&self) {
+        for cancellation in self
+            .remote_operations
+            .lock()
+            .expect("remote operation lock poisoned")
+            .values()
+        {
+            cancellation.cancel();
+        }
     }
 
     pub fn mark_initialized(&self) {
@@ -243,10 +310,10 @@ impl AgentState {
             .expect("connection state lock poisoned") = state;
     }
 
-    pub fn collections(
+    pub fn collection_inventory(
         &self,
     ) -> Result<Vec<mdbase_connect_protocol::CollectionSummary>, ConnectError> {
-        self.registry.list()
+        self.registry.inventory()
     }
 
     pub fn next_inventory_revision(&self) -> Result<u64, ConnectError> {
@@ -254,11 +321,13 @@ impl AgentState {
     }
 
     pub fn origin_allowed(&self, origin: &str) -> bool {
-        !origin.is_empty()
+        self.policy_authority_ready()
+            && !origin.is_empty()
             && (self.registry.list_grants().is_ok_and(|grants| {
-                grants
-                    .iter()
-                    .any(|grant| grant.application_origin == origin && grant.encryption.is_some())
+                grants.iter().any(|grant| {
+                    grant.application_origin.as_deref() == Some(origin)
+                        && grant.encryption.is_some()
+                })
             }) || self.registry.replay_origin_allowed(origin).unwrap_or(false))
     }
 
