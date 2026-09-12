@@ -1,7 +1,7 @@
 {
   "name": "@mdbase/connect-desktop",
   "productName": "mdbase connect",
-  "version": "0.1.0-beta.97",
+  "version": "0.1.0-beta.98",
   "description": "Connect applications to authorized mdbase collections.",
   "author": "mdbase",
   "private": true,

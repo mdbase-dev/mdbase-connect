@@ -55,9 +55,9 @@ components.
 `.github/previous-release.env` identifies the immediate published predecessor.
 Update its annotated tag, full commit and immutable server/provider digests as
 part of release preparation; ordinary upgrade qualification still requires it to
-be the unique newest non-draft GitHub release. Beta97 preparation advances this
-pin to beta96 (`56ed32ffde055d2ab2b22ff95722df8ef06bdb1d`), using the signed image
-bundle from publication34316504048 / qualification34315442229, both attempt1.
+be the unique newest non-draft GitHub release. Beta98 preparation advances this
+pin to beta97 (`b34ba70fd0a13d13b42d5de20f29dd04d5582272`), using the signed image
+bundle from publication 34652476276 / qualification 34652450033, both attempt 1.
 
 The exact-beta95 semantic-v2 provider and pending-server regression lanes remain
 required. Their separate `.github/retained-v2-predecessor.env` cannot advance with
@@ -65,7 +65,7 @@ the ordinary pin: the verifiers require the original beta95 tag, commit and both
 image digests, a published non-draft release and its matching annotated origin
 tag. Beta94's historical prelude lane is unchanged. No job, scenario, deadline,
 image/source check or signed-publication gate is removed. These historical
-regressions do not establish beta97's immediate-predecessor rollback relationship
+regressions do not establish beta98's immediate-predecessor rollback relationship
 or change private production recovery authority; those need their own evidence.
 
 ## Local LAB experiments
