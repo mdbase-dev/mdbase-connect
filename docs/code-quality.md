@@ -124,6 +124,17 @@ does not relax file-size or cycle checks. Route tests and real PostgreSQL replay
 cross-provider email-race, same-subject concurrency and rollback tests cover the
 new persisted boundary.
 
+Authority-transfer recovery (#345) adds ten conservative Rust visibility
+references for the durable transfer summary, exact-ID cancellation command,
+and their two internal accessors. The local control protocol advances to v5.
+One TypeScript export, `finishAuthorityImportAbort`, replaces duplicated
+cancellation/expiry cleanup and atomically retains a connector-scoped abort
+receipt before cascading deletion. A reproduced first-import lost-response
+failure justifies this new persisted boundary; restart, refusal, replay,
+migration, desktop and PostgreSQL transaction/race tests cover it. Reviewed
+limits become 3,173 Rust visibility references and 2,445 TypeScript exports;
+file-count, file-size, dependency-cycle and package budgets are unchanged.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;

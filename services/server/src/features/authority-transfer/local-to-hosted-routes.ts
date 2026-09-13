@@ -23,6 +23,7 @@ import {
 } from "../../platform/request-authentication.js";
 import {
   authorityImportTransferView,
+  finishAuthorityImportAbort,
   recoverExpiredAuthorityTransfers,
   type AuthorityImportTransferRow
 } from "./lifecycle.js";
@@ -402,6 +403,12 @@ export function registerLocalToHostedTransferRoutes(
       const { transferId } = z.object({
         transferId: z.uuid()
       }).parse(request.params);
+      const receipt = await options.db.query(
+        `SELECT transfer_id FROM authority_import_abort_receipts
+         WHERE transfer_id = $1 AND connector_id = $2`,
+        [transferId, connector.id]
+      );
+      if (receipt.rows.length > 0) return { ok: true };
       const transfer = await findConnectorImportTransfer(
         options.db,
         connector,
@@ -419,13 +426,9 @@ export function registerLocalToHostedTransferRoutes(
           "Completed authority transfer cannot be cancelled."
         ));
       }
-      if (transfer.state === "cancelled") {
-        // A connector may have lost the first successful response or crashed
-        // before reopening its durable local fence. Preserve cancellation as
-        // an idempotent recovery confirmation for that exact transfer.
-        return { ok: true };
-      }
-      if (!["requested", "prepared"].includes(transfer.state)) {
+      // A retained terminal row written by a pre-receipt server can be
+      // reconfirmed with the provider; a missing row is never proof of safety.
+      if (!["requested", "prepared", "expired", "cancelled"].includes(transfer.state)) {
         return reply.code(409).send(apiError(
           "authority_transfer_activation_started",
           "Authority activation has started and can no longer be cancelled."
@@ -444,12 +447,7 @@ export function registerLocalToHostedTransferRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
-        const cancelled = await connection.query(
-          `UPDATE authority_transfers SET state = 'cancelled'
-           WHERE id = $1 AND state IN ('requested', 'prepared')`,
-          [transferId]
-        );
-        if (cancelled.rowCount !== 1) {
+        if (!await finishAuthorityImportAbort(connection, transfer, "cancelled")) {
           throw new RequestValidationError(
             "Authority transfer changed state while cancellation was committed."
           );
@@ -463,22 +461,6 @@ export function registerLocalToHostedTransferRoutes(
             collection_id: transfer.hosted_collection_id,
             direction: "to_hosted"
           }
-        );
-        await connection.query(
-          `UPDATE hosted_collections
-           SET authority_state = 'transferred', authority_epoch = $2
-           WHERE id = $1 AND authority_state = 'importing'
-             AND transferred_collection_id IS NOT NULL`,
-          [
-            transfer.hosted_collection_id,
-            Number(transfer.next_authority_epoch) - 1
-          ]
-        );
-        await connection.query(
-          `DELETE FROM hosted_collections
-           WHERE id = $1 AND authority_state = 'importing'
-             AND transferred_collection_id IS NULL`,
-          [transfer.hosted_collection_id]
         );
         await connection.query("COMMIT");
       } catch (error) {
