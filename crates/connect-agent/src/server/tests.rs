@@ -24,6 +24,90 @@ async fn access_snapshot_response(
 }
 
 #[tokio::test]
+async fn authority_transfer_cancellation_reopens_only_after_remote_confirmation() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let handler_calls = calls.clone();
+    let app = axum::Router::new().route(
+        "/v1/connectors/authority-transfers/{transfer_id}",
+        axum::routing::delete(move || {
+            let handler_calls = handler_calls.clone();
+            async move {
+                if handler_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    (
+                        axum::http::StatusCode::CONFLICT,
+                        axum::Json(serde_json::json!({
+                            "error": {
+                                "code": "authority_transfer_outcome_uncertain",
+                                "message": "Activation may already have committed."
+                            }
+                        })),
+                    )
+                } else {
+                    (
+                        axum::http::StatusCode::OK,
+                        axum::Json(serde_json::json!({ "status": "cancelled" })),
+                    )
+                }
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let test_root = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(test_root.path().join("state")).unwrap();
+    let collection = registry
+        .create(test_root.path().join("collection"), Some("Recovery"), "UTC")
+        .unwrap();
+    let transfer_id = Uuid::new_v4();
+    registry
+        .fence_authority(collection.id, transfer_id)
+        .unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    let state = Arc::new(AgentState::new(
+        registry.clone(),
+        watcher,
+        Some(CloudControlClient::new(
+            format!("http://{address}"),
+            "connector-token".to_string(),
+        )),
+    ));
+    let command = || {
+        ControlRequest::new(ControlCommand::CollectionCancelAuthorityTransfer(
+            mdbase_connect_protocol::CollectionAuthorityTransferRecoveryParams {
+                collection_id: collection.id,
+                transfer_id,
+            },
+        ))
+    };
+
+    let refused = state.execute(command()).await;
+    assert!(!refused.ok);
+    assert_eq!(
+        registry
+            .get(collection.id)
+            .unwrap()
+            .authority_transfer
+            .unwrap()
+            .transfer_id,
+        transfer_id
+    );
+
+    let confirmed = state.execute(command()).await;
+    assert!(confirmed.ok, "{:?}", confirmed.error);
+    assert!(registry
+        .get(collection.id)
+        .unwrap()
+        .authority_transfer
+        .is_none());
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    server.abort();
+}
+
+#[tokio::test]
 async fn access_snapshot_falls_back_only_when_the_control_plane_is_unavailable() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

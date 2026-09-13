@@ -890,8 +890,62 @@ async function auditDesktopRoutes() {
     }
     await auditPage(page, `desktop ${route[0].toLowerCase()}`);
   }
+  await auditDesktopTransferRecovery(page);
   assert.deepEqual(errors, []);
   await page.close();
+}
+
+async function auditDesktopTransferRecovery(page) {
+  await page.evaluate(() => {
+    const collection = {
+      id: "55555555-5555-4555-8555-555555555555",
+      display_name: "[test] transfer recovery",
+      path: "/test/Tasks",
+      spec_version: "0.3.0",
+      enabled: true,
+      contracts: [],
+      authority_transfer: {
+        transfer_id: "66666666-6666-4666-8666-666666666666",
+        state: "fenced"
+      }
+    };
+    let cancellationAttempts = 0;
+    window.mdbaseConnect.listCollections = async () => [collection];
+    window.mdbaseConnect.transferCollectionAuthority = async (id) => {
+      if (id !== collection.id) throw new Error("Wrong recovery collection");
+      throw new Error("[test] Move still needs recovery");
+    };
+    window.mdbaseConnect.cancelCollectionAuthorityTransfer = async (id, transferId) => {
+      if (id !== collection.id || transferId !== collection.authority_transfer.transfer_id) {
+        throw new Error("Wrong recovery identity");
+      }
+      if (++cancellationAttempts === 1) throw new Error("[test] Cancellation not confirmed");
+      delete collection.authority_transfer;
+      return { status: "cancelled", collection_id: id, transfer_id: transferId };
+    };
+  });
+  await page.getByRole("button", { name: /^Collections\b/ }).click();
+  await page.getByText("Main-copy move needs attention", { exact: true }).waitFor();
+  const row = page.locator("article.collection-card").filter({ hasText: "[test] transfer recovery" });
+  await row.getByRole("button", { name: "Details", exact: true }).click();
+  const disable = row.getByRole("button", { name: "Disable", exact: true });
+  const remove = row.getByRole("button", { name: "Remove from mdbase connect", exact: true });
+  assert.equal(await disable.isDisabled(), true);
+  assert.equal(await remove.isDisabled(), true);
+  await auditPage(page, "desktop transfer recovery", { keyboard: true });
+  await row.getByRole("button", { name: "Resume move", exact: true }).click();
+  await page.getByText("[test] Move still needs recovery", { exact: true }).waitFor();
+  assert.equal(await remove.isDisabled(), true);
+  page.once("dialog", (dialog) => dialog.accept());
+  await row.getByRole("button", { name: "Cancel move safely", exact: true }).click();
+  await page.getByText("[test] Cancellation not confirmed", { exact: true }).waitFor();
+  assert.equal(await disable.isDisabled(), true);
+  assert.equal(await remove.isDisabled(), true);
+  page.once("dialog", (dialog) => dialog.accept());
+  await row.getByRole("button", { name: "Cancel move safely", exact: true }).click();
+  await page.getByText("Main-copy move needs attention", { exact: true }).waitFor({ state: "hidden" });
+  assert.equal(await disable.isEnabled(), true);
+  assert.equal(await remove.isEnabled(), true);
 }
 
 function portalAuthorizationFixture(id) {

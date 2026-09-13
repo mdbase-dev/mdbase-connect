@@ -149,6 +149,45 @@ export async function mirrorAuthorityTransfer(
   return access?.actions.has("authority.transfer") ? transfer : null;
 }
 
+// Caller owns the transaction and must have confirmed provider abortion first.
+// Save the acknowledgement before collection deletion cascades away the transfer.
+export async function finishAuthorityImportAbort(
+  db: DatabaseQueryable,
+  transfer: Pick<AuthorityTransferRow, "id" | "hosted_collection_id" | "next_authority_epoch">,
+  state: "cancelled" | "expired"
+): Promise<boolean> {
+  const changed = await db.query(
+    `UPDATE authority_transfers SET state = $2
+     WHERE id = $1 AND direction = 'to_hosted'
+       AND state IN ('requested', 'prepared', 'expired', 'cancelled')`,
+    [transfer.id, state]
+  );
+  if (changed.rowCount !== 1) return false;
+  await db.query(
+    `INSERT INTO authority_import_abort_receipts (transfer_id, connector_id)
+     SELECT transfer.id, source.connector_id
+     FROM authority_transfers transfer
+     JOIN collections source ON source.id = transfer.local_collection_id
+     WHERE transfer.id = $1
+     ON CONFLICT (transfer_id) DO NOTHING`,
+    [transfer.id]
+  );
+  await db.query(
+    `UPDATE hosted_collections
+     SET authority_state = 'transferred', authority_epoch = $2
+     WHERE id = $1 AND authority_state = 'importing'
+       AND transferred_collection_id IS NOT NULL`,
+    [transfer.hosted_collection_id, Number(transfer.next_authority_epoch) - 1]
+  );
+  await db.query(
+    `DELETE FROM hosted_collections
+     WHERE id = $1 AND authority_state = 'importing'
+       AND transferred_collection_id IS NULL`,
+    [transfer.hosted_collection_id]
+  );
+  return true;
+}
+
 export async function recoverExpiredAuthorityTransfers(
   db: DatabasePool,
   hostedProvider?: HostedProviderClient,
@@ -208,27 +247,12 @@ export async function recoverExpiredAuthorityTransfers(
     try {
       await connection.query("BEGIN");
       if (transfer.direction === "to_hosted") {
-        await connection.query(
-          `UPDATE authority_transfers SET state = 'expired'
-           WHERE id = $1 AND state IN ('requested', 'prepared')`,
-          [transfer.id]
-        );
-        await connection.query(
-          `UPDATE hosted_collections
-           SET authority_state = 'transferred', authority_epoch = $2
-           WHERE id = $1 AND authority_state = 'importing'
-             AND transferred_collection_id IS NOT NULL`,
-          [
-            transfer.hosted_collection_id,
-            Number(transfer.next_authority_epoch) - 1
-          ]
-        );
-        await connection.query(
-          `DELETE FROM hosted_collections
-           WHERE id = $1 AND authority_state = 'importing'
-             AND transferred_collection_id IS NULL`,
-          [transfer.hosted_collection_id]
-        );
+        if (!await finishAuthorityImportAbort(connection, transfer, "expired")) {
+          // Activation won the state transition. Do not delete its hosted row
+          // or claim that a cancellation receipt was committed.
+          await connection.query("ROLLBACK");
+          continue;
+        }
       } else {
         await connection.query(
           `UPDATE authority_transfers SET state = 'expired'

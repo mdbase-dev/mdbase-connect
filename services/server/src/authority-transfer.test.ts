@@ -8,6 +8,7 @@ import {
   type HostedProviderClient
 } from "./hosted-provider.js";
 import { tokenHash } from "./security.js";
+import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
 
 const resources: Array<() => Promise<void>> = [];
 
@@ -429,6 +430,8 @@ describe("local-to-hosted authority transfer", () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     let completionAttempts = 0;
+    let abortAttempts = 0;
+    let abortUnavailable = false;
     const provider = {
       upsertAccount: async () => ({}),
       url: "https://provider.example",
@@ -473,7 +476,11 @@ describe("local-to-hosted authority transfer", () => {
           expires_at: new Date(Date.now() + 15 * 60_000).toISOString()
         };
       },
-      abortAuthorityImport: async () => ({ state: "aborted" })
+      abortAuthorityImport: async () => {
+        abortAttempts += 1;
+        if (abortUnavailable) throw new HostedProviderUnavailableError(new Error("[test] abort response lost"));
+        return { state: "aborted" };
+      }
     } as unknown as HostedProviderClient;
     const { app } = await buildApp({
       db,
@@ -680,6 +687,11 @@ describe("local-to-hosted authority transfer", () => {
       url: `/v1/connectors/authority-transfers/${roundTripId}`,
       headers: { authorization: `Bearer ${connectorToken}` }
     })).statusCode).toBe(200);
+    expect((await app.inject({
+      method: "DELETE",
+      url: `/v1/connectors/authority-transfers/${roundTripId}`,
+      headers: { authorization: `Bearer ${connectorToken}` }
+    })).statusCode).toBe(200);
     const restored = await db.query<{
       hosted_state: string;
       authority_epoch: string | number;
@@ -700,5 +712,153 @@ describe("local-to-hosted authority transfer", () => {
       transfer_state: "cancelled"
     });
     expect(Number(restored.rows[0].authority_epoch)).toBe(3);
+
+    // A still-running pre-receipt server can leave a retained cancelled row
+    // after migration. Without a receipt, reconfirm rather than treating 404 as OK.
+    await db.query("DELETE FROM authority_import_abort_receipts WHERE transfer_id = $1", [roundTripId]);
+    const abortsBeforeReconfirmation = abortAttempts;
+    expect((await app.inject({
+      method: "DELETE", url: `/v1/connectors/authority-transfers/${roundTripId}`,
+      headers: { authorization: `Bearer ${connectorToken}` }
+    })).statusCode).toBe(200);
+    expect(abortAttempts).toBe(abortsBeforeReconfirmation + 1);
+
+    // First-time imports delete the unused hosted row on cancellation (unlike
+    // the round-trip case above). The durable cancellation must still be found
+    // on retry after a lost response, without calling the provider again.
+    const freshCollectionId = randomUUID();
+    expect((await app.inject({
+      method: "POST",
+      url: "/v1/connectors/sync",
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {
+        inventory_revision: 2,
+        collections: [collectionId, freshCollectionId].map((id) => ({
+          id, display_name: "[test] cancellation recovery", spec_version: "0.3.0",
+          enabled: true, contracts: []
+        }))
+      }
+    })).statusCode).toBe(200);
+    const fresh = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/collections/${freshCollectionId}/authority-transfers`,
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {}
+    });
+    expect(fresh.statusCode, fresh.body).toBe(201);
+    const freshTransferId = fresh.json().transfer.id as string;
+    const abortsBefore = abortAttempts;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const cancelled = await app.inject({
+        method: "DELETE",
+        url: `/v1/connectors/authority-transfers/${freshTransferId}`,
+        headers: { authorization: `Bearer ${connectorToken}` }
+      });
+      expect(cancelled.statusCode, cancelled.body).toBe(200);
+    }
+    expect(abortAttempts).toBe(abortsBefore + 1);
+    expect((await db.query("SELECT id FROM hosted_collections WHERE id = $1", [freshCollectionId])).rows).toEqual([]);
+    expect((await db.query("SELECT state FROM authority_transfers WHERE id = $1", [freshTransferId])).rows).toEqual([]);
+    expect((await db.query("SELECT connector_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [freshTransferId])).rows).toEqual([{ connector_id: connectorId }]);
+
+    // Legacy first-time cleanup left exactly these audit events, but neither a
+    // transfer row nor an abort receipt. Prove recovery without trusting a 404.
+    await db.query("DELETE FROM authority_import_abort_receipts WHERE transfer_id = $1", [freshTransferId]);
+    const history = await db.query<{ id: string; event_type: string; metadata: Record<string, unknown> }>(
+      "SELECT id, event_type, metadata FROM audit_events WHERE subject_id = $1", [freshTransferId]
+    );
+    const requestAudit = history.rows.find((row) => row.event_type === "authority_transfer.requested")!;
+    const cancelAudit = history.rows.find((row) => row.event_type === "authority_transfer.cancelled")!;
+    expect(requestAudit.metadata).toMatchObject({ connector_id: connectorId, collection_id: freshCollectionId, direction: "to_hosted" });
+    expect(cancelAudit.metadata).toMatchObject({ collection_id: freshCollectionId, direction: "to_hosted" });
+    const retryHistorical = () => app.inject({
+      method: "DELETE", url: `/v1/connectors/authority-transfers/${freshTransferId}`,
+      headers: { authorization: `Bearer ${connectorToken}` }
+    });
+    const unconfirmed = async () => {
+      expect((await retryHistorical()).statusCode).toBe(404);
+      expect((await db.query("SELECT transfer_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [freshTransferId])).rows).toEqual([]);
+    };
+    for (const [row, metadata] of [
+      [requestAudit, { ...requestAudit.metadata, connector_id: randomUUID() }],
+      [requestAudit, { ...requestAudit.metadata, direction: "to_local" }],
+      [cancelAudit, { ...cancelAudit.metadata, collection_id: randomUUID() }],
+      [cancelAudit, { ...cancelAudit.metadata, direction: "to_local" }],
+      [requestAudit, null]
+    ] as const) {
+      await db.query("UPDATE audit_events SET metadata = $2::jsonb WHERE id = $1", [row.id, JSON.stringify(metadata)]);
+      await unconfirmed();
+      await db.query("UPDATE audit_events SET metadata = $2::jsonb WHERE id = $1", [row.id, JSON.stringify(row.metadata)]);
+    }
+    const otherUserId = randomUUID();
+    await db.query("INSERT INTO users (id, email, name) VALUES ($1, 'history-other@example.test', '[test] Other owner')", [otherUserId]);
+    await db.query("UPDATE audit_events SET user_id = $2 WHERE id = $1", [cancelAudit.id, otherUserId]);
+    await unconfirmed();
+    await db.query("UPDATE audit_events SET user_id = $2 WHERE id = $1", [cancelAudit.id, session.json().user.id]);
+    for (const [eventType, metadata] of [
+      ["authority_transfer.completed", {}],
+      ["authority_transfer.requested", requestAudit.metadata],
+      ["authority_transfer.cancelled", { ...cancelAudit.metadata, collection_id: randomUUID() }]
+    ] as const) {
+      const contradictoryAuditId = randomUUID();
+      await db.query(
+        `INSERT INTO audit_events (id, user_id, event_type, subject_id, metadata)
+         VALUES ($1, $2, $3, $4, $5::jsonb)`,
+        [contradictoryAuditId, session.json().user.id, eventType, freshTransferId, JSON.stringify(metadata)]
+      );
+      await unconfirmed();
+      await db.query("DELETE FROM audit_events WHERE id = $1", [contradictoryAuditId]);
+    }
+    abortUnavailable = true;
+    const abortsBeforeHistoricalRecovery = abortAttempts;
+    expect((await retryHistorical()).statusCode).toBe(200);
+    expect((await retryHistorical()).statusCode).toBe(200);
+    expect(abortAttempts).toBe(abortsBeforeHistoricalRecovery);
+    expect((await db.query("SELECT connector_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [freshTransferId])).rows).toEqual([{ connector_id: connectorId }]);
+    abortUnavailable = false;
+
+    const otherComputer = await app.inject({
+      method: "POST", url: "/v1/connectors", headers: { cookie }, payload: { name: "[test] Other computer" }
+    });
+    expect(otherComputer.statusCode).toBe(201);
+    const otherToken = otherComputer.json().token as string;
+    for (const [id, token] of [[freshTransferId, otherToken], [randomUUID(), connectorToken]]) {
+      expect((await app.inject({
+        method: "DELETE", url: `/v1/connectors/authority-transfers/${id}`,
+        headers: { authorization: `Bearer ${token}` }
+      })).statusCode).toBe(404);
+    }
+
+    // Expiry performs the same provider-confirmed abortion and cascading cleanup.
+    // A later user cancellation must be able to recover its durable local fence.
+    const expiring = await app.inject({
+      method: "POST", url: `/v1/connectors/collections/${freshCollectionId}/authority-transfers`,
+      headers: { authorization: `Bearer ${connectorToken}` }, payload: {}
+    });
+    expect(expiring.statusCode, expiring.body).toBe(201);
+    const expiredId = expiring.json().transfer.id as string;
+    await db.query("UPDATE authority_transfers SET expires_at = now() - interval '1 hour' WHERE id = $1", [expiredId]);
+    abortUnavailable = true;
+    await expect(recoverExpiredAuthorityTransfers(db, provider)).rejects.toThrow();
+    expect((await db.query("SELECT transfer_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [expiredId])).rows).toEqual([]);
+    expect((await db.query("SELECT state FROM authority_transfers WHERE id = $1", [expiredId])).rows).toEqual([{ state: "prepared" }]);
+    abortUnavailable = false;
+    await recoverExpiredAuthorityTransfers(db, provider);
+    const abortsAfterExpiry = abortAttempts;
+    expect((await app.inject({
+      method: "DELETE", url: `/v1/connectors/authority-transfers/${expiredId}`,
+      headers: { authorization: `Bearer ${connectorToken}` }
+    })).statusCode).toBe(200);
+    expect(abortAttempts).toBe(abortsAfterExpiry);
+    expect((await db.query("SELECT id FROM hosted_collections WHERE id = $1", [freshCollectionId])).rows).toEqual([]);
+    expect((await db.query("SELECT connector_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [expiredId])).rows).toEqual([{ connector_id: connectorId }]);
+    // Old expiry removed both authorities' temporary records without a terminal
+    // audit entry. The request audit by itself cannot prove cancellation.
+    await db.query("DELETE FROM authority_import_abort_receipts WHERE transfer_id = $1", [expiredId]);
+    expect((await app.inject({
+      method: "DELETE", url: `/v1/connectors/authority-transfers/${expiredId}`,
+      headers: { authorization: `Bearer ${connectorToken}` }
+    })).statusCode).toBe(404);
+    expect((await db.query("SELECT transfer_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [expiredId])).rows).toEqual([]);
   }, 10_000);
 });

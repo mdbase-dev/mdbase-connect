@@ -5,10 +5,11 @@ use mdbase_connect_protocol::is_mutating_operation;
 use mdbase_connect_protocol::{
     ActivityEntry, ApplicationAuthorizationProof, ApplicationProvisions, ApplicationRequirements,
     ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
-    AuthoritySnapshot, CollectionChange, CollectionChangesPage, CollectionContractDescriptor,
-    CollectionDescription, CollectionSummary, CollectionTypeDescriptor, ContractRequirement,
-    ContractSetupChoice, ContractSetupMode, EncryptedRelayEnvelope, GrantPolicy, GrantScope,
-    GrantSummary, SyncCollectionResources, SyncMutation, SyncMutationReceipt, SyncResourceDocument,
+    AuthoritySnapshot, CollectionAuthorityTransfer, CollectionAuthorityTransferState,
+    CollectionChange, CollectionChangesPage, CollectionContractDescriptor, CollectionDescription,
+    CollectionSummary, CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice,
+    ContractSetupMode, EncryptedRelayEnvelope, GrantPolicy, GrantScope, GrantSummary,
+    SyncCollectionResources, SyncMutation, SyncMutationReceipt, SyncResourceDocument,
     TypePackProvision, CONTROL_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractScopeError, ContractSelector};

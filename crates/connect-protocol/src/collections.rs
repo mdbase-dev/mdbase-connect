@@ -8,8 +8,22 @@ pub struct CollectionSummary {
     pub path: String,
     pub spec_version: String,
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority_transfer: Option<CollectionAuthorityTransfer>,
     #[serde(default)]
     pub contracts: Vec<CollectionContractDescriptor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollectionAuthorityTransfer {
+    pub transfer_id: Uuid,
+    pub state: CollectionAuthorityTransferState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CollectionAuthorityTransferState {
+    Fenced,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

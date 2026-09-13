@@ -21,9 +21,10 @@ use mdbase_connect_core::{
 use mdbase_connect_daemon::{run as run_daemon, DaemonOptions};
 use mdbase_connect_protocol::{
     AccessPauseParams, ActivityListParams, AuthorityTarget, AuthorizationApproveParams,
-    AuthorizationIdParams, CollectionAuthorityTransferParams, CollectionCreateParams,
-    CollectionIdParams, CollectionOperationParams, CollectionPathParams, ControlCommand,
-    ControlRequest, ControlResponse, FileMediaClass, GrantIdParams, GrantUpdateParams,
+    AuthorizationIdParams, CollectionAuthorityTransferParams,
+    CollectionAuthorityTransferRecoveryParams, CollectionCreateParams, CollectionIdParams,
+    CollectionOperationParams, CollectionPathParams, ControlCommand, ControlRequest,
+    ControlResponse, FileMediaClass, GrantIdParams, GrantUpdateParams,
     HostedCollectionCreateParams, HostedCollectionRenameParams, HostedConnectionAuthorization,
     HostedConnectionAuthorizationPollParams, HostedConnectionAuthorizationStatus,
     HostedConnectionAuthorizeParams, MirrorAddParams, MirrorApplyParams,
@@ -340,6 +341,11 @@ enum CollectionCommand {
         collection_id: Uuid,
         #[arg(long, value_enum, default_value_t = CliAuthorityTarget::Remote)]
         target: CliAuthorityTarget,
+    },
+    /// Cancel a fenced transfer only after the remote authority confirms cancellation.
+    CancelAuthorityTransfer {
+        collection_id: Uuid,
+        transfer_id: Uuid,
     },
 }
 

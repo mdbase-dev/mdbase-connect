@@ -23,6 +23,7 @@ import {
 } from "../../platform/request-authentication.js";
 import {
   authorityImportTransferView,
+  finishAuthorityImportAbort,
   recoverExpiredAuthorityTransfers,
   type AuthorityImportTransferRow
 } from "./lifecycle.js";
@@ -402,11 +403,20 @@ export function registerLocalToHostedTransferRoutes(
       const { transferId } = z.object({
         transferId: z.uuid()
       }).parse(request.params);
+      const receipt = await options.db.query(
+        `SELECT transfer_id FROM authority_import_abort_receipts
+         WHERE transfer_id = $1 AND connector_id = $2`,
+        [transferId, connector.id]
+      );
+      if (receipt.rows.length > 0) return { ok: true };
       const transfer = await findConnectorImportTransfer(
         options.db,
         connector,
         transferId
       );
+      if (!transfer && await recoverHistoricalImportCancellation(options.db, connector, transferId)) {
+        return { ok: true };
+      }
       if (!transfer) {
         return reply.code(404).send(apiError(
           "authority_transfer_not_found",
@@ -419,7 +429,9 @@ export function registerLocalToHostedTransferRoutes(
           "Completed authority transfer cannot be cancelled."
         ));
       }
-      if (!["requested", "prepared"].includes(transfer.state)) {
+      // A retained terminal row written by a pre-receipt server can be
+      // reconfirmed with the provider; a missing row is never proof of safety.
+      if (!["requested", "prepared", "expired", "cancelled"].includes(transfer.state)) {
         return reply.code(409).send(apiError(
           "authority_transfer_activation_started",
           "Authority activation has started and can no longer be cancelled."
@@ -438,12 +450,7 @@ export function registerLocalToHostedTransferRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
-        const cancelled = await connection.query(
-          `UPDATE authority_transfers SET state = 'cancelled'
-           WHERE id = $1 AND state IN ('requested', 'prepared')`,
-          [transferId]
-        );
-        if (cancelled.rowCount !== 1) {
+        if (!await finishAuthorityImportAbort(connection, transfer, "cancelled")) {
           throw new RequestValidationError(
             "Authority transfer changed state while cancellation was committed."
           );
@@ -457,22 +464,6 @@ export function registerLocalToHostedTransferRoutes(
             collection_id: transfer.hosted_collection_id,
             direction: "to_hosted"
           }
-        );
-        await connection.query(
-          `UPDATE hosted_collections
-           SET authority_state = 'transferred', authority_epoch = $2
-           WHERE id = $1 AND authority_state = 'importing'
-             AND transferred_collection_id IS NOT NULL`,
-          [
-            transfer.hosted_collection_id,
-            Number(transfer.next_authority_epoch) - 1
-          ]
-        );
-        await connection.query(
-          `DELETE FROM hosted_collections
-           WHERE id = $1 AND authority_state = 'importing'
-             AND transferred_collection_id IS NULL`,
-          [transfer.hosted_collection_id]
         );
         await connection.query("COMMIT");
       } catch (error) {
@@ -569,6 +560,52 @@ async function createImportTransfer(
   } finally {
     connection.release();
   }
+}
+
+// Pre-receipt servers committed a cancellation audit in the same transaction
+// that deleted a first-time import target (and cascaded away its transfer row).
+// Recover only that positive acknowledgement, bound to its original account,
+// connector, direction and collection. A request, expiry, or provider 404 is
+// never sufficient. Once recovered, the ordinary receipt path owns retries.
+async function recoverHistoricalImportCancellation(
+  db: DatabasePool,
+  connector: ConnectorIdentity,
+  transferId: string
+): Promise<boolean> {
+  const history = await db.query<{ event_type: string; metadata: unknown }>(
+    `SELECT event_type, metadata FROM audit_events
+     WHERE subject_id = $1 AND user_id = $2
+       AND event_type IN ('authority_transfer.requested',
+                          'authority_transfer.cancelled', 'authority_transfer.completed')`,
+    [transferId, connector.user_id]
+  );
+  const requested = history.rows.filter((row) => row.event_type === "authority_transfer.requested");
+  const cancelled = history.rows.filter((row) => row.event_type === "authority_transfer.cancelled");
+  if (requested.length !== 1 || cancelled.length === 0
+    || history.rows.some((row) => row.event_type === "authority_transfer.completed")) return false;
+  const request = z.object({
+    connector_id: z.literal(connector.id),
+    direction: z.literal("to_hosted"),
+    collection_id: z.uuid(),
+    authority_epoch: z.number().int().min(2)
+  }).safeParse(requested[0]!.metadata);
+  if (!request.success) return false;
+  const cancellation = z.object({
+    direction: z.literal("to_hosted"),
+    collection_id: z.literal(request.data.collection_id)
+  });
+  if (cancelled.some((row) => !cancellation.safeParse(row.metadata).success)) return false;
+  await db.query(
+    `INSERT INTO authority_import_abort_receipts (transfer_id, connector_id)
+     VALUES ($1, $2) ON CONFLICT (transfer_id) DO NOTHING`,
+    [transferId, connector.id]
+  );
+  const receipt = await db.query(
+    `SELECT transfer_id FROM authority_import_abort_receipts
+     WHERE transfer_id = $1 AND connector_id = $2`,
+    [transferId, connector.id]
+  );
+  return receipt.rows.length === 1;
 }
 
 async function findConnectorImportTransfer(
