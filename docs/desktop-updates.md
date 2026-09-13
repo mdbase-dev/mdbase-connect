@@ -95,11 +95,14 @@ On first launch of the target app, before ordinary daemon startup, it:
 1. marks the recorded transaction `recovering`;
 2. atomically copies the new bundled CLI into the private stable service
    runtime and refreshes service registration, or starts a new transient daemon;
-3. waits for the daemon to open its state and report the exact target version;
-4. commits only after that health check.
+3. waits for canonical daemon readiness and the exact target binary version;
+4. commits only after that health check. Ordinary daemon-backed IPC and update
+   checks share the boot gate and cannot bypass recovery.
 
 If replacement was interrupted, the old app restarts its daemon and clears the
-transaction. If the target daemon cannot start or migrate state, the new app
+transaction only after verified health. A failed or thrown recovery retains the
+same transaction and preserved runtime for the next process, blocking further
+installation and ordinary startup rather than claiming restoration. If the target daemon cannot start or migrate state, the new app
 re-registers and health-checks the preserved previous daemon. Recovery remains
 visible so the user can install a higher signed recovery release.
 
@@ -114,6 +117,9 @@ Update state uses user-only permissions and atomic rename. Invalid state is
 quarantined. A crash at every boundary is safe to retry: before stop there is
 no service impact; after stop the previous runtime is recorded; after
 replacement recovery is idempotent.
+
+See [exact recovery and health](exact-recovery-and-health.md) for readiness
+compatibility and the first-adoption gate for older rollback runtimes.
 
 ## Release and recovery drills
 
