@@ -2200,15 +2200,23 @@ select {
   font-size: 0.6rem;
 }
 
+.provider-divider > span {
+  flex: none;
+  white-space: nowrap;
+}
+
 .provider-divider::before,
 .provider-divider::after {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 1px;
   background: var(--line);
   content: "";
 }
 
 .google-provider {
+  /* Google's light-scheme iframe must stay transparent on our dark canvas. */
+  color-scheme: light;
   position: relative;
   min-height: 2.5rem;
   transition: opacity 160ms var(--ease);
@@ -2297,9 +2305,11 @@ select {
 
 .loading {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: center;
   justify-items: center;
   min-height: 100vh;
+  padding: 2rem 1.25rem;
   gap: 1.2rem;
   color: var(--ink);
   background: var(--paper);
@@ -2521,7 +2531,7 @@ select {
 
 /* Sign-in and signup follow the restrained public account layout. */
 .minimal-auth-shell {
-  width: min(calc(100% - 3rem), 32rem);
+  width: min(calc(100% - 3rem), 25rem);
   min-height: 100vh;
   margin-left: clamp(1.5rem, 12vw, 11.25rem);
 }
@@ -2669,7 +2679,7 @@ select {
   }
 
   .minimal-auth-shell {
-    width: calc(100% - 2rem);
+    width: min(calc(100% - 2rem), 25rem);
     margin-left: 1rem;
   }
 
