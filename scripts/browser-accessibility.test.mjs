@@ -15,6 +15,7 @@ const servers = await Promise.all(
 const browser = await chromium.launch({ headless: true });
 
 try {
+  await auditPortalLoading();
   await auditPortalLogin();
   await auditPortalSignup();
   await auditPortalRecovery();
@@ -48,6 +49,42 @@ async function localPage(options) {
       : route.abort("blockedbyclient");
   });
   return page;
+}
+
+async function auditPortalLoading() {
+  const page = await localPage();
+  let releaseRequests;
+  const pending = new Promise((resolve) => { releaseRequests = resolve; });
+  await page.route("**/v1/**", async (route) => {
+    await pending;
+    await route.abort();
+  });
+  try {
+    await page.goto(`${servers[0].origin}/authorize/11111111-1111-4111-8111-111111111111`);
+    await page.getByRole("status").filter({ hasText: "Opening mdbase connect" }).waitFor();
+    for (const colorScheme of ["light", "dark"]) {
+      await page.emulateMedia({ colorScheme });
+      for (const width of [320, 390, 640, 1280]) {
+        await page.setViewportSize({ width, height: 844 });
+        const layout = await page.evaluate(() => ({
+          edges: [...document.querySelectorAll(".loading .page-brand-row, .loading .product-brand-mark, .loading .theme-menu-trigger, .loading > p")].map((element) => {
+            const { left, right } = element.getBoundingClientRect();
+            return { left, right };
+          }),
+          overflow: document.documentElement.scrollWidth > innerWidth
+        }));
+        assert.equal(layout.edges.length, 4);
+        for (const edge of layout.edges) {
+          assert.ok(edge.left >= 20 && edge.right <= width - 20,
+            `portal loading ${colorScheme}/${width}: branding and status retain a 20px viewport inset`);
+        }
+        assert.equal(layout.overflow, false, `portal loading ${colorScheme}/${width}: no horizontal overflow`);
+      }
+    }
+  } finally {
+    releaseRequests();
+    await page.close();
+  }
 }
 
 async function auditPortalLogin() {
@@ -174,6 +211,35 @@ async function auditPortalSignup() {
   await page.getByRole("button", { name: "Continue with Google" }).waitFor();
   const github = new URL(await page.getByRole("link", { name: "Continue with GitHub" }).getAttribute("href"), servers[0].origin);
   assert.equal(new URL(github.searchParams.get("return_to"), servers[0].origin).pathname, returnTo.split("?")[0]);
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    for (const width of [320, 390, 742, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      const layout = await page.evaluate(() => {
+        const bounds = (selector) => {
+          const { left, width } = document.querySelector(selector).getBoundingClientRect();
+          return { left, width };
+        };
+        const label = document.querySelector(".auth-panel > .provider-divider > span");
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        return {
+          edges: [".page-brand-row", ".auth-providers", ".google-provider", ".github-button", ".auth-panel > .provider-divider", ".password-auth-form", ".minimal-auth-footer"].map(bounds),
+          labelLines: range.getClientRects().length,
+          googleScheme: getComputedStyle(document.querySelector(".google-provider")).colorScheme,
+          overflow: document.documentElement.scrollWidth > innerWidth
+        };
+      });
+      for (const edge of layout.edges) {
+        assert.ok(Math.abs(edge.left - layout.edges[0].left) < 1, `signup ${colorScheme}/${width}: aligned left edges`);
+        assert.ok(Math.abs(edge.width - layout.edges[0].width) < 1, `signup ${colorScheme}/${width}: matching widths`);
+      }
+      assert.equal(layout.labelLines, 1, `signup ${colorScheme}/${width}: email divider stays on one line`);
+      assert.equal(layout.googleScheme, "light", "Google iframe uses its native color scheme");
+      assert.equal(layout.overflow, false, `signup ${colorScheme}/${width}: no horizontal overflow`);
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
   const startsBeforeTyping = googleStarts;
   await page.getByRole("textbox", { name: "Email", exact: true }).fill("typing@example.com");
   // Typing into the email alternative must not invalidate Google's nonce.
