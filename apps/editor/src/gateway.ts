@@ -299,9 +299,9 @@ export class ConnectCollectionGateway implements CollectionGateway {
       // One exact continuation, not a transport retry or a newly constructed update.
       if (pending?.operation === "update") {
         const recovered = await pending.recover().catch(() => outcome);
-        if (recovered.ok) return recovered.value;
+        return requireOutcome(recovered);
       }
-      // Preserve the original unknown identity even if its recovery is offline.
+      // Without a matching handle, the original outcome remains unknown.
     }
     return requireOutcome(outcome);
   }

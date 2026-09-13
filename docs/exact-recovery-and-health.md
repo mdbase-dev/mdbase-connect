@@ -55,7 +55,10 @@ handles are listed by operation/time for explicit recovery. New note updates,
 property/document edits, and renames are blocked while a pending note mutation
 remains. The editor does not claim **Saved** while that work is unresolved.
 Collection epochs prevent recovery from publishing into a subsequently selected
-collection. Failure preserves the original identity and the local draft.
+collection. Unknown outcomes and failed recovery probes preserve the original
+identity and local draft. A definitive recovery rejection is propagated and
+settles that pending identity without discarding the draft or automatically
+resending it; the editor returns to its conflict/error state.
 
 ## Revocation has an authority-specific completion point
 

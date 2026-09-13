@@ -1,3 +1,4 @@
+import { MdbaseConnectError } from "@mdbase-dev/connect";
 import type { NoteDocument, SaveNoteInput } from "./model";
 import type { NoteSession } from "./note-session";
 import { sessionDirty } from "./note-session";
@@ -62,6 +63,11 @@ export class NoteOperationCoordinator {
           this.options.onSaved(session, document);
           this.options.onChange(session);
         } catch (error) {
+          // A definitive rejection settles the original intent; a failed probe
+          // (including not_sent) does not prove the earlier attempt was rejected.
+          if (error instanceof MdbaseConnectError && error.problem.operation_outcome === "rejected") {
+            session.pendingSave = undefined;
+          }
           const requestId = pendingNoteRequestId(error);
           if (!session.pendingSave && requestId) session.pendingSave = { requestId, draft: snapshot };
           session.saveState = session.pendingSave ? "recovery" : "conflict";
