@@ -139,6 +139,13 @@ belongs at each boundary: boot/update races, pending-handle/component tests,
 exact-ACK and real PostgreSQL serialization tests, and real isolated-process
 credential retry. These limits do not replace review or platform qualification.
 
+The rollback-admission correction reuses the control client's existing protocol
+constant in updater health verification: one additional relative import and one
+export, making the reviewed totals 1,505 imports and 2,463 TypeScript exports.
+No production module, file-size limit, or cycle allowance is added. The existing
+update record now binds a verified fallback to its app version and distinguishes
+that daemon version during subsequent handoff; it is not a second journal.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;

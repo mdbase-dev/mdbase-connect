@@ -104,7 +104,20 @@ transaction only after verified health. A failed or thrown recovery retains the
 same transaction and preserved runtime for the next process, blocking further
 installation and ordinary startup rather than claiming restoration. If the target daemon cannot start or migrate state, the new app
 re-registers and health-checks the preserved previous daemon. Recovery remains
-visible so the user can install a higher signed recovery release.
+visible so the user can install a higher signed recovery release. Startup uses
+that exact verified runtime's version and preserved CLI, not the newer app's
+version or bundled CLI. Canonical readiness and the desktop's local control
+protocol must both match; unrelated or incompatible daemons remain blocked.
+
+A healthy fallback is recorded in the existing `last_known_good_runtime` with
+`for_app_version` binding it to the app that required rollback before the
+transaction is cleared. Fresh launches reverify that selection rather than
+silently reinstalling the failing bundled daemon. A newer app does not inherit
+another app version's fallback selection. Subsequent automatic transactions
+keep `previous_version` as the app version and add `previous_runtime_version`
+when the preserved daemon differs; staging never overwrites the active fallback
+with the failing bundle. Legacy schema-1 records omit these optional bindings
+and retain their original coupled app/runtime version meaning.
 
 The platform installer rolls back a failed application-bundle replacement.
 After a new signed app has launched, mdbase uses publish-forward app recovery
@@ -113,7 +126,8 @@ collection access available. This avoids a second privileged installer and
 keeps signing authority with macOS, Microsoft Store, or the Linux package
 manager.
 
-Update state uses user-only permissions and atomic rename. Invalid state is
+Update state uses user-only permissions and atomic rename; its in-memory cache
+publishes a transition only after the durable write succeeds. Invalid state is
 quarantined. A crash at every boundary is safe to retry: before stop there is
 no service impact; after stop the previous runtime is recorded; after
 replacement recovery is idempotent.

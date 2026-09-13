@@ -366,9 +366,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }, [fileController, loadIndex, refreshDescription]);
 
-  const updateNoteSummary = useCallback((next: NoteDocument, previousPath = next.path) => {
-    indexController.upsert(summaryFromDocument(next), previousPath);
-  }, [indexController]);
+  const updateNoteSummary = useCallback((next: NoteDocument, previousPath = next.path) =>
+    indexController.upsert(summaryFromDocument(next), previousPath), [indexController]);
 
   const publishNoteHistory = useCallback((next: NoteNavigationHistory) => {
     noteHistory.current = next;

@@ -10,6 +10,7 @@ export interface UpdateTransaction {
   previous_version: string;
   service_installed: boolean;
   previous_runtime: string | null;
+  previous_runtime_version?: string;
   started_at: string;
   error?: string;
 }
@@ -22,6 +23,7 @@ export interface PersistedUpdateState {
   last_known_good_runtime?: {
     version: string;
     path: string;
+    for_app_version?: string;
   };
   transaction?: UpdateTransaction;
 }
@@ -55,9 +57,10 @@ export class UpdateStateStore {
   ): Promise<PersistedUpdateState> {
     const current = await this.load();
     const next = change(current) ?? current;
-    this.state = parsePersistedState(next);
-    await this.write();
-    return structuredClone(this.state);
+    const validated = parsePersistedState(next);
+    await this.write(validated);
+    this.state = validated;
+    return structuredClone(validated);
   }
 
   async remove(): Promise<void> {
@@ -65,13 +68,13 @@ export class UpdateStateStore {
     await rm(this.path, { force: true });
   }
 
-  private async write(): Promise<void> {
-    if (!this.state) throw new Error("Update state has not been initialized.");
+  private async write(state = this.state): Promise<void> {
+    if (!state) throw new Error("Update state has not been initialized.");
     const parent = dirname(this.path);
     await mkdir(parent, { recursive: true, mode: 0o700 });
     await chmod(parent, 0o700).catch(() => undefined);
     const temporary = `${this.path}.tmp-${process.pid}-${randomUUID()}`;
-    await writeFile(temporary, `${JSON.stringify(this.state, null, 2)}\n`, {
+    await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, {
       encoding: "utf8",
       mode: 0o600,
       flag: "wx"
@@ -116,6 +119,11 @@ export function parsePersistedState(value: unknown): PersistedUpdateState {
     }
     compareVersions(runtime.version, runtime.version);
     parsed.last_known_good_runtime = { version: runtime.version, path: runtime.path };
+    if (runtime.for_app_version !== undefined) {
+      if (typeof runtime.for_app_version !== "string") throw new Error("Rollback app version is invalid.");
+      compareVersions(runtime.for_app_version, runtime.for_app_version);
+      parsed.last_known_good_runtime.for_app_version = runtime.for_app_version;
+    }
   }
   if (state.transaction !== undefined) parsed.transaction = parseTransaction(state.transaction);
   return parsed;
@@ -143,6 +151,12 @@ function parseTransaction(value: unknown): UpdateTransaction {
   if (transaction.previous_runtime !== null && typeof transaction.previous_runtime !== "string") {
     throw new Error("Update transaction runtime path is invalid.");
   }
+  if (transaction.previous_runtime_version !== undefined) {
+    if (typeof transaction.previous_runtime_version !== "string" || !transaction.previous_runtime) {
+      throw new Error("Previous runtime version is invalid.");
+    }
+    compareVersions(transaction.previous_runtime_version, transaction.previous_runtime_version);
+  }
   if (transaction.error !== undefined && typeof transaction.error !== "string") {
     throw new Error("Update transaction error is invalid.");
   }
@@ -153,6 +167,7 @@ function parseTransaction(value: unknown): UpdateTransaction {
     previous_version: transaction.previous_version as string,
     service_installed: transaction.service_installed,
     previous_runtime: transaction.previous_runtime as string | null,
+    ...(transaction.previous_runtime_version ? { previous_runtime_version: transaction.previous_runtime_version as string } : {}),
     started_at: new Date(transaction.started_at as string).toISOString(),
     ...(transaction.error ? { error: transaction.error as string } : {})
   };

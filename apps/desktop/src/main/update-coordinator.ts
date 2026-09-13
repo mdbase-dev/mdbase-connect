@@ -6,7 +6,7 @@ import {
   type UpdateManifest,
   type UpdateTarget
 } from "./update-policy";
-import { UpdateStateStore, type UpdateTransaction } from "./update-state";
+import { UpdateStateStore, type PersistedUpdateState, type UpdateTransaction } from "./update-state";
 
 export type UpdatePhase =
   | "unavailable"
@@ -49,14 +49,14 @@ export interface UpdateBackend {
   channel: UpdateChannel;
   platformKey: string;
   packaged: boolean;
-  reconcileInstalledRuntime(): Promise<string | null>;
+  reconcileInstalledRuntime(rollback?: PersistedUpdateState["last_known_good_runtime"]): Promise<string | null>;
   findLatest(): Promise<{ manifest: UpdateManifest } | null>;
   stageAutomatic(
     manifest: UpdateManifest,
     target: UpdateTarget,
     onProgress: (progress: number) => void
   ): Promise<void>;
-  prepareDaemonHandoff(previousVersion: string): Promise<PreparedDaemonHandoff>;
+  prepareDaemonHandoff(previousVersion: string, previousRuntime?: string | null): Promise<PreparedDaemonHandoff>;
   stopDaemon(): Promise<void>;
   installAutomatic(): void;
   openExternal(url: string): Promise<void>;
@@ -70,10 +70,12 @@ export class UpdateCoordinator {
   private statusValue: DesktopUpdateStatus;
   private candidate: { manifest: UpdateManifest; target: UpdateTarget } | null = null;
   private operation: Promise<DesktopUpdateStatus> | null = null;
+  private runtime: { version: string; binary: string | null };
 
   constructor(store: UpdateStateStore, backend: UpdateBackend) {
     this.store = store;
     this.backend = backend;
+    this.runtime = { version: backend.currentVersion, binary: null };
     this.statusValue = {
       phase: backend.packaged ? "idle" : "unavailable",
       current_version: backend.currentVersion,
@@ -88,6 +90,10 @@ export class UpdateCoordinator {
 
   status(): DesktopUpdateStatus {
     return structuredClone(this.statusValue);
+  }
+
+  daemonStartupRuntime(): { version: string; binary: string | null } {
+    return { ...this.runtime };
   }
 
   daemonStartupBlock(): string | null {
@@ -110,7 +116,10 @@ export class UpdateCoordinator {
     }
     if (!persisted.transaction) {
       try {
-        const message = await this.backend.reconcileInstalledRuntime();
+        const rollback = persisted.last_known_good_runtime?.for_app_version === this.backend.currentVersion
+          ? persisted.last_known_good_runtime : undefined;
+        const message = await this.backend.reconcileInstalledRuntime(rollback);
+        if (rollback) this.runtime = { version: rollback.version, binary: rollback.path };
         if (message) {
           this.setStatus({
             phase: "idle",
@@ -141,22 +150,7 @@ export class UpdateCoordinator {
     });
     try {
       const result = await this.backend.recover(persisted.transaction);
-      if (!result.healthy) throw new Error(result.message);
-      await this.store.update((state) => {
-        if (!result.rolledBack) {
-          state.highest_trusted_version = maxVersion(
-            state.highest_trusted_version,
-            persisted.transaction?.target_version
-          );
-          if (persisted.transaction?.previous_runtime) {
-            state.last_known_good_runtime = {
-              version: persisted.transaction.previous_version,
-              path: persisted.transaction.previous_runtime
-            };
-          }
-        }
-        delete state.transaction;
-      });
+      await this.completeRecovery(persisted.transaction, result);
       this.setStatus({
         phase: result.rolledBack ? "recovery" : "idle",
         message: result.message,
@@ -229,15 +223,16 @@ export class UpdateCoordinator {
       await this.store.update((state) => {
         if (state.transaction?.id === transaction.id) state.transaction.phase = "recovering";
       });
-      const recovered = await this.backend.recover(transaction).catch((recoveryError) => ({
+      const recovered = await this.backend.recover(transaction).then(async (result) => {
+        await this.completeRecovery(transaction, result);
+        return result;
+      }).catch((recoveryError) => ({
         healthy: false,
         rolledBack: false,
         message: message(recoveryError)
       }));
-      await this.store.update((state) => {
-        if (state.transaction?.id !== transaction.id) return;
-        if (recovered.healthy) delete state.transaction;
-        else state.transaction.error = recovered.message;
+      if (!recovered.healthy) await this.store.update((state) => {
+        if (state.transaction?.id === transaction.id) state.transaction.error = recovered.message;
       });
       this.candidate = null;
       this.setStatus({
@@ -252,6 +247,34 @@ export class UpdateCoordinator {
       throw error;
     }
     return this.status();
+  }
+
+  private async completeRecovery(transaction: UpdateTransaction, result: RecoveryResult): Promise<void> {
+    if (!result.healthy) throw new Error(result.message);
+    const previousVersion = transaction.previous_runtime_version ?? transaction.previous_version;
+    const version = result.rolledBack ? previousVersion : transaction.target_version;
+    const binary = result.rolledBack && version !== this.backend.currentVersion ? transaction.previous_runtime : null;
+    if (version !== this.backend.currentVersion && !binary) {
+      throw new Error("Verified recovery did not preserve its runtime binary.");
+    }
+    await this.store.update((state) => {
+      if (state.transaction?.id !== transaction.id) throw new Error("Update recovery transaction changed.");
+      if (!result.rolledBack) {
+        state.highest_trusted_version = maxVersion(state.highest_trusted_version, transaction.target_version);
+      }
+      if (transaction.previous_runtime) {
+        state.last_known_good_runtime = {
+          version: previousVersion,
+          path: transaction.previous_runtime,
+          ...(result.rolledBack && version !== this.backend.currentVersion
+            ? { for_app_version: this.backend.currentVersion } : {})
+        };
+      } else if (state.last_known_good_runtime) {
+        delete state.last_known_good_runtime.for_app_version;
+      }
+      delete state.transaction;
+    });
+    this.runtime = { version, binary };
   }
 
   private async checkExclusive(manual: boolean): Promise<DesktopUpdateStatus> {
@@ -340,7 +363,7 @@ export class UpdateCoordinator {
             can_check: false,
             can_install: false
           });
-          const handoff = await this.backend.prepareDaemonHandoff(this.backend.currentVersion);
+          const handoff = await this.backend.prepareDaemonHandoff(this.runtime.version, this.runtime.binary);
           const transaction: UpdateTransaction = {
             id: randomUUID(),
             phase: "prepared",
@@ -348,6 +371,8 @@ export class UpdateCoordinator {
             previous_version: this.backend.currentVersion,
             service_installed: handoff.serviceInstalled,
             previous_runtime: handoff.previousRuntime,
+            ...(this.runtime.version !== this.backend.currentVersion
+              ? { previous_runtime_version: this.runtime.version } : {}),
             started_at: new Date().toISOString()
           };
           await this.store.update((state) => {

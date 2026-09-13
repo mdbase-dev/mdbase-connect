@@ -38,7 +38,12 @@ An unhealthy or thrown updater recovery retains the same transaction and its
 last-known-good runtime in `recovering`. Update checks/reinstallation and ordinary
 startup remain blocked until recovery verifies readiness and the expected binary
 version. The next app process resumes the same transaction. No additional update
-journal or repair owner is introduced.
+journal or repair owner is introduced. Healthy rollback binds the verified
+preserved binary/version to that app in the existing last-known-good record.
+Admission and later CLI startup use that selection, including after a fresh
+process. The next update preserves the selected daemon rather than copying the
+failing bundle over it. Readiness schema, exact version, private runtime path
+and local control protocol checks remain fail-closed.
 
 ## Editor continuation
 
@@ -58,7 +63,11 @@ Collection epochs prevent recovery from publishing into a subsequently selected
 collection. Unknown outcomes and failed recovery probes preserve the original
 identity and local draft. A definitive recovery rejection is propagated and
 settles that pending identity without discarding the draft or automatically
-resending it; the editor returns to its conflict/error state.
+resending it; the editor returns to its conflict/error state. Settlement is
+checked against the SDK's existing pending handles, not inferred from a probe's
+error code or outcome marker. Even a rejected recovery probe can leave the
+original attempt unknown; conversely an authoritative not-sent response can
+settle it. No second mutation owner is introduced.
 
 ## Revocation has an authority-specific completion point
 

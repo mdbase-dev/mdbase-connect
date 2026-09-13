@@ -76,9 +76,9 @@ function backend(overrides = {}) {
     async openExternal(url) {
       events.push(`open:${url}`);
     },
-    async recover() {
+    async recover(transaction) {
       events.push("recover");
-      return { healthy: true, rolledBack: false, message: "Recovered." };
+      return { healthy: true, rolledBack: transaction.target_version !== this.currentVersion, message: "Recovered." };
     },
     ...overrides
   };

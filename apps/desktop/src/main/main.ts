@@ -100,15 +100,15 @@ function incompatibleDaemon(error: unknown): boolean {
   return error instanceof AgentControlError && error.code === "unsupported_local_protocol";
 }
 
-async function startAgent(): Promise<void> {
+async function startAgent(runtime = updater!.daemonStartupRuntime()): Promise<void> {
   await ensureAgentReady({
-    expectedVersion: app.getVersion(),
+    expectedVersion: runtime.version,
     ping: (timeoutMs) =>
       requestAgent<AgentPing>(controlEndpoint(), "ping", undefined, timeoutMs),
     endpointIsUnavailable,
     incompatibleDaemon,
     launch: async () => {
-      const binary = connectBinary();
+      const binary = runtime.binary ?? connectBinary();
       if (!existsSync(binary)) {
         throw new Error(`Connector runtime is missing: ${binary}`);
       }
