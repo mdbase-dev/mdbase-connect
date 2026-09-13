@@ -12,24 +12,15 @@ const credentialStoreUnavailable = (error: unknown): boolean => (
   && error.code === "credential_store_unavailable"
 );
 
-const offlineSnapshot = (): HostedControlSnapshot => ({
-  online: false,
-  hosted_collections_available: false,
-  hosted_collections: [],
-  grants: [],
-  pending_authorizations: []
-});
-
 interface HostedSnapshotLoaderOptions {
   retryAfterMs?: number;
   now?: () => number;
 }
 
 /**
- * A hosted snapshot is status data, so a known unavailable credential store is
- * represented as an offline snapshot rather than a rejected Electron IPC call.
- * Repeated polls are served locally during a short retry cooldown. Other
- * failures remain visible to the renderer and preserve its last snapshot.
+ * Preserve failure as failure, never manufacture an empty success. The renderer
+ * owns last-known data. A credential error is cached only for a short cooldown,
+ * replacing repeated keyring pressure without becoming a second data cache.
  */
 export function createHostedSnapshotLoader(
   request: () => Promise<HostedControlSnapshot>,
@@ -38,21 +29,24 @@ export function createHostedSnapshotLoader(
   const retryAfterMs = options.retryAfterMs ?? 30_000;
   const now = options.now ?? Date.now;
   let retryAt = 0;
+  let credentialError: unknown;
   let inFlight: Promise<HostedControlSnapshot> | undefined;
 
   return () => {
-    if (now() < retryAt) return Promise.resolve(offlineSnapshot());
+    if (now() < retryAt) return Promise.reject(credentialError);
     if (inFlight) return inFlight;
 
     const pending = (async () => {
       try {
         const snapshot = await request();
         retryAt = 0;
+        credentialError = undefined;
         return snapshot;
       } catch (error) {
         if (!credentialStoreUnavailable(error)) throw error;
         retryAt = now() + retryAfterMs;
-        return offlineSnapshot();
+        credentialError = error;
+        throw error;
       }
     })();
     const tracked = pending.finally(() => {
