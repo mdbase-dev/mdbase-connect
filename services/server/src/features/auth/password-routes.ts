@@ -164,6 +164,11 @@ export function registerPasswordAuthRoutes(
       && legalReady;
     const passwordRegistration =
       passwordInvitationRegistration || passwordPublicRegistration;
+    const externalPublicRegistration =
+      authenticationSettings.registrationMode === "open"
+      && (options.providers.google || options.providers.github)
+      && authenticationRateLimiter !== null
+      && legalReady;
     const passwordRecoveryAvailable =
       passwordLogin
       && authenticationSettings.emailDeliveryEnabled
@@ -198,6 +203,19 @@ export function registerPasswordAuthRoutes(
       providers,
       registration: authenticationSettings.registrationMode,
       development_login: options.providers.development,
+      ...(externalPublicRegistration ? { external_public_registration: true } : {}),
+      ...(passwordRegistration || externalPublicRegistration ? {
+        agreements: {
+          terms: {
+            version: authenticationSettings.termsVersion!,
+            url: options.authenticationLegalDocuments!.termsUrl
+          },
+          privacy: {
+            version: authenticationSettings.privacyVersion!,
+            url: options.authenticationLegalDocuments!.privacyUrl
+          }
+        }
+      } : {}),
       ...(passwordLogin
         ? {
             password_login: true,
@@ -212,17 +230,7 @@ export function registerPasswordAuthRoutes(
                     : {}),
                   ...(passwordPublicRegistration
                     ? { password_public_registration: true }
-                    : {}),
-                  agreements: {
-                    terms: {
-                      version: authenticationSettings.termsVersion!,
-                      url: options.authenticationLegalDocuments!.termsUrl
-                    },
-                    privacy: {
-                      version: authenticationSettings.privacyVersion!,
-                      url: options.authenticationLegalDocuments!.privacyUrl
-                    }
-                  }
+                    : {})
                 }
               : {})
           }

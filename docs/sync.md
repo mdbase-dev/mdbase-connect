@@ -13,8 +13,9 @@ record behavior.
 
 The first implementation has one authoritative provider for each collection.
 mdbase cloud is the authority for a hosted collection. An authorized application
-may keep a scoped offline cache, and Connect may materialize a local filesystem
-mirror. Both replicas converge through the same versioned replication protocol.
+may keep an offline cache, and Connect may materialize a local filesystem mirror.
+Both are replicas of collection state and converge through the same versioned
+replication protocol; neither is a separate application authorization boundary.
 
 This produces a small user-facing storage model:
 
@@ -99,8 +100,10 @@ logical-export procedure remain operational launch gates.
    tombstones, and reset behavior are part of the protocol.
 4. **Every mutation is conditional and replay-safe.** A base revision prevents
    lost updates, and a mutation ID makes retries idempotent.
-5. **Replication preserves authorization scope.** A replica receives only the
-   records and schemas covered by its grant.
+5. **Replication preserves collection authorization.** An active application
+   replica is bound to one entire authorized collection and its exact mode and
+   operations. Contracts may shape an application cache's semantic model but do
+   not filter the replication grant.
 6. **mdbase semantics have one production implementation.** The production
    hosted provider uses `mdbase-rs`; the TypeScript authority is limited to an
    executable replication model and application-neutral test fixtures.
@@ -127,10 +130,10 @@ application ── mdbase operations ──> hosted provider ──> authoritati
 
 The Connect control plane continues to own accounts, app identity, grants,
 tokens, and routing. A hosted provider owns collection payloads and invokes
-`mdbase-rs` for collection behavior. Replicas authenticate through Connect and
-hold an exact collection and access mode. The current whole-record replication
-profile requires full-collection approval; contract-scoped applications use
-normalized operations instead.
+`mdbase-rs` for collection behavior. Replicas authenticate through Connect and hold an exact collection and access
+mode. Application authorization is collection-wide. The N-1 wire value remains
+`full_collection`; legacy contract-scoped replica state is retirement evidence
+and must never be widened or resumed.
 
 Two replica forms serve different purposes:
 
@@ -139,10 +142,11 @@ Two replica forms serve different purposes:
 | Application cache | App-owned database | Full collection (current sync profile) | Fast startup and offline application use |
 | Filesystem mirror | mdbase directory and replica metadata | Full collection | Local Markdown access and desktop tooling |
 
-An application cache is a projection of a collection. It does not need to be a
-complete mdbase directory. A filesystem mirror materializes Markdown documents
-and, for a full-collection mirror, the collection configuration and type files
-needed by local tools.
+An application cache is an application-owned semantic projection of an
+authorized collection. It need not expose a complete mdbase directory, but that
+product choice does not narrow the grant. A filesystem mirror materializes the
+collection's Markdown documents, configuration, and type files for local tools;
+it is a replica, not an application contract projection.
 
 The replication protocol is provider-neutral. After the cloud-authoritative
 path is reliable, a local connector can implement the authority side for a
@@ -258,7 +262,7 @@ Each record has:
 - `path`: the current collection-relative path;
 - `revision`: `sha256:<lowercase hex>` of the exact UTF-8 `document` bytes;
 - `document`: the authoritative Markdown source, preserved byte for byte;
-- matched types and contract metadata needed for scoped projection;
+- matched types and contract metadata needed for semantic projection;
 - deletion state when the record is a retained tombstone.
 
 The replication ID stays in provider and device-local replica metadata. The
@@ -274,18 +278,20 @@ A replica registration records:
 - `replica_id` and human-readable device/application name;
 - collection ID;
 - read-only or read-write mode;
-- approved contract scope;
-- scope epoch;
+- canonical collection authorization plus any legacy scope evidence;
+- authorization epoch (the N-1 wire field remains `scope_epoch`);
 - last acknowledged sequence and last-seen time;
 - revocation state.
 
-Changing a replica's scope creates a new epoch and a fresh snapshot. A cursor
-from an earlier scope never acquires visibility into newly authorized records.
+Changing a replica's authorization or mode creates a new epoch and a fresh
+snapshot. A cursor from an earlier epoch never acquires authority. In
+particular, a legacy contract-scoped replica is revoked and reauthorization
+creates a new collection-wide replica rather than widening it in place.
 
 ### Change
 
 The provider records a compact authoritative change for every committed state
-transition. A scoped replication session projects those changes into two record
+transition. An authorized replication session projects those changes into two record
 events:
 
 - `put`: the record is visible after the change;
@@ -499,12 +505,13 @@ whole-collection administration capability is introduced.
 
 ## Application cache behavior
 
-The current sync wire format carries complete Markdown records, so the
-authority refuses sync sessions for contract-scoped grants. This prevents an
-offline cache from accidentally receiving bodies or unmapped fields that its
-contract does not expose. A full-collection application cache opens from local
-state, applies user actions optimistically, and records the corresponding
-mutation before reporting success to the UI.
+The current sync wire format carries complete Markdown records and therefore
+opens only for canonical collection-wide grants. A legacy contract-scoped grant
+is reauthorization evidence, not a narrower functional sync mode. An
+application cache may retain only a semantic projection for product reasons,
+but it opens from collection-authorized local state, applies user actions
+optimistically, and records the corresponding mutation before reporting success
+to the UI.
 Background and resume tasks push pending mutations and pull authoritative
 changes when the operating system permits network work.
 
@@ -532,7 +539,7 @@ GET  /v1/authorities/{collection}/sync/changes?after={cursor}
 POST /v1/authorities/{collection}/sync/mutations
 ```
 
-The session response declares protocol version, replica mode, scope epoch,
+The session response declares protocol version, replica mode, authorization epoch,
 retained cursor boundary, and current head. Snapshot pages use opaque
 continuation tokens. Mutation responses return one durable receipt per mutation
 with applied, conflicted, rejected, or previously-applied status. Replica
@@ -551,15 +558,16 @@ record content so it can validate, query, and synchronize that collection. A
 local-authority collection continues to use the transient relay and keeps its
 payloads on the user's computer.
 
-Replication tokens are bound to a replica, collection, mode, and contract
-scope. Access and refresh credentials follow the existing rotation and
+Replication tokens are bound to a replica, entire collection, mode, and
+authorization epoch. Access and refresh credentials follow the existing rotation and
 revocation model. Mobile credentials use the operating-system keystore;
 filesystem-mirror credentials use owner-only device-local application state
 and never live inside the mirrored folder. Platform keystore integration can
 strengthen that storage without changing the mirror protocol.
-Application-cache grants derive scope from the application's manifest.
-Filesystem-mirror grants are device permissions approved by the collection
-owner and can cover a full collection or selected contracts.
+Application-cache grants require the manifest's explicit `full_collection`
+declaration. Filesystem-mirror grants are separate device permissions approved
+by the collection owner and materialize the collection rather than selected
+contracts.
 
 Provider logs and metrics contain IDs, byte counts, durations, result codes, and
 sequence lag. They exclude Markdown bodies, frontmatter values, query source,
@@ -579,7 +587,8 @@ collection file bytes:
 - current Markdown records are stored once;
 - retained versions and change events have bounded lifetimes;
 - snapshots are paginated and generated at stable sequence boundaries;
-- application caches request contract-scoped subsets;
+- application caches may store application-specific semantic projections of a
+  collection-wide authorized replica;
 - acknowledgements and inactive-replica expiry prevent indefinite history;
 - usage meters count current bytes, retained version bytes, mutations, and
   sync egress.

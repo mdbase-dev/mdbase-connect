@@ -136,7 +136,7 @@ these values together:
 - connector and collection identity;
 - application agreement and signing public keys and the connector agreement
   public key;
-- operations and contract scope;
+- operations and collection authorization;
 - creation time and revocation state.
 
 The connector and application derive directional request and response keys from
@@ -327,9 +327,10 @@ without bounded exact fallback. Format-5 projections enforce this boundary; olde
 formats must be rebuilt from encrypted authority and never relabelled.
 
 The projection is not an encryption or authorization authority. Current version
-bindings permit it to accelerate candidate selection and authorization
-classification; stale, absent, ambiguous, or unverifiable projections require
-bounded canonical decryption and fail-closed mdbase-rs classification. Body prose
+bindings permit it to accelerate semantic candidate selection only; stale,
+absent, ambiguous, or unverifiable projections require bounded canonical
+decryption and fail-closed mdbase-rs classification when semantic evaluation
+needs it. Body prose
 and exact Markdown are decrypted only for authorized exact/body output, body
 predicates, mutation, rebuild, stale fallback, or fail-closed authorization.
 
@@ -383,16 +384,15 @@ This mode changes the available product behavior:
 - server-side previews, indexing, automation, and content-based abuse controls
   are unavailable.
 
-Contract-scoped sharing also needs additional design. A provider cannot derive
-record type membership from encrypted frontmatter. Possible approaches expose
-signed scope labels, use separate keys for contract projections, or require
-full-collection clients. Each approach leaks different metadata and becomes
-complex for records matching multiple types.
+Private hosted application authorization remains collection-wide. Contracts may
+define a client-side semantic projection after decryption, but record type
+membership cannot become a trusted authorization label. Sharing a subset of
+data therefore requires a separate collection and key boundary.
 
 Private hosted collections should therefore follow the standard hosted and
 relay-encryption work. Their protocol can reuse stable IDs, mutations, cursors,
-and ciphertext delivery from sync, while their key distribution and scoped
-projection require a dedicated design and recovery story.
+and ciphertext delivery from sync, while key distribution and client-side
+semantic projection require a dedicated design and recovery story.
 
 ## Local files and device caches
 
@@ -452,7 +452,7 @@ keys in signed client requests. The wire, key, retry, and storage design is in
 | Compromised local connector or unlocked account | Device security and local activity review | Accessible local collections and active grants |
 | Lost private-cloud key | User recovery key or another authorized device | Permanent data loss without recovery material |
 
-Encryption does not replace contract scopes, exact operation grants, revision
+Encryption does not replace collection authorization, exact operation grants, revision
 checks, local pause, activity history, rate limits, or revocation. Those controls
 remain effective before and after decryption at their respective endpoints.
 
@@ -511,7 +511,7 @@ and decrypted recovery material never enter audit events.
 - create a full-collection client-encrypted sync prototype;
 - test recovery and a second-device key grant;
 - measure mobile download, local query, and cache costs;
-- resolve contract-scoped key distribution before offering third-party app
+- resolve collection-wide key distribution before offering third-party app
   access.
 
 ## Acceptance criteria for encrypted relay
@@ -545,7 +545,7 @@ The relay-only encryption milestone is complete when:
   collections;
 - production hosted key retention and recovery-region policy after the staging
   drills establish measured recovery time and dependencies;
-- private-hosted recovery and contract-scoped key distribution.
+- private-hosted recovery and collection-wide application key distribution.
 
 The relay guarantee can be implemented independently of hosted sync. Hosted
 storage and private-hosted encryption then build on the same explicit key,

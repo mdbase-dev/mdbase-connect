@@ -13,7 +13,11 @@ import {
 import { sessionClientName } from "../../account-sessions.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
-import { createExternalSession } from "../../external-auth.js";
+import { createExternalSession, type VerifiedExternalIdentity } from "../../external-auth.js";
+import { ExternalSignupService, ExternalSignupEmailRequiredError } from "../../external-signup.js";
+import { PublicSignupUnavailableError } from "../../public-signup.js";
+import { AuthRateLimiter } from "../../auth-rate-limit.js";
+import { ianaTimezoneSchema } from "../../platform/timezones.js";
 import {
   exchangeGitHubCode,
   GitHubIdentityError,
@@ -24,7 +28,7 @@ import {
   verifyGoogleCredential,
   type GoogleAuthConfig
 } from "../../google-auth.js";
-import type { RegistrationMode } from "../../runtime-config.js";
+import type { AuthenticationLegalDocuments } from "../../runtime-config.js";
 import {
   pkceChallenge,
   randomToken,
@@ -49,12 +53,99 @@ interface ExternalAuthRoutesOptions {
   authenticationPolicy: AuthenticationPolicyStore;
   githubAuth?: GitHubAuthConfig;
   googleAuth?: GoogleAuthConfig;
+  authRateLimitSecret?: string;
+  authenticationLegalDocuments?: AuthenticationLegalDocuments;
 }
 
 export function registerExternalAuthRoutes(
   app: FastifyInstance,
   options: ExternalAuthRoutesOptions
 ): void {
+  const signup = new ExternalSignupService(options.db, options.authenticationPolicy, new Set([
+    ...(options.googleAuth ? ["google" as const] : []),
+    ...(options.githubAuth ? ["github" as const] : [])
+  ]));
+  const limiter = options.authRateLimitSecret
+    ? new AuthRateLimiter(options.db, options.authRateLimitSecret)
+    : null;
+
+  async function limitSignup(scope: string, key: string, ip: string, reply: FastifyReply): Promise<boolean> {
+    if (!limiter || !options.authenticationLegalDocuments) throw new PublicSignupUnavailableError();
+    for (const [suffix, value, maxAttempts] of [["proof", key, 10], ["network", ip, 30], ["global", "all", 300]] as const) {
+      const decision = await limiter.consume(`${scope}.${suffix}`, value, {
+        maxAttempts, windowSeconds: 60 * 60, baseBlockSeconds: 15 * 60, maxBlockSeconds: 60 * 60
+      });
+      if (!decision.allowed) {
+        reply.header("retry-after", String(decision.retryAfterSeconds));
+        reply.code(429).send(apiError("authentication_rate_limited", "Too many account setup attempts. Please try again later."));
+        return false;
+      }
+    }
+    return true;
+  }
+
+  app.post("/v1/auth/external/signup/preview", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    requireSameOrigin(request, options.publicUrl);
+    const token = request.cookies[signupCookieName(options.publicUrl)] ?? "";
+    if (!await limitSignup("external_signup.preview", token, request.ip, reply)) return;
+    const proof = await signup.details(token);
+    return { proof_id: proof.proofId, provider: proof.identity.provider, email: proof.identity.email, name: proof.identity.name };
+  });
+
+  app.post("/v1/auth/external/signup", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    requireSameOrigin(request, options.publicUrl);
+    const input = z.object({
+      proof_id: z.string().regex(/^[a-f0-9]{64}$/),
+      name: z.string().transform((name) => name.normalize("NFC").trim()).pipe(z.string().min(1).max(100)),
+      terms_version: z.string().min(1).max(100),
+      privacy_version: z.string().min(1).max(100),
+      timezone: ianaTimezoneSchema
+    }).strict().parse(request.body);
+    const token = request.cookies[signupCookieName(options.publicUrl)] ?? "";
+    if (!await limitSignup("external_signup.complete", token, request.ip, reply)) return;
+    const session = await signup.complete(token, {
+      proofId: input.proof_id,
+      name: input.name,
+      termsVersion: input.terms_version,
+      privacyVersion: input.privacy_version,
+      timezone: input.timezone,
+      clientName: sessionClientName(request.headers["user-agent"])
+    });
+    reply.clearCookie(signupCookieName(options.publicUrl), { path: "/", secure: options.publicUrl.startsWith("https:") });
+    setSessionCookie(reply, session.token, options.publicUrl);
+    return { redirect_to: session.createdAccount && session.returnTo === "/" ? "/getting-started" : session.returnTo };
+  });
+
+  async function finishLogin(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    identity: VerifiedExternalIdentity,
+    returnTo: string,
+    allowedSubjects: ReadonlySet<string>
+  ): Promise<string | null> {
+    const settings = await options.authenticationPolicy.current();
+    const existing = await options.db.query(
+      "SELECT user_id FROM external_identities WHERE provider = $1 AND subject = $2",
+      [identity.provider, identity.subject]
+    );
+    if (!existing.rows[0] && settings.registrationMode === "open") {
+      if (!await limitSignup("external_signup.start", `${identity.provider}:${identity.subject}`, request.ip, reply)) return null;
+      const token = await signup.create(identity, returnTo);
+      reply.setCookie(signupCookieName(options.publicUrl), token, {
+        httpOnly: true, sameSite: "lax", secure: options.publicUrl.startsWith("https:"), path: "/", maxAge: 10 * 60
+      });
+      return `/signup?external=1&return_to=${encodeURIComponent(returnTo)}`;
+    }
+    const session = await createExternalSession(options.db, identity, {
+      clientName: sessionClientName(request.headers["user-agent"]),
+      allowAccountCreation: allowedSubjects.has(identity.subject)
+    });
+    setSessionCookie(reply, session.token, options.publicUrl);
+    return returnTo;
+  }
+
   app.get("/v1/account/identities/github/link", {
     config: { rateLimit: { max: 10, timeWindow: "1 minute" } }
   }, async (request, reply) => startGitHubAccountFlow(
@@ -94,6 +185,7 @@ export function registerExternalAuthRoutes(
   app.get("/auth/github", {
     config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
   }, async (request, reply) => {
+    reply.header("cache-control", "no-store");
     if (!options.githubAuth) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     }
@@ -126,6 +218,7 @@ export function registerExternalAuthRoutes(
     });
     const authorize = new URL("https://github.com/login/oauth/authorize");
     authorize.searchParams.set("client_id", options.githubAuth.clientId);
+    authorize.searchParams.set("scope", "user:email");
     authorize.searchParams.set(
       "redirect_uri",
       `${options.publicUrl}/auth/github/callback`
@@ -143,6 +236,7 @@ export function registerExternalAuthRoutes(
   app.get("/auth/github/callback", {
     config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
   }, async (request, reply) => {
+    reply.header("cache-control", "no-store");
     if (!options.githubAuth) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     }
@@ -158,8 +252,7 @@ export function registerExternalAuthRoutes(
       secure: options.publicUrl.startsWith("https:")
     });
     if (
-      query.error
-      || !query.code
+      (!query.code && !query.error)
       || !query.state
       || !cookieState
       || !safeEqual(query.state, cookieState)
@@ -183,10 +276,14 @@ export function registerExternalAuthRoutes(
         "The GitHub sign-in request is invalid or expired."
       ));
     }
+    if (query.error) {
+      return reply.redirect(`/login?auth_error=cancelled&return_to=${encodeURIComponent(state.rows[0].return_to)}`);
+    }
     const identity = await exchangeGitHubCode(options.githubAuth, {
-      code: query.code,
+      code: query.code!,
       codeVerifier: state.rows[0].code_verifier,
-      redirectUri: `${options.publicUrl}/auth/github/callback`
+      redirectUri: `${options.publicUrl}/auth/github/callback`,
+      readVerifiedEmail: state.rows[0].purpose === "login"
     });
     if (
       !/^[1-9][0-9]*$/.test(identity.id)
@@ -195,7 +292,6 @@ export function registerExternalAuthRoutes(
     ) {
       throw new GitHubIdentityError("GitHub returned an invalid user identity.");
     }
-    const authenticationSettings = await options.authenticationPolicy.current();
     const name = (identity.name?.trim() || identity.login).slice(0, 100);
     const email = identity.email?.trim().toLowerCase() || null;
     const verified = {
@@ -204,7 +300,7 @@ export function registerExternalAuthRoutes(
       name,
       login: identity.login,
       email,
-      emailVerified: false,
+      emailVerified: identity.emailVerified === true,
       avatarUrl: null
     } as const;
     if (state.rows[0].purpose !== "login") {
@@ -216,16 +312,15 @@ export function registerExternalAuthRoutes(
       );
       return reply.redirect(completed);
     }
-    const session = await createExternalSession(options.db, verified, {
-      clientName: sessionClientName(request.headers["user-agent"]),
-      allowAccountCreation: identityAllowed(
-        authenticationSettings.registrationMode,
-        options.githubAuth.allowedUserIds,
-        identity.id
-      )
-    });
-    setSessionCookie(reply, session.token, options.publicUrl);
-    return reply.redirect(state.rows[0].return_to);
+    try {
+      const redirectTo = await finishLogin(request, reply, verified, state.rows[0].return_to, options.githubAuth.allowedUserIds);
+      if (redirectTo !== null) return reply.redirect(redirectTo);
+    } catch (error) {
+      if (error instanceof ExternalSignupEmailRequiredError) {
+        return reply.redirect(`/signup?auth_error=verified_email_required&return_to=${encodeURIComponent(state.rows[0].return_to)}`);
+      }
+      throw error;
+    }
   });
 
   app.get("/auth/google", {
@@ -270,6 +365,7 @@ export function registerExternalAuthRoutes(
   app.post("/auth/google/callback", {
     config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
   }, async (request, reply) => {
+    reply.header("cache-control", "no-store");
     if (!options.googleAuth) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     }
@@ -316,7 +412,6 @@ export function registerExternalAuthRoutes(
     if (!/^[A-Za-z0-9_-]{1,255}$/.test(identity.id)) {
       throw new GoogleIdentityError("Google returned an invalid account subject.");
     }
-    const authenticationSettings = await options.authenticationPolicy.current();
     const name = identity.name.trim().slice(0, 100);
     if (!name) {
       throw new GoogleIdentityError("Google returned an invalid account name.");
@@ -343,16 +438,8 @@ export function registerExternalAuthRoutes(
         )
       };
     }
-    const session = await createExternalSession(options.db, verified, {
-      clientName: sessionClientName(request.headers["user-agent"]),
-      allowAccountCreation: identityAllowed(
-        authenticationSettings.registrationMode,
-        options.googleAuth.allowedSubjects,
-        identity.id
-      )
-    });
-    setSessionCookie(reply, session.token, options.publicUrl);
-    return { redirect_to: state.rows[0].return_to };
+    const redirectTo = await finishLogin(request, reply, verified, state.rows[0].return_to, options.googleAuth.allowedSubjects);
+    if (redirectTo !== null) return { redirect_to: redirectTo };
   });
 }
 
@@ -527,12 +614,8 @@ function withFragment(
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-function identityAllowed(
-  registration: RegistrationMode,
-  allowedSubjects: ReadonlySet<string>,
-  subject: string
-): boolean {
-  return registration === "open" || allowedSubjects.has(subject);
+function signupCookieName(publicUrl: string): string {
+  return publicUrl.startsWith("https:") ? "__Host-mdbase-signup" : "mdbase-signup";
 }
 
 function safeReturnTarget(
@@ -543,7 +626,7 @@ function safeReturnTarget(
   try {
     const origin = new URL(publicUrl).origin;
     const target = new URL(requested, origin);
-    if (target.origin !== origin) return "/";
+    if (target.origin !== origin || target.pathname.startsWith("//")) return "/";
     return `${target.pathname}${target.search}${target.hash}`;
   } catch {
     return "/";

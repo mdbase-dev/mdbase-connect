@@ -1,5 +1,102 @@
 # Changelog
 
+## 0.1.0-beta.94
+
+Beta.94 replaces type-scoped application grants with explicit collection-level
+authorization and strengthens release compatibility gates.
+
+- Applications request and receive one canonical full-collection scope while
+  operation, file, origin, proof-of-possession, and collection boundaries remain
+  independently enforced.
+- Existing scoped grants, tokens, hosted replicas, and notification authority
+  retire fail closed and surface an actionable reauthorization outcome rather
+  than being silently widened or reported as corrupt state.
+- Local and hosted execution reject legacy scope at every admission boundary;
+  exact terminal hosted mutation replay remains available only to still-valid
+  retired credentials and cannot authorize changed or new work.
+- Authorization approval compensates retained provider policy changes if the
+  control-plane transaction fails, revoking the replica when restoration cannot
+  be proved.
+- Immediate-predecessor persisted-state CI attempts a candidate write before
+  projection normalization, runtime diagnostics compare persisted projections
+  with the running engine, and release tooling blocks undeclared projection
+  format or semantic-engine transitions.
+- A live projection-cutover lease admits semantic queries while canonical,
+  synchronization, file, import, and provider-control writes remain fenced.
+- Exact Editor qualification preserves immediate revalidation on immutable
+  Pages assets while separately verifying the canonical domain's bounded,
+  managed four-hour policy for edge-cache-eligible asset classes.
+
+## 0.1.0-beta.93
+
+Beta.93 consolidates collection semantics behind typed, capability-bound
+runtime APIs and completes cross-platform authority safety.
+
+- Local and hosted reads, queries, mutations, batches, and runtime receipts now
+  share canonical typed outcomes while preserving exact v0.3 wire behavior and
+  durable replay.
+- Collection snapshots are fallible and deterministic; merged-spec resolution
+  uses one Unicode-aware, target-filtered ranking contract with bounded
+  selection evidence.
+- Every post-open filesystem operation, watcher rescan, cache decision, and
+  publication remains bound to the acquired collection authority instead of
+  reacquiring an ambient display path.
+- Capture, cancellation, journal recovery, and compatibility seams are bounded,
+  checked, authenticated, and covered by enforceable retirement inventories.
+- Unix and Windows publication is capability-relative and atomic. Windows uses
+  destination-replacing handle-relative rename, delete-sharing readers, and
+  bounded sharing-denial retries without a remove-then-rename fallback.
+- Hosted mutation receipts and exact journal replay report the authoritative
+  persisted database mtime rather than temporary staging metadata.
+
+## 0.1.0-beta.92
+
+Beta.92 restores relay compatibility with signed beta.90 connectors while
+preserving the stronger policy-freshness lease as an optional beta capability.
+
+- Relay policy negotiation now selects explicit `lease_v1` or frozen
+  `legacy_ack_v0` behavior; beta.90 receives its original policy wire shape and
+  acknowledgement revision without claiming bounded offline revocation.
+- Lease negotiation and acknowledged adoption are durable and monotonic, so a
+  concurrent, failed, or incomplete attach cannot reopen legacy admission after
+  a connector has crossed either boundary.
+- Initial and changed-policy acknowledgements fence routing and publication;
+  stale mutation responses surface an unknown outcome instead of publishing
+  through superseded authority.
+- Advisory replacement broadcasts now use a bounded broker flush, so a stalled
+  broker acknowledgement cannot prevent the initial policy from reaching an
+  otherwise authenticated connector session.
+- Connector-side lease adoption remains sticky, partial lease metadata fails
+  closed, and websocket shutdown aborts the policy coordinator before it can
+  restore a disconnected session to `Connected`.
+- Account surfaces truthfully recommend updates for legacy acknowledgements and
+  retain beta.91 as the lease capability floor while the baseline connector
+  floor remains independent.
+- `policy-freshness-lease-v1` stays optional for every beta. Stable `v0.1.0` is
+  only the earliest possible enforcement boundary and remains subject to the
+  documented production-observation and rollback gates.
+
+## 0.1.0-beta.91
+
+Beta.91 hardens collection ownership, filesystem convergence, and authorization
+revocation across the Editor, local connector, hosted provider, and mirrors.
+
+- Editor collection transitions freeze and drain owned work before changing
+  authority, fence stale publication, isolate transclusions, and keep detached
+  type-definition saves generation-safe.
+- Watcher and mirror paths preserve typed invalid-record outcomes, capability-
+  bound filesystem reads, exact cache acknowledgement, bounded retry state, and
+  feed silence for invalid private observations.
+- Hosted authority imports, mutation recovery, account snapshots, selected-folder
+  scopes, and exact timer reconciliation now retain their execution-time
+  authority and fail closed under contention or stale completion.
+- Connector policy leases use exact-session acknowledgements, bounded renewal,
+  cross-instance coalescing, and transport-bound publication fences so revoked
+  work cannot publish through a successor policy.
+- Release tooling can bind an exact signed candidate, client, and Editor revision
+  to guarded LAB-only deployment and rollback evidence without permitting a
+  staging or production target.
+
 ## 0.1.0-beta.90
 
 Beta.90 makes account deletion transactional, isolates stale hosted grants, and

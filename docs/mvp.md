@@ -7,11 +7,11 @@ The original local-collection MVP is complete when a user can:
 3. Pair the connector through a signed-in browser without copying a token.
 4. Open an unrelated application that bundles an mdbase app declaration.
 5. See the pending request in the local controller, choose a collection, and
-   approve exact operations and its contract-derived record scope there.
+   approve collection access with exact operation and file capabilities there.
 6. Discover its schemas and first-class data contracts without exposing its
    filesystem path.
-7. Read, query, and conditionally update records through the relay while records
-   outside the approved contract remain inaccessible.
+7. Read, query, and conditionally update collection records through the relay
+   while the approved operation capabilities remain in force.
 8. Receive resumable, content-free change notifications after local or remote
    writes.
 9. Pause remote access locally and observe requests fail without removing the

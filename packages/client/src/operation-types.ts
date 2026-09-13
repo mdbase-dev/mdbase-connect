@@ -160,8 +160,9 @@ export interface QuerySummary {
 /** Application-facing form of the canonical mdbase v0.3 query schema. */
 export interface QueryInput {
   /**
-   * Contract-scoped queries accept only `types`, `timezone`, pagination,
-   * `frontmatterMode`, and `contract`; filter normalized fields in the app.
+   * Queries using a semantic contract view accept only `types`, `timezone`,
+   * pagination, `frontmatterMode`, and `contract`; filter normalized fields in
+   * the app.
    */
   types?: string[];
   /** IANA timezone used for calendar semantics in this invocation. */
@@ -184,7 +185,7 @@ export interface QueryInput {
   snapshot?: string;
   includeBody?: boolean;
   frontmatterMode?: "effective" | "persisted" | "both";
-  /** Narrow a contract-scoped query to one exact contract/provider view. */
+  /** Select one exact semantic contract/provider view for this query. */
   contract?: DataContractSelector;
 }
 
@@ -206,7 +207,9 @@ export interface QueryResult<Record extends JsonObject = JsonObject> {
 }
 
 export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
+  /** Initial page size. Cursor authorities pin this size for the query lifetime. */
   firstPageSize?: number;
+  /** Also sets the initial size unless firstPageSize is explicit; authorities may cap it. */
   pageSize?: number;
   signal?: AbortSignal;
   /** Independent budget for each page requested by this caller-driven iterator. */
@@ -217,7 +220,9 @@ export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
 
 export interface QueryAllOptions<Record extends JsonObject = JsonObject>
   extends ConnectRequestOptions {
+  /** Initial page size. Cursor authorities pin this size for the query lifetime. */
   firstPageSize?: number;
+  /** Also sets the initial size unless firstPageSize is explicit; authorities may cap it. */
   pageSize?: number;
   onProgress?: (page: QueryPage<Record>) => void;
 }

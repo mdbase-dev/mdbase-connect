@@ -1,13 +1,10 @@
 use super::*;
-use crate::admission::{
-    classify_operation, execution_timeout, queue_deadline, AdmissionPermit, AdmissionRequest,
-};
+use crate::admission::{classify_operation, queue_deadline, AdmissionPermit, AdmissionRequest};
 use crate::operation_executor;
 use crate::server::OperationExecutionState;
 use axum::routing::{get, post};
 use mdbase_connect_protocol::{
-    ConnectOperationOutcome, ConnectProblem, RelayMessage, LOOPBACK_PROTOCOL_VERSION,
-    OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    RelayMessage, LOOPBACK_PROTOCOL_VERSION, OPERATION_TRANSPORT_PROTOCOL_VERSION,
 };
 
 #[derive(serde::Serialize)]
@@ -169,6 +166,17 @@ async fn encrypted_control(
         );
     }
     let deadline_unix_ms = envelope.deadline_unix_ms;
+    let execution_deadline = state
+        .agent
+        .remote_policy_execution_deadline(deadline_unix_ms);
+    let Ok(policy_permit) = state.agent.capture_policy_revision() else {
+        return cors_error(
+            StatusCode::FORBIDDEN,
+            "access_denied",
+            "The remote policy lease expired.",
+            &origin,
+        );
+    };
     let admission = AdmissionRequest {
         grant_id: envelope.grant_id,
         collection_id: envelope.collection_id,
@@ -180,22 +188,33 @@ async fn encrypted_control(
     let Ok(permit) = state
         .agent
         .admission()
-        .admit_before(admission, queue_deadline(deadline_unix_ms))
+        .admit_before(admission, queue_deadline(execution_deadline))
         .await
     else {
-        return cors_busy("The local connector is busy.", &origin);
+        return fenced_response(
+            cors_busy("The local connector is busy.", &origin),
+            state.agent.clone(),
+            policy_permit,
+            execution_deadline,
+            None,
+        );
     };
+    if state.agent.admit_policy_revision(&policy_permit).is_err() {
+        return abort_transport();
+    }
     tracing::debug!(
         queue_wait_us = permit.queue_wait_us,
         "admitted direct connector operation"
     );
     let cancellation = mdbase::OperationCancellation::new();
+    let registration = state.agent.register_remote_operation(&cancellation);
     let worker_cancellation = cancellation.clone();
     let mut cancel_on_drop = CancelOnDrop(Some(cancellation));
     let execution_state = Arc::new(OperationExecutionState::default());
     let worker_execution_state = execution_state.clone();
     let agent = state.agent.clone();
     let operation_origin = origin.clone();
+    let execution_policy = policy_permit.clone();
     let execution = operation_executor::spawn_blocking(class, move || {
         let response = agent.handle_direct_encrypted_operation_cancellable(
             &operation_origin,
@@ -214,7 +233,7 @@ async fn encrypted_control(
             _ => Ok(None),
         }
     });
-    let outcome = tokio::time::timeout(execution_timeout(deadline_unix_ms), execution).await;
+    let outcome = tokio::time::timeout_at(execution_deadline, execution).await;
     let timed_out_durable_mutation = if outcome.is_err() {
         let durable_mutation = execution_state.begin_timeout();
         if let Some(cancellation) = cancel_on_drop.0.take() {
@@ -225,63 +244,52 @@ async fn encrypted_control(
         cancel_on_drop.0 = None;
         false
     };
+    state.agent.unregister_remote_operation(registration);
     match outcome {
         Ok(Ok(Ok(Some(encoded)))) => {
-            let content_length = encoded.body.len();
-            let stream = futures_util::stream::unfold(
-                (
-                    axum::body::Bytes::from(encoded.body),
-                    encoded.permit,
-                ),
-                |(mut body, permit)| async move {
-                    if body.is_empty() {
-                        return None;
-                    }
-                    let chunk = body.split_to(body.len().min(64 * 1024));
-                    Some((
-                        Ok::<_, std::convert::Infallible>(chunk),
-                        (body, permit),
-                    ))
-                },
-            );
-            let mut response = Response::new(Body::from_stream(stream));
+            let mut response = Response::new(Body::from(encoded.body));
             response.headers_mut().insert(
                 header::CONTENT_TYPE,
                 HeaderValue::from_static("application/json"),
             );
-            if let Ok(length) = HeaderValue::from_str(&content_length.to_string()) {
-                response.headers_mut().insert(header::CONTENT_LENGTH, length);
-            }
-            cors_response(response, &origin)
-        }
-        Ok(Ok(Ok(None))) => cors_error(
-            StatusCode::FORBIDDEN,
-            "direct_operation_rejected",
-            "The local connector rejected this operation.",
-            &origin,
-        ),
-        Ok(Ok(Err(_))) | Ok(Err(_)) => cors_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "connector_failed",
-            "The local connector could not complete this operation.",
-            &origin,
-        ),
-        Err(_) if timed_out_durable_mutation => cors_problem(
-            StatusCode::CONFLICT,
-            ConnectProblem::new(
-                "operation_outcome_unknown",
-                "The durable mutation may have completed after its caller's deadline expired. Retry the exact same request to recover its result.",
+            fenced_response(
+                cors_response(response, &origin),
+                state.agent.clone(),
+                execution_policy,
+                execution_deadline,
+                Some(encoded.permit),
             )
-            .with_details(serde_json::json!({ "request_id": request_id }))
-            .with_operation_outcome(ConnectOperationOutcome::Unknown),
-            &origin,
+        }
+        Ok(Ok(Ok(None))) => fenced_response(
+            cors_error(
+                StatusCode::FORBIDDEN,
+                "direct_operation_rejected",
+                "The local connector rejected this operation.",
+                &origin,
+            ),
+            state.agent.clone(),
+            execution_policy,
+            execution_deadline,
+            None,
         ),
-        Err(_) => cors_error(
-            StatusCode::GATEWAY_TIMEOUT,
-            "connector_timeout",
-            "The local connector did not complete this operation in time.",
-            &origin,
+        Ok(Ok(Err(_))) | Ok(Err(_)) => fenced_response(
+            cors_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "connector_failed",
+                "The local connector could not complete this operation.",
+                &origin,
+            ),
+            state.agent.clone(),
+            execution_policy,
+            execution_deadline,
+            None,
         ),
+        // The one absolute deadline includes publication. Never manufacture a
+        // fresh timeout or unknown-outcome body after that boundary.
+        Err(_) => {
+            let _ = (timed_out_durable_mutation, request_id);
+            abort_transport()
+        }
     }
 }
 

@@ -139,6 +139,7 @@ pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition
         "invalid_read_cursor" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Validation, recovery: ConnectRecoveryAction::FixRequest }),
         "invalid_request" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Validation, recovery: ConnectRecoveryAction::FixRequest }),
         "invalid_token_response" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Integrity, recovery: ConnectRecoveryAction::ContactSupport }),
+        "legacy_scope_reauthorization_required" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "managed_fcm_not_declared" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::FixRequest }),
         "manifest_load_failed" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::Retry }),
         "manifest_required" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Validation, recovery: ConnectRecoveryAction::FixRequest }),

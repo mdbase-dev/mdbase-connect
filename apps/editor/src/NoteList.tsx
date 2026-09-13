@@ -8,7 +8,7 @@ import { noteSortSummary, moveListIndex, type NoteSort, type ListNavigationKey }
 import { NoteListViewOptions } from "./NoteListViewOptions";
 import { notePreviewPopoverId, type NotePreviewAnchor, type NotePreviewSource } from "./NotePreview";
 import { isPhosphorIconName, PhosphorIcon, collectionTypeIcon } from "./PhosphorIcon";
-import { searchTextRanges, type NoteSearchContext } from "./note-search";
+import { searchTextRanges, type NoteSearchResult } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
 import { browserListItems, collectionFileFormat, collectionFileTitle, formatFileSize, type CollectionBrowserEntry } from "./collection-browser";
 
@@ -35,7 +35,7 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
   statuses: Map<string, NoteRowStatus>;
   search: string;
   searchQuery: string;
-  searchContexts: Map<string, NoteSearchContext>;
+  searchContexts: Map<string, NoteSearchResult>;
   sort: NoteSort;
   scopeLabel?: string;
   collectionName: string;
@@ -61,7 +61,7 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
   previewPath?: string;
   onPreview: (path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void;
   onDismissPreview: () => void;
-  onCreate: () => void;
+  onCreate?: () => void;
   onCollections: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -111,7 +111,7 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
 
   const typeIcons = useMemo(() => new Map(types.map((type) => [type.name, collectionTypeIcon(type)])), [types]);
   return <section className="note-list-pane" aria-label="Notes and files">
-    <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort)}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}>Retry search</button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}>Retry files</button>}</p></div>{trailingActions}<button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button></header>
+    <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort)}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}>Retry search</button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}>Retry files</button>}</p></div>{trailingActions}{onCreate && <button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button>}</header>
     <div className="note-list-controls">
       <div className="search-field"><Search aria-hidden="true" /><label className="sr-only" htmlFor="note-search">Search notes and files</label><input id="note-search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search" />{search ? <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button> : <button className="quick-open-trigger" aria-label="Quick open" title="Quick open" onClick={onQuickOpen}><kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} P</kbd></button>}</div>
       <NoteListViewOptions sort={sort} scopeLabel={scopeLabel} onSort={onSort} onClearScope={onClearScope} />
@@ -132,7 +132,7 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
         }
         const note = entry.note;
         const status: NoteRowStatus | undefined = pendingPath === note.path ? { label: "Opening", tone: "busy", busy: true } : statuses.get(note.path);
-        const searchContext = searchQuery.trim() ? searchContexts.get(note.path) : undefined;
+        const searchContext = searchQuery.trim() ? searchContexts.get(note.path)?.context : undefined;
         const title = noteTitle(note, types);
         const typeIcon = note.types.map((type) => typeIcons.get(type)).find(isPhosphorIconName);
         const requestPreview = (target: HTMLButtonElement) => {
@@ -140,14 +140,11 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
           onPreview(note.path, { left, right, top, bottom }, "sidebar");
         };
         return <button key={note.path} id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={note.path === selectedPath} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={previewPath === note.path ? notePreviewPopoverId() : undefined} className={`note-row${note.path === selectedPath ? " selected" : ""}${status ? ` ${status.tone}` : ""}`} onMouseEnter={(event) => requestPreview(event.currentTarget)} onMouseLeave={onDismissPreview} onFocus={(event) => requestPreview(event.currentTarget)} onBlur={onDismissPreview} onClick={() => { onDismissPreview(); if (!status?.disabled) onSelect(note.path); }} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title-line">{typeIcon && <PhosphorIcon name={typeIcon} aria-hidden="true" />}<span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span></span>{status ? <span className="note-transition">{status.label}</span> : searchContext ? <span className={`note-detail note-search-context ${searchContext.kind}`}><SearchMatchText text={searchContext.text} ranges={searchContext.ranges} /></span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note, types)}</span>}</button>;
-      })}</div> : structureLoading || filesLoading ? <NoteListSkeleton /> : <div className="list-empty"><p>{search ? "No notes or files found." : "This collection is empty."}</p>{!search && <button onClick={onCreate}>Create the first note</button>}</div>}
+      })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status">Reading notes and files…</div> : <div className="list-empty"><p>{search ? "No notes or files found." : "This collection is empty."}</p>{!search && onCreate && <button onClick={onCreate}>Create the first note</button>}</div>}
     </div>
   </section>;
 }
 
-function NoteListSkeleton() {
-  return <div className="note-list-skeleton" aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <div key={index}><span /><small /></div>)}</div>;
-}
 
 function browserCountLabel(noteCount: number, fileCount: number, resultCount: number, loading: boolean, structureLoading: boolean, filesLoading: boolean, contentIndexing: boolean, contentLoaded: number, total: number | undefined, contentTotal: number | undefined, searching: boolean, sort: NoteSort): string {
   if (searching && contentIndexing) return `${resultCount.toLocaleString()} found so far · searching ${contentLoaded.toLocaleString()} of ${contentTotal?.toLocaleString() ?? "…"}`;

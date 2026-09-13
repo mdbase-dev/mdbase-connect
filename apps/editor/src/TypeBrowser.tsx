@@ -104,7 +104,7 @@ export function TypeList({ types, selectedName, packsSelected = false, leadingAc
   trailingActions?: ReactNode;
   onSelect: (name: string) => void;
   onPacks: () => void;
-  onCreate: () => void;
+  onCreate?: () => void;
   onCollections: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -115,7 +115,7 @@ export function TypeList({ types, selectedName, packsSelected = false, leadingAc
       {leadingActions}
       <div><h1>Types</h1><p>{types.length} {types.length === 1 ? "definition" : "definitions"}</p></div>
       {trailingActions}
-      <button className="icon-button new-type-button" aria-label="New type" title="New type" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button>
+      {onCreate && <button className="icon-button new-type-button" aria-label="New type" title="New type" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button>}
     </header>
     <label className="search-field">
       <Search aria-hidden="true" /><span className="sr-only">Search types</span>
@@ -195,7 +195,8 @@ export function TypePackBrowser({ types, contracts, catalog, loading = false, er
   </main>;
 }
 
-export function TypeInspector({ type, availableTypes = [], contracts = [], document, source, notes, explicitTypeKeys = ["type", "types"], creating, loading, saving, error, leadingActions, onSourceChange, onSave, onRevert, onCancel, onCreate, onBrowsePacks, onOpenSettings, onBack }: {
+export function TypeInspector({ readOnly = false, type, availableTypes = [], contracts = [], document, source, notes, explicitTypeKeys = ["type", "types"], creating, loading, saving, error, leadingActions, onSourceChange, onSave, onRevert, onCancel, onCreate, onBrowsePacks, onOpenSettings, onBack }: {
+  readOnly?: boolean;
   type?: CollectionTypeDescriptor;
   availableTypes?: CollectionTypeDescriptor[];
   contracts?: CollectionContractDescriptor[];
@@ -212,7 +213,7 @@ export function TypeInspector({ type, availableTypes = [], contracts = [], docum
   onSave: () => void;
   onRevert: () => void;
   onCancel: () => void;
-  onCreate: () => void;
+  onCreate?: () => void;
   onBrowsePacks?: () => void;
   onOpenSettings?: () => void;
   onBack: () => void;
@@ -253,7 +254,7 @@ export function TypeInspector({ type, availableTypes = [], contracts = [], docum
     }
   }
 
-  if (!creating && !type) return <main className="type-inspector empty-type">{leadingActions && <div className="empty-pane-actions">{leadingActions}</div>}<div><p>This collection has no type definitions.</p><button className="empty-type-create" onClick={onCreate}>Create the first type</button></div></main>;
+  if (!creating && !type) return <main className="type-inspector empty-type">{leadingActions && <div className="empty-pane-actions">{leadingActions}</div>}<div><p>This collection has no type definitions.</p>{onCreate && <button className="empty-type-create" onClick={onCreate}>Create the first type</button>}</div></main>;
   const name = creating ? "New type" : type!.name;
   const path = creating ? "A path will be created from the type name" : document?.path ?? type!.path ?? `_types/${type!.name}.md`;
   return <main className="type-inspector" aria-label={`${name} type definition`}>
@@ -282,20 +283,20 @@ export function TypeInspector({ type, availableTypes = [], contracts = [], docum
         <div className="type-source-intro"><h2>Review changes</h2><p>Confirm the collection-wide effect before saving.</p></div>
       </div> : <div className="type-source-context">
           <div className="type-source-intro"><h2>Definition</h2><p>Design the note shape or work with its complete YAML source.</p></div>
-          <div className="type-view-switch" role="group" aria-label="Type editor view">
+          {!readOnly && <><div className="type-view-switch" role="group" aria-label="Type editor view">
             <button className={view === "visual" ? "selected" : ""} aria-pressed={view === "visual"} onClick={() => { setView("visual"); setReviewing(false); }}>Design</button>
             <button className={view === "yaml" ? "selected" : ""} aria-pressed={view === "yaml"} onClick={() => { setView("yaml"); setReviewing(false); }}>YAML</button>
           </div>
           <div className="type-editor-actions">
             <span className="type-change-scope">Collection-wide change</span>
-            <button className="type-secondary-action" onClick={creating ? onCancel : onRevert} disabled={saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
-            <button className="save-type-button" onClick={() => setReviewing(true)} disabled={loading || saving || !dirty || !parsed.value || contractErrors.length > 0}>{saving ? "Saving…" : "Review changes"}</button>
-          </div>
+            <button className="type-secondary-action" onClick={creating ? onCancel : onRevert} disabled={readOnly || saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
+            <button className="save-type-button" onClick={() => setReviewing(true)} disabled={readOnly || loading || saving || !dirty || !parsed.value || contractErrors.length > 0}>{saving ? "Saving…" : "Review changes"}</button>
+          </div></>}
         </div>
       }
       {(error || visualError || parsed.error) && <p className="type-editor-error" role="alert">{error || visualError || parsed.error}</p>}
-      {loading ? <div className="type-source-loading" aria-label="Loading type definition"><span /><span /><span /></div>
-        : reviewing && impact ? <TypeChangeReview
+      {loading ? <div className="type-source-loading" role="status" aria-label="Loading type definition">Reading type definition…</div>
+        : !readOnly && reviewing && impact ? <TypeChangeReview
           previousSource={document?.document}
           source={source}
           impact={impact}
@@ -304,7 +305,7 @@ export function TypeInspector({ type, availableTypes = [], contracts = [], docum
           onBack={() => setReviewing(false)}
           onConfirm={onSave}
         />
-          : view === "visual" && parsed.value ? <VisualTypeEditor
+          : !readOnly && view === "visual" && parsed.value ? <VisualTypeEditor
             definition={parsed.value}
             source={source}
             impact={impact}
@@ -320,12 +321,13 @@ export function TypeInspector({ type, availableTypes = [], contracts = [], docum
             onBrowsePacks={onBrowsePacks}
             onOpenSettings={onOpenSettings}
           />
-            : view === "visual" ? <div className="visual-type-unavailable"><CircleAlert aria-hidden="true" /><p>Fix the YAML source before returning to the field editor.</p><button onClick={() => setView("yaml")}>Open YAML</button></div>
+            : !readOnly && view === "visual" ? <div className="visual-type-unavailable"><CircleAlert aria-hidden="true" /><p>Fix the YAML source before returning to the field editor.</p><button onClick={() => setView("yaml")}>Open YAML</button></div>
               : <CodeEditor
                 key={`${document?.path ?? "new-type"}:yaml`}
                 value={source}
                 onChange={(next) => { onSourceChange(next); setVisualError(undefined); setReviewing(false); }}
                 label={`${name} type YAML`}
+                readOnly={readOnly}
                 language="yaml-frontmatter"
                 lineWrapping={false}
                 autoFocus={creating}
@@ -974,9 +976,7 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
       </div>
       {catalog && <a href={catalog.sourceUrl} target="_blank" rel="noreferrer">Catalog source</a>}
     </div>
-    {loading && <div className="contract-catalog-loading" role="status" aria-label="Loading contract catalog">
-      <span /><span /><span />
-    </div>}
+    {loading && <div className="contract-catalog-loading" role="status" aria-label="Loading contract catalog">Loading available compatibility packs…</div>}
     {error && !loading && <div className="contract-catalog-error" role="alert">
       <div><strong>Catalog unavailable</strong><p>{error}</p></div>
       {onReload && <button onClick={onReload}>Try again</button>}

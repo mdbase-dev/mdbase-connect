@@ -1,15 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type {
   ApplicationNotifications,
-  ApplicationProvisions,
-  ApplicationRequirements
+  ApplicationProvisions
 } from "@mdbase-dev/connect-protocol";
+import type { ApplicationRequirements } from "../../application-requirements.js";
 import type { DatabaseQueryable } from "../../db.js";
-import type { RegisteredApplicationManifest } from "../../manifest.js";
+import type { AppManifest, RegisteredApplicationManifest } from "../../manifest.js";
 
 export interface RegisteredApplication {
   id: string;
   manifest_digest: string;
+  /** Complete normalized declaration; null for registrations predating its persistence. */
+  application_declaration: AppManifest | null;
   distribution: "web" | "portable";
   name: string;
   homepage: string;
@@ -31,9 +33,10 @@ export async function upsertApplication(
     `INSERT INTO applications
        (id, canonical_identity, family_identity, manifest_version, manifest_digest,
         distribution, name, homepage,
-        project_url, icon, redirect_uris, requirements, provisions, notifications)
+        project_url, icon, redirect_uris, requirements, provisions, notifications,
+        application_declaration)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb,
-             $13::jsonb, $14::jsonb)
+             $13::jsonb, $14::jsonb, $15::jsonb)
      ON CONFLICT(canonical_identity) DO UPDATE SET
        family_identity = excluded.family_identity,
        manifest_version = excluded.manifest_version,
@@ -47,9 +50,11 @@ export async function upsertApplication(
        requirements = excluded.requirements,
        provisions = excluded.provisions,
        notifications = excluded.notifications,
+       application_declaration = excluded.application_declaration,
        updated_at = now()
      RETURNING id, manifest_digest, distribution, name, homepage, project_url, icon, redirect_uris,
-               canonical_identity, family_identity, requirements, provisions, notifications`,
+               canonical_identity, family_identity, requirements, provisions, notifications,
+               application_declaration`,
     [
       randomUUID(),
       discovered.canonicalIdentity,
@@ -72,7 +77,8 @@ export async function upsertApplication(
       ),
       JSON.stringify(discovered.manifest.requirements),
       JSON.stringify(discovered.manifest.provisions),
-      JSON.stringify(discovered.manifest.notifications)
+      JSON.stringify(discovered.manifest.notifications),
+      JSON.stringify(discovered.manifest)
     ]
   );
   return application.rows[0];

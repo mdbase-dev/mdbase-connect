@@ -6,8 +6,8 @@ import {
   sign
 } from "node:crypto";
 import type {
-  ApplicationRequirements,
   CollectionOperation,
+  LegacyMdbaseAppManifest,
   MdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
 import {
@@ -15,24 +15,36 @@ import {
   AUTHORITY_PROOF_VERSION,
   CONNECT_CONTRACT_SUPPORT,
   HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY,
-  HOSTED_PROVIDER_REQUIRED_CAPABILITIES
+  HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
+  operationsForApplicationCapabilities
 } from "@mdbase-dev/connect-protocol";
+import type { ApplicationRequirements } from "./application-requirements.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import {
+  createHostedCollectionMembership,
+  membershipPolicyPreset
+} from "./collection-policy.js";
+import {
   HostedProviderClient,
+  HostedProviderUnavailableError,
   HostedProviderResponseError
 } from "./hosted-provider.js";
 import { authorityProofMessage } from "./authority-proof.js";
 import { pkceChallenge, tokenHash } from "./security.js";
 import {
   createTestApplicationIdentity,
-  testApplicationAuthorization
+  testApplicationAuthorization,
+  LEGACY_READ_CAPABILITIES, LEGACY_READ_OPERATIONS, legacyOperations
 } from "./application-authorization.test-helper.js";
 
 const resources: Array<() => Promise<void>> = [];
 const TEST_CONTRACT_DIGEST = `sha256:${"0".repeat(64)}`;
+const READ_OPERATIONS = operationsForApplicationCapabilities({
+  contract_version: 2,
+  required: ["collection.read"]
+});
 
 function p256PublicKey(): string {
   const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -78,6 +90,52 @@ describe("mdbase connect server", () => {
     }
   });
 
+  it("keeps beta connector account snapshots decodable for password identities", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const session = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Acceptance user", email: "acceptance@example.com" }
+    });
+    const setCookie = session.headers["set-cookie"]!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    await db.query(
+      `INSERT INTO email_identities
+         (id, user_id, email, normalized_email, verified_at, is_primary)
+       SELECT $1, id, $2, $2, now(), true FROM users WHERE email = $2`,
+      [randomUUID(), "acceptance@example.com"]
+    );
+    await db.query("UPDATE users SET email = NULL WHERE email = $1", ["acceptance@example.com"]);
+
+    const connector = await app.inject({
+      method: "POST",
+      url: "/v1/connectors",
+      headers: { cookie },
+      payload: { name: "Acceptance computer" }
+    });
+    expect(connector.statusCode).toBe(201);
+    const control = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/control",
+      headers: { authorization: `Bearer ${connector.json().token}` }
+    });
+
+    expect(control.statusCode).toBe(200);
+    expect(control.json().account).toMatchObject({
+      connector_name: "Acceptance computer",
+      user_name: "Acceptance user",
+      user_email: "acceptance@example.com"
+    });
+  });
+
   it("publishes the runtime editor handoff without baking it into the portal", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
@@ -115,6 +173,7 @@ describe("mdbase connect server", () => {
       ok: true,
       service: "mdbase-connect",
       protocol_version: 1,
+      capabilities: ["application-authorization-v2-issuance"],
       revision: "ae3a8d9"
     });
   });
@@ -147,7 +206,7 @@ describe("mdbase connect server", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       status: "ready",
       provider: {
-        version: "0.1.0-beta.90",
+        version: "0.1.0-beta.94",
         capabilities: [
           ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
           HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY
@@ -470,13 +529,8 @@ describe("mdbase connect server", () => {
       ],
       requirements: {
         capabilities: {
-          contract_version: 1,
-          required: [
-            "collection.inspect",
-            "records.read",
-            "definitions.contracts.current",
-            "collection.setup.apply"
-          ]
+          contract_version: 2,
+          required: ["collection.read"]
         },
         access: "full_collection",
         contracts: [{
@@ -582,7 +636,8 @@ describe("mdbase connect server", () => {
     });
   });
 
-  it("runs the discovery, consent, token, and offline operation path", async () => {
+  it("runs the prelude v1 discovery, consent, token, and offline operation path", async () => {
+    const READ_OPERATIONS = LEGACY_READ_OPERATIONS;
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const { app } = await buildApp({
@@ -682,6 +737,10 @@ describe("mdbase connect server", () => {
       authorityRows.rows.find((collection) => collection.local_id === localId)!.id;
 
     const manifestServer = applicationManifestFixture();
+    manifestServer.manifest.requirements.capabilities = {
+      contract_version: 1,
+      required: LEGACY_READ_CAPABILITIES
+    };
     const discovered = await app.inject({
       method: "POST",
       url: "/v1/apps/register",
@@ -689,12 +748,17 @@ describe("mdbase connect server", () => {
     });
     expect(discovered.statusCode).toBe(200);
     expect(discovered.json().application.requirements).toEqual({
+      access: "full_collection",
       configuration: [],
       contracts: [{
         id: "workout.record",
         version: "1.0.0",
         digest: TEST_CONTRACT_DIGEST
-      }]
+      }],
+      capabilities: {
+        contract_version: 1,
+        required: LEGACY_READ_CAPABILITIES
+      }
     });
     const applicationId = discovered.json().application.id as string;
     const applicationManifestDigest =
@@ -704,7 +768,7 @@ describe("mdbase connect server", () => {
       access: "full_collection",
       capabilities: {
         contract_version: 1,
-        required: ["definitions.type-pack.apply"]
+        required: ["definitions.create", "definitions.update"]
       }
     }, "Definition Manager");
     definitionManager.manifest.id = "dev.mdbase.definition-manager";
@@ -726,7 +790,7 @@ describe("mdbase connect server", () => {
       redirectUri: definitionManager.redirectUri,
       verifier: "semantic-capability-verifier-that-is-long-enough-0001",
       state: "semantic-capability",
-      operations: ["assess_type_pack", "apply_type_pack"],
+      operations: legacyOperations(["definitions.create", "definitions.update"]),
       collectionId
     });
     expect(semanticAuthorization.statusCode, semanticAuthorization.body).toBe(200);
@@ -784,12 +848,8 @@ describe("mdbase connect server", () => {
       "SELECT id, scope, revoked_at FROM grants WHERE id IN ($1, $2) ORDER BY id",
       [legacyCompatibleGrantId, legacyIncompatibleGrantId]
     );
-    expect(reconciled.rows.find((grant) => grant.id === legacyCompatibleGrantId)).toEqual(
-      expect.objectContaining({
-        scope: { access: "contract", contracts: [contractDescriptor()] },
-        revoked_at: null
-      })
-    );
+    expect(reconciled.rows.find((grant) => grant.id === legacyCompatibleGrantId)?.revoked_at)
+      .not.toBeNull();
     expect(reconciled.rows.find((grant) => grant.id === legacyIncompatibleGrantId)?.revoked_at)
       .not.toBeNull();
     await db.query("DELETE FROM grants WHERE id IN ($1, $2)", [
@@ -803,7 +863,7 @@ describe("mdbase connect server", () => {
       payload: {
         application_id: applicationId,
         collection_id: incompatibleLocalCollectionId,
-        operations: ["read"]
+        operations: READ_OPERATIONS
       }
     });
     expect(incompatibleGrant.statusCode).toBe(409);
@@ -815,13 +875,13 @@ describe("mdbase connect server", () => {
       payload: {
         application_id: applicationId,
         collection_id: legacyLocalCollectionId,
-        operations: ["read"]
+        operations: READ_OPERATIONS
       }
     });
-    expect(legacyGrant.statusCode).toBe(409);
-    expect(legacyGrant.json().error.code).toBe("application_authorization_required");
+    expect(legacyGrant.statusCode).toBe(400);
+    expect(legacyGrant.json().error.code).toBe("invalid_request");
 
-    const overbroadAuthorization = await postWebAuthorization(app, {
+    const capabilityOnlyAuthorization = await postWebAuthorization(app, {
         applicationId,
         applicationManifestDigest,
         redirectUri: manifestServer.redirectUri,
@@ -829,8 +889,7 @@ describe("mdbase connect server", () => {
         state: "overbroad",
         operations: ["list_views", "execute_view"]
     });
-    expect(overbroadAuthorization.statusCode).toBe(400);
-    expect(overbroadAuthorization.json().error.message).toContain("full collection access");
+    expect(capabilityOnlyAuthorization.statusCode).toBe(400);
 
     const verifier = "local-connector-verifier-that-is-long-enough-00001";
     const state = "test-state";
@@ -840,7 +899,7 @@ describe("mdbase connect server", () => {
         redirectUri: manifestServer.redirectUri,
         verifier,
         state,
-        operations: ["read", "query"],
+        operations: READ_OPERATIONS,
         collectionId
     });
     expect(authorize.statusCode).toBe(302);
@@ -868,7 +927,7 @@ describe("mdbase connect server", () => {
       headers: { cookie },
       payload: {
         collection_id: synchronized.json().collections[2].id,
-        operations: ["read", "query"]
+        operations: READ_OPERATIONS
       }
     });
     expect(portalLegacyApproval.statusCode).toBe(404);
@@ -882,32 +941,37 @@ describe("mdbase connect server", () => {
     expect(localControl.json().pending_authorizations[0].application_name).toBe("Workout Tracker");
     expect(localControl.json().pending_authorizations[0].collection_id).toBe(localCollectionId);
     expect(localControl.json().pending_authorizations[0].requirements).toEqual({
+      access: "full_collection",
       configuration: [],
       contracts: [{
         id: "workout.record",
         version: "1.0.0",
         digest: TEST_CONTRACT_DIGEST
-      }]
+      }],
+      capabilities: {
+        contract_version: 1,
+        required: LEGACY_READ_CAPABILITIES
+      }
     });
 
     const connectorLegacyApproval = await app.inject({
       method: "POST",
       url: `/v1/connectors/authorization-requests/${requestId}/approve`,
       headers: { authorization: `Bearer ${connector.token}` },
-      payload: { collection_id: legacyLocalCollectionId, operations: ["read", "query"] }
+      payload: { collection_id: legacyLocalCollectionId, operations: READ_OPERATIONS }
     });
-    expect(connectorLegacyApproval.statusCode).toBe(409);
+    expect(connectorLegacyApproval.statusCode).toBe(404);
     expect(connectorLegacyApproval.json().error.code)
-      .toBe("portal_activation_required");
+      .toBe("authorization_not_found");
 
     const approved = await app.inject({
       method: "POST",
       url: `/v1/connectors/authorization-requests/${requestId}/approve`,
       headers: { authorization: `Bearer ${connector.token}` },
-      payload: { collection_id: localCollectionId, operations: ["read", "query"] }
+      payload: { collection_id: localCollectionId, operations: READ_OPERATIONS }
     });
     expect(approved.statusCode).toBe(409);
-    expect(approved.json().error.code).toBe("portal_activation_required");
+    expect(approved.json().error.code).toBe("connector_offline");
 
     const deniedState = "denied-state";
     const deniedAuthorization = await startWebAuthorization(app, cookie, {
@@ -916,7 +980,7 @@ describe("mdbase connect server", () => {
         redirectUri: manifestServer.redirectUri,
         verifier,
         state: deniedState,
-        operations: ["read"]
+        operations: READ_OPERATIONS
     });
     const deniedRequestId = deniedAuthorization.headers.location!.split("/").at(-1)!;
     const denied = await app.inject({
@@ -924,14 +988,14 @@ describe("mdbase connect server", () => {
       url: `/v1/connectors/authorization-requests/${deniedRequestId}/deny`,
       headers: { authorization: `Bearer ${connector.token}` }
     });
-    expect(denied.statusCode).toBe(409);
-    expect(denied.json().error.code).toBe("portal_activation_required");
+    expect(denied.statusCode).toBe(200);
+    expect(denied.json()).toEqual({ ok: true });
     const portalDenied = await app.inject({
       method: "POST",
       url: `/v1/authorization-requests/${deniedRequestId}/deny`,
       headers: { cookie }
     });
-    expect(portalDenied.statusCode).toBe(200);
+    expect(portalDenied.statusCode).toBe(404); // Already denied natively; no second decision.
     const deniedStatus = await app.inject({
       method: "GET",
       url: `/v1/authorization-requests/${deniedRequestId}/status`,
@@ -948,7 +1012,7 @@ describe("mdbase connect server", () => {
         redirectUri: manifestServer.redirectUri,
         verifier,
         state: "portal-approval",
-        operations: ["read", "query"]
+        operations: READ_OPERATIONS
     });
     const portalRequestId = portalAuthorization.headers.location!.split("/").at(-1)!;
     const waitingDashboard = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
@@ -963,17 +1027,17 @@ describe("mdbase connect server", () => {
       method: "POST",
       url: `/v1/authorization-requests/${portalRequestId}/approve`,
       headers: { cookie },
-      payload: { collection_id: collectionId, operations: ["read"] }
+      payload: { collection_id: collectionId, operations: READ_OPERATIONS }
     });
     expect(portalApproved.statusCode).toBe(404);
     const locallyApproved = await app.inject({
       method: "POST",
       url: `/v1/connectors/authorization-requests/${portalRequestId}/approve`,
       headers: { authorization: `Bearer ${connector.token}` },
-      payload: { collection_id: localCollectionId, operations: ["read"] }
+      payload: { collection_id: localCollectionId, operations: READ_OPERATIONS }
     });
     expect(locallyApproved.statusCode).toBe(409);
-    expect(locallyApproved.json().error.code).toBe("portal_activation_required");
+    expect(locallyApproved.json().error.code).toBe("connector_offline");
     const policyAfterPortalApproval = await app.inject({
       method: "GET",
       url: "/v1/connectors/control",
@@ -1015,7 +1079,7 @@ describe("mdbase connect server", () => {
       payload: {
         application_id: applicationId,
         collection_id: collectionId,
-        operations: ["read", "query"]
+        operations: READ_OPERATIONS
       }
     });
     expect(broadenedForTest.statusCode).toBe(409);
@@ -1023,7 +1087,8 @@ describe("mdbase connect server", () => {
       .toBe("application_authorization_required");
   });
 
-  it("authorizes portable v1 applications with a single-use key-bound device flow", async () => {
+  it("authorizes prelude semantic v1 portable applications with a single-use key-bound device flow", async () => {
+    const READ_OPERATIONS = LEGACY_READ_OPERATIONS;
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const { app } = await buildApp({
@@ -1076,7 +1141,7 @@ describe("mdbase connect server", () => {
       }
     });
     const collectionId = synchronized.json().collections[0].id as string;
-    const manifest: MdbaseAppManifest = {
+    const manifest: LegacyMdbaseAppManifest = {
       manifest_version: 1,
       distribution: "portable",
       id: "dev.mdbase.portable-notes",
@@ -1084,7 +1149,12 @@ describe("mdbase connect server", () => {
       project_url: "https://apps.example/portable-notes",
       requirements: {
         contracts: [],
-        access: "full_collection"
+        access: "full_collection",
+        capabilities: {
+          contract_version: 1,
+          required: LEGACY_READ_CAPABILITIES,
+          optional: ["timers.list", "timers.put", "timers.cancel", "timers.reconcile"]
+        }
       }
     };
     const registration = await app.inject({
@@ -1103,12 +1173,16 @@ describe("mdbase connect server", () => {
       registration.json().application.manifest_digest as string;
     const verifier = "portable-verifier-that-is-long-enough-for-pkce-0001";
     const timerProof = await testApplicationAuthorization({
+      semanticCapabilityContractVersion: 1,
       applicationId,
       applicationDeclarationId: manifest.id,
       applicationManifestDigest,
       flow: "device_code",
       codeChallenge: pkceChallenge(verifier),
-      requestedOperations: ["put_timer"],
+      requestedOperations: [
+        ...READ_OPERATIONS,
+        "list_timers", "put_timer", "cancel_timer", "reconcile_timers"
+      ],
       collectionId
     });
     const timerDevice = await app.inject({
@@ -1120,7 +1194,10 @@ describe("mdbase connect server", () => {
       },
       payload: new URLSearchParams({
         client_id: applicationId,
-        operations: "put_timer",
+        operations: [
+          ...READ_OPERATIONS,
+          "list_timers", "put_timer", "cancel_timer", "reconcile_timers"
+        ].join(","),
         collection_id: collectionId,
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
@@ -1138,7 +1215,8 @@ describe("mdbase connect server", () => {
       applicationManifestDigest,
       flow: "device_code",
       codeChallenge: pkceChallenge(verifier),
-      requestedOperations: ["describe", "query"],
+      requestedOperations: READ_OPERATIONS,
+      semanticCapabilityContractVersion: 1,
       collectionId
     });
     const applicationAgreementPublicKey = proof.binding.grant_agreement_public_key;
@@ -1151,7 +1229,7 @@ describe("mdbase connect server", () => {
       },
       payload: new URLSearchParams({
         client_id: applicationId,
-        operations: "describe, query,query",
+        operations: READ_OPERATIONS.join(","),
         collection_id: collectionId,
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
@@ -1248,7 +1326,7 @@ describe("mdbase connect server", () => {
       distribution: "portable",
       project_url: "https://apps.example/portable-notes",
       user_code: device.json().user_code,
-      requested_operations: ["describe", "query"]
+      requested_operations: READ_OPERATIONS
     });
     expect(pending.json().collections).toEqual([]);
     expect(pending.json().unavailable_connectors).toEqual([
@@ -1279,7 +1357,7 @@ describe("mdbase connect server", () => {
       payload: { collection_id: localCollectionId, operations: ["describe", "query"] }
     });
     expect(approved.statusCode).toBe(409);
-    expect(approved.json().error.code).toBe("portal_activation_required");
+    expect(approved.json().error.code).toBe("connector_offline");
     const status = await app.inject({
       method: "GET",
       url: `/v1/authorization-requests/${requestId}/status`,
@@ -1305,12 +1383,13 @@ describe("mdbase connect server", () => {
     expect(token.json()).toMatchObject({ error: "authorization_pending" });
 
     const deniedProof = await testApplicationAuthorization({
+      semanticCapabilityContractVersion: 1,
       applicationId,
       applicationDeclarationId: manifest.id,
       applicationManifestDigest,
       flow: "device_code",
       codeChallenge: pkceChallenge(verifier),
-      requestedOperations: ["query"]
+      requestedOperations: READ_OPERATIONS
     });
     const deniedDevice = await app.inject({
       method: "POST",
@@ -1318,7 +1397,7 @@ describe("mdbase connect server", () => {
       headers: { "content-type": "application/x-www-form-urlencoded" },
       payload: new URLSearchParams({
         client_id: applicationId,
-        operations: "query",
+        operations: READ_OPERATIONS.join(","),
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
         application_authorization: JSON.stringify(deniedProof)
@@ -1342,12 +1421,13 @@ describe("mdbase connect server", () => {
     })).json()).toMatchObject({ error: "access_denied" });
 
     const expiringProof = await testApplicationAuthorization({
+      semanticCapabilityContractVersion: 1,
       applicationId,
       applicationDeclarationId: manifest.id,
       applicationManifestDigest,
       flow: "device_code",
       codeChallenge: pkceChallenge(verifier),
-      requestedOperations: ["query"]
+      requestedOperations: READ_OPERATIONS
     });
     const expiredDevice = await app.inject({
       method: "POST",
@@ -1355,7 +1435,7 @@ describe("mdbase connect server", () => {
       headers: { "content-type": "application/x-www-form-urlencoded" },
       payload: new URLSearchParams({
         client_id: applicationId,
-        operations: "query",
+        operations: READ_OPERATIONS.join(","),
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
         application_authorization: JSON.stringify(expiringProof)
@@ -1371,10 +1451,456 @@ describe("mdbase connect server", () => {
     })).json()).toMatchObject({ error: "expired_token" });
   });
 
-  it("adopts a legacy hosted grant for one portable v2 installation without another replica", async () => {
+  it("authorizes a hosted member with an exact persisted policy binding", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const hostedProvider = {
+      url: "https://sync.example",
+      ready: vi.fn(),
+      assertFreshV2AuthorizationSupport: vi.fn(),
+      upsertAccount: vi.fn().mockResolvedValue({}),
+      createCollection: vi.fn(),
+      renameCollection: vi.fn(),
+      deleteCollection: vi.fn(),
+      provisionTypePacks: vi.fn(),
+      provisionApplicationSetup: vi.fn(),
+      registerReplica: vi.fn(),
+      updateApplicationReplica: vi.fn(),
+      revokeReplica: vi.fn(),
+      upsertNotificationGrant: vi.fn(),
+      revokeNotificationGrant: vi.fn(),
+      rotateReplicaToken: vi.fn(),
+      compactThrough: vi.fn()
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedSharing: true,
+      hostedProvider,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const ownerSession = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Sharing owner", email: "sharing-owner@example.com" }
+    });
+    const ownerSetCookie = ownerSession.headers["set-cookie"]!;
+    const ownerCookie = (Array.isArray(ownerSetCookie) ? ownerSetCookie[0] : ownerSetCookie)
+      .split(";")[0];
+    const memberSession = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Sharing member", email: "sharing-member@example.com" }
+    });
+    const memberSetCookie = memberSession.headers["set-cookie"]!;
+    const memberCookie = (Array.isArray(memberSetCookie) ? memberSetCookie[0] : memberSetCookie)
+      .split(";")[0];
+    const owner = await db.query<{ id: string }>(
+      "SELECT id FROM users WHERE email = 'sharing-owner@example.com'"
+    );
+    const member = await db.query<{ id: string }>(
+      "SELECT id FROM users WHERE email = 'sharing-member@example.com'"
+    );
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collections",
+      headers: { cookie: ownerCookie },
+      payload: {
+        display_name: "Shared hosted notes",
+        template: "mdbase",
+        timezone: "Australia/Melbourne"
+      }
+    });
+    expect(created.statusCode, JSON.stringify(created.json())).toBe(201);
+    const collectionId = created.json().collection.id as string;
+    const membership = await createHostedCollectionMembership(db, {
+      collectionId,
+      ownerUserId: owner.rows[0]!.id,
+      userId: member.rows[0]!.id,
+      role: "editor"
+    });
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/v1/hosted/collections/${collectionId}`,
+      headers: { cookie: memberCookie },
+      payload: { display_name: "Renamed by editor" }
+    });
+    expect(renamed.statusCode, JSON.stringify(renamed.json())).toBe(200);
+    expect(hostedProvider.renameCollection).toHaveBeenCalledWith(
+      collectionId,
+      "Renamed by editor"
+    );
+    await expect(db.query<{ display_name: string }>(
+      "SELECT display_name FROM hosted_collections WHERE id = $1",
+      [collectionId]
+    )).resolves.toMatchObject({ rows: [{ display_name: "Renamed by editor" }] });
+    const deniedDelete = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}`,
+      headers: { cookie: memberCookie }
+    });
+    expect(deniedDelete.statusCode).toBe(404);
+    expect(hostedProvider.deleteCollection).not.toHaveBeenCalled();
+
+    const capabilities = { contract_version: 2 as const, required: ["collection.read", "records.edit"] as const };
+    const sharedOperations = operationsForApplicationCapabilities(capabilities);
+    const manifest: MdbaseAppManifest = {
+      manifest_version: 1,
+      distribution: "portable",
+      id: "dev.mdbase.shared-editor-test",
+      name: "Shared editor test",
+      project_url: "https://apps.example/shared-editor-test",
+      requirements: {
+        contracts: [],
+        access: "full_collection",
+        collection_kind: "hosted",
+        capabilities
+      }
+    };
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest }
+    });
+    const applicationId = registration.json().application.id as string;
+    const applicationManifestDigest = registration.json().application.manifest_digest as string;
+    const verifier = "shared-member-verifier-that-is-long-enough-0001";
+    const proof = await testApplicationAuthorization({
+      applicationId,
+      applicationDeclarationId: manifest.id,
+      applicationManifestDigest,
+      flow: "device_code",
+      codeChallenge: pkceChallenge(verifier),
+      requestedOperations: sharedOperations,
+      collectionId,
+      grantAgreementPublicKey: p256PublicKey(),
+      grantSigningPublicKey: p256PublicKey()
+    });
+    const device = await app.inject({
+      method: "POST",
+      url: "/oauth/device_authorization",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        client_id: applicationId,
+        operations: sharedOperations.join(","),
+        collection_id: collectionId,
+        code_challenge: pkceChallenge(verifier),
+        code_challenge_method: "S256",
+        application_authorization: JSON.stringify(proof)
+      }).toString()
+    });
+    expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
+    const lookup = await app.inject({
+      method: "POST",
+      url: "/v1/device-authorization-requests/lookup",
+      headers: { cookie: memberCookie },
+      payload: { user_code: device.json().user_code }
+    });
+    expect(lookup.statusCode, JSON.stringify(lookup.json())).toBe(200);
+    const requestId = lookup.json().request_id as string;
+    const available = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${requestId}`,
+      headers: { cookie: memberCookie }
+    });
+    expect(available.json().collections).toContainEqual(
+      expect.objectContaining({
+        id: collectionId,
+        kind: "hosted",
+        access: expect.objectContaining({ role: "editor", relationship: "member" })
+      })
+    );
+    const viewerPolicyId = randomUUID();
+    const viewerPolicy = membershipPolicyPreset("viewer");
+    await db.query(
+      `INSERT INTO collection_membership_policies
+         (id, membership_id, revision, role, preset_version, actions,
+          operations, scope_ceiling, file_ceiling)
+       VALUES ($1, $2, 2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb)`,
+      [
+        viewerPolicyId,
+        membership.membershipId,
+        viewerPolicy.role,
+        viewerPolicy.presetVersion,
+        JSON.stringify(viewerPolicy.actions),
+        JSON.stringify(viewerPolicy.operations),
+        JSON.stringify(viewerPolicy.scopeCeiling),
+        JSON.stringify(viewerPolicy.fileCeiling)
+      ]
+    );
+    await db.query(
+      `UPDATE collection_memberships
+       SET current_policy_id = $2, current_policy_revision = 2
+       WHERE id = $1`,
+      [membership.membershipId, viewerPolicyId]
+    );
+    const staleApproval = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie: memberCookie },
+      payload: {
+        collection_id: collectionId,
+        operations: sharedOperations
+      }
+    });
+    expect(staleApproval.statusCode).toBe(400);
+    expect(hostedProvider.registerReplica).not.toHaveBeenCalled();
+
+    await db.query(
+      `UPDATE collection_memberships
+       SET current_policy_id = $2, current_policy_revision = 1
+       WHERE id = $1`,
+      [membership.membershipId, membership.id]
+    );
+    const approved = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie: memberCookie },
+      payload: {
+        collection_id: collectionId,
+        operations: sharedOperations
+      }
+    });
+    expect(approved.statusCode, JSON.stringify(approved.json())).toBe(200);
+
+    const binding = await db.query<{
+      user_id: string;
+      logical_collection_id: string;
+      membership_id: string;
+      membership_policy_id: string;
+      membership_policy_revision: number;
+      replica_membership_id: string;
+      replica_membership_policy_id: string;
+      replica_membership_policy_revision: number;
+    }>(
+      `SELECT grant_record.user_id, grant_record.logical_collection_id,
+              grant_record.membership_id, grant_record.membership_policy_id,
+              grant_record.membership_policy_revision,
+              replica.membership_id AS replica_membership_id,
+              replica.membership_policy_id AS replica_membership_policy_id,
+              replica.membership_policy_revision AS replica_membership_policy_revision
+       FROM grants grant_record
+       JOIN hosted_replicas replica ON replica.id = grant_record.hosted_replica_id
+       WHERE grant_record.user_id = $1 AND grant_record.hosted_collection_id = $2
+         AND grant_record.revoked_at IS NULL`,
+      [member.rows[0]!.id, collectionId]
+    );
+    expect(binding.rows).toEqual([{
+      user_id: member.rows[0]!.id,
+      logical_collection_id: collectionId,
+      membership_id: membership.membershipId,
+      membership_policy_id: membership.id,
+      membership_policy_revision: membership.revision,
+      replica_membership_id: membership.membershipId,
+      replica_membership_policy_id: membership.id,
+      replica_membership_policy_revision: membership.revision
+    }]);
+    expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
+      collectionId,
+      expect.objectContaining({
+        mode: "read_write",
+        allowedOperations: sharedOperations
+      })
+    );
+  });
+
+  it("manages hosted invitations and memberships without leaking collection access", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const hostedProvider = {
+      url: "https://sync.example",
+      ready: vi.fn(),
+      upsertAccount: vi.fn().mockResolvedValue({}),
+      createCollection: vi.fn(),
+      renameCollection: vi.fn(),
+      deleteCollection: vi.fn(),
+      provisionTypePacks: vi.fn(),
+      provisionApplicationSetup: vi.fn(),
+      registerReplica: vi.fn(),
+      updateApplicationReplica: vi.fn(),
+      revokeReplica: vi.fn(),
+      upsertNotificationGrant: vi.fn(),
+      revokeNotificationGrant: vi.fn(),
+      rotateReplicaToken: vi.fn(),
+      compactThrough: vi.fn()
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedSharing: true,
+      hostedProvider,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+    const session = async (name: string, email: string) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/dev/session",
+        payload: { name, email }
+      });
+      const setCookie = response.headers["set-cookie"]!;
+      return (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    };
+    const ownerCookie = await session("Owner", "route-owner@example.com");
+    const memberCookie = await session("Member", "route-member@example.com");
+    const outsiderCookie = await session("Outsider", "route-outsider@example.com");
+    await db.query(
+      `INSERT INTO email_identities
+         (id, user_id, email, normalized_email, verified_at, is_primary)
+       SELECT $1, id, email, email, now(), true FROM users
+       WHERE email = 'route-member@example.com'`,
+      [randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO email_identities
+         (id, user_id, email, normalized_email, verified_at, is_primary)
+       SELECT $1, id, email, email, now(), true FROM users
+       WHERE email = 'route-outsider@example.com'`,
+      [randomUUID()]
+    );
+    const collection = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collections",
+      headers: { cookie: ownerCookie },
+      payload: {
+        display_name: "Route sharing",
+        template: "mdbase",
+        timezone: "Australia/Melbourne"
+      }
+    });
+    const collectionId = collection.json().collection.id as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/v1/hosted/collections/${collectionId}/invitations`,
+      headers: { cookie: ownerCookie },
+      payload: { email: "route-member@example.com", role: "viewer" }
+    });
+    expect(created.statusCode, JSON.stringify(created.json())).toBe(202);
+    expect(created.headers["cache-control"]).toBe("no-store");
+    const token = created.json().invitation.token as string;
+    expect(token).toMatch(/^cinv_/);
+
+    const hidden = await app.inject({
+      method: "GET",
+      url: `/v1/hosted/collections/${collectionId}/members`,
+      headers: { cookie: outsiderCookie }
+    });
+    expect(hidden.statusCode).toBe(404);
+    expect(hidden.json()).toMatchObject({
+      error: { code: "collection_sharing_not_found" }
+    });
+    const wrongAccount = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collection-invitations/accept",
+      headers: { cookie: outsiderCookie },
+      payload: { token }
+    });
+    expect(wrongAccount.statusCode).toBe(400);
+    expect(wrongAccount.json()).toMatchObject({
+      error: { code: "invalid_collection_invitation" }
+    });
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collection-invitations/accept",
+      headers: { cookie: memberCookie },
+      payload: { token }
+    });
+    expect(accepted.statusCode, JSON.stringify(accepted.json())).toBe(201);
+    const membershipId = accepted.json().membership.id as string;
+
+    const members = await app.inject({
+      method: "GET",
+      url: `/v1/hosted/collections/${collectionId}/members`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(members.statusCode).toBe(200);
+    expect(members.headers["cache-control"]).toBe("no-store");
+    expect(members.json().members).toEqual([
+      expect.objectContaining({ kind: "owner", role: "owner" }),
+      expect.objectContaining({
+        kind: "member",
+        id: membershipId,
+        role: "viewer",
+        state: "active"
+      })
+    ]);
+    expect(JSON.stringify(members.json())).not.toContain("route-member@example.com");
+
+    const promoted = await app.inject({
+      method: "PATCH",
+      url: `/v1/hosted/collections/${collectionId}/members/${membershipId}`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "editor" }
+    });
+    expect(promoted.statusCode, JSON.stringify(promoted.json())).toBe(200);
+    expect(promoted.json().membership).toMatchObject({
+      id: membershipId,
+      role: "editor",
+      state: "active",
+      policy_revision: 2
+    });
+    const editorInvitation = await app.inject({
+      method: "POST",
+      url: `/v1/hosted/collections/${collectionId}/invitations`,
+      headers: { cookie: memberCookie },
+      payload: { email: "route-outsider@example.com", role: "viewer" }
+    });
+    expect(editorInvitation.statusCode).toBe(404);
+    const ownerInvitation = await app.inject({
+      method: "POST", url: `/v1/hosted/collections/${collectionId}/invitations`,
+      headers: { cookie: ownerCookie }, payload: { email: "route-outsider@example.com", role: "viewer" }
+    });
+    expect(ownerInvitation.statusCode, ownerInvitation.body).toBe(202);
+    const invitationId = ownerInvitation.json().invitation.id as string;
+    const cancelled = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}/invitations/${invitationId}`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(cancelled.statusCode).toBe(204);
+
+    const revoked = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}/members/${membershipId}`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(revoked.statusCode, JSON.stringify(revoked.json())).toBe(200);
+    expect(revoked.json().membership).toMatchObject({ state: "revoked" });
+    const seat = await db.query<{ released_at: Date | string | null }>(
+      `SELECT released_at FROM account_collection_member_seats
+       WHERE membership_id = $1`,
+      [membershipId]
+    );
+    expect(seat.rows[0]?.released_at).not.toBeNull();
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(deleted.statusCode, JSON.stringify(deleted.json())).toBe(200);
+    await expect(db.query(
+      "SELECT id FROM collection_identities WHERE id = $1",
+      [collectionId]
+    )).resolves.toMatchObject({ rows: [] });
+  });
+
+  it.each([
+    { version: 1 as const, preludeProvider: false, name: "runs v1 portable hosted token, refresh, and retained-grant adoption without another replica" },
+    { version: 2 as const, preludeProvider: false, name: "runs v2 portable hosted token, refresh, and retained-grant adoption without another replica" },
+    { version: 2 as const, preludeProvider: true, name: "refuses v2 approval on a prelude provider without changing the retained legacy grant or replica" }
+  ])("$name", async ({ version, preludeProvider }) => {
+    const READ_OPERATIONS = version === 1 ? LEGACY_READ_OPERATIONS : operationsForApplicationCapabilities({ contract_version: 2, required: ["collection.read"] });
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const hostedProvider = {
+      assertFreshV2AuthorizationSupport: vi.fn(async () => {
+        if (preludeProvider) throw new HostedProviderUnavailableError(new Error("Hosted provider does not support fresh v2 authorization."));
+      }),
       url: "https://sync.example",
       ready: vi.fn(),
       upsertAccount: vi.fn().mockResolvedValue({}),
@@ -1415,7 +1941,7 @@ describe("mdbase connect server", () => {
     });
     expect(created.statusCode).toBe(201);
     const collectionId = created.json().collection.id as string;
-    const manifest: MdbaseAppManifest = {
+    const manifest: MdbaseAppManifest | LegacyMdbaseAppManifest = {
       manifest_version: 1,
       distribution: "portable",
       id: "dev.mdbase.portable-cloud-notes",
@@ -1424,7 +1950,16 @@ describe("mdbase connect server", () => {
       requirements: {
         contracts: [],
         access: "full_collection",
-        collection_kind: "hosted"
+        collection_kind: "hosted",
+        capabilities: version === 1 ? {
+          contract_version: 1,
+          required: LEGACY_READ_CAPABILITIES,
+          optional: ["records.create", "records.update", "records.rename", "sync.offline-replica"]
+        } : {
+          contract_version: 2,
+          required: ["collection.read"],
+          optional: ["records.create", "records.edit", "offline.replica"]
+        }
       }
     };
     const registration = await app.inject({
@@ -1450,18 +1985,35 @@ describe("mdbase connect server", () => {
     ]).toString("base64url");
     const verifier = "portable-hosted-verifier-that-is-long-enough-0001";
     const installationIdentity = createTestApplicationIdentity();
+    const capabilities = manifest.requirements.capabilities!;
+    const portableHostedOperations = capabilities.contract_version === 1
+      ? legacyOperations([...capabilities.required, ...(capabilities.optional ?? [])])
+      : operationsForApplicationCapabilities(capabilities);
     const proof = await testApplicationAuthorization({
       applicationId,
       applicationDeclarationId: manifest.id,
       applicationManifestDigest,
       flow: "device_code",
       codeChallenge: pkceChallenge(verifier),
-      requestedOperations: ["describe", "query", "create", "update", "sync"],
+      requestedOperations: portableHostedOperations,
       collectionId,
       installationIdentity,
       grantAgreementPublicKey: applicationAgreementPublicKey,
-      grantSigningPublicKey: applicationSigningPublicKey
+      grantSigningPublicKey: applicationSigningPublicKey,
+      semanticCapabilityContractVersion: version
     });
+    // The prelude receiver case must not damage existing authority on rejection.
+    if (preludeProvider) {
+      const owner = (await db.query<{ id: string }>("SELECT id FROM users WHERE email = 'portable-cloud@example.com'")).rows[0];
+      const replicaId = randomUUID();
+      await db.query(`INSERT INTO hosted_replicas (id, collection_id, authorized_user_id, name, purpose, mode, allowed_types)
+        VALUES ($1, $2, $3, 'Retained legacy replica', 'application', 'read_only', '[]'::jsonb)`, [replicaId, collectionId, owner.id]);
+      await db.query(`INSERT INTO grants (id, user_id, application_id, hosted_collection_id, hosted_replica_id, operations, scope, proof_public_key, application_origin, activated_at)
+        VALUES ($1, $2, $3, $4, $5, '["read","query"]'::jsonb, '{"access":"full_collection","contracts":[]}'::jsonb, $6, 'https://prior.example', now())`,
+      [randomUUID(), owner.id, applicationId, collectionId, replicaId, p256PublicKey()]);
+    }
+    const retainedGrants = (await db.query("SELECT * FROM grants")).rows;
+    const retainedReplicas = (await db.query("SELECT * FROM hosted_replicas")).rows;
     const extensionOrigin = "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo";
     const device = await app.inject({
       method: "POST",
@@ -1472,7 +2024,7 @@ describe("mdbase connect server", () => {
       },
       payload: new URLSearchParams({
         client_id: applicationId,
-        operations: "describe,query,create,update,sync",
+        operations: portableHostedOperations.join(","),
         collection_id: collectionId,
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
@@ -1503,16 +2055,31 @@ describe("mdbase connect server", () => {
       headers: { cookie },
       payload: {
         collection_id: collectionId,
-        operations: ["describe", "query", "create", "update", "sync"]
+        operations: portableHostedOperations
       }
     });
+    if (preludeProvider) {
+      expect(approved.statusCode, approved.body).toBe(503);
+      expect(approved.json().error.code).toBe("hosted_provider_unavailable");
+      expect(hostedProvider.assertFreshV2AuthorizationSupport).toHaveBeenCalledTimes(1);
+      expect((await db.query("SELECT * FROM grants")).rows).toEqual(retainedGrants);
+      expect((await db.query("SELECT * FROM hosted_replicas")).rows).toEqual(retainedReplicas);
+      expect(retainedGrants).toHaveLength(1);
+      expect(retainedReplicas).toHaveLength(1);
+      expect((await db.query("SELECT grant_id, completed_at FROM authorization_requests")).rows)
+        .toEqual([{ grant_id: null, completed_at: null }]);
+      for (const method of [hostedProvider.registerReplica, hostedProvider.updateApplicationReplica, hostedProvider.provisionApplicationSetup, hostedProvider.rotateReplicaToken, hostedProvider.revokeReplica, hostedProvider.upsertNotificationGrant]) expect(method).not.toHaveBeenCalled();
+      return;
+    }
     expect(approved.statusCode, JSON.stringify(approved.json())).toBe(200);
+    // Recheck at entry, before provisioning, and before committing approval.
+    expect(hostedProvider.assertFreshV2AuthorizationSupport).toHaveBeenCalledTimes(version === 2 ? 3 : 0);
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
       collectionId,
       expect.objectContaining({
         purpose: "application",
         fullCollection: true,
-        allowedOperations: ["describe", "query", "create", "update"],
+        allowedOperations: portableHostedOperations.filter((operation) => operation !== "sync"),
         allowedOrigin: extensionOrigin,
         proofPublicKey: applicationSigningPublicKey,
         applicationDeclarationId: manifest.id,
@@ -1528,7 +2095,7 @@ describe("mdbase connect server", () => {
     expect(token.json()).toMatchObject({
       collection_id: collectionId,
       application_origin: extensionOrigin,
-      operations: ["describe", "query", "create", "update", "sync"],
+      operations: portableHostedOperations,
       encryption: null,
       authority: {
         operations_url: `https://sync.example/v1/authorities/${collectionId}/operations`,
@@ -1632,17 +2199,19 @@ describe("mdbase connect server", () => {
       Buffer.from(secondSigningJwk.y!, "base64url")
     ]).toString("base64url");
     const secondVerifier = "portable-hosted-verifier-that-is-long-enough-0002";
+    const secondOperations: CollectionOperation[] = [...READ_OPERATIONS, "sync"];
     const secondProof = await testApplicationAuthorization({
       applicationId,
       applicationDeclarationId: manifest.id,
       applicationManifestDigest,
       flow: "device_code",
       codeChallenge: pkceChallenge(secondVerifier),
-      requestedOperations: ["describe", "query", "sync"],
+      requestedOperations: secondOperations,
       collectionId,
       installationIdentity,
       grantAgreementPublicKey: secondAgreementPublicKey,
-      grantSigningPublicKey: secondSigningPublicKey
+      grantSigningPublicKey: secondSigningPublicKey,
+      semanticCapabilityContractVersion: version
     });
     const secondDevice = await app.inject({
       method: "POST",
@@ -1653,7 +2222,7 @@ describe("mdbase connect server", () => {
       },
       payload: new URLSearchParams({
         client_id: applicationId,
-        operations: "describe,query,sync",
+        operations: secondOperations.join(","),
         collection_id: collectionId,
         code_challenge: pkceChallenge(secondVerifier),
         code_challenge_method: "S256",
@@ -1674,7 +2243,7 @@ describe("mdbase connect server", () => {
       headers: { cookie },
       payload: {
         collection_id: collectionId,
-        operations: ["describe", "query", "sync"]
+        operations: secondOperations
       }
     });
     expect(secondApproval.statusCode, JSON.stringify(secondApproval.json())).toBe(200);
@@ -1918,7 +2487,11 @@ describe("mdbase connect server", () => {
       configuration: [],
       contracts: [],
       access: "full_collection",
-      collection_kind: "hosted"
+      collection_kind: "hosted",
+      capabilities: {
+        contract_version: 2,
+        required: ["collection.read"]
+      }
     }, "Shared hosted app").manifest;
     const initial = await app.inject({
       method: "POST",
@@ -1955,10 +2528,13 @@ describe("mdbase connect server", () => {
            (id, user_id, application_id, hosted_collection_id,
             hosted_replica_id, operations, scope, notification_criteria,
             application_origin)
-         VALUES ($1, $2, $3, $4, $5, '["query"]'::jsonb,
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb,
                  '{"contracts":[],"access":"full_collection"}'::jsonb,
                  '[]'::jsonb, 'http://localhost:4173')`,
-        [grants[index], users[index], applicationId, collections[index], replicaId]
+        [
+          grants[index], users[index], applicationId, collections[index], replicaId,
+          JSON.stringify(READ_OPERATIONS)
+        ]
       );
     }
 
@@ -1980,7 +2556,8 @@ describe("mdbase connect server", () => {
     expect(state.rows.find(({ id }) => id === grants[1])?.revoked_at).toBeNull();
   });
 
-  it("provisions and reconciles contract-free hosted application access as unrestricted", async () => {
+  it("provisions native prelude v1 contract-free hosted access with an exact application origin", async () => {
+    const READ_OPERATIONS = LEGACY_READ_OPERATIONS;
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const revokeReplica = vi.fn<() => Promise<void>>();
@@ -2049,8 +2626,19 @@ describe("mdbase connect server", () => {
     });
     const collectionId = collection.json().collection.id as string;
 
+    const hostedCapabilities = {
+      contract_version: 1 as const,
+      required: LEGACY_READ_CAPABILITIES,
+      optional: ["records.create", "records.update", "records.rename", "sync.offline-replica"] as const
+    };
+    const hostedOperations = legacyOperations([...hostedCapabilities.required, ...hostedCapabilities.optional]);
     const manifestServer = applicationManifestFixture(
-      { contracts: [], access: "full_collection", collection_kind: "hosted" },
+      {
+        contracts: [],
+        access: "full_collection",
+        collection_kind: "hosted",
+        capabilities: hostedCapabilities
+      },
       "Writing Editor"
     );
     const discovered = await app.inject({
@@ -2066,10 +2654,10 @@ describe("mdbase connect server", () => {
     const authorization = await startWebAuthorization(app, cookie, {
       applicationId,
       applicationManifestDigest,
-      redirectUri: manifestServer.redirectUri,
+      redirectUri: manifestServer.nativeRedirectUri,
       verifier,
       state,
-      operations: ["describe", "query", "create", "update", "sync"]
+      operations: hostedOperations
     });
     const requestId = authorization.headers.location!.split("/").at(-1)!;
     const pending = await app.inject({
@@ -2081,7 +2669,8 @@ describe("mdbase connect server", () => {
       configuration: [],
       contracts: [],
       access: "full_collection",
-      collection_kind: "hosted"
+      collection_kind: "hosted",
+      capabilities: hostedCapabilities
     });
     expect(pending.json().hosted_collections_available).toBe(true);
     expect(pending.json().collections).toEqual([
@@ -2107,7 +2696,7 @@ describe("mdbase connect server", () => {
       headers: { cookie },
       payload: {
         collection_id: localControlCollectionId,
-        operations: ["describe", "query", "create", "update", "sync"]
+        operations: hostedOperations
       }
     });
     expect(localApproval.statusCode).toBe(404);
@@ -2117,7 +2706,7 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${connector.token}` },
       payload: {
         collection_id: collectionId,
-        operations: ["describe", "query", "create", "update", "sync"]
+        operations: hostedOperations
       }
     });
     expect(approved.statusCode).toBe(200);
@@ -2127,7 +2716,9 @@ describe("mdbase connect server", () => {
         purpose: "application",
         allowedTypes: [],
         fullCollection: true,
-        allowedOperations: ["describe", "query", "create", "update"],
+        allowedOperations: hostedOperations.filter((operation) => operation !== "sync"),
+        allowedOrigin: new URL(manifestServer.manifest.homepage).origin,
+        proofPublicKey: expect.any(String),
         applicationDeclarationId: manifestServer.manifest.id,
         applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
       })
@@ -2138,10 +2729,6 @@ describe("mdbase connect server", () => {
     );
     expect(provisioned.rows[0].allowed_types).toEqual([]);
 
-    await db.query("UPDATE hosted_replicas SET allowed_types = $2::jsonb WHERE id = $1", [
-      provisioned.rows[0].id,
-      JSON.stringify(["task"])
-    ]);
     vi.mocked(hostedProvider.updateApplicationReplica).mockClear();
     const rediscovered = await app.inject({
       method: "POST",
@@ -2151,23 +2738,7 @@ describe("mdbase connect server", () => {
     expect(rediscovered.statusCode).toBe(200);
     await (app as typeof app & { drainApplicationReconciliation(): Promise<void> })
       .drainApplicationReconciliation();
-    expect(hostedProvider.updateApplicationReplica).toHaveBeenCalledWith(
-      provisioned.rows[0].id,
-      expect.objectContaining({
-        allowedTypes: [],
-        fullCollection: true,
-        allowedOperations: ["describe", "query", "create", "update"],
-        allowedOrigin: "http://localhost:4173",
-        proofPublicKey: expect.any(String),
-        applicationDeclarationId: manifestServer.manifest.id,
-        applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
-      })
-    );
-    const reconciled = await db.query<{ allowed_types: string[] }>(
-      "SELECT allowed_types FROM hosted_replicas WHERE id = $1",
-      [provisioned.rows[0].id]
-    );
-    expect(reconciled.rows[0].allowed_types).toEqual([]);
+    expect(hostedProvider.updateApplicationReplica).not.toHaveBeenCalled();
 
     const activeControl = await app.inject({
       method: "GET",
@@ -2179,15 +2750,15 @@ describe("mdbase connect server", () => {
       method: "PATCH",
       url: `/v1/connectors/hosted/grants/${grantId}`,
       headers: { authorization: `Bearer ${connector.token}` },
-      payload: { operations: ["describe", "query", "sync"] }
+      payload: { operations: [...READ_OPERATIONS, "sync"] }
     });
     expect(narrowed.statusCode, JSON.stringify(narrowed.json())).toBe(200);
-    expect(narrowed.json().grant.operations).toEqual(["describe", "query", "sync"]);
+    expect(narrowed.json().grant.operations).toEqual([...READ_OPERATIONS, "sync"]);
     expect(hostedProvider.updateApplicationReplica).toHaveBeenLastCalledWith(
       provisioned.rows[0].id,
       expect.objectContaining({
         mode: "read_only",
-        allowedOperations: ["describe", "query"],
+        allowedOperations: READ_OPERATIONS,
         allowedOrigin: "http://localhost:4173",
         proofPublicKey: expect.any(String),
         applicationDeclarationId: manifestServer.manifest.id,
@@ -2198,7 +2769,7 @@ describe("mdbase connect server", () => {
       method: "PATCH",
       url: `/v1/connectors/hosted/grants/${grantId}`,
       headers: { authorization: `Bearer ${connector.token}` },
-      payload: { operations: ["describe", "query", "create", "sync"] }
+      payload: { operations: [...READ_OPERATIONS, "create", "sync"] }
     });
     expect(broadened.statusCode).toBe(400);
     revokeReplica.mockRejectedValueOnce(new Error("provider unavailable"));
@@ -2242,7 +2813,7 @@ describe("mdbase connect server", () => {
     expect(hostedProvider.revokeReplica).toHaveBeenCalledWith(provisioned.rows[0].id);
   });
 
-  it("provisions required types before creating a full-collection grant", async () => {
+  it("provisions required types before creating a prelude v1 full-collection grant", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const contract = contractDescriptor("workout.record", "task");
@@ -2337,6 +2908,10 @@ describe("mdbase connect server", () => {
           { id: "workout.record", version: "1.0.0", digest: TEST_CONTRACT_DIGEST }
         ],
         access: "full_collection",
+        capabilities: {
+          contract_version: 1,
+          required: [...LEGACY_READ_CAPABILITIES, "records.create", "collection.setup.apply"]
+        },
         configuration: [{
           id: "workout-base-sources",
           path: "/x-obsidian/bases/include",
@@ -2367,13 +2942,16 @@ describe("mdbase connect server", () => {
       .toBe("example.workouts");
     const verifier = "hosted-provision-verifier-that-is-long-enough-0001";
     const state = "hosted-provision";
+    const setupOperations: CollectionOperation[] = [
+      ...legacyOperations([...LEGACY_READ_CAPABILITIES, "records.create", "collection.setup.apply"])
+    ];
     const authorization = await startWebAuthorization(app, cookie, {
       applicationId,
       applicationManifestDigest,
       redirectUri: manifestServer.redirectUri,
       verifier,
       state,
-      operations: ["read", "query", "create"]
+      operations: setupOperations
     });
     const requestId = authorization.headers.location!.split("/").at(-1)!;
     const pending = await app.inject({
@@ -2416,7 +2994,7 @@ describe("mdbase connect server", () => {
       headers: { cookie },
       payload: {
         collection_id: collectionId,
-        operations: ["read", "query", "create"],
+        operations: setupOperations,
         contract_setups: [setup, unnecessarySetup]
       }
     });
@@ -2431,7 +3009,7 @@ describe("mdbase connect server", () => {
       headers: { cookie },
       payload: {
         collection_id: collectionId,
-        operations: ["read", "query", "create"],
+        operations: setupOperations,
         contract_setups: [setup]
       }
     });
@@ -2445,7 +3023,7 @@ describe("mdbase connect server", () => {
       headers: { cookie },
       payload: {
         collection_id: collectionId,
-        operations: ["read", "query", "create"],
+        operations: setupOperations,
         contract_setups: [setup]
       }
     });
@@ -2571,6 +3149,8 @@ async function postWebAuthorization(
     state: input.state,
     codeChallenge: challenge,
     requestedOperations: input.operations,
+    // This helper is exclusively used by the prelude v1 lifecycle scenarios.
+    semanticCapabilityContractVersion: 1,
     ...(input.collectionId ? { collectionId: input.collectionId } : {})
   });
   return app.inject({
@@ -2607,6 +3187,7 @@ async function startWebAuthorization(
 
 function applicationManifestFixture(
   requirements: ApplicationRequirements = {
+    access: "full_collection",
     contracts: [{
       id: "workout.record",
       version: "1.0.0",
@@ -2616,7 +3197,7 @@ function applicationManifestFixture(
   name = "Workout Tracker",
   provisions?: NonNullable<MdbaseAppManifest["provisions"]>
 ): {
-  manifest: MdbaseAppManifest;
+  manifest: MdbaseAppManifest | LegacyMdbaseAppManifest;
   redirectUri: string;
   nativeRedirectUri: string;
 } {

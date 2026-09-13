@@ -62,7 +62,7 @@ export function provisionNames(provisions: TypePackProvision[]) {
 }
 export function scopeDescription(contracts: ContractRequirement[]) {
   const names = contracts.map((contract) => `${contract.id} v${contract.version}`);
-  return `Access is limited to records matching ${names.join(" and ")}.`;
+  return `Compatibility and setup require ${names.join(" and ")}.`;
 }
 type ReturnLocation = Pick<Location, "origin" | "search">;
 

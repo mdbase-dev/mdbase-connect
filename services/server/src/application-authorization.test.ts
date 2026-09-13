@@ -52,12 +52,31 @@ describe("application authorization proofs", () => {
       .resolves.toEqual(expect.objectContaining({ signature: fixture.signature }));
   });
 
-  it("verifies the frozen beta55 protocol-2/v4 proof without rewriting it", async () => {
+  it("accepts the unchanged predecessor signature only with explicit v1 dispatch", async () => {
+    await expect(verifyApplicationAuthorization(beta55Fixture, {
+      ...expected,
+      semanticCapabilityContractVersion: 1,
+      requestedOperations: beta55Fixture.binding.requested_operations,
+      requestedFiles: beta55Fixture.binding.requested_files
+    })).resolves.toEqual(beta55Fixture);
+    await expect(verifyApplicationAuthorization(proof, {
+      ...expected,
+      semanticCapabilityContractVersion: 1
+    })).rejects.toMatchObject({
+      code: "capability_contract_incompatible",
+      details: { required: [1], supported: [2] }
+    });
+  });
+
+  it("rejects the frozen semantic-v1 proof at the default v2 boundary", async () => {
     await expect(verifyApplicationAuthorization(beta55Fixture, {
       ...expected,
       requestedOperations: beta55Fixture.binding.requested_operations,
       requestedFiles: beta55Fixture.binding.requested_files
-    })).resolves.toEqual(beta55Fixture);
+    })).rejects.toMatchObject({
+      code: "capability_contract_incompatible",
+      details: { required: [2], supported: [1] }
+    });
   });
 
   it("rejects every substituted security boundary", async () => {
@@ -111,7 +130,11 @@ describe("application authorization proofs", () => {
         }
       }, expected)).rejects.toMatchObject({
         code,
-        details: { contract: axis, required: CONNECT_CONTRACT_SUPPORT[axis] }
+        // Acceptance is version-dispatched by declaration; peer support is not
+        // permission to change this signed request's selected semantic version.
+        details: { contract: axis, required: axis === "semantic_capabilities"
+          ? [2]
+          : CONNECT_CONTRACT_SUPPORT[axis] }
       });
     }
   });

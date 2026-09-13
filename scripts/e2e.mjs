@@ -67,6 +67,18 @@ let directOrigin;
 const applicationKeyStore = new MemoryGrantKeyStore();
 let relayContext;
 
+const COLLECTION_READ_OPERATIONS = [
+  "describe", "changes", "read", "query", "list_views", "execute_view",
+  "read_view_source", "validate", "read_type"
+];
+const RECORD_CREATE_OPERATIONS = ["create"];
+const RECORD_EDIT_OPERATIONS = ["update", "rename"];
+const RECORD_DELETE_OPERATIONS = ["delete"];
+const DEFINITION_MANAGE_OPERATIONS = [
+  "create_type", "update_type", "assess_type_pack", "apply_type_pack"
+];
+const SETUP_OPERATIONS = ["assess_collection_setup", "apply_collection_setup"];
+
 class MemoryStorage {
   values = new Map();
   get length() { return this.values.size; }
@@ -100,7 +112,11 @@ try {
     redirectUri: manifest.redirectUri,
     verifier,
     state: "e2e",
-    operations: ["describe", "changes", "read", "query", "create", "update"],
+    operations: [
+      ...COLLECTION_READ_OPERATIONS,
+      ...RECORD_CREATE_OPERATIONS,
+      ...RECORD_EDIT_OPERATIONS
+    ],
     cookie
   });
   const authorizationId = initialAuthorization.id;
@@ -271,7 +287,16 @@ secret: connector scope test
 
   await onboardingPage.goto(`${serverUrl}/authorize/${authorizationId}`);
   await onboardingPage.getByText(collection.display_name, { exact: true }).waitFor();
-  await onboardingPage.getByRole("button", { name: "Allow MVP Workout App" }).click();
+  const onboardingCollectionChoice = onboardingPage.locator(
+    `.collection-choice-list input[value="${collection.id}"]`
+  );
+  if (await onboardingCollectionChoice.isVisible()) {
+    await onboardingCollectionChoice.check();
+    await onboardingPage
+      .getByRole("button", { name: "Review access", exact: true })
+      .click();
+  }
+  await onboardingPage.getByRole("button", { name: "Allow access", exact: true }).click();
   const callback = await finishSignedWebAuthorization(initialAuthorization);
   await onboardingContext.close();
   await onboardingBrowser.close();
@@ -288,8 +313,10 @@ secret: connector scope test
       code_verifier: verifier
     }
   });
-  if (token.body.scope?.contracts?.[0]?.id !== "workout.record" || !token.body.refresh_token) {
-    throw new Error(`Authorization did not return contract scope and refresh token: ${JSON.stringify(token.body)}`);
+  if (token.body.scope?.access !== "full_collection"
+      || token.body.scope?.contracts?.length !== 0
+      || !token.body.refresh_token) {
+    throw new Error(`Authorization did not return collection scope and refresh token: ${JSON.stringify(token.body)}`);
   }
   if (token.body.encryption?.protocol_version !== 1
       || token.body.encryption?.application_agreement_public_key !== applicationKey.agreementPublicKey
@@ -331,22 +358,22 @@ secret: connector scope test
     redirectUri: manifest.redirectUri,
     verifier: portalVerifier,
     state: "portal-e2e",
-    operations: ["describe"],
+    operations: COLLECTION_READ_OPERATIONS,
     cookie
   });
   const portalAuthorizationId = portalAuthorization.id;
-  const portalRequest = await request(
-    `/v1/authorization-requests/${portalAuthorizationId}`,
-    { cookie }
-  );
-  const portalOffer = portalRequest.body.collections?.find(
-    (candidate) => candidate.id === collection.id
-  );
-  if (!portalOffer?.offer_id || portalOffer.connector_name !== "MVP computer") {
-    throw new Error(
-      `The live connector did not offer its local collection to the portal: ${JSON.stringify(portalRequest.body)}`
+  const { portalRequest, portalOffer } = await poll(async () => {
+    const current = await request(
+      `/v1/authorization-requests/${portalAuthorizationId}`,
+      { cookie }
     );
-  }
+    const offer = current.body.collections?.find(
+      (candidate) => candidate.id === collection.id
+    );
+    return offer?.offer_id && offer.connector_name === "MVP computer"
+      ? { portalRequest: current, portalOffer: offer }
+      : null;
+  }, "the live connector did not offer its local collection to the portal");
   const portalBrowser = await chromium.launch({ headless: true });
   try {
     const portalContext = await portalBrowser.newContext();
@@ -390,7 +417,7 @@ secret: connector scope test
   await approvePortalAuthorization(portalAuthorizationId, cookie, {
     collection_id: portalOffer.id,
     offer_id: portalOffer.offer_id,
-    operations: ["describe"]
+    operations: COLLECTION_READ_OPERATIONS
   });
   const portalCallback = await finishSignedWebAuthorization(portalAuthorization);
   const portalToken = await request("/oauth/token", {
@@ -491,12 +518,16 @@ implements:
         homepage: manifest.origin,
         redirect_uris: [manifest.redirectUri],
         requirements: {
-          access: "contract",
+          access: "full_collection",
           contracts: [{
             id: "planning.item",
             version: "1.0.0",
             digest: setupContractDigest
-          }]
+          }],
+          capabilities: {
+            contract_version: 1,
+            required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read", "collection.setup.apply"]
+          }
         },
         provisions: {
           type_packs: [{
@@ -529,7 +560,7 @@ implements:
     redirectUri: manifest.redirectUri,
     verifier: setupVerifier,
     state: "setup-e2e",
-    operations: ["describe", "query"],
+    operations: [...COLLECTION_READ_OPERATIONS, ...SETUP_OPERATIONS],
     cookie
   });
   const setupAuthorizationId = setupAuthorization.id;
@@ -587,7 +618,7 @@ implements:
       throw new Error(`The approval UI did not suggest exact field mappings: ${mappings}`);
     }
     await setupPage.getByRole("button", {
-      name: "Set up and allow Planning E2E"
+      name: "Set up and allow access", exact: true
     }).waitFor();
     await setupContext.close();
   } finally {
@@ -596,7 +627,7 @@ implements:
   await approvePortalAuthorization(setupAuthorizationId, cookie, {
     collection_id: setupOffer.id,
     offer_id: setupOffer.offer_id,
-    operations: ["describe", "query"],
+    operations: [...COLLECTION_READ_OPERATIONS, ...SETUP_OPERATIONS],
     contract_setups: [{
       contract: {
         id: "planning.item",
@@ -628,9 +659,9 @@ implements:
       || !updatedWorkoutType.includes("contract: workout.record")
       || await fileExists(join(collectionPath, "_types", "planning_item.md"))
       || !await fileExists(join(collectionPath, "_contracts", "planning.item.md"))
-      || setupToken.body.scope?.contracts?.[0]?.id !== "planning.item"
-      || setupToken.body.scope?.contracts?.[0]?.implementations?.[0]?.type_name !== "workout") {
-    throw new Error(`Existing-type setup did not produce the exact active scope: ${JSON.stringify({
+      || setupToken.body.scope?.access !== "full_collection"
+      || setupToken.body.scope?.contracts?.length !== 0) {
+    throw new Error(`Existing-type setup did not produce exact collection authority: ${JSON.stringify({
       scope: setupToken.body.scope,
       updatedWorkoutType
     })}`);
@@ -645,10 +676,9 @@ implements:
   const setupQueryBody = await setupQuery.json();
   const setupResult = setupQueryBody.result?.result?.results?.[0];
   if (setupQuery.status !== 200
-      || setupResult?.contract?.id !== "planning.item"
-      || setupResult?.frontmatter?.title === undefined) {
+      || setupResult?.effective_frontmatter?.title === undefined) {
     throw new Error(
-      `The activated mapped contract could not query existing records: ${JSON.stringify(setupQueryBody)}`
+      `The activated collection authority could not query existing records: ${JSON.stringify(setupQueryBody)}`
     );
   }
   await cliJson(["access", "revoke", setupToken.body.grant_id]);
@@ -689,11 +719,7 @@ implements:
           configuration: taskNotesSetup.requirements.configuration,
           capabilities: {
             contract_version: 1,
-            required: [
-              "collection.inspect",
-              "records.query",
-              "collection.setup.apply"
-            ],
+            required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read", "collection.setup.apply"],
             optional: []
           }
         },
@@ -711,12 +737,7 @@ implements:
     redirectUri: manifest.redirectUri,
     verifier: taskNotesVerifier,
     state: "tasknotes-setup-e2e",
-    operations: [
-      "describe",
-      "query",
-      "assess_collection_setup",
-      "apply_collection_setup"
-    ],
+    operations: [...COLLECTION_READ_OPERATIONS, ...SETUP_OPERATIONS],
     cookie
   });
   const taskNotesRequest = await poll(async () => {
@@ -751,11 +772,11 @@ implements:
       `.collection-choice-list input[value="${collection.id}"]`
     ).click();
     await taskNotesPage.getByRole("button", { name: "Review access" }).click();
-    await taskNotesPage.getByText("Collection changes").waitFor();
+    await taskNotesPage.getByText("Collection changes", { exact: true }).waitFor();
     await taskNotesPage.getByText("x-obsidian → bases → include").waitFor();
     await taskNotesPage.getByText("views/tasknotes/**/*.base").waitFor();
     await taskNotesPage.getByRole("button", {
-      name: "Set up and allow TaskNotes setup E2E"
+      name: "Set up and allow access", exact: true
     }).waitFor();
     await taskNotesContext.close();
   } finally {
@@ -764,12 +785,7 @@ implements:
   await approvePortalAuthorization(taskNotesAuthorization.id, cookie, {
     collection_id: taskNotesOffer.id,
     offer_id: taskNotesOffer.offer_id,
-    operations: [
-      "describe",
-      "query",
-      "assess_collection_setup",
-      "apply_collection_setup"
-    ],
+    operations: [...COLLECTION_READ_OPERATIONS, ...SETUP_OPERATIONS],
     contract_setups: []
   });
   const taskNotesCallback = await finishSignedWebAuthorization(
@@ -908,9 +924,9 @@ implements:
       throw new Error("Browser SDK did not discover the direct connector");
     }
     const sdkQuery = requireConnectSuccess(await connection.query({ limit: 1_100 }));
-    if (sdkQuery.results.length !== 1_000 || connection.route !== "direct") {
+    if (sdkQuery.results.length !== 1_001 || connection.route !== "direct") {
       throw new Error(
-        "Browser SDK did not complete the 1,000-record query directly: " +
+        "Browser SDK did not complete the full-collection query directly: " +
         JSON.stringify({
           records: sdkQuery.results.length,
           route: connection.route
@@ -970,10 +986,13 @@ implements:
     });
     const browserAppId = browserApplication.body.application.id;
     const browserVerifier = "browser-end-to-end-pkce-verifier-forty-three-chars";
-    const browserOperations = [
-      "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
-      "read_type", "create_type", "update_type", "list_views", "execute_view"
-    ];
+    const browserOperations = [...new Set([
+      ...COLLECTION_READ_OPERATIONS,
+      ...RECORD_CREATE_OPERATIONS,
+      ...RECORD_EDIT_OPERATIONS,
+      ...RECORD_DELETE_OPERATIONS,
+      ...DEFINITION_MANAGE_OPERATIONS
+    ])];
     const browserAuthorization = await startSignedWebAuthorization({
       application: browserApplication.body.application,
       redirectUri: manifest.browserRedirectUri,
@@ -1074,7 +1093,11 @@ implements:
     id: "dev.mdbase.portable-e2e",
     name: "Portable E2E",
     project_url: "https://apps.example/portable-e2e",
-    requirements: { access: "full_collection", contracts: [] }
+    requirements: {
+      access: "full_collection",
+      contracts: [],
+      capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "records.validate", "views.list", "views.execute", "views.source.read", "definitions.read"] }
+    }
   };
   const manager = new MdbaseConnect.MdbaseConnect({
     serverUrl: ${JSON.stringify(serverUrl)},
@@ -1091,7 +1114,7 @@ implements:
   };
   document.querySelector("#connect").onclick = () => {
     globalThis.portableHarness.pending = manager.authorize({
-      operations: ["describe", "query"],
+      capabilities: manifest.requirements.capabilities.required,
       onDeviceCode(authorization) {
         globalThis.portableHarness.authorization = authorization;
         document.querySelector("#code").textContent = authorization.userCode;
@@ -1153,7 +1176,7 @@ implements:
     await approvePortalAuthorization(portableClaim.body.request_id, cookie, {
       collection_id: portableOffer.id,
       offer_id: portableOffer.offer_id,
-      operations: ["describe", "query"]
+      operations: COLLECTION_READ_OPERATIONS
     });
     await portablePage.waitForFunction(
       () => Boolean(globalThis.portableHarness.result || globalThis.portableHarness.error),
@@ -1188,11 +1211,13 @@ implements:
 
   const descriptionResponse = await rawOperation(collection.id, "describe", accessToken, {});
   const descriptionBody = await descriptionResponse.json();
+  const describedWorkoutType = descriptionBody.result?.types?.find(
+    (type) => type.name === "workout"
+  );
   if (descriptionResponse.status !== 200
       || descriptionBody.result?.protocol_version !== 1
-      || descriptionBody.result?.contracts?.[0]?.id !== "workout.record"
-      || descriptionBody.result?.types?.length !== 1
-      || descriptionBody.result?.types?.[0]?.schema?.properties?.title?.type !== "string") {
+      || !descriptionBody.result?.contracts?.some((contract) => contract.id === "workout.record")
+      || describedWorkoutType?.schema?.properties?.title?.type !== "string") {
     throw new Error(`Unexpected collection description: ${JSON.stringify(descriptionBody)}`);
   }
   const changeCursor = descriptionBody.result.change_cursor;
@@ -1309,14 +1334,15 @@ implements:
     path: "private.md"
   });
   const privateBody = await privateRead.json();
-  if (privateRead.status !== 403 || privateBody.error?.code !== "access_denied") {
-    throw new Error(`Contract scope exposed a private record: ${JSON.stringify(privateBody)}`);
+  if (privateRead.status !== 200
+      || privateBody.result?.result?.frontmatter?.secret !== "connector scope test") {
+    throw new Error(`Collection authority could not read a private record: ${JSON.stringify(privateBody)}`);
   }
   const scopedQuery = await rawOperation(collection.id, "query", accessToken, {});
   const scopedQueryBody = await scopedQuery.json();
   if (scopedQuery.status !== 200
-      || scopedQueryBody.result?.result?.results?.some((record) => record.path === "private.md")) {
-    throw new Error(`Contract scope did not constrain query results: ${JSON.stringify(scopedQueryBody)}`);
+      || !scopedQueryBody.result?.result?.results?.some((record) => record.path === "private.md")) {
+    throw new Error(`Collection authority did not include the private record in query results: ${JSON.stringify(scopedQueryBody)}`);
   }
 
   await cliJson(["access", "pause", "true"]);
@@ -1397,7 +1423,7 @@ async function startSignedWebAuthorization({
     redirect_uri: redirectUri,
     state,
     code_challenge: challenge,
-    contracts: authorizationContractRequirements(operations, requestedFiles),
+    contracts: authorizationContractRequirements(operations, requestedFiles, [], application.requirements.capabilities.contract_version),
     requested_operations: operations,
     ...(requestedFiles ? { requested_files: requestedFiles } : {}),
     ...(collectionId ? { collection_id: collectionId } : {})
@@ -1674,7 +1700,8 @@ async function openManifestServer() {
       id: "workout.record",
       version: "1.0.0",
       digest: "sha256:ca1752bbf69314cc712c97ae25ca510dad0230a65653b664f405468c2cefbe16"
-    }]
+    }],
+    "full_collection"
   );
   const browser = await openApplicationServer("Browser direct E2E", [], "full_collection");
   return {
@@ -1845,7 +1872,15 @@ schema:
       name,
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`],
-      requirements: { contracts, ...(access ? { access } : {}) }
+      requirements: {
+        contracts,
+        ...(access ? { access } : {}),
+        capabilities: {
+          contract_version: 2,
+          required: ["collection.read"],
+          optional: ["records.create", "records.edit", "records.delete", "views.manage", "definitions.manage"]
+        }
+      }
     }));
   });
   await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
@@ -1857,7 +1892,15 @@ schema:
     name,
     homepage: origin,
     redirect_uris: [`${origin}/auth/mdbase/callback`],
-    requirements: { contracts, ...(access ? { access } : {}) }
+    requirements: {
+      contracts,
+      ...(access ? { access } : {}),
+      capabilities: {
+        contract_version: 2,
+        required: ["collection.read"],
+        optional: ["records.create", "records.edit", "records.delete", "views.manage", "definitions.manage"]
+      }
+    }
   };
   return {
     server,

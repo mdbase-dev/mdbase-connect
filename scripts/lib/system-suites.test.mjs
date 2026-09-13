@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -28,6 +28,18 @@ test("every system suite has an existing command and known preparation steps", a
       assert.ok(preparationSteps[preparation], `${name} has unknown preparation ${preparation}`);
     }
   }
+});
+
+test("full Server CI covers every registered system suite exactly once", async () => {
+  const workflow = await readFile(resolve(repoRoot, ".github/workflows/server-ci.yml"), "utf8");
+  const matrixSuites = [...workflow.matchAll(/^\s+suites:\s*([a-z,-]+)\s*$/gm)]
+    .flatMap((match) => match[1].split(","));
+  const containerCommands = [...workflow.matchAll(/--suite\s+container\b/g)];
+  assert.equal(containerCommands.length, 1, "container suite must have one full-CI job");
+  assert.deepEqual(
+    [...matrixSuites, "container"].sort(),
+    Object.keys(systemSuites).sort()
+  );
 });
 
 test("system runner lists every suite without preparing the workspace", async () => {

@@ -24,6 +24,7 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     resendWebhookSecret: null,
     accountDeletionEnabled: true,
     hostedCollections: false,
+    hostedSharing: false,
     hostedProvider: null,
     hostedReferenceAuthority: false,
     allowInsecureHostedProvider: false,
@@ -437,4 +438,11 @@ describe("public runtime configuration", () => {
     });
     expect(value.webhookSigning?.previousPublicKeys).toEqual([old]);
   });
+});
+
+it("requires explicit opt-in for new hosted sharing", () => {
+  const local = { PUBLIC_URL: "http://localhost:8787", MDBASE_CONNECT_DEV_AUTH: "1" };
+  expect(runtimeConfigFromEnv(local).hostedSharing).toBe(false);
+  expect(runtimeConfigFromEnv({ ...local, MDBASE_CONNECT_HOSTED_SHARING_ENABLED: "0" }).hostedSharing).toBe(false);
+  expect(runtimeConfigFromEnv({ ...local, MDBASE_CONNECT_HOSTED_SHARING_ENABLED: "1" }).hostedSharing).toBe(true);
 });

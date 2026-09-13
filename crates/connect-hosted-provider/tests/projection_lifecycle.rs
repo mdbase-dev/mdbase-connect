@@ -43,6 +43,115 @@ async fn candidate_b_beta69_cutover_preflight_fixture() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires a clean MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
+async fn collection_authorization_migration_does_not_resurrect_expired_tokens() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let mut predecessor = sqlx::migrate!("./migrations");
+    predecessor
+        .migrations
+        .to_mut()
+        .retain(|migration| migration.version <= 37);
+    predecessor.run(&pool).await.unwrap();
+
+    let collection_id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_collections
+             (id, template, spec_version, max_records, max_content_bytes,
+              max_document_bytes, max_mirror_replicas, max_application_replicas,
+              resource_revision, wrapped_data_key, resources_ciphertext, timezone)
+           VALUES ($1, 'mdbase', '0.3.0', 100, 1048576, 65536, 5, 5,
+                   'migration-test', decode('00', 'hex'), decode('00', 'hex'), 'UTC')"#,
+    )
+    .bind(collection_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let expired_id = Uuid::now_v7();
+    let near_expiry_id = Uuid::now_v7();
+    let near_expiry = DateTime::<Utc>::from_timestamp_micros(
+        (Utc::now() + chrono::Duration::minutes(10)).timestamp_micros(),
+    )
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_replicas
+             (id, collection_id, name, purpose, mode, allowed_types, contract_scope,
+              full_collection, token_hash, token_expires_at)
+           VALUES
+             ($1, $3, 'expired scoped application', 'application', 'read_write',
+              ARRAY[]::text[], '[]'::jsonb, false, decode('01', 'hex'),
+              now() - interval '1 second'),
+             ($2, $3, 'near-expiry scoped application', 'application', 'read_write',
+              ARRAY[]::text[], '[]'::jsonb, false, decode('02', 'hex'), $4)"#,
+    )
+    .bind(expired_id)
+    .bind(near_expiry_id)
+    .bind(collection_id)
+    .bind(near_expiry)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_mutation_journal
+             (replica_id, request_id, operation_kind, input_schema_version,
+              input_digest, state, process_epoch, lease_owner, lease_expires_at,
+              fencing_generation, final_receipt_ciphertext, receipt_digest,
+              completed_at)
+           VALUES
+             ($1, $3, 'create', 1, decode('00', 'hex'), 'completed', $4, $5,
+              now(), 1, decode('01', 'hex'), decode('02', 'hex'), now()),
+             ($2, $3, 'create', 1, decode('00', 'hex'), 'completed', $4, $5,
+              now(), 1, decode('01', 'hex'), decode('02', 'hex'), now())"#,
+    )
+    .bind(expired_id)
+    .bind(near_expiry_id)
+    .bind(Uuid::now_v7())
+    .bind(Uuid::now_v7())
+    .bind(Uuid::now_v7())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+    let expired_archives: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_retired_replay_credentials WHERE replica_id = $1",
+    )
+    .bind(expired_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        expired_archives, 0,
+        "an expired token must never be archived"
+    );
+
+    let archived_near_expiry: DateTime<Utc> = sqlx::query_scalar(
+        "SELECT expires_at FROM hosted_provider_retired_replay_credentials WHERE replica_id = $1",
+    )
+    .bind(near_expiry_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        archived_near_expiry, near_expiry,
+        "retirement must not extend a still-valid near-expiry token"
+    );
+
+    let revoked: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_replicas WHERE id = ANY($1) AND revoked_at IS NOT NULL",
+    )
+    .bind(vec![expired_id, near_expiry_id])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(revoked, 2, "both invalid scoped replicas remain retired");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a clean MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
 async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
@@ -73,7 +182,7 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(final_versions, (1_i64..=37).collect::<Vec<_>>());
+    assert_eq!(final_versions, (1_i64..=41).collect::<Vec<_>>());
     let runtime_columns: Vec<String> = sqlx::query_scalar(
         r#"SELECT column_name
            FROM information_schema.columns
@@ -111,6 +220,77 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
     .await
     .unwrap();
     assert_eq!(general_projection_indexes, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let original: Value = sqlx::query_scalar(
+        "SELECT jsonb_agg(to_jsonb(m) ORDER BY version) FROM _sqlx_migrations m",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let versions: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(versions, (1..=41).collect::<Vec<_>>());
+    let plan = fixture
+        .provider
+        .projection_index_plan(None, 1)
+        .await
+        .unwrap();
+    assert!(plan.migration_ledger_valid);
+    assert!(plan.schema_valid);
+    assert_eq!(plan.migration_baseline, 34);
+    assert_eq!(plan.migration_target, 41);
+
+    // Only this disposable fixture's ledger is corrupted. Save every original
+    // column, including checksum bytes and timestamps; never rerun migrations
+    // or normalize historical checksums to repair the fixture.
+    let mut connection = fixture.pool.acquire().await.unwrap();
+    sqlx::query("CREATE TEMP TABLE indexer_original_ledger AS TABLE _sqlx_migrations")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    for (name, corruption) in [
+        ("missing", "DELETE FROM _sqlx_migrations WHERE version = 41"),
+        ("extra", "INSERT INTO _sqlx_migrations SELECT 42, description, installed_on, success, checksum, execution_time FROM _sqlx_migrations WHERE version = 41"),
+        ("wrong checksum", "UPDATE _sqlx_migrations SET checksum = decode('00', 'hex') WHERE version = 41"),
+        ("unsuccessful", "UPDATE _sqlx_migrations SET success = false WHERE version = 41"),
+        ("right count wrong future version", "UPDATE _sqlx_migrations SET version = 42 WHERE version = 41"),
+        ("right count wrong legacy version", "UPDATE _sqlx_migrations SET version = 0 WHERE version = 1"),
+        ("empty", "DELETE FROM _sqlx_migrations"),
+    ] {
+        sqlx::query(corruption).execute(&mut *connection).await.unwrap();
+        let result = fixture.provider.projection_index_plan(None, 1).await;
+        // Restore before assertions, even when verification unexpectedly fails.
+        sqlx::raw_sql("BEGIN; DELETE FROM _sqlx_migrations; INSERT INTO _sqlx_migrations SELECT * FROM indexer_original_ledger; COMMIT;")
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+        let restored: Value = sqlx::query_scalar(
+            "SELECT jsonb_agg(to_jsonb(m) ORDER BY version) FROM _sqlx_migrations m",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+        assert_eq!(restored, original, "exact restoration after {name}");
+        let plan = result.unwrap();
+        assert!(!plan.migration_ledger_valid, "accepted {name}");
+        assert_eq!(plan.migration_target, 41, "target changed for {name}");
+        assert!(plan.schema_valid, "schema changed for {name}");
+        assert!(fixture.provider.projection_index_plan(None, 1).await.unwrap().migration_ledger_valid);
+    }
+    sqlx::query("DROP TABLE indexer_original_ledger")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -173,7 +353,7 @@ async fn empty_unindexed_collections_return_a_valid_empty_query_result() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn stale_projection_bindings_use_canonical_exact_fallback_for_projection_exact_queries() {
+async fn v5_projection_rows_are_stale_and_use_canonical_exact_fallback() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -194,10 +374,32 @@ async fn stale_projection_bindings_use_canonical_exact_fallback_for_projection_e
         "---\ntitle: Stale binding\n---\nCanonical encrypted body.\n",
     )
     .await;
-    complete_generation(&fixture).await;
+    let v6_generation = complete_generation(&fixture).await;
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET projection_format_version = 5,
+               semantic_projection = jsonb_set(semantic_projection, '{format_version}', '5')
+           WHERE collection_id = $1 AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET projection_format_version = 5
+           WHERE collection_id = $1 AND generation_id = (
+             SELECT active_projection_generation_id
+             FROM hosted_provider_collections WHERE id = $1
+           )"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
     sqlx::query(
         r#"UPDATE hosted_provider_collections
-           SET active_projection_head = active_projection_head - 1
+           SET active_projection_format_version = 5
            WHERE id = $1"#,
     )
     .bind(fixture.collection_id)
@@ -213,7 +415,12 @@ async fn stale_projection_bindings_use_canonical_exact_fallback_for_projection_e
             &application_token,
             "query",
             Uuid::new_v4(),
-            json!({"limit": 10, "order_by": [{"field": "file.path"}]}),
+            json!({
+                "where": "file.path == 'notes/stale-binding.md'",
+                "include_body": true,
+                "limit": 10,
+                "order_by": [{"field": "file.path"}]
+            }),
             None,
         )
         .await
@@ -225,6 +432,97 @@ async fn stale_projection_bindings_use_canonical_exact_fallback_for_projection_e
         result["result"]["results"][0]["path"],
         "notes/stale-binding.md"
     );
+    assert_eq!(
+        result["result"]["results"][0]["body"],
+        "Canonical encrypted body.\n"
+    );
+
+    let rebuilt_generation = complete_generation(&fixture).await;
+    assert_ne!(rebuilt_generation, v6_generation);
+    let rebuilt_versions: (i32, i32, i32) = sqlx::query_as(
+        r#"SELECT collection.active_projection_format_version,
+                  generation.projection_format_version,
+                  projection.projection_format_version
+           FROM hosted_provider_collections collection
+           JOIN hosted_provider_projection_generations generation
+             ON generation.collection_id = collection.id
+            AND generation.generation_id = collection.active_projection_generation_id
+           JOIN hosted_provider_record_projections projection
+             ON projection.collection_id = collection.id
+            AND projection.generation_id = generation.generation_id
+            AND projection.valid_to_sequence IS NULL
+           WHERE collection.id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(rebuilt_versions, (6, 6, 6));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn hosted_v6_resolution_evidence_matches_local_reason_semantics() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "notes/target.md",
+        "---\ntitle: Target\n---\n",
+    )
+    .await;
+    let source_id = Uuid::now_v7();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        source_id,
+        None,
+        "notes/source.md",
+        "A local-compatible [[target]] relationship.\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+
+    let projection: Value = sqlx::query_scalar(
+        r#"SELECT semantic_projection
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND record_id = $2
+             AND generation_id = (
+               SELECT active_projection_generation_id
+               FROM hosted_provider_collections WHERE id = $1
+             ) AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(source_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        projection["format_version"],
+        mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION
+    );
+    let occurrence = &projection["structure"]["occurrences"][0];
+    assert_eq!(occurrence["reason"], "only_candidate");
+    assert_eq!(occurrence["candidate_count"], 1);
+    assert!(occurrence["candidate_digest"].as_str().is_some());
+    assert!(occurrence["selected_lookup"].is_object());
+    assert!(occurrence["alternatives"].is_null());
+    assert!(occurrence["alternative_candidates"].is_null());
 }
 
 #[cfg(feature = "test-hooks")]
@@ -1825,6 +2123,7 @@ async fn view_mutations_carry_the_projection_binding_and_keep_readiness() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B view writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -1956,6 +2255,88 @@ async fn diagnostics_attribute_unready_collections_to_a_cause() {
     // causes rather than on absolute counts.
     let unready_before = readiness.unready;
     let stale_before = readiness.resource_revision_stale;
+    let format_mismatch_before = readiness.format_version_mismatch;
+    let engine_mismatch_before = readiness.engine_version_mismatch;
+
+    // A predecessor can leave a perfectly consistent collection/generation
+    // binding that is nevertheless stale for this running binary. Diagnostics
+    // must compare persisted identity with the runtime, not only both stored
+    // halves with each other.
+    let stale_format =
+        i32::try_from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION).unwrap() + 1;
+    let stale_engine = "diagnostics-stale-semantic-engine";
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET projection_format_version = $2, semantic_engine_version = $3
+           WHERE collection_id = $1
+             AND generation_id = (
+               SELECT active_projection_generation_id
+               FROM hosted_provider_collections WHERE id = $1
+             )"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(stale_format)
+    .bind(stale_engine)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections
+           SET active_projection_format_version = $2,
+               active_semantic_engine_version = $3
+           WHERE id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(stale_format)
+    .bind(stale_engine)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let stale_runtime = fixture.provider.hosted_diagnostics().await;
+    let readiness = match &stale_runtime.projection_readiness {
+        DiagnosticSection::Ok { value } => *value,
+        DiagnosticSection::Unavailable { reason } => {
+            panic!("projection readiness unavailable: {reason}")
+        }
+    };
+    assert_eq!(readiness.unready, unready_before + 1);
+    assert_eq!(
+        readiness.format_version_mismatch,
+        format_mismatch_before + 1
+    );
+    assert_eq!(
+        readiness.engine_version_mismatch,
+        engine_mismatch_before + 1
+    );
+
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET projection_format_version = $2, semantic_engine_version = $3
+           WHERE collection_id = $1
+             AND generation_id = (
+               SELECT active_projection_generation_id
+               FROM hosted_provider_collections WHERE id = $1
+             )"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(i32::try_from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION).unwrap())
+    .bind(mdbase::VERSION)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections
+           SET active_projection_format_version = $2,
+               active_semantic_engine_version = $3
+           WHERE id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(i32::try_from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION).unwrap())
+    .bind(mdbase::VERSION)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
 
     // Strand the binding the way a view mutation did on 2026-08-18: advance the
     // collection's resource revision while the generation keeps the old one.
@@ -3092,6 +3473,7 @@ async fn candidate_b_query_receipt_window_does_not_stall_long_pagination() {
             RegisterReplica {
                 replica_id: application_replica_id,
                 name: "Candidate B receipt-window reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -4005,7 +4387,7 @@ async fn candidate_b_projection_digest_binds_and_refreshes_the_temporal_end() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_rollback_fence_drains_inflight_queries_and_allows_cursor_release() {
+async fn runtime_admission_separates_cutover_reads_from_fenced_writes() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -4113,8 +4495,45 @@ async fn candidate_b_rollback_fence_drains_inflight_queries_and_allows_cursor_re
                suspension_reason = NULL,
                admission_fence_token = '11111111-1111-4111-8111-111111111111',
                admission_fence_kind = 'cutover',
-               admission_lease_expires_at = clock_timestamp() - interval '1 second',
+               admission_lease_expires_at = clock_timestamp() + interval '1 hour',
                admission_owner_expires_at = clock_timestamp() + interval '1 hour',
+               updated_at = now()
+           WHERE singleton = true"#,
+    )
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    fixture
+        .provider
+        .acquire_runtime_read_admission()
+        .await
+        .unwrap()
+        .commit()
+        .await
+        .unwrap();
+    let fenced_write = fixture
+        .provider
+        .acquire_runtime_admission()
+        .await
+        .unwrap_err();
+    assert_eq!(fenced_write.code, "hosted_query_admission_suspended");
+    let cutover_read = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 1}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(cutover_read["valid"], true);
+
+    sqlx::query(
+        r#"UPDATE hosted_provider_runtime_control
+           SET admission_lease_expires_at = clock_timestamp() - interval '1 second',
                updated_at = now()
            WHERE singleton = true"#,
     )
@@ -4487,6 +4906,7 @@ async fn candidate_b_query_receipts_evict_the_oldest_per_replica_window_entry() 
             RegisterReplica {
                 replica_id,
                 name: "Candidate B receipt budget reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -4565,7 +4985,7 @@ async fn candidate_b_query_receipts_evict_the_oldest_per_replica_window_entry() 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_corrupt_projection_envelopes_fall_back_for_scoped_authorization() {
+async fn candidate_b_corrupt_projection_envelopes_fall_back_for_collection_authorization() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -4577,6 +4997,7 @@ async fn candidate_b_corrupt_projection_envelopes_fall_back_for_scoped_authoriza
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B integrity writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -4798,12 +5219,13 @@ schema:
             fixture.collection_id,
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
-                name: "Candidate B integrity scoped reader".to_string(),
+                name: "Candidate B integrity collection reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
-                allowed_types: vec!["public_note".to_string()],
-                contract_scope: resources.contracts,
-                full_collection: false,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
                 allowed_operations: vec!["query".to_string()],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
@@ -4820,7 +5242,7 @@ schema:
         .await
         .unwrap();
 
-    assert_scoped_public_query(&fixture, &reader_token).await;
+    assert_full_collection_query(&fixture, &reader_token).await;
     sqlx::query(
         r#"WITH originals AS MATERIALIZED (
              SELECT record_id, semantic_projection
@@ -4869,8 +5291,8 @@ schema:
 
     // Both widening (secret labelled public) and narrowing (public labelled
     // secret), plus path/frontmatter cross-record substitution, resolve from
-    // exact authority. The scoped caller sees only the canonical public record.
-    assert_scoped_public_query(&fixture, &reader_token).await;
+    // exact authority. Collection authority sees both canonical exact records.
+    assert_full_collection_query(&fixture, &reader_token).await;
 
     let head: i64 =
         sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
@@ -4911,7 +5333,7 @@ schema:
     assert_eq!(details["observed"], 10_001);
 }
 
-async fn assert_scoped_public_query(fixture: &FileLifecycleFixture, token: &str) {
+async fn assert_full_collection_query(fixture: &FileLifecycleFixture, token: &str) {
     let result = fixture
         .provider
         .operation(
@@ -4919,17 +5341,22 @@ async fn assert_scoped_public_query(fixture: &FileLifecycleFixture, token: &str)
             token,
             "query",
             Uuid::new_v4(),
-            json!({"limit": 10}),
+            json!({"limit": 10, "order_by": [{"field": "file.path"}]}),
             None,
         )
         .await
         .unwrap();
     assert_eq!(result["valid"], true);
-    assert_eq!(result["result"]["meta"]["total_count"], 1);
+    assert_eq!(result["result"]["meta"]["total_count"], 2);
     assert_eq!(result["result"]["results"][0]["path"], "public/note.md");
     assert_eq!(
         result["result"]["results"][0]["effective_frontmatter"]["title"],
         "Public exact"
+    );
+    assert_eq!(result["result"]["results"][1]["path"], "secret/note.md");
+    assert_eq!(
+        result["result"]["results"][1]["effective_frontmatter"]["title"],
+        "Secret exact"
     );
 }
 
@@ -5060,6 +5487,7 @@ async fn candidate_b_concurrent_application_writes_do_not_upgrade_replica_locks(
             RegisterReplica {
                 replica_id: writer_id,
                 name: "Candidate B concurrent writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -5401,6 +5829,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B query reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -5993,6 +6422,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B mutation writer".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -6060,6 +6490,32 @@ async fn exercise_candidate_b_projection_lifecycle() {
             .unwrap();
     assert_eq!(records_after_preflight, records_before_preflight);
 
+    let assert_persisted_record = |receipt: &Value, read: &Value| {
+        let receipt_mtime = DateTime::parse_from_rfc3339(
+            receipt["result"]["file"]["mtime"]
+                .as_str()
+                .expect("hosted mutation receipts expose persisted file mtime"),
+        )
+        .expect("hosted mutation receipt file mtime is RFC 3339");
+        let read_mtime = DateTime::parse_from_rfc3339(
+            read["result"]["file"]["mtime"]
+                .as_str()
+                .expect("hosted reads expose persisted file mtime"),
+        )
+        .expect("hosted read file mtime is RFC 3339");
+        assert_eq!(receipt_mtime, read_mtime);
+        let mut receipt_without_mtime = receipt["result"].clone();
+        let mut read_without_mtime = read["result"].clone();
+        receipt_without_mtime["file"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mtime");
+        read_without_mtime["file"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mtime");
+        assert_eq!(receipt_without_mtime, read_without_mtime);
+    };
     let target_created = fixture
         .provider
         .operation(
@@ -6089,13 +6545,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
         )
         .await
         .unwrap();
-    assert_eq!(target_created["result"], target_read["result"]);
-    DateTime::parse_from_rfc3339(
-        target_created["result"]["file"]["mtime"]
-            .as_str()
-            .expect("hosted create receipts expose persisted file mtime"),
-    )
-    .expect("hosted create receipt file mtime is RFC 3339");
+    assert_persisted_record(&target_created, &target_read);
 
     let target_updated = fixture
         .provider
@@ -6125,15 +6575,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
         )
         .await
         .unwrap();
-    assert_eq!(target_updated["result"], target_read_after_update["result"]);
-    assert_eq!(
-        target_updated["result"]["file"],
-        target_read_after_update["result"]["file"]
-    );
-    assert_eq!(
-        target_updated["result"]["revision"],
-        target_read_after_update["result"]["revision"]
-    );
+    assert_persisted_record(&target_updated, &target_read_after_update);
     let target_revision = target_updated["result"]["revision"]
         .as_str()
         .unwrap()
@@ -6839,6 +7281,7 @@ async fn candidate_b_projection_bytes_are_preflighted_before_json_transfer() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B budget reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types: Vec::new(),
@@ -6898,6 +7341,7 @@ async fn candidate_b_grouping_preflights_large_keys_before_database_aggregation(
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B large-group budget reader".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -7257,6 +7701,7 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B TaskNotes Base mission".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -7689,6 +8134,7 @@ async fn hosted_base_skips_a_malformed_record_and_returns_readable_rows() {
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Malformed Base record acceptance".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -7825,6 +8271,7 @@ async fn candidate_b_exact_projected_filter_fixture(
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B exact projected filter mission".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -9150,6 +9597,7 @@ async fn candidate_b_base_candidate_prunes_fixture(
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
                 name: "Candidate B Base candidate scale mission".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
                 allowed_types: Vec::new(),
@@ -9534,7 +9982,10 @@ async fn candidate_b_persisted_body_relationships_exclude_label_prose() {
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_eq!(row.get::<i32, _>("projection_format_version"), 5);
+    assert_eq!(
+        row.get::<i32, _>("projection_format_version"),
+        i32::try_from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION).unwrap()
+    );
     let projection = row.get::<String, _>("projection");
     for secret in [
         "wikilink-label-secret",
@@ -9587,6 +10038,7 @@ async fn register_query_application(
             RegisterReplica {
                 replica_id,
                 name: "Candidate B query application".to_string(),
+                application_setup_evidence: None,
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
                 allowed_types,

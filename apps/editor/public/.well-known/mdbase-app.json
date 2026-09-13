@@ -9,32 +9,23 @@
   "requirements": {
     "contracts": [],
     "capabilities": {
-      "contract_version": 1,
+      "contract_version": 2,
       "required": [
-        "collection.inspect",
-        "records.watch",
-        "records.read",
-        "records.query",
-        "records.validate",
-        "records.create",
-        "records.update",
-        "records.delete",
-        "records.rename",
-        "files.list",
-        "files.read",
-        "definitions.read",
-        "definitions.create",
-        "definitions.update",
-        "definitions.type-pack.apply"
+        "collection.read"
       ],
       "optional": [
-        "files.add"
+        "records.create",
+        "records.edit",
+        "records.delete",
+        "definitions.manage"
       ]
     },
     "files": {
-      "actions": [
+      "required": [
         "list",
-        "read",
+        "read"
+      ],
+      "optional": [
         "add"
       ],
       "scope": {

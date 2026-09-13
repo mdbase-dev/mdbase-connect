@@ -5,14 +5,14 @@ impl HostedProvider {
         transaction: &mut Transaction<'_, Postgres>,
         collection_id: Uuid,
         collection: &PgRow,
-        replica: &Replica,
+        _replica: &Replica,
         input: &Value,
         catalog: &mdbase::runtime::CompiledCatalog,
         data_key: &[u8; 32],
     ) -> ApiResult<HostedQueryState> {
         let (generation_id, catalog_revision, projection_format_version, semantic_engine_version) =
             base_query_binding(collection, catalog);
-        let plan = match catalog.compile_hosted_query(input) {
+        let plan = match compile_provider_hosted_query(catalog, input) {
             Ok(plan) => plan,
             Err(error) => {
                 return Err(ApiError::bad_request(error.code, error.message));
@@ -24,9 +24,6 @@ impl HostedProvider {
         } else {
             None
         };
-        if let Some(context) = exact_context.as_ref() {
-            enforce_context_scope(catalog, context, &replica.allowed_types)?;
-        }
         enforce_exact_context_budget(&plan, exact_context.as_ref())?;
         let request_digest = plan.canonical_query_digest.clone();
         let (scan_budget_records, scan_budget_ciphertext_bytes) = hosted_query_scan_budgets();
@@ -45,7 +42,7 @@ impl HostedProvider {
             projection_format_version,
             semantic_engine_version,
             plan,
-            allowed_types: replica.allowed_types.clone(),
+            allowed_types: Vec::new(),
             last_order_values: Vec::new(),
             last_path: None,
             last_record_id: None,
@@ -70,7 +67,7 @@ impl HostedProvider {
         transaction: &mut Transaction<'_, Postgres>,
         collection_id: Uuid,
         collection: &PgRow,
-        replica: &Replica,
+        _replica: &Replica,
         input: &Value,
         catalog: &mdbase::runtime::CompiledCatalog,
         resource_documents: &[(String, String)],
@@ -121,25 +118,37 @@ impl HostedProvider {
             }
             _ => None,
         };
-        let planning = catalog
-            .plan_hosted_canonical_view(
-                input,
-                &view_record,
-                explicit_context.as_ref(),
-                &replica.allowed_types,
-            )
-            .map_err(|error| {
-                ApiError::bad_request(
-                    error.code,
-                    format!("Canonical saved-view planning failed: {}", error.message),
+        let plan_view = |planning_input: &Value| {
+            catalog
+                .plan_hosted_canonical_view_typed(
+                    planning_input,
+                    &view_record,
+                    explicit_context.as_ref(),
+                    &[],
                 )
-            })?;
-        let plan = match planning {
-            mdbase::runtime::HostedCanonicalViewPlanning::Planned { plan } => *plan,
-            mdbase::runtime::HostedCanonicalViewPlanning::Invalid { result } => {
-                return Ok(Err(result));
+                .map_err(|error| {
+                    ApiError::bad_request(
+                        error.code,
+                        format!("Canonical saved-view planning failed: {}", error.message),
+                    )
+                })
+        };
+        let mut plan = match plan_view(input)? {
+            mdbase::runtime::HostedCanonicalViewPlanningTyped::Planned { plan } => *plan,
+            mdbase::runtime::HostedCanonicalViewPlanningTyped::Invalid { operation } => {
+                return Ok(Err(operation.to_v03()));
             }
         };
+        if plan.query.page_size < plan.query.budgets.max_page_size {
+            let mut planning_input = input.clone();
+            planning_input["limit"] = json!(plan.query.budgets.max_page_size);
+            plan = match plan_view(&planning_input)? {
+                mdbase::runtime::HostedCanonicalViewPlanningTyped::Planned { plan } => *plan,
+                mdbase::runtime::HostedCanonicalViewPlanningTyped::Invalid { operation } => {
+                    return Ok(Err(operation.to_v03()));
+                }
+            };
+        }
         let exact_context = if plan.query.requirements.query_context {
             match plan.context_path.as_deref() {
                 None => None,
@@ -180,7 +189,7 @@ impl HostedProvider {
             projection_format_version,
             semantic_engine_version,
             plan: plan.query,
-            allowed_types: replica.allowed_types.clone(),
+            allowed_types: Vec::new(),
             last_order_values: Vec::new(),
             last_path: None,
             last_record_id: None,
@@ -205,7 +214,7 @@ impl HostedProvider {
         transaction: &mut Transaction<'_, Postgres>,
         collection_id: Uuid,
         collection: &PgRow,
-        replica: &Replica,
+        _replica: &Replica,
         input: &Value,
         catalog: &mdbase::runtime::CompiledCatalog,
         resource_documents: &[(String, String)],
@@ -230,7 +239,7 @@ impl HostedProvider {
             file_mtime: None,
         };
         let planning = catalog
-            .plan_hosted_obsidian_base(input, &view_record, &replica.allowed_types)
+            .plan_hosted_obsidian_base(input, &view_record, &[])
             .map_err(|error| {
                 ApiError::bad_request(
                     error.code,
@@ -260,21 +269,6 @@ impl HostedProvider {
             }
             _ => None,
         };
-        if let Some(context) = &base_context {
-            if !replica.allowed_types.is_empty()
-                && !context.facts.types.iter().any(|actual| {
-                    replica
-                        .allowed_types
-                        .iter()
-                        .any(|allowed| allowed.eq_ignore_ascii_case(actual))
-                })
-            {
-                return Err(ApiError::forbidden(
-                    "scope_denied",
-                    "The Obsidian Base context is outside this application's record scope.",
-                ));
-            }
-        }
         let mut candidate_input = json!({
             "select": ["path"],
             "pagination": "cursor",
@@ -282,8 +276,7 @@ impl HostedProvider {
         if !base_plan.allowed_types.is_empty() {
             candidate_input["types"] = json!(base_plan.allowed_types);
         }
-        let plan = catalog
-            .compile_hosted_query(&candidate_input)
+        let plan = compile_provider_hosted_query(catalog, &candidate_input)
             .map_err(|error| ApiError::bad_request(error.code, error.message))?;
         let mut result_meta = serde_json::Map::new();
         result_meta.insert(
@@ -314,7 +307,7 @@ impl HostedProvider {
             projection_format_version,
             semantic_engine_version,
             plan,
-            allowed_types: replica.allowed_types.clone(),
+            allowed_types: Vec::new(),
             last_order_values: Vec::new(),
             last_path: None,
             last_record_id: None,
@@ -547,7 +540,7 @@ impl HostedProvider {
             )? as u32,
             semantic_engine_version: row.get("semantic_engine_version"),
             plan,
-            allowed_types: replica.allowed_types.clone(),
+            allowed_types: Vec::new(),
             last_order_values: order_values,
             last_path: Some(last_path),
             last_record_id: row.get("last_record_id"),
@@ -568,4 +561,17 @@ impl HostedProvider {
         state.execution_proof = Some(execution_proof);
         Ok(state)
     }
+}
+
+fn compile_provider_hosted_query(
+    catalog: &mdbase::runtime::CompiledCatalog,
+    input: &Value,
+) -> Result<mdbase::runtime::HostedQueryPlan, mdbase::runtime::CatalogError> {
+    let initial = catalog.compile_hosted_query(input)?;
+    if initial.page_size >= initial.budgets.max_page_size {
+        return Ok(initial);
+    }
+    let mut planning_input = input.clone();
+    planning_input["limit"] = json!(initial.budgets.max_page_size);
+    catalog.compile_hosted_query(&planning_input)
 }

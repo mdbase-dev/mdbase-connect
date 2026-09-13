@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { createConnectEnvironment } from "./connect-environment.mjs";
 import { sanitizeProjectName } from "./connect-test-environment.mjs";
+
+test("Compose database readiness excludes the temporary socket-only initialization server", () => {
+  const compose = readFileSync(new URL("../../docker-compose.yml", import.meta.url), "utf8");
+  const checks = compose.match(/pg_isready[^"\n]*/g) ?? [];
+  assert.equal(checks.length, 2);
+  for (const check of checks) assert.match(check, /^pg_isready -h 127\.0\.0\.1 /);
+});
 
 test("keeps already-valid Compose project names stable", () => {
   assert.equal(

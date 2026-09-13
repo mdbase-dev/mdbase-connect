@@ -3,14 +3,21 @@ import { z } from "zod";
 import type { DatabasePool } from "./db.js";
 import { ConnectGateway } from "./connect.js";
 import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
-import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
+import { capabilityOperations, type CollectionOperation } from "@mdbase-dev/connect-protocol";
 import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js";
 
 export const MCP_SCOPES = ["mdbase:read", "mdbase:write"] as const;
 export type McpScope = typeof MCP_SCOPES[number];
 
-export const READ_OPERATIONS = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type"] as const;
-export const WRITE_OPERATIONS = ["create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "create_type", "update_type", "apply_type_pack"] as const;
+// Used only for new, explicitly approved connections; stored token ceilings remain exact.
+// Existing stored grants retain their original operation arrays without conversion.
+export const READ_OPERATIONS = capabilityOperations("collection.read");
+export const WRITE_OPERATIONS = [
+  ...capabilityOperations("records.create"),
+  ...capabilityOperations("records.edit"),
+  ...capabilityOperations("records.delete"),
+  ...capabilityOperations("definitions.manage")
+];
 
 interface ClientRow {
   id: string;

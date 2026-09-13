@@ -1,16 +1,20 @@
+import { collectionGrantScope, isCanonicalCollectionGrantScope } from "./application-grant-scope.js";
 import type {
-  ApplicationRequirements,
-  CollectionContractDescriptor,
   CollectionOperation,
+  FileAction,
   FileCapability,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import { FILE_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
-import type { CollectionAccessContext } from "./collection-access.js";
 import {
-  requiresFullCollectionAccess,
-  requiresWriteReplica
-} from "./collection-operation-policy.js";
+  APPLICATION_SETUP_OPERATIONS,
+  capabilityOperations,
+  FILE_PROTOCOL_VERSION,
+  applicationOperationSelectionIsAtomic
+} from "@mdbase-dev/connect-protocol";
+import type { CollectionAccessContext } from "./collection-access.js";
+import { requiresWriteReplica } from "./collection-operation-policy.js";
+
+import { fileRequestForRequirements, legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "./application-requirements.js";
 
 const WRITE_FILE_ACTIONS = new Set(["add", "replace", "move", "delete"]);
 
@@ -19,6 +23,47 @@ export interface GrantPlan {
   scope: GrantScope;
   replicaMode: "read_only" | "read_write";
   fileCapability?: FileCapability;
+}
+
+/** Consent choices are a preview; approval rechecks the current locked policy. */
+export function previewCollectionGrant(input: {
+  applicationOperationCeiling: readonly CollectionOperation[];
+  requirements: ApplicationRequirements;
+  access: CollectionAccessContext;
+}): { available: true; operations: CollectionOperation[]; file_actions: FileAction[] }
+  | { available: false; detail: string } {
+  const allowed = new Set(input.applicationOperationCeiling.filter((operation) =>
+    input.access.operationCeiling.has(operation)
+  ));
+  const declared = input.requirements.capabilities;
+  const operations = declared?.contract_version === 2
+    ? [...new Set([
+        ...[...declared.required, ...(declared.optional ?? [])].flatMap((capability) => {
+          const group = capabilityOperations(capability);
+          return group.every((operation) => allowed.has(operation)) ? group : [];
+        }),
+        ...APPLICATION_SETUP_OPERATIONS.filter((operation) => allowed.has(operation))
+      ])]
+    : [...allowed];
+  const files = fileRequestForRequirements(input.requirements);
+  try {
+    const plan = planCollectionGrant({
+      ...input,
+      requestedOperations: operations,
+      ...(files ? {
+        requestedFileActions: files.actions.filter((action) =>
+          input.access.fileCeiling.actions.includes(action)
+        )
+      } : {})
+    });
+    return { available: true, operations: plan.operations, file_actions: plan.fileCapability?.actions ?? [] };
+  } catch (error) {
+    if (!(error instanceof GrantPlanningError)) throw error;
+    return {
+      available: false,
+      detail: "Your access to this collection does not include the permissions this application requires."
+    };
+  }
 }
 
 /**
@@ -30,22 +75,55 @@ export interface GrantPlan {
 export function planCollectionGrant(input: {
   requestedOperations: readonly CollectionOperation[];
   applicationOperationCeiling: readonly CollectionOperation[];
+  requestedFileActions?: readonly FileAction[];
   requirements: ApplicationRequirements;
-  availableContracts: readonly CollectionContractDescriptor[];
   access: CollectionAccessContext;
 }): GrantPlan {
   const operations = [...new Set(input.requestedOperations)];
   const fileRequirement = input.requirements.files;
+  const version = requirementContractVersion(input.requirements);
+  const requestedFiles = fileRequestForRequirements(input.requirements);
+  const selectedFileActions = input.requestedFileActions
+    ? [...new Set(input.requestedFileActions)]
+    : requestedFiles?.actions;
   if (operations.length === 0 && !fileRequirement) {
     throw new GrantPlanningError("At least one record operation or file capability must be approved.");
   }
-  if (fileRequirement) {
-    if (
-      fileRequirement.actions.length === 0
+  if (fileRequirement && "actions" in fileRequirement) {
+    if (fileRequirement.actions.length === 0
       || new Set(fileRequirement.actions).size !== fileRequirement.actions.length
-    ) {
-      throw new GrantPlanningError("File capabilities require at least one unique action.");
+      || (selectedFileActions?.length !== fileRequirement.actions.length)
+      || fileRequirement.actions.some((action) => !selectedFileActions?.includes(action))) {
+      throw new GrantPlanningError("Legacy file actions must be approved exactly as declared.");
     }
+  }
+  if (fileRequirement && !("actions" in fileRequirement)) {
+    if (
+      fileRequirement.required.length === 0
+      || new Set(fileRequirement.required).size !== fileRequirement.required.length
+      || new Set(fileRequirement.optional ?? []).size !== (fileRequirement.optional ?? []).length
+      || (fileRequirement.optional ?? []).some((action) => fileRequirement.required.includes(action))
+    ) {
+      throw new GrantPlanningError("File requirements need disjoint, unique required and optional actions.");
+    }
+  }
+  if (fileRequirement && selectedFileActions) {
+    const declaredActions = new Set(requestedFiles?.actions ?? []);
+    if (
+      (!("actions" in fileRequirement) && fileRequirement.required.some((action) => !selectedFileActions.includes(action)))
+      || selectedFileActions.some((action) => !declaredActions.has(action))
+    ) {
+      throw new GrantPlanningError(
+        "Required file actions must be approved and optional file actions must be declared."
+      );
+    }
+  } else if (selectedFileActions?.length) {
+    throw new GrantPlanningError(
+      "File actions require an application file declaration."
+    );
+  }
+  if (version === 1 && !legacyOperationSelectionAllowed(input.requirements, operations)) {
+    throw new GrantPlanningError("Approved operations exceed the legacy declaration.");
   }
   const applicationOperations = new Set(input.applicationOperationCeiling);
   if (operations.some((operation) => !applicationOperations.has(operation))) {
@@ -58,96 +136,91 @@ export function planCollectionGrant(input: {
       "The approving user may not grant one or more requested operations."
     );
   }
-  if (
-    operations.length > 0
-    && input.requirements.access !== "full_collection"
-    && input.requirements.contracts.length === 0
-  ) {
+  if (input.requirements.access !== "full_collection") {
     throw new GrantPlanningError(
-      "Contract-scoped application manifests must declare at least one required contract; use full_collection for collection-wide access."
+      "Applications must explicitly request full collection access; legacy or omitted access is not widened."
     );
   }
+  if (!isCanonicalCollectionGrantScope(input.access.scopeCeiling)) {
+    throw new GrantPlanningError("The approving user may not grant full-collection access.");
+  }
+  const setupOperations = new Set<string>(APPLICATION_SETUP_OPERATIONS);
+  const semanticOperations = operations.filter((operation) => !setupOperations.has(operation));
   if (
-    input.requirements.access !== "full_collection"
-    && operations.some(requiresFullCollectionAccess)
+    version === 2 && (input.requirements.capabilities?.contract_version === 2
+      ? !applicationOperationSelectionIsAtomic(
+          input.requirements.capabilities,
+          semanticOperations
+        )
+      : semanticOperations.length > 0)
   ) {
     throw new GrantPlanningError(
-      "Saved views, collection-wide validation, and type definitions require the application manifest to request full collection access."
+      "Capability groups must be approved or denied as complete groups."
     );
   }
-
-  const applicationScope = scopeForRequirements(
+  if (version === 2 && APPLICATION_SETUP_OPERATIONS.some(
+    (operation) => applicationOperations.has(operation) && !operations.includes(operation)
+  )) {
+    throw new GrantPlanningError(
+      "Declared collection setup authority may not be partially denied."
+    );
+  }
+  const scope: GrantScope = collectionGrantScope();
+  const fileCapability = fileCapabilityForRequirements(
     input.requirements,
-    input.availableContracts
+    selectedFileActions
   );
-  const scope = intersectScope(applicationScope, input.access.scopeCeiling);
-  const fileCapability = fileCapabilityForRequirements(input.requirements);
+  if (fileCapability) {
+    assertFileRequirementWithinCeiling(fileCapability, input.access.fileCeiling);
+  }
   return {
     operations,
     scope,
     replicaMode: operations.some(requiresWriteReplica)
-      || fileRequirement?.actions.some((action) => WRITE_FILE_ACTIONS.has(action))
+      || selectedFileActions?.some((action) => WRITE_FILE_ACTIONS.has(action))
       ? "read_write"
       : "read_only",
     ...(fileCapability ? { fileCapability } : {})
   };
 }
 
+function assertFileRequirementWithinCeiling(
+  requirement: FileCapability,
+  ceiling: FileCapability
+): void {
+  const allowedActions = new Set(ceiling.actions);
+  if (requirement.actions.some((action) => !allowedActions.has(action))) {
+    throw new GrantPlanningError(
+      "The approving user may not grant one or more requested file actions."
+    );
+  }
+  if (ceiling.scope.kind === "collection") return;
+  if (requirement.scope.kind === "collection") {
+    throw new GrantPlanningError(
+      "The approving user may not grant collection-wide file access."
+    );
+  }
+  const allowedFolders = new Set(ceiling.scope.folders);
+  if (requirement.scope.folders.some((folder) => !allowedFolders.has(folder))) {
+    throw new GrantPlanningError(
+      "The approving user may not grant access to one or more requested file folders."
+    );
+  }
+}
+
 export function fileCapabilityForRequirements(
-  requirements: ApplicationRequirements
+  requirements: ApplicationRequirements,
+  actions?: readonly FileAction[]
 ): FileCapability | undefined {
-  return requirements.files
+  const files = fileRequestForRequirements(requirements);
+  return files
     ? {
         kind: "files",
         protocol_version: FILE_PROTOCOL_VERSION,
-        actions: [...requirements.files.actions],
-        scope: structuredClone(requirements.files.scope)
+        actions: [...(actions ?? files.actions)],
+        scope: structuredClone(files.scope)
       }
     : undefined;
-}
-
-function scopeForRequirements(
-  requirements: ApplicationRequirements,
-  available: readonly CollectionContractDescriptor[]
-): GrantScope {
-  if (requirements.access === "full_collection") {
-    return { access: "full_collection", contracts: [] };
-  }
-  const required = new Set(
-    requirements.contracts.map(({ id, version }) => `${id}@${version}`)
-  );
-  return {
-    access: "contract",
-    contracts: available.filter(({ id, version }) =>
-      required.has(`${id}@${version}`)
-    )
-  };
-}
-
-function intersectScope(application: GrantScope, user: GrantScope): GrantScope {
-  if (user.access === "full_collection") return application;
-  if (application.access === "full_collection") {
-    throw new GrantPlanningError(
-      "The approving user may not grant full-collection access."
-    );
-  }
-  const allowed = new Set(user.contracts.map(contractKey));
-  if (application.contracts.some((contract) => !allowed.has(contractKey(contract)))) {
-    throw new GrantPlanningError(
-      "The approving user may not grant one or more required contracts."
-    );
-  }
-  return application;
-}
-
-function contractKey(contract: CollectionContractDescriptor): string {
-  const implementations = contract.implementations
-    .map(({ type_name, type_version, digest }) =>
-      `${type_name}@${type_version}:${digest}`
-    )
-    .sort()
-    .join(",");
-  return `${contract.id}@${contract.version}:${contract.digest}:${implementations}`;
 }
 
 export class GrantPlanningError extends Error {

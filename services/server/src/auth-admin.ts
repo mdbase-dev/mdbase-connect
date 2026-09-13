@@ -26,6 +26,7 @@ import {
 import {
   InstanceAdminService,
   type HostedReplicaRevoker,
+  type ConnectorSessionFencer,
   type OperatorMutation
 } from "./instance-admin.js";
 
@@ -35,6 +36,7 @@ export interface AuthAdminContext {
   publicUrl?: string;
   emailTransport?: EmailTransport;
   hostedReplicaRevoker?: HostedReplicaRevoker;
+  connectorSessionFencer?: ConnectorSessionFencer;
   hostedProvider?: HostedProviderClient;
 }
 export async function runAuthAdminCommand(
@@ -752,7 +754,11 @@ async function listAudit(
 }
 
 function instanceAdmin(context: AuthAdminContext): InstanceAdminService {
-  return new InstanceAdminService(context.db, context.hostedReplicaRevoker);
+  return new InstanceAdminService(
+    context.db,
+    context.hostedReplicaRevoker,
+    context.connectorSessionFencer
+  );
 }
 
 function mutationFlags(flags: Map<string, string>): OperatorMutation {

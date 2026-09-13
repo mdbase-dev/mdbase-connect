@@ -1,3 +1,9 @@
+/** Frozen predecessor file declaration; never translate this into v2 intent. */
+export interface LegacyApplicationFileRequirement {
+  actions: FileAction[];
+  scope: FileScope;
+}
+
 export const FILE_PROTOCOL_VERSION = 1 as const;
 export const FILE_TRANSFER_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_FILE_CHUNK_BYTES = 1024 * 1024;
@@ -53,8 +59,28 @@ export type FileScope =
 
 /** File intent declared by an application before an authority is selected. */
 export interface ApplicationFileRequirement {
+  required: FileAction[];
+  optional?: FileAction[];
+  scope: FileScope;
+}
+
+/** Exact file actions signed into an authorization request. */
+export interface ApplicationFileRequest {
   actions: FileAction[];
   scope: FileScope;
+}
+
+export function applicationFileRequest(
+  requirement: ApplicationFileRequirement,
+  options: { includeOptional?: boolean } = {}
+): ApplicationFileRequest {
+  return {
+    actions: [...new Set([
+      ...requirement.required,
+      ...(options.includeOptional === false ? [] : requirement.optional ?? [])
+    ])],
+    scope: structuredClone(requirement.scope)
+  };
 }
 
 export interface FileCapability {

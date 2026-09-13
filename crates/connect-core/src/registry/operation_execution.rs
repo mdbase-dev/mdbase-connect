@@ -465,7 +465,7 @@ pub(super) fn typed_error_result(error: mdbase::api::MdbaseError) -> Value {
                 .collect(),
         ),
         MdbaseError::InvalidRequest { message } => ("invalid_request", message, Vec::new()),
-        MdbaseError::Operation { diagnostics } => (
+        MdbaseError::Operation { diagnostics } | MdbaseError::PartialBatch { diagnostics, .. } => (
             "operation_failed",
             "The mdbase operation failed.".to_string(),
             diagnostics

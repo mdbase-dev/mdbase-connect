@@ -38,10 +38,10 @@
     "contracts": {
       "operation_transport": 3,
       "authorization_binding": 4,
-      "semantic_capabilities": 1
+      "semantic_capabilities": 2
     }
   },
   "installation_signing_private_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM",
-  "signature": "efvaJ0nf4zl7DHY_fNuRwgcibYaGyxehSCXDz67S3CYZYB8lQUmUzUgT3-r2qP63D7LEYkhiRsARwbulXcLhjg",
-  "signing_message_sha256": "03dc3fd40272c18927c668ed9ddb506a75a2e19dc5f620f72817ab1c02d0df10"
+  "signature": "35MBoFaGNBhRMld-7REvIsz_h0noXYTGD-nlsrNhRTYYIATxTdG4AmSM4vpUOG4rqlG7s8pA-jdO2Y8UI7SmIQ",
+  "signing_message_sha256": "2ddf9c9c477150dea10f891c2519c850bd62e21edb637dcc64e5a2d8eed4f641"
 }

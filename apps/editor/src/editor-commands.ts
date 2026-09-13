@@ -15,7 +15,7 @@ export function buildQuickOpenCommands({
   onCheckNote,
   onCopyPath
 }: {
-  onNewNote: () => void;
+  onNewNote?: () => void;
   listCollapsed: boolean;
   onToggleList: () => void;
   onShortcuts: () => void;
@@ -30,11 +30,12 @@ export function buildQuickOpenCommands({
   onCopyPath: () => void;
 }): QuickOpenCommand[] {
   const commands: QuickOpenCommand[] = [
-    { id: "new-note", label: "New note", hint: "Create in this collection", run: onNewNote },
+
     { id: "toggle-list", label: listCollapsed ? "Show notes sidebar" : "Hide notes sidebar", hint: "⌘⇧L", run: onToggleList },
     { id: "shortcuts", label: "Keyboard shortcuts", hint: "?", run: onShortcuts },
     { id: "vim", label: vim ? "Turn off vim keybindings" : "Turn on vim keybindings", run: onToggleVim }
   ];
+  if (onNewNote) commands.unshift({ id: "new-note", label: "New note", hint: "Create in this collection", run: onNewNote });
   if (hasDocument) commands.push(
     { id: "properties", label: propertiesOpen ? "Close note properties" : "Note properties", run: onToggleProperties },
     { id: "backlinks", label: backlinksOpen ? "Close backlinks" : "Backlinks", run: onToggleBacklinks },

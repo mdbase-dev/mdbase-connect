@@ -27,7 +27,7 @@ export function FileWorkspace({ file, asset, leadingActions, onBack, onRetry }: 
       {asset.status === "ready" ? <FileContent asset={asset} />
         : asset.status === "error" || asset.status === "too_large"
           ? <div className="file-workspace-message"><File aria-hidden="true" /><strong>Couldn’t preview {filename}</strong><span>{asset.error}</span>{asset.status === "error" && <button onClick={onRetry}>Try again</button>}</div>
-          : <div className="file-workspace-message" role="status" aria-busy="true"><span className="file-loading-mark" aria-hidden="true" /><strong>Opening {filename}</strong></div>}
+          : <div className="file-workspace-message" role="status" aria-busy="true"><strong>Opening {filename}</strong><span>Reading file content…</span></div>}
     </div>
   </main>;
 }

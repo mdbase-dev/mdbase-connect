@@ -9,7 +9,8 @@ class NoteEmbedWidget extends WidgetType {
   ) { super(); }
 
   eq(other: NoteEmbedWidget) {
-    return this.reference.status === other.reference.status
+    return Boolean(this.open) === Boolean(other.open)
+      && this.reference.status === other.reference.status
       && this.reference.path === other.reference.path
       && this.reference.revision === other.reference.revision
       && this.reference.body === other.reference.body

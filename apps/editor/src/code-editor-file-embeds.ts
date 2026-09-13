@@ -16,7 +16,8 @@ class FileEmbedWidget extends WidgetType {
   eq(other: FileEmbedWidget) {
     const current = this.reference.asset;
     const next = other.reference.asset;
-    return current.file.fileId === next.file.fileId
+    return Boolean(this.open) === Boolean(other.open)
+      && current.file.fileId === next.file.fileId
       && current.file.revision === next.file.revision
       && current.status === next.status
       && (current.status !== "ready" || next.status !== "ready" || current.url === next.url)

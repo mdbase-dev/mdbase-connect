@@ -35,6 +35,7 @@ export interface RuntimeConfig {
   resendWebhookSecret: string | null;
   accountDeletionEnabled: boolean;
   hostedCollections: boolean;
+  hostedSharing: boolean;
   hostedProvider: HostedProviderConfig | null;
   hostedReferenceAuthority: boolean;
   allowInsecureHostedProvider: boolean;
@@ -338,6 +339,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     resendWebhookSecret,
     accountDeletionEnabled: accountDeletion === "enabled",
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",
+    hostedSharing: env.MDBASE_CONNECT_HOSTED_SHARING_ENABLED === "1",
     hostedReferenceAuthority:
       env.MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY === "1",
     hostedProvider,

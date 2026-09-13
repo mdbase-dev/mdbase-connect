@@ -143,6 +143,7 @@ export class CollectionRequestCoordinator implements MdbaseCollectionTransport {
       const abortQueued = () => {
         if (queued.started || queued.settled) return;
         queued.settled = true;
+        queue.splice(queue.indexOf(queued), 1);
         queued.reject(requestAbortReason(combined.signal));
         combined.dispose();
         this.releaseLatest(coordination.family, replacement);

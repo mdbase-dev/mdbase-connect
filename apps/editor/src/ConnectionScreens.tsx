@@ -98,16 +98,19 @@ function accessSummary(capabilities: string[]): string {
     "records.read": "open notes",
     "records.query": "list and search notes",
     "records.validate": "check notes",
-    "records.create": "create notes",
     "records.update": "edit notes",
-    "records.delete": "delete notes",
     "records.rename": "move notes",
     "files.list": "list files",
     "files.read": "open files",
     "files.add": "add files",
     "definitions.read": "manage type definitions",
     "definitions.create": "manage type definitions",
-    "definitions.update": "manage type definitions"
+    "definitions.update": "manage type definitions",
+    "collection.read": "open and search notes",
+    "records.create": "create notes",
+    "records.edit": "edit and move notes",
+    "records.delete": "delete notes",
+    "definitions.manage": "manage type definitions"
   };
   const missing = [...new Set(capabilities.map((capability) => labels[capability] ?? capability.replaceAll(".", " ")))];
   if (missing.length < 2) return missing[0] ?? "use the editor";

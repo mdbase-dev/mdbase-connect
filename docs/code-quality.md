@@ -91,8 +91,38 @@ lines. Existing exceptions are recorded in
 features are extracted.
 
 `pnpm check:architecture` enforces production-file budgets, rejects relative
-source import cycles, and rejects workspace-package dependency cycles. These
-checks are architectural alarms rather than substitutes for review.
+source import cycles, and rejects workspace-package dependency cycles. It also
+requires every npm package and Cargo crate to appear in the per-package file
+inventory, and every production `dead_code` reference to appear in the exact
+file inventory in `config/architecture-budgets.json`.
+
+The reviewed-surface counts are flexible upper bounds, not minimization targets
+or assertions that the source must keep an identical count. A decrease passes
+without budget churn; an increase requires an evidence-backed configuration
+change. The baseline at `0620ff3` is 663 production files, 1,375 relative
+imports, 24 workspace package paths, 3,090 conservative Rust public visibility
+references, 2,292 TypeScript export references, 16 `mdbase::Collection`
+references, and one `TypedCollection` reference. These checks are architectural
+alarms rather than substitutes for review.
+
+The installed-desktop daemon fix adds one 26-line `daemon-lifecycle.ts` module
+shared by startup and update recovery. Its two internal exports and two imports
+replace duplicated CLI profile selection, keeping packaged default-service
+selection and development isolation at one boundary. Its reviewed limits were
+40 desktop files, 677 production files, 1,435 relative imports and 2,400
+TypeScript exports. No package, file-size or cycle limit changes, new service,
+public protocol, or alternate daemon lifecycle is introduced.
+
+Public provider signup adds two server modules: `external-signup.ts` owns the
+short-lived verified-identity proof and the account-creation transaction;
+`public-account-onboarding.ts` replaces the password-only legal/entitlement/
+welcome/starter sequence with one implementation used by both signup methods.
+The corresponding reviewed-surface increase is two production files, fourteen
+relative imports and five TypeScript exports, bringing the integrated limits to
+679 production files, 1,449 relative imports and 2,405 TypeScript exports. This
+does not relax file-size or cycle checks. Route tests and real PostgreSQL replay,
+cross-provider email-race, same-subject concurrency and rollback tests cover the
+new persisted boundary.
 
 Composition roots and package facades should approach these end-state shapes:
 

@@ -34,7 +34,7 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
       ...criteria
     } = input;
     let offset = nonNegativeInteger(requestedOffset, 0);
-    const firstPageSize = positiveInteger(options.firstPageSize ?? requestedLimit, 200);
+    const firstPageSize = positiveInteger(options.firstPageSize ?? options.pageSize ?? requestedLimit, 200);
     const pageSize = positiveInteger(options.pageSize ?? requestedLimit, 1_000);
     let cursor = requestedCursor;
     let cursorMode = requestedCursor !== undefined;
@@ -57,7 +57,8 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
           && requestedSnapshot === undefined;
         let queried = await query({
           ...criteria,
-          limit: pageNumber === 0 ? firstPageSize : pageSize,
+          // Continuations use the page size pinned when the cursor was opened.
+          ...(!cursorMode ? { limit: pageNumber === 0 ? firstPageSize : pageSize } : {}),
           ...(cursorMode
             ? (pageCursor ? { cursor: pageCursor } : { pagination: "cursor" as const })
             : {
@@ -136,7 +137,9 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
       }
     } finally {
       if (cursorMode && cursorToRelease) {
-        await releaseQueryCursor(cursorToRelease);
+        // Cleanup has its own bounded request. It must not delay delivery of
+        // completed pages or consume the caller's data deadline.
+        void releaseQueryCursor(cursorToRelease).catch(() => undefined);
       }
     }
 

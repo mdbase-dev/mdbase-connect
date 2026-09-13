@@ -19,6 +19,13 @@ export function registerConnectorRelayRoute(
       socket.close(4003, "Invalid connector credential");
       return;
     }
-    await options.relay.attach(connector.id, socket, handshake);
+    try {
+      await options.relay.attach(connector.id, socket, handshake);
+    } catch {
+      request.log.warn("connector relay session setup failed");
+      if (socket.readyState < 2) {
+        socket.close(1011, "Connector session setup failed");
+      }
+    }
   });
 }

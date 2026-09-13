@@ -117,6 +117,7 @@ impl AuthorityWorkspace {
         let envelope = operations.execute_staged_mutation(operation, &input);
         if !envelope.valid {
             return Ok(Execution {
+                operation: None,
                 envelope,
                 primary_record_id: record_id,
                 changed: Vec::new(),
@@ -187,6 +188,7 @@ impl AuthorityWorkspace {
             }
         }
         Ok(Execution {
+            operation: None,
             envelope,
             primary_record_id: record_id,
             changed,
@@ -316,6 +318,7 @@ impl AuthorityWorkspace {
             }
         }
         Ok(Execution {
+            operation: None,
             envelope: OperationResult {
                 valid: true,
                 result: serde_json::json!({}),

@@ -170,16 +170,7 @@ export function ThemeMenu({ placement = "down" }: { placement?: "up" | "down" })
     </div>}
   </div>;
 }
-export function useSystemTheme() {
-  useEffect(() => {
-    applyThemePreference("system");
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => applyThemePreference("system");
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-}
-export function PageBrand({ label, themePicker = true, markMotion }: { label: string; themePicker?: boolean; markMotion?: MdbaseMarkMotion }) { return <div className="page-brand-row"><div className="page-brand"><Brand markMotion={markMotion} /><span>{label}</span></div>{themePicker && <ThemeMenu />}</div>; }
+export function PageBrand({ label, markMotion }: { label: string; markMotion?: MdbaseMarkMotion }) { return <div className="page-brand-row"><div className="page-brand"><Brand markMotion={markMotion} /><span>{label}</span></div><ThemeMenu /></div>; }
 export function Brand({ productLabel = false, markMotion }: { productLabel?: boolean; markMotion?: MdbaseMarkMotion }) { return <div className="product-brand"><MdbaseMark motion={markMotion} /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
 
 const conveyorXs = [-6, 22, 50, 78, 106] as const;
@@ -219,7 +210,7 @@ function MdbaseMark({ motion }: { motion?: MdbaseMarkMotion }) {
 }
 export function SectionHeading({ title, note, count }: { title: string; note: string; count?: number }) { return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{count}</span>}</div>; }
 export function Empty({ title, text }: { title: string; text: string }) { return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
-export function Loading({ error = "" }: { error?: string }) { return <main className="loading" aria-busy={!error}><Brand productLabel markMotion={error ? undefined : "bootstrap"} /><p>{error || "Opening mdbase connect…"}</p></main>; }
+export function Loading({ error = "", onRetry }: { error?: string; onRetry?(): void }) { return <main className="loading" aria-busy={!error}><PageBrand label="connect" markMotion={error ? undefined : "bootstrap"} /><p role={error ? "alert" : "status"}>{error || "Opening mdbase connect…"}</p>{error && onRetry && <button className="button primary" onClick={onRetry}>Try again</button>}</main>; }
 
 function ThemeGlyph({ preference }: { preference: ThemePreference }) {
   if (preference === "light") return <svg className="theme-glyph" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3" /><path d="M10 2.4v1.2M10 16.4v1.2M2.4 10h1.2M16.4 10h1.2M4.6 4.6l.9.9M14.5 14.5l.9.9M15.4 4.6l-.9.9M5.5 14.5l-.9.9" /></svg>;

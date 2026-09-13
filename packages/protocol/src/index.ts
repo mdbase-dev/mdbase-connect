@@ -1,11 +1,13 @@
+import { FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES } from "./capabilities.js";
 import type { ConnectProblem } from "./connect-problems.generated.js";
 import type {
   ApplicationFileRequirement,
+  LegacyApplicationFileRequirement,
   CollectionFileDescriptor,
   FileCapability
 } from "./files.js";
 import type { CollectionOperation } from "./operations.js";
-import type { ApplicationCapabilityRequirements } from "./capabilities.js";
+import type { ApplicationCapabilityRequirements, LegacyApplicationCapabilityRequirements } from "./capabilities.js";
 import type { ContractRequirement, ContractSetupChoice, TypePackProvision } from "./type-packs.js";
 import type { ConfigurationProvision, ConfigurationRequirement } from "./collection-setup.js";
 import type {
@@ -17,6 +19,7 @@ export * from "./operations.js";
 export * from "./mutation-fingerprint.js";
 export * from "./compatibility.js";
 export * from "./capabilities.js";
+
 export * from "./application-authorization.js";
 export * from "./type-packs.js";
 export * from "./collection-setup.js";
@@ -31,6 +34,8 @@ export const SYNC_PROTOCOL_VERSION = 1 as const;
 export const CONTRACT_SETUP_CAPABILITY = "contract-setup-v1" as const;
 export const FILE_RELAY_CAPABILITY = "file-relay-v1" as const;
 export const PROTOCOL_USAGE_REPORT_CAPABILITY = "protocol-usage-report-v1" as const;
+export const POLICY_FRESHNESS_LEASE_CAPABILITY = "policy-freshness-lease-v1" as const;
+/** Advertised beta capabilities are intentionally broader than the beta baseline. */
 export const RELAY_REQUIRED_CAPABILITIES = [
   "application-authorization-v4",
   "authorization-activation",
@@ -38,6 +43,7 @@ export const RELAY_REQUIRED_CAPABILITIES = [
   "policy-ack"
 ] as const;
 export const MINIMUM_CONNECTOR_VERSION = "0.1.0-beta.33" as const;
+export const POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION = "0.1.0-beta.91" as const;
 export const HOSTED_PROVIDER_REQUIRED_CAPABILITIES = [
   "durable-mutation-journal-v1",
   "durable-file-lifecycle-v1"
@@ -45,12 +51,17 @@ export const HOSTED_PROVIDER_REQUIRED_CAPABILITIES = [
 export const HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY =
   "candidate-b-activation-v1" as const;
 export const HOSTED_PROVIDER_CAPABILITIES = [
+  ...FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES,
   ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
   "mutation-replay-after-credential-retirement-v1",
   HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY
 ] as const;
+export const APPLICATION_DECLARATION_EVIDENCE_CAPABILITY = "application-declaration-evidence-v1" as const;
 export const RELAY_CAPABILITIES = [
+  ...FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES,
+  APPLICATION_DECLARATION_EVIDENCE_CAPABILITY,
   ...RELAY_REQUIRED_CAPABILITIES,
+  POLICY_FRESHNESS_LEASE_CAPABILITY,
   "application-authorization-v5",
   CONTRACT_SETUP_CAPABILITY,
   FILE_RELAY_CAPABILITY,
@@ -148,11 +159,19 @@ export interface ApplicationNotifications {
  * `id` is stable presentation metadata rather than proof of a publisher. Each
  * exact declaration is independently identified and authorized by Connect.
  */
+export type CanonicalApplicationRequirements = Omit<
+  ApplicationRequirements,
+  "access" | "contracts"
+> & {
+  access: "full_collection";
+  contracts: [];
+};
+
 interface MdbaseAppManifestBase {
   manifest_version: 1;
   id: string;
   name: string;
-  requirements?: ApplicationRequirements;
+  requirements: CanonicalApplicationRequirements;
   provisions?: ApplicationProvisions;
   notifications?: ApplicationNotifications;
 }
@@ -220,13 +239,31 @@ export interface ApplicationRequirements {
   configuration?: ConfigurationRequirement[];
   /** Versioned semantic intent compiled by Connect into exact operations. */
   capabilities?: ApplicationCapabilityRequirements;
-  /** Access boundary requested after compatibility and provisioning checks. */
+  /**
+   * Collection boundary request. New declarations must explicitly use
+   * `full_collection`; omitted and `contract` remain parseable only for legacy
+   * diagnosis and reauthorization.
+   */
   access?: "contract" | "full_collection";
   /** Restrict authorization to durable provider-backed collections. */
   collection_kind?: "hosted";
   /** First-class non-Markdown file access requested independently of records. */
   files?: ApplicationFileRequirement;
 }
+
+export type LegacyApplicationRequirements = Omit<ApplicationRequirements, "capabilities" | "files" | "access"> & {
+  access: "full_collection";
+  capabilities?: LegacyApplicationCapabilityRequirements;
+  files?: LegacyApplicationFileRequirement;
+};
+
+export type LegacyMdbaseWebAppManifest = Omit<MdbaseWebAppManifest, "requirements"> & {
+  requirements: LegacyApplicationRequirements;
+};
+export type LegacyMdbasePortableAppManifest = Omit<MdbasePortableAppManifest, "requirements"> & {
+  requirements: LegacyApplicationRequirements;
+};
+export type LegacyMdbaseAppManifest = LegacyMdbaseWebAppManifest | LegacyMdbasePortableAppManifest;
 
 export interface ApplicationProvisions {
   type_packs: TypePackProvision[];
@@ -236,11 +273,12 @@ export interface ApplicationProvisions {
 
 export interface GrantScope {
   /**
-   * Exact contract definitions and sorted implementation sets approved by the
-   * user. Digests make the scope fail closed if either the interface or any
-   * provider changes after approval.
+   * Legacy semantic scope payload retained for wire/storage compatibility.
+   * Canonical application grants use an empty array; contracts remain available
+   * through collection resources and operation-level semantic selectors.
    */
   contracts: CollectionContractDescriptor[];
+  /** New authority must be `full_collection`; `contract` is legacy-only. */
   access: "contract" | "full_collection";
 }
 
@@ -292,6 +330,8 @@ export type MdbaseOperationResponse<Result = unknown> =
     };
 
 export interface GrantPolicy {
+  /** Complete normalized JSON evidence; never independent operation authority. */
+  application_declaration?: unknown;
   id: string;
   application_id: string;
   /** Stable declaration identity bound into the exact application authorization. */
@@ -588,6 +628,11 @@ export interface RelayPolicySnapshot {
   protocol_version: 1;
   request_id: string;
   revision: string;
+  /** Lease fields are absent on legacy N-1 grants-only snapshots. */
+  connector_id?: string;
+  sequence?: number;
+  lease_issued_at_ms?: number;
+  lease_expires_at_ms?: number;
   grants: GrantPolicy[];
 }
 

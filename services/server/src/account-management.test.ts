@@ -658,7 +658,7 @@ function githubConfig(identity: { id: string; login: string }) {
     clientId: "github-client-id",
     clientSecret: "github-client-secret",
     allowedUserIds: new Set([identity.id]),
-    exchangeCode: async () => ({ ...identity, name: "Linked Person", email: null })
+    exchangeCode: async () => ({ ...identity, name: "Linked Person", email: null, emailVerified: false })
   };
 }
 

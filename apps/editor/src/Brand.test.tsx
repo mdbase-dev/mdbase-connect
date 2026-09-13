@@ -14,11 +14,12 @@ describe("mdbase motion mark", () => {
     expect(mark?.querySelector("clipPath rect")).toHaveAttribute("width", "76");
   });
 
-  it("unfolds the existing editor wordmark while opening a collection", () => {
+  it("uses a stable editor wordmark while opening a collection", () => {
     const { container } = render(<OpeningScreen />);
 
     expect(screen.getByLabelText("Opening collection")).toHaveAttribute("aria-busy", "true");
-    expect(container.querySelector(".wordmark .mdbase-motion-unfold")).toBeInTheDocument();
-    expect(container.querySelector(".opening-pulse")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Opening collection");
+    expect(container.querySelector(".wordmark .mdbase-motion-mark")).toBeInTheDocument();
+    expect(container.querySelector(".wordmark [class*='mdbase-motion-unfold']")).not.toBeInTheDocument();
   });
 });

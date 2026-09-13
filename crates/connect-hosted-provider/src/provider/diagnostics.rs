@@ -160,10 +160,14 @@ impl HostedProvider {
                       IS DISTINCT FROM collection.active_catalog_revision)
                      AS catalog_stale,
                    (generation.projection_format_version
-                      IS DISTINCT FROM collection.active_projection_format_version)
+                      IS DISTINCT FROM collection.active_projection_format_version
+                     OR (collection.active_projection_format_version IS NOT NULL
+                         AND collection.active_projection_format_version <> $1))
                      AS format_version_mismatch,
                    (generation.semantic_engine_version
-                      IS DISTINCT FROM collection.active_semantic_engine_version)
+                      IS DISTINCT FROM collection.active_semantic_engine_version
+                     OR (collection.active_semantic_engine_version IS NOT NULL
+                         AND collection.active_semantic_engine_version <> $2))
                      AS engine_version_mismatch,
                    (generation.integrity_epoch
                       IS DISTINCT FROM generation.integrity_verified_epoch)
@@ -178,8 +182,12 @@ impl HostedProvider {
                           IS DISTINCT FROM collection.active_catalog_revision
                      OR generation.projection_format_version
                           IS DISTINCT FROM collection.active_projection_format_version
+                     OR (collection.active_projection_format_version IS NOT NULL
+                         AND collection.active_projection_format_version <> $1)
                      OR generation.semantic_engine_version
                           IS DISTINCT FROM collection.active_semantic_engine_version
+                     OR (collection.active_semantic_engine_version IS NOT NULL
+                         AND collection.active_semantic_engine_version <> $2)
                      OR generation.integrity_epoch
                           IS DISTINCT FROM generation.integrity_verified_epoch)
                      AS unready
@@ -191,6 +199,10 @@ impl HostedProvider {
                  WHERE collection.state = 'active'
                ) causes"#,
         )
+        .bind(i64::from(
+            mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
+        ))
+        .bind(mdbase::VERSION)
         .fetch_one(&self.pool)
         .await?;
         let count =

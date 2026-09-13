@@ -161,7 +161,7 @@ export function NotePreviewCard({ preview }: { preview?: NotePreviewState }) {
         <span>{preview.path}</span>
       </header>
       {preview.loading
-        ? <div className="note-preview-loading" aria-label="Loading preview" aria-busy="true"><i /><i /><i /></div>
+        ? <div className="note-preview-loading" aria-label="Loading preview" aria-busy="true">Loading preview…</div>
         : preview.unavailable
           ? <p className="note-preview-empty">Preview unavailable.</p>
           : excerpt

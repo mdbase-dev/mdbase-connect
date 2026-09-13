@@ -4,9 +4,10 @@ use async_trait::async_trait;
 use mdbase_connect_core::{CollectionRegistry, ConnectError};
 use mdbase_connect_protocol::GrantSummary;
 use mdbase_connect_runtime::{
-    compose_notification_catalog, drain_notification_runtime, notification_event_envelope,
-    perform_timer_operation, successful_notification_outcome, AuthorityEvent, NotificationCatalog,
-    TimerOperationError, NOTIFICATION_EXECUTOR_ID, TIMER_EVENT_ID,
+    cancel_grant_timers, compose_notification_catalog, drain_notification_runtime,
+    notification_event_envelope, perform_timer_operation, successful_notification_outcome,
+    AuthorityEvent, NotificationCatalog, TimerOperationError, NOTIFICATION_EXECUTOR_ID,
+    TIMER_EVENT_ID,
 };
 use mdbase_runtime::{
     inspect_sqlite_recovery, ActionDispatch, ActionInvocation, ActionOutcome, ActionProvider,
@@ -29,6 +30,8 @@ pub fn start(
 ) -> (RuntimeTimerHandle, tokio::task::JoinHandle<()>) {
     let runtime_dir = state_dir.join("runtime");
     let (commands, mut command_rx) = tokio::sync::mpsc::unbounded_channel::<TimerCommand>();
+    let (cleanup_commands, mut cleanup_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CleanupCommand>();
     let task = tokio::spawn(async move {
         if let Err(error) = std::fs::create_dir_all(&runtime_dir) {
             tracing::error!(%error, path = %runtime_dir.display(), "failed to create runtime state directory");
@@ -79,13 +82,30 @@ pub fn start(
                     };
                     let _ = command.response.send(result);
                 }
+                cleanup = cleanup_rx.recv() => {
+                    let Some(cleanup) = cleanup else { return; };
+                    let result = service.cleanup_orphaned_timers().await.map_err(|error| {
+                        TimerOperationError {
+                            code: error.code().to_string(),
+                            message: error.to_string(),
+                            internal: true,
+                        }
+                    });
+                    let _ = cleanup.response.send(result);
+                }
                 _ = recovery.tick() => {
                     service.recover().await;
                 }
             }
         }
     });
-    (RuntimeTimerHandle { commands }, task)
+    (
+        RuntimeTimerHandle {
+            commands,
+            cleanup_commands,
+        },
+        task,
+    )
 }
 
 struct TimerCommand {
@@ -96,12 +116,35 @@ struct TimerCommand {
     response: std::sync::mpsc::Sender<Result<Value, TimerOperationError>>,
 }
 
+struct CleanupCommand {
+    response: std::sync::mpsc::Sender<Result<usize, TimerOperationError>>,
+}
+
 #[derive(Clone)]
 pub struct RuntimeTimerHandle {
     commands: tokio::sync::mpsc::UnboundedSender<TimerCommand>,
+    cleanup_commands: tokio::sync::mpsc::UnboundedSender<CleanupCommand>,
 }
 
 impl RuntimeTimerHandle {
+    pub fn cleanup_orphaned_timers(&self) -> Result<usize, TimerOperationError> {
+        let (response, receiver) = std::sync::mpsc::channel();
+        self.cleanup_commands
+            .send(CleanupCommand { response })
+            .map_err(|_| TimerOperationError {
+                code: "timer_authority_unavailable".to_string(),
+                message: "The local timer authority is unavailable.".to_string(),
+                internal: true,
+            })?;
+        receiver
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| TimerOperationError {
+                code: "timer_authority_timeout".to_string(),
+                message: "The local timer authority did not respond in time.".to_string(),
+                internal: true,
+            })?
+    }
+
     pub fn operation(
         &self,
         collection_id: Uuid,
@@ -163,7 +206,67 @@ impl RuntimeNotificationService {
         drain_runtime(runtime).await
     }
 
+    async fn cleanup_orphaned_timers(&mut self) -> mdbase_runtime::RuntimeResult<usize> {
+        let active = timer_owner_ids_by_collection(&self.local_registry)?;
+        let mut cancelled = 0;
+        for collection_id in self.timer_runtime_ids() {
+            cancelled += self
+                .cleanup_collection_timers(collection_id, active.get(&collection_id))
+                .await?;
+        }
+        Ok(cancelled)
+    }
+
+    fn timer_runtime_ids(&self) -> HashSet<Uuid> {
+        let mut candidates = runtime_file_ids(&self.runtime_dir);
+        candidates.extend(self.runtimes.keys().copied());
+        candidates
+    }
+
+    async fn cleanup_collection_timers(
+        &self,
+        collection_id: Uuid,
+        active_grants: Option<&HashSet<Uuid>>,
+    ) -> mdbase_runtime::RuntimeResult<usize> {
+        let ephemeral;
+        let runtime = if let Some(runtime) = self.runtimes.get(&collection_id) {
+            runtime
+        } else {
+            ephemeral = self.build_runtime(collection_id, None)?;
+            &ephemeral
+        };
+        let owners = runtime
+            .timers("connect:")
+            .await?
+            .into_iter()
+            .filter_map(|timer| timer_grant_id(&timer.id))
+            .filter(|grant_id| active_grants.is_none_or(|ids| !ids.contains(grant_id)))
+            .collect::<HashSet<_>>();
+        let mut cancelled = 0;
+        for grant_id in owners {
+            cancelled += cancel_grant_timers(runtime, grant_id).await?;
+        }
+        Ok(cancelled)
+    }
+
     async fn recover(&mut self) {
+        let active = match timer_owner_ids_by_collection(&self.local_registry) {
+            Ok(active) => active,
+            Err(error) => {
+                tracing::warn!(code = error.code(), %error, "notification grant cleanup lookup failed");
+                return;
+            }
+        };
+        let mut cleanup_failed = HashSet::new();
+        for collection_id in self.timer_runtime_ids() {
+            if let Err(error) = self
+                .cleanup_collection_timers(collection_id, active.get(&collection_id))
+                .await
+            {
+                tracing::warn!(%collection_id, code = error.code(), %error, "orphaned notification timer cleanup deferred");
+                cleanup_failed.insert(collection_id);
+            }
+        }
         let grants = match notification_grants_by_collection(&self.local_registry) {
             Ok(grants) => grants,
             Err(error) => {
@@ -174,6 +277,10 @@ impl RuntimeNotificationService {
         let candidates = recoverable_runtime_ids(&self.runtime_dir);
         let mut keep_resident = HashSet::new();
         for collection_id in candidates {
+            if cleanup_failed.contains(&collection_id) {
+                keep_resident.insert(collection_id);
+                continue;
+            }
             let catalog = match compose_catalog(
                 grants.get(&collection_id).map(Vec::as_slice).unwrap_or(&[]),
                 collection_id,
@@ -223,42 +330,50 @@ impl RuntimeNotificationService {
     fn runtime(&mut self, collection_id: Uuid) -> mdbase_runtime::RuntimeResult<&Runtime> {
         if !self.runtimes.contains_key(&collection_id) {
             let timezone = collection_timezone(&self.local_registry, collection_id)?;
-            let store: Arc<dyn RuntimeStore> = Arc::new(SqliteRuntimeStore::open(runtime_path(
-                &self.runtime_dir,
-                collection_id,
-            ))?);
-            let providers = ProviderRegistry::default();
-            let catalog = compose_catalog(&[], collection_id)?;
-            providers.register(
-                catalog.notification_provider_binding().clone(),
-                Arc::new(NotificationProvider {
-                    cloud: self.cloud.clone(),
-                }),
-            );
-            let runtime = Runtime::new(
-                store,
-                providers,
-                Arc::new(LocalNotificationAuthorizer {
-                    registry: self.local_registry.clone(),
-                }),
-                Arc::new(mdbase_runtime::SystemClock),
-                RuntimeConfig {
-                    runtime_id: format!("mdbase-connect:{collection_id}"),
-                    executor_id: NOTIFICATION_EXECUTOR_ID.to_string(),
-                    worker_id: format!("connect-agent:{collection_id}"),
-                    actor_id: "mdbase-connect-daemon".to_string(),
-                    actor_kind: "service".to_string(),
-                    identity: runtime_identity(collection_id),
-                    timezone,
-                    lease_duration: Duration::from_secs(30),
-                    max_items: 50,
-                },
-            )?;
+            let runtime = self.build_runtime(collection_id, timezone)?;
             self.runtimes.insert(collection_id, runtime);
         }
         self.runtimes.get(&collection_id).ok_or_else(|| {
             mdbase_runtime::RuntimeError::Store("notification runtime was not initialized".into())
         })
+    }
+
+    fn build_runtime(
+        &self,
+        collection_id: Uuid,
+        timezone: Option<String>,
+    ) -> mdbase_runtime::RuntimeResult<Runtime> {
+        let store: Arc<dyn RuntimeStore> = Arc::new(SqliteRuntimeStore::open(runtime_path(
+            &self.runtime_dir,
+            collection_id,
+        ))?);
+        let providers = ProviderRegistry::default();
+        let catalog = compose_catalog(&[], collection_id)?;
+        providers.register(
+            catalog.notification_provider_binding().clone(),
+            Arc::new(NotificationProvider {
+                cloud: self.cloud.clone(),
+            }),
+        );
+        Runtime::new(
+            store,
+            providers,
+            Arc::new(LocalNotificationAuthorizer {
+                registry: self.local_registry.clone(),
+            }),
+            Arc::new(mdbase_runtime::SystemClock),
+            RuntimeConfig {
+                runtime_id: format!("mdbase-connect:{collection_id}"),
+                executor_id: NOTIFICATION_EXECUTOR_ID.to_string(),
+                worker_id: format!("connect-agent:{collection_id}"),
+                actor_id: "mdbase-connect-daemon".to_string(),
+                actor_kind: "service".to_string(),
+                identity: runtime_identity(collection_id),
+                timezone,
+                lease_duration: Duration::from_secs(30),
+                max_items: 50,
+            },
+        )
     }
 }
 
@@ -411,6 +526,12 @@ impl DispatchAuthorizer for LocalNotificationAuthorizer {
                 "The timer does not belong to this grant and criterion.",
             );
         }
+        if event_type == Some(TIMER_EVENT_ID) && !can_schedule_timers(&grant) {
+            return denied(
+                "notification_timer_authority_revoked",
+                "The local grant no longer authorizes scheduling timers.",
+            );
+        }
         let criterion = grant
             .notification_criteria
             .iter()
@@ -432,28 +553,43 @@ impl DispatchAuthorizer for LocalNotificationAuthorizer {
     }
 }
 
+fn timer_grant_id(timer_id: &str) -> Option<Uuid> {
+    let remainder = timer_id.strip_prefix("connect:")?;
+    let (grant_id, owned_suffix) = remainder.split_once(':')?;
+    if owned_suffix.is_empty() {
+        return None;
+    }
+    Uuid::parse_str(grant_id).ok()
+}
+
 fn runtime_path(runtime_dir: &Path, collection_id: Uuid) -> PathBuf {
     runtime_dir.join(format!("{collection_id}.sqlite"))
 }
 
+fn runtime_file_ids(runtime_dir: &Path) -> HashSet<Uuid> {
+    let Ok(entries) = std::fs::read_dir(runtime_dir) else {
+        return HashSet::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            (path.extension().and_then(|value| value.to_str()) == Some("sqlite"))
+                .then(|| {
+                    path.file_stem()
+                        .and_then(|value| value.to_str())
+                        .and_then(|value| Uuid::parse_str(value).ok())
+                })
+                .flatten()
+        })
+        .collect()
+}
+
 fn recoverable_runtime_ids(runtime_dir: &Path) -> HashSet<Uuid> {
     let mut recoverable = HashSet::new();
-    let Ok(entries) = std::fs::read_dir(runtime_dir) else {
-        return recoverable;
-    };
     let now = chrono::Utc::now();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("sqlite") {
-            continue;
-        }
-        let Some(collection_id) = path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .and_then(|value| Uuid::parse_str(value).ok())
-        else {
-            continue;
-        };
+    for collection_id in runtime_file_ids(runtime_dir) {
+        let path = runtime_path(runtime_dir, collection_id);
         match inspect_sqlite_recovery(&path, now) {
             Ok(state) if state.has_work() => {
                 recoverable.insert(collection_id);
@@ -465,6 +601,33 @@ fn recoverable_runtime_ids(runtime_dir: &Path) -> HashSet<Uuid> {
         }
     }
     recoverable
+}
+
+// Either exact operation can create scheduled work. Legacy grants need not hold
+// every operation in the v2 background.schedule group (list/cancel cannot schedule).
+fn can_schedule_timers(grant: &GrantSummary) -> bool {
+    grant
+        .operations
+        .iter()
+        .any(|operation| matches!(operation.as_str(), "put_timer" | "reconcile_timers"))
+}
+
+fn timer_owner_ids_by_collection(
+    registry: &CollectionRegistry,
+) -> Result<HashMap<Uuid, HashSet<Uuid>>, mdbase_runtime::RuntimeError> {
+    registry
+        .list_grants()
+        .map(|grants| {
+            let mut grouped = HashMap::<Uuid, HashSet<Uuid>>::new();
+            for grant in grants.into_iter().filter(can_schedule_timers) {
+                grouped
+                    .entry(grant.collection_id)
+                    .or_default()
+                    .insert(grant.id);
+            }
+            grouped
+        })
+        .map_err(|error| mdbase_runtime::RuntimeError::Store(error.to_string()))
 }
 
 fn notification_grants_by_collection(

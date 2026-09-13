@@ -8,7 +8,7 @@ import {
 } from "@mdbase-dev/connect";
 import { connectFailure, connectProblem, connectSuccess } from "@mdbase-dev/connect-testing";
 import { MdbaseCollectionClient } from "@mdbase-dev/connect/advanced";
-import { ConnectCollectionGateway, gatewayError } from "./gateway";
+import { ConnectCollectionGateway, gatewayError, missingCoreCapabilities, missingTypeCapabilities } from "./gateway";
 import type { NoteDocument, NoteListProgress, NoteSummary } from "./model";
 
 const TEST_OPERATIONS = [
@@ -16,6 +16,17 @@ const TEST_OPERATIONS = [
   "delete", "rename", "read_type", "create_type", "update_type",
   "assess_type_pack", "apply_type_pack"
 ] as const;
+
+describe("bridge declaration readiness", () => {
+  it("keeps legacy edit, file, and definition authority visible without v2 expansion", () => {
+    const connection = {
+      collectionId: "legacy", operations: ["read"],
+      missingCapabilities: ["records.update", "files.read", "definitions.read"]
+    };
+    expect(missingCoreCapabilities(connection)).toEqual(["records.update", "files.read"]);
+    expect(missingTypeCapabilities(connection)).toEqual(["definitions.read"]);
+  });
+});
 
 describe("ConnectCollectionGateway collection index", () => {
   it("loads the complete structure before hydrating note bodies on demand", async () => {
@@ -160,7 +171,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
       collectionId: "collection",
       displayName: "Notes",
       operations: ["read"],
-      missingCapabilities: ["records.update"],
+      missingCapabilities: ["records.edit"],
       authorityKind: "connector",
       directAccess: "unavailable"
       }
@@ -448,7 +459,7 @@ function injectConnection(
         directAccess: bound.directAccess!
       };
       const missingCapabilities = bound.authorizationCapabilities!().missingOperations
-        .map((operation) => operation === "update" ? "records.update" : operation);
+        .map((operation) => operation === "update" ? "records.edit" : operation);
       return {
         status: missingCapabilities.length ? "authorization_required" : "ready",
         collectionId: bound.collectionId!,

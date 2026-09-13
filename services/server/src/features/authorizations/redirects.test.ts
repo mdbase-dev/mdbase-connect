@@ -1,10 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
   applicationOriginForDeviceRequest,
+  applicationOriginForRedirect,
   normalizedApplicationOrigin
 } from "./redirects.js";
 
 describe("application authorization origins", () => {
+  it("binds native callbacks to the manifest homepage origin", () => {
+    expect(applicationOriginForRedirect(
+      "dev.tasknotes.app://auth/mdbase/callback",
+      "https://app.tasknotes.dev/"
+    )).toBe("https://app.tasknotes.dev");
+  });
+
+  it("binds web callbacks to their exact redirect origin", () => {
+    expect(applicationOriginForRedirect(
+      "https://tasks.example:8443/auth/mdbase/callback",
+      "https://homepage.example/"
+    )).toBe("https://tasks.example:8443");
+  });
+
   it("keeps native device authorization on the opaque origin", () => {
     expect(applicationOriginForDeviceRequest(undefined)).toBe("null");
     expect(applicationOriginForDeviceRequest("null")).toBe("null");

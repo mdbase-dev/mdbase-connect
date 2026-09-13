@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# The isolated overlap subshell deliberately discards its fixture ID changes.
+# shellcheck disable=SC2031
 set -euo pipefail
 
 repo_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
@@ -6,7 +8,15 @@ repo_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 source "$repo_root/test/upgrade/lib.sh"
 # The release pin is resolved from the repository root above.
 # shellcheck disable=SC1091
-source "$repo_root/.github/previous-release.env"
+UPGRADE_SCENARIO=${1:---retained-v2}
+case "$UPGRADE_SCENARIO" in
+  --legacy-prelude) source "$repo_root/.github/historical-prelude.env" ;;
+  --retained-v2)
+    source "$repo_root/test/upgrade/retained-v2.sh"
+    retained_v2_inputs
+    ;;
+  *) printf 'Unknown provider upgrade scenario.\n' >&2; exit 2 ;;
+esac
 
 CANDIDATE_IMAGE=${CANDIDATE_IMAGE:-mdbase-connect-hosted-provider:upgrade-candidate}
 PROVIDER_INTERNAL_TOKEN=${PROVIDER_INTERNAL_TOKEN:-previous-provider-upgrade-internal-token}
@@ -19,11 +29,19 @@ MDBASE_CONNECT_ALLOW_INSECURE_R2=${MDBASE_CONNECT_ALLOW_INSECURE_R2:-true}
 UPGRADE_ACCOUNT_ID=11111111-1111-4111-8111-111111111111
 UPGRADE_COLLECTION_ID=33333333-3333-4333-8333-333333333333
 UPGRADE_REPLICA_ID=44444444-4444-4444-8444-444444444444
+UPGRADE_CANONICAL_APPLICATION_REPLICA_ID=55555555-5555-4555-8555-555555555555
+UPGRADE_CANONICAL_APPLICATION_GRANT_ID=22222222-2222-4222-8222-222222222222
+UPGRADE_APPLICATION_TOKEN=upgrade-canonical-application-token
+UPGRADE_APPLICATION_REQUEST_ID=99999999-9999-4999-8999-999999999999
 UPGRADE_MUTATION_ID=66666666-6666-4666-8666-666666666666
 UPGRADE_NEXT_MUTATION_ID=88888888-8888-4888-8888-888888888888
 UPGRADE_RECORD_ID=77777777-7777-4777-8777-777777777777
-UPGRADE_REPLICA_TOKEN=previous-provider-upgrade-replica-token
-CUTOVER_OWNER_TOKEN=99999999-9999-4999-8999-999999999991
+UPGRADE_REPLICA_TOKEN='previous-provider-upgrade-replica-token'
+UPGRADE_ROLLBACK_APPLICATION_ID=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1
+UPGRADE_ROLLBACK_MIRROR_ID=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2
+UPGRADE_ROLLBACK_GRANT_ID=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3
+UPGRADE_ROLLBACK_APPLICATION_TOKEN=upgrade-rollback-application-fixed-test-token
+UPGRADE_ROLLBACK_MIRROR_TOKEN=upgrade-rollback-mirror-fixed-test-token
 UPGRADE_DATABASE_PORT=${UPGRADE_DATABASE_PORT:-5432}
 UPGRADE_PROVIDER_PORT=${UPGRADE_PROVIDER_PORT:-8790}
 UPGRADE_PROVIDER_URL="http://127.0.0.1:$UPGRADE_PROVIDER_PORT"
@@ -31,29 +49,29 @@ export PROVIDER_INTERNAL_TOKEN PROVIDER_MASTER_KEY
 export MDBASE_CONNECT_R2_ENDPOINT MDBASE_CONNECT_R2_BUCKET
 export MDBASE_CONNECT_R2_ACCESS_KEY_ID MDBASE_CONNECT_R2_SECRET_ACCESS_KEY
 export MDBASE_CONNECT_ALLOW_INSECURE_R2
-upgrade_require DATABASE_URL MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE
+upgrade_require \
+  DATABASE_URL \
+  MDBASE_CONNECT_PREVIOUS_RELEASE \
+  MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT \
+  MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE
+if [[ $UPGRADE_SCENARIO == --legacy-prelude ]]; then
+  # This explicitly historical lane retains all beta94 migration regressions.
+  # The separate retained-v2 lane qualifies beta95 as beta96's predecessor.
+  [[ $MDBASE_CONNECT_PREVIOUS_RELEASE == v0.1.0-beta.94 &&
+     $MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT == 8d1b5fb1647edcadd716d4ee671f0ba04d34fa5e &&
+     $(git -C "$repo_root" rev-parse "$MDBASE_CONNECT_PREVIOUS_RELEASE^{commit}") == "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT" ]]
+fi
 
 r2_pid=
-terminate_cutover_lock_holder() {
-  docker run --rm --network host \
-    --env PGPASSWORD=previous-provider-upgrade \
-    postgres:18-alpine \
-    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
-      --username mdbase --dbname mdbase_provider_upgrade \
-      --set ON_ERROR_STOP=1 \
-      --command "SELECT pg_terminate_backend(pid)
-                 FROM pg_stat_activity
-                 WHERE application_name = 'mdbase-provider-cutover-lock-holder'
-                   AND pid <> pg_backend_pid()" \
-    >/dev/null 2>&1 || true
-}
-
+projection_diagnostics_dir=
 cleanup() {
-  terminate_cutover_lock_holder
+  if [[ -n $projection_diagnostics_dir ]]; then
+    rm -rf -- "$projection_diagnostics_dir"
+  fi
   for container in \
     mdbase-provider-previous \
     mdbase-provider-previous-migration \
-    mdbase-provider-cutover-lock \
+    mdbase-provider-previous-rollback \
     mdbase-provider-upgrade-candidate
   do
     docker logs "$container" >/dev/null 2>&1 || true
@@ -81,7 +99,7 @@ start_previous_provider() {
     --env PORT="$UPGRADE_PROVIDER_PORT" \
     "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
   if ! upgrade_wait_http "$UPGRADE_PROVIDER_URL/ready" 'previous provider'; then
-    docker logs "$name"
+    projection_diagnostic_text "$(docker logs --tail 100 "$name" 2>&1)"
     return 1
   fi
   if [[ $remove_after_ready == true ]]; then
@@ -102,6 +120,86 @@ provider_json() {
     "$UPGRADE_PROVIDER_URL$path"
 }
 
+provider_get() {
+  local path=$1
+  local token=${2:-$PROVIDER_INTERNAL_TOKEN}
+  curl --fail-with-body --silent --show-error \
+    --header "authorization: Bearer $token" \
+    "$UPGRADE_PROVIDER_URL$path"
+}
+
+provider_application_operation() {
+  local body=$1
+  curl --fail-with-body --silent --show-error \
+    --request POST \
+    --header 'content-type: application/json' \
+    --header 'origin: https://example.test' \
+    --header "authorization: Bearer $UPGRADE_APPLICATION_TOKEN" \
+    --data "$body" \
+    "$UPGRADE_PROVIDER_URL/v1/authorities/$UPGRADE_COLLECTION_ID/operations/create"
+}
+
+provider_application_operation_status() {
+  local body=$1
+  curl --silent --show-error \
+    --request POST \
+    --header 'content-type: application/json' \
+    --header 'origin: https://example.test' \
+    --header "authorization: Bearer $UPGRADE_APPLICATION_TOKEN" \
+    --data "$body" \
+    --write-out $'\n%{http_code}' \
+    "$UPGRADE_PROVIDER_URL/v1/authorities/$UPGRADE_COLLECTION_ID/operations/create"
+}
+
+start_candidate_provider() {
+  local name=${1:-mdbase-provider-upgrade-candidate}
+  local port=${2:-$UPGRADE_PROVIDER_PORT}
+  docker run --detach --name "$name" \
+    --network host \
+    --env DATABASE_URL \
+    --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
+    --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
+    --env MDBASE_CONNECT_CONTROL_PLANE_URL=http://127.0.0.1:9 \
+    --env MDBASE_CONNECT_R2_ENDPOINT \
+    --env MDBASE_CONNECT_R2_BUCKET \
+    --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
+    --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
+    --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
+    --env PORT="$port" \
+    "$CANDIDATE_IMAGE" >/dev/null
+}
+
+wait_candidate_provider() {
+  for _ in {1..30}; do
+    if curl --silent --output /dev/null "$UPGRADE_PROVIDER_URL/ready"; then
+      return 0
+    fi
+    sleep 1
+  done
+  printf 'Candidate provider did not begin serving HTTP.\n' >&2
+  return 1
+}
+
+wait_candidate_recovery() {
+  local readiness=
+  for _ in {1..30}; do
+    readiness=$(curl --silent "$UPGRADE_PROVIDER_URL/ready" || true)
+    if jq -e '
+      .status == "ready" and
+      .notifications.configured == true and
+      .notifications.recovery == "ok" and
+      .notifications.consecutive_failures == 0 and
+      .projections.degraded_collections == 0
+    ' <<<"$readiness" >/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  projection_diagnostic_text "$(docker logs --tail 100 mdbase-provider-upgrade-candidate 2>&1)"
+  printf 'Candidate provider did not recover notification and projection readiness.\n' >&2
+  return 1
+}
+
 seed_previous_sync_receipt() {
   provider_json PUT "/internal/v1/accounts/$UPGRADE_ACCOUNT_ID" \
     '{"entitlement_revision":1,"hosted_storage_bytes":1073741824,"retained_file_bytes":2147483648,"max_document_bytes":2097152,"max_single_file_bytes":262144000,"max_mirror_replicas_per_collection":10,"max_application_replicas_per_collection":10,"max_hosted_collections":10,"max_files_per_collection":10000}' >/dev/null
@@ -118,7 +216,7 @@ previous_mutation_body() {
     --arg mutation_id "$UPGRADE_MUTATION_ID" \
     --arg replica_id "$UPGRADE_REPLICA_ID" \
     --arg record_id "$UPGRADE_RECORD_ID" \
-    --arg document $'---\ntitle: Preserved beta receipt\n---\n\nExact beta69 bytes.\n' \
+    --arg document $'---\ntitle: Preserved predecessor receipt\n---\n\nExact predecessor bytes.\n' \
     '{mutation_id:$mutation_id,replica_id:$replica_id,scope_epoch:1,operation:"put",record_id:$record_id,path:"upgrade/receipt.md",document:$document,created_at:"2026-08-04T00:00:00Z"}'
 }
 
@@ -131,6 +229,15 @@ exact_mutation_body() {
     --arg base_revision "$base_revision" \
     --arg document $'---\ntitle: Exact beta receipt\n---\n\nExact bytes.\n' \
     '{mutation_id:$mutation_id,replica_id:$replica_id,scope_epoch:1,operation:"put",record_id:$record_id,base_revision:$base_revision,path:"upgrade/receipt.md",document:$document,created_at:"2026-08-06T00:00:00Z"}'
+}
+
+application_operation_body() {
+  local request_id=$1
+  local title=${2:-Preserved predecessor application receipt}
+  jq --compact-output --null-input \
+    --arg request_id "$request_id" \
+    --arg title "$title" \
+    '{protocol_version:3,request_id:$request_id,input:{path:"upgrade/application-replay.md",frontmatter:{title:$title},body:"Exact predecessor application bytes.\n"}}'
 }
 
 query_canonical_authority_inventory() {
@@ -234,6 +341,46 @@ query_canonical_authority_inventory() {
     | cut -d ' ' -f 1
 }
 
+query_canonical_application_authority_inventory() {
+  docker run --rm --network host \
+    --env PGPASSWORD=previous-provider-upgrade \
+    postgres:18-alpine \
+    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" --username mdbase --dbname mdbase_provider_upgrade \
+    --set ON_ERROR_STOP=1 --tuples-only --no-align \
+    --command "SELECT jsonb_build_object(
+                 'replicas', (
+                   SELECT jsonb_agg(to_jsonb(authority) ORDER BY id)
+                   FROM (
+                     SELECT id, collection_id, name, purpose, mode,
+                            allowed_types, contract_scope, full_collection,
+                            allowed_operations, operation_transport_protocol,
+                            operation_transport_recovery_protocols,
+                            file_capability, allowed_origin, proof_public_key,
+                            grant_id, application_declaration_id,
+                            application_declaration_digest, scope_epoch,
+                            encode(token_hash, 'hex') AS token_hash,
+                            token_expires_at, revoked_at
+                     FROM hosted_provider_replicas
+                     WHERE id IN (
+                       '$UPGRADE_REPLICA_ID',
+                       '$UPGRADE_CANONICAL_APPLICATION_REPLICA_ID'
+                     )
+                   ) authority
+                 ),
+                 'notification', (
+                   SELECT jsonb_build_object(
+                     'grant_id', grant_id,
+                     'collection_id', collection_id,
+                     'grant_json', grant_json
+                   )
+                   FROM hosted_provider_notification_grants
+                   WHERE grant_id = '$UPGRADE_CANONICAL_APPLICATION_GRANT_ID'
+                 )
+               )::text" \
+    | sha256sum \
+    | cut -d ' ' -f 1
+}
+
 run_projection_indexer() {
   local command=$1
   shift
@@ -242,6 +389,55 @@ run_projection_indexer() {
     --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
     --entrypoint mdbase-hosted-projection-indexer \
     "$CANDIDATE_IMAGE" "$command" "$@"
+}
+
+# These diagnostics are only for this synthetic upgrade fixture. Never dump
+# container configuration, the environment, or connection credentials.
+projection_diagnostic_text() {
+  local text=$1 name value
+  for name in DATABASE_URL PROVIDER_INTERNAL_TOKEN PROVIDER_MASTER_KEY \
+    MDBASE_CONNECT_R2_ACCESS_KEY_ID MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
+    UPGRADE_APPLICATION_TOKEN UPGRADE_REPLICA_TOKEN \
+    UPGRADE_ROLLBACK_APPLICATION_TOKEN UPGRADE_ROLLBACK_MIRROR_TOKEN GITHUB_TOKEN; do
+    value=${!name:-}
+    if [[ -n $value ]]; then
+      text=${text//"$value"/[REDACTED]}
+    fi
+  done
+  # Bound the entire redacted diagnostic, not each individual line.
+  text=${text:0:8192}
+  printf '%s\n' "${text:-<empty>}" >&2
+}
+
+verify_synthetic_projection() {
+  local phase=$1 output verifier_status=0 assertion_status=0
+  # mktemp creates a private directory; cleanup also covers interrupted runs.
+  if [[ -z $projection_diagnostics_dir ]]; then
+    projection_diagnostics_dir=$(mktemp -d "${RUNNER_TEMP:-/tmp}/mdbase-upgrade-projection.XXXXXX")
+  fi
+  # Do not use ! here: retain the actual verifier exit status under errexit.
+  output=$(run_projection_indexer verify --limit 100 \
+    2>"$projection_diagnostics_dir/verifier.stderr") || verifier_status=$?
+  jq -e '
+    .ok == true and
+    .command == "verify" and
+    (.result.collections | length) == 1 and
+    .result.collections[0].verified == true
+  ' <<<"$output" >/dev/null 2>"$projection_diagnostics_dir/assertion.stderr" || assertion_status=$?
+  if ((verifier_status != 0 || assertion_status != 0)); then
+    printf 'Projection verification failed (%s): verifier exit=%s; jq assertion exit=%s\n' \
+      "$phase" "$verifier_status" "$assertion_status" >&2
+    printf '%s\n' 'Verifier stdout (synthetic fixture JSON):' >&2
+    projection_diagnostic_text "$output"
+    printf '%s\n' 'Verifier stderr:' >&2
+    projection_diagnostic_text "$(<"$projection_diagnostics_dir/verifier.stderr")"
+    printf '%s\n' 'jq assertion stderr:' >&2
+    projection_diagnostic_text "$(<"$projection_diagnostics_dir/assertion.stderr")"
+    if ((verifier_status != 0)); then
+      return "$verifier_status"
+    fi
+    return "$assertion_status"
+  fi
 }
 
 query_notification_contract() {
@@ -298,11 +494,126 @@ query_notification_application_binding() {
                WHERE grant_id = '22222222-2222-4222-8222-222222222222'"
 }
 
+# Read-only observations of the disposable fixture, never schema repair.
+rollback_sql() {
+  docker run --rm --network host --env PGPASSWORD=previous-provider-upgrade \
+    postgres:18-alpine psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
+    --username mdbase --dbname mdbase_provider_upgrade \
+    --set ON_ERROR_STOP=1 --tuples-only --no-align --command "$1"
+}
+
+rollback_receipt_inventory() {
+  rollback_sql "SELECT to_jsonb(j) FROM hosted_provider_mutation_journal j ORDER BY replica_id, request_id" \
+    | sha256sum | cut -d ' ' -f 1
+}
+
+rollback_probe_inventory() {
+  rollback_sql "SELECT to_jsonb(r) FROM hosted_provider_replicas r WHERE id IN ('$UPGRADE_ROLLBACK_APPLICATION_ID', '$UPGRADE_ROLLBACK_MIRROR_ID') ORDER BY id" \
+    | sha256sum | cut -d ' ' -f 1
+}
+
+rollback_application_body() {
+  # Same canonical HTTPS-origin / NULL proof-key shape as provider-notification.sql.
+  # This is not an opaque-origin credential and does not require request proofs.
+  # Deliberately omit both new metadata fields: the unchanged old INSERT must
+  # exercise the database defaults, not a candidate-side registration shim.
+  jq -cn --arg id "$UPGRADE_ROLLBACK_APPLICATION_ID" \
+    --arg grant "$UPGRADE_ROLLBACK_GRANT_ID" --arg token "$UPGRADE_ROLLBACK_APPLICATION_TOKEN" \
+    --arg digest "sha256:$(printf '0%.0s' {1..64})" \
+    '{replica_id:$id,name:"Upgrade rollback application",purpose:"application",mode:"read_write",
+      allowed_types:[],contract_scope:[],full_collection:true,
+      allowed_operations:["apply_collection_setup","assess_collection_setup"],
+      operation_transport_protocol:3,operation_transport_recovery_protocols:[2],
+      file_capability:null,allowed_origin:"https://example.test",proof_public_key:null,
+      grant_id:$grant,application_declaration_id:"dev.mdbase.upgrade.rollback",
+      application_declaration_digest:$digest,token:$token}'
+}
+
+rollback_http() {
+  local method=$1 path=$2 body=$3 expected=$4 token=${5:-$PROVIDER_INTERNAL_TOKEN}
+  local response status
+  local -a origin=()
+  if [[ $token == "$UPGRADE_ROLLBACK_APPLICATION_TOKEN" ]]; then
+    origin=(--header 'origin: https://example.test')
+  fi
+  response=$(curl --silent --show-error --connect-timeout 5 --max-time 30 \
+    --request "$method" --header 'content-type: application/json' \
+    --header "authorization: Bearer $token" "${origin[@]}" \
+    --data "$body" --write-out $'\n%{http_code}' "$UPGRADE_PROVIDER_URL$path")
+  status=${response##*$'\n'}
+  if [[ $status != "$expected" ]]; then
+    printf 'Rollback probe HTTP status: expected %s, received %s\n' "$expected" "$status" >&2
+    # Redact before bounding so truncation cannot expose part of a credential.
+    projection_diagnostic_text "$response"
+    return 1
+  fi
+  printf '%s' "${response%$'\n'*}"
+}
+
+rollback_assert_policy() {
+  local expected=$1 epoch=$2 semantics=${3:-null} actual
+  actual=$(rollback_sql "SELECT to_jsonb(r) - 'token_hash' || jsonb_build_object('token_hash', encode(token_hash, 'hex')) FROM hosted_provider_replicas r WHERE id = '$UPGRADE_ROLLBACK_APPLICATION_ID'")
+  jq -e --argjson expected "$expected" --argjson epoch "$epoch" --argjson semantics "$semantics" \
+    --arg token_hash "$(printf '%s' "$UPGRADE_ROLLBACK_APPLICATION_TOKEN" | sha256sum | cut -d ' ' -f 1)" '
+    . as $row | .scope_epoch == $epoch and .application_semantic_version == $semantics and
+    .application_setup_evidence == null and .token_hash == $token_hash and
+    .id == $expected.replica_id and
+    all($expected | to_entries[] | select(.key != "token" and .key != "replica_id");
+      $row[.key] == .value)
+  ' <<<"$actual" >/dev/null
+  actual=$(rollback_sql "SELECT to_jsonb(r) - 'token_hash' || jsonb_build_object('token_hash', encode(token_hash, 'hex')) FROM hosted_provider_replicas r WHERE id = '$UPGRADE_ROLLBACK_MIRROR_ID'")
+  jq -e --argjson expected "$rollback_mirror" \
+    --arg token_hash "$(printf '%s' "$UPGRADE_ROLLBACK_MIRROR_TOKEN" | sha256sum | cut -d ' ' -f 1)" '
+    . as $row | .scope_epoch == 1 and .application_semantic_version == null and
+    .application_setup_evidence == null and .token_hash == $token_hash and
+    .id == $expected.replica_id and
+    all($expected | to_entries[] | select(.key != "token" and .key != "replica_id");
+      $row[.key] == .value)
+  ' <<<"$actual" >/dev/null
+}
+
+rollback_assess_binding() {
+  local input body result
+  input=$(jq -cn --arg digest "sha256:$(printf '0%.0s' {1..64})" \
+    '{application_id:"dev.mdbase.upgrade.rollback",declaration_digest:$digest,requirements:{},provisions:{}}')
+  body=$(jq -cn --argjson input "$input" \
+    '{protocol_version:3,request_id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4",input:$input}')
+  result=$(rollback_http POST "/v1/authorities/$UPGRADE_COLLECTION_ID/operations/assess_collection_setup" \
+    "$body" 200 "$UPGRADE_ROLLBACK_APPLICATION_TOKEN")
+  jq -e '.protocol_version == 3 and .result.valid == true' <<<"$result" >/dev/null
+  # Both flat binding components must be checked, before mutation admission.
+  for field in application_id declaration_digest; do
+    body=$(jq -cn --argjson input "$input" --arg field "$field" \
+      '{protocol_version:3,request_id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5",input:$input} |
+       .input[$field] = (if $field == "application_id" then "dev.mdbase.wrong" else "sha256:" + ("1" * 64) end)')
+    result=$(rollback_http POST "/v1/authorities/$UPGRADE_COLLECTION_ID/operations/assess_collection_setup" \
+      "$body" 403 "$UPGRADE_ROLLBACK_APPLICATION_TOKEN")
+    jq -e '.error.code == "application_declaration_mismatch"' <<<"$result" >/dev/null
+  done
+}
+
+rollback_assert_preserved() {
+  [[ $(rollback_sql "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM _sqlx_migrations m") == "$rollback_ledger_before" ]]
+  [[ $(rollback_receipt_inventory) == "$rollback_receipts_before" ]]
+  [[ $(query_canonical_authority_inventory) == "$canonical_inventory_before_replay" ]]
+  [[ $(query_canonical_application_authority_inventory) == "$canonical_application_authority_before" ]]
+  [[ $(provider_application_operation "$application_operation_request") == "$predecessor_application_receipt" ]]
+  [[ $(rollback_receipt_inventory) == "$rollback_receipts_before" ]]
+}
+
+if [[ $UPGRADE_SCENARIO == --retained-v2 ]]; then
+  trap - EXIT
+  retained_v2_run
+  exit
+fi
+
 upgrade_phase 'building candidate provider'
-docker build \
-  --file "$repo_root/deploy/docker/Dockerfile.hosted-provider" \
-  --tag "$CANDIDATE_IMAGE" \
-  "$repo_root"
+if [[ ${SKIP_CANDIDATE_BUILD:-false} != true ]]; then
+  docker build \
+    --file "$repo_root/deploy/docker/Dockerfile.hosted-provider" \
+    --tag "$CANDIDATE_IMAGE" \
+    "$repo_root"
+fi
 
 upgrade_phase 'starting the test-only S3 readiness stub'
 node "$repo_root/test/upgrade/r2-readiness-stub.mjs" \
@@ -315,6 +626,7 @@ fi
 
 upgrade_phase 'creating the previous provider schema'
 docker pull "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"
+upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"
 start_previous_provider mdbase-provider-previous false
 
 upgrade_phase 'seeding an encrypted previous-release sync receipt'
@@ -334,160 +646,82 @@ docker run --rm --interactive --network host \
   <"$repo_root/test/upgrade/provider-notification.sql"
 
 upgrade_phase 'reopening persisted state with the previous release'
-start_previous_provider mdbase-provider-previous-migration
+start_previous_provider mdbase-provider-previous-migration false
 previous_contract=$(query_notification_contract)
-printf 'Previous release notification contract: %s\n' "$previous_contract"
+printf 'Previous release (%s at %s) notification contract: %s\n' \
+  "$MDBASE_CONNECT_PREVIOUS_RELEASE" \
+  "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT" \
+  "$previous_contract"
 [[ $previous_contract == "mdbase.runtime.timer.fired|1.0.0" ]]
+canonical_application_authority_before=$(query_canonical_application_authority_inventory)
+printf 'Previous release canonical application authority: sha256:%s\n' \
+  "$canonical_application_authority_before"
+upgrade_phase 'seeding an exact predecessor terminal application mutation'
+application_operation_request=$(application_operation_body "$UPGRADE_APPLICATION_REQUEST_ID")
+predecessor_application_receipt=$(provider_application_operation "$application_operation_request")
+printf 'Previous release application receipt: %s\n' "$predecessor_application_receipt"
+jq -e '
+  .protocol_version == 3 and
+  .request_id == "99999999-9999-4999-8999-999999999999" and
+  (.result | type) == "object"
+' <<<"$predecessor_application_receipt" >/dev/null
+upgrade_remove_container mdbase-provider-previous-migration
+
+# Isolated clone: none of its additional authority rows enter the inventories below.
+# shellcheck source=test/upgrade/provider-atomic-overlap.sh
+source "$repo_root/test/upgrade/provider-atomic-overlap.sh"
+provider_atomic_overlap
+
+upgrade_phase 'writing predecessor-created persisted state before projection rebuild'
+start_candidate_provider
+wait_candidate_provider
+if ! exact_receipt=$(provider_json POST \
+  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
+  "$(exact_mutation_body "$previous_revision")" "$UPGRADE_REPLICA_TOKEN"); then
+  printf 'Candidate pre-rebuild mutation failed: %s\n' "$exact_receipt" >&2
+  exit 1
+fi
+printf 'Candidate pre-rebuild mutation receipt: %s\n' "$exact_receipt"
+jq -e '
+  .status == "applied" and
+  .record.path == "upgrade/receipt.md" and
+  .record.document == "---\ntitle: Exact beta receipt\n---\n\nExact bytes.\n"
+' <<<"$exact_receipt" >/dev/null
+snapshot_session=$(provider_json POST \
+  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/sessions" '' \
+  "$UPGRADE_REPLICA_TOKEN")
+snapshot_id=$(jq -er '.snapshot_id' <<<"$snapshot_session")
+pre_rebuild_snapshot=$(provider_get \
+  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/snapshot?snapshot_id=$snapshot_id" \
+  "$UPGRADE_REPLICA_TOKEN")
+jq -e --arg record_id "$UPGRADE_RECORD_ID" '
+  [.records[] | select(
+    .record_id == $record_id and
+    .path == "upgrade/receipt.md" and
+    .document == "---\ntitle: Exact beta receipt\n---\n\nExact bytes.\n"
+  )] | length == 1
+' <<<"$pre_rebuild_snapshot" >/dev/null
+upgrade_remove_container mdbase-provider-upgrade-candidate
+
 canonical_inventory_before=$(query_canonical_authority_inventory)
-printf 'Previous release canonical authority inventory: sha256:%s\n' \
+printf 'Pre-verify candidate canonical authority inventory: sha256:%s\n' \
   "$canonical_inventory_before"
+canonical_application_authority_after_write=$(query_canonical_application_authority_inventory)
+[[ $canonical_application_authority_after_write == "$canonical_application_authority_before" ]]
 
-upgrade_phase 'indexing the complete preserved authority with the bounded cutover operator'
-docker run --detach --name mdbase-provider-cutover-lock --network host \
-  --env PGPASSWORD=previous-provider-upgrade \
-  --env PGAPPNAME=mdbase-provider-cutover-lock-holder \
-  postgres:18-alpine \
-  psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
-    --username mdbase --dbname mdbase_provider_upgrade \
-    --set ON_ERROR_STOP=1 \
-    --command "SELECT pg_advisory_lock(hashtextextended('mdbase-candidate-b-cutover-v1', 0)); SELECT pg_sleep(30)" \
-  >/dev/null
-for _ in {1..30}; do
-  lock_count=$(docker run --rm --network host \
-    --env PGPASSWORD=previous-provider-upgrade \
-    postgres:18-alpine \
-    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
-      --username mdbase --dbname mdbase_provider_upgrade \
-      --tuples-only --no-align \
-      --command "SELECT count(*)
-                 FROM pg_locks
-                 JOIN pg_stat_activity USING (pid)
-                 WHERE locktype = 'advisory'
-                   AND granted
-                   AND application_name = 'mdbase-provider-cutover-lock-holder'" |
-    tr -d '[:space:]')
-  [[ $lock_count != 0 ]] && break
-  sleep 1
-done
-[[ ${lock_count:-0} != 0 ]]
-if lock_result=$(run_projection_indexer cutover \
-  --owner-token 99999999-9999-4999-8999-999999999990 \
-  --max-seconds 30)
-then
-  printf 'Projection cutover unexpectedly ignored the global PostgreSQL lock.\n' >&2
-  exit 1
-fi
-jq -e '
-  .ok == false and
-  .command == "cutover" and
-  .result.outcome == "projection_cutover_lock_unavailable" and
-  .result.phase == "global_lock"
-' <<<"$lock_result" >/dev/null
-terminate_cutover_lock_holder
-upgrade_remove_container mdbase-provider-cutover-lock
-
-if bounded_result=$(run_projection_indexer cutover \
-  --owner-token "$CUTOVER_OWNER_TOKEN" \
-  --page-limit 1 \
-  --batches-per-collection 1 \
-  --max-collections 10 \
-  --max-batches 1 \
-  --max-pages 10 \
-  --max-seconds 120)
-then
-  printf 'Projection cutover unexpectedly completed inside the one-batch test budget.\n' >&2
-  exit 1
-fi
-jq -e '
-  .ok == false and
-  .command == "cutover" and
-  .result.outcome == "projection_cutover_batch_budget_exceeded" and
-  .result.complete_inventory == false and
-  .result.collections_verified == 0 and
-  .result.batches_advanced == 1 and
-  .result.blocked_collection_id == "33333333-3333-4333-8333-333333333333"
-' <<<"$bounded_result" >/dev/null
-verify_result=$(run_projection_indexer cutover \
-  --owner-token "$CUTOVER_OWNER_TOKEN" \
-  --page-limit 1 \
-  --batches-per-collection 16 \
-  --max-collections 10 \
-  --max-batches 160 \
-  --max-pages 10 \
-  --max-seconds 120)
-jq -e '
-  .ok == true and
-  .command == "cutover" and
-  .result.outcome == "complete" and
-  .result.complete_inventory == true and
-  .result.pages_visited == 1 and
-  .result.collections_verified == 1 and
-  .result.batches_advanced > 0 and
-  .result.blocked_collection_id == null
-' <<<"$verify_result" >/dev/null
-canonical_inventory_after_index=$(query_canonical_authority_inventory)
-printf 'Indexed candidate canonical authority inventory: sha256:%s\n' \
-  "$canonical_inventory_after_index"
-[[ $canonical_inventory_after_index == "$canonical_inventory_before" ]]
+upgrade_phase 'verifying the write-through projection without normalization'
+verify_synthetic_projection 'write-through without normalization'
+canonical_inventory_after_verify=$(query_canonical_authority_inventory)
+printf 'Verified candidate canonical authority inventory: sha256:%s\n' \
+  "$canonical_inventory_after_verify"
+[[ $canonical_inventory_after_verify == "$canonical_inventory_before" ]]
 
 upgrade_phase 'requiring candidate recovery readiness'
-docker run --detach --name mdbase-provider-upgrade-candidate \
-  --network host \
-  --env DATABASE_URL \
-  --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
-  --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
-  --env MDBASE_CONNECT_CONTROL_PLANE_URL=http://127.0.0.1:9 \
-  --env MDBASE_CONNECT_R2_ENDPOINT \
-  --env MDBASE_CONNECT_R2_BUCKET \
-  --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
-  --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
-  --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
-  --env PORT="$UPGRADE_PROVIDER_PORT" \
-  "$CANDIDATE_IMAGE" >/dev/null
+start_candidate_provider
+wait_candidate_recovery
 
-recovered=false
-for attempt in {1..30}; do
-  readiness=$(curl --silent "$UPGRADE_PROVIDER_URL/ready" || true)
-  if jq -e '
-    .status == "ready" and
-    .notifications.configured == true and
-    .notifications.recovery == "ok" and
-    .notifications.consecutive_failures == 0
-  ' <<<"$readiness" >/dev/null; then
-    recovered=true
-    break
-  fi
-  sleep 2
-done
-if ! $recovered; then
-  docker logs mdbase-provider-upgrade-candidate
-  printf 'Candidate provider did not recover upgraded notification state.\n' >&2
-  exit 1
-fi
-
-upgrade_phase 'finalizing candidate admission after recovery readiness'
-for admission_step in \
-  'open-hosted-query-admission-provisional.sql:lease_seconds=180' \
-  'finalize-hosted-query-admission.sql:'
-do
-  admission_file=${admission_step%%:*}
-  admission_variable=${admission_step#*:}
-  admission_arguments=(
-    --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT"
-    --username mdbase --dbname mdbase_provider_upgrade
-    --set ON_ERROR_STOP=1 --set "fence_token=$CUTOVER_OWNER_TOKEN"
-  )
-  if [[ -n $admission_variable ]]; then
-    admission_arguments+=(--set "$admission_variable")
-  fi
-  docker run --rm --network host \
-    --env PGPASSWORD=previous-provider-upgrade \
-    --entrypoint psql \
-    "$CANDIDATE_IMAGE" \
-    "${admission_arguments[@]}" \
-    --file "/usr/local/share/mdbase-connect/postgres/$admission_file" \
-    >/dev/null
-done
+upgrade_phase 'verifying projections after final provider restart'
+verify_synthetic_projection 'after final provider restart'
 
 contract=$(query_notification_contract true)
 printf 'Recovered notification contract: %s\n' "$contract"
@@ -503,37 +737,88 @@ canonical_inventory_after_recovery=$(query_canonical_authority_inventory)
 printf 'Recovered candidate canonical authority inventory: sha256:%s\n' \
   "$canonical_inventory_after_recovery"
 [[ $canonical_inventory_after_recovery == "$canonical_inventory_before" ]]
+canonical_application_authority_after_recovery=$(query_canonical_application_authority_inventory)
+[[ $canonical_application_authority_after_recovery == "$canonical_application_authority_before" ]]
 
-if ! replayed_receipt=$(provider_json POST \
-  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
-  "$(previous_mutation_body)" "$UPGRADE_REPLICA_TOKEN"); then
-  printf 'Beta69 receipt replay failed: %s\n' "$replayed_receipt" >&2
-  exit 1
-fi
-printf 'Replayed beta69 receipt: %s\n' "$replayed_receipt"
-jq -e '
-  .status == "applied" and
-  .record.path == "upgrade/receipt.md" and
-  .record.document == "---\ntitle: Preserved beta receipt\n---\n\nExact beta69 bytes.\n"
-' <<<"$replayed_receipt" >/dev/null
-canonical_inventory_after_replay=$(query_canonical_authority_inventory)
-printf 'Replayed candidate canonical authority inventory: sha256:%s\n' \
-  "$canonical_inventory_after_replay"
-[[ $canonical_inventory_after_replay == "$canonical_inventory_before" ]]
+upgrade_phase 'restarting the candidate to prove persisted authority stability'
+upgrade_remove_container mdbase-provider-upgrade-candidate
+start_candidate_provider
+wait_candidate_recovery
+[[ $(query_canonical_application_authority_inventory) == "$canonical_application_authority_before" ]]
 
-if ! exact_receipt=$(provider_json POST \
-  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
-  "$(exact_mutation_body "$previous_revision")" "$UPGRADE_REPLICA_TOKEN"); then
-  printf 'Candidate exact mutation failed: %s\n' "$exact_receipt" >&2
-  exit 1
-fi
-printf 'Candidate exact mutation receipt: %s\n' "$exact_receipt"
-jq -e '
-  .status == "applied" and
-  .record.path == "upgrade/receipt.md" and
-  .record.document == "---\ntitle: Exact beta receipt\n---\n\nExact bytes.\n"
-' <<<"$exact_receipt" >/dev/null
-post_write_verify=$(run_projection_indexer verify --limit 100)
-jq -e '.ok == true and .result.collections[0].verified == true' \
-  <<<"$post_write_verify" >/dev/null
-printf 'Previous provider notification recovery path passed.\n'
+upgrade_phase 'proving exact application replay without canonical mutation'
+canonical_inventory_before_replay=$(query_canonical_authority_inventory)
+replayed_application_receipt=$(provider_application_operation "$application_operation_request")
+[[ $replayed_application_receipt == "$predecessor_application_receipt" ]]
+[[ $(query_canonical_authority_inventory) == "$canonical_inventory_before_replay" ]]
+[[ $(query_canonical_application_authority_inventory) == "$canonical_application_authority_before" ]]
+
+changed_response=$(provider_application_operation_status \
+  "$(application_operation_body "$UPGRADE_APPLICATION_REQUEST_ID" 'Changed application input')")
+changed_status=${changed_response##*$'\n'}
+changed_body=${changed_response%$'\n'*}
+printf 'Changed application replay denial (%s): %s\n' "$changed_status" "$changed_body"
+[[ $changed_status == 409 ]]
+jq -e '.error.code == "mutation_request_conflict"' <<<"$changed_body" >/dev/null
+
+[[ $(query_canonical_authority_inventory) == "$canonical_inventory_before_replay" ]]
+[[ $(query_canonical_application_authority_inventory) == "$canonical_application_authority_before" ]]
+
+# One provider port: sequential image rollback/reupgrade, NOT concurrent rolling
+# compatibility. The predecessor reference and binary are unchanged. No schema
+# reversal or migration-ledger edits are permitted, including on startup failure.
+# The source-built candidate is NOT signed candidate publication qualification
+# and this disposable exercise is NOT evidence of safe production rollback.
+upgrade_phase 'rolling back only the image on the migrated 0041 database'
+rollback_ledger_before=$(rollback_sql "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM _sqlx_migrations m")
+[[ $(rollback_sql 'SELECT max(version) >= 41 FROM _sqlx_migrations WHERE success') == t ]]
+rollback_receipts_before=$(rollback_receipt_inventory)
+upgrade_remove_container mdbase-provider-upgrade-candidate
+upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"
+start_previous_provider mdbase-provider-previous-rollback false
+
+upgrade_phase 'registering new legacy application and mirror through predecessor HTTP'
+rollback_application=$(rollback_application_body)
+rollback_mirror=$(jq -cn --arg id "$UPGRADE_ROLLBACK_MIRROR_ID" --arg token "$UPGRADE_ROLLBACK_MIRROR_TOKEN" \
+  '{replica_id:$id,name:"Upgrade rollback mirror",purpose:"mirror",mode:"read_write",allowed_types:[],contract_scope:[],full_collection:false,allowed_operations:[],grant_id:null,token:$token}')
+rollback_http POST "/internal/v1/collections/$UPGRADE_COLLECTION_ID/replicas" "$rollback_application" 201 >/dev/null
+rollback_http POST "/internal/v1/collections/$UPGRADE_COLLECTION_ID/replicas" "$rollback_mirror" 201 >/dev/null
+rollback_assert_policy "$rollback_application" 1
+rollback_probe_before=$(rollback_probe_inventory)
+rollback_http POST "/internal/v1/collections/$UPGRADE_COLLECTION_ID/replicas" "$rollback_application" 201 >/dev/null
+rollback_http POST "/internal/v1/collections/$UPGRADE_COLLECTION_ID/replicas" "$rollback_mirror" 201 >/dev/null
+[[ $(rollback_probe_inventory) == "$rollback_probe_before" ]]
+rollback_http PATCH "/internal/v1/replicas/$UPGRADE_ROLLBACK_APPLICATION_ID/policy" "$rollback_application" 204 >/dev/null
+rollback_assert_policy "$rollback_application" 1
+rollback_assess_binding
+
+upgrade_phase 'narrowing predecessor policy with exact retry epoch checks'
+rollback_narrowed=$(jq -c '.allowed_operations = ["assess_collection_setup"]' <<<"$rollback_application")
+rollback_http PATCH "/internal/v1/replicas/$UPGRADE_ROLLBACK_APPLICATION_ID/policy" "$rollback_narrowed" 204 >/dev/null
+rollback_assert_policy "$rollback_narrowed" 2
+rollback_http PATCH "/internal/v1/replicas/$UPGRADE_ROLLBACK_APPLICATION_ID/policy" "$rollback_narrowed" 204 >/dev/null
+rollback_http POST "/internal/v1/collections/$UPGRADE_COLLECTION_ID/replicas" "$rollback_narrowed" 201 >/dev/null
+rollback_assert_policy "$rollback_narrowed" 2
+rollback_assess_binding
+rollback_assert_preserved
+rollback_probe_before=$(rollback_probe_inventory)
+upgrade_remove_container mdbase-provider-previous-rollback
+
+upgrade_phase 'reupgrading predecessor-written NULL metadata without normalization'
+start_candidate_provider
+wait_candidate_recovery
+[[ $(rollback_probe_inventory) == "$rollback_probe_before" ]]
+rollback_assert_policy "$rollback_narrowed" 2
+rollback_http POST "/internal/v1/collections/$UPGRADE_COLLECTION_ID/replicas" "$rollback_narrowed" 201 >/dev/null
+rollback_http POST "/internal/v1/collections/$UPGRADE_COLLECTION_ID/replicas" "$rollback_mirror" 201 >/dev/null
+rollback_http PATCH "/internal/v1/replicas/$UPGRADE_ROLLBACK_APPLICATION_ID/policy" "$rollback_narrowed" 204 >/dev/null
+# Explicit candidate policy update records semantic v1, without a scope bump.
+rollback_assert_policy "$rollback_narrowed" 2 1
+rollback_http PATCH "/internal/v1/replicas/$UPGRADE_ROLLBACK_APPLICATION_ID/policy" "$rollback_narrowed" 204 >/dev/null
+rollback_assert_policy "$rollback_narrowed" 2 1
+rollback_assess_binding
+rollback_assert_preserved
+verify_synthetic_projection 'after predecessor writes and candidate reupgrade'
+rollback_assert_preserved
+
+printf 'Historical beta94 v1 prelude persisted-state path passed; not v2 rollback qualification.\n'

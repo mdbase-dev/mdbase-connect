@@ -82,6 +82,9 @@ fn onboarding_records() -> Vec<StoredDocument> {
                 "Build with mdbase.md" => {
                     include_str!("../../../templates/onboarding/v1/Build with mdbase.md")
                 }
+                "Where your collection lives.md" => {
+                    include_str!("../../../templates/onboarding/v1/Where your collection lives.md")
+                }
                 path => panic!("onboarding template record has no embedded document: {path}"),
             };
             starter_record(&record.record_id, &record.path, document)
@@ -169,7 +172,7 @@ mod tests {
     #[test]
     fn onboarding_template_contains_a_small_editable_start() {
         let template = resources("onboarding", "UTC").unwrap();
-        assert_eq!(template.records.len(), 3);
+        assert_eq!(template.records.len(), 4);
         assert_eq!(
             template
                 .records
@@ -193,5 +196,10 @@ mod tests {
         assert!(template.records[2]
             .document
             .contains("developer documentation"));
+        assert_eq!(template.records[3].path, "Where your collection lives.md");
+        assert!(template.records[3]
+            .document
+            .contains("A synced folder is not a backup"));
+        assert!(template.records[3].document.contains("Continue in browser"));
     }
 }

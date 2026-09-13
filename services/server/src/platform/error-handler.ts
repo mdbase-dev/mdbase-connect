@@ -7,6 +7,7 @@ import {
   IdentityRemovalForbiddenError
 } from "../account-management.js";
 import { AccountUnavailableError } from "../external-auth.js";
+import { InvalidExternalSignupError, ExternalSignupEmailRequiredError } from "../external-signup.js";
 import { HostedEntitlementRequiredError } from "../entitlements.js";
 import { GitHubIdentityError } from "../github-auth.js";
 import { GoogleIdentityError } from "../google-auth.js";
@@ -42,6 +43,8 @@ import {
   RelayUnavailableError
 } from "../relay.js";
 import { CollectionAccessDeniedError } from "../collection-access.js";
+import { CollectionInvitationError } from "../collection-invitations.js";
+import { CollectionMembershipPolicyError } from "../collection-policy.js";
 import { GrantPlanningError } from "../grant-planner.js";
 import {
   apiError,
@@ -79,6 +82,22 @@ export function registerErrorHandler(app: FastifyInstance): void {
     }
     if (error instanceof GrantPlanningError) {
       return reply.code(400).send(apiError("invalid_grant", error.message));
+    }
+    if (error instanceof CollectionInvitationError) {
+      const status = error.code === "collection_sharing_not_found"
+        ? 404
+        : error.code === "collection_member_seat_unavailable"
+          ? 409
+          : 400;
+      return reply.code(status).send(apiError(error.code, error.message));
+    }
+    if (error instanceof CollectionMembershipPolicyError) {
+      const notFound = error.code === "collection_unavailable"
+        || error.code === "membership_unavailable";
+      return reply.code(notFound ? 404 : 409).send(apiError(
+        notFound ? "collection_sharing_not_found" : error.code,
+        notFound ? "Collection sharing is unavailable." : error.message
+      ));
     }
     if (error instanceof CollectionAccessDeniedError) {
       return reply.code(403).send(apiError("collection_access_denied", error.message));
@@ -153,7 +172,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
     if (error instanceof AccountUnavailableError) {
       return reply.code(403).send(apiError(
         "account_not_allowed",
-        "This account does not have access."
+        "This account cannot be opened with this identity. If you already have an account, sign in with its existing method and connect this provider in account settings."
       ));
     }
     if (error instanceof ExternalIdentityConflictError) {
@@ -197,6 +216,9 @@ export function registerErrorHandler(app: FastifyInstance): void {
         "invalid_password_reset",
         "This password reset link is invalid, expired, or has already been used."
       ));
+    }
+    if (error instanceof InvalidExternalSignupError || error instanceof ExternalSignupEmailRequiredError) {
+      return reply.code(400).send(apiError("invalid_external_signup", error.message));
     }
     if (error instanceof InvalidPublicSignupVerificationError) {
       return reply.code(400).send(apiError(

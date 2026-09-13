@@ -33,28 +33,16 @@ use uuid::Uuid;
 const REGISTRY_VERSION: u32 = 1;
 const CLI_APPLICATION_ID: &str = "dev.mdbase.cli";
 const CLI_APPLICATION_NAME: &str = "mdbase CLI";
+// New CLI connections use the v2 groups matching the existing complete CLI
+// operation surface. Persisted v1 grants keep their signed operations unchanged.
 const CLI_APPLICATION_CAPABILITIES: &[&str] = &[
-    "collection.inspect",
-    "records.watch",
-    "records.read",
-    "records.query",
-    "records.validate",
+    "collection.read",
     "records.create",
-    "records.update",
+    "records.edit",
     "records.delete",
-    "records.rename",
-    "views.list",
-    "views.execute",
-    "views.source.read",
-    "views.source.create",
-    "views.source.update",
-    "views.source.delete",
-    "definitions.read",
-    "definitions.create",
-    "definitions.update",
-    "definitions.type-pack.inspect",
-    "definitions.type-pack.apply",
-    "sync.offline-replica",
+    "views.manage",
+    "definitions.manage",
+    "offline.replica",
 ];
 const MAX_HOSTED_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 
@@ -275,9 +263,13 @@ impl HostedConnectionManager {
             redirect_uri: None,
             state: None,
             code_challenge: challenge.clone(),
-            contracts: ConnectContractRequirements::current(
-                authorization_requires_durable_mutation(&operations, None),
-            ),
+            contracts: ConnectContractRequirements {
+                semantic_capabilities: 2,
+                ..ConnectContractRequirements::current(authorization_requires_durable_mutation(
+                    &operations,
+                    None,
+                ))
+            },
             requested_operations: operations.clone(),
             requested_files: None,
             collection_id: Some(params.collection_id),
@@ -830,7 +822,7 @@ impl HostedConnectionManager {
                         "access": "full_collection",
                         "contracts": [],
                         "capabilities": {
-                            "contract_version": 1,
+                            "contract_version": 2,
                             "required": CLI_APPLICATION_CAPABILITIES
                         }
                     }

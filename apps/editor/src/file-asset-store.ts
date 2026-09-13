@@ -34,6 +34,7 @@ export class FileAssetStore {
   private readonly entries = new Map<string, AssetEntry>();
   private readonly listeners = new Set<() => void>();
   private version = 0;
+  private usage = 0;
   private readonly maxPreviewBytes: number;
   private readonly maxCacheBytes: number;
   private readonly maxEntries: number;
@@ -66,20 +67,21 @@ export class FileAssetStore {
   acquire(file: CollectionFile): () => void {
     const entry = this.entry(file);
     entry.references += 1;
-    entry.lastUsed = Date.now();
+    entry.lastUsed = ++this.usage;
     void this.loadEntry(entry);
     let active = true;
     return () => {
       if (!active) return;
       active = false;
       entry.references = Math.max(0, entry.references - 1);
-      entry.lastUsed = Date.now();
+      entry.lastUsed = ++this.usage;
       this.evict();
     };
   }
 
   async load(file: CollectionFile): Promise<FileAssetSnapshot> {
     const entry = this.entry(file);
+    entry.lastUsed = ++this.usage;
     await this.loadEntry(entry);
     return this.get(file);
   }
@@ -90,7 +92,6 @@ export class FileAssetStore {
     this.disposeEntry(entry);
     entry.status = "idle";
     entry.error = undefined;
-    this.changed();
     return this.load(file);
   }
 
@@ -123,7 +124,7 @@ export class FileAssetStore {
       file,
       status: "idle",
       references: 0,
-      lastUsed: Date.now()
+      lastUsed: ++this.usage
     };
     this.entries.set(key, entry);
     return entry;
@@ -135,6 +136,7 @@ export class FileAssetStore {
     if (entry.file.size > this.maxPreviewBytes) {
       entry.status = "too_large";
       entry.error = `Preview is limited to ${formatBytes(this.maxPreviewBytes)}. Download this ${formatBytes(entry.file.size)} file to open it.`;
+      this.evict();
       this.changed();
       return;
     }
@@ -143,43 +145,51 @@ export class FileAssetStore {
     entry.request = controller;
     entry.status = "loading";
     entry.error = undefined;
-    this.changed();
     const promise = this.source.readFile(entry.file, { signal: controller.signal })
       .then((blob) => {
-        if (controller.signal.aborted || entry.request !== controller) return;
+        if (!this.ownsRequest(entry, controller)) return;
         entry.url = URL.createObjectURL(blob);
         entry.status = "ready";
-        entry.lastUsed = Date.now();
+        entry.lastUsed = ++this.usage;
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted || entry.request !== controller) return;
+        if (!this.ownsRequest(entry, controller)) return;
         entry.status = "error";
         entry.error = error instanceof Error ? error.message : "The file could not be opened.";
       })
       .finally(() => {
-        if (entry.request === controller) entry.request = undefined;
-        if (entry.promise === promise) entry.promise = undefined;
+        if (!this.ownsRequest(entry, controller)) return;
+        entry.request = undefined;
+        entry.promise = undefined;
         this.evict();
         this.changed();
       });
     entry.promise = promise;
+    this.evict();
+    this.changed();
     return promise;
   }
 
   private evict(): void {
-    const ready = [...this.entries.entries()].filter(([, entry]) => entry.status === "ready");
-    let bytes = ready.reduce((total, [, entry]) => total + entry.file.size, 0);
-    let count = ready.length;
-    const candidates = ready
+    const cached = [...this.entries.entries()];
+    let bytes = cached.reduce((total, [, entry]) => total + (entry.url ? entry.file.size : 0), 0);
+    let count = cached.length;
+    if (bytes <= this.maxCacheBytes && count <= this.maxEntries) return;
+    const candidates = cached
       .filter(([, entry]) => entry.references === 0)
       .sort((left, right) => left[1].lastUsed - right[1].lastUsed);
     for (const [key, entry] of candidates) {
       if (bytes <= this.maxCacheBytes && count <= this.maxEntries) break;
-      bytes -= entry.file.size;
+      if (entry.url) bytes -= entry.file.size;
       count -= 1;
       this.disposeEntry(entry);
       this.entries.delete(key);
     }
+  }
+
+  private ownsRequest(entry: AssetEntry, controller: AbortController): boolean {
+    return !controller.signal.aborted && entry.request === controller
+      && this.entries.get(fileAssetKey(entry.file)) === entry;
   }
 
   private disposeEntry(entry: AssetEntry): void {

@@ -1,10 +1,10 @@
 import {
-  capabilityOperations,
-  type ApplicationCapabilityId,
+  capabilityOperationsForContractVersion,
   type ApplicationCapabilityRequirements,
-  type FileAction,
-  type MdbaseAppManifest
+  type LegacyApplicationCapabilityRequirements,
+  type FileAction
 } from "@mdbase-dev/connect-protocol";
+import type { MdbaseApplicationCapabilityId as ApplicationCapabilityId, MdbaseApplicationManifest as MdbaseAppManifest } from "./application-contract.js";
 import type { MdbaseConnectionInfo } from "./connection-types.js";
 
 export type MdbaseCapabilityState =
@@ -31,13 +31,13 @@ export interface MdbaseEffectiveCapability {
 }
 
 export interface MdbaseEffectiveCapabilities {
-  contractVersion: 1;
+  contractVersion: 1 | 2;
   values: Partial<Record<ApplicationCapabilityId, MdbaseEffectiveCapability>>;
   requiredAvailable: boolean;
 }
 
 export function effectiveCapabilities(
-  requirements: ApplicationCapabilityRequirements,
+  requirements: ApplicationCapabilityRequirements | LegacyApplicationCapabilityRequirements,
   manifest: MdbaseAppManifest,
   connection: MdbaseConnectionInfo
 ): MdbaseEffectiveCapabilities {
@@ -45,10 +45,10 @@ export function effectiveCapabilities(
   const declared = [...new Set([...requirements.required, ...(requirements.optional ?? [])])];
   const values: Partial<Record<ApplicationCapabilityId, MdbaseEffectiveCapability>> = {};
   for (const id of declared) {
-    values[id] = effectiveCapability(id, required.has(id), manifest, connection);
+    values[id] = effectiveCapability(id, required.has(id), connection, requirements.contract_version, manifest);
   }
   return {
-    contractVersion: 1,
+    contractVersion: requirements.contract_version,
     values,
     requiredAvailable: requirements.required.every(
       (id) => values[id]?.state === "available"
@@ -59,10 +59,11 @@ export function effectiveCapabilities(
 function effectiveCapability(
   id: ApplicationCapabilityId,
   required: boolean,
-  manifest: MdbaseAppManifest,
-  connection: MdbaseConnectionInfo
+  connection: MdbaseConnectionInfo,
+  version: 1 | 2,
+  manifest: MdbaseAppManifest
 ): MdbaseEffectiveCapability {
-  const operations = capabilityOperations(id);
+  const operations = capabilityOperationsForContractVersion(version, id) ?? [];
   const missingOperations = operations.filter(
     (operation) => !connection.operations.includes(operation)
   );
@@ -73,7 +74,7 @@ function effectiveCapability(
     missingOperations,
     evidence: [{
       source: "application" as const,
-      fact: `${required ? "Required" : "Optional"} in capability contract v1.`
+      fact: `${required ? "Required" : "Optional"} in capability contract v${version}.`
     }]
   };
   if (missingOperations.length > 0) {
@@ -87,60 +88,31 @@ function effectiveCapability(
       reason: "The current grant does not include every operation for this capability."
     };
   }
-  if (
-    id === "definitions.contracts.current"
-    && connection.scope.access !== "full_collection"
-  ) {
-    const approved = new Set(connection.scope.contracts.map(
-      ({ id, version, digest }) => `${id}@${version}:${digest}`
-    ));
-    const missingContracts = (manifest.requirements?.contracts ?? []).filter(
-      ({ id, version, digest }) => !approved.has(`${id}@${version}:${digest}`)
-    );
-    if (missingContracts.length > 0) {
-      return {
-        ...base,
-        state: "requires_authorization",
-        reason: "The current grant does not approve the exact required contract definitions.",
-        evidence: [...base.evidence, {
-          source: "authorization",
-          fact: `Missing ${missingContracts.map(({ id, version }) => `${id}@${version}`).join(", ")}.`
-        }],
-        details: { missingContracts }
-      };
-    }
+  if (connection.scope.access !== "full_collection") {
+    return {
+      ...base,
+      state: "requires_authorization",
+      reason: "The current grant uses legacy contract scope and must be reauthorized for the entire collection.",
+      evidence: [...base.evidence, {
+        source: "authorization",
+        fact: "Legacy contract scope is compatibility evidence, not active data authority."
+      }]
+    };
   }
-  if (id.startsWith("files.")) {
-    const action = id.slice("files.".length);
-    if (!connection.fileCapability?.actions.includes(action as FileAction)) {
+  // Compatibility readiness is deliberately limited to v1 aliases. V2 needs
+  // structured file/notification/runtime evidence, not these legacy shortcuts.
+  if (version === 1 && id.startsWith("files.")) {
+    const action = id.slice("files.".length) as FileAction;
+    if (!connection.fileCapability?.actions.includes(action)) {
       return {
         ...base,
         state: connection.fileCapability ? "requires_authorization" : "unsupported",
-        reason: connection.fileCapability
-          ? `The current file grant does not include ${action}.`
-          : "This connection has no file capability.",
-        evidence: [...base.evidence, {
-          source: "authorization",
-          fact: connection.fileCapability
-            ? `Granted file actions: ${connection.fileCapability.actions.join(", ")}.`
-            : "No file capability was granted."
-        }]
+        reason: connection.fileCapability ? `The current file grant does not include ${action}.` : "This connection has no file capability."
       };
     }
   }
-  if (
-    id === "notifications.background-delivery"
-    && (manifest.notifications?.criteria.length ?? 0) === 0
-  ) {
-    return {
-      ...base,
-      state: "requires_setup",
-      reason: "The application manifest declares no notification criteria.",
-      evidence: [...base.evidence, {
-        source: "application",
-        fact: "No authority notification criteria are declared."
-      }]
-    };
+  if (version === 1 && id === "notifications.background-delivery" && (manifest.notifications?.criteria.length ?? 0) === 0) {
+    return { ...base, state: "requires_setup", reason: "The application manifest declares no notification criteria." };
   }
   return {
     ...base,
@@ -156,7 +128,7 @@ function effectiveCapability(
         ? "Backed by a durable hosted mdbase authority."
         : "Backed by a user-operated mdbase connector."
     }],
-    ...(id === "sync.offline-replica"
+    ...(id === "offline.replica" || (version === 1 && id === "sync.offline-replica")
       ? {
           details: {
             durability: "device",
@@ -165,8 +137,7 @@ function effectiveCapability(
           }
         }
       : {}),
-    ...(id === "notifications.background-delivery"
-      ? { details: { delivery: "authority", payload: "opaque" } }
-      : {})
+    ...(version === 1 && id === "notifications.background-delivery"
+      ? { details: { delivery: "authority", payload: "opaque" } } : {})
   };
 }

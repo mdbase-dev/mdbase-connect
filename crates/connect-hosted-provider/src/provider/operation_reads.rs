@@ -30,7 +30,6 @@ impl HostedProvider {
             row.get("resources_ciphertext"),
             &resources_aad(collection_id),
         )?;
-        let resources = scoped_resources(resources, &replica.allowed_types);
         let description = CollectionDescription {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             collection_id,
@@ -50,7 +49,7 @@ impl HostedProvider {
     pub(super) async fn changes_operation(
         &self,
         collection_id: Uuid,
-        replica: &Replica,
+        _replica: &Replica,
         input: &Value,
     ) -> ApiResult<Value> {
         let collection = sqlx::query(
@@ -108,13 +107,10 @@ impl HostedProvider {
             r#"SELECT sequence, before_ciphertext, after_ciphertext, created_at::text AS occurred_at
                FROM hosted_provider_changes
                WHERE collection_id = $1 AND sequence > $2
-                 AND (cardinality($3::text[]) = 0
-                      OR before_types && $3::text[] OR after_types && $3::text[])
-               ORDER BY sequence LIMIT $4"#,
+               ORDER BY sequence LIMIT $3"#,
         )
         .bind(collection_id)
         .bind(to_i64(after, "change cursor")?)
-        .bind(&replica.allowed_types)
         .bind(to_i64(limit + 1, "change page limit")?)
         .fetch_all(&self.pool)
         .await?;
@@ -122,12 +118,10 @@ impl HostedProvider {
             r#"SELECT sequence, resource_kind, type_name, path, revision, created_at::text AS occurred_at
                FROM hosted_provider_resource_changes
                WHERE collection_id = $1 AND sequence > $2
-                 AND (cardinality($3::text[]) = 0 OR type_name = ANY($3::text[]))
-               ORDER BY sequence LIMIT $4"#,
+               ORDER BY sequence LIMIT $3"#,
         )
         .bind(collection_id)
         .bind(to_i64(after, "change cursor")?)
-        .bind(&replica.allowed_types)
         .bind(to_i64(limit + 1, "change page limit")?)
         .fetch_all(&self.pool)
         .await?;
@@ -151,15 +145,6 @@ impl HostedProvider {
                 row.get("after_ciphertext"),
                 &change_record_aad(collection_id, sequence, "after"),
             )?;
-            if !before
-                .as_ref()
-                .is_some_and(|record| visible(record, &replica.allowed_types))
-                && !after_record
-                    .as_ref()
-                    .is_some_and(|record| visible(record, &replica.allowed_types))
-            {
-                continue;
-            }
             let (event_type, payload) = application_change(before.as_ref(), after_record.as_ref());
             events.push(CollectionChange {
                 cursor: sequence,
@@ -213,7 +198,10 @@ impl HostedProvider {
         input: &Value,
     ) -> ApiResult<OperationResult> {
         if operation == "read" {
-            return self.execute_direct_point_read(collection_id, input).await;
+            return self
+                .execute_direct_point_read_typed(collection_id, input)
+                .await
+                .map(|operation| operation.to_v03());
         }
         if operation == "validate" {
             return self.execute_direct_validation(collection_id, input).await;
@@ -225,19 +213,20 @@ impl HostedProvider {
         }
         if matches!(operation, "assess_type_pack" | "assess_collection_setup") {
             return self
-                .execute_direct_definition_assessment(collection_id, operation, input)
-                .await;
+                .execute_direct_definition_assessment_typed(collection_id, operation, input)
+                .await
+                .map(|operation| operation.to_v03());
         }
         Err(ApiError::internal(format!(
             "Hosted read operation {operation} has no bounded execution path."
         )))
     }
 
-    async fn execute_direct_point_read(
+    pub(super) async fn execute_direct_point_read_typed(
         &self,
         collection_id: Uuid,
         input: &Value,
-    ) -> ApiResult<OperationResult> {
+    ) -> ApiResult<mdbase::runtime::CanonicalOperationOutcome> {
         self.execute_direct_point_read_for_identity(collection_id, input, None)
             .await
     }
@@ -305,7 +294,7 @@ impl HostedProvider {
             );
         }
         let result = catalog
-            .execute_hosted_resource_read(operation, input, &resource_documents)
+            .execute_hosted_resource_read_typed(operation, input, &resource_documents)
             .map_err(|error| {
                 if error.code.contains("budget_exceeded") {
                     ApiError::quota(error.code, error.message)
@@ -329,15 +318,15 @@ impl HostedProvider {
             elapsed_ms = started.elapsed().as_millis() as u64,
             "privacy-safe hosted provider metric"
         );
-        Ok(result)
+        Ok(result.to_v03())
     }
 
-    async fn execute_direct_definition_assessment(
+    pub(super) async fn execute_direct_definition_assessment_typed(
         &self,
         collection_id: Uuid,
         operation: &str,
         input: &Value,
-    ) -> ApiResult<OperationResult> {
+    ) -> ApiResult<mdbase::runtime::CanonicalOperationOutcome> {
         let started = Instant::now();
         let mut transaction = self.pool.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
@@ -398,7 +387,7 @@ impl HostedProvider {
                         .map(engine_contract_setup)
                         .collect(),
                 };
-                catalog.plan_hosted_definition_operation(
+                catalog.plan_hosted_definition_operation_typed(
                     HostedDefinitionOperation::AssessTypePack {
                         provision: &provision,
                         options: &options,
@@ -415,7 +404,7 @@ impl HostedProvider {
                     )
                 })?;
                 let setup = engine_collection_setup(&request)?;
-                catalog.plan_hosted_definition_operation(
+                catalog.plan_hosted_definition_operation_typed(
                     HostedDefinitionOperation::AssessCollectionSetup { setup: &setup },
                     &resource_documents,
                 )
@@ -441,17 +430,7 @@ impl HostedProvider {
             elapsed_ms = started.elapsed().as_millis() as u64,
             "privacy-safe hosted provider metric"
         );
-        Ok(plan.result)
-    }
-
-    pub(super) async fn execute_direct_point_read_by_id(
-        &self,
-        collection_id: Uuid,
-        record_id: Uuid,
-        input: &Value,
-    ) -> ApiResult<OperationResult> {
-        self.execute_direct_point_read_for_identity(collection_id, input, Some(record_id))
-            .await
+        Ok(plan.operation)
     }
 
     async fn execute_direct_point_read_for_identity(
@@ -459,7 +438,7 @@ impl HostedProvider {
         collection_id: Uuid,
         input: &Value,
         stable_id: Option<Uuid>,
-    ) -> ApiResult<OperationResult> {
+    ) -> ApiResult<mdbase::runtime::CanonicalOperationOutcome> {
         let started = Instant::now();
         let mut transaction = self.pool.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
@@ -530,15 +509,15 @@ impl HostedProvider {
                         file_mtime: Some(modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
                     };
                     (
-                        catalog.read_record(input, &canonical),
+                        catalog.read_record_typed(input, &canonical),
                         1_u64,
                         ciphertext_bytes,
                     )
                 }
-                None => (catalog.read_record_not_found(input), 0, 0),
+                None => (catalog.read_record_not_found_typed(input), 0, 0),
             }
         } else {
-            (catalog.read_record_not_found(input), 0, 0)
+            (catalog.read_record_not_found_typed(input), 0, 0)
         };
         transaction.commit().await?;
         let memory = crate::HostedProcessMemory::capture();
@@ -558,7 +537,7 @@ impl HostedProvider {
             cgroup_peak_bytes = memory.cgroup_peak_bytes.unwrap_or(0),
             "privacy-safe hosted provider metric"
         );
-        Ok(result)
+        result.map_err(|error| ApiError::bad_request(error.code, error.message))
     }
 }
 

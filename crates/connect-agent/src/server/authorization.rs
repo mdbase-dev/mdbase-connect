@@ -13,6 +13,14 @@ impl AgentState {
             ConnectError::InvalidInput(format!("Invalid application authorization: {error}"))
         })?;
         let authorization = &grant.application_authorization.binding;
+        // Activation retries still run setup and install authority; there is no
+        // completed-activation terminal branch that would make this a restore.
+        let version = authorization.contracts.semantic_capabilities;
+        if !mdbase_connect_protocol::permits_fresh_application_authorization(version) {
+            return Err(ConnectError::AccessDenied(format!(
+                "Fresh application authorization issuance is unavailable for semantic capability version {version}."
+            )));
+        }
         if authorization.authorization_id != authorization_id {
             return Err(ConnectError::AccessDenied(
                 "The activation names a different application authorization request.".to_string(),

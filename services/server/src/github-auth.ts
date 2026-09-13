@@ -5,12 +5,14 @@ export interface GitHubIdentity {
   login: string;
   name: string | null;
   email: string | null;
+  emailVerified: boolean;
 }
 
 export interface GitHubCodeExchange {
   code: string;
   codeVerifier: string;
   redirectUri: string;
+  readVerifiedEmail?: boolean;
 }
 
 export interface GitHubAuthConfig {
@@ -63,11 +65,33 @@ export async function exchangeGitHubCode(
   if (!profileResponse.ok || !id || !Number.isSafeInteger(id) || id <= 0 || !login) {
     throw new GitHubIdentityError("GitHub did not return a valid user identity.");
   }
+  let email = nullableStringProperty(profile, "email");
+  let emailVerified = false;
+  if (input.readVerifiedEmail) {
+    const emailsResponse = await fetch("https://api.github.com/user/emails", {
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${accessToken}`,
+        "user-agent": "mdbase-connect",
+        "x-github-api-version": "2022-11-28"
+      }
+    });
+    const emails = await responseJson(emailsResponse);
+    if (!emailsResponse.ok || !Array.isArray(emails)) {
+      throw new GitHubIdentityError("GitHub did not return email verification details.");
+    }
+    const primary = emails.find((entry: unknown) => entry !== null && typeof entry === "object"
+      && (entry as Record<string, unknown>).primary === true
+      && (entry as Record<string, unknown>).verified === true);
+    email = stringProperty(primary, "email");
+    emailVerified = email !== null;
+  }
   return {
     id: String(id),
     login,
     name: nullableStringProperty(profile, "name"),
-    email: nullableStringProperty(profile, "email")
+    email,
+    emailVerified
   };
 }
 

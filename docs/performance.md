@@ -88,3 +88,52 @@ perf report
 `samply record` or `cargo flamegraph` can replace `perf record`. Keep latency
 JSON beside a CPU profile so changes can be compared at both the request and
 function level.
+
+## GitHub performance observations
+
+`.github/workflows/performance-observations.yml` records the supported
+payload-free profiles without making their timings merge or release gates.
+It runs the release-mode engine and Connect profiles plus both in-memory mirror
+adapters every Monday. On the first day of each month it also runs the existing
+hosted-provider system suite with 10,000 records. Manual runs can select 5,000
+or 10,000 engine records, the core iteration and concurrency counts, and
+whether to include the provider lane.
+
+Each run records the exact Connect commit, its pinned mdbase-rs commit, workload
+parameters, workflow and lockfile digests, and separate runner fingerprints for
+the core and provider jobs.
+Raw producer reports and a normalized JSON/Markdown observation are retained as
+GitHub artifacts for 90 days. Successful observations of the default branch are
+also appended, without force-pushing, to the orphan `performance-history`
+branch under `results/YYYY/MM/`. That branch contains only allowlisted aggregate
+measurements; synthetic fixtures and system-test logs are not persisted.
+
+GitHub-hosted runners vary in CPU model, storage, and host contention. Compare
+results only when their workload, runtime, and runner fingerprints are
+comparable, and prefer repeated trends over individual runs. Workflow failure
+means that a build, functional assertion, report contract, or history write
+failed—not that a timing became slower.
+
+### Hosted-provider observation
+
+The existing provider stress suite keeps its normal latency assertions under
+`pnpm e2e:provider:stress`. Its observation form writes the same aggregate
+metrics as standalone JSON while retaining all functional, authorization,
+durability, pagination, bounded-work, and cleanup assertions:
+
+```bash
+pnpm profile:provider:observe
+```
+
+`MDBASE_CONNECT_PROVIDER_E2E_PERFORMANCE_OUTPUT` selects the JSON destination.
+`MDBASE_CONNECT_PROVIDER_E2E_OBSERVATION_ONLY=1` disables only the five
+runner-sensitive elapsed-time budgets and requires that output path. It does
+not weaken correctness or bounded-query assertions.
+
+The earlier beta.63 prototype included an encrypted-daemon profiler and an RSS
+soak tied to the daemon architecture of that release. The scheduled workflow
+recovers its durable-observation design, but deliberately uses the current
+engine, Connect, mirror, and provider profilers rather than restoring those
+retired runtime modules. Eight-hour functional soak profiles, private live-vault
+profiles, CPU sampling, and staging or production network timing remain manual
+because they are unsuitable for ordinary GitHub-hosted runners.

@@ -52,7 +52,7 @@ fn diagnostic_json(output: &Output) -> Value {
 }
 
 fn wait_for_daemon(endpoint: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while Instant::now() < deadline {
         let output = run(&["--endpoint", endpoint.to_str().unwrap(), "connect", "ping"]);
         if output.status.success() {

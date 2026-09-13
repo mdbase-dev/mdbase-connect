@@ -50,6 +50,7 @@ import { registerConnectorRelayRoute } from "./features/connectors/relay-route.j
 import { registerConnectorGrantRoutes } from "./features/grants/connector-routes.js";
 import { registerConnectorHostedRoutes } from "./features/hosted/connector-routes.js";
 import { registerHostedAccountRoutes } from "./features/hosted/account-routes.js";
+import { registerHostedSharingRoutes } from "./features/hosted/sharing-routes.js";
 import { registerReferenceSyncRoutes } from "./features/hosted/reference-sync-routes.js";
 import { registerMirrorPairingRoutes } from "./features/mirrors/pairing-routes.js";
 import { registerNotificationRoutes } from "./features/notifications/routes.js";
@@ -80,6 +81,7 @@ interface BuildOptions {
   resendWebhookSecret?: string;
   accountDeletionEnabled?: boolean;
   hostedCollections?: boolean;
+  hostedSharing?: boolean;
   hostedProvider?: HostedProviderClient;
   hostedReferenceAuthority?: boolean;
   publicUrl?: string;
@@ -177,7 +179,7 @@ export async function buildApp(options: BuildOptions) {
         formAction: ["'self'"],
         frameSrc: options.googleAuth ? ["https://accounts.google.com/gsi/"] : ["'none'"],
         frameAncestors: ["'none'"],
-        imgSrc: ["'self'", "data:"],
+        imgSrc: ["'self'", "data:", "https:"],
         objectSrc: ["'none'"],
         scriptSrc: ["'self'", ...(options.googleAuth ? ["https://accounts.google.com/gsi/client"] : [])],
         styleSrc: ["'self'", "'unsafe-inline'", ...(options.googleAuth ? ["https://accounts.google.com/gsi/style"] : [])],
@@ -307,7 +309,9 @@ export async function buildApp(options: BuildOptions) {
     managementOrigins: options.managementOrigins,
     authenticationPolicy,
     githubAuth: options.githubAuth,
-    googleAuth: options.googleAuth
+    googleAuth: options.googleAuth,
+    authRateLimitSecret: options.authRateLimitSecret,
+    authenticationLegalDocuments: options.authenticationLegalDocuments
   });
   registerConnectorPairingRoutes(app, {
     db: options.db,
@@ -349,7 +353,8 @@ export async function buildApp(options: BuildOptions) {
   });
   registerConnectorManagementRoutes(app, {
     db: options.db,
-    tailscaleAuth: options.tailscaleAuth
+    tailscaleAuth: options.tailscaleAuth,
+    relay
   });
   registerConnectorInventoryRoutes(app, { db: options.db });
   registerAuthorityConflictRoutes(app, { db: options.db, relay });
@@ -409,6 +414,12 @@ export async function buildApp(options: BuildOptions) {
     hostedProvider: options.hostedProvider,
     hostedReference
   });
+  registerHostedSharingRoutes(app, {
+    db: options.db,
+    hostedCollections: options.hostedCollections,
+    hostedSharing: options.hostedSharing,
+    tailscaleAuth: options.tailscaleAuth
+  });
   registerOnboardingRoutes(app, {
     db: options.db,
     publicUrl,
@@ -432,6 +443,7 @@ export async function buildApp(options: BuildOptions) {
     authenticationPolicy,
     tailscaleAuth: options.tailscaleAuth,
     hostedCollections: options.hostedCollections,
+    hostedSharing: options.hostedSharing,
     hostedProvider: options.hostedProvider,
     hostedReference
   });

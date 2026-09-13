@@ -4,13 +4,22 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, Request, Response, StatusCode};
 use axum::response::IntoResponse;
 use axum::{Json, Router};
+use futures_util::StreamExt;
 use serde_json::json;
 use std::collections::HashMap;
+use std::future::Future;
 use std::io;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+#[cfg(test)]
+use std::sync::{Condvar, LazyLock, Weak};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
+use tower::Service;
+#[cfg(test)]
+use uuid::Uuid;
 
 const MAX_REQUEST_BYTES: usize = 3 * 1024 * 1024;
 const MAX_REQUESTS_PER_MINUTE_PER_ORIGIN: u32 = 600;
@@ -66,7 +75,217 @@ pub async fn start(port: u16, agent: Arc<AgentState>) -> io::Result<LoopbackServ
 }
 
 async fn serve(listener: TcpListener, app: Router) -> io::Result<()> {
-    axum::serve(listener, app).await.map_err(io::Error::other)
+    let mut connections = JoinSet::new();
+    loop {
+        tokio::select! {
+            accepted = listener.accept() => {
+                let (stream, peer) = accepted?;
+                let service = AbortStaleService { inner: app.clone() };
+                connections.spawn(async move {
+                    let io = hyper_util::rt::TokioIo::new(stream);
+                    let service = hyper_util::service::TowerToHyperService::new(service);
+                    if let Err(error) = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, service)
+                        .await
+                    {
+                        tracing::debug!(%error, %peer, "loopback connection closed");
+                    }
+                });
+            }
+            Some(_) = connections.join_next(), if !connections.is_empty() => {}
+        }
+    }
+}
+
+#[derive(Clone)]
+struct AbortStaleService {
+    inner: Router,
+}
+
+#[derive(Clone, Debug)]
+struct AbortTransport;
+
+impl Service<Request<hyper::body::Incoming>> for AbortStaleService {
+    type Response = Response<Body>;
+    type Error = io::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(&mut self, context: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        <Router as Service<Request<Body>>>::poll_ready(&mut self.inner, context)
+            .map_err(|never| match never {})
+    }
+
+    fn call(&mut self, request: Request<hyper::body::Incoming>) -> Self::Future {
+        let request = request.map(Body::new);
+        let future = <Router as Service<Request<Body>>>::call(&mut self.inner, request);
+        Box::pin(async move {
+            let response = match future.await {
+                Ok(response) => response,
+                Err(never) => match never {},
+            };
+            finish_response(response)
+        })
+    }
+}
+
+fn finish_response(mut response: Response<Body>) -> io::Result<Response<Body>> {
+    if response
+        .extensions_mut()
+        .remove::<AbortTransport>()
+        .is_some()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::ConnectionAborted,
+            "stale loopback operation publication aborted",
+        ));
+    }
+    Ok(response)
+}
+
+fn abort_transport() -> Response<Body> {
+    let mut response = Response::new(Body::empty());
+    response.extensions_mut().insert(AbortTransport);
+    response
+}
+
+fn fenced_response(
+    response: Response<Body>,
+    agent: Arc<AgentState>,
+    policy: crate::server::policy::PolicyRevisionPermit,
+    deadline: tokio::time::Instant,
+    admission: Option<crate::admission::AdmissionPermit>,
+) -> Response<Body> {
+    #[cfg(test)]
+    pause_before_publication(&agent);
+    let Ok(publication) = agent.acquire_publication_permit(&policy, deadline) else {
+        return abort_transport();
+    };
+    let (mut parts, body) = response.into_parts();
+    parts.headers.remove(header::CONTENT_LENGTH);
+    let stream = body.into_data_stream();
+    let stream = futures_util::stream::unfold(
+        (stream, publication, admission, agent),
+        move |(mut stream, publication, admission, agent)| async move {
+            if !agent.publication_is_current(&publication) {
+                return None;
+            }
+            let item = stream.next().await?;
+            if !agent.publication_is_current(&publication) {
+                return None;
+            }
+            Some((item, (stream, publication, admission, agent)))
+        },
+    );
+    Response::from_parts(parts, Body::from_stream(stream))
+}
+
+#[cfg(test)]
+struct PublicationPauseHook {
+    id: Uuid,
+    agent: Weak<AgentState>,
+    reached: std::sync::mpsc::SyncSender<()>,
+    release: Arc<(Mutex<bool>, Condvar)>,
+    claimed: bool,
+}
+
+#[cfg(test)]
+static PUBLICATION_PAUSE_HOOK: LazyLock<Mutex<Option<PublicationPauseHook>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+#[cfg(test)]
+struct PublicationPauseGuard {
+    id: Uuid,
+    reached: std::sync::mpsc::Receiver<()>,
+    release: Arc<(Mutex<bool>, Condvar)>,
+}
+
+#[cfg(test)]
+impl PublicationPauseGuard {
+    fn install(agent: &Arc<AgentState>) -> io::Result<Self> {
+        let id = Uuid::new_v4();
+        let (reached_tx, reached) = std::sync::mpsc::sync_channel(1);
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let mut hook = PUBLICATION_PAUSE_HOOK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if hook.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "a publication pause hook is already installed",
+            ));
+        }
+        *hook = Some(PublicationPauseHook {
+            id,
+            agent: Arc::downgrade(agent),
+            reached: reached_tx,
+            release: release.clone(),
+            claimed: false,
+        });
+        Ok(Self {
+            id,
+            reached,
+            release,
+        })
+    }
+
+    fn reached(&self) -> Result<(), std::sync::mpsc::TryRecvError> {
+        self.reached.try_recv()
+    }
+
+    fn release(&self) {
+        let (released, changed) = &*self.release;
+        let mut released = released
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *released = true;
+        changed.notify_all();
+    }
+}
+
+#[cfg(test)]
+impl Drop for PublicationPauseGuard {
+    fn drop(&mut self) {
+        self.release();
+        let mut hook = PUBLICATION_PAUSE_HOOK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if hook.as_ref().is_some_and(|hook| hook.id == self.id) {
+            *hook = None;
+        }
+    }
+}
+
+#[cfg(test)]
+fn pause_before_publication(agent: &Arc<AgentState>) {
+    let pause = {
+        let mut hook = PUBLICATION_PAUSE_HOOK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(hook) = hook.as_mut() else {
+            return;
+        };
+        if hook.claimed
+            || !hook
+                .agent
+                .upgrade()
+                .is_some_and(|target| Arc::ptr_eq(&target, agent))
+        {
+            return;
+        }
+        hook.claimed = true;
+        let _ = hook.reached.send(());
+        hook.release.clone()
+    };
+
+    let (released, changed) = &*pause;
+    let mut released = released
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    while !*released {
+        released = changed
+            .wait(released)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+    }
 }
 
 fn router(agent: Arc<AgentState>, port: u16) -> Router {
@@ -169,17 +388,6 @@ fn cors_error(status: StatusCode, code: &str, message: &str, origin: &str) -> Re
             Json(json!({ "error": { "code": code, "message": message } })),
         )
             .into_response(),
-        origin,
-    )
-}
-
-fn cors_problem(
-    status: StatusCode,
-    problem: mdbase_connect_protocol::ConnectProblem,
-    origin: &str,
-) -> Response<Body> {
-    cors_response(
-        (status, Json(json!({ "error": problem }))).into_response(),
         origin,
     )
 }

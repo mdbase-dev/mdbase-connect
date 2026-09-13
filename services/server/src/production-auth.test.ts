@@ -17,7 +17,8 @@ describe("production GitHub authentication", () => {
       id: "12558714",
       login: "callumalpass",
       name: "Callum",
-      email: null
+      email: null,
+      emailVerified: false
     }));
     const { app } = await buildApp({
       db,
@@ -143,7 +144,8 @@ describe("production GitHub authentication", () => {
           id: "99999999",
           login: "someone-else",
           name: null,
-          email: null
+          email: null,
+          emailVerified: false
         })
       }
     });

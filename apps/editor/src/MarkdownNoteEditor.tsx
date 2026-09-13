@@ -46,7 +46,7 @@ export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, 
   return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
     <label className="sr-only" htmlFor="note-title">Note title</label>
     <input id="note-title" className="title-input" value={draft.title} onChange={(event) => onTitleChange(event.target.value)} placeholder="Untitled" spellCheck="true" readOnly={readOnly} aria-readonly={readOnly} />
-    <Suspense fallback={<div className="body-editor code-editor-loading" role="status" aria-label="Loading note editor" aria-busy="true"><span /></div>}>
+    <Suspense fallback={<div className="body-editor code-editor-loading" role="status" aria-label="Loading note editor" aria-busy="true">Preparing editor…</div>}>
       <CodeEditor key={editorKey} value={draft.body} onChange={onBodyChange} label="Note body" language="markdown" readOnly={readOnly}
         variant="writer" placeholder="Start writing" vimEnabled={preferences.vim} lineWrapping={preferences.lineWrapping}
         quietMarkdown={preferences.quietMarkdown} autoFocus={autoFocus} className="body-editor" documentId={documentId}

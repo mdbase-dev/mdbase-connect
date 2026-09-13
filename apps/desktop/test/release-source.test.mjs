@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { findLatestRelease } = require("../dist/main/release-source.js");
+const {
+  findLatestRelease,
+  isRecoverableTrustCacheError,
+  recoverTrustCache
+} = require("../dist/main/release-source.js");
 
 const indexUrl =
   "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=100";
@@ -193,4 +200,45 @@ test("oversized release metadata is rejected before parsing", async () => {
     }),
     /size limit/
   );
+});
+
+test("a threshold failure is classified as a recoverable trust-cache error", () => {
+  const error = new Error("outer", {
+    cause: new Error("root was signed by 0/3 keys")
+  });
+  assert.equal(isRecoverableTrustCacheError(error), true);
+  assert.equal(isRecoverableTrustCacheError(new Error("untrusted release signer")), false);
+});
+
+test("successful fresh verification atomically replaces a stale trust cache", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-update-trust-"));
+  const cache = join(directory, "sigstore");
+  await mkdir(cache);
+  await writeFile(join(cache, "root.json"), "stale");
+  const calls = [];
+
+  await recoverTrustCache(cache, async (candidate) => {
+    calls.push(candidate);
+    await mkdir(candidate);
+    await writeFile(join(candidate, "root.json"), "fresh");
+  }, new Error("root was signed by 0/3 keys"));
+
+  assert.equal(calls.length, 1);
+  assert.equal(await readFile(join(cache, "root.json"), "utf8"), "fresh");
+});
+
+test("failed fresh verification preserves the existing trust cache", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-update-trust-"));
+  const cache = join(directory, "sigstore");
+  await mkdir(cache);
+  await writeFile(join(cache, "root.json"), "stale");
+
+  await assert.rejects(
+    recoverTrustCache(cache, async (candidate) => {
+      await mkdir(candidate);
+      throw new Error("fresh verification failed");
+    }, new Error("root was signed by 0/3 keys")),
+    /cached and freshly bootstrapped/
+  );
+  assert.equal(await readFile(join(cache, "root.json"), "utf8"), "stale");
 });

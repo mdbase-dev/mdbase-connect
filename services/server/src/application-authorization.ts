@@ -8,7 +8,7 @@ import {
   authorizationSigningMessage,
   type ApplicationAuthorizationFlow,
   type ApplicationAuthorizationProof,
-  type ApplicationFileRequirement,
+  type ApplicationFileRequest,
   type CollectionOperation
 } from "@mdbase-dev/connect-protocol";
 import {
@@ -16,6 +16,7 @@ import {
   CONNECT_CONTRACT_SUPPORT,
   LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  SEMANTIC_CAPABILITY_CONTRACT_VERSION,
   isMutatingOperation,
   isSupportedAuthorizationBinding,
   isSupportedOperationTransport
@@ -100,6 +101,8 @@ const persistedProofSchema = z.object({
 }).passthrough();
 
 export interface ExpectedApplicationAuthorization {
+  /** Explicit declaration dispatch; public/default validation remains v2-only. */
+  semanticCapabilityContractVersion?: 1 | 2;
   applicationId: string;
   applicationDeclarationId: string;
   applicationManifestDigest: string;
@@ -108,7 +111,7 @@ export interface ExpectedApplicationAuthorization {
   state?: string;
   codeChallenge: string;
   requestedOperations: CollectionOperation[];
-  requestedFiles?: ApplicationFileRequirement;
+  requestedFiles?: ApplicationFileRequest;
   collectionId?: string;
   now?: Date;
 }
@@ -321,7 +324,11 @@ function assertContractRequirements(
     });
   }
   const axes = [
-    ["semantic_capabilities", "capability_contract_incompatible", 1],
+    [
+      "semantic_capabilities",
+      "capability_contract_incompatible",
+      expected.semanticCapabilityContractVersion ?? SEMANTIC_CAPABILITY_CONTRACT_VERSION
+    ],
     [
       "durable_mutation",
       "durable_mutation_unsupported",

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
+import type { ApplicationRequirements } from "../../application-requirements.js";
 import type {
   ApplicationProvisions,
-  ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionTypeDescriptor
 } from "@mdbase-dev/connect-protocol";

@@ -195,6 +195,7 @@ describe("Pickle contract adapter", () => {
             created_at: "2026-07-24T01:00:00Z",
             attachment_paths: ["attachments/req-one/report.txt"]
           },
+          file: { mtime: "2026-09-07T00:00:00Z" },
           body: "Review the release notes before deciding."
         }
       ]
@@ -224,7 +225,10 @@ describe("Pickle contract adapter", () => {
       { responder: "callum" }
     );
 
-    const answered = await pickle.list();
+    const answered = await pickle.list({ includeBody: false });
+    expect(answered[0].body).toBe("");
+    expect(answered[0].modifiedAt).toBeDefined();
+    expect(await pickle.readBody(answered[0])).toBe("Review the release notes before deciding.");
     expect(answered[0]).toEqual(
       expect.objectContaining({
         state: "answered",
@@ -235,6 +239,14 @@ describe("Pickle contract adapter", () => {
         })
       })
     );
+    const originalQuery = sandbox.client.queryAll.bind(sandbox.client);
+    vi.spyOn(sandbox.client, "queryAll").mockImplementation((input, options) => {
+      if (input?.types?.includes(approvalType.name)) {
+        return Promise.resolve(connectFailure(connectProblem("timeout", "Response query timed out.")));
+      }
+      return originalQuery(input, options);
+    });
+    await expect(pickle.list({ includeBody: false })).rejects.toThrow("Response query timed out.");
     expect(sandbox.transport.snapshot()).toContainEqual(
       expect.objectContaining({
         path: expect.stringMatching(/^responses\/.+\.md$/),
@@ -281,6 +293,17 @@ describe("Pickle contract adapter", () => {
       signal: controller.signal,
       timeoutMs: 4_000
     });
+    const read = vi.spyOn(sandbox.client, "read");
+    const [summary] = await pickle.list({ includeBody: false });
+    expect(summary.body).toBe("");
+    expect(queryAll).toHaveBeenCalledWith(
+      expect.objectContaining({ includeBody: false }),
+      expect.objectContaining({ pageSize: 256 })
+    );
+    await pickle.readBody(summary, { signal: controller.signal, timeoutMs: 4_000 });
+    expect(read).toHaveBeenCalledWith({ path: summary.path }, {
+      signal: controller.signal, timeoutMs: 4_000
+    });
     await pickle.respond(request, { decision: "approve" }, {
       responder: "callum",
       signal: controller.signal,
@@ -293,6 +316,7 @@ describe("Pickle contract adapter", () => {
     });
     expect(queryAll).toHaveBeenCalledWith(expect.any(Object), {
       signal: controller.signal,
+      pageSize: 256,
       timeoutMs: 4_000
     });
     expect(create).toHaveBeenCalledWith(

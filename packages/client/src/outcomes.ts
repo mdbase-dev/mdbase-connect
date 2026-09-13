@@ -154,6 +154,7 @@ export type AuthorizationProblemCode =
   | "invalid_callback"
   | "invalid_device_authorization_response"
   | "invalid_token_response"
+  | "legacy_scope_reauthorization_required"
   | "scope_denied"
   | "reconnect_required"
   | "token_exchange_failed"
@@ -191,6 +192,7 @@ export const AUTHORIZATION_PROBLEM_CODES = [
   "invalid_callback",
   "invalid_device_authorization_response",
   "invalid_token_response",
+  "legacy_scope_reauthorization_required",
   "scope_denied",
   "reconnect_required",
   "token_exchange_failed",

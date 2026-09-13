@@ -12,6 +12,7 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   lazy,
   useMemo,
   useRef,
@@ -33,7 +34,7 @@ import {
 } from "./contract-catalog";
 import { reviewCatalogPackInstallation } from "./catalog-pack-installation";
 import type { AppPhase, ConnectionState, ContractCatalogLoadState, CreationContext, MobileHistoryState, MobilePane, Surface } from "./app-state-types";
-import { gatewayError, missingCoreCapabilities, missingTypeCapabilities } from "./gateway";
+import { editorPermissions, gatewayError, missingCoreCapabilities, missingTypeCapabilities } from "./gateway";
 import { CollectionMutationScope, type CollectionScopeToken } from "./collection-mutation-scope";
 import { useTypeDefinitionLifecycle } from "./use-type-definition-lifecycle";
 import { OpeningScreen, TypeWorkspaceLoading } from "./LoadingScreens";
@@ -86,6 +87,7 @@ import {
 } from "./note-search";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { revealMarkdownLine } from "./code-editor-reveal";
+import { forgetRecentPath, loadRecentPaths, rememberRecentPath } from "./recent-notes";
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { buildQuickOpenCommands } from "./editor-commands";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
@@ -190,6 +192,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [draft, setDraft] = useState<Draft>();
   const [noteLoading, setNoteLoading] = useState(false);
   const [pendingNotePath, setPendingNotePath] = useState<string>();
+  const [noteOpenFailure, setNoteOpenFailure] = useState<{ path: string; options: NoteNavigationOptions; message: string }>();
   const [creationMode, setCreationMode] = useState<"note" | "folder">();
   const [creationContext, setCreationContext] = useState<CreationContext>({});
   const [creationDirty, setCreationDirty] = useState(false);
@@ -203,6 +206,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [contractCatalogReload, setContractCatalogReload] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [mutationsFrozen, setMutationsFrozen] = useState(false);
+  const { canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes, canManageTypes, canInstallTypes, canAttachFiles } = editorPermissions(connectionSummary);
+  const noteReadOnly = mutationsFrozen || !canEditNotes;
   const [remoteApplyToken, setRemoteApplyToken] = useState(0);
   const [notice, setNoticeState] = useState<{ message: string; tone: ToastTone } | undefined>();
   const [propertiesOpen, setPropertiesOpen] = useState(false);
@@ -272,7 +277,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
   const attachments = useAttachmentUpload({ gateway, inventory: fileController, scope: mutationScope.current,
-    inventoryFiles: fileInventory.files, activeSession: () => mutationsFrozen ? undefined : noteSessions.current.active, setNotice });
+    inventoryFiles: fileInventory.files, activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
@@ -442,6 +447,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }), [gateway, touchSession, updateNoteSummary]);
 
   const activateSession = useCallback((session: NoteSession) => {
+    const previous = noteSessions.current.active;
+    // The old editor remains usable during a read. Save any edits made after
+    // navigation started before adopting the newly loaded session.
+    if (previous && previous !== session && sessionDirty(previous)) {
+      void noteOperations.requestSave(previous).catch(() => undefined);
+    }
     noteSessions.current.activate(session);
     setSelectedPath(session.document.path);
     setDocument(session.document);
@@ -450,13 +461,14 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setSaveState(session.activity === "saving" ? "saving" : session.saveState);
     setNoteLoading(false);
     setPendingNotePath(undefined);
+    setNoteOpenFailure(undefined);
     setCreationMode(undefined);
     setCreationContext({});
     setEditingPath(false);
     setNotice(session.error);
     localStorage.setItem("mdbase-editor:last-note", session.document.path);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
-  }, []);
+  }, [noteOperations]);
 
   const adoptDocument = useCallback((next: NoteDocument) => {
     const session = noteSessions.current.create(next, typeDescriptorsRef.current);
@@ -524,6 +536,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const openNote = useCallback(async (path: string, options: NoteNavigationOptions = {}): Promise<boolean> => {
     const epoch = collectionEpoch.current;
     const generation = ++documentGeneration.current;
+    const navigation = navigationGeneration.current;
+    const current = () => epoch === collectionEpoch.current
+      && generation === documentGeneration.current && navigation === navigationGeneration.current;
     const cached = noteSessions.current.get(path);
     if (cached?.deleted) return false;
     setCreationMode(undefined);
@@ -531,6 +546,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setPendingFilePath(undefined);
     setCreationContext({});
     setNotice(undefined);
+    setNoteOpenFailure(undefined);
     setPropertiesError(undefined);
     if (mobileLayout) {
       setPropertiesOpen(false);
@@ -546,22 +562,25 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       else selectNoteHistoryIndex(options.historyIndex, path);
       return true;
     }
-    setSelectedPath(path);
-    setDocument(undefined);
-    setDraft(undefined);
+    // Keep the active session (and its editor) until the next read succeeds.
+    // pendingNotePath identifies the requested row without claiming it is open.
+    setPendingNotePath(path);
     setNoteLoading(true);
     try {
       const next = await gateway.read(path);
-      if (epoch !== collectionEpoch.current || generation !== documentGeneration.current) return false;
+      if (!current()) return false;
       adoptDocument(next);
       if (options.historyIndex === undefined) recordNoteNavigation(next.path);
       else selectNoteHistoryIndex(options.historyIndex, next.path);
       return true;
     } catch (error) {
-      if (epoch === collectionEpoch.current && generation === documentGeneration.current) setNotice(gatewayError(error));
+      if (current()) setNoteOpenFailure({ path, options, message: `Couldn’t open “${path}”. ${gatewayError(error)}` });
       return false;
     } finally {
-      if (epoch === collectionEpoch.current && generation === documentGeneration.current) setNoteLoading(false);
+      if (current()) {
+        setNoteLoading(false);
+        setPendingNotePath(undefined);
+      }
     }
   }, [
     activateSession,
@@ -574,6 +593,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const start = useCallback(async () => {
     const epoch = collectionEpoch.current, generation = ++startGeneration.current;
+    const navigation = navigationGeneration.current;
     const current = () => epoch === collectionEpoch.current && generation === startGeneration.current;
     const indexLoad = indexController.beginLoad();
     const fileLoad = fileController.reload().catch(() => []);
@@ -594,9 +614,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setPhase("ready");
       const remembered = localStorage.getItem("mdbase-editor:last-note");
       let opened = remembered ? await openNote(remembered) : false;
+      if (!current() || navigation !== navigationGeneration.current) return;
       if (!opened) {
         setNoteLoading(true);
         const initial = (await indexLoad.firstPage)[0]?.path;
+        if (!current() || navigation !== navigationGeneration.current) return;
         if (initial) opened = await openNote(initial);
       }
       if (!opened) setNoteLoading(false);
@@ -665,7 +687,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, [document, draft, requestSave]);
 
   function changeActiveDraft(change: (current: Draft) => Draft) {
-    if (mutationScope.current.isFrozen) return;
+    if (mutationScope.current.isFrozen || !canEditNotes) return;
     const session = noteSessions.current.active;
     if (!session || session.deleted) return;
     const next = change(session.draft);
@@ -737,6 +759,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function finishNavigateToFile(file: CollectionFile) {
     navigationGeneration.current += 1;
+    setNoteLoading(false);
+    setNoteOpenFailure(undefined);
     saveCurrentInBackground();
     setCreationMode(undefined);
     setCreationContext({});
@@ -753,7 +777,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   function finishNavigateToNote(path: string, options: NoteNavigationOptions = {}) {
     setCreationDirty(false);
     const generation = ++navigationGeneration.current;
-    if (path === noteSessions.current.active?.document.path && !noteLoading) {
+    setNoteOpenFailure(undefined);
+    if (path === noteSessions.current.active?.document.path && !noteLoading && !selectedCollectionFile) {
       setPendingNotePath(undefined);
       setMobilePane("editor");
       if (options.historyIndex !== undefined) selectNoteHistoryIndex(options.historyIndex, path);
@@ -795,7 +820,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     ? searchedResults.map((result) => result.note)
     : allNotes, [allNotes, searchedResults]);
   const searchContexts = useMemo(() => new Map(
-    searchedResults?.map((result) => [result.note.path, result.context]) ?? []
+    searchedResults?.map((result) => [result.note.path, result]) ?? []
   ), [searchedResults]);
   const visibleNotes = useMemo(() => {
     const filtered = !noteFilter
@@ -909,6 +934,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setDraft(undefined);
     setSelectedPath(undefined);
     setPendingNotePath(undefined);
+    setNoteOpenFailure(undefined);
     setSelectedCollectionFile(undefined);
     setPendingFilePath(undefined);
     setOpenFileAsset(undefined);
@@ -992,7 +1018,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function beginCreation(mode: "note" | "folder", context: CreationContext = {}) {
+    if (!canCreateNotes) { setNotice("This application does not have permission to make that change."); return; }
     navigationGeneration.current += 1;
+    setNoteLoading(false);
+    setNoteOpenFailure(undefined);
     setPendingNotePath(undefined);
     setNotice(undefined);
     saveCurrentInBackground();
@@ -1069,7 +1098,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function createNote(input: CreateNoteInput) {
-    if (mutationScope.current.isFrozen) return;
+    if (mutationScope.current.isFrozen || !canCreateNotes) return;
     const token = mutationScope.current.token();
     const created = await mutationScope.current.register(token, gateway.create(input));
     if (!mutationScope.current.isCurrent(token)) return;
@@ -1090,7 +1119,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function createLinkedNote(target: string, label: string | undefined, format: "wikilink" | "markdown") {
-    if (mutationScope.current.isFrozen) return;
+    if (mutationScope.current.isFrozen || !canCreateNotes) return;
     const sourcePath = noteSessions.current.active?.document.path;
     const linked = unresolvedNoteTarget(target, label, sourcePath, format);
     if (!linked) {
@@ -1099,6 +1128,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
     if (linkCreations.current.has(linked.path)) return;
     linkCreations.current.add(linked.path);
+    const navigation = ++navigationGeneration.current;
+    setNoteLoading(false);
+    setNoteOpenFailure(undefined);
     saveCurrentInBackground();
     setPendingNotePath(linked.path);
     setNotice(undefined);
@@ -1111,6 +1143,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     })).then((created) => {
       if (!mutationScope.current.isCurrent(token)) return;
       indexController.create(summaryFromDocument(created));
+      // Creation still belongs to the collection, but only the latest navigation
+      // may adopt its result. A slow create must not replace a later choice.
+      if (navigation !== navigationGeneration.current) return;
       documentGeneration.current += 1;
       setPropertiesError(undefined);
       setDeletePlan(undefined);
@@ -1119,17 +1154,21 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       recordNoteNavigation(created.path);
     }).catch(async (error) => {
       if (!mutationScope.current.isCurrent(token)) return;
+      if (navigation !== navigationGeneration.current) {
+        setNotice(`Couldn’t create “${linked.path}”. ${gatewayError(error)}`);
+        return;
+      }
       const opened = await openNote(linked.path);
-      if (!opened) setNotice(gatewayError(error));
+      if (!opened && navigation === navigationGeneration.current) setNotice(gatewayError(error));
     }).finally(() => {
       if (!mutationScope.current.isCurrent(token)) return;
       linkCreations.current.delete(linked.path);
-      setPendingNotePath((current) => current === linked.path ? undefined : current);
+      if (navigation === navigationGeneration.current) setPendingNotePath((current) => current === linked.path ? undefined : current);
     });
   }
 
   async function requestRename() {
-    if (mutationScope.current.isFrozen) return;
+    if (mutationScope.current.isFrozen || !canRenameNotes) return;
     const token = mutationScope.current.token();
     const session = noteSessions.current.active;
     if (!session) return;
@@ -1267,7 +1306,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function saveProperties(path: string, next: Record<string, unknown>) {
-    if (mutationScope.current.isFrozen) return;
+    if (mutationScope.current.isFrozen || !canEditNotes) return;
     const token = mutationScope.current.token();
     const session = noteSessions.current.get(path);
     if (!session) return;
@@ -1308,7 +1347,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function saveRecordSource(path: string, source: string, previousSource: string): Promise<NoteDocument | false> {
-    if (mutationScope.current.isFrozen) return false;
+    if (mutationScope.current.isFrozen || !canEditNotes) return false;
     const token = mutationScope.current.token();
     const session = noteSessions.current.get(path);
     if (!session || session.deleted) return false;
@@ -1382,7 +1421,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function requestDelete() {
-    if (mutationScope.current.isFrozen) return;
+    if (mutationScope.current.isFrozen || !canDeleteNotes) return;
     const token = mutationScope.current.token();
     const session = noteSessions.current.active;
     if (!session) return;
@@ -1528,6 +1567,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function beginTypeCreate() {
+    if (!canManageTypes) { setNotice("This application does not have permission to make that change."); return; }
     const begin = () => {
       setTypeWorkspace("definition");
       setSelectedTypeName(undefined);
@@ -1578,6 +1618,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function installCatalogPack(pack: ContractCatalogPack) {
+    if (!canInstallTypes) { setNotice("This application does not have permission to make that change."); return; }
     await reviewCatalogPackInstallation(pack, gateway, {
       installedTypeNames: description?.types.map(({ name }) => name) ?? [],
       confirm: (confirmation) => setConfirmation(confirmation),
@@ -1616,6 +1657,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function finishSelectSurface(next: Surface) {
     navigationGeneration.current += 1;
+    setNoteLoading(false);
+    setNoteOpenFailure(undefined);
     setPendingNotePath(undefined);
     saveCurrentInBackground();
     setSurface(next);
@@ -1692,7 +1735,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (connection) requestForgetConnection(connection, description?.displayName);
   }
 
-  useEffect(() => {
+  // Native shortcuts must see the committed selection before the first key
+  // after navigation, rather than the previous render's passive effect.
+  useLayoutEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const modifier = event.metaKey || event.ctrlKey;
       const key = event.key.toLocaleLowerCase();
@@ -1749,11 +1794,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [creationMode, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
+  }, [creationDirty, creationMode, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
   const dismissToast = useCallback((id: string) => {
     if (id === "notice") setNoticeState(undefined);
+    else if (id === "note-open") setNoteOpenFailure(undefined);
     else if (id === "recovery") setRecoveryAction(undefined);
   }, []);
   if (phase === "starting") return <OpeningScreen />;
@@ -1790,38 +1836,38 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const selectedType = description.types.find((type) => type.name === selectedTypeName);
   const hasListPane = surface !== "settings";
-  const collectionTrack = layout.collectionCollapsed ? 0 : layout.collectionWidth;
-  const listTrack = hasListPane && !layout.listCollapsed ? layout.listWidth : 0;
+  const preferredCollectionTrack = layout.collectionCollapsed ? 0 : layout.collectionWidth;
+  const preferredListTrack = hasListPane && !layout.listCollapsed ? layout.listWidth : 0;
   const editorMinimum = viewportWidth <= 1120 ? 320 : 380;
   const inspectorVisible = propertiesOpen || backlinksOpen;
   const inspectorResizeMax = Math.max(INSPECTOR_WIDTH.min, Math.min(
     INSPECTOR_WIDTH.max,
     viewportWidth > 1120
-      ? viewportWidth - collectionTrack - listTrack - editorMinimum
+      ? viewportWidth - preferredCollectionTrack - preferredListTrack - editorMinimum
       : viewportWidth - editorMinimum
   ));
   const inspectorTrack = Math.min(layout.inspectorWidth, inspectorResizeMax);
   const reservedInspectorWidth = inspectorVisible && viewportWidth > 1120 ? inspectorTrack : 0;
   const collectionResizeMax = Math.max(COLLECTION_WIDTH.min, Math.min(
     COLLECTION_WIDTH.max,
-    viewportWidth - listTrack - editorMinimum - reservedInspectorWidth
+    viewportWidth - preferredListTrack - editorMinimum - reservedInspectorWidth
   ));
   const listResizeMax = Math.max(LIST_WIDTH.min, Math.min(
     LIST_WIDTH.max,
-    viewportWidth - collectionTrack - editorMinimum - reservedInspectorWidth
+    viewportWidth - preferredCollectionTrack - editorMinimum - reservedInspectorWidth
   ));
+  const collectionTrack = Math.min(preferredCollectionTrack, collectionResizeMax);
+  const listTrack = Math.min(preferredListTrack, listResizeMax);
   const listName = surface === "types" ? "types" : "notes";
   const historyBackPath = noteHistoryState.paths[noteHistoryState.index - 1];
   const historyForwardPath = noteHistoryState.paths[noteHistoryState.index + 1];
   const activeRemoteDocument = noteSessions.current.active?.remoteDocument;
   const activeRemoteDraft = activeRemoteDocument ? editableNote(activeRemoteDocument, typeDescriptors) : undefined;
-  const editorNotice = activeRemoteDocument ? undefined : notice?.message;
   const activePendingRename = pendingRenameRecovery?.plan.session === noteSessions.current.active
     ? pendingRenameRecovery
     : undefined;
-  const canAttachFiles = Boolean(connectionSummary?.fileActions?.includes("add"));
   const quickOpenCommands = buildQuickOpenCommands({
-    onNewNote: beginCreate,
+    onNewNote: canCreateNotes ? beginCreate : undefined,
     listCollapsed: layout.listCollapsed,
     onToggleList: () => setLayout((current) => ({ ...current, listCollapsed: !current.listCollapsed })),
     onShortcuts: () => setShortcutsOpen(true),
@@ -1836,7 +1882,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     onCopyPath: () => { if (document) copyFacet(document.path, "note path"); }
   });
   const activeToasts = buildToastItems({ notice, recoveryMessage: recoveryAction ? recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document, typeDescriptors)}”.` : `Renamed to “${recoveryAction.to}”.` : undefined, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs); } });
-  const typeAccessMissing = missingTypeCapabilities(connectionSummary);
+  if (noteOpenFailure && document) activeToasts.push({
+    id: "note-open", message: noteOpenFailure.message, tone: "error", sticky: true,
+    action: { label: "Retry note", onAction: () => navigateToNote(noteOpenFailure.path, noteOpenFailure.options) }
+  });
   const editorLeadingActions = layout.listCollapsed ? <>
     {layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
     <PaneControl label={`Show ${listName} sidebar`} action="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
@@ -1865,11 +1914,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       foldersLoading={foldersLoading || fileInventory.loading}
       surface={surface}
       onFilter={(filter) => { setNoteFilter(filter); selectSurface("notes"); }}
-      onCreateFolder={beginFolderCreate}
-      onCreateNoteInFolder={beginNoteInFolder}
-      onCreateSubfolder={beginSubfolder}
-      onCreateNoteWithTag={beginNoteWithTag}
-      onCreateNoteWithType={beginNoteWithType}
+      onCreateFolder={canCreateNotes ? beginFolderCreate : undefined}
+      onCreateNoteInFolder={canCreateNotes ? beginNoteInFolder : undefined}
+      onCreateSubfolder={canCreateNotes ? beginSubfolder : undefined}
+      onCreateNoteWithTag={canCreateNotes ? beginNoteWithTag : undefined}
+      onCreateNoteWithType={canCreateNotes ? beginNoteWithType : undefined}
       onOpenType={openTypeFromRail}
       onCopyFacet={copyFacet}
       onTypes={() => selectSurface("types")}
@@ -1925,7 +1974,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         previewPath={notePreviewController.preview?.path}
         onPreview={notePreviewController.request}
         onDismissPreview={notePreviewController.dismiss}
-        onCreate={beginCreate}
+        onCreate={canCreateNotes ? beginCreate : undefined}
         onCollections={() => returnToMobilePane("collections")}
         leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl label="Hide notes sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
@@ -1949,7 +1998,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onCancel={cancelCreation}
         onDraftChange={setCreationDirty}
       /></Suspense> : <main className="editor-pane" aria-label="Note editor">
-        {noteLoading ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
+        {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar">
             <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
             {editorLeadingActions}
@@ -1972,12 +2021,14 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             <div className="path-wrap">
               {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
                 <label className="sr-only" htmlFor="note-path">Markdown path</label>
-                <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen} autoFocus />
-              </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
+                <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
+              </form> : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
             </div>
+            {noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
             {!mobileLayout && <OutlineMenu headings={noteHeadings(draft.body)} onReveal={(line) => revealMarkdownLine(noteSessions.current.active?.editorSessionKey ?? document.path, line)} />}
             {!mobileLayout && <span className="word-count" aria-label={`${wordCount.toLocaleString()} words`}>{wordCount.toLocaleString()} {wordCount === 1 ? "word" : "words"}</span>}
             {preferences.vim && <span className="vim-label">vim</span>}
+            {!canEditNotes && <span className="connect-muted">Read only</span>}
             <SaveIndicator
               state={saveState}
               activity={noteSessions.current.active?.activity}
@@ -2003,7 +2054,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
               ] : []),
               attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error)))),
               { label: "Check note", icon: <Check aria-hidden="true" />, disabled: mutationsFrozen, onSelect: () => void validateNote() },
-              { label: "Delete note", icon: <Trash2 aria-hidden="true" />, tone: "danger", disabled: mutationsFrozen, onSelect: () => void requestDelete() }
+              { label: "Delete note", icon: <Trash2 aria-hidden="true" />, tone: "danger", disabled: mutationsFrozen || !canDeleteNotes, onSelect: () => void requestDelete() }
             ]} />
           </header>
           <AttachmentTransfer controller={attachments} />
@@ -2016,7 +2067,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           </div>}
           {deletePlan && deletePlan.session === noteSessions.current.active && <div className="delete-confirm" role="alert"><div><strong>Delete this note?</strong><span>{deletePlan.brokenLinkPaths.length > 0 ? `${deletePlan.brokenLinkPaths.length.toLocaleString()} ${deletePlan.brokenLinkPaths.length === 1 ? "note will keep a broken link" : "notes will keep broken links"}. ` : ""}You can undo the note deletion.</span></div><button onClick={() => setDeletePlan(undefined)}>Keep note</button><button className="danger-action" onClick={() => void deleteNote(deletePlan)}>Delete</button></div>}
           <MarkdownNoteEditor editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
-            draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey} readOnly={mutationsFrozen}
+            draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey} readOnly={noteReadOnly}
             remoteApplyToken={remoteApplyToken} autoFocus={editorAutoFocus}
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
@@ -2027,9 +2078,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             onVisibleFileEmbeds={updateVisibleFileEmbeds} onVisibleNoteEmbeds={updateVisibleNoteEmbeds} />
         </> : <EmptyEditor
           leadingActions={editorLeadingActions}
-          notice={editorNotice}
-          onCreate={beginCreate}
-          onRetry={() => void start()}
+          notice={noteOpenFailure?.message ?? (activeRemoteDocument ? undefined : notice?.message)}
+          onCreate={canCreateNotes ? beginCreate : undefined}
+          onRetry={() => noteOpenFailure ? navigateToNote(noteOpenFailure.path, noteOpenFailure.options) : void start()}
         />}
       </main>}
       {propertiesOpen && (document ? <Suspense fallback={<InspectorPanelLoading label="Note properties" />}>
@@ -2039,7 +2090,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           types={description.types}
           recordPaths={allNotes.map((note) => note.path)}
           error={propertiesError}
-          readOnly={mutationsFrozen}
+          readOnly={noteReadOnly}
           onClose={() => setPropertiesOpen(false)}
           onSave={saveProperties}
           onSaveDocument={(source, previousSource) => saveRecordSource(document.path, source, previousSource)}
@@ -2050,7 +2101,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         : noteLoading ? <InspectorPanelLoading label="Backlinks" /> : null)}
     </>}
 
-    {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{typeAccessMissing.length > 0 ? <TypeAccessPrompt
+    {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{missingTypeCapabilities(connectionSummary).length > 0 ? <TypeAccessPrompt
       leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
       onAuthorize={() => void connectCollection()}
       onBack={() => returnToMobilePane("collections")}
@@ -2063,7 +2114,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         trailingActions={<PaneControl label="Hide types sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
         onSelect={selectType}
         onPacks={openTypePacks}
-        onCreate={beginTypeCreate}
+        onCreate={canManageTypes ? beginTypeCreate : undefined}
         onCollections={() => returnToMobilePane("collections")}
       />}
       {typeWorkspace === "packs" ? <TypePackBrowser
@@ -2072,9 +2123,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         catalog={contractCatalog.status === "ready" ? contractCatalog.catalog : undefined}
         loading={contractCatalog.status === "loading"}
         error={contractCatalog.status === "error" ? contractCatalog.message : undefined}
-        canInstall={Boolean(connectionSummary?.operations.some((operation) =>
-          operation === "all" || operation === "apply_type_pack"
-        ))}
+        canInstall={canInstallTypes}
         leadingActions={editorLeadingActions}
         onInstall={installCatalogPack}
         onOpenType={selectType}
@@ -2082,6 +2131,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onReload={() => setContractCatalogReload((value) => value + 1)}
         onBack={() => returnToMobilePane("notes")}
       /> : <TypeInspector
+        readOnly={!canManageTypes}
         type={selectedType}
         availableTypes={description.types}
         contracts={description.contracts}
@@ -2095,10 +2145,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         error={typeError}
         leadingActions={editorLeadingActions}
         onSourceChange={setTypeSource}
-        onSave={() => void saveType()}
+        onSave={() => { if (canManageTypes) void saveType(); }}
         onRevert={discardTypeChanges}
         onCancel={cancelTypeCreate}
-        onCreate={beginTypeCreate}
+        onCreate={canManageTypes ? beginTypeCreate : undefined}
         onBrowsePacks={openTypePacks}
         onOpenSettings={() => selectSurface("settings")}
         onBack={() => returnToMobilePane("notes")}
@@ -2122,7 +2172,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       {!layout.collectionCollapsed && <PaneResizeHandle
         className="collection-resizer"
         label="Resize collections sidebar"
-        value={layout.collectionWidth}
+        value={collectionTrack}
         min={COLLECTION_WIDTH.min}
         max={collectionResizeMax}
         onChange={(collectionWidth) => setLayout((current) => ({ ...current, collectionWidth }))}
@@ -2132,7 +2182,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       {hasListPane && !layout.listCollapsed && <PaneResizeHandle
         className="list-resizer"
         label={`Resize ${listName} sidebar`}
-        value={layout.listWidth}
+        value={listTrack}
         min={LIST_WIDTH.min}
         max={listResizeMax}
         onChange={(listWidth) => setLayout((current) => ({ ...current, listWidth }))}
@@ -2195,29 +2245,6 @@ function summaryFromDocument(document: NoteDocument): NoteSummary {
     ...summary,
     file: { ...document.file, path: document.path }
   };
-}
-
-const RECENT_NOTES_KEY = "mdbase-editor:recent-notes";
-
-function loadRecentPaths(): string[] {
-  try {
-    const value = JSON.parse(localStorage.getItem(RECENT_NOTES_KEY) ?? "[]");
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").slice(0, 20) : [];
-  } catch {
-    return [];
-  }
-}
-
-function rememberRecentPath(current: string[], path: string): string[] {
-  const next = [path, ...current.filter((candidate) => candidate !== path)].slice(0, 20);
-  localStorage.setItem(RECENT_NOTES_KEY, JSON.stringify(next));
-  return next;
-}
-
-function forgetRecentPath(current: string[], path: string): string[] {
-  const next = current.filter((candidate) => candidate !== path);
-  localStorage.setItem(RECENT_NOTES_KEY, JSON.stringify(next));
-  return next;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

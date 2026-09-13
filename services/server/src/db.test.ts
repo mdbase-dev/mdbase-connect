@@ -58,9 +58,18 @@ describe("database migrations", () => {
       "0020_protocol_usage_telemetry",
       "0021_device_authorization_origin",
       "0022_account_creation_email_claims",
+      "0022_collection_membership_foundations",
+      "0022a_local_collection_identity_backfill",
+      "0023_grant_replica_membership_binding",
       "0023_open_beta_entitlement",
       "0024_account_deletion_consistency",
-      "0025_application_reconciliation_jobs"
+      "0024_hosted_collection_invitations_and_seats",
+      "0025_application_reconciliation_jobs",
+      "0026_connector_policy_freshness",
+      "0027_connector_policy_lease_adoption",
+      "0028_application_declaration",
+      "0029_external_signup",
+      "0030_sharing_cleanup_seat_reservations"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -74,6 +83,27 @@ describe("database migrations", () => {
          AND column_name = 'file_capability'`
     );
     expect(fileCapability.rows).toHaveLength(1);
+    const sharingTables = await db.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_name IN (
+         'collection_identities',
+         'collection_memberships',
+         'collection_membership_policies',
+         'collection_invitation_codes',
+         'collection_invitations',
+         'account_collection_member_seats'
+       )`
+    );
+    expect(new Set(sharingTables.rows.map(({ table_name }) => table_name))).toEqual(
+      new Set([
+        "collection_identities",
+        "collection_memberships",
+        "collection_membership_policies",
+        "collection_invitation_codes",
+        "collection_invitations",
+        "account_collection_member_seats"
+      ])
+    );
     const emailClaims = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
        WHERE table_name = 'account_creation_email_claims'
@@ -620,9 +650,18 @@ describe("database migrations", () => {
       "0020_protocol_usage_telemetry",
       "0021_device_authorization_origin",
       "0022_account_creation_email_claims",
+      "0022_collection_membership_foundations",
+      "0022a_local_collection_identity_backfill",
+      "0023_grant_replica_membership_binding",
       "0023_open_beta_entitlement",
       "0024_account_deletion_consistency",
-      "0025_application_reconciliation_jobs"
+      "0024_hosted_collection_invitations_and_seats",
+      "0025_application_reconciliation_jobs",
+      "0026_connector_policy_freshness",
+      "0027_connector_policy_lease_adoption",
+      "0028_application_declaration",
+      "0029_external_signup",
+      "0030_sharing_cleanup_seat_reservations"
     ]);
   });
 
@@ -721,6 +760,171 @@ describe("database migrations", () => {
       .toBe(MDBASE_TIMER_FIRED_CONTRACT.digest);
   });
 
+  it("revokes legacy scoped grants without changing collection grants", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const userId = randomUUID();
+    const applicationId = randomUUID();
+    const collectionId = randomUUID();
+    const scopedReplicaId = randomUUID();
+    const collectionReplicaId = randomUUID();
+    const scopedGrantId = randomUUID();
+    const collectionGrantId = randomUUID();
+
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Owner')",
+      [userId, `${userId}@example.com`]
+    );
+    await db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris)
+       VALUES ($1, $2, 'Tasks', 'https://tasks.example', '[]'::jsonb)`,
+      [applicationId, `https://tasks.example/${applicationId}`]
+    );
+    await db.query(
+      `INSERT INTO hosted_collections (id, user_id, display_name, template)
+       VALUES ($1, $2, 'Tasks', 'mdbase')`,
+      [collectionId, userId]
+    );
+    await db.query(
+      `INSERT INTO hosted_replicas
+         (id, collection_id, name, purpose, mode, token_hash, authorized_user_id)
+       VALUES
+         ($1, $3, 'Scoped application', 'application', 'read_only', 'scoped-token', $4),
+         ($2, $3, 'Collection application', 'application', 'read_only', 'collection-token', $4)`,
+      [scopedReplicaId, collectionReplicaId, collectionId, userId]
+    );
+    await db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, hosted_collection_id, hosted_replica_id,
+          operations, scope)
+       VALUES
+         ($1, $3, $4, $5, $6, '["read"]'::jsonb,
+          '{"access":"contract","contracts":[]}'::jsonb),
+         ($2, $3, $4, $5, $7, '["read"]'::jsonb,
+          '{"access":"full_collection","contracts":[]}'::jsonb)`,
+      [
+        scopedGrantId,
+        collectionGrantId,
+        userId,
+        applicationId,
+        collectionId,
+        scopedReplicaId,
+        collectionReplicaId
+      ]
+    );
+    await db.query(
+      `INSERT INTO access_tokens (id, token_hash, grant_id, expires_at)
+       VALUES
+         ($1, 'scoped-access', $3, now() + interval '1 hour'),
+         ($2, 'collection-access', $4, now() + interval '1 hour')`,
+      [randomUUID(), randomUUID(), scopedGrantId, collectionGrantId]
+    );
+    await db.query(
+      `INSERT INTO refresh_tokens (id, token_hash, grant_id, expires_at)
+       VALUES
+         ($1, 'scoped-refresh', $3, now() + interval '30 days'),
+         ($2, 'collection-refresh', $4, now() + interval '30 days')`,
+      [randomUUID(), randomUUID(), scopedGrantId, collectionGrantId]
+    );
+    const migrationCandidates = await db.query(
+      `SELECT g.id
+       FROM grants g
+       JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
+       WHERE g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL
+         AND g.scope->>'access' = 'contract'
+         AND replica.revoked_at IS NULL`
+    );
+    expect(migrationCandidates.rows).toHaveLength(1);
+
+    expect(await runControlPlaneMigrations(db)).toEqual({
+      legacyContractScopedGrantsRetired: 1
+    });
+    expect(await runControlPlaneMigrations(db)).toEqual({
+      legacyContractScopedGrantsRetired: 0
+    });
+
+    const scopedGrant = await db.query<{
+      revoked_at: Date | null;
+      reauthorization_reason: string | null;
+    }>(
+      "SELECT revoked_at, reauthorization_reason FROM grants WHERE id = $1",
+      [scopedGrantId]
+    );
+    const collectionGrant = await db.query<{ revoked_at: Date | null }>(
+      "SELECT revoked_at FROM grants WHERE id = $1",
+      [collectionGrantId]
+    );
+    expect(scopedGrant.rows[0]).toMatchObject({
+      revoked_at: expect.any(Date),
+      reauthorization_reason: "collection_level_authorization"
+    });
+    expect(collectionGrant.rows[0]?.revoked_at).toBeNull();
+
+    for (const [grantId, revoked] of [
+      [scopedGrantId, true],
+      [collectionGrantId, false]
+    ] as const) {
+      const access = await db.query<{ revoked_at: Date | null }>(
+        "SELECT revoked_at FROM access_tokens WHERE grant_id = $1",
+        [grantId]
+      );
+      const refresh = await db.query<{ revoked_at: Date | null }>(
+        "SELECT revoked_at FROM refresh_tokens WHERE grant_id = $1",
+        [grantId]
+      );
+      if (revoked) {
+        expect(access.rows[0]?.revoked_at).not.toBeNull();
+        expect(refresh.rows[0]?.revoked_at).not.toBeNull();
+      } else {
+        expect(access.rows[0]?.revoked_at).toBeNull();
+        expect(refresh.rows[0]?.revoked_at).toBeNull();
+      }
+    }
+
+    expect((await db.query(
+      "SELECT id FROM provider_revocation_jobs WHERE replica_id = $1",
+      [scopedReplicaId]
+    )).rows).toHaveLength(1);
+
+    const scopedReplica = await db.query<{
+      token_hash: string | null;
+      revoked_at: Date | null;
+    }>(
+      "SELECT token_hash, revoked_at FROM hosted_replicas WHERE id = $1",
+      [scopedReplicaId]
+    );
+    const collectionReplica = await db.query<{
+      token_hash: string | null;
+      revoked_at: Date | null;
+    }>(
+      "SELECT token_hash, revoked_at FROM hosted_replicas WHERE id = $1",
+      [collectionReplicaId]
+    );
+    expect(scopedReplica.rows[0]).toMatchObject({
+      token_hash: null,
+      revoked_at: expect.any(Date)
+    });
+    expect(collectionReplica.rows[0]).toMatchObject({
+      token_hash: "collection-token",
+      revoked_at: null
+    });
+
+    const jobs = await db.query<{
+      grant_id: string | null;
+      replica_id: string;
+      reason: string;
+    }>(
+      "SELECT grant_id, replica_id, reason FROM provider_revocation_jobs"
+    );
+    expect(jobs.rows).toEqual([{
+      grant_id: scopedGrantId,
+      replica_id: scopedReplicaId,
+      reason: "collection_level_authorization"
+    }]);
+  });
+
   it("fails closed when an application starts before pre-deploy migration", async () => {
     const db = await openDatabase("memory");
     resources.push(() => db.end());
@@ -757,6 +961,62 @@ describe("database migrations", () => {
       [replicaId]
     );
     expect(replica.rows[0].authorized_user_id).toBe(userId);
+  });
+
+  it("backfills one stable sharing identity across hosted and local authority rows", async () => {
+    const db = await openDatabase("memory");
+    resources.push(() => db.end());
+    await bootstrapLegacyBaseline(db);
+    const ownerId = randomUUID();
+    const connectorId = randomUUID();
+    const authorityRowId = randomUUID();
+    const localOnlyAuthorityRowId = randomUUID();
+    const logicalCollectionId = randomUUID();
+    const localOnlyCollectionId = randomUUID();
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Owner')",
+      [ownerId, `${ownerId}@example.com`]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash)
+       VALUES ($1, $2, 'Computer', $3)`,
+      [connectorId, ownerId, randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO collections
+         (id, user_id, connector_id, local_id, display_name, spec_version,
+          authority_state)
+       VALUES ($1, $2, $3, $4, 'Local authority', '0.3.0', 'active'),
+              ($5, $2, $3, $6, 'Local only', '0.3.0', 'active')`,
+      [
+        authorityRowId,
+        ownerId,
+        connectorId,
+        logicalCollectionId,
+        localOnlyAuthorityRowId,
+        localOnlyCollectionId
+      ]
+    );
+    await db.query(
+      `INSERT INTO hosted_collections
+         (id, user_id, display_name, template, authority_state,
+          transferred_collection_id)
+       VALUES ($1, $2, 'Hosted history', 'mdbase', 'transferred', $3)`,
+      [logicalCollectionId, ownerId, authorityRowId]
+    );
+
+    await runControlPlaneMigrations(db);
+
+    const identities = await db.query<{ id: string; owner_user_id: string }>(
+      `SELECT id, owner_user_id FROM collection_identities
+       WHERE id IN ($1, $2) ORDER BY id`,
+      [logicalCollectionId, localOnlyCollectionId]
+    );
+    expect(identities.rows).toEqual(
+      [logicalCollectionId, localOnlyCollectionId]
+        .sort()
+        .map((id) => ({ id, owner_user_id: ownerId }))
+    );
   });
 
   it("rejects an applied migration whose contents changed", async () => {

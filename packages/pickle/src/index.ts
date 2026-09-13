@@ -120,6 +120,8 @@ export interface PickleRequest {
   responseType: string;
   responseTypeDefinition?: CollectionTypeDescriptor;
   createdAt?: string;
+  /** Stable file modification time for invalidating an opened context. */
+  modifiedAt?: string;
   dueAt?: string;
   tags: string[];
   links: PickleLink[];
@@ -238,16 +240,17 @@ export class PickleCollection {
     return { collection: this.description, contract: this.contract };
   }
 
-  async list(options: ConnectRequestOptions = {}): Promise<PickleRequest[]> {
+  /** Omit Markdown bodies for an inbox; load individual context with readBody. */
+  async list({ includeBody = true, ...options }: ConnectRequestOptions & { includeBody?: boolean } = {}): Promise<PickleRequest[]> {
     const { collection, contract } = await this.describe(options);
     const requestQuery = requireOutcome(
       await this.connect.queryAll(
         {
           types: contract.implementations.map(({ typeName }) => typeName),
-          includeBody: true,
+          includeBody,
           frontmatterMode: "effective"
         },
-        options
+        { ...options, pageSize: 256 }
       )
     );
     const requests = requestQuery.results.map(requireEffectiveFrontmatter);
@@ -270,10 +273,10 @@ export class PickleCollection {
             await this.connect.queryAll(
               {
                 types: responseTypes,
-                includeBody: true,
+                includeBody: false,
                 frontmatterMode: "effective"
               },
-              options
+              { ...options, pageSize: 256 }
             )
           )
         ).results.map(requireEffectiveFrontmatter)
@@ -285,6 +288,11 @@ export class PickleCollection {
       .sort((left, right) =>
         (right.createdAt ?? "").localeCompare(left.createdAt ?? "")
       );
+  }
+
+  async readBody(request: Pick<PickleRequest, "path">, options: ConnectRequestOptions = {}): Promise<string> {
+    const record = requireOutcome(await this.connect.read({ path: request.path }, options));
+    return record.body ?? "";
   }
 
   async respond(
@@ -458,6 +466,7 @@ function normalizeRequest(
       role(implementation, "message", "message")
     ),
     body: record.body ?? "",
+    modifiedAt: record.file?.mtime,
     kind:
       stringField(record.effectiveFrontmatter, role(implementation, "kind", "kind")) ||
       "approval",

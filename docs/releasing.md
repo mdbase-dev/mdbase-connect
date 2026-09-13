@@ -59,19 +59,22 @@ the status without evidence is itself rejected.
 
 ### First publication of a new npm package
 
-npm trusted publishing cannot create a package. Before tagging a release that
+npm trusted publishing cannot create a package. Before publishing a release that
 adds a public package, a scope owner must bootstrap that package once:
 
 1. Run the full local package verification above and pack the package from the
    exact reviewed commit.
-2. Authenticate interactively with `npm login` and publish that audited tarball
+2. For an enabled semantic-v2 candidate, first complete the production verification
+   and exact-candidate guard described in [the release contract](release-contract.md#public-client-release-publication);
+   bootstrap publication is also public and must not precede enablement.
+   Authenticate interactively with `npm login` and publish that audited tarball
    with `npm publish <tarball> --access public --tag next`.
 3. Configure `publish-npm.yml` in `mdbase-dev/mdbase-connect` as the package's
    GitHub Actions trusted publisher, restricted to the `npm` environment and
    the `npm publish` operation.
-4. Run `pnpm check:npm-bootstrap` before creating the release tag.
+4. Run `pnpm check:npm-bootstrap` before dispatching client publication.
 
-The tag workflow runs the same check before publishing anything. This keeps a
+The publication workflow runs the same check before publishing anything. This keeps a
 missing first-time bootstrap from leaving a release partially published. All
 subsequent publications use short-lived GitHub OIDC credentials and provenance;
 do not add a long-lived npm publication token to the repository.
@@ -104,7 +107,7 @@ workflow identity, checksums, and Sigstore bundles. See
 [`headless.md`](headless.md) for the installation and daemon lifecycle.
 
 The `Desktop Release` workflow builds, verifies, signs, and publishes the
-installers for a version tag. To enable trusted macOS output, configure these
+installers on an explicit post-production dispatch from a version tag. To enable trusted macOS output, configure these
 secrets in the `desktop-release` GitHub Actions environment:
 
 - `MACOS_CERTIFICATE_P12_BASE64`: base64-encoded Developer ID Application
@@ -149,14 +152,21 @@ git tag -a v0.1.0-beta.55 -m "mdbase connect 0.1.0-beta.55"
 git push origin v0.1.0-beta.55
 ```
 
-If a tag-triggered npm or desktop run is lost during a GitHub Actions outage,
-dispatch the same workflow manually and select that exact existing tag as the
-workflow ref. The workflow's existing tag/version checks remain authoritative;
-do not dispatch it from a branch or substitute a different commit.
+Creating the tag does not publish clients. Complete guarded production promotion
+and independent exact-service verification before dispatching any client workflow.
+Follow the [post-production publication transition](release-contract.md#public-client-release-publication):
+select the existing tag as the workflow ref and supply the exact full
+`production_verified_commit` SHA. Publish npm first, then desktop, then Editor
+with target `production`. Production Editor dispatches from `main` are no longer
+accepted; staging remains on `main`. Reader is excluded from this rollout.
 
-The tag starts the only full desktop build. The four platform builders do not
-open deployment records; the single publish job enters the `desktop-release`
-environment, verifies every artifact, and creates one GitHub prerelease.
+The explicit desktop dispatch starts the full desktop build. The four platform
+builders do not open deployment records; the single publish job enters the
+`desktop-release` environment, checks live production evidence after the build,
+and creates the GitHub release and signed update feed. The website notification
+runs only after successful publication. On a failed run, retry from the same tag
+only after confirming the same candidate is still production-verified. A tag
+push or a bare manual confirmation cannot authorize publication.
 
 When platform publisher configuration is wholly absent, the workflow publishes
 only explicitly labelled preview artifacts for that platform. Partially

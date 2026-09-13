@@ -34,8 +34,8 @@ describe("ConnectApp", () => {
     const { container } = render(<ConnectApp />);
 
     expect(screen.getByText("Opening mdbase connect")).toBeInTheDocument();
-    expect(container.querySelector(".connect-loading .mdbase-motion-bootstrap")).toBeInTheDocument();
-    expect(container.querySelector(".mdbase-mark-conveyor-track")).toBeInTheDocument();
+    expect(container.querySelector(".connect-loading .mdbase-motion-mark")).toBeInTheDocument();
+    expect(container.querySelector(".connect-loading .mdbase-motion-bootstrap")).not.toBeInTheDocument();
   });
 
   it("opens account management without requesting a collection grant", async () => {
@@ -150,6 +150,21 @@ describe("ConnectApp", () => {
       .toHaveAttribute("href", "https://example.test/connect-update");
   });
 
+  it("recommends the lease-capable update without claiming legacy is incompatible", async () => {
+    overview.connectors[0].update_recommended = true;
+    overview.connectors[0].minimum_connector_version = "0.1.0-beta.91";
+    overview.connectors[0].update_url = "https://example.test/connect-update";
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await user.click(await screen.findByRole("link", { name: "Computers" }));
+    expect(screen.getByText("Online")).toBeInTheDocument();
+    expect(screen.queryByText("Update required")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", {
+      name: "Update recommended for current policy protection"
+    })).toHaveAttribute("href", "https://example.test/connect-update");
+  });
+
   it("pauses background refresh while the page is hidden and refreshes on return", async () => {
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     vi.useFakeTimers();
@@ -244,6 +259,120 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("button", { name: "Delete permanently" })).not.toBeInTheDocument();
   });
 
+  it("invites and manages collection members from the collection overview", async () => {
+    overview.collections = [];
+    overview.hosted_collections = [hostedCollection()];
+    history.replaceState(null, "", "/connect?server=http%3A%2F%2F127.0.0.1%3A8787&collection=hosted");
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/members") && (!init?.method || init.method === "GET")) {
+        return Response.json({ members: [
+          { kind: "owner", name: "Example Person", role: "owner", state: "active", accepted_at: new Date().toISOString() },
+          { kind: "member", id: "member", name: "Shared Person", role: "viewer", state: "active", accepted_at: new Date().toISOString(), revoked_at: null }
+        ] });
+      }
+      if (path.endsWith("/invitations") && init?.method === "POST") {
+        return Response.json({ invitation: {
+          id: "invitation",
+          collection_id: "hosted",
+          target_mode: "email",
+          submitted_email: "new@example.com",
+          role: "editor",
+          state: "pending",
+          expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+          created_at: new Date().toISOString(),
+          token: "cinv_private-token"
+        } }, { status: 202 });
+      }
+      if (path.endsWith("/invitations") && (!init?.method || init.method === "GET")) {
+        return Response.json({ invitations: [] });
+      }
+      return originalFetch(input, init);
+    });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    expect(await screen.findByRole("heading", { name: "People & sharing" })).toBeInTheDocument();
+    expect(await screen.findByText("Shared Person")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Invite person" }));
+    await user.type(screen.getByLabelText("Email address"), "new@example.com");
+    await user.selectOptions(screen.getByLabelText("Role"), "editor");
+    await user.click(screen.getByRole("button", { name: "Create invitation" }));
+
+    const link = await screen.findByLabelText("Collection invitation link");
+    expect((link as HTMLInputElement).value).toContain(
+      "#collection-invitation=cinv_private-token"
+    );
+    expect(vi.mocked(fetch).mock.calls.some(([input, init]) =>
+      new URL(String(input)).pathname.endsWith("/invitations")
+      && init?.method === "POST"
+      && init.body === JSON.stringify({ email: "new@example.com", role: "editor" })
+    )).toBe(true);
+
+    await user.selectOptions(screen.getByLabelText("Role for Shared Person"), "editor");
+    expect(vi.mocked(fetch).mock.calls.some(([input, init]) =>
+      new URL(String(input)).pathname.endsWith("/members/member")
+      && init?.method === "PATCH"
+      && init.body === JSON.stringify({ role: "editor" })
+    )).toBe(true);
+  });
+
+  it("hides owner-only and sharing controls from viewers", async () => {
+    const hosted = hostedCollection();
+    hosted.access = {
+      relationship: "member",
+      role: "viewer",
+      can_authorize_applications: true,
+      can_manage_collection: false,
+      can_rename_collection: false,
+      can_delete_collection: false,
+      can_manage_members: false
+    };
+    overview.collections = [];
+    overview.hosted_collections = [hosted];
+    history.replaceState(null, "", "/connect/collections?server=http%3A%2F%2F127.0.0.1%3A8787&collection=hosted");
+    render(<ConnectApp />);
+
+    expect(await screen.findByRole("heading", { name: "Collections" })).toBeInTheDocument();
+    expect(screen.getAllByText("Hosted research").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "People & sharing" })).not.toBeInTheDocument();
+  });
+
+  it("accepts a fragment-bound collection invitation without retaining the token", async () => {
+    history.replaceState(null, "", "/connect?server=http%3A%2F%2F127.0.0.1%3A8787&collection=collection#delete_token=keep&collection-invitation=cinv_private-token");
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/v1/hosted/collection-invitations/accept") {
+        const shared = hostedCollection();
+        shared.id = "shared";
+        shared.display_name = "Shared collection";
+        overview.hosted_collections = [shared];
+        return Response.json({ membership: {
+          id: "membership",
+          collection_id: "shared",
+          role: "viewer",
+          state: "active"
+        } }, { status: 201 });
+      }
+      return originalFetch(input, init);
+    });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    expect(await screen.findByText("A collection was shared with you")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() => expect(location.hash).toBe("#delete_token=keep"));
+    expect(vi.mocked(fetch).mock.calls.some(([input, init]) =>
+      new URL(String(input)).pathname === "/v1/hosted/collection-invitations/accept"
+      && init?.method === "POST"
+      && init.body === JSON.stringify({ token: "cinv_private-token" })
+    )).toBe(true);
+  });
+
   it("offers recovery actions when no computer is connected", async () => {
     overview.connectors = [];
     overview.collections = [];
@@ -266,7 +395,9 @@ describe("ConnectApp", () => {
     }];
     overview.grants = [{
       id: "grant", operations: ["read", "update"], scope: { contracts: [], access: "full_collection" },
-      created_at: now, revoked_at: null, revocation_status: "active", collection_id: "collection", collection_name: "Garden notes",
+      created_at: now, revoked_at: null, revocation_status: "active",
+      reauthorization_required_at: null, reauthorization_reason: null,
+      collection_id: "collection", collection_name: "Garden notes",
       collection_kind: "local", application_id: "reading-list", application_name: "Reading list",
       distribution: "web", homepage: "https://reading.example", project_url: null,
       application_origin: "https://reading.example", icon: null
@@ -280,12 +411,50 @@ describe("ConnectApp", () => {
     expect(screen.getByRole("link", { name: "App access" })).not.toHaveTextContent("1");
   });
 
+  it("shows real revoked migration evidence until fresh collection authorization replaces it", async () => {
+    const now = new Date().toISOString();
+    const legacy = {
+      id: "legacy", operations: ["read"],
+      scope: { contracts: [], access: "contract" as const },
+      created_at: now, revoked_at: now, revocation_status: "revoked" as const,
+      reauthorization_required_at: now, reauthorization_reason: "collection_level_authorization",
+      collection_id: "collection", collection_name: "Garden notes",
+      collection_kind: "local" as const, application_id: "reading-list", application_name: "Reading list",
+      distribution: "web" as const, homepage: "https://reading.example", project_url: null,
+      application_origin: "https://reading.example", icon: null
+    };
+    overview.grants = [legacy];
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await screen.findByRole("heading", { name: "Garden notes" });
+    await user.click(screen.getByRole("link", { name: /Applications/ }));
+
+    expect(await screen.findByText("Legacy scoped access is revoked. Reauthorize this application for the entire collection.")).toBeInTheDocument();
+    expect(screen.getByText("Reauthorization required")).toBeInTheDocument();
+
+    overview.grants = [legacy, {
+      ...legacy,
+      id: "fresh",
+      scope: { contracts: [], access: "full_collection" },
+      revoked_at: null,
+      revocation_status: "active",
+      reauthorization_required_at: null,
+      reauthorization_reason: null
+    }];
+    fireEvent(document, new Event("visibilitychange"));
+
+    await waitFor(() => expect(screen.queryByText("Reauthorization required")).not.toBeInTheDocument());
+    expect(screen.getByText("Entire collection")).toBeInTheDocument();
+  });
+
   it("keeps provider-pending revocations visible without claiming success", async () => {
     overview.grants = [{
       id: "grant", operations: ["read"],
       scope: { contracts: [], access: "full_collection" },
       created_at: new Date().toISOString(), revoked_at: new Date().toISOString(),
-      revocation_status: "revoking", collection_id: "collection",
+      revocation_status: "revoking", reauthorization_required_at: null,
+      reauthorization_reason: null, collection_id: "collection",
       collection_name: "Garden notes", collection_kind: "hosted",
       application_id: "app", application_name: "Photo catalog",
       distribution: "web", homepage: "https://photos.example",
@@ -311,6 +480,8 @@ describe("ConnectApp", () => {
       created_at: now,
       revoked_at: null,
       revocation_status: "active" as const,
+      reauthorization_required_at: null,
+      reauthorization_reason: null,
       collection_id: index === 0 ? "collection" : "collection-two",
       collection_name: index === 0 ? "Garden notes" : "Research notes",
       collection_kind: "local" as const,
@@ -476,6 +647,27 @@ describe("ConnectApp", () => {
     )).toHaveLength(overviewCalls);
   });
 
+  it("generates a one-use sharing code from account settings", async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/v1/hosted/collection-invitation-codes" && init?.method === "POST") {
+        return Response.json({
+          invitation_code: "ABCD-EFGH",
+          expires_at: new Date(Date.now() + 86_400_000).toISOString()
+        }, { status: 201 });
+      }
+      return originalFetch(input, init);
+    });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("link", { name: /Account & sessions/ }));
+    await user.click(await screen.findByRole("button", { name: "Generate code" }));
+
+    expect(await screen.findByText("ABCD-EFGH")).toBeInTheDocument();
+    expect(screen.getByText("A new one-use sharing code is ready.")).toBeInTheDocument();
+  });
+
   it("explains a temporary account-deletion hold without offering the destructive action", async () => {
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
       const path = new URL(String(input)).pathname;
@@ -544,7 +736,8 @@ function overviewFixture(): ManagementOverview {
         max_mirror_replicas_per_collection: 10,
         max_application_replicas_per_collection: 50,
         max_hosted_collections: 250,
-        max_files_per_collection: 10_000
+        max_files_per_collection: 10_000,
+        max_collection_member_seats: 10
       },
       usage: {
         hosted_collections: 1,
@@ -556,6 +749,7 @@ function overviewFixture(): ManagementOverview {
       reconciliation: { entitlement_revision: 1, provider_revision: 1 }
     },
     hosted_collections_available: true,
+    collection_sharing_available: true,
     authentication: { provider: "github", registration: "closed" },
     connectors: [{ id: "computer", name: "Home computer", last_seen_at: now, created_at: now }],
     collections: [{
@@ -577,6 +771,8 @@ function applicationGrants(): ManagementOverview["grants"] {
     created_at: now,
     revoked_at: null,
     revocation_status: "active" as const,
+    reauthorization_required_at: null,
+    reauthorization_reason: null,
     collection_id: index === 0 ? "collection" : "collection-two",
     collection_name: index === 0 ? "Garden notes" : "Research notes",
     collection_kind: "local" as const,
@@ -609,6 +805,15 @@ function hostedCollection(): ManagementOverview["hosted_collections"][number] {
     authority_epoch: 1,
     transferred_collection_id: null,
     created_at: new Date().toISOString(),
+    access: {
+      relationship: "owner",
+      role: "owner",
+      can_authorize_applications: true,
+      can_manage_collection: true,
+      can_rename_collection: true,
+      can_delete_collection: true,
+      can_manage_members: true
+    },
     replicas: []
   };
 }

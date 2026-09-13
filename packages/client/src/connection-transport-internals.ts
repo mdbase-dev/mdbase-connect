@@ -7,7 +7,8 @@ export interface ConnectionTransportInternals {
   removeToken(
     collectionId: string,
     keyHandle?: string,
-    reason?: "not_authorized" | "authorization_lost" | "invalid_stored_grant",
+    reason?: "not_authorized" | "authorization_lost" | "invalid_stored_grant"
+      | "legacy_scope_reauthorization_required",
     discardPending?: boolean
   ): void;
   storeTokenResponse(body: any, clientId: string, keyHandle?: string): StoredToken;

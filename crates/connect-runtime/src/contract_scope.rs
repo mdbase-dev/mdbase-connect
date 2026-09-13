@@ -35,7 +35,7 @@ impl ContractScope {
     pub fn new(contracts: Vec<CollectionContractDescriptor>) -> Result<Self, ContractScopeError> {
         if contracts.is_empty() {
             return Err(error(
-                "Contract-scoped grants must declare at least one required contract.",
+                "Contract views must declare at least one required contract.",
             ));
         }
         let allowed_types = contracts
@@ -45,7 +45,7 @@ impl ContractScope {
             .collect::<BTreeSet<_>>();
         if allowed_types.is_empty() {
             return Err(error(
-                "Contract-scoped grants must include at least one approved provider.",
+                "Contract views must include at least one provider implementation.",
             ));
         }
         Ok(Self {
@@ -132,7 +132,7 @@ impl ContractScope {
             )
         }) {
             return Err(error(
-                "Contract-scoped queries support provider selection and pagination only; filter normalized contract fields after retrieval.",
+                "Queries using a semantic contract view support provider selection and pagination only; filter normalized contract fields after retrieval.",
             ));
         }
         if let Some(requested) = scoped.get("types") {

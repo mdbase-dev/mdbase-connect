@@ -5,14 +5,27 @@
 \set fence_kind rollback
 \endif
 
--- Read-only compatibility gate before selecting an image whose source tree ends
--- at the consolidated Candidate B schema. Admission must already be suspended by
--- the rollback runner. This proves the exact migration ledger and the final
--- runtime objects the target expects; it never alters canonical or derived data.
+\if :{?predecessor_migration}
+\else
+\set predecessor_migration 0
+\endif
+
+\if :{?candidate_migration}
+\else
+\set candidate_migration 0
+\endif
+
+-- Read-only compatibility gate before independently selecting the predecessor
+-- image. The authorized predecessor/candidate pair permits the exact live ledger
+-- to end at either endpoint, covering a candidate that applied migration 38 and
+-- one that failed before migration. Admission must already be suspended. This
+-- never alters data or restores authority retired by migration 38.
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET LOCAL search_path = public, pg_catalog;
 SELECT set_config('mdbase.admission_fence_token', :'fence_token', true);
 SELECT set_config('mdbase.admission_fence_kind', :'fence_kind', true);
+SELECT set_config('mdbase.rollback_predecessor_migration', :'predecessor_migration', true);
+SELECT set_config('mdbase.rollback_candidate_migration', :'candidate_migration', true);
 
 DO $final_rollback_preflight$
 DECLARE
@@ -32,9 +45,26 @@ DECLARE
   missing_objects text[];
   missing_columns text[];
   missing_runtime_columns text[];
+  active_noncanonical_application_replicas bigint;
   requested_token uuid := current_setting('mdbase.admission_fence_token')::uuid;
   requested_kind text := current_setting('mdbase.admission_fence_kind');
+  requested_predecessor_text text :=
+    current_setting('mdbase.rollback_predecessor_migration');
+  requested_candidate_text text :=
+    current_setting('mdbase.rollback_candidate_migration');
+  requested_predecessor bigint;
+  requested_candidate bigint;
+  observed_endpoint bigint;
 BEGIN
+  IF (requested_predecessor_text, requested_candidate_text) NOT IN
+       (('37', '37'), ('37', '38')) THEN
+    RAISE EXCEPTION
+      'final_rollback_blocked: unsupported migration pair % -> %',
+      requested_predecessor_text, requested_candidate_text;
+  END IF;
+  requested_predecessor := requested_predecessor_text::bigint;
+  requested_candidate := requested_candidate_text::bigint;
+
   IF requested_kind NOT IN ('cutover', 'rollback') THEN
     RAISE EXCEPTION
       'final_schema_preflight_blocked: unsupported fence kind %', requested_kind;
@@ -48,17 +78,24 @@ BEGIN
          count(*) FILTER (WHERE NOT success)
     INTO migration_count, minimum_version, maximum_version, failed_migrations
   FROM _sqlx_migrations;
+  observed_endpoint := maximum_version;
+  IF observed_endpoint NOT IN (requested_predecessor, requested_candidate) THEN
+    RAISE EXCEPTION
+      'final_rollback_blocked: live ledger endpoint % is not authorized by pair % -> %',
+      observed_endpoint, requested_predecessor, requested_candidate;
+  END IF;
   SELECT count(*)
     INTO missing_migrations
-  FROM generate_series(1, 37) AS required(version)
+  FROM generate_series(1, observed_endpoint) AS required(version)
   WHERE NOT EXISTS (
     SELECT 1 FROM _sqlx_migrations applied
     WHERE applied.version = required.version AND applied.success
   );
-  IF migration_count <> 37 OR minimum_version <> 1 OR maximum_version <> 37
+  IF migration_count <> observed_endpoint OR minimum_version <> 1
      OR failed_migrations <> 0 OR missing_migrations <> 0 THEN
     RAISE EXCEPTION
-      'final_rollback_blocked: expected exact successful final ledger 1-37';
+      'final_rollback_blocked: expected exact successful live ledger 1-%',
+      observed_endpoint;
   END IF;
 
   SELECT array_agg(expected.version ORDER BY expected.version)
@@ -100,14 +137,46 @@ BEGIN
     (34, decode('ab662bb7a71e9f742cb197e6842a26b4526b74394b41ba2cc153644d5496a360960b7b6c9e01924ab56e45e7052dab37', 'hex')),
     (35, decode('042632e2b1ee010fabe5c23ae0ddc6aa91720aceafe21a263ca08a6b117a0638d0166c93deaf9dd565ba8eba32de3950', 'hex')),
     (36, decode('b3bf3e4d582211cf1df4a15806c5ae2715538aadd0fa6139aac580f4192ffa17668f4a07b34e0d9f34ca2a6a204f4bbb', 'hex')),
-    (37, decode('1884d3305158938709fa5263506e00cc5e5a3db287f4527fd6150db343a939229c64b9bd45723d868b8cfce1cf496b8b', 'hex'))
+    (37, decode('1884d3305158938709fa5263506e00cc5e5a3db287f4527fd6150db343a939229c64b9bd45723d868b8cfce1cf496b8b', 'hex')),
+    (38, decode('f26fc3ac983bf10bee1488a9653462e5f021332cf426b900e59317c525f73d25b5960c3a8451d12edfe7ef3dca219e08', 'hex'))
   ) AS expected(version, checksum)
   LEFT JOIN _sqlx_migrations applied ON applied.version = expected.version
-  WHERE applied.checksum IS DISTINCT FROM expected.checksum;
+  WHERE expected.version <= observed_endpoint
+    AND applied.checksum IS DISTINCT FROM expected.checksum;
   IF checksum_mismatches IS NOT NULL THEN
     RAISE EXCEPTION
       'final_rollback_blocked: migration checksum mismatch at version(s) %',
       array_to_string(checksum_mismatches, ', ');
+  END IF;
+
+  IF observed_endpoint = 38 THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_class relation
+      JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND relation.relname = 'hosted_provider_retired_replay_credentials'
+        AND relation.relkind IN ('r', 'p')
+    ) THEN
+      RAISE EXCEPTION
+        'final_rollback_blocked: retired replay credential table is absent';
+    END IF;
+
+    SELECT count(*)
+      INTO active_noncanonical_application_replicas
+    FROM hosted_provider_replicas
+    WHERE purpose = 'application'
+      AND revoked_at IS NULL
+      AND (
+        full_collection = false
+        OR cardinality(allowed_types) <> 0
+        OR contract_scope <> '[]'::jsonb
+      );
+    IF active_noncanonical_application_replicas <> 0 THEN
+      RAISE EXCEPTION
+        'final_rollback_blocked: % active application replica(s) remain noncanonical',
+        active_noncanonical_application_replicas;
+    END IF;
   END IF;
 
   SELECT array_agg(required.object_name ORDER BY required.object_name)

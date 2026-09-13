@@ -49,9 +49,12 @@ authorized application has legitimately received it.
 
 ### Least authority
 
-Every grant identifies one application, one collection, an exact operation
-set, and an exact contract or full-collection scope. The current grant is
-rechecked before each bounded authority operation and each hosted file range.
+Every active grant identifies one application, one entire collection, and an
+exact operation set. File capabilities remain separate. Required contracts are
+compatibility/setup evidence and semantic projection inputs, never an authority
+boundary. A persisted legacy contract-scoped grant is revoked and requires
+explicit reauthorization. The current grant is rechecked before each bounded
+authority operation and each hosted file range.
 Revocation cannot recall plaintext already received by an authorized
 application, and one already-authorized bounded response may finish.
 Application
@@ -146,10 +149,11 @@ unauthorized caller-controlled reflection with secrets. AEAD verification preced
 bounded decompression, and legacy `json-v1` remains readable during rollout.
 
 Projection rows are non-authoritative and revision-, semantic-catalog-, engine-,
-format-, and generation-bound. A current projection may narrow candidate selection and
-authorization classification. A stale, absent, ambiguous, corrupt, or unverifiable
-projection forces bounded canonical mdbase-rs classification and fails closed if
-that cannot complete. Queries union current projection matches with stale/absent
+format-, and generation-bound. A current projection may narrow semantic query
+candidate selection, but never application authorization. A stale, absent,
+ambiguous, corrupt, or unverifiable projection forces bounded canonical mdbase-rs
+classification when an operation needs semantic interpretation and fails closed
+if that cannot complete. Queries union current projection matches with stale/absent
 records so optimization cannot create false negatives.
 Currentness also requires equality between the application-set expected row digest
 and the trigger-maintained observed digest. The envelope binds record/collection
@@ -220,7 +224,7 @@ operator can prove drain and cleanup.
 
 | Abuse case | Primary controls |
 | --- | --- |
-| Application requests more data than approved | Grant planning intersection; exact authority-side recheck; contract-scoped filtering |
+| Application requests another collection or unapproved action | Exact collection/grant binding; operation intersection; authority-side recheck |
 | Stolen or replayed request | Short-lived scoped credentials; proof validation; durable monotonic counters and replay state |
 | Copied hosted CLI bearer or refresh token | Per-collection grant scope; opaque-origin binding; grant-key proof on operations and refresh; authority-side revocation |
 | Relay reads collection contents | End-to-end encrypted operation envelopes; no plaintext payload persistence |
@@ -229,7 +233,7 @@ operator can prove drain and cleanup.
 | Two authorities write one collection | Explicit authority lifecycle, epoch fencing, folder role marker, and mirror lease |
 | Copied folder aliases an authority | Duplicate identity detection and explicit register-copy flow |
 | Provider database is copied | Exact Markdown/body prose remain envelope-encrypted; readable projection and relationship leakage is explicitly inventoried and access-controlled |
-| Stale or corrupt projection widens a scoped grant | Version-bound currentness; canonical mdbase-rs fallback; fail-closed authorization; transaction-time grant/catalog/revision revalidation |
+| Stale or corrupt projection changes semantic results | Version-bound currentness; canonical mdbase-rs fallback; fail-closed semantic evaluation; transaction-time catalog/revision revalidation |
 | Projection candidate plan misses an authorized semantic match | Closed versioned IR; no-false-negative conformance; stale/absent union; canonical residual evaluation |
 | Obsidian Base expression exhausts CPU, stack, graph, or retained rows | AST work counter, bounded growable evaluator stack, one-hop graph completion proof, candidate/edge/group/byte/memory/time budgets, typed failure |
 | Malicious dependency or artifact | Frozen lockfiles, automated dependency review, audit gate, pinned Actions, provenance, signatures, checksums |

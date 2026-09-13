@@ -274,6 +274,7 @@
         "file_capability": {
           "$ref": "https://mdbase.dev/connect/schemas/files.v1.json#/$defs/fileCapability"
         },
+        "application_declaration": {},
         "application_authorization": { "$ref": "#/$defs/applicationAuthorizationProof" }
       }
     },
@@ -613,11 +614,24 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "protocol_version", "request_id", "revision", "grants"],
+      "oneOf": [
+        { "required": ["connector_id", "sequence", "lease_issued_at_ms", "lease_expires_at_ms"] },
+        { "not": { "anyOf": [
+          { "required": ["connector_id"] },
+          { "required": ["sequence"] },
+          { "required": ["lease_issued_at_ms"] },
+          { "required": ["lease_expires_at_ms"] }
+        ] } }
+      ],
       "properties": {
         "type": { "const": "policy_snapshot" },
         "protocol_version": { "const": 1 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "revision": { "$ref": "#/$defs/digest" },
+        "connector_id": { "$ref": "#/$defs/uuid" },
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "lease_issued_at_ms": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "lease_expires_at_ms": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "grants": { "type": "array", "items": { "$ref": "#/$defs/grantPolicy" } }
       }
     },
