@@ -327,6 +327,7 @@ jobs:
     name: Append durable history
     needs: assemble
     if: >-
+      always() &&
       needs.assemble.result == 'success' &&
       github.repository == 'mdbase-dev/mdbase-connect' &&
       github.ref == 'refs/heads/main'
