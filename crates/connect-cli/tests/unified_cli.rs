@@ -122,6 +122,93 @@ fn credential_bootstrap_failure_is_unhealthy_even_with_a_live_control_endpoint()
 }
 
 #[test]
+fn running_mirror_retries_after_transient_credential_store_failure_without_restart() {
+    let scratch = tempfile::tempdir().unwrap();
+    let state = scratch.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let endpoint = scratch.path().join("control.sock");
+    let logs = scratch.path().join("daemon.log");
+    let log = std::fs::File::create(&logs).unwrap();
+    std::fs::write(state.join("mirrors.json"), serde_json::to_vec(&serde_json::json!({
+        "version": 2, "mirrors": [{
+            "collection_id": "00000000-0000-4000-8000-000000000001",
+            "replica_id": "00000000-0000-4000-8000-000000000002",
+            "enrollment_id": "00000000-0000-4000-8000-000000000003",
+            "name": "isolated credential recovery fixture", "mode": "read_only",
+            "path": scratch.path().join("mirror"), "lifecycle": "active",
+            "sync_url": "http://127.0.0.1:1/v1/authorities/00000000-0000-4000-8000-000000000001/sync", "control_url": "http://127.0.0.1:1",
+            "access_token_expires_at": "2099-01-01T00:00:00Z", "created_at": "2026-01-01T00:00:00Z"
+        }]
+    })).unwrap()).unwrap();
+    let child = Command::new(binary())
+        .args([
+            "--state-dir",
+            state.to_str().unwrap(),
+            "--endpoint",
+            endpoint.to_str().unwrap(),
+            "connect",
+            "daemon",
+            "run",
+            "--loopback-port",
+            "0",
+        ])
+        .env("MDBASE_CONNECT_ENV", "test")
+        .env("MDBASE_CONNECT_SECRET_BACKEND", "insecure-test-file")
+        .env_remove("MDBASE_CONNECT_SERVER_URL")
+        .env_remove("MDBASE_CONNECT_CONNECTOR_TOKEN")
+        .stdin(Stdio::null())
+        .stdout(log.try_clone().unwrap())
+        .stderr(log)
+        .spawn()
+        .unwrap();
+    let mut daemon = Daemon { child };
+    thread::sleep(Duration::from_millis(100));
+    assert!(
+        daemon.child.try_wait().unwrap().is_none(),
+        "{}",
+        std::fs::read_to_string(&logs).unwrap()
+    );
+    wait_for_daemon(&endpoint);
+    let observe = |offset: usize, marker: &str| {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let content = std::fs::read_to_string(&logs).unwrap();
+            if content
+                .get(offset..)
+                .is_some_and(|tail| tail.contains(marker))
+            {
+                return content.len();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "mirror worker did not reach {marker}"
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
+    };
+    observe(0, "mirror_credentials_missing");
+    let secrets = state.join("test-secrets.json");
+    let original = std::fs::read(&secrets).unwrap();
+    // Fault the existing test-only store after successful bootstrap, never the OS keyring.
+    std::fs::write(&secrets, "[").unwrap();
+    let failed_at = observe(0, "credential_store_unavailable");
+    std::fs::write(&secrets, &original).unwrap();
+    // A new missing-credential result proves the SAME worker re-read the restored store.
+    // This deliberately does not claim a successful authorized mirror synchronization.
+    observe(failed_at, "mirror_credentials_missing");
+    assert!(daemon.child.try_wait().unwrap().is_none());
+    assert_eq!(std::fs::read(&secrets).unwrap(), original);
+    let status = run(&[
+        "--endpoint",
+        endpoint.to_str().unwrap(),
+        "--json",
+        "connect",
+        "status",
+    ]);
+    assert_eq!(json(&status)["readiness"]["ready"], true);
+}
+
+#[test]
 fn isolated_restart_preserves_the_bound_loopback_port() {
     let scratch = tempfile::tempdir().unwrap();
     let state = scratch.path().join("state");
