@@ -900,6 +900,7 @@ mod tests {
 
     fn grant(criterion_id: &str) -> GrantSummary {
         GrantSummary {
+            revocation_status: None,
             application_declaration: None,
             contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
             id: Uuid::new_v4(),

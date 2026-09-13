@@ -11,6 +11,7 @@ import type { DatabasePool } from "../../db.js";
 import { fileCapabilityForRequirements } from "../../grant-planner.js";
 import { collectionContractDescriptorSchema } from "../../protocol-schemas.js";
 import type { RelayHub } from "../../relay.js";
+import { localGrantRevocationStatus, queueLocalGrantRevocations } from "../../local-grant-revocation.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
@@ -184,11 +185,10 @@ export function registerConnectorGrantRoutes(
     if (!connector) return;
     const { grantId } = z.object({ grantId: z.uuid() }).parse(request.params);
     const active = await options.db.query(
-      `UPDATE grants SET revoked_at = now()
-       WHERE id = $1 AND revoked_at IS NULL AND activated_at IS NOT NULL
+      `SELECT id FROM grants
+       WHERE id = $1 AND activated_at IS NOT NULL
          AND collection_id IN
-         (SELECT id FROM collections WHERE connector_id = $2)
-       RETURNING id`,
+         (SELECT id FROM collections WHERE connector_id = $2)`,
       [grantId, connector.id]
     );
     if (!active.rows[0]) {
@@ -197,18 +197,12 @@ export function registerConnectorGrantRoutes(
         "Active grant not found."
       ));
     }
-    await options.db.query(
-      "UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1",
-      [grantId]
-    );
-    await options.db.query(
-      "UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1",
-      [grantId]
-    );
+    await queueLocalGrantRevocations(options.db, connector.user_id, [grantId]);
     await options.relay.pushPolicy(connector.id);
-    await audit(options.db, connector.user_id, "grant.revoked", grantId, {
-      connector_id: connector.id
+    const status = await localGrantRevocationStatus(options.db, connector.user_id, grantId);
+    await audit(options.db, connector.user_id, status === "revoked" ? "grant.revoked" : "grant.revocation_requested", grantId, {
+      connector_id: connector.id, revocation_status: status
     });
-    return { ok: true };
+    return { ok: true, revocation_status: status };
   });
 }

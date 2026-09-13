@@ -69,7 +69,8 @@ describe("database migrations", () => {
       "0027_connector_policy_lease_adoption",
       "0028_application_declaration",
       "0029_external_signup",
-      "0030_sharing_cleanup_seat_reservations"
+      "0030_sharing_cleanup_seat_reservations",
+      "0031_local_revocation_confirmation"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -661,7 +662,8 @@ describe("database migrations", () => {
       "0027_connector_policy_lease_adoption",
       "0028_application_declaration",
       "0029_external_signup",
-      "0030_sharing_cleanup_seat_reservations"
+      "0030_sharing_cleanup_seat_reservations",
+      "0031_local_revocation_confirmation"
     ]);
   });
 

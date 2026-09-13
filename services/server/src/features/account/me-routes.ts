@@ -176,6 +176,8 @@ export function registerAccountOverviewRoute(
               g.reauthorization_required_at, g.reauthorization_reason,
               CASE
                 WHEN g.revoked_at IS NULL THEN 'active'
+                WHEN g.hosted_replica_id IS NULL AND g.hosted_collection_id IS NULL
+                  AND g.revocation_confirmed_at IS NULL THEN 'revoking'
                 WHEN g.id IN (
                   SELECT job.grant_id FROM provider_revocation_jobs job
                   WHERE job.grant_id IS NOT NULL AND job.completed_at IS NULL

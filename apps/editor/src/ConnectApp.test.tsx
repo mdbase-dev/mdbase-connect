@@ -448,14 +448,14 @@ describe("ConnectApp", () => {
     expect(screen.getByText("Entire collection")).toBeInTheDocument();
   });
 
-  it("keeps provider-pending revocations visible without claiming success", async () => {
+  it.each(["local", "hosted"] as const)("keeps %s pending revocations visible without claiming success", async (kind) => {
     overview.grants = [{
       id: "grant", operations: ["read"],
       scope: { contracts: [], access: "full_collection" },
       created_at: new Date().toISOString(), revoked_at: new Date().toISOString(),
       revocation_status: "revoking", reauthorization_required_at: null,
       reauthorization_reason: null, collection_id: "collection",
-      collection_name: "Garden notes", collection_kind: "hosted",
+      collection_name: "Garden notes", collection_kind: kind,
       application_id: "app", application_name: "Photo catalog",
       distribution: "web", homepage: "https://photos.example",
       project_url: null, application_origin: "https://photos.example", icon: null
@@ -467,7 +467,9 @@ describe("ConnectApp", () => {
     await user.click(screen.getByRole("link", { name: /Applications/ }));
 
     expect(await screen.findByText("Revoking…")).toBeInTheDocument();
-    expect(screen.getByText(/Waiting for the hosted authority to confirm revocation/)).toBeInTheDocument();
+    expect(screen.getByText(kind === "hosted"
+      ? /Waiting for the hosted authority to confirm enforcement/
+      : /Waiting for the computer holding this collection to confirm enforcement/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
   });
 

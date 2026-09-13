@@ -632,7 +632,7 @@ function GrantEditor({ grant, busy, perform }: {
   perform: PerformOperation;
 }) {
   if (grant.revocation_status === "revoking") {
-    return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Local access is disabled. Waiting for the hosted authority to confirm revocation.</small></span><b>Revoking…</b></div>;
+    return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Revocation is pending. Waiting for {grant.collection_kind === "local" ? "the computer holding this collection" : "the hosted authority"} to confirm enforcement.</small></span><b>Revoking…</b></div>;
   }
   if (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0) {
     return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</small></span><b>Reauthorization required</b></div>;

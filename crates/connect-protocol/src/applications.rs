@@ -383,6 +383,9 @@ impl GrantScope {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrantSummary {
+    /// Presentation only; never installs or restores authorization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revocation_status: Option<String>,
     /// Complete normalized declaration evidence authenticated before presentation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub application_declaration: Option<serde_json::Value>,

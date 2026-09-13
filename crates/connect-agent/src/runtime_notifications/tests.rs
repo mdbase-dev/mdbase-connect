@@ -115,6 +115,7 @@ async fn recovery_keeps_idle_registered_collections_cold() {
 #[test]
 fn compiled_workflows_keep_record_data_out_of_action_input() {
     let grant = GrantSummary {
+        revocation_status: None,
         application_declaration: None,
         contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
         id: Uuid::new_v4(),
