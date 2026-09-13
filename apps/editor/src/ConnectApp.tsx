@@ -363,7 +363,7 @@ function CollectionOverview({ collection, applications, busy, perform, navigate,
     {collection.kind === "hosted" && collection.source.access.can_manage_members && <CollectionSharingPanel sharingAvailable={sharingAvailable} collection={collection.source} busy={busy} perform={perform} />}
     <section>
       <SectionTitle title="Connection" />
-      <div className="connect-row"><div><strong>{collection.status}</strong><small>{connectionDescription(collection)}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span></div>
+      <div className="connect-row connect-connection-summary"><div><small>{connectionDescription(collection)}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span></div>
     </section>
   </Page>;
 }

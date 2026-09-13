@@ -431,6 +431,61 @@ test("keeps the writing measure while placing editor scrollbars at the pane edge
   expect(unwrapped.scrollWidth).toBeGreaterThan(unwrapped.clientWidth);
 });
 
+test("wraps long titles and gives narrow editor panes a usable writing measure", async ({ page }) => {
+  await page.setViewportSize({ width: 834, height: 900 });
+  await page.goto("?demo=12");
+  const title = page.getByRole("textbox", { name: "Note title" });
+  const longTitle = "A longer note title that stays readable in a narrow editor pane";
+  await title.fill(longTitle);
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const width of [320, 390, 834, 1020, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      if (width <= 760 && !await title.isVisible()) await page.getByRole("option").first().click();
+      await expect(title).toBeVisible();
+      const layout = await title.evaluate((element) => {
+        const surface = element.closest(".writing-surface")!.getBoundingClientRect();
+        const bounds = element.getBoundingClientRect();
+        const body = document.querySelector(".body-editor .cm-line")!.getBoundingClientRect();
+        return {
+          height: bounds.height, lineHeight: parseFloat(getComputedStyle(element).lineHeight),
+          scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
+          scrollWidth: element.scrollWidth, clientWidth: element.clientWidth,
+          gutter: bounds.left - surface.left, surfaceWidth: surface.width,
+          bodyLeft: body.left, titleLeft: bounds.left, width: bounds.width
+        };
+      });
+      expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
+      expect(layout.scrollHeight).toBeLessThanOrEqual(layout.clientHeight + 1);
+      expect(layout.height).toBeGreaterThan(layout.lineHeight * 1.8);
+      expect(layout.width).toBeLessThanOrEqual(760);
+      expect(Math.abs(layout.bodyLeft - layout.titleLeft)).toBeLessThanOrEqual(1);
+      if (layout.surfaceWidth <= 500) expect(layout.gutter).toBeLessThanOrEqual(30);
+    }
+  }
+  await title.press("Enter");
+  await expect(title).toHaveValue(longTitle);
+  await title.fill("Pasted title\nwith a second line");
+  await expect(title).toHaveValue("Pasted title with a second line");
+  await title.fill("An exceptionally long title ".repeat(50));
+  const capped = await title.evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    fieldHeight: element.parentElement!.getBoundingClientRect().height,
+    bodyHeight: document.querySelector(".body-editor")!.getBoundingClientRect().height
+  }));
+  expect(capped.height).toBeLessThanOrEqual(192);
+  expect(capped.height).toBeLessThanOrEqual(capped.fieldHeight);
+  expect(capped.bodyHeight).toBeGreaterThan(100);
+  await title.fill("Short title");
+  await expect.poll(() => title.evaluate((element) => element.getBoundingClientRect().height)).toBe(52);
+  await page.getByRole("textbox", { name: "Note body" }).focus();
+  await expect(page.getByText("Saved", { exact: true }).first()).toBeVisible();
+  await page.getByRole("option", { name: /Garden notes 2/ }).click();
+  await expect(title).toHaveValue("Garden notes 2");
+  await page.getByRole("option", { name: /Short title/ }).click();
+  await expect(title).toHaveValue("Short title");
+});
+
 test("formats, finds, and checks Markdown without adding permanent editor chrome", async ({ page }) => {
   await page.goto("?demo=12");
   const body = page.getByRole("textbox", { name: "Note body" });
@@ -1466,6 +1521,37 @@ test("keeps every editor action reachable at the minimum mobile width", async ({
 
   await page.getByLabel("More note actions").click();
   await expect(page.getByRole("menuitem", { name: "Check note" })).toBeVisible();
+});
+
+test("keeps type field names styled and inside their grid columns", async ({ page }) => {
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  const fields = page.locator(".visual-field-name input");
+  await expect(fields).toHaveCount(3);
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const width of [320, 390, 834, 1020, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      if (width <= 760 && !await fields.first().isVisible()) await page.getByRole("option", { name: /note/ }).click();
+      await expect(fields.first()).toBeVisible();
+      for (const field of await fields.all()) {
+        const layout = await field.evaluate((input) => {
+          const bounds = input.getBoundingClientRect();
+          const label = input.parentElement!.getBoundingClientRect();
+          const kind = input.closest(".visual-field-row")!.querySelector(".visual-field-kind")!.getBoundingClientRect();
+          return {
+            left: bounds.left, right: bounds.right, height: bounds.height,
+            labelLeft: label.left, labelRight: label.right, kindLeft: kind.left
+          };
+        });
+        const context = `${colorScheme}/${width}`;
+        expect(layout.height, context).toBeGreaterThanOrEqual(34);
+        expect(layout.left, context).toBeGreaterThanOrEqual(layout.labelLeft);
+        expect(layout.right, context).toBeLessThanOrEqual(layout.labelRight);
+        expect(layout.right, context).toBeLessThanOrEqual(layout.kindLeft - 5);
+      }
+    }
+  }
 });
 
 test("keeps type editing usable at the minimum mobile width", async ({ page }) => {

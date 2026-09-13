@@ -67,6 +67,16 @@ test("condenses the shared editor shell on mobile", async ({ page }) => {
   await expect(page.getByRole("link", { name: "All collections" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Garden notes" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Account" })).toBeVisible();
+  await page.getByRole("link", { name: "Storage & sync" }).click();
+  const desktopLink = page.getByRole("link", { name: "Open desktop app", exact: true });
+  await expect(desktopLink).toBeVisible();
+  const alignment = await desktopLink.evaluate((element) => {
+    const link = element.getBoundingClientRect();
+    const identity = element.parentElement!.firstElementChild!.getBoundingClientRect();
+    return { linkLeft: link.left, identityLeft: identity.left, linkTop: link.top, identityBottom: identity.bottom };
+  });
+  expect(alignment.linkLeft).toBe(alignment.identityLeft);
+  expect(alignment.linkTop).toBeGreaterThanOrEqual(alignment.identityBottom);
 });
 
 test("keeps application summaries and review links separate at narrow widths", async ({ page }) => {
@@ -101,6 +111,18 @@ test("keeps application summaries and review links separate at narrow widths", a
     await page.emulateMedia({ colorScheme });
     for (const width of [320, 390, 444, 640, 760, 834, 900, 1020, 1280]) {
       await page.setViewportSize({ width, height: 900 });
+      const sectionLayout = await page.locator(".connect-section-title:has(> a)").evaluateAll((titles) => titles.map((title) => {
+        const heading = title.querySelector("h2")!.getBoundingClientRect();
+        const action = title.querySelector("a")!.getBoundingClientRect();
+        return Math.abs((heading.top + heading.bottom) / 2 - (action.top + action.bottom) / 2);
+      }));
+      for (const difference of sectionLayout) expect(difference, `section action alignment at ${width}px`).toBeLessThan(3);
+      if (width <= 760) {
+        for (const margin of await page.locator(".connect-page > section").evaluateAll((sections) => sections.map((section) => parseFloat(getComputedStyle(section).marginTop)))) {
+          expect(margin).toBe(32);
+        }
+      }
+      await expect(page.locator(".connect-connection-summary").getByText("Connected", { exact: true })).toHaveCount(1);
       for (const row of await rows.all()) {
         const layout = await row.evaluate((element) => {
           const rect = element.getBoundingClientRect();

@@ -304,7 +304,8 @@
   border-bottom: 1px solid var(--line);
 }
 
-.connect-storage-summary {
+.connect-storage-summary,
+.connect-connection-summary {
   grid-template-columns: minmax(190px, 1fr) auto;
 }
 
@@ -1160,7 +1161,8 @@ button.danger:disabled {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .connect-application-row > a {
+  .connect-row > a {
+    grid-column: 1 / -1;
     justify-self: start;
     padding-inline: 0;
   }
@@ -1354,8 +1356,8 @@ button.danger:disabled {
     grid-template-columns: 1fr;
   }
 
-  .connect-section-title {
-    align-items: flex-start;
+  .connect-page > section {
+    margin-top: 32px;
   }
 
   .connect-inline-form {
