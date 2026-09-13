@@ -9,8 +9,13 @@ function unavailable() {
   return Object.assign(new Error("No local connector"), { code: "ENOENT" });
 }
 
+const pingResult = (ready = true) => ({
+  pong: true, ready,
+  readiness: { schema_version: 1, ready, binary_version: "test", ...(ready ? {} : { safe_reason: "starting" }) }
+});
 const options = (overrides = {}) => ({
-  ping: async () => ({ pong: true, ready: true }),
+  expectedVersion: "test",
+  ping: async () => pingResult(),
   launch: async () => {},
   endpointIsUnavailable: (error) =>
     error && typeof error === "object" && ["ENOENT", "ECONNREFUSED"].includes(error.code),
@@ -30,7 +35,7 @@ test("a slow daemon keeps initializing after its launch command times out", asyn
       pingCount += 1;
       if (pingCount === 1) throw unavailable();
       if (pingCount === 2) throw new Error("The local connector did not respond in time.");
-      return { pong: true, ready: pingCount >= 4 };
+      return pingResult(pingCount >= 4);
     },
     launch: async () => {
       throw launchError;

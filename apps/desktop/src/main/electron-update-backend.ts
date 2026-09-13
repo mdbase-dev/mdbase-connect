@@ -1,4 +1,5 @@
 import { autoUpdater, shell } from "electron";
+import { presentReadiness, type AgentReadiness } from "../shared/readiness";
 import { execFile as execFileCallback } from "node:child_process";
 import { createReadStream } from "node:fs";
 import {
@@ -25,7 +26,7 @@ import {
 } from "./update-policy";
 import type { UpdateTransaction } from "./update-state";
 import { artifactMatches, downloadArtifact, downloadBytes } from "./update-download";
-import { connectCliEnvironment, daemonCliArguments } from "./daemon-lifecycle";
+import { connectCliEnvironment, daemonCliArguments, type DaemonTarget } from "./daemon-lifecycle";
 
 const execFile = promisify(execFileCallback);
 const AUTO_UPDATER_TIMEOUT_MS = 180_000;
@@ -39,6 +40,7 @@ export interface ElectronUpdateBackendOptions {
   userDataDirectory: string;
   binaryPath: () => string;
   stateDirectory: () => string;
+  target: () => DaemonTarget;
   endpoint: () => string;
 }
 
@@ -236,7 +238,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
     while (Date.now() < deadline) {
       const status = await this.daemonStatus(binary).catch(() => null);
       lastVersion = status?.binaryVersion;
-      if (status?.running && status.binaryVersion === expectedVersion) return;
+      if (status?.running && status.ready && status.binaryVersion === expectedVersion) return;
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
     throw new Error(
@@ -249,12 +251,14 @@ export class ElectronUpdateBackend implements UpdateBackend {
   private async daemonStatus(binary = this.options.binaryPath()): Promise<{
     installed: boolean;
     running: boolean;
+    ready: boolean;
     binaryVersion?: string;
   }> {
     const value = await this.runCli(binary, ["status"], 10_000);
     return {
       installed: value.installed === true,
       running: value.running === true,
+      ready: presentReadiness((value.status as { readiness?: AgentReadiness } | undefined)?.readiness).state === "ready",
       binaryVersion:
         value.status &&
         typeof value.status === "object" &&
@@ -273,7 +277,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
     const { stdout } = await execFile(
       binary,
       daemonCliArguments(
-        this.packaged,
+        this.options.target(),
         this.options.stateDirectory(),
         this.options.endpoint(),
         command,
