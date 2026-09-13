@@ -13,7 +13,13 @@ const {
 } = require("../dist/main/release-source.js");
 
 const indexUrl =
-  "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=100";
+  "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=10&page=1";
+
+function pageUrl(page) {
+  const url = new URL(indexUrl);
+  url.searchParams.set("page", String(page));
+  return url.href;
+}
 
 function manifest(version = "0.1.0-beta.9") {
   const tag = `v${version}`;
@@ -124,6 +130,94 @@ test("the highest verified semantic version wins even when API order is hostile"
   assert.equal(result.manifest.version, "0.1.0-beta.10");
 });
 
+test("release discovery handles an index larger than 2 MiB across bounded pages", async () => {
+  const older = release("0.1.0-beta.9");
+  const latest = release("0.1.0-beta.100");
+  const pages = Array.from({ length: 3 }, (_, page) =>
+    Array.from({ length: 10 }, (_, offset) => ({
+      ...release(`0.1.0-beta.${page * 10 + offset + 1}`),
+      assets: [],
+      body: "x".repeat(90_000)
+    }))
+  );
+  pages[0][0] = { ...pages[0][0], ...older };
+  pages[2][9] = { ...pages[2][9], ...latest };
+  assert.ok(Buffer.byteLength(JSON.stringify(pages.flat())) > 2 * 1024 * 1024);
+  const entries = Object.fromEntries(pages.map((page, i) => {
+    assert.ok(Buffer.byteLength(JSON.stringify(page)) < 2 * 1024 * 1024);
+    return [pageUrl(i + 1), page];
+  }));
+  entries[pageUrl(4)] = []; // A full final page needs an empty-page probe.
+  for (const candidate of [older, latest]) {
+    entries[candidate.assets[0].browser_download_url] = manifest(candidate.tag_name.slice(1));
+    entries[candidate.assets[1].browser_download_url] = {};
+  }
+  const calls = [];
+  const verified = [];
+  const fetchImpl = fetchMap(entries);
+  const result = await findLatestRelease({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: async (url, options) => {
+      calls.push(String(url));
+      return fetchImpl(url, options);
+    },
+    async verifyBundle(_bundle, payload) {
+      verified.push(JSON.parse(payload).version);
+    }
+  });
+  assert.equal(result.manifest.version, "0.1.0-beta.100");
+  assert.deepEqual(calls.filter((url) => url.startsWith("https://api.github.com/")),
+    [1, 2, 3, 4].map(pageUrl));
+  assert.deepEqual(verified, ["0.1.0-beta.9", "0.1.0-beta.100"]);
+});
+
+test("discovery reaches a stable release behind a full page of prereleases", async () => {
+  const stable = { ...release("0.1.0"), prerelease: false };
+  const result = await findLatestRelease({
+    channel: "stable",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap({
+      [indexUrl]: Array.from({ length: 10 }, (_, i) => release(`0.1.0-beta.${i + 1}`)),
+      [pageUrl(2)]: [stable],
+      [stable.assets[0].browser_download_url]: { ...manifest("0.1.0"), channel: "stable" },
+      [stable.assets[1].browser_download_url]: {}
+    }),
+    async verifyBundle() {}
+  });
+  assert.equal(result.manifest.version, "0.1.0");
+});
+
+test("a later index-page failure cannot return a partial latest-release result", async () => {
+  const firstPage = Array.from({ length: 10 }, () => release("0.1.0-beta.9"));
+  const fetchImpl = fetchMap({ [indexUrl]: firstPage });
+  await assert.rejects(findLatestRelease({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: async (url) => {
+      if (String(url) === pageUrl(2)) return new Response(null, { status: 503 });
+      return fetchImpl(url);
+    },
+    async verifyBundle() { assert.fail("partial index must not be used"); }
+  }), /HTTP 503/);
+});
+
+test("release pagination is bounded and fails rather than trusting an incomplete index", async () => {
+  let calls = 0;
+  const fullPage = Array.from({ length: 10 }, () => release("0.1.0-beta.9"));
+  await assert.rejects(findLatestRelease({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: async (url) => {
+      calls += 1;
+      assert.equal(String(url), pageUrl(calls));
+      return fetchMap({ [String(url)]: fullPage })(url);
+    },
+    async verifyBundle() { assert.fail("incomplete index must not be used"); }
+  }), /page limit/);
+  assert.equal(calls, 100);
+});
+
 test("a manifest is not parsed or trusted when signature verification fails", async () => {
   const candidate = release("0.1.0-beta.9");
   await assert.rejects(
@@ -200,6 +294,17 @@ test("oversized release metadata is rejected before parsing", async () => {
     }),
     /size limit/
   );
+});
+
+test("oversized streamed index pages are rejected without a content-length header", async () => {
+  const response = new Response("x".repeat(2 * 1024 * 1024 + 1));
+  Object.defineProperty(response, "url", { value: indexUrl });
+  await assert.rejects(findLatestRelease({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: async () => response,
+    async verifyBundle() { assert.fail("oversized index must not be used"); }
+  }), /size limit/);
 });
 
 test("a threshold failure is classified as a recoverable trust-cache error", () => {
