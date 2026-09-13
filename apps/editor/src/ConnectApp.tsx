@@ -357,7 +357,7 @@ function CollectionOverview({ collection, applications, busy, perform, navigate,
     </section>
     <section>
       <SectionTitle title="Application access" count={applications.length} action={<RouteLink view="access" collectionId={collection.id} navigate={navigate}>Review all</RouteLink>} />
-      {applications.map((application) => <div className="connect-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0].homepage)}</small></div><span>{permissionSummary(application.grants)}</span><RouteLink view="access" collectionId={collection.id} navigate={navigate}>Review</RouteLink></div>)}
+      {applications.map((application) => <div className="connect-row connect-application-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0].homepage)}</small></div><span>{permissionSummary(application.grants)}</span><RouteLink view="access" collectionId={collection.id} navigate={navigate}>Review</RouteLink></div>)}
       {applications.length === 0 && <Empty title="No connected applications" body="Applications appear after you approve access to this collection." />}
     </section>
     {collection.kind === "hosted" && collection.source.access.can_manage_members && <CollectionSharingPanel sharingAvailable={sharingAvailable} collection={collection.source} busy={busy} perform={perform} />}

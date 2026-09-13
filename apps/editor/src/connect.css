@@ -308,6 +308,22 @@
   grid-template-columns: minmax(190px, 1fr) auto;
 }
 
+.connect-application-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto;
+}
+
+.connect-application-row > div,
+.connect-application-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.connect-application-row > span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .connect-row > div:first-child,
 .connect-row > span:first-child,
 .connect-row-detail span {
@@ -1140,6 +1156,15 @@ button.danger:disabled {
     gap: 10px 18px;
   }
 
+  .connect-application-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .connect-application-row > a {
+    justify-self: start;
+    padding-inline: 0;
+  }
+
   .connect-row-actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
@@ -1187,7 +1212,7 @@ button.danger:disabled {
 
   .connect-shell > .collection-rail nav {
     flex: 1;
-    margin: 0 10px;
+    margin: 0 4px;
     overflow: visible;
   }
 
@@ -1201,7 +1226,7 @@ button.danger:disabled {
     align-items: center;
     gap: 6px;
     margin: 0 auto;
-    padding: 8px 10px;
+    padding: 8px 2px;
     color: var(--accent-strong);
     font-size: 0.82rem;
     font-weight: 700;
