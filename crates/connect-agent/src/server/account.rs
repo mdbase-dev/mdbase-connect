@@ -342,6 +342,9 @@ impl AgentState {
     }
 
     pub(super) async fn access_snapshot(&self) -> Result<serde_json::Value, ConnectError> {
+        if let Some(error) = self.credential_store_unavailable() {
+            return Err(error);
+        }
         let Some(cloud) = &self.cloud else {
             return serde_json::to_value(mdbase_connect_protocol::AccessSnapshot {
                 configured: false,

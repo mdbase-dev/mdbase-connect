@@ -64,6 +64,64 @@ fn wait_for_daemon(endpoint: &Path) {
 }
 
 #[test]
+fn credential_bootstrap_failure_is_unhealthy_even_with_a_live_control_endpoint() {
+    let scratch = tempfile::tempdir().unwrap();
+    let state = scratch.path().join("state");
+    let endpoint = scratch.path().join("control.sock");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("test-secrets.json"), "[").unwrap();
+    let child = Command::new(binary())
+        .args([
+            "--state-dir",
+            state.to_str().unwrap(),
+            "--endpoint",
+            endpoint.to_str().unwrap(),
+            "connect",
+            "daemon",
+            "run",
+            "--loopback-port",
+            "0",
+        ])
+        .env("MDBASE_CONNECT_ENV", "test")
+        .env("MDBASE_CONNECT_SECRET_BACKEND", "insecure-test-file")
+        .env_remove("MDBASE_CONNECT_SERVER_URL")
+        .env_remove("MDBASE_CONNECT_CONNECTOR_TOKEN")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _daemon = Daemon { child };
+    wait_for_daemon(&endpoint);
+    let call = |command: &str| {
+        run(&[
+            "--state-dir",
+            state.to_str().unwrap(),
+            "--endpoint",
+            endpoint.to_str().unwrap(),
+            "--json",
+            "connect",
+            command,
+        ])
+    };
+    for command in ["ping", "status"] {
+        let result = json(&call(command));
+        assert_eq!(result["readiness"]["ready"], false);
+        assert_eq!(
+            result["readiness"]["safe_reason"],
+            "credential_store_unavailable"
+        );
+    }
+    assert_eq!(json(&call("doctor"))["healthy"], false);
+    let whoami = call("whoami");
+    assert!(!whoami.status.success());
+    assert_eq!(
+        diagnostic_json(&whoami)["error"]["code"],
+        "credential_store_unavailable"
+    );
+}
+
+#[test]
 fn isolated_restart_preserves_the_bound_loopback_port() {
     let scratch = tempfile::tempdir().unwrap();
     let state = scratch.path().join("state");
