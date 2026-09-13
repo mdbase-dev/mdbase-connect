@@ -20,6 +20,8 @@ const OIDC_ISSUER = "https://token.actions.githubusercontent.com";
 const MANIFEST_NAME = "mdbase-connect-channel-v1.json";
 const MANIFEST_BUNDLE_NAME = `${MANIFEST_NAME}.sigstore.json`;
 const MAX_RELEASE_INDEX_BYTES = 2 * 1024 * 1024;
+const RELEASES_PER_PAGE = 10;
+const MAX_RELEASE_PAGES = 100;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -62,11 +64,7 @@ export interface ReleaseSourceOptions {
 
 export async function findLatestRelease(options: ReleaseSourceOptions): Promise<ReleaseCandidate | null> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const indexUrl = `${GITHUB_API}/repos/${REPOSITORY}/releases?per_page=100`;
-  const response = await request(fetchImpl, indexUrl);
-  const releases = parseReleaseIndex(
-    JSON.parse((await readLimited(response, MAX_RELEASE_INDEX_BYTES)).toString("utf8"))
-  );
+  const releases = await fetchReleaseIndex(fetchImpl);
   const matching = releases.filter(
     (release) =>
       !release.draft &&
@@ -127,6 +125,25 @@ export async function findLatestRelease(options: ReleaseSourceOptions): Promise<
     );
   }
   return best;
+}
+
+async function fetchReleaseIndex(fetchImpl: typeof fetch): Promise<GitHubRelease[]> {
+  const releases: GitHubRelease[] = [];
+  // GitHub includes every artifact's metadata in this response. Keep individual
+  // pages small as releases accumulate, rather than raising the response limit.
+  // Construct URLs locally; never follow an untrusted pagination URL.
+  for (let page = 1; page <= MAX_RELEASE_PAGES; page += 1) {
+    const url = `${GITHUB_API}/repos/${REPOSITORY}/releases?per_page=${RELEASES_PER_PAGE}&page=${page}`;
+    const response = await request(fetchImpl, url);
+    const entries = parseReleaseIndex(
+      JSON.parse((await readLimited(response, MAX_RELEASE_INDEX_BYTES)).toString("utf8"))
+    );
+    releases.push(...entries);
+    if (entries.length < RELEASES_PER_PAGE) return releases;
+  }
+  // Do not report a partial index as the latest release: GitHub's ordering is
+  // not semantic-version ordering, and another channel may be on a later page.
+  throw new Error("Update release discovery exceeded its page limit; could not verify the latest release.");
 }
 
 export async function verifyArtifactBundle(input: {
