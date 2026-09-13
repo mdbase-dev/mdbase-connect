@@ -1,3 +1,4 @@
+mod retry;
 use crate::admission::{
     classify_operation, queue_deadline, AdmissionPermit, AdmissionRequest, WorkClass,
 };
@@ -9,7 +10,12 @@ use mdbase_connect_protocol::{
     RelayFileFrame, RelayMessage, CONTROL_PROTOCOL_VERSION, PROTOCOL_USAGE_REPORT_CAPABILITY,
     RELAY_CAPABILITIES, RELAY_HANDSHAKE_TIMEOUT_SECONDS, RELAY_REQUIRED_CAPABILITIES,
 };
+use rand_core::{OsRng, RngCore};
 use reqwest::Client;
+use retry::{
+    pacing_delay, retry_after, retry_delay, terminal_http_status, terminal_reason, RelayPacing,
+    TerminalRelayFailure,
+};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_tungstenite::connect_async;
@@ -41,17 +47,54 @@ impl Drop for AbortOnDrop {
 
 pub async fn run(server_url: String, connector_token: String, state: Arc<AgentState>) {
     crate::ensure_tls_crypto_provider();
-    let client = Client::new();
-    let mut retry_delay = 1u64;
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("relay HTTP client");
+    let mut failures = 0u32;
     loop {
         state.set_connection_state(AgentConnectionState::Connecting);
-        let result = connect_once(&client, &server_url, &connector_token, state.clone()).await;
+        let healthy_since = Arc::new(std::sync::Mutex::new(None));
+        let result = connect_once(
+            &client,
+            &server_url,
+            &connector_token,
+            state.clone(),
+            healthy_since.clone(),
+        )
+        .await;
         state.set_connection_state(AgentConnectionState::Offline);
-        if let Err(error) = result {
-            tracing::warn!(%error, retry_seconds = retry_delay, "cloud relay disconnected");
+        if let Err(error) = &result {
+            if let Some(reason) = terminal_reason(error.as_ref()) {
+                state.set_relay_problem(Some(reason));
+                tracing::warn!(
+                    code = reason,
+                    "relay requires user action; reconnect stopped"
+                );
+                // Remain a live, explicitly blocked owner until controlled restart.
+                std::future::pending::<()>().await;
+                return;
+            }
         }
-        tokio::time::sleep(Duration::from_secs(retry_delay)).await;
-        retry_delay = (retry_delay * 2).min(30);
+        let uptime = healthy_since
+            .lock()
+            .expect("relay health lock poisoned")
+            .map(|since: std::time::Instant| since.elapsed())
+            .unwrap_or_default();
+        let delay = retry_delay(&mut failures, uptime, OsRng.next_u32()).max(
+            result
+                .as_ref()
+                .err()
+                .and_then(|error| pacing_delay(error.as_ref()))
+                .unwrap_or_default(),
+        );
+        tracing::info!(
+            code = "relay_transport_interrupted",
+            retry_ms = delay.as_millis() as u64,
+            "relay reconnect scheduled"
+        );
+        tokio::time::sleep(delay).await;
     }
 }
 
@@ -60,6 +103,7 @@ async fn connect_once(
     server_url: &str,
     connector_token: &str,
     state: Arc<AgentState>,
+    healthy_since: Arc<std::sync::Mutex<Option<std::time::Instant>>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     sync_collections(client, server_url, connector_token, &state).await?;
     let websocket_url = websocket_url(server_url)?;
@@ -68,7 +112,8 @@ async fn connect_once(
         "authorization",
         HeaderValue::from_str(&format!("Bearer {connector_token}"))?,
     );
-    let (mut socket, _) = connect_async(request).await?;
+    let (mut socket, _) =
+        tokio::time::timeout(Duration::from_secs(15), connect_async(request)).await??;
     socket
         .send(Message::Text(
             serde_json::to_string(&RelayMessage::RelayHello {
@@ -94,12 +139,15 @@ async fn connect_once(
     .await
     .map_err(|_| "relay handshake timed out")?
     .ok_or("relay closed during handshake")??;
-    let Message::Text(welcome) = welcome else {
-        return Err("relay returned a non-text handshake response".into());
+    let welcome = match welcome {
+        Message::Text(welcome) => welcome,
+        Message::Close(_) => return Err("relay closed during handshake".into()),
+        _ => return Err(TerminalRelayFailure("incompatible_version").into()),
     };
     let (usage_reporting, server_semantics, declaration_evidence) = match serde_json::from_str::<
         RelayMessage,
-    >(welcome.as_ref())?
+    >(welcome.as_ref())
+    .map_err(|_| TerminalRelayFailure("incompatible_version"))?
     {
         RelayMessage::RelayWelcome {
             protocol_version,
@@ -122,8 +170,10 @@ async fn connect_once(
                 }),
             )
         }
-        RelayMessage::RelayIncompatible { message, .. } => return Err(message.into()),
-        _ => return Err("relay returned an incompatible handshake response".into()),
+        RelayMessage::RelayIncompatible { .. } => {
+            return Err(TerminalRelayFailure("incompatible_version").into())
+        }
+        _ => return Err(TerminalRelayFailure("incompatible_version").into()),
     };
     let (mut writer, mut reader) = socket.split();
     let (responses, mut response_rx) = tokio::sync::mpsc::channel::<RelayMessage>(64);
@@ -151,6 +201,10 @@ async fn connect_once(
             let ready = policy_state.finish_policy_update(generation, usable);
             if usable && ready {
                 policy_state.set_connection_state(AgentConnectionState::Connected);
+                healthy_since
+                    .lock()
+                    .expect("relay health lock poisoned")
+                    .get_or_insert_with(std::time::Instant::now);
             }
             policy_applied.send_replace((generation, usable && ready));
         }
@@ -164,7 +218,9 @@ async fn connect_once(
     let sync_period = Duration::from_secs(15);
     let mut sync_interval =
         tokio::time::interval_at(tokio::time::Instant::now() + sync_period, sync_period);
-    let mut inventory_sync = tokio::task::JoinSet::new();
+    let mut inventory_sync: tokio::task::JoinSet<
+        Result<(), Box<dyn std::error::Error + Send + Sync>>,
+    > = tokio::task::JoinSet::new();
 
     loop {
         tokio::select! {
@@ -172,7 +228,8 @@ async fn connect_once(
                 let Some(message) = message else { return Err("relay closed the connection".into()); };
                 match message? {
                     Message::Text(text) => {
-                        let relay_message: RelayMessage = serde_json::from_str(text.as_ref())?;
+                        let relay_message: RelayMessage = serde_json::from_str(text.as_ref())
+                            .map_err(|_| TerminalRelayFailure("incompatible_version"))?;
                         let supported_grant = |grant: &mdbase_connect_protocol::GrantPolicy| {
                             let version = grant.application_authorization.binding.contracts.semantic_capabilities;
                             server_semantics.contains(&version) && (version != 2 || declaration_evidence)
@@ -183,7 +240,7 @@ async fn connect_once(
                             _ => true,
                         };
                         if !supported {
-                            return Err("relay attempted an unadvertised authorization contract".into());
+                            return Err(TerminalRelayFailure("incompatible_version").into());
                         }
                         if matches!(&relay_message, RelayMessage::PolicySnapshot { .. }) {
                             // A dedicated single consumer preserves snapshot order without
@@ -382,7 +439,12 @@ async fn connect_once(
                         });
                     }
                     Message::Ping(payload) => writer.send(Message::Pong(payload)).await?,
-                    Message::Close(_) => return Err("relay closed the connection".into()),
+                    Message::Close(frame) => {
+                        if frame.as_ref().is_some_and(|frame| u16::from(frame.code) == 4002) {
+                            return Err(TerminalRelayFailure("incompatible_version").into());
+                        }
+                        return Err("relay closed the connection".into());
+                    }
                     _ => {}
                 }
             }
@@ -434,8 +496,14 @@ async fn connect_once(
                 }
             }
             result = inventory_sync.join_next(), if !inventory_sync.is_empty() => {
-                if let Some(Err(error)) = result {
-                    tracing::warn!(%error, "collection sync task failed");
+                match result {
+                    Some(Ok(Err(error))) => {
+                        if terminal_reason(error.as_ref()).is_some() { return Err(error); }
+                        if let Some(delay) = pacing_delay(error.as_ref()) { sync_interval.reset_after(delay); }
+                        tracing::warn!(code = "relay_inventory_unavailable", "collection inventory will retry");
+                    }
+                    Some(Err(_)) => tracing::warn!(code = "relay_inventory_worker_failed", "collection inventory will retry"),
+                    _ => {}
                 }
             }
             _ = sync_interval.tick() => {
@@ -456,14 +524,7 @@ async fn connect_once(
                     let connector_token = connector_token.to_string();
                     let state = state.clone();
                     inventory_sync.spawn(async move {
-                        if let Err(error) = sync_collections(
-                            &client,
-                            &server_url,
-                            &connector_token,
-                            &state,
-                        ).await {
-                            tracing::warn!(%error, "collection sync failed");
-                        }
+                        sync_collections(&client, &server_url, &connector_token, &state).await
                     });
                 }
             }
@@ -703,6 +764,19 @@ async fn sync_collections(
         .send()
         .await?;
     if !response.status().is_success() {
+        if matches!(response.status().as_u16(), 429 | 503) {
+            if let Some(delay) = response
+                .headers()
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| retry_after(value, chrono::Utc::now()))
+            {
+                return Err(RelayPacing(delay).into());
+            }
+        }
+        if let Some(reason) = terminal_http_status(response.status().as_u16()) {
+            return Err(TerminalRelayFailure(reason).into());
+        }
         return Err(format!("collection sync failed with HTTP {}", response.status()).into());
     }
     Ok(())
