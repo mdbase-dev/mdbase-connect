@@ -90,6 +90,13 @@ export class UpdateCoordinator {
     return structuredClone(this.statusValue);
   }
 
+  daemonStartupBlock(): string | null {
+    const status = this.statusValue;
+    return status.phase === "installing" ||
+      (["recovery", "failed"].includes(status.phase) && !status.can_check)
+      ? status.message : null;
+  }
+
   subscribe(listener: (status: DesktopUpdateStatus) => void): () => void {
     this.listeners.add(listener);
     listener(this.status());
@@ -134,8 +141,9 @@ export class UpdateCoordinator {
     });
     try {
       const result = await this.backend.recover(persisted.transaction);
+      if (!result.healthy) throw new Error(result.message);
       await this.store.update((state) => {
-        if (result.healthy && !result.rolledBack) {
+        if (!result.rolledBack) {
           state.highest_trusted_version = maxVersion(
             state.highest_trusted_version,
             persisted.transaction?.target_version
@@ -150,7 +158,7 @@ export class UpdateCoordinator {
         delete state.transaction;
       });
       this.setStatus({
-        phase: result.healthy && !result.rolledBack ? "idle" : "recovery",
+        phase: result.rolledBack ? "recovery" : "idle",
         message: result.message,
         can_check: this.backend.packaged,
         can_install: false
@@ -218,18 +226,27 @@ export class UpdateCoordinator {
       });
       this.backend.installAutomatic();
     } catch (error) {
-      const recovered = await this.backend.recover(transaction).catch(() => null);
       await this.store.update((state) => {
-        delete state.transaction;
+        if (state.transaction?.id === transaction.id) state.transaction.phase = "recovering";
+      });
+      const recovered = await this.backend.recover(transaction).catch((recoveryError) => ({
+        healthy: false,
+        rolledBack: false,
+        message: message(recoveryError)
+      }));
+      await this.store.update((state) => {
+        if (state.transaction?.id !== transaction.id) return;
+        if (recovered.healthy) delete state.transaction;
+        else state.transaction.error = recovered.message;
       });
       this.candidate = null;
       this.setStatus({
         phase: "failed",
         target_version: transaction.target_version,
-        message: recovered?.healthy
+        message: recovered.healthy
           ? `The update was not installed; the connector was restored. ${message(error)}`
-          : `The update was not installed and connector recovery failed: ${message(error)}`,
-        can_check: this.backend.packaged,
+          : `The update was not installed: ${message(error)}. Connector recovery needs attention: ${recovered.message}`,
+        can_check: recovered.healthy && this.backend.packaged,
         can_install: false
       });
       throw error;
