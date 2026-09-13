@@ -153,68 +153,6 @@ test("keeps application summaries and review links separate at narrow widths", a
   await expect(page.getByRole("heading", { name: "Application access", exact: true })).toBeVisible();
 });
 
-test("keeps application summaries and review links separate at narrow widths", async ({ page }) => {
-  await page.route("http://connect.test/v1/me", (route) => route.fulfill({
-    json: {
-      ...overview,
-      grants: ["mdbase editor", "MDBase Workouts", "ApplicationWithAnUnusuallyLongUnbrokenName"].map((name, index) => ({
-        id: `grant-${index}`,
-        operations: ["read", "create", "update", "delete", "create_type"],
-        scope: { contracts: [], access: "full_collection" },
-        created_at: now,
-        revoked_at: null,
-        revocation_status: "active",
-        collection_id: "collection",
-        collection_name: "Garden notes",
-        collection_kind: "local",
-        application_id: `application-${index}`,
-        application_name: name,
-        distribution: "web",
-        homepage: `https://${"long-application-hostname-".repeat(2)}${index}.example.com`,
-        project_url: null,
-        application_origin: "https://app.example.com",
-        icon: null
-      }))
-    }
-  }));
-  await page.goto("connect?server=http%3A%2F%2Fconnect.test&collection=collection");
-  const rows = page.locator(".connect-application-row");
-  await expect(rows).toHaveCount(3);
-
-  for (const colorScheme of ["light", "dark"] as const) {
-    await page.emulateMedia({ colorScheme });
-    for (const width of [320, 390, 444, 640, 760, 834, 900, 1020, 1280]) {
-      await page.setViewportSize({ width, height: 900 });
-      for (const row of await rows.all()) {
-        const layout = await row.evaluate((element) => {
-          const rect = element.getBoundingClientRect();
-          const children = [...element.children].map((child) => {
-            const { left, right, top, bottom } = child.getBoundingClientRect();
-            return { left, right, top, bottom, overflow: child.scrollWidth > child.clientWidth + 1 };
-          });
-          return { left: rect.left, right: rect.right, children };
-        });
-        const context = `${colorScheme}/${width}`;
-        for (const child of layout.children) {
-          expect(child.overflow, context).toBe(false);
-          expect(child.left, context).toBeGreaterThanOrEqual(layout.left);
-          expect(child.right, context).toBeLessThanOrEqual(layout.right);
-        }
-        if (width <= 1020) {
-          const [identity, summary, review] = layout.children;
-          expect(summary.top, context).toBeGreaterThanOrEqual(identity.bottom + 8);
-          expect(review.top, context).toBeGreaterThanOrEqual(summary.bottom + 8);
-          expect(review.left, context).toBe(identity.left);
-          if (width <= 760) expect(review.bottom - review.top, context).toBeGreaterThanOrEqual(44);
-        }
-      }
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${colorScheme}/${width}`).toBe(true);
-    }
-  }
-  await rows.first().getByRole("link", { name: "Review", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Application access", exact: true })).toBeVisible();
-});
-
 test("uses a collection chooser when direct entry is ambiguous", async ({ page }) => {
   await page.unroute("http://connect.test/v1/**");
   const ambiguousOverview = {
