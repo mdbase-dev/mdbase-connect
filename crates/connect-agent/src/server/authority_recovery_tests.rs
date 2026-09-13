@@ -269,7 +269,7 @@ async fn issue_345_cancel_requires_confirmation_then_allows_removal_without_dele
     assert_eq!(fixture.cancellations.load(Ordering::SeqCst), 0);
     // Revoked credentials, unknown outcome and activation-in-progress must all
     // preserve the fence, rather than treating any HTTP response as success.
-    for status in [401, 503, 409] {
+    for status in [401, 404, 503, 409] {
         fixture.cancel_status.store(status, Ordering::SeqCst);
         assert!(!state.execute(cancel(fixture.transfer_id)).await.ok);
         fixture.assert_blocked(&state).await;
