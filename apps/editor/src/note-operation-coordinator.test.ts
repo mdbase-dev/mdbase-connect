@@ -28,7 +28,7 @@ describe("NoteOperationCoordinator", () => {
     });
     const recover = vi.fn(async () => ({ ...document("2"), body: "First" }));
     const session = createNoteSession(document(), []);
-    const coordinator = new NoteOperationCoordinator({ update, recover, onSaved() {}, onSaveError() {}, onChange() {} });
+    const coordinator = new NoteOperationCoordinator({ update, recover, isPending: () => true, onSaved() {}, onSaveError() {}, onChange() {} });
     session.draft.body = "First";
     await expect(coordinator.requestSave(session)).rejects.toBe(unknown);
     expect(session.saveState).toBe("recovery");
@@ -53,7 +53,7 @@ describe("NoteOperationCoordinator", () => {
     const recover = vi.fn(async () => { throw new Error("offline"); });
     const session = createNoteSession(document(), []);
     session.draft.body = "Accepted";
-    const coordinator = new NoteOperationCoordinator({ update, recover, onSaved() {}, onSaveError() {}, onChange() {} });
+    const coordinator = new NoteOperationCoordinator({ update, recover, isPending: () => true, onSaved() {}, onSaveError() {}, onChange() {} });
     await expect(coordinator.requestSave(session)).rejects.toBe(unknown);
     for (let i = 0; i < 2; i++) await expect(coordinator.requestSave(session)).rejects.toThrow("offline");
     expect(update).toHaveBeenCalledTimes(1);
@@ -70,6 +70,7 @@ describe("NoteOperationCoordinator", () => {
     const session = createNoteSession(document(), []);
     const coordinator = new NoteOperationCoordinator({
       update,
+      isPending: () => false,
       onSaved: () => undefined,
       onSaveError: () => undefined,
       onChange: () => undefined

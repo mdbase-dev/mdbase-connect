@@ -415,6 +415,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const noteOperations = useMemo(() => new NoteOperationCoordinator({
     recover: (requestId) => mutationScope.current.register(mutationScope.current.token(), gateway.recoverNoteMutation(requestId)),
+    isPending: (requestId) => gateway.pendingNoteMutations().some((pending) => pending.requestId === requestId),
     update: (input) => mutationScope.current.register(mutationScope.current.token(), gateway.update(input)),
     onSaved: (session, next) => {
       if (noteSessions.current.get(session.document.path) !== session) return;

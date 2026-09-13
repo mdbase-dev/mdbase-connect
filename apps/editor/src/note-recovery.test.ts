@@ -17,18 +17,22 @@ const rejected = connectFailure(connectProblem('concurrent_modification', 'Revis
   operationOutcome: 'rejected'
 }));
 
-for (const mode of ['success', 'automatic-rejection', 'deferred-rejection'] as const) {
+for (const mode of ['success', 'automatic-rejection', 'deferred-rejection', 'automatic-not-sent', 'deferred-not-sent', 'deferred-unmarked', 'probe-rejection'] as const) {
   it(`${mode}: exact continuation settles the original pending identity`, async () => {
     let pending = false;
-    let resolveNow = mode !== 'deferred-rejection';
+    let resolveNow = !mode.startsWith('deferred');
+    const failure = mode.endsWith('not-sent')
+      ? connectFailure(connectProblem('temporarily_unavailable', 'Not admitted', { operationOutcome: 'not_sent' }))
+      : mode.endsWith('unmarked') ? connectFailure(connectProblem('not_authorized', 'Grant expired')) : rejected;
     let updates = 0;
     const handle = {
       requestId: 'original-update', operation: 'update',
       async recover() {
         if (!resolveNow) return unknown;
+        if (mode === 'probe-rejection') return rejected;
         // The SDK removes durable pending records on a definitive response.
         pending = false;
-        return mode === 'success' ? connectSuccess({ ...document, revision: 'r2' }) : rejected;
+        return mode === 'success' ? connectSuccess({ ...document, revision: 'r2' }) : failure;
       }
     };
     const connection = {
@@ -42,13 +46,19 @@ for (const mode of ['success', 'automatic-rejection', 'deferred-rejection'] as c
     session.draft.body = 'Keep this draft';
     const coordinator = new NoteOperationCoordinator({
       update: input => gateway.update(input), recover: id => gateway.recoverNoteMutation(id),
+      isPending: id => gateway.pendingNoteMutations().some(pending => pending.requestId === id),
       onSaved() {}, onChange() {}, onSaveError() {}
     });
-    if (mode === 'success') {
+    if (mode === 'probe-rejection') {
+      await expect(coordinator.requestSave(session)).rejects.toMatchObject({ problem: { code: 'operation_outcome_unknown' } });
+      expect(session.pendingSave?.requestId).toBe('original-update');
+      expect(pending).toBe(true);
+      expect(updates).toBe(1);
+    } else if (mode === 'success') {
       await coordinator.requestSave(session);
       expect(session.pendingSave).toBeUndefined();
     } else {
-      if (mode === 'deferred-rejection') {
+      if (mode.startsWith('deferred')) {
         await expect(coordinator.requestSave(session)).rejects.toMatchObject({ problem: { code: 'operation_outcome_unknown' } });
         resolveNow = true;
       }
@@ -58,7 +68,7 @@ for (const mode of ['success', 'automatic-rejection', 'deferred-rejection'] as c
       expect(gateway.pendingNoteMutations()).toEqual([]);
       expect(updates).toBe(1);
       expect(session.draft.body).toBe('Keep this draft');
-      expect((error as MdbaseConnectError).problem.code).toBe('concurrent_modification');
+      expect((error as MdbaseConnectError).problem.code).toBe(failure.problem.code);
       expect(session.pendingSave).toBeUndefined();
       expect(session.saveState).toBe('conflict');
     }
@@ -68,6 +78,7 @@ for (const mode of ['success', 'automatic-rejection', 'deferred-rejection'] as c
 it.each([
   ['still unknown', new MdbaseConnectError(unknown.problem)],
   ['probe not sent', new MdbaseConnectError(connectProblem('temporarily_unavailable', 'Probe unavailable', { operationOutcome: 'not_sent' }))],
+  ['probe rejected but original still pending', new MdbaseConnectError(rejected.problem)],
   ['unstructured failure', new Error('Offline')]
 ])('retains the original intent when recovery is %s', async (_name, failure) => {
   let updates = 0;
@@ -76,6 +87,7 @@ it.each([
   const coordinator = new NoteOperationCoordinator({
     async update() { updates++; throw new MdbaseConnectError(unknown.problem); },
     async recover() { throw failure; },
+    isPending: () => true,
     onSaved() {}, onChange() {}, onSaveError() {}
   });
   await expect(coordinator.requestSave(session)).rejects.toBeInstanceOf(MdbaseConnectError);

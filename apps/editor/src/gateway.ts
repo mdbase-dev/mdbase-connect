@@ -299,9 +299,11 @@ export class ConnectCollectionGateway implements CollectionGateway {
       // One exact continuation, not a transport retry or a newly constructed update.
       if (pending?.operation === "update") {
         const recovered = await pending.recover().catch(() => outcome);
-        return requireOutcome(recovered);
+        // A failed probe may not have reached the authority. Only the SDK
+        // settling its handle proves that rejection resolved the original intent.
+        if (recovered.ok || !connection.pendingMutation(pending.requestId)) return requireOutcome(recovered);
       }
-      // Without a matching handle, the original outcome remains unknown.
+      // Without a settled handle, the original outcome remains unknown.
     }
     return requireOutcome(outcome);
   }

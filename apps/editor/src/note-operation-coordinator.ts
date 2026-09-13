@@ -8,6 +8,7 @@ import { pendingNoteRequestId } from "./pending-note-mutation";
 interface NoteOperationCoordinatorOptions {
   update(input: SaveNoteInput): Promise<NoteDocument>;
   recover?(requestId: string): Promise<NoteDocument>;
+  isPending(requestId: string): boolean;
   onSaved(session: NoteSession, document: NoteDocument): void;
   onSaveError(session: NoteSession, error: unknown): void;
   onChange(session: NoteSession): void;
@@ -63,9 +64,10 @@ export class NoteOperationCoordinator {
           this.options.onSaved(session, document);
           this.options.onChange(session);
         } catch (error) {
-          // A definitive rejection settles the original intent; a failed probe
-          // (including not_sent) does not prove the earlier attempt was rejected.
-          if (error instanceof MdbaseConnectError && error.problem.operation_outcome === "rejected") {
+          // The SDK owns settlement. Probe errors alone cannot tell us whether
+          // the original request was rejected or remains durably pending.
+          if (session.pendingSave && error instanceof MdbaseConnectError && !error.outcomeUnknown &&
+              !this.options.isPending(session.pendingSave.requestId)) {
             session.pendingSave = undefined;
           }
           const requestId = pendingNoteRequestId(error);
