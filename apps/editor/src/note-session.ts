@@ -2,7 +2,7 @@ import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { NoteDocument, TitleSource } from "./model";
 import { editableNote } from "./note";
 
-export type SaveState = "saved" | "waiting" | "saving" | "conflict";
+export type SaveState = "saved" | "waiting" | "saving" | "conflict" | "recovery";
 export type NoteActivity = "saving" | "properties" | "renaming" | "moving" | "deleting" | "validating";
 
 export interface Draft {
@@ -26,6 +26,7 @@ export interface NoteSession {
   deleted?: boolean;
   saveAgain?: boolean;
   savePromise?: Promise<void>;
+  pendingSave?: { requestId: string; draft: Draft };
 }
 
 let editorSessionSequence = 0;

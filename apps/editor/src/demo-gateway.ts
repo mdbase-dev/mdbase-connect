@@ -36,6 +36,10 @@ import type {
 } from "./model";
 
 export class DemoCollectionGateway implements CollectionGateway {
+  pendingNoteMutations(): readonly import("@mdbase-dev/connect").PendingMutationSummary[] { return []; }
+  async recoverNoteMutation(_requestId: string): Promise<NoteDocument> {
+    throw new Error("No interrupted note operation is available.");
+  }
   private notes: NoteDocument[];
   private files: CollectionFile[] = demoFiles();
   private fileContents = new Map<string, Blob>(demoFileContents());

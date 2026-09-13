@@ -21,6 +21,7 @@ export function updateMutationActivity(
 
 export function noteRowStatus(session: NoteSession): NoteRowStatus | undefined {
   if (session.deleted) return { label: "Deleting", tone: "busy", busy: true, disabled: true };
+  if (session.pendingSave) return { label: "Recovery pending", tone: "error", busy: false };
   if (session.remoteDocument) return { label: "Changed elsewhere", tone: "error", busy: false };
   if (session.activity) {
     const labels: Record<NoteActivity, string> = {
