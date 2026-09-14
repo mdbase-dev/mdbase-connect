@@ -135,6 +135,18 @@ migration, desktop and PostgreSQL transaction/race tests cover it. Reviewed
 limits become 3,173 Rust visibility references and 2,445 TypeScript exports;
 file-count, file-size, dependency-cycle and package budgets are unchanged.
 
+Portable people adds five focused modules: the protocol's account identity
+shapes, the SDK's bounded control-plane people client, server identity/directory
+authorization, editor person mapping/conversion rules, and the guided editor
+panel. Account metadata never becomes a parallel record transport or permission
+source. The signed manifest owns People consent; ordinary revision-guarded
+record writes own creation/linking. Route denial and binding tests, Rust manifest
+roundtrips, SDK failures/cancellation, component conversion tests and the real
+local SDK/daemon grant lifecycle cover these boundaries. Reviewed limits become
+690 production files, 1,508 relative imports, 3,177 Rust visibility references and
+2,466 TypeScript exports. Account consent presentation stays in the existing
+permission component module. No file-size, package-count or cycle limit changes.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;

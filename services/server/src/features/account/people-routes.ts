@@ -50,10 +50,11 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
          LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
          WHERE tok.token_hash = $1 AND tok.expires_at > now()
            AND tok.revoked_at IS NULL AND g.revoked_at IS NULL
-           AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL
+           AND g.activated_at IS NOT NULL AND g.reauthorization_required_at IS NULL
+           AND u.suspended_at IS NULL
            AND COALESCE(col.local_id, g.hosted_collection_id) = $2
            AND (g.collection_id IS NULL OR (col.enabled = true AND col.present = true))
-           AND (g.hosted_replica_id IS NULL OR replica.revoked_at IS NULL)
+           AND (g.hosted_replica_id IS NULL OR (replica.id IS NOT NULL AND replica.revoked_at IS NULL))
            AND g.application_authorization->'binding'->>'application_manifest_digest' = app.manifest_digest`,
         [tokenHash(bearer), collectionId]
       );

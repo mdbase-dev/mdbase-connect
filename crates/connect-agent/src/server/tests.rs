@@ -855,6 +855,7 @@ schema:
             access: Some(ApplicationAccess::FullCollection),
             collection_kind: None,
             files: None,
+            people: None,
             capabilities: None,
         },
         provisions: ApplicationProvisions::default(),

@@ -321,7 +321,7 @@ function CollectionInvitationBanner({ busy, onAccept, onDismiss }: {
 }) {
   return <div className="connect-pending-banner connect-sharing-banner" role="status">
     <Notebook aria-hidden="true" />
-    <span><strong>A collection was shared with you</strong><small>Accept to add it to your collections. The invitation is bound to this account.</small></span>
+    <span><strong>A collection was shared with you</strong><small>Accept to add it to your collections. The invitation is bound to this account. Your account name and stable identifier can be shared with other members’ apps when they approve People access.</small></span>
     <span className="connect-banner-actions"><button disabled={busy} onClick={onDismiss}>Not now</button><button className="connect-primary-action" disabled={busy} onClick={onAccept}>{busy ? "Accepting…" : "Accept"}</button></span>
   </div>;
 }

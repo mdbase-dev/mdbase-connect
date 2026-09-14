@@ -1,4 +1,4 @@
-import { MdbasePeopleClient } from "./people-client.js";
+import { MdbasePeopleClient, requestPeople } from "./people-client.js";
 import type {
   CollectionOperation,
   CollectionTypeDocument,
@@ -232,7 +232,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       timeouts: internals.timeouts,
       onChange: () => this.emitConnection()
     });
-    this.people = new MdbasePeopleClient((resource, options) => this.transport.peopleRequest(resource, options));
+    this.people = new MdbasePeopleClient((resource, options) => requestPeople(resource, options ?? {}, {
+      serverUrl: internals.serverUrl, collectionId, requestMs: internals.timeouts.requestMs,
+      authorizedToken: (signal) => this.transport.authorizedToken({ signal, timeoutMs: null })
+    }));
     this.files = new MdbaseFileClient(
       () => this.fileCapability,
       (method, path, input, signal) =>

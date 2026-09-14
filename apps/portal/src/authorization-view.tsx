@@ -40,7 +40,7 @@ import {
 } from "./authorization-review-state";
 import {
   FilePermissionSummary,
-  NotificationAccess,
+  AccountAccess,
   PermissionCapabilitySummary,
   PermissionDelta,
   PermissionChoices
@@ -964,12 +964,7 @@ function SupportedApprovalForm({
           </div>}
         </div>
       </section>}
-      {reviewing && "people" in request.requirements && request.requirements.people && <section aria-label="People access">
-        <h3>People and account identity</h3>
-        <p>This application requires access to {request.requirements.people.permissions.includes("identity") ? "your account identity and display name" : "collection member identities"}{request.requirements.people.permissions.includes("identity") && request.requirements.people.permissions.includes("members") ? ", and collection member identities, names and roles" : ""}.</p>
-        <p>Account identifiers are stable across collections, so applications can recognise the same person. Email addresses and pending invitations are not shared. This does not allow managing collection membership.</p>
-      </section>}
-      {reviewing && <NotificationAccess notifications={request.notifications} />}
+      {reviewing && <AccountAccess people={"people" in request.requirements ? request.requirements.people : undefined} notifications={request.notifications} />}
       {error && <div className="message error compact" role="alert">{error}</div>}
       {reviewing && <footer className="approval-footer">
         <div className="approval-receipt">

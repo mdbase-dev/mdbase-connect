@@ -156,6 +156,17 @@ export function FilePermissionSummary({ files, selected, disabled, onToggle, all
   );
 }
 
+export function AccountAccess({ people, notifications }: {
+  people?: import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement;
+  notifications: PendingAuthorization["notifications"];
+}) {
+  return <>{people && <section aria-label="People access">
+    <h3>People and account identity</h3>
+    <p>This application requires access to {people.permissions.includes("identity") ? "your account identity and display name" : "collection member identities"}{people.permissions.includes("identity") && people.permissions.includes("members") ? ", and collection member identities, names and roles" : ""}.</p>
+    <p>Account identifiers are stable across collections, so applications can recognise the same person. Private email fields and pending invitations are not shared. This does not allow managing collection membership.</p>
+  </section>}<NotificationAccess notifications={notifications} /></>;
+}
+
 export function NotificationAccess({ notifications }: {
   notifications: PendingAuthorization["notifications"];
 }) {

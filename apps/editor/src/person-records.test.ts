@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionDescription } from "@mdbase-dev/connect";
 import type { NoteSummary } from "./model";
-import { identityPatch, matchingPerson, newPersonProperties, personRecords } from "./person-records";
+import { contactPersonPatch, identityPatch, matchingPerson, newPersonProperties, personRecords } from "./person-records";
 
 const implementation = { typeName: "contact", typeVersion: 1, digest: "digest", fields: { id: "uid", name: "/profile/name", identities: "/profile/accounts" } };
 const description = { contracts: [{ id: "mdbase.person", version: "1.0.0", implementations: [implementation] }] } as unknown as CollectionDescription;
@@ -32,6 +32,23 @@ describe("portable person records", () => {
     expect(properties.uid).toMatch(/^person_/);
     expect(properties.profile).toEqual({ name: "My label", accounts: [identity] });
     expect(newPersonProperties(implementation, identity, "My label").uid).not.toBe(properties.uid);
+  });
+  it("refuses contact conversion that would lose canonical or collection-owned fields", () => {
+    const source = { ...implementation, typeName: "legacy", fields: { name: "full_name", primary_email: "email" } };
+    const targetContact = { ...implementation, fields: { name: "/profile/name", primary_email: "/profile/email" } };
+    const migration = { ...description,
+      types: [{ name: "contact", schema: { properties: { type: { const: "contact" } } } }],
+      contracts: [...description.contracts, { id: "mdbase.contact", version: "1.0.0", implementations: [source, targetContact] }]
+    } as unknown as CollectionDescription;
+    const original = { type: "legacy", uid: "stable_id", full_name: "Callum", email: "local@example.com", profile: { other: "Preserve this" } };
+    const converted = contactPersonPatch(migration, original, source, implementation, identity);
+    expect(converted.personId).toBe("stable_id");
+    expect(converted.patch).toEqual({ type: "contact", profile: { other: "Preserve this", name: "Callum", email: "local@example.com", accounts: [identity] } });
+    expect(original.profile).toEqual({ other: "Preserve this" });
+    expect(() => contactPersonPatch(migration, { ...original, profile: { name: "Different local field" } }, source, implementation, identity)).toThrow("different data");
+    expect(() => contactPersonPatch(migration, { ...original, uid: 42 }, source, implementation, identity)).toThrow("portable string ID");
+    delete (targetContact.fields as Partial<typeof targetContact.fields>).primary_email;
+    expect(() => contactPersonPatch(migration, original, source, implementation, identity)).toThrow("cannot retain");
   });
   it("does not guess when mappings or record identities are invalid", () => {
     const invalid = note(); invalid.frontmatter.uid = "";

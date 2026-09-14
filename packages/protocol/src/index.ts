@@ -276,11 +276,7 @@ export interface ApplicationProvisions {
 }
 
 export interface GrantScope {
-  /**
-   * Legacy semantic scope payload retained for wire/storage compatibility.
-   * Canonical application grants use an empty array; contracts remain available
-   * through collection resources and operation-level semantic selectors.
-   */
+  /** Legacy scope only; canonical grants use an empty array and discover contracts through resources and semantic selectors. */
   contracts: CollectionContractDescriptor[];
   /** New authority must be `full_collection`; `contract` is legacy-only. */
   access: "contract" | "full_collection";

@@ -1,10 +1,32 @@
 # Portable people and app-visible account identity
 
-Status: implementation in progress on `feature/portable-people`. The companion
-`mdbase-contracts` worktree adds `mdbase.person` 1.0.0. Connect now implements
-app-consented identity and member endpoints, SDK discovery, and an editor
-create/link panel reached from Connect collection settings. TaskNotes integration
-is coordinated in its own worktree. No existing app grant acquires identity access.
+Status: implemented on coordinated `feature/portable-people` branches; not
+published or deployed. Connect provides app-consented identity/member endpoints,
+SDK discovery, and guided person creation/linking in collection settings.
+TaskNotes provides person-ID assignment editing and an Assigned to me search
+filter through its repository. No existing grant acquires identity access.
+
+Companion candidates: `mdbase.person` 1.0.0 in Contact pack 1.1.0;
+`tasknotes.task` rc.4 in TaskNotes pack rc.13 (task type v2); `tasknotes-model`
+rc.12 and `tasknotes-spec` rc.4. Existing published versions are unchanged.
+Catalog publication and coordinated server/client rollout still require review.
+
+## Verification
+
+- Complete Connect JavaScript and Rust workspace tests and type/architecture checks.
+- Real isolated local daemon, signed consent/grant, browser and SDK end-to-end
+  suite, including owner identity/directory discovery while record routing is direct.
+- Server denial, expiry, revoked/suspended/unbound membership and manifest-binding tests.
+- Editor mapped linking, reviewed Contact-only conversion, readonly and duplicate tests.
+- Catalog validation plus real Contact pack install/upgrade, single-contact
+  conversion, stable ID/body preservation and stale revision refusal.
+- TaskNotes unit/repository/UI tests, lint, typecheck, conformance and production build;
+  model tests cover custom assignment mappings, clearing and recurrence inheritance.
+
+The SDK build emits non-blocking gzip-size review warnings against its checked-in
+baseline; no size limits were raised. LAB and production have not been deployed
+or exercised for this initiative. Hosted profile routes have repository-level
+coverage, not a new live hosted-provider acceptance run.
 
 ## Decisions
 
@@ -123,8 +145,14 @@ with typed outcomes, cancellation and bounded requests. A missing endpoint is
 `unsupported_operation`; denied consent is `access_denied`; availability failures
 are not empty directories. The editor uses normal collection grants to create
 records or append an identity to an existing Person-compatible record.
-Contact-only types require explicit contract/mapping setup in Types first;
-there is no silent address-book migration.
+An existing Contact-only note can be explicitly converted to an installed type
+implementing both Person and Contact. The user reviews the changed fields before
+a revision-guarded update to that one note; its path, contact semantics, body,
+extra fields, and existing target ID are retained. Non-individual contacts and
+ambiguous implementations are not conversion candidates. Targets must preserve
+all populated canonical Contact fields. Schema validation may require further
+manual edits for custom types. Alternatively, users can configure Person mappings
+on their existing type in Types. Neither route silently migrates an address book.
 
 Review this implementation together with:
 
