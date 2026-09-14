@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "results": [
+    {
+      "observation_id": "run-34889468121-attempt-1",
+      "generated_at": "2026-09-14T19:57:28.108262985+00:00",
+      "connect_commit": "e6b32bd292d0f82afbeaca64ae438bdb84234576",
+      "mdbase_rs_commit": "76ceed008b63fd06c91dbc6ccd0cfcea043ac042",
+      "run_url": "https://github.com/mdbase-dev/mdbase-connect/actions/runs/34889468121",
+      "provider_10k": false,
+      "file": "results/2026/09/run-34889468121-attempt-1.json",
+      "summary": "results/2026/09/run-34889468121-attempt-1.md"
+    }
+  ]
+}
