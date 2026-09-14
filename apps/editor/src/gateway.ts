@@ -164,6 +164,10 @@ export class ConnectCollectionGateway implements CollectionGateway {
     this.session.forget(collectionId);
   }
 
+  async currentIdentity(options?: { signal?: AbortSignal }) {
+    return requireOutcome(await this.requireConnection().people.current(options));
+  }
+
   async describe(): Promise<CollectionDescription> {
     return requireOutcome(await this.requireConnection().describe());
   }

@@ -81,6 +81,15 @@ pub struct ApplicationRequirements {
     pub collection_kind: Option<ApplicationCollectionKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub files: Option<ApplicationFileRequirement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub people: Option<ApplicationPeopleRequirement>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApplicationPeopleRequirement {
+    pub version: u8,
+    pub permissions: Vec<String>,
 }
 
 impl ApplicationRequirements {
@@ -91,6 +100,23 @@ impl ApplicationRequirements {
             .semantic_capabilities
             .contains(&version)
         {
+            return false;
+        }
+        if self.people.as_ref().is_some_and(|people| {
+            version != 2
+                || people.version != 1
+                || people.permissions.is_empty()
+                || people
+                    .permissions
+                    .iter()
+                    .any(|permission| !matches!(permission.as_str(), "identity" | "members"))
+                || people
+                    .permissions
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    != people.permissions.len()
+        }) {
             return false;
         }
         if self

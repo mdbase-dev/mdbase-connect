@@ -122,6 +122,18 @@
           "const": "hosted",
           "description": "Require a durable provider-backed collection with direct sync support."
         },
+        "people": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "permissions"],
+          "properties": {
+            "version": { "const": 1 },
+            "permissions": {
+              "type": "array", "minItems": 1, "uniqueItems": true,
+              "items": { "enum": ["identity", "members"] }
+            }
+          }
+        },
         "files": { "$ref": "#/$defs/fileRequirement" },
         "configuration": {
           "type": "array",

@@ -1,18 +1,20 @@
 import { ArrowLeftIcon as ArrowLeft, CaretRightIcon as ChevronRight, TrashIcon as Trash2 } from "./icons";
 import type { CollectionDescription } from "@mdbase-dev/connect";
 import { useEffect, useState, type ReactNode } from "react";
-import type { ConnectionSummary } from "./model";
+import type { CollectionGateway, ConnectionSummary } from "./model";
+import { YourPersonPanel } from "./YourPersonPanel";
 import type { EditorPreferences } from "./preferences";
 import { SelectControl } from "./SelectionControls";
 import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "./theme";
 
-export function SettingsView({ description, connection, noteCount, preferences, directAccessBusy, leadingActions, onChange, onBack, onForget, onRequestDirectAccess }: {
+export function SettingsView({ description, connection, noteCount, preferences, directAccessBusy, leadingActions, gateway, onChange, onBack, onForget, onRequestDirectAccess }: {
   description: CollectionDescription;
   connection: ConnectionSummary | null;
   noteCount: number;
   preferences: EditorPreferences;
   directAccessBusy: boolean;
   leadingActions?: ReactNode;
+  gateway?: CollectionGateway;
   onChange: (value: EditorPreferences) => void;
   onBack: () => void;
   onForget: () => void;
@@ -61,6 +63,8 @@ export function SettingsView({ description, connection, noteCount, preferences, 
           <FactRow label="Runtime" value={runtime.enabled === true ? `Enabled · ${stringValue(runtime.profile_version, "0.1.0")}` : "Disabled"} />
         </details>
       </section>
+
+      {gateway?.currentIdentity && <YourPersonPanel key={description.collectionId} gateway={gateway} description={description} canCreate={connection?.operations.includes("create") ?? false} canEdit={connection?.operations.includes("update") ?? false} />}
 
       <section>
         <div className="settings-intro"><h2>Connection</h2><p>Collection-wide access through mdbase connect. Storage remains local or hosted according to the collection you chose.</p></div>

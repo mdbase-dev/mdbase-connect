@@ -171,7 +171,7 @@ export type ApplicationFileAction =
 
 export type ApplicationRequirements = CapabilityApplicationRequirements | LegacyApplicationRequirements;
 
-export type LegacyApplicationRequirements = Omit<CapabilityApplicationRequirements, "capabilities" | "files"> & {
+export type LegacyApplicationRequirements = Omit<CapabilityApplicationRequirements, "capabilities" | "files" | "people"> & {
   capabilities?: import("@mdbase-dev/connect-protocol").LegacyApplicationCapabilityRequirements;
   files?: {
     actions: ApplicationFileAction[];
@@ -180,6 +180,7 @@ export type LegacyApplicationRequirements = Omit<CapabilityApplicationRequiremen
 };
 
 export interface CapabilityApplicationRequirements {
+  people?: import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement;
   contracts: ContractRequirement[];
   capabilities: {
     contract_version: 2;

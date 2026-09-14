@@ -56,6 +56,8 @@ export type {
   MdbaseRecordSessionSnapshot,
   MdbaseRecordSessionState
 } from "./record-session.js";
+export { MdbasePeopleClient } from "./people-client.js";
+export type { AccountIdentity, AccountProfile, CollectionMemberProfile, ApplicationPeopleRequirement } from "@mdbase-dev/connect-protocol";
 export type {
   MdbaseFileSource,
   CollectionFileDescriptor,

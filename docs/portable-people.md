@@ -1,8 +1,10 @@
 # Portable people and app-visible account identity
 
-Status: implementation design. The companion `mdbase-contracts` worktree adds
-`mdbase.person` 1.0.0; Connect identity APIs and TaskNotes assignment UI are not
-implemented by this document. No existing app grant acquires identity access.
+Status: implementation in progress on `feature/portable-people`. The companion
+`mdbase-contracts` worktree adds `mdbase.person` 1.0.0. Connect now implements
+app-consented identity and member endpoints, SDK discovery, and an editor
+create/link panel reached from Connect collection settings. TaskNotes integration
+is coordinated in its own worktree. No existing app grant acquires identity access.
 
 ## Decisions
 
@@ -93,10 +95,38 @@ not existing collection operations. Do not silently add them to
 owner-only management directory to apps, or treat an empty operation group as
 proof of consent.
 
-The next implementation slice must introduce explicit, signed and persisted
-identity authorization facets (self identity and collection directory), following
-the existing non-record capability machinery. The exact wire declaration and
-version transition need to be implemented together with:
+Version 1 is deliberately required-only consent in the exact application manifest:
+
+```json
+{"requirements":{"people":{"version":1,"permissions":["identity","members"]}}}
+```
+
+The existing signed binding already includes the exact manifest digest. The
+immutable application declaration therefore persists this required consent;
+there is no parallel binding database, new collection operation, or new mutable
+grant flag. Changing people permissions changes application identity and needs
+fresh approval. Removing people access alone means authorizing a declaration
+without it; the initial version does not offer optional permission toggles.
+Legacy declarations reject this field. Older servers reject the new manifest;
+older grants have no people requirement and the new endpoints deny them.
+
+`GET /v1/authorities/:collectionId/identity` returns `{issuer, subject, name}`.
+`GET /v1/authorities/:collectionId/members` returns `{members: [...]}`, adding
+`role` to each profile. Both use the control-plane application access token,
+including for hosted collections. The issuer is the configured public URL with
+its final slash removed; subject is the existing random internal account UUID,
+now deliberately an account-wide public identifier. Changing the configured
+issuer is an identity migration, not a transparent routing change.
+
+The SDK exposes `connection.people.current()` and `connection.people.members()`
+with typed outcomes, cancellation and bounded requests. A missing endpoint is
+`unsupported_operation`; denied consent is `access_denied`; availability failures
+are not empty directories. The editor uses normal collection grants to create
+records or append an identity to an existing Person-compatible record.
+Contact-only types require explicit contract/mapping setup in Types first;
+there is no silent address-book migration.
+
+Review this implementation together with:
 
 1. Manifest parsing, canonical application identity, and approval binding.
 2. Concrete consent copy, optional/required selection, and grant persistence.
