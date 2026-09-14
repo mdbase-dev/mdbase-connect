@@ -13,6 +13,7 @@ export interface CollectionIndexState {
   listLoading: boolean;
   structureLoading: boolean;
   structureComplete: boolean;
+  structureError?: string;
   contentComplete: boolean;
   contentIndexing: boolean;
   contentLoaded: number;
@@ -85,6 +86,7 @@ export class CollectionIndexController {
       listLoading: true,
       structureLoading: true,
       structureComplete: false,
+      structureError: undefined,
       contentComplete: false,
       contentIndexing: false,
       contentLoaded: 0,
@@ -161,7 +163,7 @@ export class CollectionIndexController {
         return { cancelled: true, notes: [] };
       }
       resolveFirst([]);
-      this.publish({ ...this.state, listLoading: false, structureLoading: false });
+      this.publish({ ...this.state, listLoading: false, structureLoading: false, structureError: this.errorMessage(error) });
       throw error;
     }).finally(() => {
       if (this.listRequest === controller) this.listRequest = undefined;
@@ -329,5 +331,5 @@ function samePathsAndReferences(left: readonly NoteSummary[], right: readonly No
 }
 
 function defaultErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "The note content index could not be loaded.";
+  return error instanceof Error ? error.message : "The note index could not be loaded.";
 }

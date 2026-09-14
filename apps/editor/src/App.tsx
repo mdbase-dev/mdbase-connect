@@ -173,7 +173,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     total: collectionTotal,
     listLoading,
     structureLoading: foldersLoading,
-    structureComplete,
+    structureComplete, structureError,
     contentComplete,
     contentIndexing,
     contentLoaded,
@@ -352,9 +352,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     await indexController.reload();
   }, [indexController]);
 
-  const loadContentIndex = useCallback((): Promise<void> => {
-    return indexController.hydrate();
-  }, [indexController]);
+  const loadContentIndex = useCallback(() => indexController.hydrate(), [indexController]);
 
   const refreshDescription = useCallback(async (isCurrent: () => boolean = () => true) => {
     const epoch = collectionEpoch.current;
@@ -1941,7 +1939,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         fileCount={visibleFiles.length}
         types={description.types}
         loading={listLoading}
-        structureLoading={foldersLoading}
+        structureLoading={foldersLoading} structureError={structureError}
         filesLoading={fileInventory.loading}
         fileError={fileInventory.error}
         contentIndexing={contentIndexing}
@@ -1964,6 +1962,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onSort={setNoteSort}
         onClearScope={() => setNoteFilter(undefined)}
         onQuickOpen={() => setQuickOpen(true)}
+        onRetryStructure={() => void loadIndex().catch(() => undefined)}
         onRetryContent={() => void loadContentIndex()}
         onRetryFiles={() => void fileController.reload().catch(() => undefined)}
         onSelect={(path, options) => {

@@ -168,6 +168,48 @@ describe("CollectionIndexController", () => {
     expect(controller.getSnapshot().notes[0]?.body).toBe("later remote edit");
   });
 
+  it("retains a failed partial inventory as incomplete and clears the error on retry", async () => {
+    const notes = Array.from({ length: 8295 }, (_, i) => note(`${i}.md`));
+    let fail = true;
+    const source: CollectionIndexSource = {
+      list: async (options) => {
+        options?.onProgress?.({ notes: notes.slice(0, 400), total: notes.length,
+          structureComplete: false, complete: false, contentComplete: false });
+        if (fail) throw new Error("Third page unavailable");
+        return { notes };
+      },
+      hydrateContent: async () => ({ notes })
+    };
+    const controller = new CollectionIndexController(source);
+    const load = controller.beginLoad();
+    await expect(load.firstPage).resolves.toHaveLength(400);
+    await expect(load.complete).rejects.toThrow("Third page unavailable");
+    expect(controller.getSnapshot()).toMatchObject({ total: 8295,
+      structureComplete: false, contentComplete: false, listLoading: false,
+      structureLoading: false, structureError: "Third page unavailable" });
+    expect(controller.getSnapshot().notes).toHaveLength(400);
+    fail = false;
+    const retry = controller.beginLoad();
+    expect(controller.getSnapshot().structureError).toBeUndefined();
+    await retry.complete;
+    expect(controller.getSnapshot()).toMatchObject({ structureComplete: true, structureError: undefined });
+    expect(controller.getSnapshot().notes).toHaveLength(8295);
+  });
+
+  it("does not publish an obsolete request's error after a successful reload", async () => {
+    const stale = deferred<{ notes: NoteSummary[] }>();
+    let first = true;
+    const controller = new CollectionIndexController({
+      list: async () => { if (first) { first = false; return stale.promise; } return { notes: [] }; },
+      hydrateContent: async () => ({ notes: [] })
+    });
+    const old = controller.beginLoad();
+    await controller.reload();
+    stale.reject(new Error("Obsolete failure"));
+    await expect(old.complete).resolves.toMatchObject({ cancelled: true });
+    expect(controller.getSnapshot().structureError).toBeUndefined();
+  });
+
   it("keeps a failed hydration retryable and reports its error", async () => {
     let attempt = 0;
     const source: CollectionIndexSource = {
