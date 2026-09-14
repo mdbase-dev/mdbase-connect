@@ -362,7 +362,7 @@ function App() {
         </header>
 
         <div aria-live="polite">
-          {error && <div className="message error-message" role="alert">{error} <button className="quiet-action" onClick={() => setError(null)}>Dismiss</button></div>}
+          {error && <div className="message error-message" role="alert"><span>{error}</span> <button className="quiet-action" onClick={() => setError(null)}>Dismiss</button></div>}
           {presentResourceFailures(resourceFailures) && <div className="message" role="status">{presentResourceFailures(resourceFailures)}</div>}
           {notice && <div className="message notice-message">{notice}</div>}
         </div>
