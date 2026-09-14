@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM rust:1.94.0-bookworm AS build
+FROM rust:1.98.0-bookworm AS build
 
 ARG MDBASE_RS_REPOSITORY=https://github.com/callumalpass/mdbase-rs.git
 ARG MDBASE_RS_REVISION
