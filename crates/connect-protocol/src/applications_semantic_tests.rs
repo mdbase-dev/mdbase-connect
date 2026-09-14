@@ -2,6 +2,30 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn people_consent_roundtrips_without_expanding_legacy_authority() {
+    let input = json!({
+        "contracts": [], "configuration": [],
+        "capabilities": {"contract_version":2,"required":["collection.read"]},
+        "people": {"version":1,"permissions":["identity","members"]}
+    });
+    let requirements: ApplicationRequirements = serde_json::from_value(input.clone()).unwrap();
+    assert!(requirements.valid_for_semantic_contract(2));
+    assert!(!requirements.valid_for_semantic_contract(1));
+    assert_eq!(serde_json::to_value(requirements).unwrap(), input);
+    for people in [
+        json!({"version":2,"permissions":["identity"]}),
+        json!({"version":1,"permissions":[]}),
+        json!({"version":1,"permissions":["identity","identity"]}),
+        json!({"version":1,"permissions":["emails"]}),
+    ] {
+        let mut invalid = input.clone();
+        invalid["people"] = people;
+        let requirements: ApplicationRequirements = serde_json::from_value(invalid).unwrap();
+        assert!(!requirements.valid_for_semantic_contract(2));
+    }
+}
+
+#[test]
 fn fresh_issuance_advertisement_matches_artifact_policy_not_retained_readers() {
     assert_eq!(
         FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES

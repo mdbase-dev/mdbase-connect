@@ -89,6 +89,15 @@ it("uses the same identity for a relay collection and returns only its owner", a
   expect((await f.get("identity", localId)).statusCode).toBe(401);
 });
 
+it("rejects expired tokens and unbound member grants", async () => {
+  const f = await fixture(["identity", "members"], true);
+  await f.db.query("UPDATE grants SET membership_id = NULL, membership_policy_id = NULL, membership_policy_revision = NULL WHERE id = $1", [f.grantId]);
+  expect((await f.get("members")).statusCode).toBe(401);
+  await f.db.query("UPDATE grants SET membership_id = $1, membership_policy_id = $2, membership_policy_revision = $3 WHERE id = $4", [f.policy.membershipId, f.policy.id, f.policy.revision, f.grantId]);
+  await f.db.query("UPDATE access_tokens SET expires_at = now() - interval '1 hour' WHERE grant_id = $1", [f.grantId]);
+  expect((await f.get("identity")).statusCode).toBe(401);
+});
+
 it("rejects suspension, stale manifest evidence and nonactive authorities", async () => {
   const f = await fixture();
   await f.db.query("UPDATE users SET suspended_at = now() WHERE id = $1", [f.ownerId]);

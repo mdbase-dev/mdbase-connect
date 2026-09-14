@@ -7,6 +7,12 @@
     "https://editor.mdbase.dev/"
   ],
   "requirements": {
+    "people": {
+      "version": 1,
+      "permissions": [
+        "identity"
+      ]
+    },
     "contracts": [],
     "capabilities": {
       "contract_version": 2,

@@ -238,6 +238,17 @@ dispatcher, `app.ts`, and those helpers. Limits: server 141 files, 1,518
 relative imports, 2,473 TypeScript exports. Tests cover every funnel, consent,
 and pairing outcome, identity-free output, window validation, and retention
 boundaries. The migration, report, and prune were also run on PostgreSQL 16.
+Portable people adds five focused modules: the protocol's account identity
+shapes, the SDK's bounded control-plane people client, server identity/directory
+authorization, editor person mapping/conversion rules, and the guided editor
+panel. Account metadata never becomes a parallel record transport or permission
+source. The signed manifest owns People consent; ordinary revision-guarded
+record writes own creation/linking. Route denial and binding tests, Rust manifest
+roundtrips, SDK failures/cancellation, component conversion tests and the real
+local SDK/daemon grant lifecycle cover these boundaries. Reviewed limits become
+690 production files, 1,508 relative imports, 3,177 Rust visibility references and
+2,466 TypeScript exports. Account consent presentation stays in the existing
+permission component module. No file-size, package-count or cycle limit changes.
 
 Email preferences and unsubscribe add no production file. `scheduled-email.ts`
 already owns email categories and eligibility, so it also owns the preferences

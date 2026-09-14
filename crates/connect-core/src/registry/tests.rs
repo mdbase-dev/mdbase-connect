@@ -270,6 +270,7 @@ implements:
             access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
             collection_kind: None,
             files: None,
+            people: None,
             capabilities: None,
         },
         provision,

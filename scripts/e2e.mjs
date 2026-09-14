@@ -938,6 +938,12 @@ implements:
     if (requireConnectSuccess(await connection.requestDirectAccess()) !== "available") {
       throw new Error("Browser SDK did not discover the direct connector");
     }
+    const currentPerson = requireConnectSuccess(await connection.people.current());
+    const members = requireConnectSuccess(await connection.people.members());
+    if (currentPerson.issuer !== serverUrl || currentPerson.name !== "MVP User"
+      || members.length !== 1 || members[0].subject !== currentPerson.subject || members[0].role !== "owner") {
+      throw new Error("Consented SDK identity/member discovery did not resolve the local collection owner");
+    }
     const sdkQuery = requireConnectSuccess(await connection.query({ limit: 1_100 }));
     if (sdkQuery.results.length !== 1_001 || connection.route !== "direct") {
       throw new Error(
@@ -1762,7 +1768,8 @@ async function openManifestServer() {
       version: "1.0.0",
       digest: "sha256:ca1752bbf69314cc712c97ae25ca510dad0230a65653b664f405468c2cefbe16"
     }],
-    "full_collection"
+    "full_collection",
+    true
   );
   const browser = await openApplicationServer("Browser direct E2E", [], "full_collection");
   return {
@@ -1777,7 +1784,7 @@ async function openManifestServer() {
   };
 }
 
-async function openApplicationServer(name, contracts, access) {
+async function openApplicationServer(name, contracts, access, people = false) {
   const id = name === "Browser direct E2E"
     ? "dev.mdbase.browser-e2e"
     : "dev.mdbase.connect-e2e";
@@ -2082,6 +2089,7 @@ schema:
       redirect_uris: [`${origin}/auth/mdbase/callback`],
       requirements: {
         contracts,
+        ...(people ? { people: { version: 1, permissions: ["identity", "members"] } } : {}),
         ...(access ? { access } : {}),
         capabilities: {
           contract_version: 2,
@@ -2102,6 +2110,7 @@ schema:
     redirect_uris: [`${origin}/auth/mdbase/callback`],
     requirements: {
       contracts,
+      ...(people ? { people: { version: 1, permissions: ["identity", "members"] } } : {}),
       ...(access ? { access } : {}),
       capabilities: {
         contract_version: 2,
