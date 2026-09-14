@@ -14,14 +14,17 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/editor-pages.yml"
+      - "scripts/verify-editor-publication.mjs"
+      - "scripts/verify-client-publication.mjs"
+      - "scripts/lib/*publication*.test.mjs"
   workflow_dispatch:
     inputs:
       production_verified_commit:
-        description: Full tagged SHA independently verified by the release owner after guarded production deployment, including exact service digests and hosted fresh-v2 readiness
+        description: Tagged coordinated releases only - full SHA independently verified after backend production deployment. Leave blank for Editor-only production dispatches from main.
         required: false
         type: string
       target:
-        description: Deploy staging by default; production requires an explicit dispatch
+        description: Staging by default. Production from main publishes Editor only; production from a version tag uses the coordinated release gate.
         required: true
         default: staging
         type: choice
@@ -34,8 +37,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: editor-pages-${{ github.ref }}
-  cancel-in-progress: true
+  group: editor-pages-${{ github.event_name == 'workflow_dispatch' && inputs.target == 'production' && 'production' || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || inputs.target != 'production' }}
 
 jobs:
   test:
@@ -57,6 +60,7 @@ jobs:
       - run: pnpm --filter @mdbase/feedback-worker typecheck
       - run: pnpm --filter @mdbase/feedback-worker test
       - run: pnpm --filter mdbase-editor test:deployment
+      - run: node --test scripts/lib/*publication*.test.mjs
       - name: Restore Playwright cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: playwright-cache
@@ -88,7 +92,7 @@ jobs:
   deploy-cloudflare:
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      startsWith(github.ref, 'refs/tags/v') &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
       inputs.target == 'production' &&
       vars.CLOUDFLARE_PAGES_ENABLED == '1'
     needs: test
@@ -98,6 +102,8 @@ jobs:
       url: https://editor.mdbase.dev/
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 11.15.1
@@ -122,11 +128,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: scripts/ci/verify-qualified-commit "$GITHUB_SHA"
-      - name: Verify exact production candidate before client publication
+      - name: Verify exact production candidate before coordinated client publication
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
         run: node scripts/verify-client-publication.mjs
+      - name: Verify independent Editor compatibility with production
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
+        run: node scripts/verify-editor-publication.mjs
       - name: Deploy editor
         run: npx --yes --package wrangler@4.114.0 wrangler pages deploy apps/editor/dist --project-name=mdbase-editor --branch=main
         env:

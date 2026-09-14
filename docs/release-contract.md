@@ -55,10 +55,10 @@ components.
 `.github/previous-release.env` identifies the immediate published predecessor.
 Update its annotated tag, full commit and immutable server/provider digests as
 part of release preparation; ordinary upgrade qualification still requires it to
-be the unique newest non-draft GitHub release. Following beta98 publication,
-qualification uses beta98 (`52f6dad8dc3202461bd1ee244a0815cdef350c87`), using the
-signed image bundle from publication 34695968530 / qualification 34695926363,
-both attempt 1. This fixture refresh does not itself publish or deploy a release.
+be the unique newest non-draft GitHub release. Following beta99 publication,
+qualification uses beta99 (`c8b565f7dfbba6259e413b2c3bf2046325cde290`) and its
+exact signed server/provider images. Advancing this fixture preserves the
+unique-newest-release check; the retained beta95 and beta94 lanes do not move. This fixture refresh does not itself publish or deploy a release.
 
 The exact-beta95 semantic-v2 provider and pending-server regression lanes remain
 required. Their separate `.github/retained-v2-predecessor.env` cannot advance with
@@ -93,6 +93,50 @@ MDBASE_CLOUD_OPS_CHECKOUT=/absolute/path/to/mdbase-cloud-ops \
   pnpm deploy:lab --rollback /absolute/path/to/state.json --confirm LAB
 ```
 
+## Independent Editor production publication
+
+Editor is a separate deployment artifact. UI-only changes do not require a new
+backend, npm package, or desktop release. Dispatch **Editor CI and release**
+(`editor-pages.yml`) from `main`, choose `target=production`, and leave
+`production_verified_commit` blank:
+
+```sh
+gh workflow run editor-pages.yml --repo mdbase-dev/mdbase-connect \
+  --ref main -f target=production
+```
+
+The protected `cloudflare-pages` environment still approves production access.
+The workflow retains Editor unit/browser tests, manifest/CSP/bundle checks,
+exact full Server CI qualification, and post-deployment manifest/asset checks.
+Both production paths share one non-cancelling concurrency group, separate from
+staging, so a main push or tagged publication cannot cancel an active Editor
+production deployment.
+
+Immediately before publishing, `scripts/verify-editor-publication.mjs` requires:
+
+- an exact, clean `main` dispatch whose source is contained in fetched main;
+- ready canonical production Connect, hosted provider and MCP services, matching
+  backend revisions, protocol 1 and fresh-v2 capability evidence;
+- a remote annotated release tag binding that observed backend version/commit;
+- that backend commit as an ancestor of the Editor source; and
+- unchanged backend-facing build inputs relative to that release: client SDK,
+  protocol and management packages, dependency manifests/lockfile, build/type
+  configuration, environment files, Editor scripts and authorization manifest.
+
+Editor source/presentation and shared UI changes are independently eligible.
+This conservative source gate is not a proof of every application behavior;
+review and CI remain mandatory. Changed backend-facing inputs require the
+coordinated tagged path below, not an override or fabricated verified SHA.
+The independently deployed Editor revision need not equal the backend revision,
+and publishing it creates no backend release or backend promotion evidence.
+The workflow records the Editor revision in its assets and prints the observed
+backend release identity. Retain the dispatch and deployment evidence normally.
+
+For an Editor-only rollback, review and merge a revert, then dispatch the new
+main commit through the same checks. Do not publish an arbitrary old branch or
+replace an existing backend tag. If the backend-facing inputs changed meanwhile,
+stop for coordinated release review.
+
 ## Public client release publication
 
 The explicitly dispatched `desktop-release.yml` workflow owns the public desktop
@@ -114,7 +158,8 @@ Client publication follows server production promotion; it cannot be triggered
 by creating a tag. `mdbase-cloud-ops` does not trigger, receive, or hold
 credentials for client or website publication.
 
-For semantic-v2 enablement, use this order:
+For coordinated client releases (including Editor deployments from version
+tags), and for semantic-v2 enablement, use this order:
 
 1. Qualify the exact candidate with full Server CI and retain the build-once
    signed image bundle. Create the matching immutable annotated version tag;
