@@ -71,11 +71,13 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
     value={typeof value === "number" ? value : ""}
     onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))}
   /></label>;
+  // JSON Schema patterns search within a value; HTML pattern implicitly matches
+  // the whole value (and uses different regex flags). Leave pattern validation
+  // to the structured schema validator and collection authority.
   return <label className="schema-value">{label}<input
     aria-label={name}
     minLength={typeof resolved?.minLength === "number" ? resolved.minLength : undefined}
     maxLength={typeof resolved?.maxLength === "number" ? resolved.maxLength : undefined}
-    pattern={typeof resolved?.pattern === "string" ? resolved.pattern : undefined}
     value={typeof value === "string" ? value : ""}
     onChange={(event) => onChange(event.target.value)}
   /></label>;

@@ -229,3 +229,19 @@ name; do not label it a verified profile.
 
 Test with isolated fixtures and the Connect LAB environment, never an installed
 user profile. Follow the LAB skill before starting a daemon or browser test.
+
+### Partial hosted LAB check — 2026-09-14
+
+Disposable LAB checks passed explicit consent, reviewed Contact-only conversion
+and linking, self/member discovery, persisted TaskNotes assignments (including
+interrupted-write recovery), Assigned to me inclusion/exclusion and explicit
+unlinked state after deleting the person. Only unpublished catalog retrieval
+used a browser-served fixture; authentication and hosted CRUD were real.
+
+These checks exposed missing pack resource modes, an unsupported `includeBody`
+option on semantic Person queries, and native HTML whole-value pattern matching
+incorrectly imposed on JSON Schema substring patterns. Regression fixes cover
+all three. The first two passed live retests. The form fix passes local tests
+and build, but its unfinished LAB deployment requires reconciliation before a
+live retest. This is not completion of the full acceptance matrix or promotion
+evidence. The run-owned collection and browser were cleaned up.
