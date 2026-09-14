@@ -82,13 +82,24 @@ test("npm and desktop cannot publish on a tag push; dispatches retain exact qual
   assert.match(desktop, /website-update:[\s\S]*needs: publish/);
   assert.match(desktop, /test "v\$package_version" = "\$GITHUB_REF_NAME"/);
 });
-test("Editor production uses exact tag, full qualification and live guard; staging remains on main", async () => {
+test("Editor has distinct guarded main and tag publication paths; staging remains on main", async () => {
   const text = await workflow("editor-pages");
   const production = text.split("  deploy-cloudflare:\n")[1].split("  deploy-cloudflare-staging:\n")[0];
   assert.match(production, /startsWith\(github.ref, 'refs\/tags\/v'\)/);
-  assert.doesNotMatch(production, /github.ref == 'refs\/heads\/main'/);
+  assert.match(production, /github.ref == 'refs\/heads\/main'/);
+  assert.match(production, /fetch-depth: 0/);
+  assert.match(production, /needs: test/);
+  assert.match(production, /name: cloudflare-pages\n/);
+  assert.match(production, /if: startsWith\(github.ref, 'refs\/tags\/v'\)[\s\S]*?run: node scripts\/verify-client-publication.mjs/);
+  assert.match(production, /if: github.ref == 'refs\/heads\/main'[\s\S]*?run: node scripts\/verify-editor-publication.mjs/);
   assert.match(production, /scripts\/ci\/verify-qualified-commit "\$GITHUB_SHA"/);
-  assert.ok(production.indexOf("run: node scripts/verify-client-publication.mjs") < production.indexOf("wrangler pages deploy"));
+  for (const guard of ["verify-client-publication", "verify-editor-publication"]) {
+    const position = production.indexOf(`run: node scripts/${guard}.mjs`);
+    assert.ok(position > 0 && position < production.indexOf("wrangler pages deploy"));
+  }
+  assert.match(text, /group: editor-pages-\$\{\{ github.event_name == 'workflow_dispatch' && inputs.target == 'production' && 'production' \|\| github.ref \}\}/);
+  assert.match(text, /cancel-in-progress: \$\{\{ github.event_name != 'workflow_dispatch' \|\| inputs.target != 'production' \}\}/);
+  assert.match(text, /node --test scripts\/lib\/\*publication\*.test.mjs/);
   assert.match(text.split("  deploy-cloudflare-staging:\n")[1], /github.ref == 'refs\/heads\/main'/);
 });
 
