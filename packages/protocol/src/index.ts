@@ -247,11 +247,15 @@ export interface ApplicationRequirements {
   access?: "contract" | "full_collection";
   /** Restrict authorization to durable provider-backed collections. */
   collection_kind?: "hosted";
+  /** Explicit required identity consent. Omission discloses no account metadata. */
+  people?: import("./people.js").ApplicationPeopleRequirement;
   /** First-class non-Markdown file access requested independently of records. */
   files?: ApplicationFileRequirement;
 }
 
-export type LegacyApplicationRequirements = Omit<ApplicationRequirements, "capabilities" | "files" | "access"> & {
+export type { AccountIdentity, AccountProfile, CollectionMemberProfile, ApplicationPeopleRequirement } from "./people.js";
+
+export type LegacyApplicationRequirements = Omit<ApplicationRequirements, "capabilities" | "files" | "access" | "people"> & {
   access: "full_collection";
   capabilities?: LegacyApplicationCapabilityRequirements;
   files?: LegacyApplicationFileRequirement;

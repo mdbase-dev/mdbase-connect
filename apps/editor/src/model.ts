@@ -167,6 +167,8 @@ export interface CollectionGateway {
   ): Promise<void>;
   forgetConnection(collectionId: string): void;
   describe(): Promise<CollectionDescription>;
+  /** Demo collections have no authenticated account. */
+  currentIdentity?(options?: { signal?: AbortSignal }): Promise<import("@mdbase-dev/connect").AccountProfile>;
   list(options?: NoteIndexRequest): Promise<NoteIndexResult>;
   hydrateContent(options?: NoteContentRequest): Promise<NoteIndexResult>;
   read(path: string): Promise<NoteDocument>;

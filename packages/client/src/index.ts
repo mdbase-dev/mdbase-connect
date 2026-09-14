@@ -47,6 +47,8 @@ export {
 } from "./errors.js";
 export type { ConnectErrorContext } from "./errors.js";
 export { MdbaseFileClient } from "./files.js";
+export { MdbasePeopleClient } from "./people-client.js";
+export type { AccountIdentity, AccountProfile, CollectionMemberProfile, ApplicationPeopleRequirement } from "@mdbase-dev/connect-protocol";
 export type {
   MdbaseFileSource,
   CollectionFileDescriptor,

@@ -54,6 +54,7 @@ import {
 } from "./operation-helpers.js";
 import {
   apiError,
+  connectFetch,
   decodeJsonResponse,
   parseStored,
 } from "./runtime-utils.js";
@@ -138,6 +139,23 @@ export class ConnectionTransport {
     this.directStatus = this.directAccessMode === "disabled"
       ? "disabled"
       : "unavailable";
+  }
+
+  async peopleRequest(resource: "identity" | "members", options: ConnectRequestOptions = {}): Promise<unknown> {
+    return withRequestBudget(options, this.timeouts.requestMs, async (budget) => {
+      const token = await this.authorizedToken({ signal: budget.signal, timeoutMs: null });
+      if (!token) throw connectError("not_authorized", "Authorize this collection before reading people.");
+      const response = await connectFetch(
+        `${this.serverUrl}/v1/authorities/${encodeURIComponent(this.collectionId)}/${resource}`,
+        { headers: { authorization: `Bearer ${token.accessToken}` }, signal: budget.signal, credentials: "omit", cache: "no-store", redirect: "error" },
+        "temporarily_unavailable", "Account identity information is unavailable."
+      );
+      if (response.status === 404) throw connectError("unsupported_operation", "This Connect server does not support people discovery.");
+      if (response.status === 401) throw connectError("authorization_expired", "The application authorization is no longer active.");
+      if (response.status === 403) throw connectError("access_denied", "This application was not approved to read this identity information.");
+      if (!response.ok) throw connectError("temporarily_unavailable", "Account identity information is unavailable.");
+      return decodeJsonResponse(response, "invalid_operation_response", "Connect returned invalid identity information.");
+    });
   }
 
   get directAccess(): DirectAccessStatus {

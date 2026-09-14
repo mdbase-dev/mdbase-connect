@@ -21,11 +21,13 @@ import {
   writeFieldReference
 } from "./field-reference";
 
-export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType, purpose = "note", preferences, recordPaths = [], leadingActions, onCreate, onCancel, onDraftChange }: {
+export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType, initialProperties, initialTitle = "", purpose = "note", preferences, recordPaths = [], leadingActions, onCreate, onCancel, onDraftChange }: {
   types: CollectionTypeDescriptor[];
   defaultFolder?: string;
   defaultTag?: string;
   defaultType?: string;
+  initialProperties?: JsonObject;
+  initialTitle?: string;
   purpose?: "note" | "folder";
   preferences?: EditorPreferences;
   recordPaths?: string[];
@@ -36,13 +38,13 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
 }) {
   const folderCreation = purpose === "folder";
   const initialType = types.find((candidate) => candidate.name === defaultType);
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(initialTitle);
   const [body, setBody] = useState("");
   const [folderName, setFolderName] = useState("");
   const [typeName, setTypeName] = useState(defaultType ?? "");
-  const [path, setPath] = useState(() => suggestedPath("", defaultFolder ?? typeFolder(initialType)));
+  const [path, setPath] = useState(() => suggestedPath(initialTitle, defaultFolder ?? typeFolder(initialType)));
   const [pathEdited, setPathEdited] = useState(false);
-  const [properties, setProperties] = useState<JsonObject>(() => seededProperties(initialType, defaultTag));
+  const [properties, setProperties] = useState<JsonObject>(() => ({ ...seededProperties(initialType, defaultTag), ...initialProperties }));
   const [requiredPropertiesValid, setRequiredPropertiesValid] = useState(true);
   const [optionalPropertiesValid, setOptionalPropertiesValid] = useState(true);
   const [creating, setCreating] = useState(false);

@@ -21,6 +21,7 @@ await writeFile(target, `${JSON.stringify({
   homepage: appUrl,
   redirect_uris: [appUrl, ...(localCallback ? [localCallback.href] : [])],
   requirements: {
+    people: { version: 1, permissions: ["identity"] },
     contracts: [],
     capabilities: {
       contract_version: 2,

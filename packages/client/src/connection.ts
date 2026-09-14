@@ -1,3 +1,4 @@
+import { MdbasePeopleClient } from "./people-client.js";
 import type {
   CollectionOperation,
   CollectionTypeDocument,
@@ -213,6 +214,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   private readonly notifications: ConnectionNotifications;
   private readonly transport: ConnectionTransport;
   readonly files: MdbaseFileClient;
+  readonly people: MdbasePeopleClient;
   private readonly connectionListeners = new Set<(connection: MdbaseConnectionInfo | null) => void>();
 
   constructor(
@@ -230,6 +232,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       timeouts: internals.timeouts,
       onChange: () => this.emitConnection()
     });
+    this.people = new MdbasePeopleClient((resource, options) => this.transport.peopleRequest(resource, options));
     this.files = new MdbaseFileClient(
       () => this.fileCapability,
       (method, path, input, signal) =>
