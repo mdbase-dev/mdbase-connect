@@ -132,6 +132,7 @@ pub(super) async fn execute_daemon_command(
                 .await
                 .is_ok_and(|response| response.ok)
             {
+                wait_until_ready(endpoint).await?;
                 return Ok(serde_json::json!({
                     "started": false,
                     "already_running": true
@@ -207,7 +208,10 @@ pub(super) async fn doctor(state_dir: &Path, endpoint: &str, target: DaemonTarge
     };
     let response = send(endpoint, ControlRequest::new(ControlCommand::Status)).await;
     let (daemon, status) = match response {
-        Ok(response) if response.ok => ("ready", response.result),
+        Ok(response) if response.ok => {
+            let ready = response.result.as_ref().is_some_and(canonically_ready);
+            (if ready { "ready" } else { "attention" }, response.result)
+        }
         _ => ("unavailable", None),
     };
     serde_json::json!({
@@ -309,20 +313,39 @@ fn daemon_lease_released(state_dir: &Path) -> bool {
     true
 }
 
+fn canonically_ready(value: &Value) -> bool {
+    let health = &value["readiness"];
+    health["schema_version"] == 1
+        && health["ready"] == true
+        && health["binary_version"] == env!("CARGO_PKG_VERSION")
+}
+
 pub(super) async fn wait_until_ready(endpoint: &str) -> Result<(), CliError> {
-    for _ in 0..200 {
-        if send(endpoint, ControlRequest::new(ControlCommand::Ping))
-            .await
-            .is_ok_and(|response| {
-                response.ok
-                    && response
-                        .result
-                        .as_ref()
-                        .and_then(|value| value["ready"].as_bool())
-                        .unwrap_or(false)
-            })
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    while tokio::time::Instant::now() < deadline {
+        if let Ok(Ok(response)) = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            send(endpoint, ControlRequest::new(ControlCommand::Ping)),
+        )
+        .await
         {
-            return Ok(());
+            if response.ok && response.result.as_ref().is_some_and(canonically_ready) {
+                return Ok(());
+            }
+            if let Some(reason) = response
+                .result
+                .as_ref()
+                .and_then(|value| value["readiness"]["safe_reason"].as_str())
+            {
+                if matches!(
+                    reason,
+                    "initialization_failed"
+                        | "critical_worker_failed"
+                        | "credential_store_unavailable"
+                ) {
+                    return Err(CliError::unavailable(format!("The Connect daemon needs attention: {reason}. Restart after resolving this condition.")));
+                }
+            }
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
@@ -439,6 +462,24 @@ pub(super) fn control_request_timeout(command: &ControlCommand) -> std::time::Du
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn readiness_requires_the_canonical_contract_and_expected_version() {
+        assert!(!canonically_ready(&serde_json::json!({"ready": true})));
+        for (version, ready, schema, expected) in [
+            (env!("CARGO_PKG_VERSION"), true, 1, true),
+            (env!("CARGO_PKG_VERSION"), false, 1, false),
+            (env!("CARGO_PKG_VERSION"), true, 2, false),
+            ("wrong", true, 1, false),
+        ] {
+            assert_eq!(
+                canonically_ready(&serde_json::json!({"readiness": {
+                    "schema_version": schema, "ready": ready, "binary_version": version
+                }})),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn shutdown_waits_for_the_daemon_lease_after_the_socket_disappears() {

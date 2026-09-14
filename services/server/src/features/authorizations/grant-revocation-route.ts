@@ -10,6 +10,7 @@ import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireUser } from "../../platform/request-authentication.js";
 import type { RelayHub } from "../../relay.js";
+import { localGrantRevocationStatus, queueLocalGrantRevocations } from "../../local-grant-revocation.js";
 
 interface GrantRevocationRouteOptions {
   db: DatabasePool;
@@ -51,34 +52,8 @@ export function registerGrantRevocationRoute(
       ));
     }
 
-    const localIds = found.rows
-      .filter((grant) => !grant.hosted_replica_id && !grant.revoked_at)
-      .map((grant) => grant.id);
-    if (localIds.length > 0) {
-      const localParameters = localIds.map((_id, index) => `$${index + 1}`).join(", ");
-      const connection = await options.db.connect();
-      try {
-        await connection.query("BEGIN");
-        await connection.query(
-          `UPDATE grants SET revoked_at = COALESCE(revoked_at, now()) WHERE id IN (${localParameters})`,
-          localIds
-        );
-        await connection.query(
-          `UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id IN (${localParameters})`,
-          localIds
-        );
-        await connection.query(
-          `UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id IN (${localParameters})`,
-          localIds
-        );
-        await connection.query("COMMIT");
-      } catch (error) {
-        await connection.query("ROLLBACK");
-        throw error;
-      } finally {
-        connection.release();
-      }
-    }
+    const localIds = found.rows.filter((grant) => !grant.hosted_replica_id).map((grant) => grant.id);
+    await queueLocalGrantRevocations(options.db, user.id, localIds);
 
     const results: Array<{
       grant_id: string;
@@ -86,7 +61,7 @@ export function registerGrantRevocationRoute(
     }> = [];
     for (const grant of found.rows) {
       if (!grant.hosted_replica_id) {
-        results.push({ grant_id: grant.id, status: "revoked" });
+        results.push({ grant_id: grant.id, status: await localGrantRevocationStatus(options.db, user.id, grant.id) });
         continue;
       }
       if (!grant.revoked_at) {
@@ -109,7 +84,7 @@ export function registerGrantRevocationRoute(
     }
     await options.drainProviderRevocations();
     for (const result of results) {
-      if (result.status !== "revoking") continue;
+      if (result.status !== "revoking" || localIds.includes(result.grant_id)) continue;
       const status = await hostedGrantRevocationStatus(options.db, user.id, result.grant_id);
       if (status === "revoked") result.status = "revoked";
     }
@@ -117,6 +92,9 @@ export function registerGrantRevocationRoute(
       await options.relay.pushPolicy(connectorId!);
     }
     for (const result of results) {
+      if (localIds.includes(result.grant_id)) {
+        result.status = await localGrantRevocationStatus(options.db, user.id, result.grant_id);
+      }
       await audit(options.db, user.id, result.status === "revoked"
         ? "grant.revoked"
         : "grant.revocation_requested", result.grant_id, {
@@ -182,23 +160,10 @@ export function registerGrantRevocationRoute(
       }
       revocationStatus = current;
     } else {
-      if (grant.revoked_at) {
-        return { ok: true, revocation_status: "revoked" as const };
-      }
-      await options.db.query(
-        "UPDATE grants SET revoked_at = now() WHERE id = $1",
-        [grantId]
-      );
-      await options.db.query(
-        "UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1",
-        [grantId]
-      );
-      await options.db.query(
-        "UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1",
-        [grantId]
-      );
+      await queueLocalGrantRevocations(options.db, user.id, [grantId]);
     }
     if (grant.connector_id) await options.relay.pushPolicy(grant.connector_id);
+    if (!grant.hosted_replica_id) revocationStatus = await localGrantRevocationStatus(options.db, user.id, grantId);
     await audit(
       options.db,
       user.id,

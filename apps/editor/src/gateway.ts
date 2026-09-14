@@ -265,22 +265,59 @@ export class ConnectCollectionGateway implements CollectionGateway {
     }));
   }
 
+  pendingNoteMutations() {
+    return this.activeConnection()?.pendingMutations<NoteDocument>()
+      .filter((pending) => pending.operation === "update" || pending.operation === "rename") ?? [];
+  }
+
+  async recoverNoteMutation(requestId: string): Promise<NoteDocument> {
+    const pending = this.requireConnection().pendingMutation<NoteDocument>(requestId);
+    if (!pending || (pending.operation !== "update" && pending.operation !== "rename")) {
+      throw new Error("The exact interrupted note operation is unavailable. No new write was attempted.");
+    }
+    return requireOutcome(await pending.recover());
+  }
+
+  private assertNoPendingNoteMutation(connection: MdbaseConnection<NoteFrontmatter>): void {
+    if (connection.pendingMutations().some((pending) => pending.operation === "update" || pending.operation === "rename")) {
+      throw new Error("Recover the interrupted note operation before making another change. No new write was attempted.");
+    }
+  }
+
   async update(input: SaveNoteInput): Promise<NoteDocument> {
-    return requireOutcome(await this.requireConnection().update({
+    const connection = this.requireConnection();
+    this.assertNoPendingNoteMutation(connection);
+    const outcome = await connection.update({
       path: input.path,
       patch: titlePatch(input.title, input.source, input.frontmatter),
       body: persistedBody(input.title, input.body, input.source),
       ifRevision: input.revision,
       includeDocument: true
-    }));
+    });
+    if (!outcome.ok && outcome.problem.code === "operation_outcome_unknown") {
+      const pending = connection.pendingMutation<NoteDocument>(outcome.problem.details.request_id);
+      // One exact continuation, not a transport retry or a newly constructed update.
+      if (pending?.operation === "update") {
+        const recovered = await pending.recover().catch(() => outcome);
+        // A failed probe may not have reached the authority. Only the SDK
+        // settling its handle proves that rejection resolved the original intent.
+        if (recovered.ok || !connection.pendingMutation(pending.requestId)) return requireOutcome(recovered);
+      }
+      // Without a settled handle, the original outcome remains unknown.
+    }
+    return requireOutcome(outcome);
   }
 
   async updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> {
-    return requireOutcome(await this.requireConnection().update({ path, patch, ifRevision: revision, includeDocument: true }));
+    const connection = this.requireConnection();
+    this.assertNoPendingNoteMutation(connection);
+    return requireOutcome(await connection.update({ path, patch, ifRevision: revision, includeDocument: true }));
   }
 
   async updateDocument(path: string, document: string, revision: string): Promise<NoteDocument> {
-    return requireOutcome(await this.requireConnection().update({
+    const connection = this.requireConnection();
+    this.assertNoPendingNoteMutation(connection);
+    return requireOutcome(await connection.update({
       path,
       document,
       ifRevision: revision
@@ -303,10 +340,12 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async rename(from: string, to: string, revision: string, updateRefs = true, options: MutationOperationOptions = {}): Promise<NoteDocument> {
+    const connection = this.requireConnection();
+    this.assertNoPendingNoteMutation(connection);
     const key = mutationKey(from, to, revision);
     let retainPreflight = false;
     try {
-      return requireOutcome(await this.requireConnection().renameWithProgress({
+      return requireOutcome(await connection.renameWithProgress({
         from,
         to,
         ifRevision: revision,

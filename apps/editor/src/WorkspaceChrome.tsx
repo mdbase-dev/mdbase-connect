@@ -26,7 +26,7 @@ export function SaveIndicator({ state, activity, detail, onCancel }: { state: Sa
   };
   const label = detail ?? (activity
     ? activityLabels[activity]
-    : state === "saving" ? "Saving" : state === "waiting" ? "Unsaved" : state === "conflict" ? "Needs attention" : "Saved");
+    : state === "saving" ? "Saving" : state === "waiting" ? "Unsaved" : state === "recovery" ? "Recovery pending" : state === "conflict" ? "Needs attention" : "Saved");
   const tone = activity ? "saving" : state;
   return <div className="save-indicator"><span className={`save-state ${tone}`} aria-live="polite">{!activity && state === "saved" && <Check aria-hidden="true" />}{label}</span>{onCancel && <button className="cancel-operation" onClick={onCancel}>Cancel</button>}</div>;
 }

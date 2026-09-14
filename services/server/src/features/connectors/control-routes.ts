@@ -47,6 +47,7 @@ export function registerConnectorControlRoutes(
               col.local_id AS collection_id,
               col.display_name AS collection_name,
               g.operations, g.scope, g.encryption, g.file_capability, g.created_at,
+              CASE WHEN g.revoked_at IS NULL THEN 'active' ELSE 'revoking' END AS revocation_status,
               g.notification_criteria,
               g.application_authorization->'binding'->>'application_declaration_id'
                 AS application_declaration_id,
@@ -56,7 +57,8 @@ export function registerConnectorControlRoutes(
        FROM grants g
        JOIN applications a ON a.id = g.application_id
        JOIN collections col ON col.id = g.collection_id
-       WHERE col.connector_id = $1 AND g.revoked_at IS NULL
+       WHERE col.connector_id = $1
+         AND (g.revoked_at IS NULL OR g.revocation_confirmed_at IS NULL)
          AND g.activated_at IS NOT NULL
        ORDER BY a.name, col.display_name`,
       [connector.id]

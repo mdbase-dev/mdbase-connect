@@ -8,12 +8,12 @@ import { DemoCollectionGateway } from "./demo-gateway";
 import type { CollectionAuthorizationTarget, CollectionFile, CollectionSessionSnapshot, ConnectionSummary, CreateNoteInput, FileUploadRequest, MutationOperationOptions, NoteDocument, NoteIndexRequest, NoteIndexResult, SaveNoteInput } from "./model";
 
 vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) => <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} /> }));
-vi.mock("./MarkdownNoteEditor", () => ({ MarkdownNoteEditor: ({ draft, insertion, embeddedNotes, onTitleChange, onBodyChange, onCreateLink, onVisibleNoteEmbeds }: { draft: { title: string; body: string }; insertion?: { text: string }; embeddedNotes?: Array<{ key: string; body?: string }>; onTitleChange: (value: string) => void; onBodyChange: (value: string) => void; onCreateLink: (target: string, label: string | undefined, format: "wikilink") => void; onVisibleNoteEmbeds?: (keys: string[]) => void }) => {
+vi.mock("./MarkdownNoteEditor", () => ({ MarkdownNoteEditor: ({ draft, insertion, embeddedNotes, readOnly, onTitleChange, onBodyChange, onCreateLink, onVisibleNoteEmbeds }: { draft: { title: string; body: string }; readOnly?: boolean; insertion?: { text: string }; embeddedNotes?: Array<{ key: string; body?: string }>; onTitleChange: (value: string) => void; onBodyChange: (value: string) => void; onCreateLink: (target: string, label: string | undefined, format: "wikilink") => void; onVisibleNoteEmbeds?: (keys: string[]) => void }) => {
   const embedKeys = embeddedNotes?.map((embed) => embed.key).join("\n") ?? "";
   useEffect(() => onVisibleNoteEmbeds?.(embedKeys ? embedKeys.split("\n") : []), [embedKeys]);
   return <>
-  <input aria-label="Note title" value={draft.title} onChange={(event) => onTitleChange(event.target.value)} />
-  <textarea aria-label="Note body" value={draft.body} onChange={(event) => onBodyChange(event.target.value)} />
+  <input aria-label="Note title" value={draft.title} readOnly={readOnly} onChange={(event) => onTitleChange(event.target.value)} />
+  <textarea aria-label="Note body" value={draft.body} readOnly={readOnly} onChange={(event) => onBodyChange(event.target.value)} />
   <button onClick={() => onCreateLink("Shared/linked.md", "Linked", "wikilink")}>Create hostile link</button>
   {insertion && <output aria-label="Editor insertion">{insertion.text}</output>}
   {embeddedNotes?.map((embed) => <output aria-label="Embedded note" key={embed.key}>{embed.body}</output>)}
@@ -313,14 +313,21 @@ describe("App collection switch ownership", () => {
     expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body");
   });
 
-  it("single-flights overlapping choose requests, freezes A through its drain, and opens the exact authorized B", async () => {
+  it.each([false, true])("single-flights choose requests and freezes A through its drain (autosave already running: %s)", async (autosaveRunning) => {
     const gateway = new SwitchGateway(); const user = userEvent.setup(); render(<App gateway={gateway} />);
     const body = await screen.findByRole("textbox", { name: "Note body" }); expect(body).toHaveValue("Alpha body");
     await user.type(body, " dirty");
+    if (autosaveRunning) {
+      await waitFor(() => expect(gateway.updateCalls).toHaveLength(1));
+      expect(body).not.toHaveAttribute("readonly");
+    }
     void requestSwitch(user);
+    // An existing autosave is not evidence that the switch has frozen A.
+    await waitFor(() => expect(body).toHaveAttribute("readonly"));
     await waitFor(() => expect(gateway.updateCalls).toHaveLength(1));
     expect(gateway.authorizeCalls).toBe(0);
     fireEvent.change(body, { target: { value: "forbidden edit" } });
+    expect(body).toHaveValue("Alpha body dirty");
     expect(gateway.updateCalls).toHaveLength(1); expect(gateway.updateCalls[0]?.body).toContain("Alpha body dirty");
     gateway.updateGate.resolve();
     await waitFor(() => expect(gateway.authorizeTargets).toEqual([{ target: "choose", selected: "a" }]));

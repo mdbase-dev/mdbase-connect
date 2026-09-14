@@ -1,4 +1,6 @@
 interface AgentStatus {
+  readiness?: import("../shared/readiness").AgentReadiness;
+  relay_problem?: string;
   protocol_version: number;
   binary_version?: string;
   state: "local_only" | "connecting" | "connected" | "offline";
@@ -372,7 +374,7 @@ interface Window {
     renameComputer(name: string): Promise<{ connector: { id: string; name: string } }>;
     createGrant(input: { applicationId: string; collectionId: string; operations: string[] }): Promise<unknown>;
     updateGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;
-    revokeGrant(grantId: string): Promise<unknown>;
+    revokeGrant(grantId: string): Promise<{ ok: boolean; revocation_status: "revoking" | "revoked" }>;
     listActivity(limit?: number): Promise<ActivityEntry[]>;
     hostedSnapshot(): Promise<HostedControlSnapshot>;
     createHostedCollection(input: { name: string; timezone: string }): Promise<{ collection: HostedCollectionSummary }>;

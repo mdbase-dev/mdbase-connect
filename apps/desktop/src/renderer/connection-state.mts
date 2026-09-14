@@ -3,6 +3,7 @@ export type ConnectionDotState = "connected" | "connecting" | "paused" | "danger
 export interface ConnectionStatus {
   state: "local_only" | "connecting" | "connected" | "offline";
   paused: boolean;
+  relay_problem?: string;
 }
 
 export interface CloudConnection {
@@ -27,6 +28,15 @@ export function presentConnection(
   }
   if (status?.paused) {
     return { label: "Remote access paused", settingsLabel: "Paused", dot: "paused" };
+  }
+  if (status?.relay_problem) {
+    return {
+      label: status.relay_problem === "authentication_required"
+        ? "Account connection needs authorization; reconnect this computer"
+        : "Relay version incompatible; update the connector",
+      settingsLabel: "Needs attention",
+      dot: "danger"
+    };
   }
   if (status === null || status.state === "connecting" || status.state === "local_only") {
     return { label: "Connecting securely…", settingsLabel: "Connecting", dot: "connecting" };

@@ -33,6 +33,8 @@ import { NotificationAccess, RequestPermissionChoices } from "./authorization-co
 import { hasSupportedCapabilityDeclaration, requestCapabilityGroups } from "./application-capabilities";
 import { ConnectionProgress, Overview } from "./overview-view";
 import { singleFlight } from "./single-flight.mjs";
+import { refreshResources, presentResourceFailures, retainOfflineInventory } from "./resource-health.mjs";
+import { presentReadiness } from "../shared/readiness";
 import {
   AccessControl,
   Empty,
@@ -99,6 +101,7 @@ function App() {
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resourceFailures, setResourceFailures] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [copiedCollectionPath, setCopiedCollectionPath] = useState<string | null>(null);
@@ -112,27 +115,36 @@ function App() {
   const [initialRefreshComplete, setInitialRefreshComplete] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
 
-  const runRefresh = useCallback(async (quiet = false) => {
-    try {
-      const results = await Promise.allSettled([
-        window.mdbaseConnect.status().then(setStatus),
-        window.mdbaseConnect.updateStatus().then(setUpdateStatus),
-        window.mdbaseConnect.listCollections().then(setCollections),
-        window.mdbaseConnect.getLaunchAtLogin().then(setStartup),
-        window.mdbaseConnect.getCloudConfig().then(setCloud),
-        window.mdbaseConnect.accessSnapshot().then(setAccess),
-        window.mdbaseConnect.listActivity(100).then(setActivity),
-        window.mdbaseConnect.hostedSnapshot().then(setHosted).catch(() => {
-          setHosted((current) => ({ ...current, online: false }));
-        }),
-        window.mdbaseConnect.listMirrors().then(setMirrors)
-      ]);
-      const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-      if (failed) throw failed.reason;
-      setError(null);
-    } catch (refreshError) {
-      if (!quiet) setError(message(refreshError));
+  const runRefresh = useCallback(async (_quiet = false) => {
+    let configured: boolean | undefined;
+    const failures = await refreshResources({
+      connector: () => window.mdbaseConnect.status().then((next) => {
+        setStatus(next);
+        const health = presentReadiness(next.readiness);
+        if (health.state !== "ready") throw new Error(health.label);
+      }),
+      collections: () => window.mdbaseConnect.listCollections().then(setCollections),
+      startup: () => window.mdbaseConnect.getLaunchAtLogin().then(setStartup),
+      account: () => window.mdbaseConnect.getCloudConfig().then((next) => {
+        configured = next.configured;
+        setCloud(next);
+      }),
+      access: () => window.mdbaseConnect.accessSnapshot().then((next) => {
+        setAccess((current) => !next.configured ? next : retainOfflineInventory(current, next));
+        if (next.configured && !next.online) throw new Error("Application access is offline.");
+      }),
+      activity: () => window.mdbaseConnect.listActivity(100).then(setActivity),
+      hosted: () => window.mdbaseConnect.hostedSnapshot().then((next) => {
+        setHosted((current) => retainOfflineInventory(current, next));
+        if (!next.online) throw new Error("Hosted collections are offline.");
+      }),
+      mirrors: () => window.mdbaseConnect.listMirrors().then(setMirrors)
+    });
+    if (configured === false) {
+      setHosted({ online: false, hosted_collections_available: false, hosted_collections: [], grants: [], pending_authorizations: [] });
+      delete failures.hosted;
     }
+    setResourceFailures(failures);
     setInitialRefreshComplete(true);
   }, []);
   const refresh = useMemo(() => singleFlight(runRefresh), [runRefresh]);
@@ -163,7 +175,15 @@ function App() {
         setRoute(next as Route);
       }
     });
-    const removeUpdateStatus = window.mdbaseConnect.onUpdateStatus(setUpdateStatus);
+    // Updates already have a push subscription; do not poll them with daemon data.
+    let updatePushed = false;
+    const removeUpdateStatus = window.mdbaseConnect.onUpdateStatus((next) => {
+      updatePushed = true;
+      setUpdateStatus(next);
+    });
+    void window.mdbaseConnect.updateStatus().then((next) => {
+      if (!updatePushed) setUpdateStatus(next);
+    }).catch(() => undefined);
     return () => {
       window.clearInterval(timer);
       removeNavigation();
@@ -194,7 +214,6 @@ function App() {
 
   async function act(action: () => Promise<void>) {
     setBusy(true);
-    setError(null);
     setNotice(null);
     try {
       await action();
@@ -207,7 +226,6 @@ function App() {
   }
 
   async function transferAct(action: () => Promise<void>) {
-    setError(null);
     setNotice(null);
     try {
       await action();
@@ -344,7 +362,8 @@ function App() {
         </header>
 
         <div aria-live="polite">
-          {error && <div className="message error-message">{error}</div>}
+          {error && <div className="message error-message" role="alert"><span>{error}</span> <button className="quiet-action" onClick={() => setError(null)}>Dismiss</button></div>}
+          {presentResourceFailures(resourceFailures) && <div className="message" role="status">{presentResourceFailures(resourceFailures)}</div>}
           {notice && <div className="message notice-message">{notice}</div>}
         </div>
 
@@ -620,11 +639,12 @@ function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
                   const result = await window.mdbaseConnect.revokeHostedGrant(grant.id);
                   providerConfirmationPending ||= result.revocation_status === "revoking";
                 } else {
-                  await window.mdbaseConnect.revokeGrant(grant.id);
+                  const result = await window.mdbaseConnect.revokeGrant(grant.id);
+                  providerConfirmationPending ||= result.revocation_status !== "revoked";
                 }
               }
               onNotice(providerConfirmationPending
-                ? `${group.applicationName} access is disabled here; hosted revocation confirmation is pending.`
+                ? `${group.applicationName} revocation is pending authority confirmation.`
                 : `${group.applicationName} collection access was revoked.`);
             });
           }}>Revoke all access</button>
@@ -649,7 +669,7 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
   useEffect(() => setOperations(grant.operations), [grant.operations]);
   const authority = grant.collection_kind === "hosted" ? "Hosted by mdbase" : "On this computer";
   if (grant.revocation_status === "revoking") {
-    return <article className="grant-review"><div className="grant-identity"><p className="eyebrow">Hosted by mdbase</p><h3>{grant.collection_name}</h3><small>Access is disabled here. Waiting for the hosted authority to confirm revocation.</small></div><strong>Revoking…</strong></article>;
+    return <article className="grant-review"><div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><small>Revocation is pending. Waiting for {grant.collection_kind === "hosted" ? "the hosted authority" : "this computer"} to confirm enforcement.</small></div><strong>Revoking…</strong></article>;
   }
   if (permissionDetailsAvailable && (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0)) {
     return <article className="grant-review"><div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><small>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</small></div><strong>Reauthorization required</strong></article>;
@@ -676,8 +696,10 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
                   ? `${grant.application_name} access is disabled here; hosted revocation confirmation is pending.`
                   : `${grant.application_name} access was revoked.`);
               } else {
-                await window.mdbaseConnect.revokeGrant(grant.id);
-                onNotice(`${grant.application_name} access was revoked.`);
+                const result = await window.mdbaseConnect.revokeGrant(grant.id);
+                onNotice(result.revocation_status === "revoked"
+                  ? `${grant.application_name} access was revoked.`
+                  : `${grant.application_name} revocation is pending confirmation from this computer.`);
               }
             }); }}>Revoke</button>
             <button className="button primary" disabled={busy || !permissionDetailsAvailable || !changed || selectedPermissionCount === 0} onClick={() => void onAct(async () => {

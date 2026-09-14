@@ -110,12 +110,13 @@ try {
   const config = { servers: [`nats://127.0.0.1:${natsPort}`], token: natsToken };
   const brokerA = await createRelayBroker(config);
   const brokerB = await createRelayBroker(config);
-  ({ app: appA } = await buildApp({
+  const builtA = await buildApp({
     db: databaseA,
     devAuth: true,
     publicUrl: "http://127.0.0.1",
     relayBroker: brokerA
-  }));
+  });
+  appA = builtA.app;
   const builtB = await buildApp({
     db: databaseB,
     devAuth: true,
@@ -150,6 +151,10 @@ try {
   });
   socketA = connectorA.socket;
   await connectorA.waitForPolicy();
+  // Sending the ACK is not the server's commit point: exact policy confirmation
+  // and readiness publication can still be awaiting PostgreSQL.
+  await poll(() => builtA.relay.isConnected(fixture.connectorId),
+    "Initial connector policy was not committed on instance A");
   const initialPolicy = connectorA.policies.at(-1);
   const initialPolicyPredicates = {
     one_grant: initialPolicy?.grants?.length === 1,
@@ -245,6 +250,8 @@ try {
   });
   socketB = connectorB.socket;
   await connectorB.waitForPolicy();
+  await poll(() => builtB.relay.isConnected(fixture.connectorId),
+    "Replacement connector policy was not committed on instance B");
   const [closeCode] = await closedA;
   assert(closeCode === 4001, `Older cross-instance connector closed with ${closeCode}, not 4001`);
 
@@ -484,6 +491,8 @@ try {
   });
   socketA = connectorA2.socket;
   await connectorA2.waitForPolicy();
+  await poll(() => builtA.relay.isConnected(fixture.connectorId),
+    "Reconnected connector policy was not committed on instance A");
   const reconnected = await operation(urlB, fixture, "read", {});
   assert(reconnected.status === 200 && reconnected.body.result?.owner === "instance-a-reconnected",
     `Relay did not follow a post-outage reconnect: ${JSON.stringify(reconnected)}`);

@@ -1,5 +1,6 @@
 import type { WebSocket } from "ws";
 import type { DatabasePool } from "./db.js";
+import { confirmLocalGrantRevocations } from "./local-grant-revocation.js";
 import {
   RelayBrokerUnavailableError,
   type RelayBroker,
@@ -246,7 +247,11 @@ export class ExactPolicyPublisher {
     )) {
       throw new StalePolicyAuthorityError();
     }
-    return exactPolicyAcknowledgement(settled, message);
+    const acknowledgement = exactPolicyAcknowledgement(settled, message);
+    if ("sequence" in message) {
+      await confirmLocalGrantRevocations(this.db, authority.connectorId, authority.generation, message.sequence);
+    }
+    return acknowledgement;
   }
 
   private async isCurrent(authority: ExactPolicyAuthority): Promise<boolean> {

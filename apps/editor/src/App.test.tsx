@@ -893,7 +893,8 @@ describe("mdbase editor", () => {
     expect(screen.getByRole("textbox", { name: "Markdown path" })).toHaveValue("Notes/resumable-rename.md");
 
     await user.click(screen.getByRole("button", { name: "Resume rename" }));
-    await waitFor(() => expect(gateway.renameCalls).toBe(2));
+    await waitFor(() => expect(gateway.recoveryCalls).toBe(1));
+    expect(gateway.renameCalls).toBe(1);
     expect(await screen.findByRole("button", { name: "Notes/resumable-rename.md" })).toBeInTheDocument();
   });
 
@@ -1721,6 +1722,13 @@ class SlowRenameGateway extends DemoCollectionGateway {
 }
 
 class CancellableRenameGateway extends DemoCollectionGateway {
+  private pending?: () => Promise<NoteDocument>;
+  recoveryCalls = 0;
+  override async recoverNoteMutation(requestId: string): Promise<NoteDocument> {
+    expect(requestId).toBe("rename-request");
+    this.recoveryCalls++;
+    return this.pending!();
+  }
   private markStarted?: () => void;
   readonly renameStarted = new Promise<void>((resolve) => { this.markStarted = resolve; });
   renameCalls = 0;
@@ -1732,6 +1740,7 @@ class CancellableRenameGateway extends DemoCollectionGateway {
   override async rename(from: string, to: string, revision: string, updateRefs = true, options: MutationOperationOptions = {}): Promise<NoteDocument> {
     this.renameCalls += 1;
     if (this.renameCalls === 1) {
+      this.pending = () => super.rename(from, to, revision, updateRefs);
       options.onProgress?.({
         operation: "rename",
         state: "applying",

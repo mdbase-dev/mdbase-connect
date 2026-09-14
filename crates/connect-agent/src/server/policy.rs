@@ -337,6 +337,14 @@ impl AgentState {
     /// Capture before queueing. Admission later rechecks the authority digest
     /// and instance-scoped continuity epoch under the shared replacement gate.
     pub(crate) fn capture_policy_revision(&self) -> Result<PolicyRevisionPermit, ConnectError> {
+        if !self.critical_workers_alive()
+            || self
+                .initialization
+                .load(std::sync::atomic::Ordering::Acquire)
+                == super::Initialization::Failed as u8
+        {
+            return Err(policy_changed());
+        }
         let mut gate = self
             .policy_revision_gate
             .0

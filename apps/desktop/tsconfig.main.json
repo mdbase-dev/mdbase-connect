@@ -5,10 +5,10 @@
     "moduleResolution": "Node16",
     "strict": true,
     "esModuleInterop": true,
-    "outDir": "dist/main",
-    "rootDir": "src/main",
+    "noEmit": true,
+    "rootDir": "src",
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["src/main/**/*.ts"]
+  "include": ["src/main/**/*.ts", "src/shared/**/*.ts"]
 }

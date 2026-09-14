@@ -34,7 +34,7 @@ test("concurrent hosted snapshot callers share one main-process request", async 
   assert.equal(requestCount, 2);
 });
 
-test("credential-store degradation becomes a typed offline snapshot with a retry cooldown", async () => {
+test("credential-store degradation stays a failure with a retry cooldown",  async () => {
   const error = Object.assign(new Error("Login keyring is locked."), {
     code: "credential_store_unavailable"
   });
@@ -56,17 +56,11 @@ test("credential-store degradation becomes a typed offline snapshot with a retry
     now: () => currentTime
   });
 
-  assert.deepEqual(await loadHostedSnapshot(), {
-    online: false,
-    hosted_collections_available: false,
-    hosted_collections: [],
-    grants: [],
-    pending_authorizations: []
-  });
+  await assert.rejects(loadHostedSnapshot(), (caught) => caught === error);
   assert.equal(requestCount, 1);
 
   currentTime += 29_999;
-  assert.equal((await loadHostedSnapshot()).online, false);
+  await assert.rejects(loadHostedSnapshot(), (caught) => caught === error);
   assert.equal(requestCount, 1);
 
   currentTime += 1;

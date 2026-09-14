@@ -16,12 +16,22 @@ impl AgentState {
             );
         }
         let result = match request.command {
-            ControlCommand::Ping => Ok(serde_json::json!({
-                "pong": true,
-                "ready": self.initialized(),
-            })),
+            ControlCommand::Ping => {
+                let readiness = self.readiness();
+                Ok(serde_json::json!({
+                    "pong": true,
+                    "ready": readiness.ready,
+                    "readiness": readiness,
+                }))
+            }
             ControlCommand::Status => self.registry.count().map(|registered_collections| {
                 serde_json::to_value(AgentStatus {
+                    readiness: Some(self.readiness()),
+                    relay_problem: self
+                        .relay_problem
+                        .read()
+                        .expect("relay problem lock poisoned")
+                        .map(str::to_string),
                     protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
                     binary_version: env!("CARGO_PKG_VERSION").to_string(),
                     state: self

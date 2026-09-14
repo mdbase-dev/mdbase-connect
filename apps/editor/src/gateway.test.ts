@@ -87,6 +87,46 @@ describe("ConnectCollectionGateway collection index", () => {
 });
 
 describe("ConnectCollectionGateway recovery operations", () => {
+  it("recovers a committed autosave by original ID without touching unrelated pending work", async () => {
+    const saved = { ...summary("note.md"), revision: "r2", body: "Accepted" } as NoteDocument;
+    const recover = vi.fn(async () => connectSuccess(saved));
+    const unrelated = vi.fn();
+    const pendingMutation = vi.fn((id: string) => id === "original" ? { operation: "update", recover } : null);
+    const update = vi.fn(async () => connectFailure(connectProblem("operation_outcome_unknown", "Response lost", {
+      operationOutcome: "unknown", details: { request_id: "original" }
+    })));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, {
+      update, pendingMutation,
+      pendingMutations: () => [{ requestId: "unrelated-file", operation: "file_control:delete", recover: unrelated }]
+    });
+    await expect(gateway.update({ path: "note.md", revision: "r1", frontmatter: {}, title: "Note", body: "Accepted", source: { kind: "heading" } })).resolves.toEqual(saved);
+    expect(update).toHaveBeenCalledOnce();
+    expect(pendingMutation).toHaveBeenCalledExactlyOnceWith("original");
+    expect(recover).toHaveBeenCalledOnce();
+    expect(unrelated).not.toHaveBeenCalled();
+  });
+
+  it("fresh gateways expose durable pending work and block reconstructed updates or renames", async () => {
+    const saved = { ...summary("renamed.md"), revision: "r2" } as NoteDocument;
+    const recover = vi.fn(async () => connectSuccess(saved));
+    const pending = { requestId: "original", operation: "rename", recover };
+    const update = vi.fn();
+    const renameWithProgress = vi.fn();
+    const connection = { update, renameWithProgress, pendingMutations: () => [pending], pendingMutation: (id: string) => id === "original" ? pending : null };
+    const first = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(first, connection);
+    const reloaded = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(reloaded, connection);
+    expect(reloaded.pendingNoteMutations()).toMatchObject([{ requestId: "original", operation: "rename" }]);
+    await expect(reloaded.rename("note.md", "changed.md", "r1")).rejects.toThrow("No new write");
+    await expect(reloaded.update({ path: "note.md", revision: "r1", frontmatter: {}, title: "Changed", body: "Changed", source: { kind: "heading" } })).rejects.toThrow("No new write");
+    await expect(reloaded.recoverNoteMutation("missing")).rejects.toThrow("No new write");
+    await expect(reloaded.recoverNoteMutation("original")).resolves.toEqual(saved);
+    expect(recover).toHaveBeenCalledOnce();
+    expect(update).not.toHaveBeenCalled();
+    expect(renameWithProgress).not.toHaveBeenCalled();
+  });
   it("checks and requests direct access through the active SDK connection", async () => {
     let directAccess: DirectAccessStatus = "permission_required";
     const checkDirectAccess = vi.fn(async () => "permission_required" as const);
@@ -430,6 +470,8 @@ function injectConnection(
     route?: "remote" | "direct" | "relay";
     directAccess?: "disabled" | "permission_required" | "checking" | "available" | "unavailable" | "denied";
     authorizationCapabilities?: () => { missingOperations: string[] };
+    pendingMutations?: MdbaseConnection["pendingMutations"];
+    pendingMutation?: MdbaseConnection["pendingMutation"];
   };
   bound.collectionId ??= "collection";
   bound.displayName ??= "Notes";
@@ -437,6 +479,8 @@ function injectConnection(
   bound.route ??= "relay";
   bound.directAccess ??= "unavailable";
   bound.authorizationCapabilities ??= () => ({ missingOperations: [] });
+  bound.pendingMutations ??= () => [];
+  bound.pendingMutation ??= () => null;
   for (const name of [
     "checkDirectAccess", "requestDirectAccess", "read", "create", "update",
     "renameWithProgress", "preflightRename", "preflightDelete", "assessTypePack", "applyTypePack"
