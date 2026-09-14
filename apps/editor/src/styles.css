@@ -2298,6 +2298,7 @@ kbd {
 }
 
 .editor-pane {
+  container-type: inline-size;
   grid-column: 3;
   position: relative;
   min-width: 0;
@@ -2988,7 +2989,7 @@ kbd {
 }
 
 .writing-surface {
-  --writing-gutter: clamp(28px, 8vw, 110px);
+  --writing-gutter: clamp(22px, 6cqi, 64px);
   --writing-measure: 760px;
   min-width: 0;
   min-height: 0;
@@ -2999,25 +3000,50 @@ kbd {
   background: var(--white);
 }
 
-.title-input {
+.note-title-field {
   width: min(
     var(--writing-measure),
     calc(100% - var(--writing-gutter) - var(--writing-gutter))
   );
-  display: block;
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-}
-
-.title-input {
-  height: 52px;
+  min-width: 0;
+  min-height: 52px;
+  max-height: min(12rem, 30vh);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
   margin: 0 auto 18px;
   font-size: 34px;
   font-weight: 700;
-  line-height: 1.12;
+  line-height: 1.2;
   letter-spacing: -0.035em;
+}
+
+.note-title-measure,
+.title-input {
+  grid-area: 1 / 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Size the editable title from its text without measuring or updating layout in JS. */
+.note-title-measure {
+  visibility: hidden;
+}
+
+.title-input {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
 }
 
 .title-input::placeholder {
@@ -7869,8 +7895,8 @@ label.schema-value {
     padding-top: 34px;
   }
 
-  .title-input {
-    height: 45px;
+  .note-title-field {
+    min-height: 45px;
     font-size: 29px;
   }
 

@@ -34,7 +34,7 @@ async function fixture(t, failTarget = true) {
     target_version: currentVersion, service_installed: true, previous_runtime: previous,
     started_at: new Date().toISOString() };
   await store.update(state => { state.transaction = transaction; });
-  const process = { running: false, version: previousVersion, protocol: 4, schema: 1, ready: true, failTarget };
+  const process = { running: false, version: previousVersion, protocol: 5, schema: 1, ready: true, failTarget };
   const commands = [];
   function backend(version = currentVersion) {
     const result = new ElectronUpdateBackend({ currentVersion: version, packaged: true,

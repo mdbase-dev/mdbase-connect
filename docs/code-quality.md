@@ -146,6 +146,23 @@ No production module, file-size limit, or cycle allowance is added. The existing
 update record now binds a verified fallback to its app version and distinguishes
 that daemon version during subsequent handoff; it is not a second journal.
 
+Authority-transfer recovery (#345) adds ten conservative Rust visibility
+references for the durable transfer summary, exact-ID cancellation command,
+and their two internal accessors. The local control protocol advances to v5.
+One TypeScript export, `finishAuthorityImportAbort`, replaces duplicated
+cancellation/expiry cleanup and atomically retains a connector-scoped abort
+receipt before cascading deletion. A reproduced first-import lost-response
+failure justifies this new persisted boundary; restart, refusal, replay,
+migration, desktop and PostgreSQL transaction/race tests cover it. Reviewed
+limits become 3,173 Rust visibility references and 2,445 TypeScript exports;
+file-count, file-size, dependency-cycle and package budgets are unchanged.
+
+Integrating both series retains 691 production files and 1,505 relative imports,
+with combined reviewed totals of 3,195 Rust declarations and 2,465 TypeScript
+exports. The additional export moves ordinary CLI launch out of the composition
+root into its existing daemon-lifecycle owner without relaxing its file limit.
+Both recovery mechanisms and the current local control protocol v5 remain intact.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;

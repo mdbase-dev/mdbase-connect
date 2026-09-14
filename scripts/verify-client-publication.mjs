@@ -21,6 +21,14 @@ export async function verifyProductionReadiness(sha, version, fetchImpl = global
   if (!/^[0-9a-f]{40}$/.test(sha ?? "") || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version ?? "")) {
     throw new Error("Exact publication source and version are required before production reads.");
   }
+  const release = await readProductionRelease(fetchImpl);
+  if (release.sha !== sha || release.version !== version) {
+    throw new Error("Canonical production release does not match the publication source and version.");
+  }
+}
+
+// Shared observation, not publication permission: callers retain their own source gates.
+export async function readProductionRelease(fetchImpl = globalThis.fetch) {
   async function get(origin, path) {
     const response = await fetchImpl(`${origin}${path}`, {
       redirect: "error",
@@ -33,7 +41,7 @@ export async function verifyProductionReadiness(sha, version, fetchImpl = global
   }
   const connect = await get(connectOrigin, "/health");
   if (connect?.ok !== true || connect.service !== "mdbase-connect" ||
-      connect.revision !== sha || connect.environment !== "production" ||
+      !/^[0-9a-f]{40}$/.test(connect.revision ?? "") || connect.environment !== "production" ||
       connect.public_origin !== connectOrigin || connect.protocol_version !== 1 ||
       !Array.isArray(connect.capabilities) ||
       !connect.capabilities.every((item) => typeof item === "string") ||
@@ -45,7 +53,7 @@ export async function verifyProductionReadiness(sha, version, fetchImpl = global
     throw new Error("Canonical production Connect is not ready.");
   }
   const provider = await get(providerOrigin, "/ready");
-  if (provider?.status !== "ready" || provider.provider?.version !== version ||
+  if (provider?.status !== "ready" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(provider.provider?.version ?? "") ||
       provider.notifications?.recovery !== "ok" || provider.notifications?.consecutive_failures !== 0 ||
       !Array.isArray(provider.provider?.capabilities) ||
       !provider.provider.capabilities.every((item) => typeof item === "string") ||
@@ -53,9 +61,10 @@ export async function verifyProductionReadiness(sha, version, fetchImpl = global
     throw new Error("Canonical production provider version, recovery or fresh-v2 issuance evidence is absent or mismatched.");
   }
   const mcp = await get(mcpOrigin, "/health");
-  if (mcp?.ok !== true || mcp.service !== "mdbase-mcp" || mcp.revision !== sha) {
+  if (mcp?.ok !== true || mcp.service !== "mdbase-mcp" || mcp.revision !== connect.revision) {
     throw new Error("Canonical production MCP identity is absent or mismatched.");
   }
+  return { sha: connect.revision, version: provider.provider.version };
 }
 
 export function verifyRemotePublicationTag({ ref, version, sha }, api) {

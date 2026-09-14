@@ -1,7 +1,7 @@
 import { createConnection } from "node:net";
 import { randomUUID } from "node:crypto";
 
-export const LOCAL_CONTROL_PROTOCOL_VERSION = 4;
+export const LOCAL_CONTROL_PROTOCOL_VERSION = 5;
 const MAX_LOCAL_CONTROL_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 export interface ControlResponse<T = unknown> {

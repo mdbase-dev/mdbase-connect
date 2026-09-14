@@ -304,8 +304,25 @@
   border-bottom: 1px solid var(--line);
 }
 
-.connect-storage-summary {
+.connect-storage-summary,
+.connect-connection-summary {
   grid-template-columns: minmax(190px, 1fr) auto;
+}
+
+.connect-application-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto;
+}
+
+.connect-application-row > div,
+.connect-application-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.connect-application-row > span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
 .connect-row > div:first-child,
@@ -1140,6 +1157,16 @@ button.danger:disabled {
     gap: 10px 18px;
   }
 
+  .connect-application-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .connect-row > a {
+    grid-column: 1 / -1;
+    justify-self: start;
+    padding-inline: 0;
+  }
+
   .connect-row-actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
@@ -1187,7 +1214,7 @@ button.danger:disabled {
 
   .connect-shell > .collection-rail nav {
     flex: 1;
-    margin: 0 10px;
+    margin: 0 4px;
     overflow: visible;
   }
 
@@ -1201,7 +1228,7 @@ button.danger:disabled {
     align-items: center;
     gap: 6px;
     margin: 0 auto;
-    padding: 8px 10px;
+    padding: 8px 2px;
     color: var(--accent-strong);
     font-size: 0.82rem;
     font-weight: 700;
@@ -1329,8 +1356,8 @@ button.danger:disabled {
     grid-template-columns: 1fr;
   }
 
-  .connect-section-title {
-    align-items: flex-start;
+  .connect-page > section {
+    margin-top: 32px;
   }
 
   .connect-inline-form {

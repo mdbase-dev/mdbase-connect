@@ -221,6 +221,51 @@ source after an outcome-uncertain provider response. A collection transferred
 back to local can later reuse its retired hosted identity for another round
 trip.
 
+### Recovering an interrupted local-to-hosted move
+
+The local mutation fence survives a daemon restart. While it exists, disabling
+or removing the collection is rejected and its folder cannot be enrolled as a
+mirror of a different hosted collection. Revoking the computer does not clear
+this local state.
+
+Desktop collection management exposes **Resume move** and **Cancel move safely**.
+The CLI equivalents are `mdbase connect collection transfer-authority <collection-id>`
+and `mdbase connect collection cancel-authority-transfer <collection-id> <transfer-id>`;
+`mdbase connect collection list --json` exposes the durable `authority_transfer` ID.
+
+Cancellation clears the local fence only after the server confirms cancellation
+of that exact transfer. It can be retried if the response was lost or the daemon
+restarted before clearing its fence. Once activation has started or completed,
+resume the move instead. Authentication failures, unavailable servers, and
+uncertain outcomes leave the fence intact; do not edit the local state database
+to bypass it. Successful cancellation makes disable/remove available as separate
+actions; removing the registration does not delete the folder's files.
+
+The control plane retains connector-scoped abort receipts independently of the
+unused hosted collection and transfer rows. Explicit cancellation and automatic
+expiry write this receipt only after provider confirmation, in the same
+transaction as cleanup. Receipts remain until the connector is deleted. This
+also makes first-time imports recoverable after a lost cancellation response;
+retaining only the transfer's `cancelled` state is insufficient because deleting
+the unused hosted collection cascades to that transfer row.
+
+For historical explicit cancellations, the server can recover the receipt from
+its surviving audit history. The old cancellation route committed
+`authority_transfer.cancelled` in the same cleanup transaction, after provider
+confirmation. Recovery requires one original request binding the exact transfer
+to the authenticated account and original connector, matching collection and
+`to_hosted` direction on every cancellation event, and no contradictory completion
+event. It persists the reconstructed receipt and then uses the normal retry path;
+it does not infer an outcome from a provider 404 or call the provider again.
+
+This does **not** repair every historical fence. Old automatic expiry wrote no
+terminal cancellation audit, and provider abort/expiry deleted the import row
+and unused collection too. Request-only, incomplete, ambiguous or contradictory
+history remains blocked. Revoked credentials and a different newly paired
+connector cannot use another connector's historical proof. Those cases require
+separate, explicitly authorized authority reconciliation, not an automatic
+local unlock. No customer outcome can be inferred from the generic error alone.
+
 Moving back to local authority is implemented as an explicit, browser-confirmed
 handoff from a full writable mirror:
 

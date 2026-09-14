@@ -70,7 +70,8 @@ describe("database migrations", () => {
       "0028_application_declaration",
       "0029_external_signup",
       "0030_sharing_cleanup_seat_reservations",
-      "0031_local_revocation_confirmation"
+      "0031_authority_import_abort_receipts",
+      "0032_local_revocation_confirmation"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -390,6 +391,50 @@ describe("database migrations", () => {
     expect(removedColumns.rows).toEqual([]);
   });
 
+  it("retains only confirmed import cancellations independently of hosted cleanup", async () => {
+    const db = await openDatabase("memory");
+    resources.push(() => db.end());
+    await bootstrapLegacyBaseline(db);
+    const userId = randomUUID();
+    const connectorId = randomUUID();
+    const localId = randomUUID();
+    const hostedId = randomUUID();
+    const cancelledId = randomUUID();
+    await db.query("INSERT INTO users (id, email, name) VALUES ($1, 'abort-upgrade@example.com', '[test] Owner')", [userId]);
+    await db.query("INSERT INTO connectors (id, user_id, name, token_hash) VALUES ($1, $2, '[test] Computer', 'test-abort-upgrade')", [connectorId, userId]);
+    await db.query(
+      `INSERT INTO collections (id, user_id, connector_id, local_id, display_name, spec_version)
+       VALUES ($1, $2, $3, $4, '[test] Local notes', '0.3.0')`,
+      [localId, userId, connectorId, hostedId]
+    );
+    await db.query(
+      `INSERT INTO hosted_collections (id, user_id, display_name, template, authority_state, transferred_collection_id)
+       VALUES ($1, $2, '[test] Retained identity', 'mdbase', 'transferred', $3)`,
+      [hostedId, userId, localId]
+    );
+    for (const [id, direction, state] of [
+      [cancelledId, "to_hosted", "cancelled"],
+      [randomUUID(), "to_hosted", "expired"],
+      [randomUUID(), "to_hosted", "completed"],
+      [randomUUID(), "to_local", "cancelled"]
+    ]) {
+      await db.query(
+        `INSERT INTO authority_transfers (id, user_id, hosted_collection_id, local_collection_id, direction, state, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now())`,
+        [id, userId, hostedId, localId, direction, state]
+      );
+    }
+    await runControlPlaneMigrations(db);
+    await runControlPlaneMigrations(db);
+    const receipts = () => db.query("SELECT transfer_id, connector_id FROM authority_import_abort_receipts");
+    expect((await receipts()).rows).toEqual([{ transfer_id: cancelledId, connector_id: connectorId }]);
+    await db.query("DELETE FROM hosted_collections WHERE id = $1", [hostedId]);
+    expect((await db.query("SELECT id FROM authority_transfers")).rows).toEqual([]);
+    expect((await receipts()).rows).toEqual([{ transfer_id: cancelledId, connector_id: connectorId }]);
+    await db.query("DELETE FROM connectors WHERE id = $1", [connectorId]);
+    expect((await receipts()).rows).toEqual([]);
+  });
+
   it("upgrades a beta legacy schema before instance administration runs", async () => {
     const db = await openDatabase("memory");
     resources.push(() => db.end());
@@ -663,7 +708,8 @@ describe("database migrations", () => {
       "0028_application_declaration",
       "0029_external_signup",
       "0030_sharing_cleanup_seat_reservations",
-      "0031_local_revocation_confirmation"
+      "0031_authority_import_abort_receipts",
+      "0032_local_revocation_confirmation"
     ]);
   });
 

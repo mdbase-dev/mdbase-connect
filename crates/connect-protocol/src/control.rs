@@ -38,6 +38,8 @@ pub enum ControlCommand {
     CollectionTakeAuthority(CollectionIdParams),
     #[serde(rename = "collections.transfer-authority")]
     CollectionTransferAuthority(CollectionAuthorityTransferParams),
+    #[serde(rename = "collections.cancel-authority-transfer")]
+    CollectionCancelAuthorityTransfer(CollectionAuthorityTransferRecoveryParams),
     #[serde(rename = "collections.create")]
     CollectionCreate(CollectionCreateParams),
     #[serde(rename = "collections.update-metadata")]
@@ -193,6 +195,12 @@ pub struct CollectionIdParams {
 pub struct CollectionAuthorityTransferParams {
     pub collection_id: Uuid,
     pub target: AuthorityTarget,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionAuthorityTransferRecoveryParams {
+    pub collection_id: Uuid,
+    pub transfer_id: Uuid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

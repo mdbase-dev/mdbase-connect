@@ -17,6 +17,10 @@ interface CollectionSummary {
   path: string;
   spec_version: string;
   enabled: boolean;
+  authority_transfer?: {
+    transfer_id: string;
+    state: "fenced";
+  };
   contracts: CollectionContractDescriptor[];
 }
 
@@ -335,6 +339,11 @@ interface Window {
     transferCollectionAuthority(collectionId: string): Promise<{
       transfer: { status: "completed"; collection_id: string; authority_epoch: number };
       mirror: DesktopMirrorSummary;
+    }>;
+    cancelCollectionAuthorityTransfer(collectionId: string, transferId: string): Promise<{
+      status: "cancelled";
+      collection_id: string;
+      transfer_id: string;
     }>;
     chooseCreateFolder(): Promise<string | null>;
     createCollection(input: { path: string; name: string; timezone: string }): Promise<CollectionSummary>;

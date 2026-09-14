@@ -1,3 +1,18 @@
+import { execFile as execFileCallback } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { promisify } from "node:util";
+
+const execFile = promisify(execFileCallback);
+
+export async function launchDaemon(binary: string, paths: DaemonPaths, packaged: boolean): Promise<void> {
+  if (!existsSync(binary)) throw new Error(`Connector runtime is missing: ${binary}`);
+  await mkdir(paths.stateDir, { recursive: true });
+  await execFile(binary, daemonCliArguments(paths.target, paths.stateDir, paths.endpoint, ["start"]), {
+    env: connectCliEnvironment(packaged), timeout: 30_000, windowsHide: true
+  });
+}
+
 export function connectCliEnvironment(
   packaged: boolean,
   environment: NodeJS.ProcessEnv = process.env

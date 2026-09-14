@@ -650,6 +650,9 @@ pub async fn serve(
 #[cfg(all(test, unix))]
 mod tests;
 
+#[cfg(test)]
+mod authority_recovery_tests;
+
 #[cfg(windows)]
 pub async fn serve(
     endpoint: &str,

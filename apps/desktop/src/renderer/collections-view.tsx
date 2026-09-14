@@ -342,6 +342,38 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
 
   const changed = name.trim() !== collection.display_name
     || description.trim() !== (collection.description ?? "");
+  const resumeAuthorityTransfer = () => {
+    setTransferStarted(true);
+    setTransferPhase("uploading");
+    writeTransferProgress(localStorage, {
+      collectionId: collection.id,
+      collectionName: collection.display_name,
+      direction: "local_to_hosted",
+      phase: "uploading"
+    });
+    void onTransfer(async () => {
+      try {
+        const result = await window.mdbaseConnect.transferCollectionAuthority(collection.id);
+        setTransferPhase("finishing");
+        onTransferComplete({
+          collectionId: result.mirror.collection_id,
+          collectionName: collection.display_name,
+          direction: "local_to_hosted",
+          newMainCopy: "Hosted by mdbase",
+          oldAuthority: `Folder retained as a synced copy · ${collection.path}`,
+          applications: affectedApplications,
+          replicas: [],
+          completedAt: new Date().toISOString()
+        });
+        clearTransferProgress(localStorage);
+        setTransferStarted(false);
+        setEditing(false);
+        setTransferReviewing(false);
+      } finally {
+        setTransferPhase(null);
+      }
+    });
+  };
   return (
     <article className={`collection-card ${editing ? "editing" : ""}`}>
       <div className="collection-summary">
@@ -360,12 +392,30 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
             Open in editor <span aria-hidden="true">↗</span>
           </button>
           <button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : "Details"}</button>
-          <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.setCollectionEnabled(collection.id, !collection.enabled); onNotice(collection.enabled ? `${collection.display_name} is no longer available to remote applications.` : `${collection.display_name} is available again.`); })}>{collection.enabled ? "Disable" : "Enable"}</button>
+          <button className="quiet-action" disabled={busy || collection.authority_transfer !== undefined} onClick={() => void onAct(async () => { await window.mdbaseConnect.setCollectionEnabled(collection.id, !collection.enabled); onNotice(collection.enabled ? `${collection.display_name} is no longer available to remote applications.` : `${collection.display_name} is available again.`); })}>{collection.enabled ? "Disable" : "Enable"}</button>
         </div>
       </div>
       {authorityHistory.length > 0 && <div className="authority-history" role="note">
         <strong>History and recovery</strong>
         <span>{authorityHistory.map((entry) => `${entry.display_name}: hosted copy retained for recovery`).join(" · ")}</span>
+      </div>}
+      {collection.authority_transfer && <div className="authority-history" role="status">
+        <strong>Main-copy move needs attention</strong>
+        <span>This folder remains safely fenced while Connect confirms whether transfer {collection.authority_transfer.transfer_id} can finish or be cancelled.</span>
+        <div className="collection-config-actions">
+          <button className="button secondary" disabled={busy || transferPhase !== null || !cloudConfigured} onClick={resumeAuthorityTransfer}>Resume move</button>
+          <button className="quiet-action danger" disabled={busy || transferPhase !== null || !cloudConfigured} onClick={() => {
+            if (!window.confirm(`Cancel the main-copy move for ${collection.display_name}? Connect will reopen this folder only after mdbase confirms cancellation.`)) return;
+            void onAct(async () => {
+              await window.mdbaseConnect.cancelCollectionAuthorityTransfer(collection.id, collection.authority_transfer!.transfer_id);
+              clearTransferProgress(localStorage);
+              setTransferStarted(false);
+              setTransferReviewing(false);
+              onNotice(`The main-copy move for ${collection.display_name} was cancelled. This folder is available again.`);
+            });
+          }}>Cancel move safely</button>
+        </div>
+        {!cloudConfigured && <small>Reconnect this computer to its account to recover the transfer.</small>}
       </div>}
       {editing && <div className="collection-editor">
         <form className="collection-editor-form" onSubmit={(event) => { event.preventDefault(); void onAct(async () => { const updated = await window.mdbaseConnect.updateCollectionMetadata({ collectionId: collection.id, name, description }); setEditing(false); onNotice(`${updated.display_name} details were saved to mdbase.yaml.`); }); }}>
@@ -419,42 +469,11 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
           action={transferStarted ? "Resume main-copy move" : "Move main copy to mdbase"}
           disabled={!collection.enabled || !cloudConfigured}
           onCancel={() => setTransferReviewing(false)}
-          onApprove={() => {
-            setTransferStarted(true);
-            setTransferPhase("uploading");
-            writeTransferProgress(localStorage, {
-              collectionId: collection.id,
-              collectionName: collection.display_name,
-              direction: "local_to_hosted",
-              phase: "uploading"
-            });
-            void onTransfer(async () => {
-              try {
-                const result = await window.mdbaseConnect.transferCollectionAuthority(collection.id);
-                setTransferPhase("finishing");
-                onTransferComplete({
-                  collectionId: result.mirror.collection_id,
-                  collectionName: collection.display_name,
-                  direction: "local_to_hosted",
-                  newMainCopy: "Hosted by mdbase",
-                  oldAuthority: `Folder retained as a synced copy · ${collection.path}`,
-                  applications: affectedApplications,
-                  replicas: [],
-                  completedAt: new Date().toISOString()
-                });
-                clearTransferProgress(localStorage);
-                setTransferStarted(false);
-                setEditing(false);
-                setTransferReviewing(false);
-              } finally {
-                setTransferPhase(null);
-              }
-            });
-          }}
+          onApprove={resumeAuthorityTransfer}
         />}
         <div className="collection-danger-row">
           <small>Removing this collection from mdbase connect never deletes its files.</small>
-          <button className="quiet-action danger" disabled={busy} onClick={() => { if (window.confirm(`Remove ${collection.display_name} from mdbase connect? Its files will not be deleted.`)) void onAct(async () => { await window.mdbaseConnect.removeCollection(collection.id); onNotice(`${collection.display_name} was removed.`); }); }}>Remove from mdbase connect</button>
+          <button className="quiet-action danger" disabled={busy || collection.authority_transfer !== undefined} onClick={() => { if (window.confirm(`Remove ${collection.display_name} from mdbase connect? Its files will not be deleted.`)) void onAct(async () => { await window.mdbaseConnect.removeCollection(collection.id); onNotice(`${collection.display_name} was removed.`); }); }}>Remove from mdbase connect</button>
         </div>
       </div>}
     </article>

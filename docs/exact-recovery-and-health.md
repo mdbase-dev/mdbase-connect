@@ -78,7 +78,7 @@ policy snapshot at or above that barrier. Lease expiry, relay disconnect, an old
 sequence, a retired/wrong connector generation, a mismatched digest/acknowledgement,
 or a legacy snapshot does not establish confirmation.
 
-Migration `0031_local_revocation_confirmation` adds the barrier and confirmation
+Migration `0032_local_revocation_confirmation` adds the barrier and confirmation
 timestamp to grants. Historical unbound revocations receive a barrier under the
 same connector lock used to build policy snapshots. Concurrent snapshots cannot
 accidentally acknowledge a later revocation. Repeated single/batch revocations

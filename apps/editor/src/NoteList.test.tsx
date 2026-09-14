@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { NoteList } from "./NoteList";
 import type { NoteSummary } from "./model";
@@ -16,6 +16,37 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 describe("NoteList search presentation", () => {
+  it("keeps partial-load failures visible and retryable instead of claiming complete results", () => {
+    const retry = vi.fn();
+    const noop = () => {};
+    const props = {
+      entries: [], noteCount: 400, fileCount: 0, types: [], statuses: new Map(),
+      search: "", searchQuery: "", searchContexts: new Map(), sort: "path-asc" as const,
+      collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
+      structureError: "Third page unavailable", contentIndexing: false, contentLoaded: 0,
+      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onRetryStructure: retry, onRetryContent: noop, onRetryFiles: noop, onSelect: noop,
+      onSelectFile: noop, onPreview: noop, onDismissPreview: noop, onCollections: noop, onCreate: noop
+    };
+    const view = render(<NoteList {...props} />);
+    expect(screen.getByText("400 notes loaded · incomplete")).toBeInTheDocument();
+    expect(screen.queryByText("This collection is empty.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Create the first note")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry notes" }));
+    expect(retry).toHaveBeenCalledOnce();
+    view.rerender(<NoteList {...props} search="needle" searchQuery="needle" noteCount={0} />);
+    expect(screen.getByText("0 found so far · incomplete")).toBeInTheDocument();
+    expect(screen.queryByText("No notes or files found.")).not.toBeInTheDocument();
+    view.rerender(<NoteList {...props} search="needle" searchQuery="needle" noteCount={0}
+      structureError={undefined} contentError="Body download failed" />);
+    expect(screen.getByText("0 found so far · incomplete")).toBeInTheDocument();
+    expect(screen.getByText("Search is incomplete.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry search" })).toBeInTheDocument();
+    view.rerender(<NoteList {...props} structureError={undefined} />);
+    expect(screen.queryByRole("button", { name: "Retry notes" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/incomplete/)).not.toBeInTheDocument();
+  });
+
   it("accesses contexts only for virtual rows while retaining the full count", () => {
     viewport.start = 0;
     const notes: NoteSummary[] = Array.from({ length: 10_000 }, (_, i) => ({
@@ -38,7 +69,7 @@ describe("NoteList search presentation", () => {
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       contentIndexing: false, contentLoaded: notes.length,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
-      onRetryContent: noop, onRetryFiles: noop, onSelect: noop, onSelectFile: noop,
+      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop, onSelectFile: noop,
       onPreview: noop, onDismissPreview: noop, onCreate: noop, onCollections: noop
     };
     const view = render(<NoteList {...props} />);

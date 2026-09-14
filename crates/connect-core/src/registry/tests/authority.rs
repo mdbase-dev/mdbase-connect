@@ -180,6 +180,16 @@ fn authority_transfer_fence_is_durable_exclusive_and_idempotent() {
         .fence_authority(collection.id, transfer_id)
         .unwrap();
     assert_eq!(fenced.manifest_digest, replaced.manifest_digest);
+    let recovery = registry
+        .get(collection.id)
+        .unwrap()
+        .authority_transfer
+        .expect("the durable fence is exposed for recovery");
+    assert_eq!(recovery.transfer_id, transfer_id);
+    assert_eq!(
+        recovery.state,
+        mdbase_connect_protocol::CollectionAuthorityTransferState::Fenced
+    );
     assert!(registry
         .operation(collection.id, "describe", &json!({}))
         .is_ok());
@@ -256,6 +266,15 @@ fn authority_transfer_fence_is_durable_exclusive_and_idempotent() {
 
     drop(registry);
     let reopened = CollectionRegistry::open(state.path()).unwrap();
+    assert_eq!(
+        reopened
+            .get(collection.id)
+            .unwrap()
+            .authority_transfer
+            .expect("recovery state survives restart")
+            .transfer_id,
+        transfer_id
+    );
     assert!(matches!(
         reopened.operation(
             collection.id,
@@ -272,6 +291,11 @@ fn authority_transfer_fence_is_durable_exclusive_and_idempotent() {
     reopened
         .resume_authority(collection.id, transfer_id)
         .unwrap();
+    assert!(reopened
+        .get(collection.id)
+        .unwrap()
+        .authority_transfer
+        .is_none());
     let resumed = reopened
         .operation(
             collection.id,

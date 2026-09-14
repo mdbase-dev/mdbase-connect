@@ -18,7 +18,7 @@ import { promisify } from "node:util";
 import { ensureAgentReady, type AgentPing } from "./agent-startup";
 import { AgentControlError, requestAgent } from "./control-client";
 import { BootGate } from "./boot-gate";
-import { connectCliEnvironment, daemonCliArguments, parseDaemonPaths, type DaemonPaths } from "./daemon-lifecycle";
+import { connectCliEnvironment, launchDaemon, parseDaemonPaths, type DaemonPaths } from "./daemon-lifecycle";
 import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { ElectronUpdateBackend } from "./electron-update-backend";
@@ -107,27 +107,7 @@ async function startAgent(runtime = updater!.daemonStartupRuntime()): Promise<vo
       requestAgent<AgentPing>(controlEndpoint(), "ping", undefined, timeoutMs),
     endpointIsUnavailable,
     incompatibleDaemon,
-    launch: async () => {
-      const binary = runtime.binary ?? connectBinary();
-      if (!existsSync(binary)) {
-        throw new Error(`Connector runtime is missing: ${binary}`);
-      }
-      await mkdir(stateDirectory(), { recursive: true });
-      await execFile(
-        binary,
-        daemonCliArguments(
-          daemonPaths!.target,
-          stateDirectory(),
-          controlEndpoint(),
-          ["start"]
-        ),
-        {
-          env: connectCliEnvironment(app.isPackaged),
-          timeout: 30_000,
-          windowsHide: true
-        }
-      );
-    }
+    launch: () => launchDaemon(runtime.binary ?? connectBinary(), daemonPaths!, app.isPackaged)
   });
 }
 
@@ -277,6 +257,17 @@ function registerIpc(): void {
       collection_id: collectionId,
       name: name.trim(),
       description: typeof description === "string" && description.trim() ? description.trim() : undefined
+    });
+  });
+  ipcMain.handle("connect:collections:cancel-authority-transfer", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid authority transfer recovery request.");
+    if (typeof value.collectionId !== "string" || typeof value.transferId !== "string") {
+      throw new Error("Invalid authority transfer recovery request.");
+    }
+    return requestReadyAgent("collections.cancel-authority-transfer", {
+      collection_id: value.collectionId,
+      transfer_id: value.transferId
     });
   });
   ipcMain.handle("connect:collections:set-enabled", async (event, input: unknown) => {

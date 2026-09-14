@@ -45,7 +45,13 @@ export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, 
   onVisibleFileEmbeds, onVisibleNoteEmbeds, autoFocus = true, readOnly = false }: MarkdownNoteEditorProps) {
   return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
     <label className="sr-only" htmlFor="note-title">Note title</label>
-    <input id="note-title" className="title-input" value={draft.title} onChange={(event) => onTitleChange(event.target.value)} placeholder="Untitled" spellCheck="true" readOnly={readOnly} aria-readonly={readOnly} />
+    <div className="note-title-field">
+      <span className="note-title-measure" aria-hidden="true">{draft.title || "Untitled"}{" "}</span>
+      <textarea id="note-title" className="title-input" rows={1} value={draft.title}
+        onChange={(event) => onTitleChange(event.target.value.replace(/[\r\n]+/g, " "))}
+        onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) event.preventDefault(); }}
+        placeholder="Untitled" spellCheck="true" readOnly={readOnly} aria-readonly={readOnly} />
+    </div>
     <Suspense fallback={<div className="body-editor code-editor-loading" role="status" aria-label="Loading note editor" aria-busy="true">Preparing editor…</div>}>
       <CodeEditor key={editorKey} value={draft.body} onChange={onBodyChange} label="Note body" language="markdown" readOnly={readOnly}
         variant="writer" placeholder="Start writing" vimEnabled={preferences.vim} lineWrapping={preferences.lineWrapping}

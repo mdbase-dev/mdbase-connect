@@ -231,6 +231,36 @@ impl AgentState {
         serde_json::to_value(completed).map_err(Into::into)
     }
 
+    pub(super) async fn cancel_authority_transfer(
+        &self,
+        collection_id: uuid::Uuid,
+        transfer_id: uuid::Uuid,
+    ) -> Result<serde_json::Value, ConnectError> {
+        let collection = self.registry.get(collection_id)?;
+        let local_transfer = collection.authority_transfer.ok_or_else(|| {
+            ConnectError::InvalidInput(
+                "This collection does not have an authority transfer to recover.".to_string(),
+            )
+        })?;
+        if local_transfer.transfer_id != transfer_id {
+            return Err(ConnectError::AuthorityTransferMismatch);
+        }
+
+        // The remote cancellation is the safety decision. Only reopen local
+        // authority after the control plane confirms this exact transfer can
+        // no longer activate.
+        self.cloud()?
+            .cancel_remote_authority_transfer(transfer_id)
+            .await?;
+        self.registry.resume_authority(collection_id, transfer_id)?;
+        self.refresh_watchers();
+        Ok(serde_json::json!({
+            "status": "cancelled",
+            "collection_id": collection_id,
+            "transfer_id": transfer_id
+        }))
+    }
+
     pub(super) async fn cancel_fenced_transfer(
         &self,
         cloud: &CloudControlClient,

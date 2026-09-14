@@ -1646,7 +1646,7 @@ function VisualFieldRow({ field, source, depth, activeField, onActivate, onChang
       <button className="field-disclosure" aria-label={`${expanded ? "Collapse" : "Expand"} ${fieldLabel} field`} aria-expanded={expanded} onClick={() => onActivate(expanded ? undefined : fieldLabel)}>
         {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </button>
-      <label className="visual-field-name"><span className="sr-only">Field name</span><input defaultValue={field.name} onBlur={(event) => onChange((current) => renameTypeField(current, field.path, event.target.value))} spellCheck="false" /></label>
+      <label className="visual-field-name"><span className="sr-only">Field name</span><input type="text" defaultValue={field.name} onBlur={(event) => onChange((current) => renameTypeField(current, field.path, event.target.value))} spellCheck="false" /></label>
       <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field kind</span><SelectControl value={field.kind} onChange={(event) => chooseKind(event.target.value as TypeFieldKind)}>
         <KindOptions current={field.kind} />
       </SelectControl></label>

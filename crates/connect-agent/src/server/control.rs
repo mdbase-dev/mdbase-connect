@@ -91,6 +91,10 @@ impl AgentState {
                         .await
                 }
             },
+            ControlCommand::CollectionCancelAuthorityTransfer(params) => {
+                self.cancel_authority_transfer(params.collection_id, params.transfer_id)
+                    .await
+            }
             ControlCommand::CollectionCreate(params) => {
                 let result =
                     self.registry
