@@ -5,10 +5,10 @@
     "apps/editor/src/TypeBrowser.tsx": 1998
   },
   "productionFileBudgetsByPackage": {
-    "apps/desktop": 40,
-    "apps/editor": 110,
+    "apps/desktop": 43,
+    "apps/editor": 111,
     "apps/portal": 16,
-    "crates/connect-agent": 34,
+    "crates/connect-agent": 35,
     "crates/connect-cli": 7,
     "crates/connect-core": 34,
     "crates/connect-hosted-provider": 105,
@@ -28,7 +28,7 @@
     "packages/webhooks": 1,
     "services/feedback": 1,
     "services/mcp": 11,
-    "services/server": 138
+    "services/server": 139
   },
   "deadCodeReferencesByFile": {
     "crates/connect-hosted-provider/src/workspace.rs": 1,
@@ -43,11 +43,11 @@
     "semanticProjectionFormatVersion": 6
   },
   "reviewBudgets": {
-    "productionFiles": 685,
-    "relativeImports": 1487,
+    "productionFiles": 691,
+    "relativeImports": 1505,
     "workspacePackages": 24,
-    "rustPublicDeclarations": 3173,
-    "typeScriptExportDeclarations": 2445,
+    "rustPublicDeclarations": 3195,
+    "typeScriptExportDeclarations": 2465,
     "mdbaseCollectionReferences": 16,
     "typedCollectionReferences": 1
   }

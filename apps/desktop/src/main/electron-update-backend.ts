@@ -1,4 +1,5 @@
 import { autoUpdater, shell } from "electron";
+import { presentReadiness, type AgentReadiness } from "../shared/readiness";
 import { execFile as execFileCallback } from "node:child_process";
 import { createReadStream } from "node:fs";
 import {
@@ -23,9 +24,10 @@ import {
   type UpdateManifest,
   type UpdateTarget
 } from "./update-policy";
-import type { UpdateTransaction } from "./update-state";
+import type { PersistedUpdateState, UpdateTransaction } from "./update-state";
+import { LOCAL_CONTROL_PROTOCOL_VERSION } from "./control-client";
 import { artifactMatches, downloadArtifact, downloadBytes } from "./update-download";
-import { connectCliEnvironment, daemonCliArguments } from "./daemon-lifecycle";
+import { connectCliEnvironment, daemonCliArguments, type DaemonTarget } from "./daemon-lifecycle";
 
 const execFile = promisify(execFileCallback);
 const AUTO_UPDATER_TIMEOUT_MS = 180_000;
@@ -39,6 +41,7 @@ export interface ElectronUpdateBackendOptions {
   userDataDirectory: string;
   binaryPath: () => string;
   stateDirectory: () => string;
+  target: () => DaemonTarget;
   endpoint: () => string;
 }
 
@@ -57,13 +60,25 @@ export class ElectronUpdateBackend implements UpdateBackend {
     this.packaged = options.packaged;
   }
 
-  async reconcileInstalledRuntime(): Promise<string | null> {
-    if (!this.packaged) return null;
-    const status = await this.daemonStatus();
-    const needsReconciliation = runtimeNeedsReconciliation(status, this.currentVersion);
-    if (!needsReconciliation) return null;
-    await this.activateRuntime(this.options.binaryPath(), this.currentVersion);
-    return `Connector runtime ${this.currentVersion} was reconciled with this application.`;
+  async reconcileInstalledRuntime(rollback?: PersistedUpdateState["last_known_good_runtime"]): Promise<string | null> {
+    if (!this.packaged && !rollback) return null;
+    if (rollback) {
+      this.assertPrivateRuntime(rollback.path, rollback.version);
+      if (!(await stat(rollback.path)).isFile()) throw new Error("The saved rollback runtime is missing.");
+    }
+    const binary = rollback?.path ?? this.options.binaryPath();
+    const version = rollback?.version ?? this.currentVersion;
+    const status = await this.daemonStatus(binary);
+    if (runtimeNeedsReconciliation(status, version)) {
+      await this.activateRuntime(binary, version);
+    } else if (rollback && !status.ready) {
+      throw new Error("The saved rollback connector is not ready or uses an incompatible local protocol.");
+    } else if (!rollback) {
+      return null;
+    }
+    return rollback
+      ? `Using verified rollback connector ${version} with application ${this.currentVersion}.`
+      : `Connector runtime ${version} was reconciled with this application.`;
   }
 
   async findLatest(): Promise<{ manifest: UpdateManifest } | null> {
@@ -108,7 +123,15 @@ export class ElectronUpdateBackend implements UpdateBackend {
     await stageMacUpdate(archive, manifest, onProgress);
   }
 
-  async prepareDaemonHandoff(previousVersion: string): Promise<PreparedDaemonHandoff> {
+  async prepareDaemonHandoff(previousVersion: string, previousRuntime?: string | null): Promise<PreparedDaemonHandoff> {
+    if (previousRuntime) {
+      this.assertPrivateRuntime(previousRuntime, previousVersion);
+      if (!(await stat(previousRuntime)).isFile()) throw new Error("The saved rollback runtime is missing.");
+      const status = await this.daemonStatus(previousRuntime);
+      // Already preserved: never overwrite the active fallback with the newer bundle.
+      return { serviceInstalled: status.installed, previousRuntime };
+    }
+    if (previousVersion !== this.currentVersion) throw new Error("The previous runtime binary is missing.");
     const status = await this.daemonStatus();
     const source = this.options.binaryPath();
     const directory = join(
@@ -153,19 +176,8 @@ export class ElectronUpdateBackend implements UpdateBackend {
   }
 
   async recover(transaction: UpdateTransaction): Promise<RecoveryResult> {
-    if (transaction.previous_runtime) {
-      const extension = this.options.platform === "win32" ? ".exe" : "";
-      const expected = join(
-        this.options.userDataDirectory,
-        "updates",
-        "runtimes",
-        transaction.previous_version,
-        `mdbase${extension}`
-      );
-      if (transaction.previous_runtime !== expected) {
-        throw new Error("The recorded recovery runtime is outside the private update directory.");
-      }
-    }
+    const previousVersion = transaction.previous_runtime_version ?? transaction.previous_version;
+    if (transaction.previous_runtime) this.assertPrivateRuntime(transaction.previous_runtime, previousVersion);
     const runningTarget = this.currentVersion === transaction.target_version;
     const runningPrevious = this.currentVersion === transaction.previous_version;
     if (runningTarget) {
@@ -183,21 +195,21 @@ export class ElectronUpdateBackend implements UpdateBackend {
         if (!transaction.previous_runtime) throw error;
         await this.activateRuntime(
           transaction.previous_runtime,
-          transaction.previous_version
+          previousVersion
         );
         return {
           healthy: true,
           rolledBack: true,
           message:
             `Version ${transaction.target_version} could not start its connector. ` +
-            `The last-known-good ${transaction.previous_version} connector was restored.`
+            `The last-known-good ${previousVersion} connector was restored.`
         };
       }
     }
     if (runningPrevious) {
       await this.activateRuntime(
-        this.options.binaryPath(),
-        transaction.previous_version
+        previousVersion === this.currentVersion ? this.options.binaryPath() : transaction.previous_runtime!,
+        previousVersion
       );
       return {
         healthy: true,
@@ -213,20 +225,26 @@ export class ElectronUpdateBackend implements UpdateBackend {
     }
     await this.activateRuntime(
       transaction.previous_runtime,
-      transaction.previous_version
+      previousVersion
     );
     return {
       healthy: true,
       rolledBack: true,
-      message: `An unexpected application version was detected; connector ${transaction.previous_version} was restored.`
+      message: `An unexpected application version was detected; connector ${previousVersion} was restored.`
     };
+  }
+
+  private assertPrivateRuntime(binary: string, version: string): void {
+    const extension = this.options.platform === "win32" ? ".exe" : "";
+    const expected = join(this.options.userDataDirectory, "updates", "runtimes", version, `mdbase${extension}`);
+    if (binary !== expected) throw new Error("The recorded recovery runtime is outside the private update directory.");
   }
 
   private async activateRuntime(
     binary: string,
     expectedVersion: string
   ): Promise<void> {
-    const current = await this.daemonStatus().catch(() => ({ running: false }));
+    const current = await this.daemonStatus(binary).catch(() => ({ running: false }));
     if (current.running) {
       await this.runCli(binary, ["stop"], 35_000).catch(() => undefined);
     }
@@ -236,7 +254,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
     while (Date.now() < deadline) {
       const status = await this.daemonStatus(binary).catch(() => null);
       lastVersion = status?.binaryVersion;
-      if (status?.running && status.binaryVersion === expectedVersion) return;
+      if (status?.running && status.ready && status.binaryVersion === expectedVersion) return;
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
     throw new Error(
@@ -249,12 +267,16 @@ export class ElectronUpdateBackend implements UpdateBackend {
   private async daemonStatus(binary = this.options.binaryPath()): Promise<{
     installed: boolean;
     running: boolean;
+    ready: boolean;
     binaryVersion?: string;
   }> {
     const value = await this.runCli(binary, ["status"], 10_000);
+    const status = value.status as { readiness?: AgentReadiness; protocol_version?: number } | undefined;
     return {
       installed: value.installed === true,
       running: value.running === true,
+      ready: status?.protocol_version === LOCAL_CONTROL_PROTOCOL_VERSION &&
+        presentReadiness(status.readiness).state === "ready",
       binaryVersion:
         value.status &&
         typeof value.status === "object" &&
@@ -273,7 +295,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
     const { stdout } = await execFile(
       binary,
       daemonCliArguments(
-        this.packaged,
+        this.options.target(),
         this.options.stateDirectory(),
         this.options.endpoint(),
         command,

@@ -155,6 +155,8 @@ export interface FileUploadRequest extends FileReadRequest {
 }
 
 export interface CollectionGateway {
+  pendingNoteMutations(): readonly import("@mdbase-dev/connect").PendingMutationSummary[];
+  recoverNoteMutation(requestId: string): Promise<NoteDocument>;
   sessionSnapshot(): CollectionSessionSnapshot;
   startSession(): Promise<CollectionSessionSnapshot>;
   onSessionChange(listener: (snapshot: CollectionSessionSnapshot) => void): () => void;

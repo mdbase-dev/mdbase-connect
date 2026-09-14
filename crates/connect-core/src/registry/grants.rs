@@ -506,6 +506,7 @@ impl CollectionRegistry {
             let application_declaration =
                 authenticated_summary_declaration(&proof, application_declaration.as_deref())?;
             Ok(GrantSummary {
+                revocation_status: None,
                 application_declaration,
                 id: parse_registry_uuid(&id)?,
                 application_id: parse_registry_uuid(&application_id)?,
@@ -668,6 +669,7 @@ impl CollectionRegistry {
             .collect();
         Ok(Some(GrantReplayContext {
             grant: GrantSummary {
+                revocation_status: None,
                 application_declaration: authenticated_summary_declaration(
                     &proof,
                     application_declaration.as_deref(),

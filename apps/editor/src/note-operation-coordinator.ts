@@ -1,10 +1,14 @@
+import { MdbaseConnectError } from "@mdbase-dev/connect";
 import type { NoteDocument, SaveNoteInput } from "./model";
 import type { NoteSession } from "./note-session";
 import { sessionDirty } from "./note-session";
 import { KeyedOperationQueue } from "./operation-queue";
+import { pendingNoteRequestId } from "./pending-note-mutation";
 
 interface NoteOperationCoordinatorOptions {
   update(input: SaveNoteInput): Promise<NoteDocument>;
+  recover?(requestId: string): Promise<NoteDocument>;
+  isPending(requestId: string): boolean;
   onSaved(session: NoteSession, document: NoteDocument): void;
   onSaveError(session: NoteSession, error: unknown): void;
   onChange(session: NoteSession): void;
@@ -18,7 +22,7 @@ export class NoteOperationCoordinator {
 
   requestSave(session: NoteSession): Promise<void> {
     if (session.deleted) return Promise.resolve();
-    if (session.remoteDocument) {
+    if (session.remoteDocument && !session.pendingSave) {
       session.saveState = "conflict";
       this.options.onChange(session);
       return Promise.resolve();
@@ -27,7 +31,7 @@ export class NoteOperationCoordinator {
       if (sessionDirty(session)) session.saveAgain = true;
       return session.savePromise;
     }
-    if (!sessionDirty(session)) {
+    if (!sessionDirty(session) && !session.pendingSave) {
       session.saveState = "saved";
       this.options.onChange(session);
       return Promise.resolve();
@@ -36,34 +40,47 @@ export class NoteOperationCoordinator {
     const promise = this.queue.run(session, async () => {
       do {
         session.saveAgain = false;
-        if (!sessionDirty(session) || session.deleted) break;
-        const snapshot = structuredClone(session.draft);
+        if ((!sessionDirty(session) && !session.pendingSave) || session.deleted) break;
+        const pending = session.pendingSave;
+        const snapshot = pending?.draft ?? structuredClone(session.draft);
         session.activity = "saving";
         session.saveState = "saving";
         this.options.onChange(session);
         try {
-          const document = await this.options.update({
+          const document = pending
+            ? await this.recover(pending.requestId)
+            : await this.options.update({
             path: session.document.path,
             revision: session.document.revision,
             frontmatter: session.document.frontmatter,
             ...snapshot
           });
+          session.pendingSave = undefined;
           session.document = document;
           session.persistedDraft = snapshot;
+          if (session.remoteDocument?.revision === document.revision) session.remoteDocument = undefined;
           session.error = undefined;
-          session.saveState = sessionDirty(session) ? "waiting" : "saved";
+          session.saveState = session.remoteDocument ? "conflict" : sessionDirty(session) ? "waiting" : "saved";
           this.options.onSaved(session, document);
           this.options.onChange(session);
         } catch (error) {
-          session.saveState = "conflict";
+          // The SDK owns settlement. Probe errors alone cannot tell us whether
+          // the original request was rejected or remains durably pending.
+          if (session.pendingSave && error instanceof MdbaseConnectError && !error.outcomeUnknown &&
+              !this.options.isPending(session.pendingSave.requestId)) {
+            session.pendingSave = undefined;
+          }
+          const requestId = pendingNoteRequestId(error);
+          if (!session.pendingSave && requestId) session.pendingSave = { requestId, draft: snapshot };
+          session.saveState = session.pendingSave ? "recovery" : "conflict";
           session.activity = undefined;
           this.options.onSaveError(session, error);
           this.options.onChange(session);
           throw error;
         }
-      } while (session.saveAgain && sessionDirty(session));
+      } while (session.saveAgain && sessionDirty(session) && !session.remoteDocument);
       session.activity = undefined;
-      session.saveState = sessionDirty(session) ? "waiting" : "saved";
+      session.saveState = session.remoteDocument ? "conflict" : sessionDirty(session) ? "waiting" : "saved";
       this.options.onChange(session);
     });
 
@@ -76,7 +93,13 @@ export class NoteOperationCoordinator {
     return promise;
   }
 
+  private async recover(requestId: string): Promise<NoteDocument> {
+    if (!this.options.recover) throw new Error("Exact mutation recovery is unavailable. No new write was attempted.");
+    return this.options.recover(requestId);
+  }
+
   async flush(session: NoteSession): Promise<void> {
+    if (session.pendingSave) await this.requestSave(session);
     if (session.remoteDocument) throw new Error("Resolve the version changed elsewhere before continuing.");
     while (!session.deleted && !session.remoteDocument && (sessionDirty(session) || session.savePromise)) {
       await this.requestSave(session);

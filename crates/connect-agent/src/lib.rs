@@ -160,6 +160,8 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
         ));
     }
     let mirror_worker = mirror_manager.start();
+    state.monitor_critical_worker(mirror_worker.abort_handle());
+    state.monitor_critical_worker(runtime_worker.abort_handle());
     let relay = match (server_url, connector_token) {
         (Some(server_url), Some(connector_token)) => Some((server_url, connector_token)),
         (None, None) => None,
@@ -167,6 +169,8 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
     };
     let initialization_state = state.clone();
     let relay_state = state.clone();
+    let worker_health_state = state.clone();
+    let has_relay = relay.is_some();
     let initialization_worker = Arc::new(std::sync::Mutex::new(None));
     let initialization_worker_on_listening = initialization_worker.clone();
     tracing::info!(%endpoint, state_dir = %state_dir.display(), "starting local connector daemon");
@@ -207,13 +211,20 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
                         ),
                     }
                 }
-                Err(error) => tracing::error!(%error, "failed to initialize collection runtimes"),
+                Err(error) => {
+                    tracing::error!(%error, "failed to initialize collection runtimes");
+                    initialization_state.mark_initialization_failed();
+                    return;
+                }
             }
             initialization_state.mark_initialized();
             if let Some((server_url, connector_token)) = relay {
                 relay::run(server_url, connector_token, relay_state).await;
             }
         });
+        if has_relay {
+            worker_health_state.monitor_critical_worker(worker.abort_handle());
+        }
         *initialization_worker_on_listening
             .lock()
             .expect("initialization worker lock poisoned") = Some(worker);

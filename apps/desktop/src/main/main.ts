@@ -17,7 +17,8 @@ import { hostname } from "node:os";
 import { promisify } from "node:util";
 import { ensureAgentReady, type AgentPing } from "./agent-startup";
 import { AgentControlError, requestAgent } from "./control-client";
-import { connectCliEnvironment, daemonCliArguments } from "./daemon-lifecycle";
+import { BootGate } from "./boot-gate";
+import { connectCliEnvironment, launchDaemon, parseDaemonPaths, type DaemonPaths } from "./daemon-lifecycle";
 import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { ElectronUpdateBackend } from "./electron-update-backend";
@@ -32,8 +33,9 @@ guardDesktopProcessOutput();
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let agentStartup: Promise<void> | null = null;
-let daemonPaths: { stateDir: string; endpoint: string } | null = null;
+let bootGate: BootGate;
+let localHealthLabel = "Local connector starting";
+let daemonPaths: DaemonPaths | null = null;
 let updater: UpdateCoordinator | null = null;
 let quitting = false;
 const activePairings = new Map<string, { serverUrl: string; secret: string }>();
@@ -77,19 +79,7 @@ async function resolveDaemonPaths(): Promise<void> {
     timeout: 10_000,
     windowsHide: true
   });
-  const paths = JSON.parse(stdout) as { state_dir?: unknown; endpoint?: unknown };
-  if (typeof paths.state_dir !== "string" || typeof paths.endpoint !== "string") {
-    throw new Error("The connector runtime returned invalid path information.");
-  }
-  daemonPaths = { stateDir: paths.state_dir, endpoint: paths.endpoint };
-}
-
-async function ensureAgent(): Promise<void> {
-  if (agentStartup) return agentStartup;
-  agentStartup = startAgent().finally(() => {
-    agentStartup = null;
-  });
-  return agentStartup;
+  daemonPaths = parseDaemonPaths(JSON.parse(stdout));
 }
 
 async function requestReadyAgent<T>(
@@ -97,8 +87,7 @@ async function requestReadyAgent<T>(
   params?: unknown,
   timeoutMs = 5_000
 ): Promise<T> {
-  await ensureAgent();
-  return requestAgent<T>(controlEndpoint(), method, params, timeoutMs);
+  return bootGate.request(() => requestAgent<T>(controlEndpoint(), method, params, timeoutMs));
 }
 
 function endpointIsUnavailable(error: unknown): boolean {
@@ -111,33 +100,14 @@ function incompatibleDaemon(error: unknown): boolean {
   return error instanceof AgentControlError && error.code === "unsupported_local_protocol";
 }
 
-async function startAgent(): Promise<void> {
+async function startAgent(runtime = updater!.daemonStartupRuntime()): Promise<void> {
   await ensureAgentReady({
+    expectedVersion: runtime.version,
     ping: (timeoutMs) =>
       requestAgent<AgentPing>(controlEndpoint(), "ping", undefined, timeoutMs),
     endpointIsUnavailable,
     incompatibleDaemon,
-    launch: async () => {
-      const binary = connectBinary();
-      if (!existsSync(binary)) {
-        throw new Error(`Connector runtime is missing: ${binary}`);
-      }
-      await mkdir(stateDirectory(), { recursive: true });
-      await execFile(
-        binary,
-        daemonCliArguments(
-          app.isPackaged,
-          stateDirectory(),
-          controlEndpoint(),
-          ["start"]
-        ),
-        {
-          env: connectCliEnvironment(app.isPackaged),
-          timeout: 30_000,
-          windowsHide: true
-        }
-      );
-    }
+    launch: () => launchDaemon(runtime.binary ?? connectBinary(), daemonPaths!, app.isPackaged)
   });
 }
 
@@ -176,12 +146,12 @@ function registerIpc(): void {
   ipcMain.handle("connect:updates:check", async (event) => {
     trustedIpc(event);
     if (!updater) throw new Error("The updater has not been initialized.");
-    return updater.check(true);
+    return bootGate.check(() => updater!.check(true));
   });
   ipcMain.handle("connect:updates:install", async (event) => {
     trustedIpc(event);
     if (!updater) throw new Error("The updater has not been initialized.");
-    return updater.install();
+    return bootGate.install(() => updater!.install());
   });
   ipcMain.handle("connect:collections:list", async (event) => {
     trustedIpc(event);
@@ -889,7 +859,7 @@ function refreshTrayMenu(): void {
     Menu.buildFromTemplate([
       { label: "Show mdbase connect", click: () => mainWindow?.show() },
       { type: "separator" },
-      { label: "Local connector running", enabled: false },
+      { label: localHealthLabel, enabled: false },
       {
         label: updateReady
           ? update?.phase === "ready"
@@ -900,14 +870,14 @@ function refreshTrayMenu(): void {
         click: () => {
           if (!updater) return;
           if (updateReady) {
-            void updater.install().catch((error) => {
+            void bootGate.install(() => updater!.install()).catch((error) => {
               dialog.showErrorBox(
                 "mdbase connect could not install the update",
                 error instanceof Error ? error.message : String(error)
               );
             });
           } else {
-            void updater.check(true);
+            void bootGate.check(() => updater!.check(true)).catch((error) => dialog.showErrorBox("Could not check for updates", String(error)));
           }
         }
       },
@@ -950,11 +920,33 @@ app.whenReady().then(async () => {
       userDataDirectory: app.getPath("userData"),
       binaryPath: connectBinary,
       stateDirectory,
+      target: () => daemonPaths!.target,
       endpoint: controlEndpoint
     })
   );
-  const recoveryStatus = await updater.initialize();
+  bootGate = new BootGate({
+    initialize: async () => { await updater!.initialize(); },
+    start: async () => {
+      localHealthLabel = "Local connector starting";
+      refreshTrayMenu();
+      try {
+        await startAgent();
+        localHealthLabel = "Local connector ready";
+      } catch (error) {
+        localHealthLabel = error instanceof Error ? error.message : "Local connector needs attention";
+        throw error;
+      } finally {
+        refreshTrayMenu();
+      }
+    },
+    blockedReason: () => updater!.daemonStartupBlock()
+  });
   updater.subscribe((status) => {
+    if (status.phase === "installing" || status.phase === "recovery") {
+      localHealthLabel = "Local connector updating";
+    } else if (status.phase === "failed" && !status.can_check) {
+      localHealthLabel = "Local connector needs attention";
+    }
     mainWindow?.webContents.send("connect:update-status", status);
     refreshTrayMenu();
   });
@@ -963,17 +955,18 @@ app.whenReady().then(async () => {
   createTray();
   handleDeepLink(process.argv.find((value) => value.startsWith("mdbase-connect://")));
   try {
-    if (recoveryStatus.phase === "failed") throw new Error(recoveryStatus.message);
-    await ensureAgent();
+    await bootGate.ready();
   } catch (error) {
+    localHealthLabel = "Local connector needs attention";
+    refreshTrayMenu();
     dialog.showErrorBox(
       "mdbase connect could not start",
       error instanceof Error ? error.message : String(error)
     );
   }
-  const initialUpdateCheck = setTimeout(() => void updater?.check(false), 30_000);
+  const initialUpdateCheck = setTimeout(() => void bootGate.check(() => updater!.check(false)).catch(() => undefined), 30_000);
   initialUpdateCheck.unref();
-  const updateChecks = setInterval(() => void updater?.check(false), 6 * 60 * 60 * 1000);
+  const updateChecks = setInterval(() => void bootGate.check(() => updater!.check(false)).catch(() => undefined), 6 * 60 * 60 * 1000);
   updateChecks.unref();
 });
 

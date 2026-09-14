@@ -467,6 +467,7 @@ mod tests {
 
     fn legacy_grant() -> GrantSummary {
         GrantSummary {
+            revocation_status: None,
             application_declaration: None,
             id: Uuid::new_v4(),
             application_id: Uuid::new_v4(),

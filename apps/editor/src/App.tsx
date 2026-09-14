@@ -7,7 +7,7 @@ import {
   PencilSimpleIcon as Pencil,
   TrashIcon as Trash2
 } from "./icons";
-import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import { type CollectionDescription, type CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   useCallback,
   useDeferredValue,
@@ -66,6 +66,7 @@ import {
   safeRenamePath
 } from "./note";
 import { NoteOperationCoordinator } from "./note-operation-coordinator";
+import { pendingNoteRequestId, pendingNoteToasts, recoverPendingNoteOperation, type RenamePlan, type PendingRenameRecovery } from "./pending-note-mutation";
 import {
   NoteSessionStore,
   sessionDirty,
@@ -133,22 +134,9 @@ interface Confirmation {
   onConfirm: () => void | Promise<void>;
 }
 
-interface RenamePlan {
-  session: NoteSession;
-  from: string;
-  to: string;
-  affectedPaths: string[];
-  warnings: string[];
-}
-
 interface DeletePlan {
   session: NoteSession;
   brokenLinkPaths: string[];
-}
-
-interface PendingRenameRecovery {
-  plan: RenamePlan;
-  updateRefs: boolean;
 }
 
 type RecoveryAction =
@@ -376,9 +364,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }, [fileController, loadIndex, refreshDescription]);
 
-  const updateNoteSummary = useCallback((next: NoteDocument, previousPath = next.path) => {
-    indexController.upsert(summaryFromDocument(next), previousPath);
-  }, [indexController]);
+  const updateNoteSummary = useCallback((next: NoteDocument, previousPath = next.path) =>
+    indexController.upsert(summaryFromDocument(next), previousPath), [indexController]);
 
   const publishNoteHistory = useCallback((next: NoteNavigationHistory) => {
     noteHistory.current = next;
@@ -424,10 +411,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, []);
 
   const noteOperations = useMemo(() => new NoteOperationCoordinator({
-    update: (input) => {
-      const token = mutationScope.current.token();
-      return mutationScope.current.register(token, gateway.update(input));
-    },
+    recover: (requestId) => mutationScope.current.register(mutationScope.current.token(), gateway.recoverNoteMutation(requestId)),
+    isPending: (requestId) => gateway.pendingNoteMutations().some((pending) => pending.requestId === requestId),
+    update: (input) => mutationScope.current.register(mutationScope.current.token(), gateway.update(input)),
     onSaved: (session, next) => {
       if (noteSessions.current.get(session.document.path) !== session) return;
       updateNoteSummary(next);
@@ -498,7 +484,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
     await noteOperations.wait(initial);
     const session = noteSessions.current.get(path);
-    if (session !== initial || session.deleted) return;
+    if (session !== initial || session.deleted || session.pendingSave) return;
 
     const next = await gateway.read(path);
     if (epoch !== collectionEpoch.current || noteSessions.current.get(path) !== session || session.deleted || next.revision === session.document.revision) return;
@@ -1224,7 +1210,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }
 
-  async function performRename(plan: RenamePlan, updateRefs: boolean) {
+  async function performRename(plan: RenamePlan, updateRefs: boolean, requestId?: string) {
     if (mutationScope.current.isFrozen) return;
     const token = mutationScope.current.token();
     const { session, from, to } = plan;
@@ -1234,9 +1220,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     session.mutationCancellable = false;
     touchSession(session);
     try {
-      await flushSession(session);
-      if (session.document.path !== from) throw new Error("This note moved before the rename could begin.");
-      const renamed = await runNoteOperation(session, updateRefs ? "renaming" : "moving", (token) => gateway.rename(
+      if (!requestId) {
+        await flushSession(session);
+        if (session.document.path !== from) throw new Error("This note moved before the rename could begin.");
+      }
+      const renamed = await runNoteOperation(session, updateRefs ? "renaming" : "moving", (token) => requestId
+        ? gateway.recoverNoteMutation(requestId)
+        : gateway.rename(
         from,
         to,
         session.document.revision,
@@ -1268,8 +1258,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       if (!mutationScope.current.isCurrent(token)) return;
       const message = gatewayError(error);
       session.error = message;
-      if (error instanceof MdbaseConnectError && error.problem.operation_outcome === "unknown") {
-        setPendingRenameRecovery({ plan, updateRefs });
+      const interruptedRequestId = requestId ?? pendingNoteRequestId(error);
+      if (interruptedRequestId) {
+        setPendingRenameRecovery({ plan, updateRefs, requestId: interruptedRequestId });
         if (noteSessions.current.active === session) {
           setPathDraft(to);
           setEditingPath(true);
@@ -1291,6 +1282,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       renameRequest.current = undefined;
     }
   }
+
+  const recoverPendingNote = (requestId: string) => recoverPendingNoteOperation(requestId, {
+    busy: recoveryBusy, scope: mutationScope.current, sessions: noteSessions.current, gateway,
+    save: (session) => noteOperations.requestSave(session), rename: pendingRenameRecovery,
+    resumeRename: performRename, refresh: refreshChangedNote, reload: loadIndex,
+    setBusy: setRecoveryBusy, onError: (message) => setNotice(message)
+  });
 
   function cancelActiveMutation() {
     noteSessions.current.active?.mutationController?.abort("Cancelled in mdbase editor");
@@ -1879,7 +1877,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     onCheckNote: () => void validateNote(),
     onCopyPath: () => { if (document) copyFacet(document.path, "note path"); }
   });
-  const activeToasts = buildToastItems({ notice, recoveryMessage: recoveryAction ? recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document, typeDescriptors)}”.` : `Renamed to “${recoveryAction.to}”.` : undefined, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs); } });
+  const activeToasts = buildToastItems({ notice, recoveryMessage: recoveryAction ? recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document, typeDescriptors)}”.` : `Renamed to “${recoveryAction.to}”.` : undefined, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
+  const pendingNoteMutations = gateway.pendingNoteMutations();
+  activeToasts.push(...pendingNoteToasts(pendingNoteMutations, activePendingRename?.requestId, recoveryBusy, recoverPendingNote));
   if (noteOpenFailure && document) activeToasts.push({
     id: "note-open", message: noteOpenFailure.message, tone: "error", sticky: true,
     action: { label: "Retry note", onAction: () => navigateToNote(noteOpenFailure.path, noteOpenFailure.options) }
@@ -2029,7 +2029,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             {preferences.vim && <span className="vim-label">vim</span>}
             {!canEditNotes && <span className="connect-muted">Read only</span>}
             <SaveIndicator
-              state={saveState}
+              state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
               activity={noteSessions.current.active?.activity}
               detail={noteSessions.current.active?.activityDetail}
               onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}

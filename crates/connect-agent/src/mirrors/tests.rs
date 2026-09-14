@@ -75,9 +75,12 @@ fn prerelease_state_upgrade_blocks_background_retry() {
     let transient = mirror_error("mirror_transport_failed", "Try again.");
     let credentials = ConnectError::CredentialStore("The login keyring is locked.".into());
 
-    assert!(terminal_background_error(&upgrade));
-    assert!(terminal_background_error(&credentials));
-    assert!(!terminal_background_error(&transient));
+    assert!(terminal_background_error(&upgrade, false));
+    // A read failure after a successful bootstrap reuses the existing bounded
+    // background retry schedule; it must not park this replica permanently.
+    assert!(!terminal_background_error(&credentials, false));
+    assert!(terminal_background_error(&credentials, true));
+    assert!(!terminal_background_error(&transient, false));
 }
 
 #[test]

@@ -285,6 +285,15 @@ export async function buildPolicySnapshot(
       }
       return null;
     }
+    // Bind historical or externally requested revocations to this exact snapshot
+    // while holding the same connector lock used by explicit revocation routes.
+    await connection.query(
+      `UPDATE grants SET revocation_policy_sequence = $2::bigint
+       WHERE revoked_at IS NOT NULL AND hosted_replica_id IS NULL
+         AND revocation_policy_sequence IS NULL
+         AND collection_id IN (SELECT id FROM collections WHERE connector_id = $1)`,
+      [connectorId, String(active.rows[0].policy_sequence)]
+    );
     const grants = await observeConnectorPolicyStage("grant_inventory", () => connection.query<{
       id: string; application_id: string; application_name: string;
       application_distribution: "web" | "portable"; application_homepage: string;

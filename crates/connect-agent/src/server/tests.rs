@@ -24,6 +24,24 @@ async fn access_snapshot_response(
 }
 
 #[tokio::test]
+async fn credential_bootstrap_failure_is_not_an_unconfigured_account_snapshot() {
+    let root = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(root.path()).unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    let mut state = AgentState::new(registry, watcher, None);
+    state.credential_store_error =
+        Some("Unlock the credential store and restart the connector.".to_string());
+    state.mark_initialized();
+    assert!(!state.readiness().ready);
+    let response = Arc::new(state)
+        .execute(ControlRequest::new(ControlCommand::AccessSnapshot))
+        .await;
+    assert!(!response.ok);
+    assert!(response.result.is_none());
+    assert_eq!(response.error.unwrap().code, "credential_store_unavailable");
+}
+
+#[tokio::test]
 async fn authority_transfer_cancellation_reopens_only_after_remote_confirmation() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -345,6 +363,40 @@ async fn listening_callback_runs_after_the_control_socket_is_reachable() {
 
     server.abort();
     let _ = server.await;
+}
+
+#[tokio::test]
+async fn readiness_reports_initialization_and_critical_worker_failure_consistently() {
+    let root = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(root.path()).unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    let state = Arc::new(AgentState::new(registry, watcher, None));
+    state.mark_initialization_failed();
+    for command in [ControlCommand::Ping, ControlCommand::Status] {
+        let result = state
+            .execute(ControlRequest::new(command))
+            .await
+            .result
+            .unwrap();
+        assert_eq!(result["readiness"]["schema_version"], 1);
+        assert_eq!(result["readiness"]["ready"], false);
+        assert_eq!(result["readiness"]["safe_reason"], "initialization_failed");
+    }
+    state.mark_initialized();
+    let worker = tokio::spawn(std::future::pending::<()>());
+    state.monitor_critical_worker(worker.abort_handle());
+    assert!(state.readiness().ready);
+    worker.abort();
+    let _ = worker.await;
+    for command in [ControlCommand::Ping, ControlCommand::Status] {
+        let result = state
+            .execute(ControlRequest::new(command))
+            .await
+            .result
+            .unwrap();
+        assert_eq!(result["readiness"]["ready"], false);
+        assert_eq!(result["readiness"]["safe_reason"], "critical_worker_failed");
+    }
 }
 
 #[tokio::test]

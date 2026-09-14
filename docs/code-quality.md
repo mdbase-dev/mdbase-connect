@@ -124,6 +124,28 @@ does not relax file-size or cycle checks. Route tests and real PostgreSQL replay
 cross-provider email-race, same-subject concurrency and rollback tests cover the
 new persisted boundary.
 
+The [exact-recovery changes](exact-recovery-and-health.md) add six narrow modules:
+three desktop modules for boot admission, canonical readiness presentation, and
+resource-local refresh results; one editor helper for existing SDK pending
+handles; one relay retry policy within the existing owner; and one server
+transaction boundary for local revocation. They replace bypasses/duplicated
+policy rather than adding a supervisor, reconciliation bus, credential store,
+or mutation journal. The measured surface adjustment is six production files,
+17 relative imports, 22 Rust public declarations and 18 TypeScript exports:
+691 files, 1,504 imports, 3,185 Rust declarations and 2,462 TypeScript exports.
+Per-package file limits become desktop 43, editor 111, daemon 35 and server 139.
+File-size, cycle, package-dependency and dead-code limits are unchanged. Evidence
+belongs at each boundary: boot/update races, pending-handle/component tests,
+exact-ACK and real PostgreSQL serialization tests, and real isolated-process
+credential retry. These limits do not replace review or platform qualification.
+
+The rollback-admission correction reuses the control client's existing protocol
+constant in updater health verification: one additional relative import and one
+export, making the reviewed totals 1,505 imports and 2,463 TypeScript exports.
+No production module, file-size limit, or cycle allowance is added. The existing
+update record now binds a verified fallback to its app version and distinguishes
+that daemon version during subsequent handoff; it is not a second journal.
+
 Authority-transfer recovery (#345) adds ten conservative Rust visibility
 references for the durable transfer summary, exact-ID cancellation command,
 and their two internal accessors. The local control protocol advances to v5.
@@ -134,6 +156,12 @@ failure justifies this new persisted boundary; restart, refusal, replay,
 migration, desktop and PostgreSQL transaction/race tests cover it. Reviewed
 limits become 3,173 Rust visibility references and 2,445 TypeScript exports;
 file-count, file-size, dependency-cycle and package budgets are unchanged.
+
+Integrating both series retains 691 production files and 1,505 relative imports,
+with combined reviewed totals of 3,195 Rust declarations and 2,465 TypeScript
+exports. The additional export moves ordinary CLI launch out of the composition
+root into its existing daemon-lifecycle owner without relaxing its file limit.
+Both recovery mechanisms and the current local control protocol v5 remain intact.
 
 Composition roots and package facades should approach these end-state shapes:
 

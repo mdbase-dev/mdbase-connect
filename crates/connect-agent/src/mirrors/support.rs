@@ -170,11 +170,12 @@ pub(super) fn background_retry_delay(replica_id: Uuid, failures: u32) -> Duratio
     Duration::from_millis(millis as u64)
 }
 
-pub(super) fn terminal_background_error(error: &ConnectError) -> bool {
-    matches!(
-        error.code(),
-        "mirror_state_upgrade_required" | "credential_store_unavailable"
-    )
+pub(super) fn terminal_background_error(
+    error: &ConnectError,
+    startup_credentials_unavailable: bool,
+) -> bool {
+    error.code() == "mirror_state_upgrade_required"
+        || (error.code() == "credential_store_unavailable" && startup_credentials_unavailable)
 }
 
 pub(super) fn computer_name() -> String {

@@ -15,11 +15,11 @@ use mdbase_connect_protocol::crypto::{
 };
 use mdbase_connect_protocol::{
     mutation_fingerprint, mutation_operation_identifier, operation_input_schema_version,
-    validate_operation_discriminators, AgentConnectionState, AgentStatus, ApplicationAccess,
-    AuthorityTarget, AuthorizationCollectionOffer, AuthorizationCollectionTypes,
+    validate_operation_discriminators, AgentConnectionState, AgentReadiness, AgentStatus,
+    ApplicationAccess, AuthorityTarget, AuthorizationCollectionOffer, AuthorizationCollectionTypes,
     ConnectOperationOutcome, ConnectProblem, ContractSetupChoice, ControlCommand, ControlError,
-    ControlRequest, ControlResponse, RelayMessage, SyncReplicaMode, CONTROL_PROTOCOL_VERSION,
-    LOCAL_CONTROL_PROTOCOL_VERSION,
+    ControlRequest, ControlResponse, ReadinessReason, RelayMessage, SyncReplicaMode,
+    CONTROL_PROTOCOL_VERSION, LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use std::io;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -71,11 +71,20 @@ impl OperationExecutionState {
     }
 }
 
+#[repr(u8)]
+enum Initialization {
+    Starting,
+    Ready,
+    Failed,
+}
+
 pub struct AgentState {
     registry: CollectionRegistry,
     watcher: CollectionWatchService,
     connection_state: std::sync::RwLock<AgentConnectionState>,
-    initialized: std::sync::atomic::AtomicBool,
+    relay_problem: std::sync::RwLock<Option<&'static str>>,
+    initialization: AtomicU8,
+    critical_workers: std::sync::Mutex<Vec<tokio::task::AbortHandle>>,
     loopback_port: std::sync::atomic::AtomicU16,
     cloud: Option<CloudControlClient>,
     credential_store_error: Option<String>,
@@ -134,7 +143,9 @@ impl AgentState {
             registry,
             watcher,
             connection_state: std::sync::RwLock::new(AgentConnectionState::LocalOnly),
-            initialized: std::sync::atomic::AtomicBool::new(false),
+            relay_problem: std::sync::RwLock::new(None),
+            initialization: AtomicU8::new(Initialization::Starting as u8),
+            critical_workers: std::sync::Mutex::new(Vec::new()),
             loopback_port: std::sync::atomic::AtomicU16::new(0),
             cloud,
             credential_store_error: None,
@@ -228,8 +239,50 @@ impl AgentState {
     }
 
     pub fn mark_initialized(&self) {
-        self.initialized
-            .store(true, std::sync::atomic::Ordering::Release);
+        self.initialization
+            .store(Initialization::Ready as u8, Ordering::Release);
+    }
+
+    pub fn mark_initialization_failed(&self) {
+        self.initialization
+            .store(Initialization::Failed as u8, Ordering::Release);
+    }
+
+    pub fn monitor_critical_worker(&self, worker: tokio::task::AbortHandle) {
+        self.critical_workers
+            .lock()
+            .expect("worker health lock poisoned")
+            .push(worker);
+    }
+
+    fn critical_workers_alive(&self) -> bool {
+        self.watcher.is_alive()
+            && self
+                .critical_workers
+                .lock()
+                .expect("worker health lock poisoned")
+                .iter()
+                .all(|worker| !worker.is_finished())
+    }
+
+    fn readiness(&self) -> AgentReadiness {
+        let safe_reason = if !self.critical_workers_alive() {
+            Some(ReadinessReason::CriticalWorkerFailed)
+        } else if self.initialization.load(Ordering::Acquire) == Initialization::Failed as u8 {
+            Some(ReadinessReason::InitializationFailed)
+        } else if self.credential_store_error.is_some() {
+            Some(ReadinessReason::CredentialStoreUnavailable)
+        } else if self.initialization.load(Ordering::Acquire) != Initialization::Ready as u8 {
+            Some(ReadinessReason::Starting)
+        } else {
+            None
+        };
+        AgentReadiness {
+            schema_version: 1,
+            ready: safe_reason.is_none(),
+            binary_version: env!("CARGO_PKG_VERSION").to_string(),
+            safe_reason,
+        }
     }
 
     pub fn set_loopback_port(&self, port: u16) {
@@ -292,15 +345,18 @@ impl AgentState {
         self.shutdown.notified().await;
     }
 
-    fn initialized(&self) -> bool {
-        self.initialized.load(std::sync::atomic::Ordering::Acquire)
-    }
-
     fn refresh_watchers(&self) {
         match self.registry.list() {
             Ok(collections) => self.watcher.refresh(&collections),
             Err(error) => tracing::warn!(%error, "failed to refresh collection watchers"),
         }
+    }
+
+    pub fn set_relay_problem(&self, reason: Option<&'static str>) {
+        *self
+            .relay_problem
+            .write()
+            .expect("relay problem lock poisoned") = reason;
     }
 
     pub fn set_connection_state(&self, state: AgentConnectionState) {

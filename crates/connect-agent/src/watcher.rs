@@ -84,6 +84,15 @@ impl CollectionWatchService {
         }
     }
 
+    pub fn is_alive(&self) -> bool {
+        self.inner
+            .worker
+            .lock()
+            .expect("finalizer worker lock poisoned")
+            .as_ref()
+            .is_some_and(|worker| !worker.is_finished())
+    }
+
     pub fn refresh(&self, collections: &[CollectionSummary]) {
         let (ready, receiver) = mpsc::sync_channel(0);
         let active = collections

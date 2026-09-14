@@ -76,9 +76,9 @@ function backend(overrides = {}) {
     async openExternal(url) {
       events.push(`open:${url}`);
     },
-    async recover() {
+    async recover(transaction) {
       events.push("recover");
-      return { healthy: true, rolledBack: false, message: "Recovered." };
+      return { healthy: true, rolledBack: transaction.target_version !== this.currentVersion, message: "Recovered." };
     },
     ...overrides
   };
@@ -268,6 +268,75 @@ test("download and verification failures never enable installation", async () =>
   assert.equal(status.can_install, false);
   assert.match(status.message, /signature mismatch/);
   assert.equal(JSON.parse(await readFile(path, "utf8")).transaction, undefined);
+});
+
+for (const cut of ["stop", "install"]) {
+  for (const outcome of ["throws", "unhealthy"]) {
+    test(`${cut} failure retains exact transaction when recovery ${outcome}`, async () => {
+      const { path, store } = await fixture();
+      const runtime = backend({
+        async stopDaemon() {
+          if (cut === "stop") throw new Error("stop failed");
+        },
+        installAutomatic() {
+          throw new Error("install failed");
+        },
+        async recover() {
+          if (outcome === "throws") throw new Error("recovery unavailable");
+          return { healthy: false, rolledBack: false, message: "recovery unavailable" };
+        }
+      });
+      const coordinator = new UpdateCoordinator(store, runtime);
+      await coordinator.initialize();
+      await coordinator.check();
+      const original = JSON.parse(await readFile(path, "utf8")).transaction;
+      await assert.rejects(coordinator.install(), new RegExp(`${cut} failed`));
+      const retained = JSON.parse(await readFile(path, "utf8")).transaction;
+      assert.equal(retained?.id, original.id);
+      assert.equal(retained.phase, "recovering");
+      assert.equal(retained.previous_runtime, original.previous_runtime);
+      assert.equal(retained.target_version, original.target_version);
+      assert.match(retained.error, /recovery unavailable/);
+      assert.equal(coordinator.status().can_check, false);
+      const failed = coordinator.status();
+      await coordinator.check(true);
+      assert.deepEqual(coordinator.status(), failed);
+      await assert.rejects(coordinator.install(), /No update is ready/);
+
+      let resumed;
+      const restarted = new UpdateCoordinator(new UpdateStateStore(path), backend({
+        async recover(transaction) {
+          resumed = transaction;
+          return { healthy: true, rolledBack: true, message: "Prior runtime restored." };
+        }
+      }));
+      assert.equal((await restarted.initialize()).can_check, true);
+      assert.equal(resumed.id, original.id);
+      assert.equal(JSON.parse(await readFile(path, "utf8")).transaction, undefined);
+    });
+  }
+}
+
+test("startup retains the transaction when recovery returns unhealthy", async () => {
+  const { path, store } = await fixture();
+  const initial = new UpdateCoordinator(store, backend());
+  await initial.initialize();
+  await initial.check();
+  await initial.install();
+  const original = JSON.parse(await readFile(path, "utf8")).transaction;
+  const restarted = new UpdateCoordinator(new UpdateStateStore(path), backend({
+    async recover() {
+      return { healthy: false, rolledBack: true, message: "Rollback is not healthy." };
+    }
+  }));
+  const status = await restarted.initialize();
+  assert.equal(status.phase, "failed");
+  assert.equal(status.can_check, false);
+  const persisted = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(persisted.transaction?.id, original.id);
+  assert.equal(persisted.transaction.phase, "recovering");
+  assert.match(persisted.transaction.error, /Rollback is not healthy/);
+  assert.equal(persisted.last_known_good_runtime, undefined);
 });
 
 test("a stop failure invokes recovery and clears the transaction", async () => {

@@ -378,8 +378,31 @@ pub struct ControlError {
     pub details: Option<Value>,
 }
 
+/// Payload-free local readiness contract. Missing/unknown versions are not Ready.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentReadiness {
+    pub schema_version: u32,
+    pub ready: bool,
+    pub binary_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_reason: Option<ReadinessReason>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadinessReason {
+    Starting,
+    InitializationFailed,
+    CriticalWorkerFailed,
+    CredentialStoreUnavailable,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readiness: Option<AgentReadiness>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_problem: Option<String>,
     pub protocol_version: u32,
     #[serde(default)]
     pub binary_version: String,

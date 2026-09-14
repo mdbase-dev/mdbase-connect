@@ -101,7 +101,7 @@ impl MirrorManager {
                             Some(Ok((replica_id, Err(error)))) if error.code() == "mirror_sync_skipped" => {
                                 active_workers.remove(&replica_id);
                             }
-                            Some(Ok((replica_id, Err(error)))) if terminal_background_error(&error) => {
+                            Some(Ok((replica_id, Err(error)))) if terminal_background_error(&error, manager.credential_store_error.is_some()) => {
                                 active_workers.remove(&replica_id);
                                 retries.remove(&replica_id);
                                 blocked.insert(replica_id);

@@ -174,12 +174,18 @@ mirror registry, cloud credential, retry loop, or agent child process.
 
 At startup the desktop:
 
-1. compares a reachable daemon's binary version with the bundled CLI;
-2. replaces and re-registers a stale or stopped installed runtime;
-3. connects to the standard daemon endpoint;
-4. asks a matching installed per-user service to start if the endpoint is absent;
-5. presents a repair action if the service cannot start;
-6. subscribes or polls for versioned status.
+1. enters the shared boot gate and completes any persisted update recovery;
+2. resolves installed-service versus isolated-profile targeting through CLI paths;
+3. reconciles a stale installed runtime without controlling a different profile;
+4. asks the selected daemon target to start if its endpoint is absent;
+5. requires canonical readiness and the expected binary version before admitting
+   daemon-backed IPC, with a bounded wait and an attention state on failure;
+6. subscribes or polls for versioned status, keeping local health separate from
+   account reachability and resource-specific failures.
+
+See [exact recovery and health](exact-recovery-and-health.md) for the readiness
+contract, revocation confirmation, and bounded owner-specific recovery. Critical
+worker detection does not imply automatic restart or a verified service owner.
 
 Desktop exit closes only its control connection.
 
