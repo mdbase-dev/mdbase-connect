@@ -43,6 +43,18 @@ test('retained-v2 is registered in the existing harness and cannot remove legacy
   }
 });
 
+test('retained-v2 freezes wire schemas, not the candidate engine revision', async () => {
+  const script = await readFile(new URL('../../test/upgrade/retained-v2.sh', import.meta.url), 'utf8');
+  assert.doesNotMatch(script, /mdbase-rs-revision/);
+  const contracts = script.match(/for contract in ([\s\S]*?); do/);
+  assert.ok(contracts);
+  for (const schema of ['application-capability-catalog.v1.json', 'application-capability-catalog.v2.json', 'operation-catalog.v1.json']) {
+    assert.ok(contracts[1].includes(`packages/protocol/schemas/${schema}`));
+  }
+  assert.match(script, /cmp <\(git .*PREVIOUS_RELEASE_COMMIT:\$contract/);
+  assert.match(script, /diff --exit-code .* -- crates\/connect-hosted-provider\/migrations/);
+});
+
 test('retained-v2 rejects a mutable beta94 tag before starting resources', async () => {
   const root = new URL('../../', import.meta.url).pathname;
   // An image tag is rejected before even consulting Git or Docker.
