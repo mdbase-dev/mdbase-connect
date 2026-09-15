@@ -21,10 +21,10 @@ retained_v2_inputs() {
     jq -e '.phase == "compatibility-prelude" and .fresh_semantic_versions == [1]' >/dev/null
   jq -e '.phase == "v2-enablement" and .fresh_semantic_versions == [1,2]' \
     "$repo_root/config/application-issuance-policy.json" >/dev/null
-  # Retained reader/engine and schema bytes are immutable across this pair.
+  # Keep wire schemas immutable; engine revisions may advance. The scenario
+  # below tests compatibility by running the candidate and exact predecessor.
   local contract
-  for contract in deploy/docker/mdbase-rs-revision \
-      packages/protocol/schemas/application-capability-catalog.v1.json \
+  for contract in packages/protocol/schemas/application-capability-catalog.v1.json \
       packages/protocol/schemas/application-capability-catalog.v2.json \
       packages/protocol/schemas/operation-catalog.v1.json; do
     cmp <(git -C "$repo_root" show "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT:$contract") "$repo_root/$contract"
