@@ -65,7 +65,10 @@ async fn atomic_runner_blocks_beta94_insert_until_41() {
     resume.send(false).unwrap();
     task.await.unwrap().unwrap();
     old_insert(&mut writer, collection).await.unwrap();
-    assert_eq!(version(&pool).await, 41);
+    assert_eq!(
+        version(&pool).await,
+        catalog().iter().last().unwrap().version
+    );
 }
 
 #[tokio::test]
@@ -117,7 +120,7 @@ async fn atomic_runner_validates_retained_40_and_rejects_corrupt_prefixes() {
         Some("UPDATE _sqlx_migrations SET checksum='bad'::bytea WHERE version=39"),
         Some("UPDATE _sqlx_migrations SET checksum='bad'::bytea WHERE version=40"),
         Some("UPDATE _sqlx_migrations SET success=false WHERE version=40"),
-        Some("INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) SELECT 42, description, success, checksum, execution_time FROM _sqlx_migrations WHERE version=40"),
+        Some("INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) SELECT 999999, description, success, checksum, execution_time FROM _sqlx_migrations WHERE version=40"),
     ] {
         let db = test_postgres::DisposablePostgres::from_projection_env().await;
         let pool = PgPool::connect(db.url()).await.unwrap();
@@ -146,7 +149,7 @@ async fn atomic_runner_validates_retained_40_and_rejects_corrupt_prefixes() {
             super::super::run_hosted_migrations(&pool)
                 .await
                 .unwrap();
-            assert_eq!(version(&pool).await, 41);
+            assert_eq!(version(&pool).await, catalog().iter().last().unwrap().version);
         }
     }
 }

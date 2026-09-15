@@ -38,12 +38,12 @@ test('retained-v2 is registered in the existing harness and cannot remove legacy
   assert.match(script, /for name in "\$candidate" "\$previous" "\$postgres"/);
   assert.doesNotMatch(script, /upgrade_remove_container mdbase-provider-|docker (?:system|container|volume) prune|docker pull/);
   assert.doesNotMatch(script, /(?:INSERT INTO|UPDATE|DELETE FROM|ALTER TABLE)\s/i);
-  for (const file of ['retained-v2.sh', 'provider-from-previous']) {
+  for (const file of ['retained-v2.sh', 'provider-from-previous', 'historical-provider.sh', 'provider-current.sh']) {
     await exec('bash', ['-n', new URL(`../../test/upgrade/${file}`, import.meta.url).pathname]);
   }
 });
 
-test('retained-v2 freezes wire schemas, not the candidate engine revision', async () => {
+test('retained-v2 freezes the historical pair, not future candidate migrations', async () => {
   const script = await readFile(new URL('../../test/upgrade/retained-v2.sh', import.meta.url), 'utf8');
   assert.doesNotMatch(script, /mdbase-rs-revision/);
   const contracts = script.match(/for contract in ([\s\S]*?); do/);
@@ -52,7 +52,8 @@ test('retained-v2 freezes wire schemas, not the candidate engine revision', asyn
     assert.ok(contracts[1].includes(`packages/protocol/schemas/${schema}`));
   }
   assert.match(script, /cmp <\(git .*PREVIOUS_RELEASE_COMMIT:\$contract/);
-  assert.match(script, /diff --exit-code .* -- crates\/connect-hosted-provider\/migrations/);
+  assert.match(script, /diff --exit-code .*HISTORICAL_PROVIDER_COMMIT.* -- crates\/connect-hosted-provider\/migrations/);
+  assert.doesNotMatch(script, /diff --exit-code .* HEAD -- crates\/connect-hosted-provider\/migrations/);
 });
 
 test('retained-v2 rejects a mutable beta94 tag before starting resources', async () => {
@@ -63,9 +64,42 @@ test('retained-v2 rejects a mutable beta94 tag before starting resources', async
   }), error => error.code === 2 && /Caller image disagrees with the checked-in beta95 predecessor/.test(error.stderr));
 });
 
+test('historical successor is fixed and verified before it can replace the caller image', async () => {
+  const helper = new URL('../../test/upgrade/historical-provider.sh', import.meta.url).pathname;
+  for (const draft of [false, true]) {
+    const program = `set -euo pipefail
+      source "$HELPER"
+      repo_root=unused
+      MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=original
+      CANDIDATE_IMAGE=untrusted
+      curl() { printf '%s' '{"id":99,"tag_name":"v0.1.0-beta.99","draft":${draft},"published_at":"2026-09-13"}'; }
+      git() { printf '%s' "$HISTORICAL_PROVIDER_COMMIT"; }
+      docker() { [[ "$1" == pull && "$2" == "$HISTORICAL_PROVIDER_IMAGE" ]]; }
+      upgrade_verify_annotated_release_tag() { [[ "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT" == "$HISTORICAL_PROVIDER_COMMIT" ]]; }
+      upgrade_verify_previous_image() { [[ "$1" == "$HISTORICAL_PROVIDER_IMAGE" ]]; }
+      historical_provider_candidate
+      [[ "$CANDIDATE_IMAGE" == "$HISTORICAL_PROVIDER_IMAGE" && "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT" == original ]]
+    `;
+    const run = exec('bash', ['-c', program], { env: { PATH: process.env.PATH, HELPER: helper } });
+    if (draft) await assert.rejects(run); else await run;
+  }
+});
+
+test('current recovery records specific refusal without deleting migration or fence state', async () => {
+  const script = await readFile(new URL('../../test/upgrade/provider-current.sh', import.meta.url), 'utf8');
+  assert.match(script, /timeout 45s docker wait/);
+  assert.match(script, /hosted migration ledger is not an exact successful catalog prefix at/);
+  assert.match(script, /rollback_result=refused-unknown-migration/);
+  assert.match(script, /rollback_result=fixture-compatible/);
+  assert.match(script, /candidate forward recovery/);
+  assert.match(script, /cancellation_fence_preserved:true/);
+  assert.doesNotMatch(script, /(?:INSERT INTO|UPDATE|DELETE FROM|ALTER TABLE|DROP TABLE)\s/i);
+});
+
 test('Server CI requires retained-v2 evidence separately from the historical v1 lane', async () => {
   const workflow = await readFile(new URL('../../.github/workflows/server-ci.yml', import.meta.url), 'utf8');
   assert.match(workflow, /run: test\/upgrade\/provider-from-previous --retained-v2/);
+  assert.match(workflow, /run: test\/upgrade\/provider-from-previous --current-upgrade/);
   assert.match(workflow, /source \.github\/retained-v2-predecessor\.env/);
   assert.match(workflow, /upgrade_verify_retained_v2_release "\$PWD"/);
   assert.doesNotMatch(workflow, /vars\.RETAINED_V2_BETA95_PROVIDER_IMAGE/);

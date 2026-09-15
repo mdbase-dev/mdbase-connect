@@ -340,7 +340,7 @@ jobs:
         run: test/upgrade/provider-from-previous --legacy-prelude
 
   retained-v2-provider-upgrade:
-    name: Exact beta95 retained-v2 rollback
+    name: Historical v2 rollback and current provider recovery
     needs: classify
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-24.04
@@ -368,8 +368,22 @@ jobs:
           upgrade_verify_retained_v2_release "$PWD"
           docker pull "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
           docker pull postgres:18-alpine >/dev/null
-      - name: Qualify candidate-issued v2 through beta95 rollback and reupgrade
+      - name: Preserve the immutable beta95-beta99 retained-v2 rollback regression
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: test/upgrade/provider-from-previous --retained-v2
+      - name: Verify and cache the published predecessor for current candidate qualification
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          source .github/previous-release.env
+          source test/upgrade/lib.sh
+          upgrade_verify_previous_release "$PWD"
+          docker pull "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
+      - name: Qualify current upgrade, predecessor outcome and durable forward recovery
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: test/upgrade/provider-from-previous --current-upgrade
 
   hosted-provider-rust:
     name: Hosted provider Rust workspace

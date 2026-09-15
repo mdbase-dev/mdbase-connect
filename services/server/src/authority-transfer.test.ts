@@ -432,6 +432,8 @@ describe("local-to-hosted authority transfer", () => {
     let completionAttempts = 0;
     let abortAttempts = 0;
     let abortUnavailable = false;
+    let recoveryUnavailable = false;
+    let recoveryAttempts = 0;
     const provider = {
       upsertAccount: async () => ({}),
       url: "https://provider.example",
@@ -475,6 +477,10 @@ describe("local-to-hosted authority transfer", () => {
           source_head: 7,
           expires_at: new Date(Date.now() + 15 * 60_000).toISOString()
         };
+      },
+      reconcileAuthorityImportCancellation: async () => {
+        recoveryAttempts++;
+        if (recoveryUnavailable) throw new HostedProviderUnavailableError(new Error("[test] fence response lost"));
       },
       abortAuthorityImport: async () => {
         abortAttempts += 1;
@@ -780,7 +786,6 @@ describe("local-to-hosted authority transfer", () => {
       expect((await db.query("SELECT transfer_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [freshTransferId])).rows).toEqual([]);
     };
     for (const [row, metadata] of [
-      [requestAudit, { ...requestAudit.metadata, connector_id: randomUUID() }],
       [requestAudit, { ...requestAudit.metadata, direction: "to_local" }],
       [cancelAudit, { ...cancelAudit.metadata, collection_id: randomUUID() }],
       [cancelAudit, { ...cancelAudit.metadata, direction: "to_local" }],
@@ -792,9 +797,9 @@ describe("local-to-hosted authority transfer", () => {
     }
     const otherUserId = randomUUID();
     await db.query("INSERT INTO users (id, email, name) VALUES ($1, 'history-other@example.test', '[test] Other owner')", [otherUserId]);
-    await db.query("UPDATE audit_events SET user_id = $2 WHERE id = $1", [cancelAudit.id, otherUserId]);
+    await db.query("UPDATE audit_events SET user_id = $2 WHERE id = $1", [requestAudit.id, otherUserId]);
     await unconfirmed();
-    await db.query("UPDATE audit_events SET user_id = $2 WHERE id = $1", [cancelAudit.id, session.json().user.id]);
+    await db.query("UPDATE audit_events SET user_id = $2 WHERE id = $1", [requestAudit.id, session.json().user.id]);
     for (const [eventType, metadata] of [
       ["authority_transfer.completed", {}],
       ["authority_transfer.requested", requestAudit.metadata],
@@ -811,9 +816,14 @@ describe("local-to-hosted authority transfer", () => {
     }
     abortUnavailable = true;
     const abortsBeforeHistoricalRecovery = abortAttempts;
+    recoveryUnavailable = true;
+    expect((await retryHistorical()).statusCode).not.toBe(200);
+    expect((await db.query("SELECT transfer_id FROM authority_import_abort_receipts WHERE transfer_id=$1", [freshTransferId])).rows).toEqual([]);
+    recoveryUnavailable = false;
     expect((await retryHistorical()).statusCode).toBe(200);
     expect((await retryHistorical()).statusCode).toBe(200);
     expect(abortAttempts).toBe(abortsBeforeHistoricalRecovery);
+    expect(recoveryAttempts).toBe(2);
     expect((await db.query("SELECT connector_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [freshTransferId])).rows).toEqual([{ connector_id: connectorId }]);
     abortUnavailable = false;
 
@@ -822,11 +832,11 @@ describe("local-to-hosted authority transfer", () => {
     });
     expect(otherComputer.statusCode).toBe(201);
     const otherToken = otherComputer.json().token as string;
-    for (const [id, token] of [[freshTransferId, otherToken], [randomUUID(), connectorToken]]) {
+    for (const [id, token, status] of [[freshTransferId, otherToken, 400], [randomUUID(), connectorToken, 404]] as const) {
       expect((await app.inject({
         method: "DELETE", url: `/v1/connectors/authority-transfers/${id}`,
         headers: { authorization: `Bearer ${token}` }
-      })).statusCode).toBe(404);
+      })).statusCode).toBe(status);
     }
 
     // Expiry performs the same provider-confirmed abortion and cascading cleanup.
@@ -853,12 +863,12 @@ describe("local-to-hosted authority transfer", () => {
     expect((await db.query("SELECT id FROM hosted_collections WHERE id = $1", [freshCollectionId])).rows).toEqual([]);
     expect((await db.query("SELECT connector_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [expiredId])).rows).toEqual([{ connector_id: connectorId }]);
     // Old expiry removed both authorities' temporary records without a terminal
-    // audit entry. The request audit by itself cannot prove cancellation.
+    // audit entry. Recovery now requires a new durable provider fence.
     await db.query("DELETE FROM authority_import_abort_receipts WHERE transfer_id = $1", [expiredId]);
     expect((await app.inject({
       method: "DELETE", url: `/v1/connectors/authority-transfers/${expiredId}`,
       headers: { authorization: `Bearer ${connectorToken}` }
-    })).statusCode).toBe(404);
-    expect((await db.query("SELECT transfer_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [expiredId])).rows).toEqual([]);
+    })).statusCode).toBe(200);
+    expect((await db.query("SELECT connector_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [expiredId])).rows).toEqual([{ connector_id: connectorId }]);
   }, 10_000);
 });

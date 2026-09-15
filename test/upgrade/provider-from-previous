@@ -6,11 +6,20 @@ set -euo pipefail
 repo_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 # shellcheck source=test/upgrade/lib.sh
 source "$repo_root/test/upgrade/lib.sh"
+source "$repo_root/test/upgrade/historical-provider.sh"
 # The release pin is resolved from the repository root above.
 # shellcheck disable=SC1091
 UPGRADE_SCENARIO=${1:---retained-v2}
 case "$UPGRADE_SCENARIO" in
   --legacy-prelude) source "$repo_root/.github/historical-prelude.env" ;;
+  --current-upgrade)
+    source "$repo_root/.github/previous-release.env"
+    source "$repo_root/test/upgrade/retained-v2.sh"
+    source "$repo_root/test/upgrade/provider-current.sh"
+    upgrade_verify_previous_release "$repo_root"
+    [[ -z ${DATABASE_URL:-} && -z ${MDBASE_CONNECT_R2_ENDPOINT:-} ]]
+    DATABASE_URL=disposable-not-started
+    ;;
   --retained-v2)
     source "$repo_root/test/upgrade/retained-v2.sh"
     retained_v2_inputs
@@ -601,19 +610,14 @@ rollback_assert_preserved() {
   [[ $(rollback_receipt_inventory) == "$rollback_receipts_before" ]]
 }
 
-if [[ $UPGRADE_SCENARIO == --retained-v2 ]]; then
+if [[ $UPGRADE_SCENARIO == --retained-v2 || $UPGRADE_SCENARIO == --current-upgrade ]]; then
   trap - EXIT
   retained_v2_run
   exit
 fi
 
-upgrade_phase 'building candidate provider'
-if [[ ${SKIP_CANDIDATE_BUILD:-false} != true ]]; then
-  docker build \
-    --file "$repo_root/deploy/docker/Dockerfile.hosted-provider" \
-    --tag "$CANDIDATE_IMAGE" \
-    "$repo_root"
-fi
+upgrade_phase 'selecting the immutable historical schema-41 successor'
+historical_provider_candidate
 
 upgrade_phase 'starting the test-only S3 readiness stub'
 node "$repo_root/test/upgrade/r2-readiness-stub.mjs" \

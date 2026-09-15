@@ -692,48 +692,7 @@ impl HostedProvider {
     ) -> ApiResult<ProviderAuthorityImport> {
         let mut transaction = self.pool.begin().await?;
         let row = authority_import_row(&mut transaction, import_id).await?;
-        let import_state = authority_import_state(&row, "import_state")?;
-        if import_state == ProviderAuthorityImportState::Completed {
-            return Err(ApiError::conflict(
-                "authority_import_completed",
-                "Completed authority import cannot be cancelled.",
-            ));
-        }
-        if import_state == ProviderAuthorityImportState::Indexing {
-            return Err(ApiError::conflict(
-                "authority_import_indexing",
-                "An authority import cannot be cancelled after durable indexing begins.",
-            ));
-        }
-        let result = ProviderAuthorityImport {
-            state: ProviderAuthorityImportState::Aborted,
-            ..provider_authority_import(&row)?
-        };
-        let abandoned_files = authority_import_blob_cleanup(&mut transaction, import_id).await?;
-        enqueue_authority_import_blob_cleanup(&mut transaction, import_id).await?;
-        let collection_id = row.get::<Uuid, _>("collection_id");
-        if row.get::<Option<String>, _>("restore_state").as_deref() == Some("transferred") {
-            sqlx::query(
-                r#"UPDATE hosted_provider_collections
-                   SET state = 'transferred', authority_epoch = $2, updated_at = now()
-                   WHERE id = $1 AND state = 'importing'"#,
-            )
-            .bind(collection_id)
-            .bind(row.get::<i64, _>("next_authority_epoch") - 1)
-            .execute(&mut *transaction)
-            .await?;
-            sqlx::query("DELETE FROM hosted_provider_authority_imports WHERE id = $1")
-                .bind(import_id)
-                .execute(&mut *transaction)
-                .await?;
-        } else {
-            sqlx::query(
-                "DELETE FROM hosted_provider_collections WHERE id = $1 AND state = 'importing'",
-            )
-            .bind(collection_id)
-            .execute(&mut *transaction)
-            .await?;
-        }
+        let (result, abandoned_files) = abort_import_in(&mut transaction, import_id, &row).await?;
         transaction.commit().await?;
         self.abort_authority_import_multipart(abandoned_files).await;
         Ok(result)
@@ -754,4 +713,57 @@ impl HostedProvider {
         self.abort_authority_import_multipart(abandoned_files).await;
         Ok(recovered)
     }
+}
+
+pub(super) async fn abort_import_in(
+    transaction: &mut Transaction<'_, Postgres>,
+    import_id: Uuid,
+    row: &PgRow,
+) -> ApiResult<(
+    ProviderAuthorityImport,
+    Vec<super::authority_import_cleanup::AuthorityImportBlobCleanup>,
+)> {
+    let import_state = authority_import_state(row, "import_state")?;
+    if import_state == ProviderAuthorityImportState::Completed {
+        return Err(ApiError::conflict(
+            "authority_import_completed",
+            "Completed authority import cannot be cancelled.",
+        ));
+    }
+    if import_state == ProviderAuthorityImportState::Indexing {
+        return Err(ApiError::conflict(
+            "authority_import_indexing",
+            "An authority import cannot be cancelled after durable indexing begins.",
+        ));
+    }
+    let result = ProviderAuthorityImport {
+        state: ProviderAuthorityImportState::Aborted,
+        ..provider_authority_import(row)?
+    };
+    let abandoned_files = authority_import_blob_cleanup(transaction, import_id).await?;
+    enqueue_authority_import_blob_cleanup(transaction, import_id).await?;
+    let collection_id = row.get::<Uuid, _>("collection_id");
+    if row.get::<Option<String>, _>("restore_state").as_deref() == Some("transferred") {
+        sqlx::query(
+            r#"UPDATE hosted_provider_collections
+                   SET state = 'transferred', authority_epoch = $2, updated_at = now()
+                   WHERE id = $1 AND state = 'importing'"#,
+        )
+        .bind(collection_id)
+        .bind(row.get::<i64, _>("next_authority_epoch") - 1)
+        .execute(&mut **transaction)
+        .await?;
+        sqlx::query("DELETE FROM hosted_provider_authority_imports WHERE id = $1")
+            .bind(import_id)
+            .execute(&mut **transaction)
+            .await?;
+    } else {
+        sqlx::query(
+            "DELETE FROM hosted_provider_collections WHERE id = $1 AND state = 'importing'",
+        )
+        .bind(collection_id)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    Ok((result, abandoned_files))
 }
