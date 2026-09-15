@@ -113,6 +113,9 @@ function Wait-Running([string]$Binary, [bool]$Expected) {
         if ($result.exitCode -eq 0 -and ($result.stdout | ConvertFrom-Json).running -eq $Expected) { return }
         Start-Sleep -Milliseconds 500
     }
+    $info = Get-ScheduledTaskInfo -TaskName 'mdbase connect'
+    $report['taskFailure'] = @{ lastTaskResult = $info.LastTaskResult; state = [string](Get-ScheduledTask -TaskName 'mdbase connect').State }
+    Save-Report
     throw "Task did not bring daemon running state to $Expected in this logon session."
 }
 try {
