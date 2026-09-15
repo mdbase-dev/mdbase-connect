@@ -15,7 +15,19 @@ if (-not $Child) {
     Copy-Item (Join-Path $env:RUNNER_TEMP 'issue428-binaries') (Join-Path $Root 'binaries') -Recurse
     $user = 'mdbase428test'
     $password = ConvertTo-SecureString ('Aa1!' + [guid]::NewGuid().ToString('N')) -AsPlainText -Force
-    New-LocalUser -Name $user -Password $password -Description 'Disposable issue 428 diagnostic' | Out-Null
+    $localUser = New-LocalUser -Name $user -Password $password -Description 'Disposable issue 428 diagnostic'
+    Add-Type @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class TestUserProfile {
+    [DllImport("userenv.dll", CharSet = CharSet.Unicode)]
+    public static extern int CreateProfile(string sid, string userName, StringBuilder profilePath, uint size);
+}
+'@
+    $profilePath = New-Object System.Text.StringBuilder(260)
+    $created = [TestUserProfile]::CreateProfile($localUser.SID.Value, $user, $profilePath, 260)
+    if ($created -ne 0) { throw "Could not create disposable Windows profile: HRESULT $created" }
     $usersGroup = Get-LocalGroup -SID 'S-1-5-32-545'
     Add-LocalGroupMember -Group $usersGroup -Member $user
     $account = "$env:COMPUTERNAME\$user"
