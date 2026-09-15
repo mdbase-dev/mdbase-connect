@@ -59,6 +59,14 @@ $report = [ordered]@{
     results = @()
 }
 if (-not $report.standardUser) { throw 'Refusing an elevated or administrator test token.' }
+# A newly created CI account has never had Explorer initialize its known folders.
+# Materialize them via the Windows known-folder API, not a product state override.
+$env:USERPROFILE = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile, [Environment+SpecialFolderOption]::Create)
+$env:LOCALAPPDATA = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData, [Environment+SpecialFolderOption]::Create)
+$env:APPDATA = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData, [Environment+SpecialFolderOption]::Create)
+$env:HOME = $env:USERPROFILE
+$report['knownFoldersReady'] = [bool]($env:USERPROFILE -and $env:LOCALAPPDATA -and $env:APPDATA)
+if (-not $report.knownFoldersReady) { throw 'Standard-user profile initialization failed.' }
 
 function Invoke-Probe([string]$Name, [string]$Program, [string[]]$Arguments) {
     $before = Get-Date
@@ -108,6 +116,9 @@ try {
     Invoke-Probe 'explicit-user-logon-create' 'schtasks.exe' @('/Create', '/F', '/TN', 'mdbase-428-scoped', '/XML', $xmlPath)
     Invoke-Probe 'explicit-user-logon-replace' 'schtasks.exe' @('/Create', '/F', '/TN', 'mdbase-428-scoped', '/XML', $xmlPath)
     Invoke-Probe 'explicit-user-logon-run' 'schtasks.exe' @('/Run', '/TN', 'mdbase-428-scoped')
+    foreach ($name in @('explicit-user-logon-create', 'explicit-user-logon-replace')) {
+        if (($report.results | Where-Object { $_.name -eq $name }).exitCode -ne 0) { throw "Scoped task probe failed: $name" }
+    }
 } catch {
     $report['error'] = $_.Exception.Message
     throw
