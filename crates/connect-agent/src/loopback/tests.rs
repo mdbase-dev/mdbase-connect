@@ -13,6 +13,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
 use uuid::Uuid;
 
+#[cfg(unix)]
+mod account_authentication;
 mod publication;
 mod service_boundary;
 

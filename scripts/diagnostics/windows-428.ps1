@@ -39,7 +39,8 @@ public static class TestUserProfile {
             -Credential $credential -LoadUserProfile -WorkingDirectory $Root `
             -ArgumentList @('-NoProfile', '-File', (Join-Path $Root 'diagnostic.ps1'), '-Child', '-Scenario', $Scenario, '-Root', $Root) `
             -PassThru -RedirectStandardOutput (Join-Path $Root 'child.stdout') -RedirectStandardError (Join-Path $Root 'child.stderr')
-        if (-not $process.WaitForExit(180000)) { $process.Kill(); throw 'Standard-user diagnostic timed out.' }
+        $timedOut = -not $process.WaitForExit(180000)
+        if ($timedOut) { $process.Kill(); [void]$process.WaitForExit(5000) }
         $process.Refresh()
         $report = Join-Path $Root 'result.json'
         if (-not (Test-Path $report)) {
@@ -49,6 +50,7 @@ public static class TestUserProfile {
         New-Item -ItemType Directory -Force (Join-Path $env:GITHUB_WORKSPACE '.artifacts/issue428') | Out-Null
         Copy-Item $report (Join-Path $env:GITHUB_WORKSPACE ".artifacts/issue428/$Scenario.json")
         Get-Content $report
+        if ($timedOut) { throw 'Standard-user diagnostic timed out; partial probe report retained.' }
         if ($process.ExitCode -ne 0) { throw "Diagnostic child exited $($process.ExitCode)." }
     } finally {
         # Task/account names exist only inside this newly provisioned runner.
@@ -92,12 +94,16 @@ $report['knownFolders'] = @{
 
 function Invoke-Probe([string]$Name, [string]$Program, [string[]]$Arguments) {
     $before = Get-Date
+    $report['activeProbe'] = $Name
+    $report | ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 (Join-Path $Root 'result.json')
     $old = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     $output = & $Program @Arguments 2>&1 | Out-String
     $code = $LASTEXITCODE
     $ErrorActionPreference = $old
     $report.results += [ordered]@{ name = $Name; exitCode = $code; elapsedMs = [int]((Get-Date) - $before).TotalMilliseconds; output = $output.Trim() }
+    $report['activeProbe'] = $null
+    $report | ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 (Join-Path $Root 'result.json')
 }
 function Binary([string]$Version) {
     $files = @(Get-ChildItem (Join-Path $Root "binaries/$Version") -Recurse -Filter mdbase.exe)
