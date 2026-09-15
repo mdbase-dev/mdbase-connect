@@ -1,0 +1,54 @@
+name: Issue 428 Windows standard-user diagnostic
+
+on:
+  push:
+    branches: [investigate/428-windows-startup]
+    paths:
+      - .github/workflows/issue-428-windows-diagnostic.yml
+      - scripts/diagnostics/windows-428.ps1
+
+permissions:
+  contents: read
+
+jobs:
+  standard-user:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [fresh, upgrade]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download public released CLI fixtures and verify checksums
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($version in @('96', '97', '99')) {
+            $directory = Join-Path $env:RUNNER_TEMP "issue428-binaries/$version"
+            New-Item -ItemType Directory -Force $directory | Out-Null
+            $archive = "mdbase-cli-0.1.0-beta.$version-windows-x64-UNSIGNED.tar.gz"
+            gh release download "v0.1.0-beta.$version" --repo mdbase-dev/mdbase-connect --pattern $archive --pattern SHA256SUMS-windows-x64 --dir $directory
+            if ($LASTEXITCODE -ne 0) { throw 'Release fixture download failed.' }
+            $lines = @(Get-Content (Join-Path $directory 'SHA256SUMS-windows-x64') | Where-Object { $_ -match ([regex]::Escape($archive) + '$') })
+            if ($lines.Count -ne 1) { throw 'Missing or ambiguous archive checksum.' }
+            $expected = ($lines[0] -split '\s+')[0]
+            if ((Get-FileHash (Join-Path $directory $archive) -Algorithm SHA256).Hash -ne $expected) { throw 'Archive checksum mismatch.' }
+            tar -xzf (Join-Path $directory $archive) -C $directory
+            if ($LASTEXITCODE -ne 0) { throw 'Release fixture extraction failed.' }
+          }
+      - name: Exercise installation with a new non-administrator account
+        shell: pwsh
+        run: ./scripts/diagnostics/windows-428.ps1 -Scenario '${{ matrix.scenario }}'
+      - name: Retain bounded diagnostic results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue428-${{ matrix.scenario }}
+          path: .artifacts/issue428/*.json
+          if-no-files-found: warn
+          retention-days: 7
