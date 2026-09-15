@@ -1,18 +1,11 @@
 name: Windows daemon lifecycle
 
 on:
+  workflow_call:
   push:
-    branches: [main, investigate/428-windows-startup]
+    branches: [investigate/428-windows-startup]
     paths:
-      - .github/workflows/issue-428-windows-diagnostic.yml
-      - scripts/diagnostics/windows-428.ps1
-      - scripts/diagnostics/windows-service-probe/**
-      - crates/connect-cli/src/service.rs
-      - crates/connect-cli/src/service/**
-      - crates/connect-cli/Cargo.toml
-  pull_request:
-    paths:
-      - .github/workflows/issue-428-windows-diagnostic.yml
+      - .github/workflows/windows-daemon-lifecycle.yml
       - scripts/diagnostics/windows-428.ps1
       - scripts/diagnostics/windows-service-probe/**
       - crates/connect-cli/src/service.rs

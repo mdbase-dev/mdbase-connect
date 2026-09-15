@@ -26,6 +26,23 @@ JSON manifest containing the commit, Git tree, package and Cargo lock hashes,
 the mdbase engine revision, and the Server CI workflow hash. A reused main run
 also records the exact upstream merge-queue run.
 
+## Windows daemon task qualification
+
+Full Server CI calls `windows-daemon-lifecycle.yml` and requires its result in
+`Qualification`. The small native probe compiles the production CLI service
+module directly, avoiding a second copy of installer logic. It uses disposable
+Windows runner state and unpaired public release binaries, not account data.
+
+The registration case uses a newly created non-administrator account: the old
+unscoped task fails, while current-user installation, replacement, identity
+checks, and uninstall succeed. Fresh-start and beta96-to-beta99 runtime
+replacement cases use the runner's existing interactive account with the task
+configured at least privilege. They verify real daemon status across start,
+stop, replacement, cold start, and uninstall. These are separate boundaries:
+new non-interactive test accounts cannot execute `InteractiveToken` tasks, and
+successful registration alone is not counted as daemon execution. This does
+not replace packaged Electron/Squirrel or actual sign-out/logon qualification.
+
 ## Publication
 
 Server and client images are built after a successful `main` push qualification,
