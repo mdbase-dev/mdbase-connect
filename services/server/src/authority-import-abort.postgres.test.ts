@@ -7,6 +7,7 @@ import { buildApp } from "./app.js";
 import { audit } from "./platform/audit-events.js";
 import { tokenHash } from "./security.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
+import { recoverAccountImportCancellation } from "./features/authority-transfer/account-cancellation.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL ===
@@ -49,8 +50,8 @@ suite("authority import abort receipts on PostgreSQL", () => {
       [localId, userId, connectorId, hostedId]
     );
     await db.query(
-      `INSERT INTO hosted_collections (id, user_id, display_name, template, authority_state)
-       VALUES ($1, $2, '[test] Import', 'mdbase', 'importing')`, [hostedId, userId]
+      `INSERT INTO hosted_collections (id, user_id, display_name, template, authority_state, authority_epoch)
+       VALUES ($1, $2, '[test] Import', 'mdbase', 'importing', 2)`, [hostedId, userId]
     );
     await db.query(
       `INSERT INTO authority_transfers (id, user_id, hosted_collection_id, local_collection_id, direction, state, expires_at, next_authority_epoch)
@@ -85,7 +86,7 @@ suite("authority import abort receipts on PostgreSQL", () => {
     }
   });
 
-  it("recovers legacy cancellation from committed audit history, but not legacy expiry", async () => {
+  it("uses existing cancellation proof or the new provider fence for legacy expiry", async () => {
     const cancelled = await fixture();
     const expired = await fixture();
     for (const f of [cancelled, expired]) {
@@ -119,7 +120,7 @@ suite("authority import abort receipts on PostgreSQL", () => {
     let providerCalls = 0;
     const { app } = await buildApp({
       db, devAuth: true, hostedCollections: true,
-      hostedProvider: { url: "https://provider.example", abortAuthorityImport: async () => {
+      hostedProvider: { url: "https://provider.example", reconcileAuthorityImportCancellation: async () => {}, abortAuthorityImport: async () => {
         providerCalls += 1;
         throw new Error("[test] Historical provider record is unavailable");
       } } as unknown as HostedProviderClient
@@ -130,17 +131,83 @@ suite("authority import abort receipts on PostgreSQL", () => {
         headers: { authorization: `Bearer ${token}` }
       });
       expect((await retry(cancelled.id, expired.token)).statusCode).toBe(404);
-      expect((await retry(expired.id, expired.token)).statusCode).toBe(404);
+      expect((await retry(expired.id, expired.token)).statusCode).toBe(200);
       const recovered = await Promise.all([retry(cancelled.id, cancelled.token), retry(cancelled.id, cancelled.token)]);
       expect(recovered.map((response) => response.statusCode)).toEqual([200, 200]);
       expect((await db.query("SELECT connector_id FROM authority_import_abort_receipts WHERE transfer_id=$1", [cancelled.id])).rows).toEqual([{ connector_id: cancelled.connectorId }]);
-      expect((await db.query("SELECT transfer_id FROM authority_import_abort_receipts WHERE transfer_id=$1", [expired.id])).rows).toHaveLength(0);
+      expect((await db.query("SELECT transfer_id FROM authority_import_abort_receipts WHERE transfer_id=$1", [expired.id])).rows).toHaveLength(1);
       await db.query("UPDATE connectors SET revoked_at=now() WHERE id=$1", [cancelled.connectorId]);
       expect((await retry(cancelled.id, cancelled.token)).statusCode).toBe(401);
       expect(providerCalls).toBe(0);
     } finally {
       await app.close();
     }
+  });
+
+  async function recoveryFixture() {
+    const f = await fixture();
+    await audit(db, f.userId, "authority_transfer.requested", f.id, {
+      connector_id: f.connectorId, collection_id: f.hosted_collection_id, direction: "to_hosted", authority_epoch: 2
+    });
+    const current = { id: randomUUID(), user_id: f.userId };
+    await db.query("INSERT INTO connectors (id, user_id, name, token_hash) VALUES ($1,$2,'[test] Replacement',$3)", [current.id, current.user_id, tokenHash(randomUUID())]);
+    return { ...f, current };
+  }
+
+  it("recovers revoked and deleted registrations only after exact provider fencing", async () => {
+    for (const missing of [false, true]) {
+      const f = await recoveryFixture();
+      if (missing) {
+        await db.query("DELETE FROM connectors WHERE id=$1", [f.connectorId]);
+        await db.query("DELETE FROM hosted_collections WHERE id=$1", [f.hosted_collection_id]);
+      } else await db.query("UPDATE connectors SET revoked_at=now() WHERE id=$1", [f.connectorId]);
+      let calls = 0;
+      const provider = { reconcileAuthorityImportCancellation: async (...args: unknown[]) => {
+        expect(args).toEqual([f.id, f.hosted_collection_id, 2]); calls++;
+      } } as unknown as HostedProviderClient;
+      expect(await recoverAccountImportCancellation(db, provider, f.current, f.id)).toBe(true);
+      expect(calls).toBe(1);
+      expect((await db.query("SELECT connector_id FROM authority_import_abort_receipts WHERE transfer_id=$1", [f.id])).rows).toEqual([{ connector_id: f.current.id }]);
+      expect((await db.query("SELECT id FROM authority_transfers WHERE id=$1", [f.id])).rows).toHaveLength(0);
+      expect(await recoverAccountImportCancellation(db, provider, f.current, f.id)).toBe(true);
+    }
+  });
+
+  it("rejects live original registrations, different accounts, malformed history and activation", async () => {
+    const f = await recoveryFixture();
+    const provider = { reconcileAuthorityImportCancellation: async () => { throw new Error("must not call provider"); } } as unknown as HostedProviderClient;
+    await expect(recoverAccountImportCancellation(db, provider, f.current, f.id)).rejects.toThrow("Revoke the original");
+    expect(await recoverAccountImportCancellation(db, provider, { id: f.current.id, user_id: randomUUID() }, f.id)).toBe(false);
+    await db.query("UPDATE connectors SET revoked_at=now() WHERE id=$1", [f.connectorId]);
+    await db.query("UPDATE hosted_collections SET authority_state='active' WHERE id=$1", [f.hosted_collection_id]);
+    expect(await recoverAccountImportCancellation(db, provider, f.current, f.id)).toBe(false);
+    await db.query("UPDATE hosted_collections SET authority_state='importing' WHERE id=$1", [f.hosted_collection_id]);
+    await db.query("UPDATE authority_transfers SET state='activating' WHERE id=$1", [f.id]);
+    await expect(recoverAccountImportCancellation(db, provider, f.current, f.id)).rejects.toThrow("entered activation");
+    await db.query("UPDATE audit_events SET metadata='{}' WHERE subject_id=$1", [f.id]);
+    expect(await recoverAccountImportCancellation(db, provider, f.current, f.id)).toBe(false);
+    expect((await db.query("SELECT transfer_id FROM authority_import_abort_receipts WHERE transfer_id=$1", [f.id])).rows).toHaveLength(0);
+  });
+
+  it("keeps recovery pending on provider failure and serializes a concurrent activation reservation", async () => {
+    const f = await recoveryFixture();
+    await db.query("UPDATE connectors SET revoked_at=now() WHERE id=$1", [f.connectorId]);
+    const unavailable = { reconcileAuthorityImportCancellation: async () => { throw new Error("provider unavailable"); } } as unknown as HostedProviderClient;
+    await expect(recoverAccountImportCancellation(db, unavailable, f.current, f.id)).rejects.toThrow("provider unavailable");
+    expect((await db.query("SELECT transfer_id FROM authority_import_abort_receipts WHERE transfer_id=$1", [f.id])).rows).toHaveLength(0);
+    let enter!: () => void, release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    const released = new Promise<void>(resolve => { release = resolve; });
+    const provider = { reconcileAuthorityImportCancellation: async () => { enter(); await released; } } as unknown as HostedProviderClient;
+    const recovering = recoverAccountImportCancellation(db, provider, f.current, f.id);
+    await entered;
+    let activationFinished = false;
+    const activation = db.query("UPDATE authority_transfers SET state='activating' WHERE id=$1 AND state='prepared'", [f.id]).then(result => { activationFinished = true; return result; });
+    await new Promise(resolve => setTimeout(resolve, 25));
+    expect(activationFinished).toBe(false);
+    release();
+    expect(await recovering).toBe(true);
+    expect((await activation).rowCount).toBe(0);
   });
 
   it("does not issue a receipt or delete the hosted target when activation wins", async () => {

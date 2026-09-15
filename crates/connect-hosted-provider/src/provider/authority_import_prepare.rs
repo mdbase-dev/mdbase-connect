@@ -20,6 +20,20 @@ impl HostedProvider {
         // Expiry cascades delete abandoned import targets. Recover first so a
         // replacement target cannot be mistaken for the expired one.
         self.recover_expired_authority_imports().await?;
+        let mut transaction = self.pool.begin().await?;
+        super::authority_import_cancellation::lock_import_identity(
+            &mut transaction,
+            input.transfer_id,
+        )
+        .await?;
+        let cancelled: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM hosted_provider_authority_import_cancellations WHERE transfer_id = $1)")
+            .bind(input.transfer_id).fetch_one(&mut *transaction).await?;
+        if cancelled {
+            return Err(ApiError::conflict(
+                "authority_import_cancelled",
+                "This transfer was durably cancelled; start a new move.",
+            ));
+        }
         let existing_state = sqlx::query_scalar::<_, String>(
             "SELECT state FROM hosted_provider_collections WHERE id = $1",
         )
@@ -47,7 +61,6 @@ impl HostedProvider {
         let expires_at = Utc::now()
             + chrono::Duration::seconds(to_i64(input.ttl_seconds, "authority import lifetime")?);
         let requested_token_hash = token_hash(&input.token);
-        let mut transaction = self.pool.begin().await?;
         if let Some(existing) = sqlx::query(
             r#"SELECT id, collection_id, token_hash, next_authority_epoch, state,
                       manifest_digest, source_revision, source_head, expires_at

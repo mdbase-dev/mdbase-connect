@@ -22,6 +22,18 @@ try {
   if (!port) throw new Error(`Could not determine PostgreSQL port from ${JSON.stringify(stdout)}`);
   await waitForPostgres();
   const databaseUrl = `postgres://mdbase:${password}@127.0.0.1:${port}/mdbase`;
+  const recoveryDatabase = "mdbase_authority_recovery_test";
+  await execute("docker", ["exec", container, "createdb", "-U", "mdbase", recoveryDatabase], { cwd: root });
+  const recoveryUrl = `postgres://mdbase:${password}@127.0.0.1:${port}/${recoveryDatabase}`;
+  await run("cargo", ["test", "--locked", "-p", "mdbase-connect-hosted-provider",
+    "--test", "authority_import_cancellation", "--test", "authority_import_history",
+    "--", "--ignored", "--test-threads=1"], { MDBASE_PROJECTION_DATABASE_URL: recoveryUrl });
+  await run("pnpm", ["build:packages"]);
+  await run("pnpm", ["--filter", "@mdbase/connect-server", "exec", "vitest", "run",
+    "src/authority-import-abort.postgres.test.ts"], {
+    MDBASE_CONNECT_TEST_DATABASE_URL: recoveryUrl,
+    MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL: "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS"
+  });
   // These ignored tests require this owned loopback database; execute them in
   // the registered CI suite rather than relying on ordinary workspace tests.
   for (const target of [["--lib", "atomic_runner"], ["--test", "semantic_migration"],
@@ -372,18 +384,19 @@ async function proveCurrentRollbackIsNotAuthorized(database) {
   const token = randomUUID();
   await psql(database, `DO $assert$ BEGIN
     IF (SELECT array_agg(version ORDER BY version) FROM _sqlx_migrations)
-         IS DISTINCT FROM ARRAY(SELECT generate_series(1, 41)::bigint)
+         IS DISTINCT FROM ARRAY(SELECT generate_series(1, 42)::bigint)
        OR EXISTS (SELECT 1 FROM _sqlx_migrations WHERE NOT success) THEN
-      RAISE EXCEPTION 'test assertion: expected genuine current ledger 1-41';
+      RAISE EXCEPTION 'test assertion: expected genuine current ledger 1-42';
     END IF;
   END $assert$`);
   await psqlFile(database, "suspend", {
     fence_token: token, fence_kind: "rollback", owner_lease_seconds: "7200"
   });
   for (const [predecessor, candidate, expectedError] of [
-    ["37", "38", "final_rollback_blocked: live ledger endpoint 41 is not authorized by pair 37 -> 38"],
+    ["37", "38", "final_rollback_blocked: live ledger endpoint 42 is not authorized by pair 37 -> 38"],
     ["38", "40", "final_rollback_blocked: unsupported migration pair 38 -> 40"],
-    ["38", "41", "final_rollback_blocked: unsupported migration pair 38 -> 41"]
+    ["38", "41", "final_rollback_blocked: unsupported migration pair 38 -> 41"],
+    ["41", "42", "final_rollback_blocked: unsupported migration pair 41 -> 42"]
   ]) {
     await expectPsqlFailure(database, "finalPreflight", {
       predecessor_migration: predecessor,
@@ -409,7 +422,7 @@ async function proveCurrentRollbackIsNotAuthorized(database) {
       RAISE EXCEPTION 'test assertion: matching-token fixture cleanup failed';
     END IF;
   END $assert$`);
-  console.log("Current migration 41: historical endpoint and unsupported pairs rejected; admission retained until matching-token fixture cleanup (not rollback qualified)");
+  console.log("Current migration 42: historical endpoint and unsupported pairs rejected; admission retained until matching-token fixture cleanup (not rollback qualified)");
 }
 
 async function proveBeta69CutoverGate(database) {

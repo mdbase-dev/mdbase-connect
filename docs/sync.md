@@ -249,22 +249,33 @@ also makes first-time imports recoverable after a lost cancellation response;
 retaining only the transfer's `cancelled` state is insufficient because deleting
 the unused hosted collection cascades to that transfer row.
 
-For historical explicit cancellations, the server can recover the receipt from
-its surviving audit history. The old cancellation route committed
-`authority_transfer.cancelled` in the same cleanup transaction, after provider
-confirmation. Recovery requires one original request binding the exact transfer
-to the authenticated account and original connector, matching collection and
-`to_hosted` direction on every cancellation event, and no contradictory completion
-event. It persists the reconstructed receipt and then uses the normal retry path;
-it does not infer an outcome from a provider 404 or call the provider again.
+The same Cancel action also reconciles historical transfers and replacement
+computer registrations. It requires one surviving request binding the exact
+transfer, original connector, collection, next authority epoch and `to_hosted`
+direction to the authenticated account. Completion evidence, ambiguous history,
+and any mismatching cancellation event block recovery. Another registration may
+recover only after the original computer is revoked or deleted; revoked
+credentials themselves are never accepted. The account and registrations are
+rechecked under locks, and a surviving transfer is locked against activation.
 
-This does **not** repair every historical fence. Old automatic expiry wrote no
-terminal cancellation audit, and provider abort/expiry deleted the import row
-and unused collection too. Request-only, incomplete, ambiguous or contradictory
-history remains blocked. Revoked credentials and a different newly paired
-connector cannot use another connector's historical proof. Those cases require
-separate, explicitly authorized authority reconciliation, not an automatic
-local unlock. No customer outcome can be inferred from the generic error alone.
+The provider must then confirm cancellation for that exact identity. An existing
+import is aborted only before indexing begins. If its historical rows are gone,
+the collection must also be absent (or still transferred at the prior epoch),
+with no conflicting import. In the same transaction the provider installs a
+permanent cancellation fence, independent of collection/account cleanup. Both
+preparation and a database insertion trigger honor this fence, including old
+preparation writers during rollout. Missing records alone never acknowledge
+cancellation. Lost responses retry the same fence; current authority is checked
+again before provider acknowledgement. The server then atomically cleans up the
+unused target and persists the abort receipt for the current registration.
+
+This replaces audit-only historical receipt reconstruction. It can recover old
+request-only/expiry cases without a local SQLite edit, but cannot recover missing
+identity evidence or cancel a move that has entered activation. Those folders
+remain fenced for exact activation reconciliation. No desktop update or new UI is
+required. Release the provider migration/API before the server recovery change;
+older providers fail closed. Retain migration 0042 and its insertion trigger on
+rollback: cancellation fences must never be discarded or bypassed.
 
 Moving back to local authority is implemented as an explicit, browser-confirmed
 handoff from a full writable mirror:

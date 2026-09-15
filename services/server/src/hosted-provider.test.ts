@@ -32,6 +32,22 @@ function readinessDocument(contractSupport: ConnectContractSupport = CONNECT_CON
 }
 
 describe("hosted provider control client", () => {
+  it("requires an exact durable cancellation acknowledgement, never an absence response", async () => {
+    const provider = new HostedProviderClient({ url: "https://provider.example", internalToken: "test-internal" });
+    const expected = { transfer_id: "transfer", collection_id: "collection", authority_epoch: 2, cancelled: true };
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    for (const body of [{}, { ...expected, cancelled: false }, { ...expected, transfer_id: "other" },
+      { ...expected, collection_id: "other" }, { ...expected, authority_epoch: 3 }]) {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(body)));
+      await expect(provider.reconcileAuthorityImportCancellation("transfer", "collection", 2)).rejects.toThrow();
+    }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "not_found", message: "Absent" } }), { status: 404 }));
+    await expect(provider.reconcileAuthorityImportCancellation("transfer", "collection", 2)).rejects.toThrow();
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(expected)));
+    await expect(provider.reconcileAuthorityImportCancellation("transfer", "collection", 2)).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls.at(-1)?.[1]?.body).toBe(JSON.stringify({ collection_id: "collection", authority_epoch: 2 }));
+  });
+
   it("requires new collections to return with a current projection", async () => {
     const active = {
       collection_id: "collection",

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { recoverAccountImportCancellation } from "./account-cancellation.js";
 import type { FastifyInstance } from "fastify";
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
@@ -414,7 +415,7 @@ export function registerLocalToHostedTransferRoutes(
         connector,
         transferId
       );
-      if (!transfer && await recoverHistoricalImportCancellation(options.db, connector, transferId)) {
+      if (!transfer && await recoverAccountImportCancellation(options.db, options.hostedProvider, connector, transferId)) {
         return { ok: true };
       }
       if (!transfer) {
@@ -560,52 +561,6 @@ async function createImportTransfer(
   } finally {
     connection.release();
   }
-}
-
-// Pre-receipt servers committed a cancellation audit in the same transaction
-// that deleted a first-time import target (and cascaded away its transfer row).
-// Recover only that positive acknowledgement, bound to its original account,
-// connector, direction and collection. A request, expiry, or provider 404 is
-// never sufficient. Once recovered, the ordinary receipt path owns retries.
-async function recoverHistoricalImportCancellation(
-  db: DatabasePool,
-  connector: ConnectorIdentity,
-  transferId: string
-): Promise<boolean> {
-  const history = await db.query<{ event_type: string; metadata: unknown }>(
-    `SELECT event_type, metadata FROM audit_events
-     WHERE subject_id = $1 AND user_id = $2
-       AND event_type IN ('authority_transfer.requested',
-                          'authority_transfer.cancelled', 'authority_transfer.completed')`,
-    [transferId, connector.user_id]
-  );
-  const requested = history.rows.filter((row) => row.event_type === "authority_transfer.requested");
-  const cancelled = history.rows.filter((row) => row.event_type === "authority_transfer.cancelled");
-  if (requested.length !== 1 || cancelled.length === 0
-    || history.rows.some((row) => row.event_type === "authority_transfer.completed")) return false;
-  const request = z.object({
-    connector_id: z.literal(connector.id),
-    direction: z.literal("to_hosted"),
-    collection_id: z.uuid(),
-    authority_epoch: z.number().int().min(2)
-  }).safeParse(requested[0]!.metadata);
-  if (!request.success) return false;
-  const cancellation = z.object({
-    direction: z.literal("to_hosted"),
-    collection_id: z.literal(request.data.collection_id)
-  });
-  if (cancelled.some((row) => !cancellation.safeParse(row.metadata).success)) return false;
-  await db.query(
-    `INSERT INTO authority_import_abort_receipts (transfer_id, connector_id)
-     VALUES ($1, $2) ON CONFLICT (transfer_id) DO NOTHING`,
-    [transferId, connector.id]
-  );
-  const receipt = await db.query(
-    `SELECT transfer_id FROM authority_import_abort_receipts
-     WHERE transfer_id = $1 AND connector_id = $2`,
-    [transferId, connector.id]
-  );
-  return receipt.rows.length === 1;
 }
 
 async function findConnectorImportTransfer(

@@ -18,6 +18,7 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
+import { z } from "zod";
 
 export interface HostedProviderConfig {
   url: string;
@@ -737,6 +738,14 @@ export class HostedProviderClient {
     // Reconcile the same import row inside the original operation budget.
     completed = await complete();
     return completed;
+  }
+
+  async reconcileAuthorityImportCancellation(transferId: string, collectionId: string, authorityEpoch: number): Promise<void> {
+    const result = await this.request("POST", `/internal/v1/authority-imports/${encodeURIComponent(transferId)}/reconcile-cancellation`, {
+      collection_id: collectionId, authority_epoch: authorityEpoch
+    });
+    z.object({ transfer_id: z.literal(transferId), collection_id: z.literal(collectionId),
+      authority_epoch: z.literal(authorityEpoch), cancelled: z.literal(true) }).strict().parse(result);
   }
 
   async abortAuthorityImport(transferId: string): Promise<AuthorityImport> {
