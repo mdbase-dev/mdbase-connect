@@ -98,6 +98,15 @@ copies the invoking binary atomically into the private
 never points into a versioned Electron bundle, package extraction directory, or
 developer checkout.
 
+On Windows, both the task's execution principal and its logon trigger name the
+current process user's SID. The task uses an interactive token at least
+privilege; an unscoped `ONLOGON` trigger would require administrator rights even
+with `/RL LIMITED`. Registration uses a temporary UTF-16 task definition and
+keeps the existing task name and installed marker, so an accessible existing
+task can be replaced normally. Installation does not elevate or take ownership
+of another account's task. Account credentials and application grants are not
+changed by task registration.
+
 The CLI models daemon targeting explicitly. With no state or endpoint override,
 daemon lifecycle commands target the default installed per-user service. Any
 `--state-dir`, `--endpoint`, `MDBASE_CONNECT_HOME`, or

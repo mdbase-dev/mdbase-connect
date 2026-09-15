@@ -101,6 +101,12 @@ function Binary([string]$Version) {
     return $files[0].FullName
 }
 function Require-Success($Result) { if ($Result.exitCode -ne 0) { throw "Failed probe: $($Result.name)" } }
+function Is-CurrentUser([string]$Account) {
+    if ([string]::IsNullOrWhiteSpace($Account)) { return $false }
+    # Task Scheduler may return the same SID as a local or qualified account name.
+    $sid = if ($Account.StartsWith('S-1-')) { [Security.Principal.SecurityIdentifier]::new($Account) } else { [Security.Principal.NTAccount]::new($Account).Translate([Security.Principal.SecurityIdentifier]) }
+    return $sid.Value -eq $identity.User.Value
+}
 function Wait-Running([string]$Binary, [bool]$Expected) {
     for ($i = 0; $i -lt 15; $i++) {
         $result = Invoke-Probe "daemon-running-$Expected-$i" $Binary @('--state-dir', $state, '--json', 'connect', 'daemon', 'status')
@@ -130,8 +136,8 @@ try {
     $initial = if ($Scenario -eq 'upgrade') { Binary '96' } else { $binary }
     Require-Success (Invoke-Probe 'production-scoped-install' $probe @('install', $initial, $state))
     $task = Get-ScheduledTask -TaskName 'mdbase connect'
-    $report['task'] = @{ triggerMatchesUser = ($task.Triggers[0].UserId -eq $identity.User.Value); principalMatchesUser = ($task.Principal.UserId -eq $identity.User.Value -or $task.Principal.UserId -eq $identity.Name); runLevel = [string]$task.Principal.RunLevel; logonType = [string]$task.Principal.LogonType }
-    if (-not $report.task.triggerMatchesUser -or -not $report.task.principalMatchesUser -or $report.task.runLevel -ne 'Limited') { throw 'Task identity/least-privilege invariant failed.' }
+    $report['task'] = @{ triggerMatchesUser = (Is-CurrentUser $task.Triggers[0].UserId); principalMatchesUser = (Is-CurrentUser $task.Principal.UserId); runLevel = [string]$task.Principal.RunLevel; logonType = [string]$task.Principal.LogonType }
+    if ((Is-CurrentUser 'S-1-5-18') -or -not $report.task.triggerMatchesUser -or -not $report.task.principalMatchesUser -or $report.task.runLevel -ne 'Limited' -or $report.task.logonType -ne 'Interactive') { throw 'Task identity/least-privilege invariant failed.' }
     Wait-Running $initial $true
     Require-Success (Invoke-Probe 'stop-before-replacement' $probe @('stop'))
     Wait-Running $initial $false
