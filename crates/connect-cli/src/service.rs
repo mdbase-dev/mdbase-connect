@@ -613,6 +613,10 @@ mod platform {
     }
 }
 
+#[cfg(any(windows, test))]
+#[path = "service/windows_task.rs"]
+mod windows_task;
+
 #[cfg(windows)]
 mod platform {
     use super::*;
@@ -625,24 +629,29 @@ mod platform {
     }
 
     pub fn install(executable: &Path, state_dir: &Path) -> Result<(), String> {
-        let action = format!(
-            "\"{}\" --state-dir \"{}\" connect daemon run",
-            executable.display(),
-            state_dir.display()
+        use std::io::Write;
+
+        let sid = windows_task::current_user_sid()?;
+        let definition = windows_task::definition(
+            executable
+                .to_str()
+                .ok_or("The Connect runtime path is not valid Unicode.")?,
+            state_dir
+                .to_str()
+                .ok_or("The Connect state path is not valid Unicode.")?,
+            &sid,
         );
+        let mut task_file = tempfile::NamedTempFile::new()
+            .map_err(|error| format!("Could not stage the Connect task definition: {error}"))?;
+        task_file
+            .write_all(definition.as_bytes())
+            .map_err(|error| format!("Could not write the Connect task definition: {error}"))?;
+        // Close before schtasks reads it, and remove it on both success and failure.
+        let task_path = task_file.into_temp_path();
         run_checked(
-            Command::new("schtasks").args([
-                "/Create",
-                "/F",
-                "/SC",
-                "ONLOGON",
-                "/TN",
-                "mdbase connect",
-                "/TR",
-                &action,
-                "/RL",
-                "LIMITED",
-            ]),
+            Command::new("schtasks")
+                .args(["/Create", "/F", "/TN", "mdbase connect", "/XML"])
+                .arg(&task_path),
             "install the Connect background task",
         )?;
         let marker = service_file().ok_or("Could not locate local application data.")?;

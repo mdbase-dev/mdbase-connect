@@ -1,0 +1,17 @@
+[package]
+name = "windows-service-probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Compile the production service module without building the collection engine.
+# This executable is only used on disposable Windows qualification runners.
+[workspace]
+
+[dependencies]
+directories = "6"
+tempfile = "3"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading"] }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }

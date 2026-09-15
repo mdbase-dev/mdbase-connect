@@ -6,6 +6,9 @@ on:
     paths:
       - .github/workflows/issue-428-windows-diagnostic.yml
       - scripts/diagnostics/windows-428.ps1
+      - scripts/diagnostics/windows-service-probe/**
+      - crates/connect-cli/src/service.rs
+      - crates/connect-cli/src/service/**
 
 permissions:
   contents: read
@@ -22,13 +25,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Compile and test the actual Windows service implementation
+        shell: pwsh
+        run: |
+          cargo test --locked --manifest-path scripts/diagnostics/windows-service-probe/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw 'Native service tests failed.' }
+          cargo build --locked --release --manifest-path scripts/diagnostics/windows-service-probe/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw 'Native service probe build failed.' }
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/issue428-binaries" | Out-Null
+          Copy-Item scripts/diagnostics/windows-service-probe/target/release/windows-service-probe.exe "$env:RUNNER_TEMP/issue428-binaries/windows-service-probe.exe"
       - name: Download public released CLI fixtures and verify checksums
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($version in @('96', '97', '99')) {
+          foreach ($version in @('96', '99')) {
             $directory = Join-Path $env:RUNNER_TEMP "issue428-binaries/$version"
             New-Item -ItemType Directory -Force $directory | Out-Null
             $archive = "mdbase-cli-0.1.0-beta.$version-windows-x64-UNSIGNED.tar.gz"

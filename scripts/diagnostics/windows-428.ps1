@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $Child) {
     if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows') {
-        throw 'This destructive-account diagnostic is restricted to a disposable GitHub Windows runner.'
+        throw 'Account/lifecycle tests are restricted to disposable GitHub Windows runners.'
     }
     $Root = Join-Path $env:PUBLIC ('mdbase-428-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $Root | Out-Null
@@ -15,7 +15,7 @@ if (-not $Child) {
     Copy-Item (Join-Path $env:RUNNER_TEMP 'issue428-binaries') (Join-Path $Root 'binaries') -Recurse
     $user = 'mdbase428test'
     $password = ConvertTo-SecureString ('Aa1!' + [guid]::NewGuid().ToString('N')) -AsPlainText -Force
-    $localUser = New-LocalUser -Name $user -Password $password -Description 'Disposable issue 428 diagnostic'
+    $localUser = New-LocalUser -Name $user -Password $password -Description 'Disposable issue 428 qualification'
     Add-Type @'
 using System;
 using System.Text;
@@ -25,133 +25,127 @@ public static class TestUserProfile {
     public static extern int CreateProfile(string sid, string userName, StringBuilder profilePath, uint size);
 }
 '@
-    $profilePath = New-Object System.Text.StringBuilder(260)
-    $created = [TestUserProfile]::CreateProfile($localUser.SID.Value, $user, $profilePath, 260)
-    if ($created -ne 0) { throw "Could not create disposable Windows profile: HRESULT $created" }
-    $usersGroup = Get-LocalGroup -SID 'S-1-5-32-545'
-    Add-LocalGroupMember -Group $usersGroup -Member $user
-    $account = "$env:COMPUTERNAME\$user"
-    & icacls.exe $Root /grant "${account}:(OI)(CI)M" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not grant fixture access.' }
+    $process = $null
     try {
-        $credential = New-Object System.Management.Automation.PSCredential($account, $password)
-        $process = Start-Process "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
-            -Credential $credential -LoadUserProfile -WorkingDirectory $Root `
-            -ArgumentList @('-NoProfile', '-File', (Join-Path $Root 'diagnostic.ps1'), '-Child', '-Scenario', $Scenario, '-Root', $Root) `
-            -PassThru -RedirectStandardOutput (Join-Path $Root 'child.stdout') -RedirectStandardError (Join-Path $Root 'child.stderr')
-        $timedOut = -not $process.WaitForExit(180000)
-        if ($timedOut) { $process.Kill(); [void]$process.WaitForExit(5000) }
-        $process.Refresh()
-        $report = Join-Path $Root 'result.json'
-        if (-not (Test-Path $report)) {
-            Get-Content (Join-Path $Root 'child.stderr')
-            throw 'Standard-user diagnostic produced no report.'
-        }
-        New-Item -ItemType Directory -Force (Join-Path $env:GITHUB_WORKSPACE '.artifacts/issue428') | Out-Null
-        Copy-Item $report (Join-Path $env:GITHUB_WORKSPACE ".artifacts/issue428/$Scenario.json")
-        Get-Content $report
-        if ($timedOut) { throw 'Standard-user diagnostic timed out; partial probe report retained.' }
-        if ($process.ExitCode -ne 0) { throw "Diagnostic child exited $($process.ExitCode)." }
+        $profilePath = New-Object System.Text.StringBuilder(260)
+        $created = [TestUserProfile]::CreateProfile($localUser.SID.Value, $user, $profilePath, 260)
+        if ($created -ne 0) { throw "Could not create Windows test profile: HRESULT $created" }
+        Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545') -Member $user
+        & icacls.exe $Root /grant "${env:COMPUTERNAME}\${user}:(OI)(CI)M" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Could not grant fixture access.' }
+        # Use Process directly: no PowerShell Start-Process job-tree wait when a
+        # tested CLI launches its long-running background daemon.
+        $info = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+        $info.UseShellExecute = $false
+        $info.UserName = $user
+        $info.Domain = $env:COMPUTERNAME
+        $info.Password = $password
+        $info.LoadUserProfile = $true
+        $info.WorkingDirectory = $Root
+        foreach ($arg in @('-NoProfile', '-File', (Join-Path $Root 'diagnostic.ps1'), '-Child', '-Scenario', $Scenario, '-Root', $Root)) { $info.ArgumentList.Add($arg) }
+        $process = [Diagnostics.Process]::Start($info)
+        if (-not $process.WaitForExit(240000)) { $process.Kill($true); throw 'Native lifecycle child timed out; partial results retained.' }
+        if ($process.ExitCode -ne 0) { throw "Native lifecycle child failed with exit $($process.ExitCode)." }
     } finally {
-        # Task/account names exist only inside this newly provisioned runner.
+        $old = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
+        if ($process -and -not $process.HasExited) { $process.Kill($true) }
+        Get-CimInstance Win32_Process -Filter "Name='mdbase.exe'" | Where-Object { $_.ExecutablePath -like "$Root\*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         & schtasks.exe /Delete /F /TN 'mdbase connect' 2>$null | Out-Null
-        & schtasks.exe /Delete /F /TN 'mdbase-428-scoped' 2>$null | Out-Null
-        & schtasks.exe /Delete /F /TN 'mdbase-428-once' 2>$null | Out-Null
-        Get-CimInstance Win32_Process -Filter "Name='mdbase.exe'" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         Remove-LocalUser -Name $user
+        $report = Join-Path $Root 'result.json'
+        if (Test-Path $report) {
+            New-Item -ItemType Directory -Force (Join-Path $env:GITHUB_WORKSPACE '.artifacts/issue428') | Out-Null
+            Copy-Item $report (Join-Path $env:GITHUB_WORKSPACE ".artifacts/issue428/$Scenario.json")
+            Get-Content $report
+        }
+        $ErrorActionPreference = $old
     }
     exit
 }
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+$principal = [Security.Principal.WindowsPrincipal]::new($identity)
 $report = [ordered]@{
     scenario = $Scenario
     windows = [Environment]::OSVersion.VersionString
     standardUser = -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     results = @()
+    activeProbe = $null
 }
-if (-not $report.standardUser) { throw 'Refusing an elevated or administrator test token.' }
-# CreateProcessWithLogon inherits the runner's environment. Known-folder
-# registry values contain %USERPROFILE%, so replace the inherited administrator
-# profile variables using the profile registered for the authenticated test SID.
-$profileKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$($identity.User.Value)"
-$env:USERPROFILE = [Environment]::ExpandEnvironmentVariables((Get-ItemProperty $profileKey).ProfileImagePath)
-$env:LOCALAPPDATA = Join-Path $env:USERPROFILE 'AppData\Local'
-$env:APPDATA = Join-Path $env:USERPROFILE 'AppData\Roaming'
-$env:HOME = $env:USERPROFILE
-$env:HOMEDRIVE = [IO.Path]::GetPathRoot($env:USERPROFILE).TrimEnd('\')
-$env:HOMEPATH = $env:USERPROFILE.Substring($env:HOMEDRIVE.Length)
-New-Item -ItemType Directory -Force $env:LOCALAPPDATA, $env:APPDATA | Out-Null
-$report['knownFolders'] = @{
-    profile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
-    local = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
-    roaming = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
-}
-# Always retain the profile evidence and scheduler probes, even if a released
-# CLI cannot resolve directories in this non-interactive runner session.
-
+function Save-Report { $report | ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 (Join-Path $Root 'result.json') }
 function Invoke-Probe([string]$Name, [string]$Program, [string[]]$Arguments) {
+    $report.activeProbe = $Name
+    Save-Report
+    $info = [Diagnostics.ProcessStartInfo]::new($Program)
+    $info.UseShellExecute = $false
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    foreach ($arg in $Arguments) { $info.ArgumentList.Add($arg) }
     $before = Get-Date
-    $report['activeProbe'] = $Name
-    $report | ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 (Join-Path $Root 'result.json')
-    $old = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    $output = & $Program @Arguments 2>&1 | Out-String
-    $code = $LASTEXITCODE
-    $ErrorActionPreference = $old
-    $report.results += [ordered]@{ name = $Name; exitCode = $code; elapsedMs = [int]((Get-Date) - $before).TotalMilliseconds; output = $output.Trim() }
-    $report['activeProbe'] = $null
-    $report | ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 (Join-Path $Root 'result.json')
+    $p = [Diagnostics.Process]::Start($info)
+    $stdout = $p.StandardOutput.ReadToEndAsync()
+    $stderr = $p.StandardError.ReadToEndAsync()
+    if (-not $p.WaitForExit(25000)) { $p.Kill($true); throw "Probe timed out: $Name" }
+    # Bound stream completion as well; inherited pipe handles must not hang CI.
+    if (-not [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdout, $stderr), 3000)) { throw "Probe output did not close: $Name" }
+    $result = [ordered]@{ name = $Name; exitCode = $p.ExitCode; elapsedMs = [int]((Get-Date) - $before).TotalMilliseconds; stdout = $stdout.Result.Trim(); stderr = $stderr.Result.Trim() }
+    $report.results += $result
+    $report.activeProbe = $null
+    Save-Report
+    return $result
 }
 function Binary([string]$Version) {
     $files = @(Get-ChildItem (Join-Path $Root "binaries/$Version") -Recurse -Filter mdbase.exe)
-    if ($files.Count -ne 1) { throw 'Expected exactly one public release CLI executable.' }
+    if ($files.Count -ne 1) { throw 'Expected one public release CLI executable.' }
     return $files[0].FullName
 }
-
+function Require-Success($Result) { if ($Result.exitCode -ne 0) { throw "Failed probe: $($Result.name)" } }
+function Wait-Running([string]$Binary, [bool]$Expected) {
+    for ($i = 0; $i -lt 15; $i++) {
+        $result = Invoke-Probe "daemon-running-$Expected-$i" $Binary @('--state-dir', $state, '--json', 'connect', 'daemon', 'status')
+        if ($result.exitCode -eq 0 -and ($result.stdout | ConvertFrom-Json).running -eq $Expected) { return }
+        Start-Sleep -Milliseconds 500
+    }
+    throw "Task did not bring daemon running state to $Expected in this logon session."
+}
 try {
-    if ($Scenario -eq 'upgrade') {
-        $old = Binary '96'
-        Invoke-Probe 'beta96-direct-start' $old @('--json', 'connect', 'daemon', 'start')
-        Invoke-Probe 'beta96-status' $old @('--json', 'connect', 'daemon', 'status')
-        Invoke-Probe 'beta96-stop' $old @('--json', 'connect', 'daemon', 'stop')
-        Invoke-Probe 'beta97-service-install' (Binary '97') @('--json', 'connect', 'daemon', 'install')
-    }
+    if (-not $report.standardUser) { throw 'Refusing an administrator test token.' }
+    # Replace inherited runner-administrator environment with the profile that
+    # Windows registered for this authenticated SID. No product state overrides.
+    $profileKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$($identity.User.Value)"
+    $env:USERPROFILE = [Environment]::ExpandEnvironmentVariables((Get-ItemProperty $profileKey).ProfileImagePath)
+    $env:LOCALAPPDATA = Join-Path $env:USERPROFILE 'AppData\Local'
+    $env:APPDATA = Join-Path $env:USERPROFILE 'AppData\Roaming'
+    $env:HOME = $env:USERPROFILE
+    New-Item -ItemType Directory -Force $env:LOCALAPPDATA, $env:APPDATA | Out-Null
     $binary = Binary '99'
-    Invoke-Probe 'beta99-service-install' $binary @('--json', 'connect', 'daemon', 'install')
-    Invoke-Probe 'beta99-status' $binary @('--json', 'connect', 'daemon', 'status')
-    Invoke-Probe 'query-product-task' 'schtasks.exe' @('/Query', '/TN', 'mdbase connect', '/FO', 'LIST')
+    $probe = Join-Path $Root 'binaries/windows-service-probe.exe'
+    $state = Join-Path $Root 'state & notes'
+    $oldInstall = Invoke-Probe 'official-beta99-unscoped-install' $binary @('--json', 'connect', 'daemon', 'install')
+    if ($oldInstall.exitCode -eq 0 -or $oldInstall.stderr -notmatch 'Access is denied') { throw 'Original standard-user registration failure was not reproduced.' }
 
-    # Compare default all-user ONLOGON with a non-logon trigger and an explicitly
-    # same-user logon trigger. Only harmless cmd.exe actions are registered.
-    $action = "$env:SystemRoot\System32\cmd.exe /c exit 0"
-    Invoke-Probe 'current-unscoped-onlogon-command' 'schtasks.exe' @('/Create', '/F', '/SC', 'ONLOGON', '/TN', 'mdbase connect', '/TR', $action, '/RL', 'LIMITED')
-    Invoke-Probe 'same-user-once-command' 'schtasks.exe' @('/Create', '/F', '/SC', 'ONCE', '/ST', '23:59', '/TN', 'mdbase-428-once', '/TR', $action, '/RL', 'LIMITED')
-    $sid = $identity.User.Value
-    $xml = @"
-<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>$sid</UserId></LogonTrigger></Triggers>
-  <Principals><Principal id="Author"><UserId>$sid</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
-  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>
-  <Actions Context="Author"><Exec><Command>$env:SystemRoot\System32\cmd.exe</Command><Arguments>/c exit 0</Arguments></Exec></Actions>
-</Task>
-"@
-    $xmlPath = Join-Path $Root 'scoped-task.xml'
-    $xml.Replace("<UserId>$sid</UserId></LogonTrigger>", '</LogonTrigger>') | Set-Content -Encoding Unicode $xmlPath
-    Invoke-Probe 'explicit-principal-but-unscoped-trigger' 'schtasks.exe' @('/Create', '/F', '/TN', 'mdbase-428-scoped', '/XML', $xmlPath)
-    $xml | Set-Content -Encoding Unicode $xmlPath
-    Invoke-Probe 'explicit-user-logon-create' 'schtasks.exe' @('/Create', '/F', '/TN', 'mdbase-428-scoped', '/XML', $xmlPath)
-    Invoke-Probe 'explicit-user-logon-replace' 'schtasks.exe' @('/Create', '/F', '/TN', 'mdbase-428-scoped', '/XML', $xmlPath)
-    Invoke-Probe 'explicit-user-logon-run' 'schtasks.exe' @('/Run', '/TN', 'mdbase-428-scoped')
-    foreach ($name in @('explicit-user-logon-create', 'explicit-user-logon-replace')) {
-        if (($report.results | Where-Object { $_.name -eq $name }).exitCode -ne 0) { throw "Scoped task probe failed: $name" }
-    }
+    $initial = if ($Scenario -eq 'upgrade') { Binary '96' } else { $binary }
+    Require-Success (Invoke-Probe 'production-scoped-install' $probe @('install', $initial, $state))
+    $task = Get-ScheduledTask -TaskName 'mdbase connect'
+    $report['task'] = @{ triggerMatchesUser = ($task.Triggers[0].UserId -eq $identity.User.Value); principalMatchesUser = ($task.Principal.UserId -eq $identity.User.Value -or $task.Principal.UserId -eq $identity.Name); runLevel = [string]$task.Principal.RunLevel; logonType = [string]$task.Principal.LogonType }
+    if (-not $report.task.triggerMatchesUser -or -not $report.task.principalMatchesUser -or $report.task.runLevel -ne 'Limited') { throw 'Task identity/least-privilege invariant failed.' }
+    Wait-Running $initial $true
+    Require-Success (Invoke-Probe 'stop-before-replacement' $probe @('stop'))
+    Wait-Running $initial $false
+    Require-Success (Invoke-Probe 'production-scoped-replacement' $probe @('install', $binary, $state))
+    Wait-Running $binary $true
+    Require-Success (Invoke-Probe 'stop-before-cold-start' $probe @('stop'))
+    Wait-Running $binary $false
+    Require-Success (Invoke-Probe 'production-scoped-cold-start' $probe @('start'))
+    Wait-Running $binary $true
+    Require-Success (Invoke-Probe 'final-stop' $probe @('stop'))
+    Wait-Running $binary $false
+    Require-Success (Invoke-Probe 'production-uninstall' $probe @('uninstall'))
+    if (Get-ScheduledTask -TaskName 'mdbase connect' -ErrorAction SilentlyContinue) { throw 'Task remained after uninstall.' }
+    $report['passed'] = $true
 } catch {
     $report['error'] = $_.Exception.Message
+    $report['passed'] = $false
     throw
-} finally {
-    $report | ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 (Join-Path $Root 'result.json')
-}
+} finally { Save-Report }
