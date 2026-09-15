@@ -55,8 +55,8 @@ components.
 `.github/previous-release.env` identifies the immediate published predecessor.
 Update its annotated tag, full commit and immutable server/provider digests as
 part of release preparation; ordinary upgrade qualification still requires it to
-be the unique newest non-draft GitHub release. Following beta99 publication,
-qualification uses beta99 (`c8b565f7dfbba6259e413b2c3bf2046325cde290`) and its
+be the unique newest non-draft GitHub release. Following beta100 publication,
+qualification uses beta100 (`6bd9420690295d3c5f65e68edcbf8e3e55612614`) and its
 exact signed server/provider images. Advancing this fixture preserves the
 unique-newest-release check; the retained beta95 and beta94 lanes do not move. This fixture refresh does not itself publish or deploy a release.
 
