@@ -23,13 +23,14 @@ permissions:
   contents: read
 
 jobs:
-  standard-user:
+  qualify:
+    name: Windows ${{ matrix.scenario }}
     runs-on: windows-2025
     timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
-        scenario: [fresh, upgrade]
+        scenario: [registration, fresh, upgrade]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -62,7 +63,7 @@ jobs:
             tar -xzf (Join-Path $directory $archive) -C $directory
             if ($LASTEXITCODE -ne 0) { throw 'Release fixture extraction failed.' }
           }
-      - name: Exercise installation with a new non-administrator account
+      - name: Qualify registration or interactive task lifecycle
         shell: pwsh
         run: ./scripts/diagnostics/windows-428.ps1 -Scenario '${{ matrix.scenario }}'
       - name: Retain bounded diagnostic results

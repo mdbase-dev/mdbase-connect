@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('fresh', 'upgrade')][string]$Scenario = 'fresh',
+    [ValidateSet('registration', 'fresh', 'upgrade')][string]$Scenario = 'registration',
     [switch]$Child,
     [string]$Root
 )
@@ -9,13 +9,15 @@ if (-not $Child) {
     if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows') {
         throw 'Account/lifecycle tests are restricted to disposable GitHub Windows runners.'
     }
+    if (Get-ScheduledTask -TaskName 'mdbase connect' -ErrorAction SilentlyContinue) { throw 'Refusing to replace a pre-existing task on the runner.' }
     $Root = Join-Path $env:PUBLIC ('mdbase-428-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $Root | Out-Null
     Copy-Item $PSCommandPath (Join-Path $Root 'diagnostic.ps1')
     Copy-Item (Join-Path $env:RUNNER_TEMP 'issue428-binaries') (Join-Path $Root 'binaries') -Recurse
     $user = 'mdbase428test'
     $password = ConvertTo-SecureString ('Aa1!' + [guid]::NewGuid().ToString('N')) -AsPlainText -Force
-    $localUser = New-LocalUser -Name $user -Password $password -Description 'Disposable issue 428 qualification'
+    $localUser = $null
+    if ($Scenario -eq 'registration') { $localUser = New-LocalUser -Name $user -Password $password -Description 'Disposable issue 428 qualification' }
     Add-Type @'
 using System;
 using System.Text;
@@ -27,20 +29,24 @@ public static class TestUserProfile {
 '@
     $process = $null
     try {
-        $profilePath = New-Object System.Text.StringBuilder(260)
-        $created = [TestUserProfile]::CreateProfile($localUser.SID.Value, $user, $profilePath, 260)
-        if ($created -ne 0) { throw "Could not create Windows test profile: HRESULT $created" }
-        Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545') -Member $user
-        & icacls.exe $Root /grant "${env:COMPUTERNAME}\${user}:(OI)(CI)M" | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'Could not grant fixture access.' }
+        if ($localUser) {
+            $profilePath = New-Object System.Text.StringBuilder(260)
+            $created = [TestUserProfile]::CreateProfile($localUser.SID.Value, $user, $profilePath, 260)
+            if ($created -ne 0) { throw "Could not create Windows test profile: HRESULT $created" }
+            Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545') -Member $user
+            & icacls.exe $Root /grant "${env:COMPUTERNAME}\${user}:(OI)(CI)M" | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Could not grant fixture access.' }
+        }
         # Use Process directly: no PowerShell Start-Process job-tree wait when a
         # tested CLI launches its long-running background daemon.
         $info = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
         $info.UseShellExecute = $false
-        $info.UserName = $user
-        $info.Domain = $env:COMPUTERNAME
-        $info.Password = $password
-        $info.LoadUserProfile = $true
+        if ($localUser) {
+            $info.UserName = $user
+            $info.Domain = $env:COMPUTERNAME
+            $info.Password = $password
+            $info.LoadUserProfile = $true
+        }
         $info.WorkingDirectory = $Root
         foreach ($arg in @('-NoProfile', '-File', (Join-Path $Root 'diagnostic.ps1'), '-Child', '-Scenario', $Scenario, '-Root', $Root)) { $info.ArgumentList.Add($arg) }
         $process = [Diagnostics.Process]::Start($info)
@@ -52,7 +58,7 @@ public static class TestUserProfile {
         if ($process -and -not $process.HasExited) { $process.Kill($true) }
         Get-CimInstance Win32_Process -Filter "Name='mdbase.exe'" | Where-Object { $_.ExecutablePath -like "$Root\*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         & schtasks.exe /Delete /F /TN 'mdbase connect' 2>$null | Out-Null
-        Remove-LocalUser -Name $user
+        if ($localUser) { Remove-LocalUser -Name $user }
         $report = Join-Path $Root 'result.json'
         if (Test-Path $report) {
             New-Item -ItemType Directory -Force (Join-Path $env:GITHUB_WORKSPACE '.artifacts/issue428') | Out-Null
@@ -119,7 +125,8 @@ function Wait-Running([string]$Binary, [bool]$Expected) {
     throw "Task did not bring daemon running state to $Expected in this logon session."
 }
 try {
-    if (-not $report.standardUser) { throw 'Refusing an administrator test token.' }
+    if ($Scenario -eq 'registration' -and -not $report.standardUser) { throw 'Registration must use a non-administrator test token.' }
+    $report['lifecycleAccount'] = if ($Scenario -eq 'registration') { 'noninteractive-standard-user-registration-only' } else { 'existing-interactive-runner-account-with-limited-task' }
     # Replace inherited runner-administrator environment with the profile that
     # Windows registered for this authenticated SID. No product state overrides.
     $profileKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$($identity.User.Value)"
@@ -133,25 +140,31 @@ try {
     $binary = Binary '99'
     $probe = Join-Path $Root 'binaries/windows-service-probe.exe'
     $state = Join-Path $Root 'state & notes'
-    $oldInstall = Invoke-Probe 'official-beta99-unscoped-install' $binary @('--json', 'connect', 'daemon', 'install')
-    if ($oldInstall.exitCode -eq 0 -or $oldInstall.stderr -notmatch 'Access is denied') { throw 'Original standard-user registration failure was not reproduced.' }
+    if ($Scenario -eq 'registration') {
+        $oldInstall = Invoke-Probe 'official-beta99-unscoped-install' $binary @('--json', 'connect', 'daemon', 'install')
+        if ($oldInstall.exitCode -eq 0 -or $oldInstall.stderr -notmatch 'Access is denied') { throw 'Original standard-user registration failure was not reproduced.' }
+    }
 
     $initial = if ($Scenario -eq 'upgrade') { Binary '96' } else { $binary }
     Require-Success (Invoke-Probe 'production-scoped-install' $probe @('install', $initial, $state))
     $task = Get-ScheduledTask -TaskName 'mdbase connect'
     $report['task'] = @{ triggerMatchesUser = (Is-CurrentUser $task.Triggers[0].UserId); principalMatchesUser = (Is-CurrentUser $task.Principal.UserId); runLevel = [string]$task.Principal.RunLevel; logonType = [string]$task.Principal.LogonType }
     if ((Is-CurrentUser 'S-1-5-18') -or -not $report.task.triggerMatchesUser -or -not $report.task.principalMatchesUser -or $report.task.runLevel -ne 'Limited' -or $report.task.logonType -ne 'Interactive') { throw 'Task identity/least-privilege invariant failed.' }
-    Wait-Running $initial $true
-    Require-Success (Invoke-Probe 'stop-before-replacement' $probe @('stop'))
-    Wait-Running $initial $false
+    if ($Scenario -ne 'registration') {
+        Wait-Running $initial $true
+        Require-Success (Invoke-Probe 'stop-before-replacement' $probe @('stop'))
+        Wait-Running $initial $false
+    }
     Require-Success (Invoke-Probe 'production-scoped-replacement' $probe @('install', $binary, $state))
-    Wait-Running $binary $true
-    Require-Success (Invoke-Probe 'stop-before-cold-start' $probe @('stop'))
-    Wait-Running $binary $false
-    Require-Success (Invoke-Probe 'production-scoped-cold-start' $probe @('start'))
-    Wait-Running $binary $true
-    Require-Success (Invoke-Probe 'final-stop' $probe @('stop'))
-    Wait-Running $binary $false
+    if ($Scenario -ne 'registration') {
+        Wait-Running $binary $true
+        Require-Success (Invoke-Probe 'stop-before-cold-start' $probe @('stop'))
+        Wait-Running $binary $false
+        Require-Success (Invoke-Probe 'production-scoped-cold-start' $probe @('start'))
+        Wait-Running $binary $true
+        Require-Success (Invoke-Probe 'final-stop' $probe @('stop'))
+        Wait-Running $binary $false
+    }
     Require-Success (Invoke-Probe 'production-uninstall' $probe @('uninstall'))
     if (Get-ScheduledTask -TaskName 'mdbase connect' -ErrorAction SilentlyContinue) { throw 'Task remained after uninstall.' }
     $report['passed'] = $true
