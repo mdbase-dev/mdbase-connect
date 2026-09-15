@@ -644,7 +644,7 @@ mod platform {
         let mut task_file = tempfile::NamedTempFile::new()
             .map_err(|error| format!("Could not stage the Connect task definition: {error}"))?;
         task_file
-            .write_all(definition.as_bytes())
+            .write_all(&definition)
             .map_err(|error| format!("Could not write the Connect task definition: {error}"))?;
         // Close before schtasks reads it, and remove it on both success and failure.
         let task_path = task_file.into_temp_path();

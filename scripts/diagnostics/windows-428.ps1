@@ -118,7 +118,9 @@ try {
     $env:LOCALAPPDATA = Join-Path $env:USERPROFILE 'AppData\Local'
     $env:APPDATA = Join-Path $env:USERPROFILE 'AppData\Roaming'
     $env:HOME = $env:USERPROFILE
-    New-Item -ItemType Directory -Force $env:LOCALAPPDATA, $env:APPDATA | Out-Null
+    $env:TEMP = Join-Path $env:LOCALAPPDATA 'Temp'
+    $env:TMP = $env:TEMP
+    New-Item -ItemType Directory -Force $env:LOCALAPPDATA, $env:APPDATA, $env:TEMP | Out-Null
     $binary = Binary '99'
     $probe = Join-Path $Root 'binaries/windows-service-probe.exe'
     $state = Join-Path $Root 'state & notes'

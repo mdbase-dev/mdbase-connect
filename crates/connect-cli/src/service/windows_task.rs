@@ -1,7 +1,7 @@
 //! Windows task definitions must scope the logon trigger as well as the
 //! execution principal. An unscoped ONLOGON trigger requires administrator rights.
 
-pub(super) fn definition(executable: &str, state_dir: &str, sid: &str) -> String {
+pub(super) fn definition(executable: &str, state_dir: &str, sid: &str) -> Vec<u8> {
     // The Windows command-line parser consumes backslashes before a closing
     // quote. Preserve a root/trailing separator in the quoted state directory.
     let trailing_slashes = state_dir.chars().rev().take_while(|c| *c == '\\').count();
@@ -10,8 +10,8 @@ pub(super) fn definition(executable: &str, state_dir: &str, sid: &str) -> String
         state_dir,
         "\\".repeat(trailing_slashes)
     );
-    format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+    let document = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n\
          <Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n\
          <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{sid}</UserId></LogonTrigger></Triggers>\n\
          <Principals><Principal id=\"Author\"><UserId>{sid}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n\
@@ -20,7 +20,13 @@ pub(super) fn definition(executable: &str, state_dir: &str, sid: &str) -> String
         sid = escape(sid),
         executable = escape(executable),
         arguments = escape(&arguments),
-    )
+    );
+    // schtasks loads task XML as a Unicode document, not an arbitrary UTF-8
+    // file. Match its exported format: UTF-16LE with a byte-order mark.
+    std::iter::once(0xfeff)
+        .chain(document.encode_utf16())
+        .flat_map(u16::to_le_bytes)
+        .collect()
 }
 
 fn escape(value: &str) -> String {
@@ -112,10 +118,23 @@ pub(super) fn current_user_sid() -> Result<String, String> {
 mod tests {
     use super::*;
 
+    fn xml(executable: &str, state_dir: &str, sid: &str) -> String {
+        let bytes = definition(executable, state_dir, sid);
+        assert_eq!(&bytes[..2], &[0xff, 0xfe]);
+        assert_eq!(bytes.len() % 2, 0);
+        let units = bytes[2..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect::<Vec<_>>();
+        let document = String::from_utf16(&units).unwrap();
+        assert!(document.starts_with("<?xml version=\"1.0\" encoding=\"UTF-16\"?>"));
+        document
+    }
+
     #[test]
     fn logon_trigger_and_principal_name_the_same_user_without_elevation() {
         let sid = "S-1-5-21-123-456-789-1001";
-        let xml = definition(r"C:\app\mdbase.exe", r"C:\state", sid);
+        let xml = xml(r"C:\app\mdbase.exe", r"C:\state", sid);
         assert!(xml.contains(&format!("<UserId>{sid}</UserId></LogonTrigger>")));
         assert_eq!(xml.matches(&format!("<UserId>{sid}</UserId>")).count(), 2);
         assert!(xml.contains("<LogonType>InteractiveToken</LogonType>"));
@@ -125,19 +144,19 @@ mod tests {
 
     #[test]
     fn xml_encodes_paths_and_separates_executable_from_arguments() {
-        let xml = definition(
-            r"C:\App & tools\mdbase.exe",
+        let xml = xml(
+            r"C:\工具 & 🗒\mdbase.exe",
             r"C:\Users\O'Brien\notes & stuff",
             "S-1-5-21-1",
         );
-        assert!(xml.contains(r"<Command>C:\App &amp; tools\mdbase.exe</Command>"));
+        assert!(xml.contains(r"<Command>C:\工具 &amp; 🗒\mdbase.exe</Command>"));
         assert!(xml.contains(r"<Arguments>--state-dir &quot;C:\Users\O&apos;Brien\notes &amp; stuff&quot; connect daemon run</Arguments>"));
         assert_eq!(escape("<&>\"'"), "&lt;&amp;&gt;&quot;&apos;");
     }
 
     #[test]
     fn quoted_root_directory_preserves_its_final_backslash() {
-        let xml = definition(r"C:\app\mdbase.exe", "C:\\", "S-1-5-21-1");
+        let xml = xml(r"C:\app\mdbase.exe", "C:\\", "S-1-5-21-1");
         assert!(xml.contains(r"--state-dir &quot;C:\\&quot; connect daemon run"));
     }
 }
