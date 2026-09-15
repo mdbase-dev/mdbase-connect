@@ -231,6 +231,154 @@ async fn issue_345_resume_activating_or_completed_transfer_after_restart() {
 }
 
 #[tokio::test]
+async fn issue_345_cancel_distinguishes_legacy_and_invalid_collection_inputs() {
+    for case in [
+        "spec_0_2_0",
+        "spec_0_2_1",
+        "spec_2_0_0",
+        "malformed_config",
+        "malformed_record",
+        "invalid_record",
+        "invalid_type",
+    ] {
+        let fixture = TransferFixture::new().await;
+        fixture.strand().await;
+        let root = fixture.root.path().join("Tasks");
+        match case {
+            "spec_0_2_0" => {
+                std::fs::write(root.join("mdbase.yaml"), "spec_version: 0.2.0\n").unwrap()
+            }
+            "spec_0_2_1" => {
+                std::fs::write(root.join("mdbase.yaml"), "spec_version: 0.2.1\n").unwrap()
+            }
+            "spec_2_0_0" => {
+                std::fs::write(root.join("mdbase.yaml"), "spec_version: 2.0.0\n").unwrap()
+            }
+            "malformed_config" => {
+                std::fs::write(root.join("mdbase.yaml"), "spec_version: [\n").unwrap()
+            }
+            "malformed_record" => std::fs::write(
+                root.join("task.md"),
+                "---\ntitle: [\n---\n# [test] malformed\n",
+            )
+            .unwrap(),
+            "invalid_record" => {
+                std::fs::create_dir_all(root.join("_types")).unwrap();
+                std::fs::write(
+                    root.join("_types/task.md"),
+                    "---\nname: task\nfields:\n  count: { type: integer, required: true }\n---\n",
+                )
+                .unwrap();
+                std::fs::write(
+                    root.join("task.md"),
+                    "---\ntype: task\ncount: not-a-number\n---\n# [test] invalid field\n",
+                )
+                .unwrap();
+            }
+            "invalid_type" => {
+                std::fs::create_dir_all(root.join("_types")).unwrap();
+                std::fs::write(root.join("_types/task.md"), "---\nname: task\nfields:\n  broken: { type: string, computed: 'title +' }\n---\n").unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let config_before = std::fs::read(root.join("mdbase.yaml")).unwrap();
+        let record_before = std::fs::read(root.join("task.md")).unwrap();
+        let state = fixture.state();
+        let response = state
+            .cancel_authority_transfer(fixture.collection_id, fixture.transfer_id)
+            .await;
+        assert_eq!(fixture.cancellations.load(Ordering::SeqCst), 1);
+        let expected_error = match case {
+            "spec_2_0_0" => Some("Unsupported spec version: 2.0.0"),
+            "malformed_config" => Some("Configuration error:"),
+            "invalid_type" => Some("Computed field 'broken' is invalid"),
+            _ => None,
+        };
+        let fenced = state
+            .registry
+            .get(fixture.collection_id)
+            .unwrap()
+            .authority_transfer
+            .is_some();
+        assert_eq!(fenced, expected_error.is_some(), "{case}: {response:?}");
+        match expected_error {
+            Some(expected) => {
+                let error = response.unwrap_err().to_string();
+                assert!(error.contains(expected), "{case}: {error}");
+                assert!(
+                    !error.contains("No such file or directory"),
+                    "{case}: {error}"
+                );
+            }
+            None => {
+                response.unwrap();
+            }
+        }
+        assert_eq!(
+            std::fs::read(root.join("mdbase.yaml")).unwrap(),
+            config_before
+        );
+        assert_eq!(std::fs::read(root.join("task.md")).unwrap(), record_before);
+    }
+}
+
+#[tokio::test]
+async fn issue_345_confirmed_cancel_with_missing_source_remains_fenced() {
+    for missing_folder in [false, true] {
+        let fixture = TransferFixture::new().await;
+        fixture.strand().await;
+        let original = fixture.root.path().join(if missing_folder {
+            "Tasks"
+        } else {
+            "Tasks/mdbase.yaml"
+        });
+        let saved = fixture.root.path().join("saved-source");
+        std::fs::rename(&original, &saved).unwrap();
+        // Only temporary test data is moved. Reopen the daemon to avoid a cached runtime.
+        let state = fixture.state();
+        for expected_calls in 1..=2 {
+            let error = state
+                .cancel_authority_transfer(fixture.collection_id, fixture.transfer_id)
+                .await
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("Filesystem error: No such file or directory"),
+                "{error}"
+            );
+            assert_eq!(fixture.cancellations.load(Ordering::SeqCst), expected_calls);
+            assert_eq!(
+                state
+                    .registry
+                    .get(fixture.collection_id)
+                    .unwrap()
+                    .authority_transfer
+                    .unwrap()
+                    .transfer_id,
+                fixture.transfer_id
+            );
+        }
+        std::fs::rename(&saved, &original).unwrap();
+        state
+            .cancel_authority_transfer(fixture.collection_id, fixture.transfer_id)
+            .await
+            .unwrap();
+        assert_eq!(fixture.cancellations.load(Ordering::SeqCst), 3);
+        assert!(state
+            .registry
+            .get(fixture.collection_id)
+            .unwrap()
+            .authority_transfer
+            .is_none());
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.path().join("Tasks/task.md")).unwrap(),
+            TASK_DOCUMENT
+        );
+    }
+}
+
+#[tokio::test]
 async fn issue_345_cancel_after_remote_success_before_local_restart() {
     let fixture = TransferFixture::new().await;
     fixture.strand().await;
