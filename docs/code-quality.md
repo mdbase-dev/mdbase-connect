@@ -163,6 +163,15 @@ exports. The additional export moves ordinary CLI launch out of the composition
 root into its existing daemon-lifecycle owner without relaxing its file limit.
 Both recovery mechanisms and the current local control protocol v5 remain intact.
 
+The Windows task-registration repair (#428) replaces the unscoped `schtasks
+/SC ONLOGON` command with one current-user task definition. A small CLI-owned
+module holds native token/SID access and the UTF-16 XML encoder; its two helpers
+are visible only to the parent module. Native standard-user tests cover the
+actual installer, alongside pure encoding tests. This adds one production file
+(CLI package: 8; total: 694) and two counted Rust visibility declarations
+(total: 3,200), not a second service owner, recovery state, or public protocol.
+File-size and cycle budgets are unchanged.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;
