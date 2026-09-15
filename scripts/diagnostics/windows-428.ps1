@@ -71,14 +71,24 @@ $report = [ordered]@{
     results = @()
 }
 if (-not $report.standardUser) { throw 'Refusing an elevated or administrator test token.' }
-# A newly created CI account has never had Explorer initialize its known folders.
-# Materialize them via the Windows known-folder API, not a product state override.
-$env:USERPROFILE = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile, [Environment+SpecialFolderOption]::Create)
-$env:LOCALAPPDATA = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData, [Environment+SpecialFolderOption]::Create)
-$env:APPDATA = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData, [Environment+SpecialFolderOption]::Create)
+# CreateProcessWithLogon inherits the runner's environment. Known-folder
+# registry values contain %USERPROFILE%, so replace the inherited administrator
+# profile variables using the profile registered for the authenticated test SID.
+$profileKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$($identity.User.Value)"
+$env:USERPROFILE = [Environment]::ExpandEnvironmentVariables((Get-ItemProperty $profileKey).ProfileImagePath)
+$env:LOCALAPPDATA = Join-Path $env:USERPROFILE 'AppData\Local'
+$env:APPDATA = Join-Path $env:USERPROFILE 'AppData\Roaming'
 $env:HOME = $env:USERPROFILE
-$report['knownFoldersReady'] = [bool]($env:USERPROFILE -and $env:LOCALAPPDATA -and $env:APPDATA)
-if (-not $report.knownFoldersReady) { throw 'Standard-user profile initialization failed.' }
+$env:HOMEDRIVE = [IO.Path]::GetPathRoot($env:USERPROFILE).TrimEnd('\')
+$env:HOMEPATH = $env:USERPROFILE.Substring($env:HOMEDRIVE.Length)
+New-Item -ItemType Directory -Force $env:LOCALAPPDATA, $env:APPDATA | Out-Null
+$report['knownFolders'] = @{
+    profile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+    local = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+    roaming = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
+}
+# Always retain the profile evidence and scheduler probes, even if a released
+# CLI cannot resolve directories in this non-interactive runner session.
 
 function Invoke-Probe([string]$Name, [string]$Program, [string[]]$Arguments) {
     $before = Get-Date
@@ -124,6 +134,8 @@ try {
 </Task>
 "@
     $xmlPath = Join-Path $Root 'scoped-task.xml'
+    $xml.Replace("<UserId>$sid</UserId></LogonTrigger>", '</LogonTrigger>') | Set-Content -Encoding Unicode $xmlPath
+    Invoke-Probe 'explicit-principal-but-unscoped-trigger' 'schtasks.exe' @('/Create', '/F', '/TN', 'mdbase-428-scoped', '/XML', $xmlPath)
     $xml | Set-Content -Encoding Unicode $xmlPath
     Invoke-Probe 'explicit-user-logon-create' 'schtasks.exe' @('/Create', '/F', '/TN', 'mdbase-428-scoped', '/XML', $xmlPath)
     Invoke-Probe 'explicit-user-logon-replace' 'schtasks.exe' @('/Create', '/F', '/TN', 'mdbase-428-scoped', '/XML', $xmlPath)
