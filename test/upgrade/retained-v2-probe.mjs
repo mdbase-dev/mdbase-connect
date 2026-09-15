@@ -76,7 +76,8 @@ async function main(phase, file) {
   }
   const base = process.env.UPGRADE_PROVIDER_URL;
   assert.match(base, /^http:\/\/127\.0\.0\.1:\d+$/);
-  const state = phase === 'predecessor' ? { collection: randomUUID(), account: randomUUID() } : JSON.parse(await readFile(file, 'utf8'));
+  const initializing = phase === 'predecessor' || phase === 'predecessor-v2';
+  const state = initializing ? { collection: randomUUID(), account: randomUUID() } : JSON.parse(await readFile(file, 'utf8'));
   const collectionPath = `/internal/v1/collections/${state.collection}`;
   async function http(method, path, input, expected, authority) {
     const body = input === undefined ? undefined : JSON.stringify(input);
@@ -123,8 +124,8 @@ async function main(phase, file) {
       assert.equal(result.error.code, 'insufficient_access');
     }
   }
-  if (phase === 'predecessor') {
-    await capability(false);
+  if (initializing) {
+    await capability(phase === 'predecessor-v2');
     await http('PUT', `/internal/v1/accounts/${state.account}`, {
       entitlement_revision: 1, hosted_storage_bytes: 1073741824, retained_file_bytes: 2147483648,
       max_document_bytes: 2097152, max_single_file_bytes: 262144000, max_mirror_replicas_per_collection: 10,
@@ -208,12 +209,24 @@ async function main(phase, file) {
     await capability(true);
     await register(state.fresh);
     await op('create', { ...state.create, path: 'upgrade/reupgrade.md' }, 200, randomUUID(), state.fresh);
+  } else if (phase === 'cancel-import' || phase === 'cancel-import-retry') {
+    if (phase === 'cancel-import') state.cancelledImport = { transfer: randomUUID(), collection: randomUUID() };
+    const { transfer, collection } = state.cancelledImport;
+    assert.deepEqual(await http('POST', `/internal/v1/authority-imports/${transfer}/reconcile-cancellation`,
+      { collection_id: collection, authority_epoch: 2 }, 200),
+      { transfer_id: transfer, collection_id: collection, authority_epoch: 2, cancelled: true });
+    const denied = await http('POST', '/internal/v1/authority-imports', {
+      transfer_id: transfer, collection_id: collection, account_id: state.account,
+      display_name: 'Cancelled import must not return', token: randomBytes(32).toString('base64url'),
+      authority_epoch: 2, ttl_seconds: 300
+    }, 409);
+    assert.equal(denied.error.code, 'authority_import_cancelled');
   } else if (phase === 'revoke') {
     await http('DELETE', `/internal/v1/replicas/${state.fresh.policy.replica_id}`, undefined, 204);
     // This is a durable revocation assertion; image rollback does not restore it.
     await op('create', { ...state.create, path: 'upgrade/revoked.md' }, 401, randomUUID(), state.fresh);
   } else throw new Error(`Unknown phase ${phase}`);
-  if (phase !== 'predecessor') assert.deepEqual(await op('create', state.v1Input, 200, state.v1Request, state.v1), state.v1Receipt);
+  if (!initializing) assert.deepEqual(await op('create', state.v1Input, 200, state.v1Request, state.v1), state.v1Receipt);
   await writeFile(file, JSON.stringify(state), { mode: 0o600 });
   console.log(`${phase}: passed`);
 }

@@ -274,8 +274,11 @@ request-only/expiry cases without a local SQLite edit, but cannot recover missin
 identity evidence or cancel a move that has entered activation. Those folders
 remain fenced for exact activation reconciliation. No desktop update or new UI is
 required. Release the provider migration/API before the server recovery change;
-older providers fail closed. Retain migration 0042 and its insertion trigger on
-rollback: cancellation fences must never be discarded or bypassed.
+older providers fail closed. Retain migration 0042 and its insertion trigger
+through recovery: cancellation fences must never be discarded or bypassed.
+Beta99 refuses startup on the new ledger, so this transition requires qualified
+forward recovery rather than an image-only rollback to beta99. The release
+contract separates this current-pair evidence from historical rollback tests.
 
 Moving back to local authority is implemented as an explicit, browser-confirmed
 handoff from a full writable mirror:

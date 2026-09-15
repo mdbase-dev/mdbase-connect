@@ -19,18 +19,17 @@ retained_v2_inputs() {
   upgrade_verify_retained_v2_release "$repo_root"
   git -C "$repo_root" show "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT:config/application-issuance-policy.json" |
     jq -e '.phase == "compatibility-prelude" and .fresh_semantic_versions == [1]' >/dev/null
-  jq -e '.phase == "v2-enablement" and .fresh_semantic_versions == [1,2]' \
-    "$repo_root/config/application-issuance-policy.json" >/dev/null
-  # Keep wire schemas immutable; engine revisions may advance. The scenario
-  # below tests compatibility by running the candidate and exact predecessor.
+  git -C "$repo_root" show "$HISTORICAL_PROVIDER_COMMIT:config/application-issuance-policy.json" |
+    jq -e '.phase == "v2-enablement" and .fresh_semantic_versions == [1,2]' >/dev/null
+  # Freeze the historical pair, not the current candidate's future evolution.
   local contract
   for contract in packages/protocol/schemas/application-capability-catalog.v1.json \
       packages/protocol/schemas/application-capability-catalog.v2.json \
       packages/protocol/schemas/operation-catalog.v1.json; do
-    cmp <(git -C "$repo_root" show "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT:$contract") "$repo_root/$contract"
+    cmp <(git -C "$repo_root" show "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT:$contract") \
+      <(git -C "$repo_root" show "$HISTORICAL_PROVIDER_COMMIT:$contract")
   done
-  [[ -z $(git -C "$repo_root" status --porcelain --untracked-files=all -- crates/connect-hosted-provider/migrations) ]]
-  git -C "$repo_root" diff --exit-code "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT" HEAD -- crates/connect-hosted-provider/migrations
+  git -C "$repo_root" diff --exit-code "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT" "$HISTORICAL_PROVIDER_COMMIT" -- crates/connect-hosted-provider/migrations
   # This mode owns its database; never accept a caller's database or R2 target.
   [[ -z ${DATABASE_URL:-} && -z ${MDBASE_CONNECT_R2_ENDPOINT:-} ]] || {
     printf 'Retained-v2 owns disposable PostgreSQL and R2; unset external targets.\n' >&2; return 2;
@@ -72,7 +71,9 @@ retained_v2_run() (
     upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"
     # Cached images only here; bounded public release metadata was checked before
     # any disposable resource creation. No registry credentials or tag pulls.
-    if [[ ${SKIP_CANDIDATE_BUILD:-false} != true ]]; then
+    if [[ $UPGRADE_SCENARIO == --retained-v2 ]]; then
+      historical_provider_candidate
+    elif [[ ${SKIP_CANDIDATE_BUILD:-false} != true ]]; then
       CANDIDATE_IMAGE=mdbase-connect-hosted-provider:v2-$run_id
       docker build --file "$repo_root/deploy/docker/Dockerfile.hosted-provider" \
         --tag "$CANDIDATE_IMAGE" "$repo_root"
@@ -107,11 +108,16 @@ retained_v2_run() (
     export UPGRADE_PROVIDER_URL PROVIDER_INTERNAL_TOKEN
     probe() { node "$repo_root/test/upgrade/retained-v2-probe.mjs" "$1" "$work/state.json"; }
     inventory() {
-      local snapshot canonical_authority
+      local snapshot canonical_authority cancellations=absent
+      if [[ $(rollback_sql "SELECT to_regclass('hosted_provider_authority_import_cancellations') IS NOT NULL") == t ]]; then
+        cancellations=$(rollback_sql "SELECT md5(COALESCE(jsonb_agg(to_jsonb(c) ORDER BY transfer_id)::text, '[]')) FROM hosted_provider_authority_import_cancellations c")
+        [[ $cancellations =~ ^[0-9a-f]{32}$ ]]
+      fi
       canonical_authority=$(query_canonical_authority_inventory)
       [[ $canonical_authority =~ ^[0-9a-f]{64}$ ]]
       snapshot=$(rollback_sql "SELECT jsonb_build_object(
         'canonical_authority','$canonical_authority',
+        'cancellations','$cancellations',
         'replicas',(SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM hosted_provider_replicas r),
         'journal',(SELECT jsonb_agg(to_jsonb(j) ORDER BY replica_id,request_id) FROM hosted_provider_mutation_journal j),
         'collections',(SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM hosted_provider_collections c),
@@ -125,9 +131,15 @@ retained_v2_run() (
       # resource, file/version/change and outbox bytes. Full collection snapshots
       # above additionally retain operational projection-publication diagnostics;
       # their first materialization and updated_at are not authority rewriting.
-      printf '%s\n' "$snapshot" | jq -c '.collections |= map(.id)' | sha256sum | cut -d ' ' -f 1
+      printf '%s\n' "$snapshot" | jq -c --arg scope "${1:-full}" \
+        '(.collections |= map(.id)) | if $scope == "authority" then del(.ledger, .cancellations) else . end' |
+        sha256sum | cut -d ' ' -f 1
     }
     start_previous_provider "$previous" false
+    if [[ $UPGRADE_SCENARIO == --current-upgrade ]]; then
+      current_provider_upgrade
+      exit
+    fi
     probe predecessor
     UPGRADE_COLLECTION_ID=$(jq -er '.collection' "$work/state.json")
     [[ $UPGRADE_COLLECTION_ID =~ ^[0-9a-f-]{36}$ ]]
@@ -167,9 +179,11 @@ retained_v2_run() (
     jq -n --arg predecessor_release "$MDBASE_CONNECT_PREVIOUS_RELEASE" \
       --arg predecessor_commit "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT" \
       --arg predecessor_image "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" \
+      --arg historical_successor_commit "$HISTORICAL_PROVIDER_COMMIT" \
       --arg candidate_image_id "$(docker image inspect --format '{{.Id}}' "$CANDIDATE_IMAGE")" \
       --arg checkout_commit "$(git -C "$repo_root" rev-parse HEAD)" \
-      '{scenario:"retained-v2-provider",predecessor_release:$predecessor_release,
+      '{scenario:"historical-retained-v2-provider",historical_successor_commit:$historical_successor_commit,
+        predecessor_release:$predecessor_release,
         predecessor_commit:$predecessor_commit,predecessor_image:$predecessor_image,
         candidate_image_id:$candidate_image_id,checkout_commit:$checkout_commit,
         candidate_fresh_semantics:[1,2],predecessor_fresh_semantics:[1],
@@ -181,7 +195,7 @@ retained_v2_run() (
     printf 'Retained-v2 provider scenario FAILED (exit %s); private logs: %s\n' "$status" "$work" >&2
     return "$status"
   fi
-  printf 'Retained-v2 provider scenario passed: beta.95 %s; predecessor %s\n' \
+  printf 'Provider scenario %s passed: predecessor %s; image %s\n' "$UPGRADE_SCENARIO" \
     "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT" "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"
   printf 'Private evidence: %s; local binary qualification only, not signed publication or deployment.\n' "$work"
 )

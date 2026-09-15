@@ -38,10 +38,27 @@ Image labels are not signature verification: the release contract's independent
 signature/attestation verification remains required for release qualification.
 No signature or deployment qualification is claimed by this local scenario.
 
-The candidate is built with the existing provider Dockerfile. To reuse a local
-candidate image, set `CANDIDATE_IMAGE` and `SKIP_CANDIDATE_BUILD=true`; actual
-HTTP issuance and capability assertions still run. There is no native predecessor
-substitute, SQL authority seed, proof rewriting, skipped phase, or repair step.
+The historical successor is also immutable: beta99/schema41 at
+`c8b565f7dfbba6259e413b2c3bf2046325cde290`, provider digest
+`sha256:a8f017ec8a45dc83c5e5cb25feb44d4a78c6c061668b04c2be41832bf116e36c`.
+`historical-provider.sh` verifies its published release, annotated origin tag,
+local tag and image source labels. Caller image overrides cannot replace it.
+The beta94 prelude uses this same schema41 successor. There is no trimmed
+migration catalog, native predecessor substitute, SQL authority seed, proof
+rewriting, skipped phase, or repair step.
+
+Current candidate coverage runs separately in the same mandatory CI job:
+`test/upgrade/provider-from-previous --current-upgrade`. It selects the unique
+newest published predecessor from `.github/previous-release.env` and builds the
+actual checkout with the existing Dockerfile. `CANDIDATE_IMAGE` and
+`SKIP_CANDIDATE_BUILD=true` can reuse a local candidate build for this disposable
+scenario only. It checks retained v1/v2 permissions and receipts, canonical data,
+append-only migration history, cancellation/non-resurrection, candidate restart,
+the predecessor's actual startup outcome, and candidate forward recovery.
+A newer ledger must cause the exact predecessor unknown-prefix refusal with
+unchanged state; a same-schema predecessor must serve the fixture. Other
+failures never count as the expected refusal. For0042, beta99 rollback is
+incompatible. No release or deployment authority is emitted.
 
 Each run creates its own UUID-named PostgreSQL and provider containers and private
 logs. It rejects external database/R2 targets and never cleans globally named
@@ -73,13 +90,16 @@ versions, changes, files and outbox authority) plus exact replica, journal and
 migration rows. Private full collection snapshots are retained separately: an
 observed restart first materialized the six operational projection/updated-time
 fields, without changing authority. Those operational fields are not represented
-as byte-stable authority. The fixture independently requires unchanged engine,
-reader/operation catalogs and migration source bytes across the pair.
+as byte-stable authority. The fixture independently requires unchanged reader/operation catalogs and
+migration source bytes across its frozen historical pair; it no longer freezes
+future candidate engines or migration directories.
 
 This scenario is sequential provider rollback, not concurrent rolling deployment,
 control-plane OAuth activation, local daemon authority, consumer acceptance,
 Reader conversion, backup restore, revocation restoration, or atomic rollback of
 partially completed setup. Those remain separate qualification requirements.
-The existing beta94 atomic38-to41 overlap scenario remains intact and is not run
-on beta95's already-migrated schema. Never infer that beta94 is a rollback target
+The existing beta94 atomic38-to41 overlap scenario remains intact against the
+immutable schema41 successor and is not run on beta95's already-migrated schema.
+The current candidate's atomic migration implementation remains covered by the
+registered real-PostgreSQL atomic-runner tests. Never infer that beta94 is a rollback target
 for the populated v2 fixture.

@@ -60,14 +60,35 @@ qualification uses beta99 (`c8b565f7dfbba6259e413b2c3bf2046325cde290`) and its
 exact signed server/provider images. Advancing this fixture preserves the
 unique-newest-release check; the retained beta95 and beta94 lanes do not move. This fixture refresh does not itself publish or deploy a release.
 
-The exact-beta95 semantic-v2 provider and pending-server regression lanes remain
-required. Their separate `.github/retained-v2-predecessor.env` cannot advance with
-the ordinary pin: the verifiers require the original beta95 tag, commit and both
-image digests, a published non-draft release and its matching annotated origin
-tag. Beta94's historical prelude lane is unchanged. No job, scenario, deadline,
-image/source check or signed-publication gate is removed. These historical
-regressions do not establish a new candidate's immediate-predecessor rollback relationship
-or change private production recovery authority; those need their own evidence.
+Historical regressions and candidate qualification are separate. The beta94
+schema-38→41 prelude and beta95 retained-v2 provider rollback scenarios use the
+immutable beta99/schema41 successor pinned in `test/upgrade/historical-provider.sh`.
+The historical predecessor pins, complete scenarios and deadlines remain intact;
+both sides now identify real historical images rather than permanently requiring
+current migrations to equal beta95. The beta95 pending-server regression remains
+required independently. Historical image digests, source labels, published release
+metadata and annotated origin tags are checked. These tests do not qualify the
+current candidate or authorize restoring beta95/beta99 in production.
+
+The same required provider CI job separately runs `--current-upgrade` against
+`.github/previous-release.env`, retaining the unique-newest-published-release
+check. It exercises predecessor-issued v1/v2 authority and exact receipts through
+candidate migration and restart, verifies an unchanged historical ledger prefix
+and canonical authority, installs a cancellation fence, and actually attempts
+predecessor startup on the resulting database. Same-schema predecessors must
+serve the fixture correctly. A newer schema must produce the exact unknown-ledger
+refusal without altering the database; unrelated failures and timeouts fail CI.
+The candidate must then recover forward with receipts, permissions and the
+cancellation fence intact. Refusal is reported as incompatibility, never as
+successful rollback. No migration is reversed or removed to make the test pass.
+
+For migration0042, beta99's startup rejects the unknown ledger. This is a
+forward-recovery candidate, not an image-only rollback-compatible release.
+Private release preparation must bind the actual last known-good deployed
+artifacts, not infer them from the newest published fixture or historical tests.
+Staging must qualify the exact deployment pair and its explicitly registered
+recovery mode before production. CI's non-authorizing fixture evidence cannot
+register a transition, waive migration checks, or grant deployment permission.
 
 ## Local LAB experiments
 
