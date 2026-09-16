@@ -54,6 +54,57 @@ fn registry_contains_no_credentials() {
 }
 
 #[test]
+fn issue_428_missing_root_is_bare_io_but_missing_state_is_not() {
+    let temporary = tempfile::tempdir().unwrap();
+    let state = temporary.path().join("state");
+    let root = temporary.path().join("notes");
+    fs::create_dir_all(&root).unwrap();
+    let registry = CollectionRegistry::open(&state).unwrap();
+    let manager = MirrorManager::open(&state, registry, None, None).unwrap();
+    let entry = MirrorRegistryEntry {
+        collection_id: Uuid::new_v4(),
+        replica_id: Uuid::new_v4(),
+        name: "Synthetic issue 428 fixture".into(),
+        mode: SyncReplicaMode::ReadWrite,
+        selective_sync: SelectiveSyncPolicy::default(),
+        path: fs::canonicalize(&root).unwrap(),
+        sync_url:
+            "https://sync.example.invalid/v1/authorities/01900000-0000-7000-8000-000000000000/sync"
+                .into(),
+        control_url: "https://connect.example.invalid".into(),
+        enrollment_id: Uuid::new_v4(),
+        access_token_expires_at: "2099-01-01T00:00:00Z".into(),
+        created_at: "2026-09-16T00:00:00Z".into(),
+        lifecycle: MirrorLifecycle::Active,
+        promotion: None,
+    };
+    // No credential-store access or network requests: status uses build_mirror
+    // just like sync, but with a dummy credential. Absent state is supported.
+    assert!(!manager
+        .replica_state_dir(entry.replica_id)
+        .join("state.json")
+        .exists());
+    manager.summary(&entry).unwrap();
+    fs::rename(&root, temporary.path().join("moved-notes")).unwrap();
+    let error = manager.summary(&entry).unwrap_err();
+    assert_eq!(error.code(), "io_failed");
+    assert!(error.to_string().starts_with("Filesystem error: "));
+    assert!(
+        matches!(error, ConnectError::Io(ref inner) if inner.kind() == std::io::ErrorKind::NotFound)
+    );
+    #[cfg(windows)]
+    assert!(matches!(error, ConnectError::Io(ref inner) if inner.raw_os_error() == Some(2)));
+    // The background scheduler retries this case; it is not an auth failure.
+    assert!(!terminal_background_error(&error, false));
+    assert!(
+        !root.exists(),
+        "Missing roots must not be recreated by inspection"
+    );
+    fs::rename(temporary.path().join("moved-notes"), &root).unwrap();
+    assert!(manager.summary(&entry).is_ok());
+}
+
+#[test]
 fn background_retry_is_bounded_and_jittered() {
     let replica_id = Uuid::parse_str("01900000-0000-7000-8000-000000000123").unwrap();
     let first = background_retry_delay(replica_id, 1);

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('registration', 'fresh', 'upgrade')][string]$Scenario = 'registration',
+    [ValidateSet('registration', 'fresh', 'upgrade', 'console')][string]$Scenario = 'registration',
     [switch]$Child,
     [string]$Root
 )
@@ -13,6 +13,7 @@ if (-not $Child) {
     $Root = Join-Path $env:PUBLIC ('mdbase-428-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $Root | Out-Null
     Copy-Item $PSCommandPath (Join-Path $Root 'diagnostic.ps1')
+    Copy-Item (Join-Path $PSScriptRoot 'windows-console.ps1') (Join-Path $Root 'console.ps1')
     Copy-Item (Join-Path $env:RUNNER_TEMP 'issue428-binaries') (Join-Path $Root 'binaries') -Recurse
     $user = 'mdbase428test'
     $password = ConvertTo-SecureString ('Aa1!' + [guid]::NewGuid().ToString('N')) -AsPlainText -Force
@@ -152,6 +153,17 @@ try {
     if ((Is-CurrentUser 'S-1-5-18') -or -not $report.task.triggerMatchesUser -or -not $report.task.principalMatchesUser -or $report.task.runLevel -ne 'Limited' -or $report.task.logonType -ne 'Interactive') { throw 'Task identity/least-privilege invariant failed.' }
     if ($Scenario -ne 'registration') {
         Wait-Running $initial $true
+        if ($Scenario -eq 'console') {
+            $runtimePath = Join-Path $state 'runtime/mdbase.exe'
+            $daemons = @(Get-CimInstance Win32_Process -Filter "Name='mdbase.exe'" | Where-Object { $_.ExecutablePath -eq $runtimePath })
+            if ($daemons.Count -ne 1) { throw 'Expected exactly one scheduled fixture daemon.' }
+            $consoleReport = Join-Path $Root 'console.json'
+            $console = Invoke-Probe 'inspect-real-daemon-console' (Get-Process -Id $PID).Path @('-NoProfile', '-File', (Join-Path $Root 'console.ps1'), '-DaemonPid', [string]$daemons[0].ProcessId, '-Report', $consoleReport)
+            Require-Success $console
+            $report['daemonConsole'] = Get-Content $consoleReport -Raw | ConvertFrom-Json
+            Save-Report
+            if (-not $report.daemonConsole.hasConsoleWindow) { throw 'Console allocation was not reproduced.' }
+        }
         Require-Success (Invoke-Probe 'stop-before-replacement' $probe @('stop'))
         Wait-Running $initial $false
     }

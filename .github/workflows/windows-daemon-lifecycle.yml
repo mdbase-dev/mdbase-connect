@@ -3,19 +3,51 @@ name: Windows daemon lifecycle
 on:
   workflow_call:
   push:
-    branches: [investigate/428-windows-startup]
+    branches: [investigate/428-windows-startup, investigate/428-remaining-symptoms]
     paths:
       - .github/workflows/windows-daemon-lifecycle.yml
       - scripts/diagnostics/windows-428.ps1
+      - scripts/diagnostics/windows-console.ps1
       - scripts/diagnostics/windows-service-probe/**
       - crates/connect-cli/src/service.rs
       - crates/connect-cli/src/service/**
       - crates/connect-cli/Cargo.toml
+      - crates/connect-agent/src/mirrors/tests.rs
 
 permissions:
   contents: read
 
 jobs:
+  missing-root:
+    name: Windows missing mirror root diagnostic
+    runs-on: windows-2025
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mdbase-connect
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: mdbase-connect
+          persist-credentials: false
+      - id: engine
+        shell: bash
+        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: callumalpass/mdbase-rs
+          ref: ${{ steps.engine.outputs.revision }}
+          path: mdbase-rs
+          persist-credentials: false
+      - name: Reproduce missing-root error without network or account credentials
+        shell: pwsh
+        env:
+          CARGO_PROFILE_DEV_DEBUG: 0
+          CARGO_INCREMENTAL: 0
+        run: |
+          cargo test --locked -p mdbase-connect-daemon issue_428_missing_root -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Missing-root diagnostic failed.' }
+
   qualify:
     name: Windows ${{ matrix.scenario }}
     runs-on: windows-2025
@@ -23,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [registration, fresh, upgrade]
+        scenario: [registration, fresh, upgrade, console]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
