@@ -1,0 +1,766 @@
+{
+  "schema_version": 1,
+  "baseline_connect": "176c294a4d869a8af933792bd64a28d9108b02de",
+  "candidate_connect": "11d4e91142a06a7bb1cd3f308bc5a9a24a37da98",
+  "baseline_engine": "c9e2e15bd3487faeaa15c5439139aac03e705fbe",
+  "candidate_engine": "dd22a58b7eede54d7380747b9461ff9ebf3da61c",
+  "rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02)\nbinary: rustc\ncommit-hash: 4a4ef493e3a1488c6e321570238084b38948f6db\ncommit-date: 2026-03-02\nhost: x86_64-unknown-linux-gnu\nrelease: 1.94.0\nLLVM version: 21.1.8",
+  "node": "v24.19.0",
+  "platform": "Linux-7.1.8-arch1-3-x86_64-with-glibc2.44",
+  "cpu": "AMD Ryzen 9 7940HS w/ Radeon 780M Graphics",
+  "filesystem": "tmpfs",
+  "cargo_lock_sha256": "f9eb020fdd2d8b305937c17bf7973ed840fe54ca048cea709787c05f0e07bcad",
+  "rounds": 5,
+  "comparisons": [
+    {
+      "name": "noop_reconcile",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 0,
+        "unrelated_files": 0
+      },
+      "before_median_ms": 1.070145,
+      "after_median_ms": 0.978156,
+      "elapsed_reduction_percent": 8.595937933644493,
+      "before_work": {
+        "inventory_files": 0,
+        "snapshot_captures": 1
+      },
+      "after_work": {
+        "inventory_files": 0
+      },
+      "before_samples_ms": [
+        1.070145,
+        1.046831,
+        1.082877,
+        1.0594540000000001,
+        1.178943
+      ],
+      "after_samples_ms": [
+        1.0055859999999999,
+        0.978156,
+        0.94219,
+        1.033027,
+        0.924308
+      ]
+    },
+    {
+      "name": "small_upload",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 0,
+        "unrelated_files": 0
+      },
+      "before_median_ms": 5.288577,
+      "after_median_ms": 4.482774999999999,
+      "elapsed_reduction_percent": 15.236650615089864,
+      "before_work": {
+        "chunk_status_rows": 2,
+        "index_rows_inserted": 1,
+        "inventory_files": 1,
+        "inventory_hash_bytes": 4096,
+        "snapshot_captures": 3,
+        "transfer_hash_bytes": 4096
+      },
+      "after_work": {
+        "chunk_status_rows": 1,
+        "index_rows_inserted": 1,
+        "inventory_hash_bytes": 4096,
+        "transfer_hash_bytes": 4096
+      },
+      "before_samples_ms": [
+        5.253173,
+        5.145556,
+        5.3234509999999995,
+        5.288577,
+        5.66786
+      ],
+      "after_samples_ms": [
+        4.482774999999999,
+        4.56752,
+        4.080521,
+        4.576197,
+        4.018657999999999
+      ]
+    },
+    {
+      "name": "point_download",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 0,
+        "unrelated_files": 0
+      },
+      "before_median_ms": 2.0666640000000003,
+      "after_median_ms": 1.935034,
+      "elapsed_reduction_percent": 6.369201766711974,
+      "before_work": {
+        "download_copy_bytes": 4096,
+        "index_rows_loaded": 2,
+        "transfer_hash_bytes": 4096
+      },
+      "after_work": {
+        "download_copy_bytes": 4096,
+        "index_rows_loaded": 2
+      },
+      "before_samples_ms": [
+        2.032431,
+        2.616348,
+        2.0599920000000003,
+        2.0666640000000003,
+        2.103481
+      ],
+      "after_samples_ms": [
+        2.211719,
+        2.141661,
+        1.879191,
+        1.935034,
+        1.857783
+      ]
+    },
+    {
+      "name": "noop_reconcile",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 1000,
+        "unrelated_files": 32
+      },
+      "before_median_ms": 37.859725,
+      "after_median_ms": 23.54803,
+      "elapsed_reduction_percent": 37.80189898368253,
+      "before_work": {
+        "index_rows_inserted": 32,
+        "index_rows_loaded": 32,
+        "inventory_files": 32,
+        "inventory_hash_bytes": 33554432,
+        "snapshot_captures": 1
+      },
+      "after_work": {
+        "index_rows_loaded": 32,
+        "inventory_files": 32,
+        "inventory_hash_bytes": 33554432
+      },
+      "before_samples_ms": [
+        36.090064,
+        38.724244,
+        37.859725,
+        38.853499,
+        36.031085
+      ],
+      "after_samples_ms": [
+        21.374161,
+        24.451711,
+        23.287325000000003,
+        23.54803,
+        23.55324
+      ]
+    },
+    {
+      "name": "small_upload",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 1000,
+        "unrelated_files": 32
+      },
+      "before_median_ms": 118.027376,
+      "after_median_ms": 8.333888,
+      "elapsed_reduction_percent": 92.93902119792953,
+      "before_work": {
+        "chunk_status_rows": 2,
+        "index_rows_inserted": 97,
+        "index_rows_loaded": 160,
+        "inventory_files": 97,
+        "inventory_hash_bytes": 100667392,
+        "snapshot_captures": 3,
+        "transfer_hash_bytes": 4096
+      },
+      "after_work": {
+        "chunk_status_rows": 1,
+        "index_rows_inserted": 1,
+        "inventory_hash_bytes": 4096,
+        "transfer_hash_bytes": 4096
+      },
+      "before_samples_ms": [
+        114.40288,
+        116.78731400000001,
+        119.123478,
+        118.52208999999999,
+        118.027376
+      ],
+      "after_samples_ms": [
+        8.816068,
+        8.714393000000001,
+        7.810943,
+        7.553313,
+        8.333888
+      ]
+    },
+    {
+      "name": "point_download",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 1000,
+        "unrelated_files": 32
+      },
+      "before_median_ms": 2.196832,
+      "after_median_ms": 2.146339,
+      "elapsed_reduction_percent": 2.298446126057885,
+      "before_work": {
+        "download_copy_bytes": 4096,
+        "index_rows_loaded": 66,
+        "transfer_hash_bytes": 4096
+      },
+      "after_work": {
+        "download_copy_bytes": 4096,
+        "index_rows_loaded": 2
+      },
+      "before_samples_ms": [
+        2.074719,
+        2.1499650000000003,
+        2.196832,
+        2.273402,
+        2.202072
+      ],
+      "after_samples_ms": [
+        3.381495,
+        2.133987,
+        2.0335829999999997,
+        2.146339,
+        2.227297
+      ]
+    },
+    {
+      "name": "large_download_prepare",
+      "parameters": {
+        "file_bytes": 67108864
+      },
+      "before_median_ms": 67.429061,
+      "after_median_ms": 60.060004,
+      "elapsed_reduction_percent": 10.928606880644542,
+      "before_work": {
+        "download_copy_bytes": 67108864,
+        "index_rows_loaded": 2,
+        "transfer_hash_bytes": 67108864
+      },
+      "after_work": {
+        "download_copy_bytes": 67108864,
+        "index_rows_loaded": 2
+      },
+      "before_samples_ms": [
+        61.343388999999995,
+        64.09375,
+        67.429061,
+        71.374785,
+        70.31993
+      ],
+      "after_samples_ms": [
+        56.632135,
+        60.060004,
+        57.975408,
+        61.727850000000004,
+        60.58927
+      ]
+    },
+    {
+      "name": "upload_chunks",
+      "parameters": {
+        "chunk_bytes": 1048576,
+        "chunks": 16
+      },
+      "before_median_ms": 21.259802,
+      "after_median_ms": 21.546295,
+      "elapsed_reduction_percent": -1.3475807535742845,
+      "before_work": {
+        "chunk_status_rows": 136
+      },
+      "after_work": {},
+      "before_samples_ms": [
+        20.59615,
+        20.954434000000003,
+        21.259802,
+        21.319301,
+        24.123210999999998
+      ],
+      "after_samples_ms": [
+        20.319385,
+        24.568213,
+        21.546295,
+        22.870563,
+        20.737739
+      ]
+    },
+    {
+      "name": "upload_chunks",
+      "parameters": {
+        "chunk_bytes": 1048576,
+        "chunks": 128
+      },
+      "before_median_ms": 172.504147,
+      "after_median_ms": 179.04587,
+      "elapsed_reduction_percent": -3.79221202143043,
+      "before_work": {
+        "chunk_status_rows": 8256
+      },
+      "after_work": {},
+      "before_samples_ms": [
+        165.59167499999998,
+        172.504147,
+        179.15487099999999,
+        178.941911,
+        170.637536
+      ],
+      "after_samples_ms": [
+        167.36786800000002,
+        187.76299,
+        162.454565,
+        184.053204,
+        179.04587
+      ]
+    },
+    {
+      "name": "markdown_materialization",
+      "parameters": {
+        "identical": true,
+        "mode": "read_only",
+        "records": 1000
+      },
+      "before_median_ms": 8.840032999999998,
+      "after_median_ms": 6.387223000000006,
+      "elapsed_reduction_percent": 27.746615878017565,
+      "before_work": {
+        "reads": 1000,
+        "writes": 1000,
+        "hashes": 2000
+      },
+      "after_work": {
+        "reads": 1000,
+        "writes": 0,
+        "hashes": 1000
+      },
+      "before_samples_ms": [
+        8.551715999999999,
+        8.806891999999998,
+        8.957247000000002,
+        8.840032999999998,
+        8.854057999999995
+      ],
+      "after_samples_ms": [
+        5.4467870000000005,
+        7.044463999999998,
+        6.411698000000001,
+        6.387223000000006,
+        6.363990999999999
+      ]
+    },
+    {
+      "name": "markdown_materialization",
+      "parameters": {
+        "identical": false,
+        "mode": "read_only",
+        "records": 1000
+      },
+      "before_median_ms": 8.076919000000004,
+      "after_median_ms": 8.135796999999997,
+      "elapsed_reduction_percent": -0.7289660822399346,
+      "before_work": {
+        "reads": 1000,
+        "writes": 1000,
+        "hashes": 2000
+      },
+      "after_work": {
+        "reads": 1000,
+        "writes": 1000,
+        "hashes": 2000
+      },
+      "before_samples_ms": [
+        8.076919000000004,
+        8.790421999999992,
+        7.5684710000000095,
+        7.921775999999994,
+        8.139062000000003
+      ],
+      "after_samples_ms": [
+        7.646163000000001,
+        8.135796999999997,
+        7.656671000000003,
+        8.606596000000003,
+        10.265395000000005
+      ]
+    },
+    {
+      "name": "markdown_materialization",
+      "parameters": {
+        "identical": true,
+        "mode": "read_write",
+        "records": 1000
+      },
+      "before_median_ms": 6.172581000000008,
+      "after_median_ms": 3.5875209999999953,
+      "elapsed_reduction_percent": 41.879725839158844,
+      "before_work": {
+        "reads": 1000,
+        "writes": 1000,
+        "hashes": 2000
+      },
+      "after_work": {
+        "reads": 1000,
+        "writes": 0,
+        "hashes": 1000
+      },
+      "before_samples_ms": [
+        6.172581000000008,
+        7.114711999999997,
+        6.14203599999999,
+        6.261283000000006,
+        6.018259999999998
+      ],
+      "after_samples_ms": [
+        3.9064340000000044,
+        3.5875209999999953,
+        3.4630829999999975,
+        4.300992999999991,
+        3.5766710000000046
+      ]
+    },
+    {
+      "name": "markdown_materialization",
+      "parameters": {
+        "identical": false,
+        "mode": "read_write",
+        "records": 1000
+      },
+      "before_median_ms": 7.058568999999991,
+      "after_median_ms": 7.4848870000000005,
+      "elapsed_reduction_percent": -6.039722782337464,
+      "before_work": {
+        "reads": 1000,
+        "writes": 1000,
+        "hashes": 2000
+      },
+      "after_work": {
+        "reads": 1000,
+        "writes": 1000,
+        "hashes": 2000
+      },
+      "before_samples_ms": [
+        6.855328,
+        8.245497,
+        6.376334,
+        7.058568999999991,
+        7.231715000000008
+      ],
+      "after_samples_ms": [
+        6.997777999999997,
+        7.103290999999999,
+        8.341963000000007,
+        8.062984,
+        7.4848870000000005
+      ]
+    }
+  ],
+  "ext4_comparisons": [
+    {
+      "name": "noop_reconcile",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 0,
+        "unrelated_files": 0
+      },
+      "before_median_ms": 5.946057000000001,
+      "after_median_ms": 9.813766999999999,
+      "elapsed_reduction_percent": -65.04663510625608,
+      "before_work": {
+        "inventory_files": 0,
+        "snapshot_captures": 1
+      },
+      "after_work": {
+        "inventory_files": 0
+      },
+      "before_samples_ms": [
+        5.500884,
+        5.946057000000001,
+        5.891027,
+        89.390117,
+        76.53114699999999
+      ],
+      "after_samples_ms": [
+        6.526306,
+        5.720314,
+        48.686275,
+        53.497067,
+        9.813766999999999
+      ]
+    },
+    {
+      "name": "small_upload",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 0,
+        "unrelated_files": 0
+      },
+      "before_median_ms": 43.882636000000005,
+      "after_median_ms": 82.451022,
+      "elapsed_reduction_percent": -87.88985693566809,
+      "before_work": {
+        "chunk_status_rows": 2,
+        "index_rows_inserted": 1,
+        "inventory_files": 1,
+        "inventory_hash_bytes": 4096,
+        "snapshot_captures": 3,
+        "transfer_hash_bytes": 4096
+      },
+      "after_work": {
+        "chunk_status_rows": 1,
+        "index_rows_inserted": 1,
+        "inventory_hash_bytes": 4096,
+        "transfer_hash_bytes": 4096
+      },
+      "before_samples_ms": [
+        42.200284999999994,
+        41.681857,
+        43.882636000000005,
+        499.873813,
+        546.356691
+      ],
+      "after_samples_ms": [
+        34.013666,
+        32.349117,
+        363.713383,
+        404.790749,
+        82.451022
+      ]
+    },
+    {
+      "name": "point_download",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 0,
+        "unrelated_files": 0
+      },
+      "before_median_ms": 10.371247,
+      "after_median_ms": 10.999454,
+      "elapsed_reduction_percent": -6.057198329188385,
+      "before_work": {
+        "download_copy_bytes": 4096,
+        "index_rows_loaded": 2,
+        "transfer_hash_bytes": 4096
+      },
+      "after_work": {
+        "download_copy_bytes": 4096,
+        "index_rows_loaded": 2
+      },
+      "before_samples_ms": [
+        9.678051,
+        9.780878999999999,
+        10.371247,
+        104.77084,
+        97.664191
+      ],
+      "after_samples_ms": [
+        10.695951,
+        10.999454,
+        91.66075,
+        89.64850200000001,
+        10.689917
+      ]
+    },
+    {
+      "name": "noop_reconcile",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 1000,
+        "unrelated_files": 32
+      },
+      "before_median_ms": 45.400568,
+      "after_median_ms": 27.063236,
+      "elapsed_reduction_percent": 40.39009379794544,
+      "before_work": {
+        "index_rows_inserted": 32,
+        "index_rows_loaded": 32,
+        "inventory_files": 32,
+        "inventory_hash_bytes": 33554432,
+        "snapshot_captures": 1
+      },
+      "after_work": {
+        "index_rows_loaded": 32,
+        "inventory_files": 32,
+        "inventory_hash_bytes": 33554432
+      },
+      "before_samples_ms": [
+        45.400568,
+        40.134091,
+        41.687416999999996,
+        88.56356799999999,
+        104.77959100000001
+      ],
+      "after_samples_ms": [
+        27.063236,
+        25.122452,
+        93.31997,
+        68.30886,
+        24.526608
+      ]
+    },
+    {
+      "name": "small_upload",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 1000,
+        "unrelated_files": 32
+      },
+      "before_median_ms": 163.326362,
+      "after_median_ms": 42.240798000000005,
+      "elapsed_reduction_percent": 74.13718307152399,
+      "before_work": {
+        "chunk_status_rows": 2,
+        "index_rows_inserted": 97,
+        "index_rows_loaded": 160,
+        "inventory_files": 97,
+        "inventory_hash_bytes": 100667392,
+        "snapshot_captures": 3,
+        "transfer_hash_bytes": 4096
+      },
+      "after_work": {
+        "chunk_status_rows": 1,
+        "index_rows_inserted": 1,
+        "inventory_hash_bytes": 4096,
+        "transfer_hash_bytes": 4096
+      },
+      "before_samples_ms": [
+        163.326362,
+        160.213355,
+        156.341194,
+        638.03302,
+        586.577642
+      ],
+      "after_samples_ms": [
+        42.240798000000005,
+        39.187523,
+        424.734657,
+        455.90081399999997,
+        41.859755
+      ]
+    },
+    {
+      "name": "point_download",
+      "parameters": {
+        "file_bytes": 1048576,
+        "markdown_records": 1000,
+        "unrelated_files": 32
+      },
+      "before_median_ms": 10.432709000000001,
+      "after_median_ms": 10.311898999999999,
+      "elapsed_reduction_percent": 1.1579926172579191,
+      "before_work": {
+        "download_copy_bytes": 4096,
+        "index_rows_loaded": 66,
+        "transfer_hash_bytes": 4096
+      },
+      "after_work": {
+        "download_copy_bytes": 4096,
+        "index_rows_loaded": 2
+      },
+      "before_samples_ms": [
+        10.432709000000001,
+        9.704499,
+        10.374092,
+        129.216521,
+        126.86297899999998
+      ],
+      "after_samples_ms": [
+        9.446509,
+        10.311898999999999,
+        104.385593,
+        108.35611,
+        10.1714
+      ]
+    },
+    {
+      "name": "large_download_prepare",
+      "parameters": {
+        "file_bytes": 67108864
+      },
+      "before_median_ms": 539.935379,
+      "after_median_ms": 106.263808,
+      "elapsed_reduction_percent": 80.31916186029365,
+      "before_work": {
+        "download_copy_bytes": 67108864,
+        "index_rows_loaded": 2,
+        "transfer_hash_bytes": 67108864
+      },
+      "after_work": {
+        "download_copy_bytes": 67108864,
+        "index_rows_loaded": 2
+      },
+      "before_samples_ms": [
+        91.11870599999999,
+        88.533484,
+        539.935379,
+        799.53403,
+        796.350739
+      ],
+      "after_samples_ms": [
+        87.140952,
+        77.094077,
+        815.102762,
+        695.133267,
+        106.263808
+      ]
+    },
+    {
+      "name": "upload_chunks",
+      "parameters": {
+        "chunk_bytes": 1048576,
+        "chunks": 16
+      },
+      "before_median_ms": 433.634478,
+      "after_median_ms": 124.916451,
+      "elapsed_reduction_percent": 71.1931459933405,
+      "before_work": {
+        "chunk_status_rows": 136
+      },
+      "after_work": {},
+      "before_samples_ms": [
+        124.215048,
+        122.181181,
+        1483.155398,
+        433.634478,
+        1607.4720579999998
+      ],
+      "after_samples_ms": [
+        121.738094,
+        120.326656,
+        1745.6867750000001,
+        1232.9977649999998,
+        124.916451
+      ]
+    },
+    {
+      "name": "upload_chunks",
+      "parameters": {
+        "chunk_bytes": 1048576,
+        "chunks": 128
+      },
+      "before_median_ms": 11017.768147,
+      "after_median_ms": 1023.158993,
+      "elapsed_reduction_percent": 90.71355487473573,
+      "before_work": {
+        "chunk_status_rows": 8256
+      },
+      "after_work": {},
+      "before_samples_ms": [
+        1011.877659,
+        973.296809,
+        11786.016803,
+        11812.905431000001,
+        11017.768147
+      ],
+      "after_samples_ms": [
+        1023.158993,
+        980.9432850000001,
+        8236.955932,
+        11849.830883999999,
+        1016.3872899999999
+      ]
+    }
+  ]
+}

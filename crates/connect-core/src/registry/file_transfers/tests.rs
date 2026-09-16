@@ -86,8 +86,11 @@ fn upload_resumes_out_of_order_across_restart_and_commits_atomically() {
     reopened
         .put_file_upload_chunk(id, owner(), session.transfer_id, 0, first)
         .unwrap();
-    let duplicate = reopened
+    reopened
         .put_file_upload_chunk(id, owner(), session.transfer_id, 0, first)
+        .unwrap();
+    let duplicate = reopened
+        .file_transfer_status(id, owner(), session.transfer_id)
         .unwrap();
     assert_eq!(duplicate.received, vec![0, 1]);
     assert_eq!(duplicate.received_bytes, bytes.len() as u64);
