@@ -103,9 +103,10 @@ export class MirrorMaterializer {
       await this.remove(managedState!, record.record_id, prior.path);
     }
     const authoritativeHash = this.runtime.digest(document);
-    const acceptedLocalHash = acceptedHash === authoritativeHash
-      && existingHash === authoritativeHash;
-    if (!acceptedLocalHash) {
+    // Divergence was checked above. Equal bytes need only a metadata advance;
+    // an accepted hash is authorization to replace differing local bytes, not a
+    // prerequisite for leaving already-correct bytes alone.
+    if (existing !== document) {
       await this.fileSystem.write(record.path, document);
     }
     state.records[record.record_id] = {
