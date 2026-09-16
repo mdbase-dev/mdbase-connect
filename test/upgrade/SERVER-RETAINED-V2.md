@@ -24,9 +24,9 @@ Inputs require beta.95, commit `408c67bc10f128e0833f0da62cb3efb9d94657d7`,
 and the digest-only server image in `.github/retained-v2-predecessor.env`.
 The full release/commit/image pair is fixed, its published non-draft release is
 verified by tag, and the annotated origin tag must peel to that exact commit.
-The default lane separately uses `.github/previous-release.env` and requires the
-newest published release (currently beta96); historical beta95 is not substituted
-for that immediate predecessor. The helper verifies
+The default lane separately verifies the exact published fixture recorded in
+`.github/previous-release.env`; newer publications do not change its inputs.
+Historical beta95 is not substituted for that recorded fixture. The helper verifies
 OCI source/revision labels, source policy phases, and the actual images'
 generated fresh semantic ceilings `[1]` and `[1,2]`. Containers run by resolved
 image ID throughout. This is local binary evidence, not signature/attestation,

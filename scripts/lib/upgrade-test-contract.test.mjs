@@ -20,13 +20,13 @@ test("upgrade workflows delegate scenario behavior to versioned test programs", 
   assert.doesNotMatch(workflow, /INSERT INTO hosted_provider_/);
 });
 
-test("upgrade pins the exact immediate predecessor", async () => {
+test("upgrade pins an exact versioned published fixture", async () => {
   const fixture = await readFile(
     resolve(repoRoot, ".github/previous-release.env"),
     "utf8"
   );
-  assert.equal(fixture, `# Exact server image from the release immediately preceding this candidate.
-# Update this file as part of each release-preparation change.
+  assert.equal(fixture, `# Versioned published upgrade fixture; not the mutable newest-release pointer.
+# Advance deliberately during release preparation; publication alone cannot invalidate CI.
 MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.102
 MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=ea65ae4f13d0e0621fe9654618e13b505cdebf21
 MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:bfb2ca0beb8e63005b89354f7b57e3568fb438f40f4948963a723c1aeb815f1e
@@ -37,7 +37,8 @@ MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-
 test("both upgrade programs execute release and pulled-image verification", async () => {
   const helpers = await readFile(resolve(repoRoot, "test/upgrade/lib.sh"), "utf8");
   assert.match(helpers, /upgrade_verify_previous_release\(\)/);
-  assert.match(helpers, /api\.github\.com\/repos\/mdbase-dev\/mdbase-connect\/releases\?per_page=100/);
+  assert.match(helpers, /api\.github\.com\/repos\/mdbase-dev\/mdbase-connect\/releases\/tags\/\$release/);
+  assert.doesNotMatch(helpers, /releases\?per_page|unique newest/);
   assert.match(helpers, /git -C "\$repo_root" ls-remote --exit-code --tags origin/);
   assert.match(helpers, /"refs\/tags\/\$release\^\{\}"/);
   assert.match(helpers, /upgrade_verify_previous_image\(\)/);
