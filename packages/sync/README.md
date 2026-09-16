@@ -12,7 +12,22 @@ unclosed `---` fence are preserved byte-for-byte as body content. An explicitly
 empty frontmatter block is also accepted. Malformed, scalar, null, or list
 frontmatter is synchronized byte-for-byte as opaque Markdown with `{}`
 persisted fields; structured queries and field operations ignore its invalid
-frontmatter until the document is repaired.
+frontmatter until the document is repaired. Leading-fence and BOM recognition
+matches the Rust authority: a body-only record's structured body projection
+omits one leading BOM, but the exact `document` always retains it. Opaque
+fallback bodies retain the whole document. This is the default for directory
+mirrors, not an opt-in mode. Record schema validation is separate from exact
+replication: missing required fields, wrong field types, and enum violations
+do not by themselves prevent synchronization. Authority scope, configuration,
+conflict, and safety checks still apply.
+
+Local frontmatter diagnostics remain visible in `local_issues` and can make
+status `attention` even after a successful sync. Consumers must use the reviewed
+plan's `issues[].blocking` / `summary.blocking_issues` to decide whether applying
+that plan is allowed, not the diagnostic code or `local_issues.length`.
+Unreadable files and invalid UTF-8 still fence writes and checkpoint advancement.
+Receive-only mirrors also fence local divergence, including readable malformed
+edits; malformed YAML is not permission to overwrite those edits from authority.
 
 Application replicas resolve a stale record explicitly with
 `resolveConflict(recordId, "local" | "remote")`. Keeping the local version
@@ -92,7 +107,9 @@ await mirror.sync();
 ```
 
 The filesystem adapter deals only in collection-relative POSIX paths and
-ordinary UTF-8 strings. The state store must live in device-local application
+ordinary UTF-8 strings. Text reads must preserve every byte representable by
+UTF-8, including a leading BOM (use `TextDecoder` with `fatal: true` and
+`ignoreBOM: true`, which retains the BOM character). The state store must live in device-local application
 state, not inside the mirrored collection. A host should provide a lease that
 excludes concurrent mirror owners for the same vault; the default memory lease
 only protects overlapping calls in one JavaScript process.
