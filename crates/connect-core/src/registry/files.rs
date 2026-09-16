@@ -20,7 +20,7 @@ struct FileInventoryState {
     reconciled_at_ms: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct IndexedFile {
     descriptor: CollectionFileDescriptor,
     path_key: String,
@@ -532,12 +532,23 @@ impl CollectionRegistry {
             )?;
         }
 
-        transaction.execute(
-            "DELETE FROM collection_files WHERE collection_id = ?1",
-            [collection_id.to_string()],
-        )?;
-        for file in after.values() {
-            persist_indexed_file(&transaction, collection_id, file)?;
+        // Delete changed rows before inserting replacements so path swaps remain
+        // valid under the unique portable-path constraint. Physical identity is
+        // part of this comparison even when the public descriptor is unchanged.
+        for (id, before) in &previous {
+            if after.get(id) != Some(before) {
+                transaction.execute(
+                    "DELETE FROM collection_files WHERE collection_id = ?1 AND file_id = ?2",
+                    params![collection_id.to_string(), id.to_string()],
+                )?;
+                #[cfg(test)]
+                super::tests::file_io::record("index_rows_deleted", 1);
+            }
+        }
+        for (id, file) in &after {
+            if previous.get(id) != Some(file) {
+                persist_indexed_file(&transaction, collection_id, file)?;
+            }
         }
         let inventory_changed = previous.len() != after.len()
             || previous.iter().any(|(file_id, before)| {
