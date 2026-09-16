@@ -102,7 +102,8 @@ export class MirrorMaterializer {
     if (prior && prior.path !== record.path) {
       await this.remove(managedState!, record.record_id, prior.path);
     }
-    const authoritativeHash = this.runtime.digest(document);
+    // Equal strings necessarily share the already-computed local digest.
+    const authoritativeHash = existing === document ? existingHash! : this.runtime.digest(document);
     // Divergence was checked above. Equal bytes need only a metadata advance;
     // an accepted hash is authorization to replace differing local bytes, not a
     // prerequisite for leaving already-correct bytes alone.

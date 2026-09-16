@@ -119,7 +119,6 @@ impl CollectionRegistry {
         let provider = self.provider_for(&registered)?;
         provider.with_collection_read(|collection| {
             crate::LocalSyncStore::for_registry(self).assert_mutation_allowed(id)?;
-            validate_target_path(collection, Path::new(&registered.path), &request.path)?;
             self.reconcile_file_target(&registered, collection, &request.path, None)?;
             self.create_upload_transfer(&registered, owner_id, request)
         })
@@ -258,10 +257,13 @@ impl CollectionRegistry {
                 return Err(file_error("transfer_expired", "This file upload expired."));
             }
 
-            validate_target_path(collection, Path::new(&registered.path), &transfer.path)?;
             if transfer.state == "open" {
                 self.reconcile_file_target(&registered, collection, &transfer.path, None)?;
                 recheck_upload_intent(self, &transfer)?;
+            } else {
+                // Recovery still validates live namespace/physical safety, but
+                // must not reinterpret the already-committed replacement intent.
+                crate::collection_files::discover_collection_file(collection, &transfer.path)?;
             }
             assert_upload_complete(self, &transfer)?;
             let staging = transfer_staging_path(Path::new(&registered.path), &transfer)?;

@@ -326,6 +326,39 @@ fn benchmark_file_io() {
             );
         });
     }
+    {
+        let (dir, registry, id) = fixture(0, 0);
+        let bytes = vec![0x42; 64 * 1024 * 1024];
+        std::fs::write(dir.path().join("collection/large.bin"), &bytes).unwrap();
+        let file = registry.reconcile_files(id).unwrap().pop().unwrap();
+        let owner = Uuid::now_v7();
+        let session = measure(
+            "large_download_prepare",
+            json!({"file_bytes":bytes.len()}),
+            || {
+                registry
+                    .open_file_download(
+                        id,
+                        owner,
+                        &OpenFileDownloadRequest {
+                            protocol_version: FILE_PROTOCOL_VERSION,
+                            message_type: OpenFileDownloadRequestKind::OpenFileDownload,
+                            transfer_id: Uuid::now_v7(),
+                            file_id: file.file_id,
+                            revision: Some(file.revision),
+                        },
+                        |_| Ok(()),
+                    )
+                    .unwrap()
+            },
+        );
+        assert_eq!(
+            registry
+                .read_file_download_chunk(id, owner, session.transfer_id, 0)
+                .unwrap(),
+            bytes[..mdbase_connect_protocol::DEFAULT_FILE_CHUNK_BYTES as usize]
+        );
+    }
     for count in [16, 128] {
         let (_dir, registry, id) = fixture(0, 0);
         let owner = Uuid::now_v7();

@@ -15,12 +15,12 @@ for (const mode of ['read_only', 'read_write']) {
       files.set(record.path, prior);
       state.records[record.record_id] = {path: record.path, revision: 'prior', hash: digest(prior)};
     }
-    let reads = 0, writes = 0;
+    let reads = 0, writes = 0, hashes = 0;
     const fs = {
       async read(path) { reads++; return files.get(path) ?? null; },
       async write(path, value) { writes++; files.set(path, value); },
     };
-    const materializer = new MirrorMaterializer(fs, {digest}, mode);
+    const materializer = new MirrorMaterializer(fs, {digest(value) { hashes++; return digest(value); }}, mode);
     const started = performance.now();
     for (const record of records) await materializer.put(state, record, { inspectionPreflighted: true });
     const elapsed_ms = performance.now() - started;
@@ -28,6 +28,6 @@ for (const mode of ['read_only', 'read_write']) {
       assert.equal(files.get(record.path), record.document);
       assert.equal(state.records[record.record_id].revision, 'next');
     }
-    console.log('FILE_IO_BENCH ' + JSON.stringify({name:'markdown_materialization',parameters:{mode, identical, records:records.length}, elapsed_ms, work:{reads,writes}}));
+    console.log('FILE_IO_BENCH ' + JSON.stringify({name:'markdown_materialization',parameters:{mode, identical, records:records.length}, elapsed_ms, work:{reads,writes,hashes}}));
   }
 }

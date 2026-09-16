@@ -349,6 +349,8 @@ fn copy_verified_download(
         staging_file.write_all(&buffer[..length])?;
         digest.update(&buffer[..length]);
     }
+    #[cfg(test)]
+    crate::registry::tests::file_io::record("download_copy_bytes", copied);
     staging_file.sync_all()?;
     verify_open_path(&source_file, source)?;
     verify_open_path(&staging_file, staging)?;

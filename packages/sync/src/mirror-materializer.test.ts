@@ -22,8 +22,9 @@ function fixture(mode: "read_only" | "read_write", local: string | null, prior =
     inspectBinary: async () => null,
     writeBinary: async () => { throw new Error("unexpected binary write"); },
   };
-  return { record, state, fs, files, materializer: new MirrorMaterializer(fs,
-    { digest, randomId: () => "id", now: () => "2026-01-01T00:00:00Z" }, mode) };
+  const runtimeDigest = vi.fn(digest);
+  return { record, state, fs, files, runtimeDigest, materializer: new MirrorMaterializer(fs,
+    { digest: runtimeDigest, randomId: () => "id", now: () => "2026-01-01T00:00:00Z" }, mode) };
 }
 
 describe.each(["read_only", "read_write"] as const)("%s materializer", mode => {
@@ -31,6 +32,7 @@ describe.each(["read_only", "read_write"] as const)("%s materializer", mode => {
     const f = fixture(mode, "exact bytes\n");
     await f.materializer.put(f.state, f.record, { inspectionPreflighted: true });
     expect(f.fs.write).not.toHaveBeenCalled();
+    expect(f.runtimeDigest).toHaveBeenCalledTimes(1);
     expect(f.state.records.id.revision).toBe("new");
     expect(f.state.records.id.hash).toBe(digest(f.record.document));
   });
