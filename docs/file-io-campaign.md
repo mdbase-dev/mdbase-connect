@@ -64,6 +64,8 @@ not new persisted state, wire APIs, cache layers, or fallback mechanisms.
 
 ## Evidence
 
+Completed results and full sample data: [campaign report](benchmarks/file-io-campaign/report.md).
+
 Release-mode ignored tests use temporary synthetic collections. Report elapsed
 samples alongside bytes hashed, rows loaded/written, full snapshots, and chunk
 status rows. Fixture setup is excluded. Benchmarks are observations; correctness
