@@ -120,6 +120,8 @@ impl CollectionRegistry {
         let provider = self.provider_for(&registered)?;
         provider.with_collection_read(|collection| {
             crate::LocalSyncStore::for_registry(self).assert_mutation_allowed(id)?;
+            #[cfg(test)]
+            super::tests::file_io::record("snapshot_captures", 1);
             let snapshot = collection.snapshot()?;
             self.reconcile_files_loaded(&registered, collection, &snapshot)?;
             validate_target_path(
@@ -265,6 +267,8 @@ impl CollectionRegistry {
                 return Err(file_error("transfer_expired", "This file upload expired."));
             }
 
+            #[cfg(test)]
+            super::tests::file_io::record("snapshot_captures", 1);
             let snapshot = collection.snapshot()?;
             validate_target_path(
                 collection,
@@ -310,6 +314,8 @@ impl CollectionRegistry {
                 ));
             }
 
+            #[cfg(test)]
+            super::tests::file_io::record("snapshot_captures", 1);
             let after_snapshot = collection.snapshot()?;
             let preferences = crate::registry::files::FileReconcilePreferences {
                 ids_by_path: HashMap::from([(transfer.path_key.clone(), transfer.file_id)]),
@@ -634,6 +640,8 @@ fn transfer_status(
         Ok((row.get::<_, u64>(0)?, row.get::<_, u64>(1)?))
     })?;
     let chunks = rows.collect::<Result<Vec<_>, _>>()?;
+    #[cfg(test)]
+    super::tests::file_io::record("chunk_status_rows", chunks.len() as u64);
     Ok(FileTransferStatus {
         protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
         message_type: FileTransferStatusKind::FileTransferStatus,
@@ -877,6 +885,8 @@ fn hash_exact_file(path: &Path, expected_size: u64) -> Result<String, ConnectErr
         if read == 0 {
             break;
         }
+        #[cfg(test)]
+        super::tests::file_io::record("transfer_hash_bytes", read as u64);
         digest.update(&buffer[..read]);
     }
     verify_open_path(&file, path)?;

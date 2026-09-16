@@ -252,6 +252,8 @@ impl CollectionRegistry {
         let provider = self.provider_for(&registered)?;
         provider.with_collection_read(|collection| {
             crate::LocalSyncStore::for_registry(self).assert_authority_available(id)?;
+            #[cfg(test)]
+            super::tests::file_io::record("snapshot_captures", 1);
             let snapshot = collection.snapshot()?;
             self.reconcile_files_loaded_internal(
                 &registered,
@@ -310,6 +312,8 @@ impl CollectionRegistry {
             .chain(snapshot.records.iter().map(|record| record.path.clone()))
             .collect::<BTreeSet<_>>();
         let inventory = discover_collection_files(collection, &managed_paths)?;
+        #[cfg(test)]
+        super::tests::file_io::record("inventory_files", inventory.files.len() as u64);
         let previous = if reuse_cached_digests {
             read_indexed_files(&self.connection()?, registered.id)?
         } else {
@@ -722,6 +726,8 @@ fn hash_verified_file(candidate: &CollectionFileCandidate) -> Result<String, Con
         if read == 0 {
             break;
         }
+        #[cfg(test)]
+        super::tests::file_io::record("inventory_hash_bytes", read as u64);
         digest.update(&buffer[..read]);
     }
     let after = file.metadata()?;
@@ -803,6 +809,8 @@ fn read_indexed_files(
         ))
     })?;
     rows.map(|row| {
+        #[cfg(test)]
+        super::tests::file_io::record("index_rows_loaded", 1);
         let (
             file_id,
             path,
@@ -866,6 +874,8 @@ fn persist_indexed_file(
     collection_id: Uuid,
     file: &IndexedFile,
 ) -> Result<(), ConnectError> {
+    #[cfg(test)]
+    super::tests::file_io::record("index_rows_inserted", 1);
     transaction.execute(
         "INSERT INTO collection_files
            (collection_id, file_id, path, path_key, revision, content_digest, size,
