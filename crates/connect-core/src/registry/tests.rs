@@ -242,6 +242,7 @@ implements:
                 .iter()
                 .map(|(source, target, kind, document)| {
                     mdbase_connect_protocol::TypePackManifestResource {
+                        upgrade_from: None,
                         kind: (*kind).to_string(),
                         mode: if *kind == "type" { "seed" } else { "managed" }.to_string(),
                         source: (*source).to_string(),

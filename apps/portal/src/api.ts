@@ -208,6 +208,7 @@ export interface TypePackProvision {
     description?: string;
     resources: Array<{
       kind: "contract" | "type" | "schema";
+      upgrade_from?: { digest: string; document: string };
       source: string;
       target: string;
       digest: string;

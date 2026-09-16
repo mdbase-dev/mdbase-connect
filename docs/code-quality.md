@@ -7,6 +7,13 @@ and explicit about security and transaction ownership.
 This document defines the intended internal shape. The system trust model and
 runtime responsibilities remain in [Architecture](./architecture.md).
 
+The reviewed seed-upgrade protocol adds four Rust public declarations: the
+optional manifest resource member, its typed baseline struct, and the baseline's
+digest/document members. The public-declaration budget moves from 3177 to 3181;
+one extracted portal review component adds one TypeScript export (2466 → 2467).
+File-size, package-count, and cycle limits are unchanged. Upgrade semantics stay
+in the collection engine, not Connect adapters.
+
 ## Dependency direction
 
 Within a deployable, dependencies point inward:

@@ -435,6 +435,17 @@ function validateProvisionRequirements(value: unknown): ManifestValidationIssue[
     }
     for (const [resourceIndex, resource] of declaredResources.entries()) {
       const source = String(resource.source);
+      if (resource.upgrade_from !== undefined) {
+        const baseline = asObject(resource.upgrade_from);
+        const path = `/provisions/type_packs/${packIndex}/manifest/resources/${resourceIndex}/upgrade_from`;
+        if (resource.kind !== "type" || resource.mode !== "seed") {
+          issues.push(issue(path, "seedUpgrade", "is only allowed for seed types"));
+        }
+        if (typeof baseline.document === "string"
+          && baseline.digest !== `sha256:${createHash("sha256").update(baseline.document).digest("hex")}`) {
+          issues.push(issue(`${path}/digest`, "digest", "does not match the baseline document"));
+        }
+      }
       const document = embedded.get(source);
       if (typeof document !== "string") {
         issues.push(issue(

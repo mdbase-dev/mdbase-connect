@@ -313,11 +313,19 @@ pub struct TypePackManifest {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TypePackManifestResource {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upgrade_from: Option<TypePackSeedUpgradeBase>,
     pub kind: String,
     pub mode: String,
     pub source: String,
     pub target: String,
     pub digest: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypePackSeedUpgradeBase {
+    pub digest: String,
+    pub document: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

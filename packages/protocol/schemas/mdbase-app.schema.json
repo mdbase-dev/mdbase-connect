@@ -315,6 +315,15 @@
       "properties": {
         "kind": { "enum": ["contract", "type", "schema"] },
         "mode": { "enum": ["managed", "seed"] },
+        "upgrade_from": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["digest", "document"],
+          "properties": {
+            "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "document": { "type": "string", "maxLength": 262144 }
+          }
+        },
         "source": { "type": "string", "minLength": 1, "maxLength": 240 },
         "target": { "type": "string", "minLength": 1, "maxLength": 240 },
         "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
