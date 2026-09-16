@@ -129,7 +129,7 @@ impl CollectionRegistry {
             store.fence(id, transfer_id)?;
             let description = self.describe_loaded(&registered, collection)?;
             let resources = sync_resources(&snapshot, description, &BTreeSet::new());
-            let files = self.reconcile_files_loaded(&registered, collection, &snapshot)?;
+            let files = self.reconcile_files_loaded(&registered, collection)?;
             store.export_snapshot(id, &snapshot, resources, files)
         })
     }
@@ -182,7 +182,7 @@ impl CollectionRegistry {
         store.reconcile(registered.id, &snapshot, &HashMap::new())?;
         let description = self.describe_loaded(registered, collection)?;
         let resources = sync_resources(&snapshot, description, &BTreeSet::new());
-        let files = self.reconcile_files_loaded(registered, collection, &snapshot)?;
+        let files = self.reconcile_files_loaded(registered, collection)?;
         store.export_snapshot(registered.id, &snapshot, resources, files)
     }
 }

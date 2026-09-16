@@ -1,7 +1,9 @@
 use super::*;
+mod index;
+use crate::collection_files::portable_path_key;
 use crate::{discover_collection_files, CollectionFileCandidate, PhysicalFileIdentity};
 use chrono::{DateTime, SecondsFormat, Utc};
-use mdbase::runtime::CollectionSnapshot;
+use index::{persist_indexed_file, query_indexed_files, read_indexed_files};
 use mdbase_connect_protocol::{CollectionFileDescriptor, FileMediaClass};
 use rusqlite::Transaction;
 use sha2::{Digest, Sha256};
@@ -252,13 +254,9 @@ impl CollectionRegistry {
         let provider = self.provider_for(&registered)?;
         provider.with_collection_read(|collection| {
             crate::LocalSyncStore::for_registry(self).assert_authority_available(id)?;
-            #[cfg(test)]
-            super::tests::file_io::record("snapshot_captures", 1);
-            let snapshot = collection.snapshot()?;
             self.reconcile_files_loaded_internal(
                 &registered,
                 collection,
-                &snapshot,
                 &FileReconcilePreferences::default(),
                 reuse_cached_digests,
             )
@@ -269,12 +267,10 @@ impl CollectionRegistry {
         &self,
         registered: &CollectionSummary,
         collection: &mdbase::Collection,
-        snapshot: &CollectionSnapshot,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
         self.reconcile_files_loaded_with_preferences(
             registered,
             collection,
-            snapshot,
             &FileReconcilePreferences::default(),
         )
     }
@@ -283,17 +279,15 @@ impl CollectionRegistry {
         &self,
         registered: &CollectionSummary,
         collection: &mdbase::Collection,
-        snapshot: &CollectionSnapshot,
         preferences: &FileReconcilePreferences,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
-        self.reconcile_files_loaded_internal(registered, collection, snapshot, preferences, false)
+        self.reconcile_files_loaded_internal(registered, collection, preferences, false)
     }
 
     fn reconcile_files_loaded_internal(
         &self,
         registered: &CollectionSummary,
         collection: &mdbase::Collection,
-        snapshot: &CollectionSnapshot,
         preferences: &FileReconcilePreferences,
         reuse_cached_digests: bool,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
@@ -305,13 +299,7 @@ impl CollectionRegistry {
         let observed_generation = self
             .file_inventory_state(registered.id)?
             .observed_generation;
-        let managed_paths = snapshot
-            .resources
-            .iter()
-            .map(|resource| resource.path.clone())
-            .chain(snapshot.records.iter().map(|record| record.path.clone()))
-            .collect::<BTreeSet<_>>();
-        let inventory = discover_collection_files(collection, &managed_paths)?;
+        let inventory = discover_collection_files(collection, &BTreeSet::new())?;
         #[cfg(test)]
         super::tests::file_io::record("inventory_files", inventory.files.len() as u64);
         let previous = if reuse_cached_digests {
@@ -331,7 +319,55 @@ impl CollectionRegistry {
                 })
             })
             .collect::<Result<Vec<_>, ConnectError>>()?;
-        self.reconcile_observed_files(registered.id, &observed, preferences, observed_generation)
+        self.reconcile_observed_files(
+            registered.id,
+            &observed,
+            preferences,
+            observed_generation,
+            None,
+        )
+    }
+
+    pub(super) fn reconcile_file_target(
+        &self,
+        registered: &CollectionSummary,
+        collection: &mdbase::Collection,
+        path: &str,
+        preferred_id: Option<Uuid>,
+    ) -> Result<Option<CollectionFileDescriptor>, ConnectError> {
+        let lock = self.file_reconcile_lock(registered.id)?;
+        let _guard = lock.lock().map_err(|_| ConnectError::File {
+            code: "file_index_unavailable".into(),
+            message: "The file index lock is unavailable.".into(),
+        })?;
+        let candidate = crate::collection_files::discover_collection_file(collection, path)?;
+        let observed = candidate
+            .as_ref()
+            .map(|candidate| {
+                Ok::<_, ConnectError>(ObservedFile {
+                    candidate,
+                    content_digest: hash_verified_file(candidate)?,
+                })
+            })
+            .transpose()?
+            .into_iter()
+            .collect::<Vec<_>>();
+        let preferences = FileReconcilePreferences {
+            ids_by_path: preferred_id
+                .map(|id| HashMap::from([(portable_path_key(path), id)]))
+                .unwrap_or_default(),
+            ..Default::default()
+        };
+        Ok(self
+            .reconcile_observed_files(
+                registered.id,
+                &observed,
+                &preferences,
+                0,
+                Some(&portable_path_key(path)),
+            )?
+            .into_iter()
+            .next())
     }
 
     pub(super) fn indexed_file(
@@ -345,6 +381,21 @@ impl CollectionRegistry {
             params![id.to_string(), file_id.to_string()],
         )?
         .remove(&file_id)
+        .map(|file| file.descriptor))
+    }
+
+    pub(super) fn indexed_file_at_path(
+        &self,
+        id: Uuid,
+        path_key: &str,
+    ) -> Result<Option<CollectionFileDescriptor>, ConnectError> {
+        Ok(query_indexed_files(
+            &self.connection()?,
+            "collection_id = ?1 AND path_key = ?2",
+            params![id.to_string(), path_key],
+        )?
+        .into_values()
+        .next()
         .map(|file| file.descriptor))
     }
 
@@ -387,14 +438,7 @@ impl CollectionRegistry {
         };
         let provider = self.provider_for(registered)?;
         let moved = provider.with_collection_read(|collection| {
-            let snapshot = collection.snapshot()?;
-            let managed_paths = snapshot
-                .resources
-                .iter()
-                .map(|resource| resource.path.clone())
-                .chain(snapshot.records.iter().map(|record| record.path.clone()))
-                .collect::<BTreeSet<_>>();
-            let inventory = discover_collection_files(collection, &managed_paths)?;
+            let inventory = discover_collection_files(collection, &BTreeSet::new())?;
             Ok::<_, ConnectError>(
                 inventory
                     .files
@@ -417,10 +461,18 @@ impl CollectionRegistry {
         observed: &[ObservedFile<'_>],
         preferences: &FileReconcilePreferences,
         observed_generation: u64,
+        target_key: Option<&str>,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let previous = read_indexed_files(&transaction, collection_id)?;
+        let previous = match target_key {
+            Some(key) => query_indexed_files(
+                &transaction,
+                "collection_id = ?1 AND path_key = ?2",
+                params![collection_id.to_string(), key],
+            )?,
+            None => read_indexed_files(&transaction, collection_id)?,
+        };
         let assignments = assign_file_ids(&previous, observed, &preferences.ids_by_path);
         let mut after = BTreeMap::<Uuid, IndexedFile>::new();
 
@@ -556,8 +608,18 @@ impl CollectionRegistry {
                     .get(file_id)
                     .is_none_or(|current| current.descriptor != before.descriptor)
             });
-        transaction.execute(
-            "INSERT INTO collection_file_inventory_state
+        if target_key.is_some() {
+            // A point update cannot establish or refresh completeness of the full
+            // inventory, and must not clear outstanding watcher invalidations.
+            transaction.execute(
+                "UPDATE collection_file_inventory_state SET index_revision =
+                 CASE WHEN index_revision > 0 AND ?2 THEN index_revision + 1 ELSE index_revision END
+                 WHERE collection_id = ?1",
+                params![collection_id.to_string(), inventory_changed],
+            )?;
+        } else {
+            transaction.execute(
+                "INSERT INTO collection_file_inventory_state
                 (collection_id, observed_generation, reconciled_generation,
                  index_revision, reconciled_at_ms)
              VALUES (?1, ?2, ?2, 1, ?3)
@@ -568,13 +630,14 @@ impl CollectionRegistry {
                     ELSE MAX(index_revision, 1)
                 END,
                 reconciled_at_ms = ?3",
-            params![
-                collection_id.to_string(),
-                observed_generation,
-                Utc::now().timestamp_millis(),
-                inventory_changed
-            ],
-        )?;
+                params![
+                    collection_id.to_string(),
+                    observed_generation,
+                    Utc::now().timestamp_millis(),
+                    inventory_changed
+                ],
+            )?;
+        }
         transaction.commit()?;
         Ok(after.into_values().map(|file| file.descriptor).collect())
     }
@@ -811,138 +874,6 @@ fn physical_identity_matches(
     _expected: Option<&PhysicalFileIdentity>,
 ) -> bool {
     true
-}
-
-fn read_indexed_files(
-    connection: &Connection,
-    collection_id: Uuid,
-) -> Result<BTreeMap<Uuid, IndexedFile>, ConnectError> {
-    query_indexed_files(
-        connection,
-        "collection_id = ?1 ORDER BY path_key",
-        params![collection_id.to_string()],
-    )
-}
-
-fn query_indexed_files(
-    connection: &Connection,
-    predicate: &str,
-    values: impl rusqlite::Params,
-) -> Result<BTreeMap<Uuid, IndexedFile>, ConnectError> {
-    // Predicates are fixed internal SQL; all request values remain bound parameters.
-    let mut statement = connection.prepare(&format!(
-        "SELECT file_id, path, path_key, revision, content_digest, size,
-                media_type, media_class, modified_at, physical_device, physical_file
-         FROM collection_files WHERE {predicate}"
-    ))?;
-    let rows = statement.query_map(values, |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, u64>(5)?,
-            row.get::<_, Option<String>>(6)?,
-            row.get::<_, String>(7)?,
-            row.get::<_, String>(8)?,
-            row.get::<_, Option<String>>(9)?,
-            row.get::<_, Option<String>>(10)?,
-        ))
-    })?;
-    rows.map(|row| {
-        #[cfg(test)]
-        super::tests::file_io::record("index_rows_loaded", 1);
-        let (
-            file_id,
-            path,
-            path_key,
-            revision,
-            content_digest,
-            size,
-            media_type,
-            media_class,
-            modified_at,
-            physical_device,
-            physical_file,
-        ) = row?;
-        let file_id = Uuid::parse_str(&file_id).map_err(|error| ConnectError::File {
-            code: "file_index_corrupt".to_string(),
-            message: format!("The local file index contains an invalid file ID: {error}"),
-        })?;
-        Ok((
-            file_id,
-            IndexedFile {
-                descriptor: CollectionFileDescriptor {
-                    file_id,
-                    path,
-                    revision,
-                    content_digest,
-                    size,
-                    media_type,
-                    media_class: parse_media_class(&media_class)?,
-                    modified_at,
-                },
-                path_key,
-                physical_identity: physical_device
-                    .zip(physical_file)
-                    .map(
-                        |(device, file)| -> Result<PhysicalFileIdentity, ConnectError> {
-                            Ok(PhysicalFileIdentity {
-                                device: device.parse().map_err(|_| ConnectError::File {
-                                    code: "file_index_corrupt".to_string(),
-                                    message:
-                                        "The local file index contains an invalid device identity."
-                                            .to_string(),
-                                })?,
-                                file: file.parse().map_err(|_| ConnectError::File {
-                                    code: "file_index_corrupt".to_string(),
-                                    message:
-                                        "The local file index contains an invalid file identity."
-                                            .to_string(),
-                                })?,
-                            })
-                        },
-                    )
-                    .transpose()?,
-            },
-        ))
-    })
-    .collect()
-}
-
-fn persist_indexed_file(
-    transaction: &Transaction<'_>,
-    collection_id: Uuid,
-    file: &IndexedFile,
-) -> Result<(), ConnectError> {
-    #[cfg(test)]
-    super::tests::file_io::record("index_rows_inserted", 1);
-    transaction.execute(
-        "INSERT INTO collection_files
-           (collection_id, file_id, path, path_key, revision, content_digest, size,
-            media_type, media_class, modified_at, physical_device, physical_file)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-        params![
-            collection_id.to_string(),
-            file.descriptor.file_id.to_string(),
-            file.descriptor.path,
-            file.path_key,
-            file.descriptor.revision,
-            file.descriptor.content_digest,
-            file.descriptor.size,
-            file.descriptor.media_type,
-            media_class_name(file.descriptor.media_class),
-            file.descriptor.modified_at,
-            file.physical_identity
-                .as_ref()
-                .map(|identity| identity.device.to_string()),
-            file.physical_identity
-                .as_ref()
-                .map(|identity| identity.file.to_string()),
-        ],
-    )?;
-    Ok(())
 }
 
 fn media_class_name(media_class: FileMediaClass) -> &'static str {

@@ -1,7 +1,6 @@
 use super::*;
 use crate::collection_files::{classify_media, portable_path_key};
 use chrono::{Duration, SecondsFormat, Utc};
-use mdbase::runtime::CollectionSnapshot;
 use mdbase_connect_protocol::{
     CommitFileUploadReceipt, CommitFileUploadReceiptKind, FileTransferDirection,
     FileTransferProtection, FileTransferSession, FileTransferSessionKind, FileTransferState,
@@ -120,16 +119,8 @@ impl CollectionRegistry {
         let provider = self.provider_for(&registered)?;
         provider.with_collection_read(|collection| {
             crate::LocalSyncStore::for_registry(self).assert_mutation_allowed(id)?;
-            #[cfg(test)]
-            super::tests::file_io::record("snapshot_captures", 1);
-            let snapshot = collection.snapshot()?;
-            self.reconcile_files_loaded(&registered, collection, &snapshot)?;
-            validate_target_path(
-                collection,
-                Path::new(&registered.path),
-                &snapshot,
-                &request.path,
-            )?;
+            validate_target_path(collection, Path::new(&registered.path), &request.path)?;
+            self.reconcile_file_target(&registered, collection, &request.path, None)?;
             self.create_upload_transfer(&registered, owner_id, request)
         })
     }
@@ -141,7 +132,10 @@ impl CollectionRegistry {
         transfer_id: Uuid,
         chunk_index: u64,
         bytes: &[u8],
-    ) -> Result<FileTransferStatus, ConnectError> {
+    ) -> Result<(), ConnectError> {
+        // The wire acknowledgement is empty. Full resume state is queried only
+        // by open/status requests, never rebuilt for each acknowledged chunk.
+        let digest = sha256_digest(bytes);
         let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let transfer = required_upload(&transaction, id, Some(owner_id), transfer_id)?;
@@ -162,7 +156,6 @@ impl CollectionRegistry {
                 format!("Chunk {chunk_index} must contain exactly {expected} plaintext bytes."),
             ));
         }
-        let digest = sha256_digest(bytes);
         let prior = transaction
             .query_row(
                 "SELECT chunk_digest FROM collection_file_transfer_chunks
@@ -178,9 +171,8 @@ impl CollectionRegistry {
                     "A retry used different bytes for an already accepted chunk.",
                 ));
             }
-            let status = transfer_status(&transaction, &transfer)?;
             transaction.commit()?;
-            return Ok(status);
+            return Ok(());
         }
 
         let registered = self.get(id)?;
@@ -205,9 +197,8 @@ impl CollectionRegistry {
                 bytes.len() as u64,
             ],
         )?;
-        let status = transfer_status(&transaction, &transfer)?;
         transaction.commit()?;
-        Ok(status)
+        Ok(())
     }
 
     pub fn file_transfer_status(
@@ -267,17 +258,9 @@ impl CollectionRegistry {
                 return Err(file_error("transfer_expired", "This file upload expired."));
             }
 
-            #[cfg(test)]
-            super::tests::file_io::record("snapshot_captures", 1);
-            let snapshot = collection.snapshot()?;
-            validate_target_path(
-                collection,
-                Path::new(&registered.path),
-                &snapshot,
-                &transfer.path,
-            )?;
+            validate_target_path(collection, Path::new(&registered.path), &transfer.path)?;
             if transfer.state == "open" {
-                self.reconcile_files_loaded(&registered, collection, &snapshot)?;
+                self.reconcile_file_target(&registered, collection, &transfer.path, None)?;
                 recheck_upload_intent(self, &transfer)?;
             }
             assert_upload_complete(self, &transfer)?;
@@ -314,22 +297,7 @@ impl CollectionRegistry {
                 ));
             }
 
-            #[cfg(test)]
-            super::tests::file_io::record("snapshot_captures", 1);
-            let after_snapshot = collection.snapshot()?;
-            let preferences = crate::registry::files::FileReconcilePreferences {
-                ids_by_path: HashMap::from([(transfer.path_key.clone(), transfer.file_id)]),
-                ..Default::default()
-            };
-            let files = self.reconcile_files_loaded_with_preferences(
-                &registered,
-                collection,
-                &after_snapshot,
-                &preferences,
-            )?;
-            let file = files
-                .into_iter()
-                .find(|file| file.file_id == transfer.file_id)
+            let file = self.reconcile_file_target(&registered, collection, &transfer.path, Some(transfer.file_id))?
                 .ok_or_else(|| {
                     file_error(
                         "file_commit_failed",
@@ -418,10 +386,7 @@ impl CollectionRegistry {
             return Ok(upload_session(&transfer, status.received));
         }
         let path_key = portable_path_key(&request.path);
-        let current = self
-            .indexed_files(registered.id)?
-            .into_iter()
-            .find(|file| portable_path_key(&file.path) == path_key);
+        let current = self.indexed_file_at_path(registered.id, &path_key)?;
         let file_id = match current {
             Some(current) => {
                 if current.path != request.path {
@@ -690,10 +655,7 @@ fn recheck_upload_intent(
     registry: &CollectionRegistry,
     transfer: &UploadTransfer,
 ) -> Result<(), ConnectError> {
-    let current = registry
-        .indexed_files(transfer.collection_id)?
-        .into_iter()
-        .find(|file| portable_path_key(&file.path) == transfer.path_key);
+    let current = registry.indexed_file_at_path(transfer.collection_id, &transfer.path_key)?;
     match (current, transfer.base_revision.as_deref()) {
         (Some(current), Some(base))
             if current.file_id == transfer.file_id && current.revision == base =>
@@ -732,7 +694,6 @@ fn chunk_count(total_size: u64, chunk_size: u32) -> u64 {
 fn validate_target_path(
     collection: &mdbase::Collection,
     root: &Path,
-    snapshot: &CollectionSnapshot,
     relative: &str,
 ) -> Result<(), ConnectError> {
     collection.validate_file_path(relative).map_err(|error| {
@@ -742,23 +703,6 @@ fn validate_target_path(
         )
     })?;
     let components = relative.split('/').collect::<Vec<_>>();
-    let managed = snapshot
-        .resources
-        .iter()
-        .map(|resource| portable_path_key(&resource.path))
-        .chain(
-            snapshot
-                .records
-                .iter()
-                .map(|record| portable_path_key(&record.path)),
-        )
-        .collect::<BTreeSet<_>>();
-    if managed.contains(&portable_path_key(relative)) {
-        return Err(file_error(
-            "path_occupied",
-            "The destination belongs to a record or structural resource.",
-        ));
-    }
     let mut directory = root.to_path_buf();
     for component in &components[..components.len().saturating_sub(1)] {
         directory.push(component);

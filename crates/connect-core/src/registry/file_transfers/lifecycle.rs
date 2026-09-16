@@ -51,17 +51,11 @@ impl CollectionRegistry {
                 .as_ref()
                 .map(|stored| serde_json::from_str::<MoveFileReceipt>(&stored.planned_receipt))
                 .transpose()?;
-            let snapshot = collection.snapshot()?;
             let preferences = planned.as_ref().map(move_preferences).unwrap_or_default();
             let files = if existing.is_some() {
-                self.reconcile_files_loaded_with_preferences(
-                    &registered,
-                    collection,
-                    &snapshot,
-                    &preferences,
-                )?
+                self.reconcile_files_loaded_with_preferences(&registered, collection, &preferences)?
             } else {
-                self.reconcile_files_loaded(&registered, collection, &snapshot)?
+                self.reconcile_files_loaded(&registered, collection)?
             };
             let current = files
                 .iter()
@@ -75,14 +69,7 @@ impl CollectionRegistry {
                 if current.revision != request.if_revision {
                     return Err(stale_file_revision());
                 }
-                validate_move_destination(
-                    collection,
-                    &registered,
-                    &snapshot,
-                    &files,
-                    current,
-                    &request.path,
-                )?;
+                validate_move_destination(collection, &registered, &files, current, &request.path)?;
                 let receipt = planned_move_receipt(request, current);
                 self.prepare_lifecycle_mutation(
                     id,
@@ -105,7 +92,6 @@ impl CollectionRegistry {
                 validate_move_destination(
                     collection,
                     &registered,
-                    &snapshot,
                     &files,
                     &current,
                     &request.path,
@@ -141,14 +127,8 @@ impl CollectionRegistry {
                 return Err(source_path_mismatch());
             }
 
-            let after_snapshot = collection.snapshot()?;
             let moved = self
-                .reconcile_files_loaded_with_preferences(
-                    &registered,
-                    collection,
-                    &after_snapshot,
-                    &preferences,
-                )?
+                .reconcile_files_loaded_with_preferences(&registered, collection, &preferences)?
                 .into_iter()
                 .find(|file| file.file_id == request.file_id && file.path == request.path)
                 .ok_or_else(|| {
@@ -198,17 +178,11 @@ impl CollectionRegistry {
                 .as_ref()
                 .map(|stored| serde_json::from_str::<DeleteFileReceipt>(&stored.planned_receipt))
                 .transpose()?;
-            let snapshot = collection.snapshot()?;
             let preferences = planned.as_ref().map(delete_preferences).unwrap_or_default();
             let files = if existing.is_some() {
-                self.reconcile_files_loaded_with_preferences(
-                    &registered,
-                    collection,
-                    &snapshot,
-                    &preferences,
-                )?
+                self.reconcile_files_loaded_with_preferences(&registered, collection, &preferences)?
             } else {
-                self.reconcile_files_loaded(&registered, collection, &snapshot)?
+                self.reconcile_files_loaded(&registered, collection)?
             };
             let current = files
                 .iter()
@@ -253,11 +227,9 @@ impl CollectionRegistry {
                 }
                 verify_open_path(&source, &path)?;
                 remove_file_if_present(&path)?;
-                let after_snapshot = collection.snapshot()?;
                 self.reconcile_files_loaded_with_preferences(
                     &registered,
                     collection,
-                    &after_snapshot,
                     &preferences,
                 )?;
             } else if existing.is_none() {
@@ -425,17 +397,11 @@ fn to_sql_conversion_error(error: ConnectError) -> rusqlite::Error {
 fn validate_move_destination(
     collection: &mdbase::Collection,
     registered: &CollectionSummary,
-    snapshot: &CollectionSnapshot,
     files: &[mdbase_connect_protocol::CollectionFileDescriptor],
     current: &mdbase_connect_protocol::CollectionFileDescriptor,
     destination: &str,
 ) -> Result<(), ConnectError> {
-    validate_target_path(
-        collection,
-        Path::new(&registered.path),
-        snapshot,
-        destination,
-    )?;
+    validate_target_path(collection, Path::new(&registered.path), destination)?;
     let target_key = portable_path_key(destination);
     if files
         .iter()
