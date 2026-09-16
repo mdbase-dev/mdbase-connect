@@ -57,6 +57,7 @@
     "package:consumer": "node scripts/pack-consumer-sdk.mjs",
     "check:consumer-artifacts": "node scripts/check-consumer-artifacts.mjs",
     "profile:connect": "cargo run --release -p mdbase-cli -- profile connect",
+    "profile:finalizer": "cargo test --locked --release -p mdbase-connect-core benchmark_finalizer_ -- --ignored --nocapture --test-threads=1",
     "profile:rs": "cargo run --release -p mdbase-cli -- profile engine --scenario queries",
     "profile:views:rs": "cargo run --release -p mdbase-cli -- profile engine --scenario views",
     "stress:prepare": "pnpm build:packages && pnpm --filter @mdbase/connect-server build",
