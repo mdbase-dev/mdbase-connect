@@ -61,8 +61,8 @@ ${image ? 'upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
         TAG: tag, NETWORK: network,
         EXPECTED_URL: historical
           ? "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/tags/v0.1.0-beta.95"
-          : "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=100",
-        METADATA: typeof metadata === "string" ? metadata : JSON.stringify(metadata ?? (historical ? release95 : [release101, release95])),
+          : "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/tags/v0.1.0-beta.101",
+        METADATA: typeof metadata === "string" ? metadata : JSON.stringify(metadata ?? (historical ? release95 : release101)),
         REFS: refs ?? annotated(tag, commit),
         INSPECTION: JSON.stringify(inspection ?? [{ Config: { Labels: {
           "org.opencontainers.image.source": "https://github.com/mdbase-dev/mdbase-connect",
@@ -78,25 +78,24 @@ ${image ? 'upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
   return { code, stderr, calls: await readFile(calls, "utf8").catch(() => "") };
 }
 
-test("ordinary predecessor verifies newest beta101 and its annotated origin tag", async (context) => {
+test("ordinary fixture verifies exact beta101 without consulting the mutable release inventory", async (context) => {
+  // The mock rejects every endpoint except the pinned tag. Publication of
+  // beta102 (or a hundred later releases) cannot affect this request/result.
   const result = await verify(context);
   assert.equal(result.code, 0, result.stderr);
-  assert.match(result.calls, /releases\?per_page=100\ngit\n$/);
-});
-
-test("ordinary qualification cannot substitute the historical beta95 pin for newest beta101", async (context) => {
-  const result = await verify(context, { override: 'source "$ROOT/.github/retained-v2-predecessor.env"' });
-  assert.equal(result.code, 1);
-  assert.match(result.stderr, /not the unique newest non-draft/);
-  assert.doesNotMatch(result.calls, /^git$/m);
+  assert.match(result.calls, /releases\/tags\/v0\.1\.0-beta\.101\ngit\n$/);
+  assert.doesNotMatch(result.calls, /releases\?/);
 });
 
 for (const [name, metadata] of [
-  ["older pin", [release95, release101]],
-  ["duplicate release", [release101, release101]],
-  ["draft only", [{ ...release101, draft: true }]],
-  ["missing release", []],
-  ["object instead of inventory", release101],
+  ["wrong tag", release95],
+  ["newer release substituted for pin", { ...release101, tag_name: "v0.1.0-beta.102" }],
+  ["release inventory instead of exact metadata", [release101, release95]],
+  ["draft", { ...release101, draft: true }],
+  ["missing release", {}],
+  ["unpublished", { ...release101, published_at: null }],
+  ["empty publication date", { ...release101, published_at: "" }],
+  ["invalid identity", { ...release101, id: "101" }],
   ["malformed JSON", "not-json"]
 ]) test(`ordinary predecessor rejects ${name}`, async (context) => {
   const result = await verify(context, { metadata });

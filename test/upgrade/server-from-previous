@@ -16,7 +16,7 @@ case ${1:-} in
   *) printf 'Usage: server-from-previous [--retained-v2-pending]\n' >&2; exit 2 ;;
 esac
 
-# The immediate predecessor is independent of the immutable beta95 regression.
+# The versioned upgrade fixture is independent of the immutable beta95 regression.
 # shellcheck disable=SC1091
 source "$repo_root/.github/previous-release.env"
 
