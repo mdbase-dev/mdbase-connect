@@ -55,9 +55,9 @@ components.
 `.github/previous-release.env` identifies the immediate published predecessor.
 Update its annotated tag, full commit and immutable server/provider digests as
 part of release preparation; ordinary upgrade qualification still requires it to
-be the unique newest non-draft GitHub release. Following beta100 publication,
-qualification uses beta100 (`6bd9420690295d3c5f65e68edcbf8e3e55612614`) and its
-exact signed server/provider images. Advancing this fixture preserves the
+be the unique newest non-draft GitHub release. Following beta102 publication,
+qualification uses beta102 (`ea65ae4f13d0e0621fe9654618e13b505cdebf21`) and its
+exact signed server/provider images from verified publication run `35059159880`. Advancing this fixture preserves the
 unique-newest-release check; the retained beta95 and beta94 lanes do not move. This fixture refresh does not itself publish or deploy a release.
 
 Historical regressions and candidate qualification are separate. The beta94
