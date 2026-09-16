@@ -67,6 +67,8 @@ deployed predecessor. The actual deployment pair remains independently bound
 and qualified by private release preparation and staging below. The retained
 beta95 and beta94 lanes do not move. A fixture refresh itself neither publishes
 nor deploys a release.
+The current fixture is beta102 (`ea65ae4f13d0e0621fe9654618e13b505cdebf21`),
+with server/provider images from verified publication run `35059159880`.
 
 Historical regressions and candidate qualification are separate. The beta94
 schema-38→41 prelude and beta95 retained-v2 provider rollback scenarios use the

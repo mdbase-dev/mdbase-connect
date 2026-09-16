@@ -177,7 +177,7 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
     );
     if (
       this.mode === "read_only"
-      && local.issues.some((issue) => issue.code === "invalid_frontmatter")
+      && local.issues.some((issue) => issue.code === "invalid_frontmatter" && issue.blocking)
     ) return this.inspectSnapshot("rebuild", state);
     return this.finish({
       kind: "incremental",
@@ -347,7 +347,7 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
           code: "invalid_frontmatter",
           message: `Invalid frontmatter (${structural.outcome}).`,
           path,
-          blocking: true
+          blocking: false
         });
       }
     }
