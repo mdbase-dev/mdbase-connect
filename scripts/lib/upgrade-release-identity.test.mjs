@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 const execute = promisify(execFile);
 const root = resolve(import.meta.dirname, "../..");
 const beta95 = "408c67bc10f128e0833f0da62cb3efb9d94657d7";
-const beta101 = "ea65ae4f13d0e0621fe9654618e13b505cdebf21";
+const beta102 = "ea65ae4f13d0e0621fe9654618e13b505cdebf21";
 const release95 = { id: 95, tag_name: "v0.1.0-beta.95", draft: false, published_at: "2026-09-08T00:00:00Z" };
 const release101 = { ...release95, id: 101, tag_name: "v0.1.0-beta.102" };
 const annotated = (tag, commit) => `${"a".repeat(40)}\trefs/tags/${tag}\n${commit}\trefs/tags/${tag}^{}\n`;
@@ -42,7 +42,7 @@ printf '%s' \"$INSPECTION\"
   };
   for (const [name, content] of Object.entries(scripts)) await writeFile(join(bin, name), content, { mode: 0o700 });
   const tag = historical ? release95.tag_name : release101.tag_name;
-  const commit = historical ? beta95 : beta101;
+  const commit = historical ? beta95 : beta102;
   const calls = join(work, "calls");
   const pin = historical ? "retained-v2-predecessor.env" : "previous-release.env";
   const verifier = historical ? "upgrade_verify_retained_v2_release" : "upgrade_verify_previous_release";
@@ -78,13 +78,13 @@ ${image ? 'upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
   return { code, stderr, calls: await readFile(calls, "utf8").catch(() => "") };
 }
 
-test("ordinary predecessor verifies newest beta101 and its annotated origin tag", async (context) => {
+test("ordinary predecessor verifies newest beta102 and its annotated origin tag", async (context) => {
   const result = await verify(context);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.calls, /releases\?per_page=100\ngit\n$/);
 });
 
-test("ordinary qualification cannot substitute the historical beta95 pin for newest beta101", async (context) => {
+test("ordinary qualification cannot substitute the historical beta95 pin for newest beta102", async (context) => {
   const result = await verify(context, { override: 'source "$ROOT/.github/retained-v2-predecessor.env"' });
   assert.equal(result.code, 1);
   assert.match(result.stderr, /not the unique newest non-draft/);
@@ -106,7 +106,7 @@ for (const [name, metadata] of [
 
 for (const historical of [false, true]) {
   const tag = historical ? release95.tag_name : release101.tag_name;
-  const commit = historical ? beta95 : beta101;
+  const commit = historical ? beta95 : beta102;
   for (const [name, refs] of [
     ["wrong peeled commit", annotated(tag, "b".repeat(40))],
     ["lightweight tag", `${commit}\trefs/tags/${tag}\n`],
