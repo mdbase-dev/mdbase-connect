@@ -95,16 +95,22 @@ impl CollectionRegistry {
             let mut persisted = Vec::new();
             loop {
                 let page = executor.read_change_events(None, &context)?;
-                let Some(event) = page.events.into_iter().next() else {
+                if page.events.is_empty() {
                     return Ok(persisted);
-                };
-                let events = runtime_watch_events(runtime.as_ref(), &event, &context)?;
-                let receipt_key = runtime_change_receipt_key(collection_id, &event);
-                let (events, cursors) =
-                    self.append_runtime_change(collection_id, &receipt_key, &event, &events)?;
-                executor.ack_change_events(event.identity.watermark, &context)?;
-                self.delete_runtime_change_receipt(&receipt_key)?;
-                persisted.extend(events.into_iter().zip(cursors));
+                }
+                // Consume the entire owned page before fetching again. Acknowledging
+                // one event does not invalidate the remaining events in this page.
+                for event in page.events {
+                    let events = runtime_watch_events(runtime.as_ref(), &event, &context)?;
+                    let receipt_key = runtime_change_receipt_key(collection_id, &event);
+                    let (events, cursors) =
+                        self.append_runtime_change(collection_id, &receipt_key, &event, &events)?;
+                    // Keep settlement per event: never acknowledge later events
+                    // if persistence, acknowledgement, or cleanup of this one fails.
+                    executor.ack_change_events(event.identity.watermark, &context)?;
+                    self.delete_runtime_change_receipt(&receipt_key)?;
+                    persisted.extend(events.into_iter().zip(cursors));
+                }
             }
         })
     }
@@ -360,6 +366,9 @@ fn runtime_context(
 ) -> mdbase::runtime::OperationContext {
     operation_context(cancellation)
 }
+
+#[cfg(test)]
+mod performance_tests;
 
 #[cfg(test)]
 mod tests {

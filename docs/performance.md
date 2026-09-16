@@ -52,6 +52,52 @@ exits. Records, configuration, and types are never mutated; the collection's
 internal `.mdbase` query cache may be refreshed as it would be by a normal
 query.
 
+## Synthetic finalizer and multi-collection workloads
+
+```bash
+pnpm profile:finalizer
+MDBASE_FINALIZER_BENCH_ROUNDS=5 pnpm profile:finalizer
+# Or select one workload directly:
+cargo test --locked --release -p mdbase-connect-core benchmark_finalizer_backlog \
+  -- --ignored --nocapture --test-threads=1
+```
+
+These opt-in Rust tests create temporary collections; they do not use LAB, a
+running daemon, or a real vault. Fixture creation and backlog generation are
+outside the measured intervals. The sibling `mdbase-rs` checkout must match
+`deploy/docker/mdbase-rs-revision`.
+
+Each `FINALIZER_BENCH` line contains a payload-free JSON sample:
+
+- **Backlog drain:** 1, 256, 257, and 1,024 provider events. Reports elapsed time,
+  throughput, feed-read calls, and events loaded. External writes are reconciled
+  individually during setup to produce deterministic event counts without
+  exceeding the engine's 128-unacknowledged-mutation capacity.
+- **Serial multi-collection drain:** a 257-event collection followed by a
+  one-event collection. Reports both service times and the small collection's
+  completion latency, including its wait behind the backlog. This models the
+  finalizer's serial drain order, not transport or notification-delivery latency.
+- **Idle poll work:** twenty ingestion passes over one or eight resident
+  collections. Reports work time without the 50 ms sleeps; this is not a CPU
+  utilization measurement or a full daemon-idle benchmark.
+- **Cold-open interference:** 100 reads of a warm collection, first alone and
+  then racing a cold query over 2,000 records in another collection. Reports
+  aggregate warm-read times, contended p95/max, and cold-query latency. The
+  barrier aligns worker starts but does not guarantee a particular lock order;
+  compare repeated rounds rather than treating one run as proof of contention.
+
+Timings are observations, not machine-dependent pass/fail gates. Backlog and
+multi-collection workloads also assert exact event ordering, counts, and bounded
+feed reads: `ceil(events / 256) + 1` reads, loading each event once. Ordinary
+(non-ignored) tests cover a page boundary and failure halfway through a page,
+including retry without skipping or duplicating durable changes. Read-work
+counters exist only in test builds.
+
+Keep raw samples with `git rev-parse HEAD`, `git -C ../mdbase-rs rev-parse HEAD`,
+any candidate diff, `rustc -Vv`, and CPU/storage details when comparing runs.
+Use the same optimized build, workload, filesystem, and host for before/after
+comparisons. The existing read-only `profile connect` command is unchanged.
+
 ## Live agent timings
 
 Enable payload-free request timings while running the normal local agent:
