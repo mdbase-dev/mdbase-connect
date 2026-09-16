@@ -599,7 +599,7 @@ jobs:
 
   headless-package-smoke:
     needs: select-tests
-    if: always() && (github.event_name == 'workflow_dispatch' || (needs.select-tests.result == 'success' && needs.select-tests.outputs.headless == 'true'))
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (needs.select-tests.result == 'success' && needs.select-tests.outputs.headless == 'true')) }}
     name: ${{ matrix.label }}
     permissions:
       contents: read
@@ -726,7 +726,7 @@ jobs:
 
   windows-package-smoke:
     needs: select-tests
-    if: always() && (github.event_name == 'workflow_dispatch' || (needs.select-tests.result == 'success' && needs.select-tests.outputs.windows == 'true'))
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (needs.select-tests.result == 'success' && needs.select-tests.outputs.windows == 'true')) }}
     name: Windows Store package smoke test
     runs-on: windows-2025
     permissions:
