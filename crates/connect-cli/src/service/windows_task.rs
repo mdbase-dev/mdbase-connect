@@ -1,6 +1,30 @@
 //! Windows task definitions must scope the logon trigger as well as the
 //! execution principal. An unscoped ONLOGON trigger requires administrator rights.
 
+/// Scheduler chatter is not CLI output: in particular, `--json` callers parse
+/// the entire stdout stream. Capture both pipes and retain diagnostics on error.
+#[cfg(windows)]
+pub(super) fn run(command: &mut std::process::Command, action: &str) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    let output = command
+        .output()
+        .map_err(|error| format!("Could not {action}: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Err(format!(
+        "Could not {action}: command exited with {}.\n{}\n{}",
+        output.status.code().unwrap_or(-1),
+        stderr.trim(),
+        stdout.trim(),
+    )
+    .trim()
+    .to_string())
+}
+
 pub(super) fn definition(executable: &str, state_dir: &str, sid: &str) -> Vec<u8> {
     // The Windows command-line parser consumes backslashes before a closing
     // quote. Preserve a root/trailing separator in the quoted state directory.
@@ -117,6 +141,24 @@ pub(super) fn current_user_sid() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn scheduler_errors_retain_exit_code_and_diagnostics() {
+        let error = run(
+            std::process::Command::new("cmd.exe").args([
+                "/D",
+                "/C",
+                "echo task detail & echo Access is denied 1>&2 & exit /b 5",
+            ]),
+            "install the Connect background task",
+        )
+        .unwrap_err();
+        assert!(error.contains("Could not install the Connect background task"));
+        assert!(error.contains("command exited with 5"));
+        assert!(error.contains("Access is denied"));
+        assert!(error.contains("task detail"));
+    }
 
     fn xml(executable: &str, state_dir: &str, sid: &str) -> String {
         let bytes = definition(executable, state_dir, sid);
