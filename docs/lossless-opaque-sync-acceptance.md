@@ -30,7 +30,11 @@ The YAML parser's default duplicate-key rejection is retained and tested.
   diagnostic prose incorrectly described every warning as a pause. A separate
   consumer branch updates that prose, tests nonblocking reviews, and preserves
   BOMs in its Vault adapter. Its release pin must not move to an unpublished
-  npm version.
+  npm version. Immutable artifacts from commit `478353d28bb0` pass all 96
+  Obsidian unit tests, TypeScript/build and unchanged mobile budgets, plus eight
+  strict exact round trips through the Obsidian adapter and reference authority.
+  The same strict check fails against released beta.91 with seven YAML blockers.
+  Its released dependencies and generated bundle were restored afterward.
 - `tasknotes-app` only pins `connect-sync` as an immutable SDK override; no direct
   directory-mirror or `local_issues` consumer was found in its application code.
 - Desktop renderer status is owned by the Rust mirror, not this JavaScript SDK
@@ -43,7 +47,8 @@ are reused; unsupported older engine layouts remain rejected as before.
 
 Node 24.19.0 / pnpm 11.15.1:
 
-- `pnpm typecheck`: all workspaces pass.
+- `pnpm typecheck`: all workspaces pass. The guarded consumer-artifact packaging
+  command also completed a full `pnpm -r build`.
 - `pnpm --filter @mdbase-dev/connect-sync test`: 193 tests pass.
 - `pnpm --filter '!@mdbase/connect-desktop' -r test`: passes, including server
   (582 passed, 35 intentionally skipped) and editor (473 passed).
