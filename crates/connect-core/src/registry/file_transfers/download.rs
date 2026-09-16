@@ -52,16 +52,12 @@ impl CollectionRegistry {
         // The snapshot copy below re-verifies the selected file's exact size and
         // digest before any bytes are released, so a stale inventory still fails
         // closed with file_changed_during_read.
-        let descriptor = self
-            .indexed_files(id)?
-            .into_iter()
-            .find(|file| file.file_id == request.file_id)
-            .ok_or_else(|| {
-                file_error(
-                    "file_revision_not_found",
-                    "The requested file revision is no longer available locally.",
-                )
-            })?;
+        let descriptor = self.indexed_file(id, request.file_id)?.ok_or_else(|| {
+            file_error(
+                "file_revision_not_found",
+                "The requested file revision is no longer available locally.",
+            )
+        })?;
         match self.indexed_file_location(&registered, descriptor.file_id)? {
             super::super::files::IndexedFileLocation::Current => {}
             super::super::files::IndexedFileLocation::Moved(path) => {
@@ -333,11 +329,30 @@ fn copy_verified_download(
 ) -> Result<(), ConnectError> {
     let mut source_file = open_verified_file(source, false)?;
     let mut staging_file = open_verified_file(staging, true)?;
-    let copied = std::io::copy(&mut source_file, &mut staging_file)?;
+    let mut digest = Sha256::new();
+    let mut copied = 0_u64;
+    let mut buffer = [0_u8; 128 * 1024];
+    loop {
+        let length = source_file.read(&mut buffer)?;
+        if length == 0 {
+            break;
+        }
+        copied = copied.checked_add(length as u64).ok_or_else(|| {
+            file_error(
+                "file_changed_during_read",
+                "The requested file grew during download preparation.",
+            )
+        })?;
+        if copied > expected_size {
+            break;
+        }
+        staging_file.write_all(&buffer[..length])?;
+        digest.update(&buffer[..length]);
+    }
     staging_file.sync_all()?;
     verify_open_path(&source_file, source)?;
     verify_open_path(&staging_file, staging)?;
-    if copied != expected_size || hash_exact_file(staging, expected_size)? != expected_digest {
+    if copied != expected_size || format!("sha256:{:x}", digest.finalize()) != expected_digest {
         return Err(file_error(
             "file_changed_during_read",
             "The requested file changed while its download was being prepared.",

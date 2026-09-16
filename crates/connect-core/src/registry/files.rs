@@ -334,6 +334,20 @@ impl CollectionRegistry {
         self.reconcile_observed_files(registered.id, &observed, preferences, observed_generation)
     }
 
+    pub(super) fn indexed_file(
+        &self,
+        id: Uuid,
+        file_id: Uuid,
+    ) -> Result<Option<CollectionFileDescriptor>, ConnectError> {
+        Ok(query_indexed_files(
+            &self.connection()?,
+            "collection_id = ?1 AND file_id = ?2",
+            params![id.to_string(), file_id.to_string()],
+        )?
+        .remove(&file_id)
+        .map(|file| file.descriptor))
+    }
+
     pub fn indexed_files(&self, id: Uuid) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
         let connection = self.connection()?;
         Ok(read_indexed_files(&connection, id)?
@@ -350,12 +364,16 @@ impl CollectionRegistry {
         registered: &CollectionSummary,
         file_id: Uuid,
     ) -> Result<IndexedFileLocation, ConnectError> {
-        let indexed = read_indexed_files(&self.connection()?, registered.id)?
-            .remove(&file_id)
-            .ok_or_else(|| ConnectError::File {
-                code: "file_revision_not_found".to_string(),
-                message: "The requested file revision is no longer available locally.".to_string(),
-            })?;
+        let indexed = query_indexed_files(
+            &self.connection()?,
+            "collection_id = ?1 AND file_id = ?2",
+            params![registered.id.to_string(), file_id.to_string()],
+        )?
+        .remove(&file_id)
+        .ok_or_else(|| ConnectError::File {
+            code: "file_revision_not_found".to_string(),
+            message: "The requested file revision is no longer available locally.".to_string(),
+        })?;
         let indexed_path = Path::new(&registered.path).join(&indexed.descriptor.path);
         if fs::symlink_metadata(&indexed_path).is_ok_and(|metadata| {
             metadata.is_file()
@@ -788,12 +806,25 @@ fn read_indexed_files(
     connection: &Connection,
     collection_id: Uuid,
 ) -> Result<BTreeMap<Uuid, IndexedFile>, ConnectError> {
-    let mut statement = connection.prepare(
+    query_indexed_files(
+        connection,
+        "collection_id = ?1 ORDER BY path_key",
+        params![collection_id.to_string()],
+    )
+}
+
+fn query_indexed_files(
+    connection: &Connection,
+    predicate: &str,
+    values: impl rusqlite::Params,
+) -> Result<BTreeMap<Uuid, IndexedFile>, ConnectError> {
+    // Predicates are fixed internal SQL; all request values remain bound parameters.
+    let mut statement = connection.prepare(&format!(
         "SELECT file_id, path, path_key, revision, content_digest, size,
                 media_type, media_class, modified_at, physical_device, physical_file
-         FROM collection_files WHERE collection_id = ?1 ORDER BY path_key",
-    )?;
-    let rows = statement.query_map([collection_id.to_string()], |row| {
+         FROM collection_files WHERE {predicate}"
+    ))?;
+    let rows = statement.query_map(values, |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
