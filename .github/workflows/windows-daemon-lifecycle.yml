@@ -3,10 +3,11 @@ name: Windows daemon lifecycle
 on:
   workflow_call:
   push:
-    branches: [investigate/428-windows-startup]
+    branches: [investigate/428-windows-startup, fix/428-windows-lifecycle-contract]
     paths:
       - .github/workflows/windows-daemon-lifecycle.yml
       - scripts/diagnostics/windows-428.ps1
+      - scripts/diagnostics/windows-cli-lifecycle.mjs
       - scripts/diagnostics/windows-service-probe/**
       - crates/connect-cli/src/service.rs
       - crates/connect-cli/src/service/**
@@ -16,6 +17,44 @@ permissions:
   contents: read
 
 jobs:
+  cli-contract:
+    name: Windows actual CLI JSON lifecycle
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mdbase-connect
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: mdbase-connect
+          persist-credentials: false
+      - id: engine
+        shell: bash
+        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: callumalpass/mdbase-rs
+          ref: ${{ steps.engine.outputs.revision }}
+          path: mdbase-rs
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Build the current CLI (not the service probe)
+        shell: pwsh
+        run: |
+          cargo build --locked -p mdbase-cli
+          if ($LASTEXITCODE -ne 0) { throw 'CLI build failed.' }
+      - name: Exercise the desktop JSON subprocess contract
+        run: node scripts/diagnostics/windows-cli-lifecycle.mjs target/debug/mdbase.exe
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: issue428-cli-contract
+          path: mdbase-connect/.artifacts/issue428/cli-contract.json
+          if-no-files-found: warn
+
   qualify:
     name: Windows ${{ matrix.scenario }}
     runs-on: windows-2025
