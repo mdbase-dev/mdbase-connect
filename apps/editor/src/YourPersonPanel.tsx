@@ -12,6 +12,10 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit }: {
   canCreate: boolean;
   canEdit: boolean;
 }) {
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (location.hash === "#your-person") panel.current?.focus();
+  }, []);
   const [identity, setIdentity] = useState<AccountProfile>();
   const [records, setRecords] = useState<Person[]>();
   const [linked, setLinked] = useState<Person>();
@@ -112,7 +116,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit }: {
     if (!lifecycle.current?.signal.aborted) { setCreating(false); setRevision((value) => value + 1); }
   }
 
-  return <section aria-label="Your person record">
+  return <section ref={panel} id="your-person" tabIndex={-1} aria-label="Your person record">
     <div className="settings-intro"><h2>Your person record</h2><p>Represent yourself using an ordinary note in this collection. This does not change access or membership.</p></div>
     {error && <p role="alert">{error}</p>}
     {!records && !error && <p role="status">Loading your identity and person records…</p>}

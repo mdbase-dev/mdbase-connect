@@ -1020,6 +1020,30 @@ describe("mdbase editor", () => {
     expect(events.indexOf("complete")).toBeLessThan(events.indexOf("describe"));
   });
 
+  it("opens person settings after the SDK restores the authorization return URL", async () => {
+    const previousUrl = location.href;
+    history.replaceState(null, "", "/?code=callback&state=callback");
+    const gateway = new DemoCollectionGateway(1);
+    const callbackGateway = Object.create(gateway) as CollectionGateway;
+    callbackGateway.onSessionChange = vi.fn(() => () => undefined);
+    callbackGateway.currentIdentity = vi.fn(async () => ({ issuer: "https://connect.example", subject: "self", name: "Me" }));
+    callbackGateway.startSession = vi.fn(async () => {
+      // Redirect callbacks initially mount at the registered root. The SDK
+      // restores the stored same-origin return URL before publishing readiness.
+      await Promise.resolve();
+      history.replaceState(null, "", "/?collection=demo&surface=settings#your-person");
+      return gateway.sessionSnapshot();
+    });
+    try {
+      render(<App gateway={callbackGateway} />);
+      expect(await screen.findByRole("heading", { name: "Your person record" })).toBeInTheDocument();
+      expect(screen.getByRole("main", { name: "Editor settings" })).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Your person record" })).toHaveFocus();
+    } finally {
+      history.replaceState(null, "", previousUrl);
+    }
+  });
+
   it("offers an explicit retry for startup failure", async () => {
     const gateway = new DemoCollectionGateway(1);
     const lifecycle = Object.create(gateway) as CollectionGateway;
