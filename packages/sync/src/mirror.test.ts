@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MemoryAuthority, type SyncTransport } from "./index.js";
-import { documentRevision } from "./mirror-format.js";
+import { classifyLocalRecord, documentRevision } from "./mirror-format.js";
 import { SyncError } from "./sync-error.js";
 import {
   DirectoryMirror,
@@ -1350,9 +1350,11 @@ describe("platform-neutral directory mirror", () => {
     await expect(mirror.status()).resolves.toMatchObject({ state: "up_to_date" });
   });
 
-  it("fences invalid local records with valid siblings until repair", async () => {
+  it("syncs malformed frontmatter exactly with valid siblings, but fences invalid UTF-8", async () => {
     const invalidCases: Array<[string, string | Uint8Array, string]> = [
       ["broken.md", "---\nbroken: [\n---\nBody", "invalid_yaml"],
+      ["bom.md", "\uFEFF---\r\nbroken: [\r\n---\r\nBody\r\n", "invalid_yaml"],
+      ["no-newline.md", "---\nbroken: [\n---", "invalid_yaml"],
       ["duplicate.md", "---\na: 1\na: 2\n---\nBody", "invalid_yaml"],
       ["scalar.md", "---\nhello\n---\nBody", "non_mapping_frontmatter"],
       ["null.md", "---\nnull\n---\nBody", "non_mapping_frontmatter"],
@@ -1373,20 +1375,42 @@ describe("platform-neutral directory mirror", () => {
         runtime: deterministicRuntime()
       });
 
-      const blocked = await mirror.inspect();
-      expect(blocked.actions).toEqual([]);
-      expect(blocked.issues).toEqual(expect.arrayContaining([
-        expect.objectContaining({ code: "invalid_frontmatter", path, message: expect.stringContaining(reason) })
+      const plan = await mirror.inspect();
+      expect(plan.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "invalid_frontmatter", path, blocking: typeof invalid !== "string" })
       ]));
+      if (typeof invalid === "string") {
+        expect(classifyLocalRecord(invalid).outcome).toBe(reason);
+        expect(plan.summary.blocking_issues).toBe(0);
+        expect(plan.summary.uploads).toBe(2);
+        await expect(mirror.apply(plan)).resolves.toMatchObject({ status: "applied" });
+      } else {
+        expect(plan.actions).toEqual([]);
+      }
       await expect(mirror.status()).resolves.toMatchObject({
         state: "attention",
         local_issues: [expect.objectContaining({ code: "invalid_frontmatter", path })]
       });
       expect(typeof invalid === "string" ? fileSystem.files.get(path) : fileSystem.rawFiles.get(path))
         .toEqual(invalid);
-      expect((await hosted.transport(replicaId).snapshot(
+      const uploaded = (await hosted.transport(replicaId).snapshot(
         (await hosted.transport(replicaId).openSession()).snapshot_id
-      )).records).toEqual([]);
+      )).records;
+      if (typeof invalid === "string") {
+        expect(uploaded.find((record) => record.path === path)?.document).toBe(invalid);
+        expect(uploaded.find((record) => record.path === "valid.md")?.document).toBe("# Valid body-only note");
+        const receiverId = hosted.registerReplica({ name: "Opaque receiver", mode: "read_only" });
+        const receiverFiles = new TestFileSystem();
+        const receiver = new DirectoryMirror(receiverId, hosted.transport(receiverId), {
+          fileSystem: receiverFiles, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+        });
+        await receiver.sync();
+        expect(receiverFiles.files.get(path)).toBe(invalid);
+        expect((await receiver.inspect()).summary.blocking_issues).toBe(0);
+        expect((await receiver.inspect()).actions).toEqual([]);
+      } else {
+        expect(uploaded).toEqual([]);
+      }
 
       fileSystem.rawFiles.delete(path);
       fileSystem.files.set(path, "# Fixed body-only note");
@@ -1402,7 +1426,7 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
-  it("fences a malformed managed file before resuming normal conflict handling", async () => {
+  it.each(["local", "remote"] as const)("resolves an opaque conflict by keeping %s without requiring YAML repair", async (resolution) => {
     const hosted = new MemoryAuthority();
     hosted.seed([{
       record_id: "managed",
@@ -1443,34 +1467,25 @@ describe("platform-neutral directory mirror", () => {
     expect(fileSystem.files.get("managed.md")).toBe(malformed);
     await expect(mirror.status()).resolves.toMatchObject({
       state: "attention",
-      conflicts: [],
-      local_issues: [{ code: "invalid_frontmatter", path: "managed.md" }]
-    });
-
-    fileSystem.files.set("managed.md", "# Repaired local body");
-    await mirror.sync();
-    await expect(mirror.status()).resolves.toMatchObject({
-      state: "attention",
       conflicts: [{ entity: "record", object_id: "managed", kind: "conflicted" }],
-      local_issues: []
+      local_issues: [{ code: "invalid_frontmatter", path: "managed.md" }]
     });
 
     await mirror.resolveConflict(
       "managed",
       (await mirror.status()).conflicts[0]!.decision_id,
-      "local"
+      resolution
     );
     await mirror.sync();
     const session = await hosted.transport(replicaId).openSession();
     const snapshot = await hosted.transport(replicaId).snapshot(session.snapshot_id);
-    expect(snapshot.records.find((record) => record.record_id === "managed")).toMatchObject({
-      frontmatter: {},
-      body: "# Repaired local body"
-    });
+    const expected = resolution === "local" ? malformed : "---\ntitle: Remote\n---\n\nRemote body";
+    expect(snapshot.records.find((record) => record.record_id === "managed")?.document).toBe(expected);
+    expect(fileSystem.files.get("managed.md")).toBe(expected);
     await expect(mirror.status()).resolves.toMatchObject({
-      state: "up_to_date",
+      state: resolution === "local" ? "attention" : "up_to_date",
       conflicts: [],
-      local_issues: []
+      local_issues: resolution === "local" ? [{ code: "invalid_frontmatter", path: "managed.md" }] : []
     });
   });
 
@@ -1522,7 +1537,7 @@ describe("platform-neutral directory mirror", () => {
 
     const blocked = await mirror.inspect();
     expect(blocked.issues).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "invalid_frontmatter", path: "invalid.md", blocking: true }),
+      expect.objectContaining({ code: "invalid_frontmatter", path: "invalid.md", blocking: false }),
       expect.objectContaining({ code: "file_read_failed", path: "eio.md", blocking: true })
     ]));
     expect(blocked.actions).toEqual([]);
@@ -1531,9 +1546,7 @@ describe("platform-neutral directory mirror", () => {
 
   it("repairs authority records over exactly sealed invalid receive-only bytes", async () => {
     const invalidCases: Array<[string, string | Uint8Array]> = [
-      ["invalid UTF-8", Uint8Array.from([0x62, 0x61, 0x64, 0xff])],
-      ["invalid YAML", "---\na: [broken\n---\n"],
-      ["nonmapping", "---\n- item\n---\n"]
+      ["invalid UTF-8", Uint8Array.from([0x62, 0x61, 0x64, 0xff])]
     ];
     for (const [label, invalid] of invalidCases) {
       const hosted = new MemoryAuthority();
@@ -1593,8 +1606,9 @@ describe("platform-neutral directory mirror", () => {
       runtime: deterministicRuntime()
     });
     await mirror.sync();
-    const invalid = "---\na: [broken\n---\n";
-    fileSystem.files.set("managed.md", invalid);
+    const invalid = Uint8Array.from([0xff]);
+    fileSystem.files.delete("managed.md");
+    fileSystem.rawFiles.set("managed.md", invalid);
     const plan = await mirror.inspect();
     const stateBefore = await stateStore.read();
     const writesBefore = fileSystem.writes;
@@ -1609,7 +1623,7 @@ describe("platform-neutral directory mirror", () => {
       failure: { code: "sync_plan_stale" }
     });
     expect(fileSystem.writes).toBe(writesBefore);
-    expect(fileSystem.files.get("managed.md")).toBe(invalid);
+    expect(fileSystem.rawFiles.get("managed.md")).toEqual(invalid);
     expect(await stateStore.read()).toEqual(stateBefore);
     expect(hosted.serialize().receipts).toEqual([]);
   });
@@ -1626,8 +1640,9 @@ describe("platform-neutral directory mirror", () => {
       runtime: deterministicRuntime()
     });
     await mirror.sync();
-    const invalid = "---\na: [broken\n---\n";
-    fileSystem.files.set("managed.md", invalid);
+    const invalid = Uint8Array.from([0xff]);
+    fileSystem.files.delete("managed.md");
+    fileSystem.rawFiles.set("managed.md", invalid);
     const plan = await mirror.inspect();
     const stateBefore = await stateStore.read();
     const writesBefore = fileSystem.writes;
@@ -1642,7 +1657,7 @@ describe("platform-neutral directory mirror", () => {
       failure: { code: "sync_revalidation_failed", message: "programmer bug" }
     });
     expect(fileSystem.writes).toBe(writesBefore);
-    expect(fileSystem.files.get("managed.md")).toBe(invalid);
+    expect(fileSystem.rawFiles.get("managed.md")).toEqual(invalid);
     expect(await stateStore.read()).toEqual(stateBefore);
     expect(hosted.serialize().receipts).toEqual([]);
   });
@@ -1687,12 +1702,13 @@ describe("platform-neutral directory mirror", () => {
       runtime: deterministicRuntime()
     });
     await mirror.sync();
-    fileSystem.files.set("managed.md", "---\na: [broken\n---\n");
+    fileSystem.files.delete("managed.md");
+    fileSystem.rawFiles.set("managed.md", Uint8Array.from([0xff]));
     const plan = await mirror.inspect();
-    const concurrent = "---\na: [different\n---\n";
-    fileSystem.files.set("managed.md", concurrent);
+    const concurrent = Uint8Array.from([0xfe]);
+    fileSystem.rawFiles.set("managed.md", concurrent);
     await expect(mirror.apply(plan)).resolves.toMatchObject({ status: "stale" });
-    expect(fileSystem.files.get("managed.md")).toBe(concurrent);
+    expect(fileSystem.rawFiles.get("managed.md")).toEqual(concurrent);
 
     fileSystem.readFailures.set("managed.md", Object.assign(new Error("EIO"), { code: "EIO" }));
     const failed = await mirror.inspect();
@@ -1705,7 +1721,7 @@ describe("platform-neutral directory mirror", () => {
     expect(hosted.serialize().receipts).toEqual([]);
   });
 
-  it("fences receive-only downloads and checkpointing on an invalid local record", async () => {
+  it("fences receive-only divergence even when its document is opaque", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed([{ record_id: "remote", path: "remote.md", frontmatter: {}, body: "Remote", types: [] }]);
     const replicaId = hosted.registerReplica({ name: "Receiver", mode: "read_only" });
@@ -1722,6 +1738,150 @@ describe("platform-neutral directory mirror", () => {
     await mirror.sync();
     expect(fileSystem.files.get("remote.md")).toBeUndefined();
     expect(await stateStore.read()).toBeNull();
+  });
+
+  it("preserves opaque documents across updates, moves and deletes on a second mirror", async () => {
+    const hosted = new MemoryAuthority();
+    const writerId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+    const readerId = hosted.registerReplica({ name: "Reader", mode: "read_only" });
+    const source = new TestFileSystem();
+    const destination = new TestFileSystem();
+    const writer = new WritableDirectoryMirror(writerId, hosted.transport(writerId), {
+      fileSystem: source, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+    });
+    const reader = new DirectoryMirror(readerId, hosted.transport(readerId), {
+      fileSystem: destination, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+    });
+    const original = "---\na: [broken\n---\n\nOriginal\r\n";
+    const updated = "---\n- nonmapping\n---\n\nUpdated without final newline";
+    source.files.set("opaque.md", original);
+    await writer.sync();
+    await reader.sync();
+    expect(destination.files.get("opaque.md")).toBe(original);
+    source.files.set("opaque.md", updated);
+    await writer.sync();
+    await reader.sync();
+    expect(destination.files.get("opaque.md")).toBe(updated);
+    await source.move("opaque.md", "moved.md");
+    expect((await writer.inspect()).actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ command: "move_remote" })
+    ]));
+    await writer.sync();
+    await reader.sync();
+    expect(destination.files.has("opaque.md")).toBe(false);
+    expect(destination.files.get("moved.md")).toBe(updated);
+    await source.remove("moved.md");
+    await writer.sync();
+    await reader.sync();
+    expect(destination.files.has("moved.md")).toBe(false);
+    expect((await reader.inspect()).summary.blocking_issues).toBe(0);
+  });
+
+  it("replays a lost opaque-upload receipt after restart without duplicating records", async () => {
+    const hosted = new MemoryAuthority();
+    const replicaId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const source = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const document = "---\na: [broken\n---\nExact recovery bytes\n";
+    source.files.set("opaque.md", document);
+    source.files.set("valid.md", "A valid sibling\n");
+    let loseReply = true;
+    const unreliable: SyncTransport = {
+      ...transport,
+      mutate: async (mutation) => {
+        const receipt = await transport.mutate(mutation);
+        if (loseReply && mutation.path === "opaque.md") {
+          loseReply = false;
+          throw new Error("Injected reply loss after authority commit");
+        }
+        return receipt;
+      }
+    };
+    const mirror = new WritableDirectoryMirror(replicaId, unreliable, {
+      fileSystem: source, stateStore, runtime: deterministicRuntime()
+    });
+    expect((await mirror.sync()).status).toBe("failed");
+    expect((await stateStore.read())?.batch).toBeDefined();
+    const restarted = new WritableDirectoryMirror(replicaId, transport, {
+      fileSystem: source, stateStore, runtime: deterministicRuntime()
+    });
+    expect((await restarted.sync()).status).toBe("applied");
+    const snapshot = await transport.snapshot((await transport.openSession()).snapshot_id);
+    expect(snapshot.records).toHaveLength(2);
+    expect(snapshot.records.find((record) => record.path === "opaque.md")?.document).toBe(document);
+    expect(hosted.serialize().receipts).toHaveLength(2);
+    expect((await stateStore.read())?.batch).toBeUndefined();
+  });
+
+  it("reuses an existing checkpoint after managed YAML becomes malformed", async () => {
+    const hosted = new MemoryAuthority();
+    const replicaId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const source = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const options = { fileSystem: source, stateStore, runtime: deterministicRuntime() };
+    source.files.set("managed.md", "---\ntitle: Original\n---\nBody");
+    await new WritableDirectoryMirror(replicaId, transport, options).sync();
+    const before = await stateStore.read();
+    const originalId = Object.keys(before!.records)[0]!;
+    const malformed = "---\ntitle: [broken\n---\nUpdated body";
+    source.files.set("managed.md", malformed);
+    const restarted = new WritableDirectoryMirror(replicaId, transport, options);
+    const plan = await restarted.inspect();
+    expect(plan.summary).toMatchObject({ uploads: 1, blocking_issues: 0 });
+    expect((await restarted.apply(plan)).status).toBe("applied");
+    const snapshot = await transport.snapshot((await transport.openSession()).snapshot_id);
+    expect(snapshot.records).toHaveLength(1);
+    expect(snapshot.records[0]).toMatchObject({ record_id: originalId, document: malformed });
+    expect((await stateStore.read())!.generation).toBeGreaterThan(before!.generation!);
+  });
+
+  it("stops a stale opaque-document review before uploading any sibling", async () => {
+    const hosted = new MemoryAuthority();
+    const replicaId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const source = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    source.files.set("opaque.md", "---\na: [broken\n---\nReviewed");
+    source.files.set("valid.md", "Valid sibling");
+    const mirror = new WritableDirectoryMirror(replicaId, transport, {
+      fileSystem: source, stateStore, runtime: deterministicRuntime()
+    });
+    const reviewed = await mirror.inspect();
+    expect(reviewed.summary.blocking_issues).toBe(0);
+    const changed = "---\na: [still broken\n---\nEdited after review";
+    source.files.set("opaque.md", changed);
+    expect((await mirror.apply(reviewed)).status).toBe("stale");
+    expect(hosted.serialize().receipts).toHaveLength(0);
+    expect(await stateStore.read()).toBeNull();
+    await mirror.sync();
+    const snapshot = await transport.snapshot((await transport.openSession()).snapshot_id);
+    expect(snapshot.records.find((record) => record.path === "opaque.md")?.document).toBe(changed);
+  });
+
+  it("does not silently overwrite readable malformed edits in receive-only mirrors", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{ record_id: "managed", path: "managed.md", frontmatter: {}, body: "Authority", types: [] }]);
+    const replicaId = hosted.registerReplica({ name: "Reader", mode: "read_only" });
+    const source = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem: source, stateStore, runtime: deterministicRuntime()
+    });
+    await mirror.sync();
+    const before = await stateStore.read();
+    const edited = "---\na: [broken\n---\nLocal edit must survive";
+    source.files.set("managed.md", edited);
+    const plan = await mirror.inspect();
+    expect(plan.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "invalid_frontmatter", blocking: false }),
+      expect.objectContaining({ code: "mirror_diverged", blocking: true })
+    ]));
+    expect(plan.actions).toEqual([]);
+    await mirror.sync();
+    expect(source.files.get("managed.md")).toBe(edited);
+    expect(await stateStore.read()).toEqual(before);
   });
 
   it("makes a 2,000-record no-op sync a zero-write operation", async () => {

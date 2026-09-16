@@ -18,14 +18,14 @@ export type LocalRecordStructuralOutcome = {
   outcome: "parsed" | "invalid_yaml" | "non_mapping_frontmatter";
 };
 
-/** Strict structural check for local mirror records; authority parsing remains opaque-compatible. */
+/** Structural diagnostics only. Readable documents synchronize exactly, including opaque frontmatter. */
 export function classifyLocalRecord(document: string): LocalRecordStructuralOutcome {
   const yaml = leadingFrontmatterYaml(document);
   if (yaml === null) return { outcome: "parsed" };
 
   let frontmatter: unknown;
   try {
-    frontmatter = parse(yaml, { mapAsMap: true, uniqueKeys: true });
+    frontmatter = parse(yaml, { mapAsMap: true });
   } catch {
     return { outcome: "invalid_yaml" };
   }
