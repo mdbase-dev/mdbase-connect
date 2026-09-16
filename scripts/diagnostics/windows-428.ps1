@@ -68,6 +68,22 @@ public static class TestUserProfile {
         $process = [Diagnostics.Process]::Start($info)
         if (-not $process.WaitForExit(240000)) { $process.Kill($true); throw 'Native lifecycle child timed out; partial results retained.' }
         if ($process.ExitCode -ne 0) { throw "Native lifecycle child failed with exit $($process.ExitCode)." }
+        if ($Scenario -eq 'elevated-registration') {
+            $reportPath = Join-Path $Root 'result.json'
+            $beforeRepair = Get-Content $reportPath -Raw | ConvertFrom-Json
+            if ($beforeRepair.elevatedReplacementSucceeded -ne $false) { throw 'Admin-owned task denial was not reproduced.' }
+            # Only the elevated fixture owner removes its task. Product code must
+            # not bypass its ACL or start a competing task/process on denial.
+            & schtasks.exe /Delete /F /TN 'mdbase connect' | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Fixture owner could not remove its task.' }
+            $info.ArgumentList[$info.ArgumentList.IndexOf('-Scenario') + 1] = 'registration'
+            $process = [Diagnostics.Process]::Start($info)
+            if (-not $process.WaitForExit(240000)) { $process.Kill($true); throw 'Post-repair registration timed out.' }
+            $afterRepair = Get-Content $reportPath -Raw | ConvertFrom-Json
+            @{ scenario = $Scenario; beforeRepair = $beforeRepair; afterRepair = $afterRepair; passed = ($process.ExitCode -eq 0 -and $afterRepair.passed) } |
+                ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 $reportPath
+            if ($process.ExitCode -ne 0 -or -not $afterRepair.passed) { throw 'Standard-user registration after task removal failed.' }
+        }
     } finally {
         $old = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
@@ -164,13 +180,12 @@ try {
     $initial = if ($Scenario -eq 'upgrade') { Binary '96' } else { $binary }
     $installation = Invoke-Probe 'production-scoped-install' $probe @('install', $initial, $state)
     if ($Scenario -eq 'elevated-registration') {
-        # Diagnostic hypothesis test, NOT an assertion of successful recovery.
+        # Assert the reproduced ACL boundary, NOT successful automatic recovery.
         $report['elevatedReplacementSucceeded'] = $installation.exitCode -eq 0
-        if ($installation.exitCode -ne 0) {
-            if ($installation.stderr -notmatch 'Access is denied') { throw 'Unexpected elevated-task replacement failure.' }
-            $report['passed'] = $true
-            return
-        }
+        if ($installation.exitCode -eq 0) { throw 'Admin-owned task denial was not reproduced.' }
+        if ($installation.stderr -notmatch 'Access is denied') { throw 'Unexpected elevated-task replacement failure.' }
+        $report['passed'] = $true
+        return
     }
     Require-Success $installation
     $task = Get-ScheduledTask -TaskName 'mdbase connect'

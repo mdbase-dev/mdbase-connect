@@ -105,7 +105,19 @@ with `/RL LIMITED`. Registration uses a temporary UTF-16 task definition and
 keeps the existing task name and installed marker, so an accessible existing
 task can be replaced normally. Installation does not elevate or take ownership
 of another account's task. Account credentials and application grants are not
-changed by task registration.
+changed by task registration. Task Scheduler subprocess output is captured:
+its `SUCCESS:` messages never enter CLI JSON stdout, while failed commands
+retain their diagnostic text and exit code. Log commands still stream normally.
+
+An existing administrator-owned task can still deny replacement by a standard
+user. A successful fresh-user registration test does not qualify this upgrade
+case. Do not automatically elevate, loosen the task ACL, or launch a competing
+daemon. First inspect the task's account and executable to establish ownership.
+If it is confirmed to be this installation's stale task, its owner/administrator
+can stop and remove **only that task**, then launch Connect normally to recreate
+it for the current user. Preserve the Connect state directory, credentials,
+collections, and grants. This task repair does not resolve rejected account
+credentials or missing mirror files; those require separate diagnosis.
 
 The CLI models daemon targeting explicitly. With no state or endpoint override,
 daemon lifecycle commands target the default installed per-user service. Any
