@@ -33,8 +33,8 @@ non-leading fences, and the authority's closing-delimiter/body boundary.
   diagnostic prose incorrectly described every warning as a pause. A separate
   consumer branch updates that prose, tests nonblocking reviews, and preserves
   BOMs in its Vault adapter. Its release pin must not move to an unpublished
-  npm version. Immutable artifacts from commit `478353d28bb0` pass all 96
-  Obsidian unit tests, TypeScript/build and unchanged mobile budgets, plus eight
+  npm version. Immutable artifacts from commit `87e28391233c` pass all 96
+  Obsidian unit tests, TypeScript/build and unchanged mobile budgets, plus ten
   strict exact round trips through the Obsidian adapter and reference authority.
   The same strict check fails against released beta.91 with seven YAML blockers.
   Its released dependencies and generated bundle were restored afterward.
