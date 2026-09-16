@@ -193,13 +193,13 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
         {!canInstall && <p>Adding definitions requires permission to manage this collection's types.</p>}
         {setup && <section ref={setupPanel} tabIndex={-1} aria-label="Review person setup">
           <h3>Allow person records in this collection?</h3>
-          <p>Add Person and Contact definitions so you can create a person or reuse a contact. Existing notes, customized definitions, and access permissions will not be changed.</p>
+          <p>Add one Person type, with optional contact details, and its supporting definitions. Existing notes, customized definitions, and access permissions will not be changed.</p>
           <details><summary>Review definition files</summary><ul>{setup.assessment.resources.map((resource) => <li key={resource.target}>{resource.action}: <code>{resource.target}</code></li>)}<li>{setup.assessment.lock.action}: <code>{setup.assessment.lock.target}</code> (setup receipt)</li></ul></details>
           <button type="button" disabled={busy || !canInstall} onClick={() => void approveSetup()}>{busy ? "Adding definitions…" : "Add definitions and continue"}</button>
           <button type="button" disabled={busy} onClick={() => setSetup(undefined)}>Not now</button>
         </section>}
       </>}
-      {implementations.length > 0 && (canCreate || canEdit) && !creating && <div className="setting-row"><label>Person type<select aria-label="Person type" value={implementation?.typeName ?? ""} onChange={(event) => { setTypeName(event.target.value); setConversion(undefined); }}>{implementations.map((item) => <option key={item.typeName} value={item.typeName}>{item.typeName}</option>)}</select></label>{canCreate && <button type="button" onClick={() => setCreating(true)}>Create my person record</button>}</div>}
+      {implementations.length > 0 && (canCreate || canEdit) && !creating && <div className="setting-row">{implementations.length > 1 && <label>Person type<select aria-label="Person type" value={implementation?.typeName ?? ""} onChange={(event) => { setTypeName(event.target.value); setConversion(undefined); }}>{implementations.map((item) => <option key={item.typeName} value={item.typeName}>{item.typeName}</option>)}</select></label>}{canCreate && <button type="button" onClick={() => setCreating(true)}>Create my person record</button>}</div>}
       {creating && implementation && identity && <NewNoteComposer key={implementation.typeName} types={description.types.filter((type) => type.name === implementation.typeName)} defaultType={implementation.typeName} initialTitle={identity.name} initialProperties={properties} recordPaths={records.map((record) => record.path)} onCreate={create} onCancel={() => setCreating(false)} />}
     </>}
   </section>;

@@ -35,11 +35,25 @@ it("links an existing contact with mapped fields without replacing its name or I
 });
 it("prefills normal record creation with the account name and portable identity", async () => {
   const f = fixture(); f.render();
-  fireEvent.click(await screen.findByRole("button", { name: "Create my person record" }));
+  await screen.findByRole("button", { name: "Create my person record" });
+  expect(screen.queryByRole("combobox", { name: "Person type" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Create my person record" }));
   fireEvent.click(screen.getByRole("button", { name: "Create fixture person" }));
   await waitFor(() => expect(f.gateway.create).toHaveBeenCalledWith(expect.objectContaining({
     title: "Account name", type: "contact", properties: { uid: expect.stringMatching(/^person_/), profile: { name: "Account name", accounts: [{ issuer: identity.issuer, subject: identity.subject }] } }
   })));
+});
+it("only shows a type choice when the collection has multiple compatible types", async () => {
+  const f = fixture();
+  const multiple = { ...description,
+    types: [...description.types, { name: "person", schema: {} }],
+    contracts: [{ ...description.contracts[0], implementations: [implementation, { ...implementation, typeName: "person" }] }]
+  } as unknown as CollectionDescription;
+  render(<YourPersonPanel gateway={f.gateway as unknown as CollectionGateway} description={multiple} canCreate canEdit />);
+  fireEvent.change(await screen.findByRole("combobox", { name: "Person type" }), { target: { value: "person" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create my person record" }));
+  fireEvent.click(screen.getByRole("button", { name: "Create fixture person" }));
+  await waitFor(() => expect(f.gateway.create).toHaveBeenCalledWith(expect.objectContaining({ type: "person" })));
 });
 it("requires explicit review before converting a Contact-only note, preserving its ID and fields", async () => {
   const f = fixture();

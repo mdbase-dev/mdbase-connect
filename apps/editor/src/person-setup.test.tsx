@@ -18,7 +18,7 @@ function assessment(): TypePackAssessment {
   return {
     applicable: true, status: "install", assessmentDigest: "reviewed-digest",
     resources: bundled.manifest.resources.map((resource) => ({ ...resource, action: "create" })),
-    desired: { id: "mdbase.contact", version: "1.1.0", digest: "digest", installedBy: "dev.mdbase.editor", resources: [] },
+    desired: { id: "mdbase.contact", version: "1.2.0", digest: "digest", installedBy: "dev.mdbase.editor", resources: [] },
     lock: { target: "mdbase.lock.yaml", action: "create", digest: "lock-digest" },
     contractSetups: { choices: [], resources: [] }
   } as TypePackAssessment;
@@ -110,7 +110,8 @@ it("keeps an existing contact selected after setup instead of opening duplicate 
   f.gateway.list.mockResolvedValue({ notes: [{ path: "contact.md", types: ["contact"], frontmatter: { type: "contact", name: "Existing contact" }, effectiveFrontmatter: {}, file: {} }] });
   f.view.rerender(f.panel(contacts));
   fireEvent.change(await screen.findByRole("combobox", { name: "Existing person or contact" }), { target: { value: "contact.md" } });
-  f.review.resources.find((r) => r.source === "types/contact/2.md")!.action = "preserve";
+  // The new provision does not own or touch the collection's existing Contact type.
+  expect(f.review.resources.some((r) => r.target === "_types/contact.md")).toBe(false);
   f.refresh.mockImplementationOnce(async () => { f.view.rerender(f.panel(combined)); return combined; });
   await review(); fireEvent.click(screen.getByRole("button", { name: "Add definitions and continue" }));
   await waitFor(() => expect(f.refresh).toHaveBeenCalled());
@@ -119,7 +120,7 @@ it("keeps an existing contact selected after setup instead of opening duplicate 
   expect(f.gateway.create).not.toHaveBeenCalled();
 });
 it("will not overwrite an existing Person seed or adopt different unmanaged bytes", () => {
-  const existing = assessment(); existing.resources.find((r) => r.source === "types/person/1.md")!.action = "preserve";
+  const existing = assessment(); existing.resources.find((r) => r.target === "_types/person.md")!.action = "preserve";
   expect(() => requireAdditivePersonSetup(existing)).toThrow("already exists");
   const adoption = assessment(); adoption.resources[0].action = "adopt"; adoption.resources[0].currentDigest = "different";
   expect(() => requireAdditivePersonSetup(adoption)).toThrow("No files have been changed");

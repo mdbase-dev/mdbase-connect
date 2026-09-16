@@ -233,12 +233,20 @@ user profile. Follow the LAB skill before starting a daemon or browser test.
 ### Guided setup when Person definitions are missing
 
 Settings offers **Set up person records** in place. It assesses a bundled,
-SHA-256-pinned copy of canonical `mdbase.contact` 1.1.0 (the People and contacts
+SHA-256-pinned copy of canonical `mdbase.contact` 1.2.0 (the People
 pack), shows definition paths and the setup receipt, and writes only after
 **Add definitions and continue**. Catalog availability is not a prerequisite.
-The bundle is byte-identical to `mdbase-contracts/dist/packs/mdbase.contact/1.1.0.json`
-at contracts commit `d462fb5`; updating it requires updating the pinned digest and
+The bundle is byte-identical to `mdbase-contracts/dist/packs/mdbase.contact/1.2.0.json`
+at contracts commit `1c05757`; updating it requires updating the pinned digest and
 contract references together. This does not publish a public catalog entry.
+
+Fresh setup adds only the Person v2 type, implementing both contracts with
+optional contact details. Every field, including nested account identity fields,
+has usage guidance; the type body explains stable IDs, names, contact details,
+privacy, account associations and collection-owned customisations. These are
+documentation improvements, not validation or contract changes. Existing Contact
+and Person types/notes remain untouched; old pack artifacts retain their exact
+bytes. A redundant type chooser is hidden when only one compatible type exists.
 
 The guided flow permits additions, preservation of existing seeds, and ownership
 of identical existing bytes only. Conflicts, replacements, deletions, or an
