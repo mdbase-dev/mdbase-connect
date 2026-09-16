@@ -268,6 +268,16 @@ and to the existing token helpers. Limits: 1,534 relative imports, 2,503
 TypeScript exports. Tests cover one-click and page unsubscribe, token hashing,
 the refusal to send optional email without its link, essential email without
 controls, preference changes and origin checks, and the signup opt-in default.
+Guided person setup adds one editor helper for a digest-pinned canonical pack
+and a deliberately additive-only review policy. It reuses catalog provision
+validation and the existing digest-guarded atomic type-pack operation instead of
+creating another schema installer or requiring public catalog availability.
+The panel replaces the manual-install instruction with explicit file review and
+approval. This adds one production file, two relative imports, and two internal
+TypeScript exports: reviewed totals are 691, 1,510, and 2,469 respectively.
+No file-size, cycle, package, Rust, or SDK API limit changes. Tests cover exact
+bundle integrity, explicit consent/cancellation, conflicts, stale assessment,
+collection changes, and the post-write watch/description-refresh race.
 
 Composition roots and package facades should approach these end-state shapes:
 

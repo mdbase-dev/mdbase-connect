@@ -1,0 +1,91 @@
+{
+  "manifest": {
+    "kind": "mdbase.type-pack",
+    "id": "mdbase.contact",
+    "version": "1.1.0",
+    "name": "People and contacts type pack",
+    "description": "Portable people, editable account identity associations, and familiar contact fields.",
+    "resources": [
+      {
+        "kind": "schema",
+        "mode": "managed",
+        "source": "schemas/mdbase.person/1.0.0.schema.json",
+        "target": "schemas/mdbase.person/1.0.0.schema.json",
+        "digest": "sha256:3254afaa98c895e84fdc0aba299e67a0f3b594681c5581313ece5fcf4e2c6d93"
+      },
+      {
+        "kind": "contract",
+        "mode": "managed",
+        "source": "contracts/mdbase.person/1.0.0.md",
+        "target": "_contracts/mdbase.person/1.0.0.md",
+        "digest": "sha256:e2a9435ad01a2c06c151bf6af62a9d04aa30faa8e6128e4b5fe39378c767465c"
+      },
+      {
+        "kind": "schema",
+        "mode": "managed",
+        "source": "schemas/mdbase.contact/1.0.0.schema.json",
+        "target": "schemas/mdbase.contact/1.0.0.schema.json",
+        "digest": "sha256:bd8a011d18c71164b633f4e82cb33faa5b658cdba4f89312a34c13bf46a350d2"
+      },
+      {
+        "kind": "contract",
+        "mode": "managed",
+        "source": "contracts/mdbase.contact/1.0.0.md",
+        "target": "_contracts/mdbase.contact/1.0.0.md",
+        "digest": "sha256:e3634a35737ada5eb62e3e15f1c0c9d2e27c55a3f98dfab94bbc14c40404903d"
+      },
+      {
+        "kind": "type",
+        "mode": "seed",
+        "source": "types/contact/2.md",
+        "target": "_types/contact.md",
+        "digest": "sha256:c925ac22674b5fa9b1a7b8b3af827e5ce3ba15e423b64487f626f5ab4cc1c80a"
+      },
+      {
+        "kind": "type",
+        "mode": "seed",
+        "source": "types/person/1.md",
+        "target": "_types/person.md",
+        "digest": "sha256:18896ac3086c7fdcb64748babd7dd8263dbece4fcc6bcf43a53f74d51bcece5e"
+      }
+    ]
+  },
+  "resources": [
+    {
+      "source": "schemas/mdbase.person/1.0.0.schema.json",
+      "document": "{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"$id\": \"https://mdbase.dev/contracts/schemas/mdbase.person/1.0.0.schema.json\",\n  \"title\": \"Person\",\n  \"description\": \"A portable person reference with editable account identity associations. Not an authentication or access-control assertion.\",\n  \"type\": \"object\",\n  \"required\": [\"id\", \"name\"],\n  \"properties\": {\n    \"id\": {\n      \"type\": \"string\",\n      \"pattern\": \"\\\\S\",\n      \"description\": \"Stable person identifier used by references such as task assignments; independent of file path, name, account, and membership.\"\n    },\n    \"name\": {\n      \"type\": \"string\",\n      \"pattern\": \"\\\\S\",\n      \"description\": \"Collection-owned display name, not a verified account name.\"\n    },\n    \"identities\": {\n      \"type\": \"array\",\n      \"uniqueItems\": true,\n      \"description\": \"Editable identity associations. Missing or empty means this person has no linked account. Match issuer and subject exactly; never match by email or name.\",\n      \"items\": {\n        \"type\": \"object\",\n        \"required\": [\"issuer\", \"subject\"],\n        \"properties\": {\n          \"issuer\": {\n            \"type\": \"string\",\n            \"format\": \"uri\",\n            \"pattern\": \"^https?://\",\n            \"description\": \"Stable issuer URL supplied by the identity service. Copy exactly; do not derive from a collection authority or relay URL.\"\n          },\n          \"subject\": {\n            \"type\": \"string\",\n            \"pattern\": \"\\\\S\",\n            \"description\": \"Opaque, case-sensitive, account-wide identifier supplied by the issuer. Not an email, membership ID, or credential.\"\n          }\n        },\n        \"additionalProperties\": false\n      }\n    }\n  },\n  \"additionalProperties\": false\n}\n"
+    },
+    {
+      "source": "contracts/mdbase.person/1.0.0.md",
+      "document": "---\nkind: mdbase.contract\ncontract_type: record\nid: mdbase.person\nversion: 1.0.0\nname: Person\ndescription: A portable person reference with editable account identity associations.\nrecord_schema:\n  dialect: json-schema-2020-12\n  ref: ../../schemas/mdbase.person/1.0.0.schema.json\n---\n\n# Person\n\nA person is collection data, independent of an account or collection membership.\nApplications reference the stable `id`, not a name, file path, email address,\naccount subject, or membership ID. Collections choose their own local type and\nfield names through explicit `implements` mappings.\n\n`name` is a collection-owned display label. `identities` optionally associates\nthis person with one or more accounts through issuer/subject pairs. A person\nwithout a Connect account is valid. The same record can travel between hosted,\nrelay, local, and exported collections without rewriting its identity references.\n\n## Identity matching\n\nAn identity service supplies the authenticated caller's issuer and subject.\nSubjects are opaque, account-wide identifiers, stable across email changes,\ncollection memberships, and removal/rejoining. Different identity issuers may\nuse the same subject; both fields must match exactly. Consumers must not trim,\ncase-fold, resolve redirects, or otherwise normalize either field when matching.\nCopy the issuer value supplied by the service, including its trailing-slash\nconvention. Never derive the issuer from the current collection authority URL.\nHTTP issuers support explicitly configured development and self-hosted instances;\nproduction deployments should use HTTPS.\n\nAn application resolves an identity across all implementing person records:\n\n- No matching person: unlinked, not anonymous authentication and not an error.\n- Exactly one matching record with an unambiguous person ID: linked.\n- Multiple matching records, or multiple records with that person's ID:\n  ambiguous. Do not pick the first match, merge records, or overwrite a link.\n\nA partial or failed query cannot establish that a match is unique. Cross-record\nuniqueness is a collection/application invariant, not something this JSON Schema\ncan prove. Consumers must handle ambiguity even if a starter type has a local\nuniqueness constraint: several local types can implement this contract.\n\n## Editable data, not security authority\n\nIdentity associations have exactly the same trust as other editable collection\ndata. Editing one may change an application's \"Assigned to me\" view. It must\nnever change authentication, membership, permissions, authenticated audit\nattribution, or proof of identity to another service. Schema conformance proves\nshape, not that an identity association is truthful.\n\n\"Link this person to me\" is an ordinary record update using the authenticated\ncaller's identity. Never infer a link from a matching email or display name.\nMembership and current account display names come from the identity service,\nnot frontmatter. A person association must never invite someone or grant access.\n\n## Lifecycle and portability\n\nRenaming or moving a record does not change its ID. Removing a member does not\ndelete their person record or task assignments. Deleting a record leaves\nunresolved references; consumers should preserve these rather than silently\nunassigning work. Reusing an ID for a different person changes every reference\nand should not be treated as a routine rename.\n\nCopying records preserves account associations, but never copies collection\naccess. Multiple issuer/subject entries let one person represent accounts at\ndifferent identity services. Account deletion or an issuer migration may leave\nan unresolved identity association; do not automatically rebind it to a newly\ncreated account. Stored names and identity references remain collection data\nsubject to that collection's retention and editing policies.\n\nAccount-wide subjects deliberately allow correlation across collections. This\nis a portability trade-off, not an anonymity guarantee. Never store passwords,\naccess tokens, refresh tokens, or other credentials in these fields.\n\n## Contact information\n\nThis contract does not define another address book. A local type can also\nimplement `mdbase.contact` for compact contact semantics, or\n`mdbase.jscontact.card` when it intentionally stores that interchange shape.\nThe starter Person type implements both Person and Contact.\n"
+    },
+    {
+      "source": "schemas/mdbase.contact/1.0.0.schema.json",
+      "document": "{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"$id\": \"https://mdbase.dev/contracts/schemas/mdbase.contact/1.0.0.schema.json\",\n  \"title\": \"Contact\",\n  \"description\": \"A compact application-facing contact view.\",\n  \"type\": \"object\",\n  \"required\": [\"name\"],\n  \"properties\": {\n    \"name\": {\n      \"type\": \"string\",\n      \"minLength\": 1,\n      \"description\": \"The name applications should use when presenting this contact.\"\n    },\n    \"kind\": {\n      \"type\": \"string\",\n      \"enum\": [\"individual\", \"organisation\", \"group\"],\n      \"description\": \"The broad kind of contact when the collection distinguishes it.\"\n    },\n    \"primary_email\": {\n      \"type\": \"string\",\n      \"format\": \"email\",\n      \"description\": \"The preferred email address for this contact.\"\n    },\n    \"primary_phone\": {\n      \"type\": \"string\",\n      \"minLength\": 1,\n      \"description\": \"The preferred telephone number for this contact.\"\n    },\n    \"organisation\": {\n      \"type\": \"string\",\n      \"minLength\": 1,\n      \"description\": \"The organisation most closely associated with this contact.\"\n    },\n    \"birthday\": {\n      \"type\": \"string\",\n      \"format\": \"date\",\n      \"description\": \"The contact's birthday when known.\"\n    }\n  },\n  \"additionalProperties\": false\n}\n"
+    },
+    {
+      "source": "contracts/mdbase.contact/1.0.0.md",
+      "document": "---\nkind: mdbase.contract\ncontract_type: record\nid: mdbase.contact\nversion: 1.0.0\nname: Contact\ndescription: A compact application-facing view of a person or organisation.\nrecord_schema:\n  dialect: json-schema-2020-12\n  ref: ../../schemas/mdbase.contact/1.0.0.schema.json\n---\n\n# Contact\n\nThis contract exposes the small set of contact semantics commonly shared by\naddress books, relationship tools, and other applications. A collection keeps\nits own field names and may store richer local data; the implementing type maps\nonly the fields it wants applications to see.\n\nThe contract is deliberately not an interchange format. Exporters can convert\nthis view to JSContact, vCard, or another wire representation without requiring\nMarkdown records to store that representation directly.\n"
+    },
+    {
+      "source": "types/contact/2.md",
+      "document": "---\nkind: mdbase.type\nname: contact\nversion: 1\ndescription: A person or organisation you want to stay in touch with\nmatch:\n  where:\n    type: contact\nschema:\n  dialect: json-schema-2020-12\n  value:\n    $schema: https://json-schema.org/draft/2020-12/schema\n    title: Contact\n    description: A friendly local contact with room for collection-specific fields.\n    type: object\n    required:\n      - type\n      - name\n    properties:\n      type:\n        const: contact\n      name:\n        type: string\n        minLength: 1\n        description: The name shown in contact lists.\n      kind:\n        type: string\n        enum:\n          - individual\n          - organisation\n          - group\n        default: individual\n        description: The broad kind of contact.\n      email:\n        type: string\n        format: email\n        description: The preferred email address.\n      phone:\n        type: string\n        minLength: 1\n        description: The preferred telephone number.\n      organisation:\n        type: string\n        minLength: 1\n        description: The contact's main organisation.\n      birthday:\n        type: string\n        format: date\n        description: The contact's birthday.\n    additionalProperties: true\ncollection:\n  display:\n    name_field: name\n    description_field: organisation\n    icon: address-book\nimplements:\n  - contract: mdbase.contact\n    version: 1.0.0\n    fields:\n      name: name\n      kind: kind\n      primary_email: email\n      primary_phone: phone\n      organisation: organisation\n      birthday: birthday\n---\n\n# Contact\n\nContact notes use familiar frontmatter fields and leave the Markdown body free\nfor history, context, and anything else worth remembering. Applications using\nthe `mdbase.contact` contract see only the mapped contact fields.\n\nYou can rename or extend the local fields in mdbase-editor. Keep the contract\nmapping aligned so other contact-aware applications continue to understand\nthe type.\n"
+    },
+    {
+      "source": "types/person/1.md",
+      "document": "---\nkind: mdbase.type\nname: person\nversion: 1\ndescription: A portable person with optional account identities and contact information\nmatch:\n  where:\n    type: person\nschema:\n  dialect: json-schema-2020-12\n  value:\n    $schema: https://json-schema.org/draft/2020-12/schema\n    title: Person\n    type: object\n    required: [type, id, name]\n    properties:\n      type:\n        const: person\n      id:\n        type: string\n        pattern: '\\S'\n        description: Stable person ID; keep this when moving or renaming the note.\n      name:\n        type: string\n        minLength: 1\n        pattern: '\\S'\n      identities:\n        type: array\n        uniqueItems: true\n        items:\n          type: object\n          required: [issuer, subject]\n          properties:\n            issuer:\n              type: string\n              format: uri\n              pattern: '^https?://'\n            subject:\n              type: string\n              pattern: '\\S'\n          additionalProperties: false\n      kind:\n        const: individual\n        default: individual\n      email:\n        type: string\n        format: email\n      phone:\n        type: string\n        minLength: 1\n      organisation:\n        type: string\n        minLength: 1\n      birthday:\n        type: string\n        format: date\n    additionalProperties: true\ncollection:\n  display:\n    name_field: name\n    description_field: organisation\n    icon: user\n  unique:\n    - field: id\n      scope: collection\nimplements:\n  - contract: mdbase.person\n    version: 1.0.0\n    fields:\n      id: id\n      name: name\n      identities: identities\n  - contract: mdbase.contact\n    version: 1.0.0\n    fields:\n      name: name\n      kind: kind\n      primary_email: email\n      primary_phone: phone\n      organisation: organisation\n      birthday: birthday\n---\n\n# Person\n\nCreate a stable ID when adding a person, for example `person_` followed by a\nrandom UUID. Keep it when copying the note to another collection or renaming\nits file. Apps use this ID for assignments and other person references.\n\n```yaml\ntype: person\nid: person_2c1343ec-cac1-4d58-98c9-41736f4de7db\nname: Callum\nidentities:\n  - issuer: https://connect.example\n    subject: usr_789\n```\n\nUse the actual issuer and subject supplied by Connect, not the example values.\nOmit `identities` for people without accounts. Email is contact information,\nnot a way to establish an identity association. Linking a person does not\ninvite them or grant access to this collection.\n\nIdentity associations and contact labels are ordinary editable data. They are\nnot proof of authentication. Avoid duplicate person IDs or identity pairs\nacross person notes; applications must report ambiguity rather than guess.\n\nThe inline schema belongs to the collection. Add local fields or rename them\nand update the explicit contract mappings without editing published contracts.\n"
+    }
+  ],
+  "provides": [
+    {
+      "id": "mdbase.person",
+      "version": "1.0.0",
+      "digest": "sha256:cda32ead27eaf70440efe3fadd8b5334df9af82f378b2af1bc786f7ab0bd0fc3"
+    },
+    {
+      "id": "mdbase.contact",
+      "version": "1.0.0",
+      "digest": "sha256:49cfe15403dfc741a693e89a2f4d2857de306f391d02cb03e67bfaf0aa1d6b0d"
+    }
+  ]
+}

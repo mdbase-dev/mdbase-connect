@@ -86,7 +86,7 @@ export async function loadContractCatalog({
 }
 
 export async function loadTypePackProvision(
-  pack: ContractCatalogPack,
+  pack: Pick<ContractCatalogPack, "id" | "version" | "digest" | "provisionUrl" | "resourceCount" | "provides">,
   {
     signal,
     fetcher = fetch
@@ -192,7 +192,7 @@ export function parseContractCatalog(value: unknown, sourceUrl: string): Contrac
 
 export function parseTypePackProvision(
   value: unknown,
-  pack: ContractCatalogPack
+  pack: Pick<ContractCatalogPack, "id" | "version" | "resourceCount" | "provides">
 ): TypePackProvision {
   const provision = requiredRecord(value, "The type pack");
   const manifest = requiredRecord(provision.manifest, "The type-pack manifest");

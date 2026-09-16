@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AccountProfile, CollectionDescription, JsonObject } from "@mdbase-dev/connect";
+import type { AccountProfile, CollectionDescription, JsonObject, TypePackAssessment, TypePackProvision } from "@mdbase-dev/connect";
 import type { CollectionGateway, CreateNoteInput } from "./model";
 import { NewNoteComposer } from "./NewNoteComposer";
 import { contactPersonPatch, contactRecords, identityPatch, matchingPerson, newPersonProperties, personImplementations, personRecords } from "./person-records";
 
+import { loadPersonSetup, requireAdditivePersonSetup } from "./person-setup";
+
 type Person = ReturnType<typeof personRecords>[number];
 
-export function YourPersonPanel({ gateway, description, canCreate, canEdit }: {
+export function YourPersonPanel({ gateway, description, canCreate, canEdit, canInstall = false, onRefreshDescription }: {
   gateway: CollectionGateway;
   description: CollectionDescription;
   canCreate: boolean;
   canEdit: boolean;
+  canInstall?: boolean;
+  onRefreshDescription?: () => Promise<CollectionDescription | undefined>;
 }) {
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -27,6 +31,15 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
+  const [setup, setSetup] = useState<{ provision: TypePackProvision; assessment: TypePackAssessment; controller: AbortController }>();
+  const setupPanel = useRef<HTMLElement>(null);
+  const setupButton = useRef<HTMLButtonElement>(null);
+  const wasReviewing = useRef(false);
+  useEffect(() => {
+    if (setup) setupPanel.current?.focus();
+    else if (wasReviewing.current) setupButton.current?.focus();
+    wasReviewing.current = !!setup;
+  }, [setup]);
   const lifecycle = useRef<AbortController | null>(null);
   const implementations = personImplementations(description).filter((candidate) => ["id", "name", "identities"].every((field) => candidate.fields[field] || candidate.fields[`/${field}`]));
   const implementation = implementations.find((candidate) => candidate.typeName === typeName) ?? implementations[0];
@@ -35,7 +48,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit }: {
   useEffect(() => {
     const controller = new AbortController();
     lifecycle.current = controller;
-    setRecords(undefined); setIdentity(undefined); setLinked(undefined); setConversion(undefined); setError("");
+    setRecords(undefined); setIdentity(undefined); setLinked(undefined); setConversion(undefined); setSetup(undefined); setError("");
     void (async () => {
       try {
         if (!gateway.currentIdentity) throw new Error("This collection has no Connect account identity.");
@@ -58,6 +71,49 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit }: {
     }
   }
 
+  async function reviewSetup() {
+    const controller = lifecycle.current;
+    if (busy || !canInstall || !onRefreshDescription || !controller) return;
+    setBusy(true); setError("");
+    try {
+      assertCurrent();
+      const provision = await loadPersonSetup(controller.signal);
+      if (controller.signal.aborted) return;
+      assertCurrent();
+      const assessment = await gateway.assessTypePack(provision);
+      if (controller.signal.aborted) return;
+      assertCurrent();
+      requireAdditivePersonSetup(assessment);
+      setSetup({ provision, assessment, controller });
+    } catch (reason) {
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not review person setup.");
+    } finally { setBusy(false); }
+  }
+
+  async function approveSetup() {
+    if (!setup || busy || !canInstall || !onRefreshDescription) return;
+    setBusy(true); setError("");
+    try {
+      assertCurrent();
+      if (setup.controller.signal.aborted) throw new Error("The collection changed. Review person setup again.");
+      // The gateway passes the exact reviewed assessment digest to the atomic apply.
+      await gateway.applyTypePack(setup.provision, setup.assessment);
+      // A definition watch may already have refreshed the description after our
+      // write. Check the live collection lifetime, not the pre-write review.
+      if (lifecycle.current?.signal.aborted) return;
+      assertCurrent();
+      const next = await onRefreshDescription();
+      if (!next || next.collectionId !== description.collectionId) return;
+      if (!personImplementations(next).some((candidate) => ["id", "name", "identities"].every((field) => candidate.fields[field] || candidate.fields[`/${field}`]))) {
+        throw new Error("Definitions were added, but their Person mappings need review in Types.");
+      }
+      setSetup(undefined); setCreating(canCreate && !path);
+    } catch (reason) {
+      setSetup(undefined);
+      if (!lifecycle.current?.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not add person definitions. Review setup again.");
+    } finally { setBusy(false); }
+  }
+
   async function link() {
     if (!identity || !records || busy || !canEdit) return;
     setBusy(true); setError("");
@@ -69,7 +125,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit }: {
       if (matchingPerson(people, identity)) throw new Error("Your account is already linked. Reload these settings.");
       const contact = contactRecords(description, index.notes).find((record) => record.path === path);
       if (contact) {
-        if (!implementation) throw new Error("Install or configure a type implementing both Person and Contact first.");
+        if (!implementation) throw new Error("Set up person records below before reviewing this contact.");
         assertCurrent();
         const record = await gateway.read(path);
         assertCurrent();
@@ -130,8 +186,19 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit }: {
       </select></label><button type="button" disabled={!path || busy || !canEdit} onClick={() => void link()}>{contacts.some((contact) => contact.path === path) ? "Review contact conversion" : "Link this record to me"}</button></div>}
       {conversion && <div role="region" aria-label="Review contact conversion"><p>This changes only <code>{conversion.path}</code> to the <strong>{conversion.typeName}</strong> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed.</p><details><summary>Review fields to write</summary><pre>{JSON.stringify(conversion.patch, null, 2)}</pre></details><button type="button" disabled={busy || !canEdit} onClick={() => void convertContact()}>Convert and link this contact</button><button type="button" disabled={busy} onClick={() => setConversion(undefined)}>Cancel conversion</button></div>}
       {!canEdit && <p>Ask a collection editor to link your person record.</p>}
-      <p>Person-compatible records are linked directly. A Contact-only note can be explicitly converted to a type implementing both contracts, without migrating the whole address book. Alternatively, configure Person mappings on its existing type in Types; required IDs affect every record of that type.</p>
-      {implementations.length === 0 && <p>No type implements Person yet. Install the People and contacts pack from Types, or configure an existing type. No files or types will be created automatically.</p>}
+      <details><summary>About existing contacts</summary><p>You can link an existing person directly, or review converting a single contact without changing the rest of your address book. Advanced Person mappings are available in Types; required fields there affect every record of that type.</p></details>
+      {implementations.length === 0 && <>
+        <p>This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval.</p>
+        {!setup && <button ref={setupButton} type="button" disabled={busy || !canInstall || !onRefreshDescription} onClick={() => void reviewSetup()}>{busy ? "Checking person setup…" : "Set up person records"}</button>}
+        {!canInstall && <p>Adding definitions requires permission to manage this collection's types.</p>}
+        {setup && <section ref={setupPanel} tabIndex={-1} aria-label="Review person setup">
+          <h3>Allow person records in this collection?</h3>
+          <p>Add Person and Contact definitions so you can create a person or reuse a contact. Existing notes, customized definitions, and access permissions will not be changed.</p>
+          <details><summary>Review definition files</summary><ul>{setup.assessment.resources.map((resource) => <li key={resource.target}>{resource.action}: <code>{resource.target}</code></li>)}<li>{setup.assessment.lock.action}: <code>{setup.assessment.lock.target}</code> (setup receipt)</li></ul></details>
+          <button type="button" disabled={busy || !canInstall} onClick={() => void approveSetup()}>{busy ? "Adding definitions…" : "Add definitions and continue"}</button>
+          <button type="button" disabled={busy} onClick={() => setSetup(undefined)}>Not now</button>
+        </section>}
+      </>}
       {implementations.length > 0 && (canCreate || canEdit) && !creating && <div className="setting-row"><label>Person type<select aria-label="Person type" value={implementation?.typeName ?? ""} onChange={(event) => { setTypeName(event.target.value); setConversion(undefined); }}>{implementations.map((item) => <option key={item.typeName} value={item.typeName}>{item.typeName}</option>)}</select></label>{canCreate && <button type="button" onClick={() => setCreating(true)}>Create my person record</button>}</div>}
       {creating && implementation && identity && <NewNoteComposer key={implementation.typeName} types={description.types.filter((type) => type.name === implementation.typeName)} defaultType={implementation.typeName} initialTitle={identity.name} initialProperties={properties} recordPaths={records.map((record) => record.path)} onCreate={create} onCancel={() => setCreating(false)} />}
     </>}

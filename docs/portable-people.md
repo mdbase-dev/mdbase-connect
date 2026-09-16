@@ -230,6 +230,26 @@ name; do not label it a verified profile.
 Test with isolated fixtures and the Connect LAB environment, never an installed
 user profile. Follow the LAB skill before starting a daemon or browser test.
 
+### Guided setup when Person definitions are missing
+
+Settings offers **Set up person records** in place. It assesses a bundled,
+SHA-256-pinned copy of canonical `mdbase.contact` 1.1.0 (the People and contacts
+pack), shows definition paths and the setup receipt, and writes only after
+**Add definitions and continue**. Catalog availability is not a prerequisite.
+The bundle is byte-identical to `mdbase-contracts/dist/packs/mdbase.contact/1.1.0.json`
+at contracts commit `d462fb5`; updating it requires updating the pinned digest and
+contract references together. This does not publish a public catalog entry.
+
+The guided flow permits additions, preservation of existing seeds, and ownership
+of identical existing bytes only. Conflicts, replacements, deletions, or an
+incompatible existing Person seed stop for review in Types. Assessment/apply
+reuse the existing atomic, digest-guarded engine path, with no auto-adoption of
+changed files, record migration, permission changes, or automatic retry.
+After approval the collection description refreshes and creation opens directly.
+If an existing contact was selected, it stays selected for the separate single-note
+conversion review instead of creating a duplicate. Definition-management rights
+remain required. Cancellation writes nothing.
+
 ### Partial hosted LAB check — 2026-09-14
 
 Disposable LAB checks passed explicit consent, reviewed Contact-only conversion

@@ -2094,7 +2094,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       />}
     </>}</Suspense>}
 
-    {surface === "settings" && <SettingsView gateway={gateway}
+    {surface === "settings" && <SettingsView gateway={gateway} onRefreshDescription={refreshDescription}
       description={description}
       connection={connectionSummary}
       noteCount={allNotes.length}
