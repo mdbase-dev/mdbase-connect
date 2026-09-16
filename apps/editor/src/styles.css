@@ -3601,6 +3601,10 @@ kbd {
   height: 12px;
 }
 
+.property-fields {
+  border: 0;
+}
+
 .property-fields,
 .raw-properties,
 .record-source {
