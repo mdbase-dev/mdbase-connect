@@ -297,14 +297,18 @@ describe("receive-only Markdown mirror", () => {
 });
 
 describe("writable Markdown mirror", () => {
-  it("round-trips opaque Markdown through real Node filesystem adapters without normalizing bytes", async () => {
+  it.each([
+    "\uFEFF---\r\ntitle: [broken\r\n---\r\n\r\nExact body — no final newline",
+    "\uFEFF---\r\ntitle: Present\r\n---\r\n\r\nExact body — no final newline",
+    "\uFEFF# Body-only note\r\n"
+  ])("round-trips BOM-prefixed Markdown through real Node filesystem adapters: %j", async (document) => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-opaque-writer-"));
     const receiverRoot = await mkdtemp(join(tmpdir(), "mdbase-opaque-reader-"));
     try {
       const hosted = new MemoryAuthority();
       const writerId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
       const readerId = hosted.registerReplica({ name: "Reader", mode: "read_only" });
-      const bytes = Buffer.from("\uFEFF---\r\ntitle: [broken\r\n---\r\n\r\nExact body — no final newline", "utf8");
+      const bytes = Buffer.from(document, "utf8");
       await writeFile(join(root, "opaque.md"), bytes);
       await writeFile(join(root, "valid.md"), "Valid sibling\n");
       const writer = new WritableDirectoryMirror(root, writerId, hosted.transport(writerId), deviceState());

@@ -12,7 +12,10 @@ unclosed `---` fence are preserved byte-for-byte as body content. An explicitly
 empty frontmatter block is also accepted. Malformed, scalar, null, or list
 frontmatter is synchronized byte-for-byte as opaque Markdown with `{}`
 persisted fields; structured queries and field operations ignore its invalid
-frontmatter until the document is repaired. This is the default for directory
+frontmatter until the document is repaired. Leading-fence and BOM recognition
+matches the Rust authority: a body-only record's structured body projection
+omits one leading BOM, but the exact `document` always retains it. Opaque
+fallback bodies retain the whole document. This is the default for directory
 mirrors, not an opt-in mode. Record schema validation is separate from exact
 replication: missing required fields, wrong field types, and enum violations
 do not by themselves prevent synchronization. Authority scope, configuration,

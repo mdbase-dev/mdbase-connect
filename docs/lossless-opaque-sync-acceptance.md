@@ -15,6 +15,9 @@ replace automatically. Existing authority scope/configuration checks remain.
 Both Node and embedding adapters must preserve a UTF-8 BOM. Node's decoder now
 retains it; the new real-filesystem regression caught the previous BOM loss.
 The YAML parser's default duplicate-key rejection is retained and tested.
+Structural diagnostics and projection parsing now share Rust-compatible
+leading-fence recognition, including BOM-prefixed mappings/body-only records,
+non-leading fences, and the authority's closing-delimiter/body boundary.
 
 ## Consumer audit
 
@@ -49,16 +52,21 @@ Node 24.19.0 / pnpm 11.15.1:
 
 - `pnpm typecheck`: all workspaces pass. The guarded consumer-artifact packaging
   command also completed a full `pnpm -r build`.
-- `pnpm --filter @mdbase-dev/connect-sync test`: 193 tests pass.
+- `pnpm --filter @mdbase-dev/connect-sync test`: 196 tests pass.
 - `pnpm --filter '!@mdbase/connect-desktop' -r test`: passes, including server
   (582 passed, 35 intentionally skipped) and editor (473 passed).
-- `pnpm check:mirror:mobile`: passes unchanged budgets, 187,632 raw / 55,991
+- `pnpm check:mirror:mobile`: passes unchanged budgets, 187,664 raw / 55,970
   gzip bytes; no Node-only references in the portable bundle.
 
 New/updated regressions cover exact uploads and second-mirror downloads,
 BOM/CRLF/no-final-newline preservation, updates/moves/deletes, both conflict
 choices, lost-reply replay after restart, existing checkpoint reuse, stale
 reviews, receive-only divergence, invalid UTF-8 and failed rereads.
+
+The canonical Rust runtime's five `frontmatter::parser` tests and
+`schema_invalid_record_remains_semantically_projectable` test also pass with
+`cargo test --locked --lib`; these are source/runtime evidence, not a hosted
+round trip or full Connect Rust-workspace qualification.
 
 Authorities in these SDK tests are `MemoryAuthority`, not deployed hosted
 infrastructure. The Node round-trip uses real temporary filesystem directories;

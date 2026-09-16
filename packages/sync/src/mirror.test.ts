@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MemoryAuthority, type SyncTransport } from "./index.js";
-import { classifyLocalRecord, documentRevision } from "./mirror-format.js";
+import { classifyLocalRecord, documentRevision, parseMarkdown } from "./mirror-format.js";
 import { SyncError } from "./sync-error.js";
 import {
   DirectoryMirror,
@@ -145,6 +145,31 @@ describe("platform-neutral directory mirror", () => {
         body,
         types: []
       })).toBe(body);
+    }
+  });
+
+  it("matches Rust BOM and leading-fence projections without changing authority bytes", async () => {
+    const cases: Array<{ document: string; frontmatter: Record<string, string>; body: string }> = [
+      { document: "\uFEFF---\r\ntitle: Present\r\n---\r\nBody", frontmatter: { title: "Present" }, body: "Body" },
+      { document: "\uFEFF# Body only\r\n", frontmatter: {}, body: "# Body only\r\n" },
+      { document: "\uFEFF\uFEFF---\ntitle: Not frontmatter\n---\n", frontmatter: {}, body: "\uFEFF---\ntitle: Not frontmatter\n---\n" },
+      { document: "Intro\n---\ntitle: Not frontmatter\n---\nBody", frontmatter: {}, body: "Intro\n---\ntitle: Not frontmatter\n---\nBody" },
+      { document: "--- \t\r\ntitle: Present\r\n--- \t\r\nBody", frontmatter: { title: "Present" }, body: " \t\r\nBody" },
+    ];
+    for (const expected of cases) {
+      expect(parseMarkdown(expected.document, "record.md")).toEqual({ frontmatter: expected.frontmatter, body: expected.body });
+      const hosted = new MemoryAuthority();
+      // Supply the Rust-compatible projection explicitly, rather than deriving
+      // both sides from the SDK parser under test.
+      hosted.seed([{ record_id: "record", path: "record.md", types: [], ...expected }]);
+      const replicaId = hosted.registerReplica({ name: "Reader", mode: "read_only" });
+      const fileSystem = new TestFileSystem();
+      const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+        fileSystem, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+      });
+      expect((await mirror.sync()).status).toBe("applied");
+      expect(fileSystem.files.get("record.md")).toBe(expected.document);
+      expect((await mirror.inspect()).actions).toEqual([]);
     }
   });
 
