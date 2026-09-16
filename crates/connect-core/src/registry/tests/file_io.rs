@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 thread_local! {
-    static WORK: RefCell<BTreeMap<&'static str, u64>> = RefCell::new(BTreeMap::new());
+    static WORK: RefCell<BTreeMap<&'static str, u64>> = const { RefCell::new(BTreeMap::new()) };
 }
 pub(in crate::registry) fn record(name: &'static str, count: u64) {
     WORK.with(|work| *work.borrow_mut().entry(name).or_default() += count);
