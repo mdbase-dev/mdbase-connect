@@ -52,13 +52,23 @@ components.
 
 ## Upgrade predecessor and historical regressions
 
-`.github/previous-release.env` identifies the immediate published predecessor.
-Update its annotated tag, full commit and immutable server/provider digests as
-part of release preparation; ordinary upgrade qualification still requires it to
-be the unique newest non-draft GitHub release. Following beta100 publication,
-qualification uses beta100 (`6bd9420690295d3c5f65e68edcbf8e3e55612614`) and its
-exact signed server/provider images. Advancing this fixture preserves the
-unique-newest-release check; the retained beta95 and beta94 lanes do not move. This fixture refresh does not itself publish or deploy a release.
+`.github/previous-release.env` identifies a versioned published upgrade fixture,
+not a live newest-release pointer. Advance its annotated tag, full commit and
+immutable server/provider digests deliberately during release preparation.
+Ordinary CI queries the exact pinned release, requires non-draft published
+metadata, verifies its annotated origin tag resolves to the pinned commit, and
+checks pulled image source/revision labels. A newer publication cannot invalidate
+an unchanged candidate or retroactively change the tested upgrade pair. Missing,
+draft, malformed or mismatched fixture identities still fail; no latest-release
+fallback or verification bypass exists.
+
+These checks prove compatibility with the recorded fixture, not the currently
+deployed predecessor. The actual deployment pair remains independently bound
+and qualified by private release preparation and staging below. The retained
+beta95 and beta94 lanes do not move. A fixture refresh itself neither publishes
+nor deploys a release.
+The current fixture is beta102 (`ea65ae4f13d0e0621fe9654618e13b505cdebf21`),
+with server/provider images from verified publication run `35059159880`.
 
 Historical regressions and candidate qualification are separate. The beta94
 schema-38→41 prelude and beta95 retained-v2 provider rollback scenarios use the
@@ -71,8 +81,8 @@ metadata and annotated origin tags are checked. These tests do not qualify the
 current candidate or authorize restoring beta95/beta99 in production.
 
 The same required provider CI job separately runs `--current-upgrade` against
-`.github/previous-release.env`, retaining the unique-newest-published-release
-check. It exercises predecessor-issued v1/v2 authority and exact receipts through
+`.github/previous-release.env`, retaining exact published-fixture identity
+verification. It exercises predecessor-issued v1/v2 authority and exact receipts through
 candidate migration and restart, verifies an unchanged historical ledger prefix
 and canonical authority, installs a cancellation fence, and actually attempts
 predecessor startup on the resulting database. Same-schema predecessors must

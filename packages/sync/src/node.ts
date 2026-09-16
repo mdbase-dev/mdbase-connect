@@ -331,7 +331,8 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
     try {
       const bytes = await readFile(target);
       try {
-        return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        // Preserve the BOM as a character instead of consuming its bytes.
+        return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
       } catch {
         return {
           kind: "invalid",
