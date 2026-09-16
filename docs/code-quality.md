@@ -172,6 +172,13 @@ actual installer, alongside pure encoding tests. This adds one production file
 (total: 3,200), not a second service owner, recovery state, or public protocol.
 File-size and cycle budgets are unchanged.
 
+The follow-up Windows CLI JSON repair adds one parent-visible scheduler-command
+helper to that same module (integrated Rust visibility budget: 3,209). It replaces
+inherited scheduler stdout at all four lifecycle call sites with captured output
+and retained failure diagnostics. It deliberately does not change the streaming
+log runner. Native actual-CLI tests reproduce the corrupt JSON before the fix;
+no new production module, protocol, state, or permission bypass is introduced.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;

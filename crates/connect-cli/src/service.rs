@@ -648,7 +648,7 @@ mod platform {
             .map_err(|error| format!("Could not write the Connect task definition: {error}"))?;
         // Close before schtasks reads it, and remove it on both success and failure.
         let task_path = task_file.into_temp_path();
-        run_checked(
+        windows_task::run(
             Command::new("schtasks")
                 .args(["/Create", "/F", "/TN", "mdbase connect", "/XML"])
                 .arg(&task_path),
@@ -666,7 +666,7 @@ mod platform {
     }
 
     pub fn uninstall() -> Result<(), String> {
-        let _ = run_checked(
+        let _ = windows_task::run(
             Command::new("schtasks").args(["/Delete", "/F", "/TN", "mdbase connect"]),
             "remove the Connect background task",
         );
@@ -677,14 +677,14 @@ mod platform {
     }
 
     pub fn start() -> Result<(), String> {
-        run_checked(
+        windows_task::run(
             Command::new("schtasks").args(["/Run", "/TN", "mdbase connect"]),
             "start the Connect daemon",
         )
     }
 
     pub fn stop() -> Result<(), String> {
-        run_checked(
+        windows_task::run(
             Command::new("schtasks").args(["/End", "/TN", "mdbase connect"]),
             "stop the Connect daemon",
         )
