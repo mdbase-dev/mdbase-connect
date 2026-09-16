@@ -9,9 +9,9 @@ import { promisify } from "node:util";
 const execute = promisify(execFile);
 const root = resolve(import.meta.dirname, "../..");
 const beta95 = "408c67bc10f128e0833f0da62cb3efb9d94657d7";
-const beta101 = "4d0bdf9ec566a15c117249ca8d5b24107f1faecb";
+const beta101 = "ea65ae4f13d0e0621fe9654618e13b505cdebf21";
 const release95 = { id: 95, tag_name: "v0.1.0-beta.95", draft: false, published_at: "2026-09-08T00:00:00Z" };
-const release101 = { ...release95, id: 101, tag_name: "v0.1.0-beta.101" };
+const release101 = { ...release95, id: 101, tag_name: "v0.1.0-beta.102" };
 const annotated = (tag, commit) => `${"a".repeat(40)}\trefs/tags/${tag}\n${commit}\trefs/tags/${tag}^{}\n`;
 
 async function verify(context, { historical = false, metadata, refs, override = "", network = "ok", image = false, inspection } = {}) {
