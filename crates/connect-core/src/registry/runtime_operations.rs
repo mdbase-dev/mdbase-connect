@@ -756,7 +756,7 @@ impl CollectionRegistry {
                 .check()
                 .map_err(|_| ConnectError::OperationCancelled)?;
             store.reconcile(id, &snapshot, &HashMap::new())?;
-            let files = self.reconcile_files_loaded(&registered, collection, &snapshot)?;
+            let files = self.reconcile_files_loaded(&registered, collection)?;
             cancellation
                 .check()
                 .map_err(|_| ConnectError::OperationCancelled)?;

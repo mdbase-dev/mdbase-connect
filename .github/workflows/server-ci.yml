@@ -29,7 +29,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            if jq -e 'any(.pull_request.labels[]?; .name == "ci:full")' \
+            if jq -e 'any(.pull_request.labels[]?; .name == "ci:full" or .name == "ci:benchmark-binaries")' \
               "$GITHUB_EVENT_PATH" >/dev/null
             then
               echo 'run_full=true' >>"$GITHUB_OUTPUT"
@@ -425,12 +425,49 @@ jobs:
           key: hosted-provider-${{ steps.mdbase_revision.outputs.revision }}
           cache-on-failure: true
       - run: cargo fmt --all --check
+      - run: scripts/check-cargo-features
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
         env:
           MDBASE_CONNECT_ENV: test
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
       - run: cargo build --locked --workspace
+      - name: Archive runtime binaries for transfer measurement
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:benchmark-binaries')
+        run: |
+          tar -cf "$RUNNER_TEMP/binaries.tar" -C target/debug mdbase mdbase-connect-hosted-provider
+          du -b "$RUNNER_TEMP/binaries.tar" >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:benchmark-binaries')
+        with:
+          name: benchmark-linux-binaries
+          path: ${{ runner.temp }}/binaries.tar
+          compression-level: 1
+          retention-days: 1
+          if-no-files-found: error
+
+  # Measurement only: does not supply qualification inputs or replace builds.
+  # Compare producer wait + transfer with the parallel shard build timings.
+  binary-transfer-benchmark:
+    name: Binary transfer benchmark (${{ matrix.shard }})
+    needs: hosted-provider-rust
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:benchmark-binaries')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [local-relay, sync, provider, files, files-adversarial, desktop]
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: benchmark-linux-binaries
+      - name: Extract and exercise transferred binaries
+        run: |
+          tar -xf binaries.tar
+          ./mdbase --help >/dev/null
+          ./mdbase-connect-hosted-provider --help >/dev/null
+          du -b binaries.tar >>"$GITHUB_STEP_SUMMARY"
 
   hosted-provider-system:
     name: System suite (${{ matrix.shard }})
@@ -504,16 +541,9 @@ jobs:
           cache-on-failure: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: cargo fmt --all --check
-      - run: pnpm check:cargo-features
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      # Compile and test every Rust crate against the exact SDK revision used
-      # by the production provider image. This keeps path-only developer
-      # dependencies from making a clean checkout unreproducible.
-      - run: cargo test --locked --workspace
-        env:
-          MDBASE_CONNECT_ENV: test
-          MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
+      # The hosted-provider-rust job checks this exact lockfile/SDK/toolchain
+      # configuration once; Qualification requires it as well as every shard.
+      # Keep builds local until measured artifact fan-out beats cached builds.
       - run: cargo build --locked --workspace
       - name: Restore Playwright cache
         if: matrix.browser

@@ -18,14 +18,15 @@ export type LocalRecordStructuralOutcome = {
   outcome: "parsed" | "invalid_yaml" | "non_mapping_frontmatter";
 };
 
-/** Strict structural check for local mirror records; authority parsing remains opaque-compatible. */
+/** Structural diagnostics only. Readable documents synchronize exactly, including opaque frontmatter. */
 export function classifyLocalRecord(document: string): LocalRecordStructuralOutcome {
-  const yaml = leadingFrontmatterYaml(document);
-  if (yaml === null) return { outcome: "parsed" };
+  const block = leadingFrontmatter(document);
+  if (block === null) return { outcome: "parsed" };
+  const { yaml } = block;
 
   let frontmatter: unknown;
   try {
-    frontmatter = parse(yaml, { mapAsMap: true, uniqueKeys: true });
+    frontmatter = parse(yaml, { mapAsMap: true });
   } catch {
     return { outcome: "invalid_yaml" };
   }
@@ -37,7 +38,7 @@ export function classifyLocalRecord(document: string): LocalRecordStructuralOutc
 }
 
 /** Mirrors mdbase-rs parse_document_without_bom delimiter recognition. */
-function leadingFrontmatterYaml(document: string): string | null {
+function leadingFrontmatter(document: string): { yaml: string; body: string } | null {
   const content = document.startsWith("\uFEFF") ? document.slice(1) : document;
   const openingEnd = content.indexOf("\n");
   if (openingEnd < 0 || content.slice(0, openingEnd).trimEnd() !== "---") return null;
@@ -46,7 +47,10 @@ function leadingFrontmatterYaml(document: string): string | null {
     let lineEnd = content.indexOf("\n", lineStart);
     if (lineEnd < 0) lineEnd = content.length;
     if (content.slice(lineStart, lineEnd).trimEnd() === "---") {
-      return content.slice(yamlStart, lineStart);
+      return {
+        yaml: content.slice(yamlStart, lineStart),
+        body: content.slice(lineStart + 3).replace(/^\r?\n/, "")
+      };
     }
     lineStart = lineEnd + 1;
   }
@@ -148,24 +152,24 @@ export function fastRecordDocumentMatches(document: string, record: SyncRecord):
 }
 
 export function parseMarkdown(document: string, _path: string): { frontmatter: JsonObject; body: string } {
-  const match = document.match(/^---[ \t]*\r?\n([\s\S]*?)^---[ \t]*(?:\r?\n|$)([\s\S]*)$/m);
-  if (!match) {
-    return { frontmatter: {}, body: document };
+  const block = leadingFrontmatter(document);
+  if (block === null) {
+    return { frontmatter: {}, body: document.startsWith("\uFEFF") ? document.slice(1) : document };
   }
   let frontmatter: unknown;
   try {
-    frontmatter = parse(match[1]!, { mapAsMap: true });
+    frontmatter = parse(block.yaml, { mapAsMap: true });
   } catch {
     return { frontmatter: {}, body: document };
   }
-  if (frontmatter === null && match[1]!.trim() === "") {
-    return { frontmatter: {}, body: match[2] ?? "" };
+  if (frontmatter === null && block.yaml.trim() === "") {
+    return { frontmatter: {}, body: block.body };
   }
   const projection = jsonProjection(frontmatter, new Set());
   if (projection === INVALID_JSON_PROJECTION || !isJsonObject(projection)) {
     return { frontmatter: {}, body: document };
   }
-  return { frontmatter: projection, body: match[2] ?? "" };
+  return { frontmatter: projection, body: block.body };
 }
 
 function jsonProjection(

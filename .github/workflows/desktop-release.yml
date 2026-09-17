@@ -10,6 +10,15 @@ on:
   pull_request:
     paths:
       - ".github/workflows/desktop-release.yml"
+      - "scripts/ci/desktop-test-plan.mjs"
+      - "scripts/lib/ci-work-selection.test.mjs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - ".cargo/**"
+      - "rust-toolchain*"
+      - "deploy/docker/mdbase-rs-revision"
+      - "package.json"
       - "apps/editor/**"
       - "apps/desktop/**"
       - "packages/**"
@@ -31,6 +40,26 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  select-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    outputs:
+      headless: ${{ steps.plan.outputs.headless }}
+      windows: ${{ steps.plan.outputs.windows }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - id: plan
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci/desktop-test-plan.mjs "$BASE" "$HEAD"
+
   build:
     if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v')
     name: ${{ matrix.label }}
@@ -569,7 +598,8 @@ jobs:
                 --input -
 
   headless-package-smoke:
-    if: github.event_name != 'push'
+    needs: select-tests
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (needs.select-tests.result == 'success' && needs.select-tests.outputs.headless == 'true')) }}
     name: ${{ matrix.label }}
     permissions:
       contents: read
@@ -695,7 +725,8 @@ jobs:
         run: pnpm --filter mdbase-editor test
 
   windows-package-smoke:
-    if: github.event_name != 'push'
+    needs: select-tests
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (needs.select-tests.result == 'success' && needs.select-tests.outputs.windows == 'true')) }}
     name: Windows Store package smoke test
     runs-on: windows-2025
     permissions:

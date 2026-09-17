@@ -20,7 +20,7 @@ upgrade_verify_previous_release() {
   local repo_root=$1
   local release=${MDBASE_CONNECT_PREVIOUS_RELEASE:-}
   local commit=${MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT:-}
-  local releases_json
+  local metadata
   local -a curl_headers=()
 
   if [[ ! $release =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
@@ -34,23 +34,22 @@ upgrade_verify_previous_release() {
   if [[ -n ${GITHUB_TOKEN:-} ]]; then
     curl_headers=(--header "authorization: Bearer $GITHUB_TOKEN")
   fi
-  if ! releases_json=$(curl --fail-with-body --silent --show-error \
+  # CI verifies its versioned fixture, not the mutable release-list head.
+  # Publishing another release must not invalidate an unchanged source tree.
+  if ! metadata=$(curl --fail-with-body --silent --show-error \
     --connect-timeout 5 --max-time 20 --retry 2 --retry-all-errors \
     --header 'accept: application/vnd.github+json' \
     "${curl_headers[@]}" \
-    'https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=100'); then
-    printf 'Could not query bounded GitHub release metadata.\n' >&2
+    "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/tags/$release"); then
+    printf 'Could not query pinned GitHub release metadata for %s.\n' "$release" >&2
     return 1
   fi
   if ! jq -e --arg expected "$release" '
-    type == "array" and
-    length <= 100 and
-    all(.[]; type == "object" and (.draft | type) == "boolean" and (.tag_name | type) == "string") and
-    ([.[] | select(.draft == false)] | length) > 0 and
-    ([.[] | select(.draft == false)][0].tag_name == $expected) and
-    ([.[] | select(.draft == false and .tag_name == $expected)] | length) == 1
-  ' <<<"$releases_json" >/dev/null; then
-    printf '%s is not the unique newest non-draft mdbase-connect GitHub release.\n' "$release" >&2
+    type == "object" and .tag_name == $expected and .draft == false and
+    (.id | type) == "number" and
+    (.published_at | type) == "string" and (.published_at | length) > 0
+  ' <<<"$metadata" >/dev/null; then
+    printf 'Pinned release %s is missing, draft or malformed.\n' "$release" >&2
     return 1
   fi
 
@@ -58,8 +57,8 @@ upgrade_verify_previous_release() {
 }
 
 # This historical lane is fixed to the original beta95 bytes, not a caller's
-# arbitrary older release. Newest-release verification above remains mandatory
-# for the ordinary immediate-predecessor lane.
+# arbitrary older release. The ordinary lane independently verifies its own
+# checked-in published fixture, annotated tag, commit and image identities.
 upgrade_verify_retained_v2_release() {
   local repo_root=$1 metadata
   local -a curl_headers=()

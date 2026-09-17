@@ -174,8 +174,8 @@ File-size and cycle budgets are unchanged.
 
 Local runtime claim recovery (#443) replaces the scoped-preflight-only
 acknowledgement with one local ownership/settlement boundary. Its core module
-adds one production file (core: 35; total: 695) and seven counted Rust visibility
-declarations (total: 3,207) for the local administration parameters and registry
+adds one production file (core: 36; total: 696) and seven counted Rust visibility
+declarations (total: 3,215), including the intervening beta103 file-I/O changes, for the local administration parameters and registry
 entry points. The reproduced 128-slot exhaustion and prepare/commit interruption
 windows justify a minimal durable local-owner table; a separate selection audit
 records explicit historical recovery, not payloads or application replay. Engine

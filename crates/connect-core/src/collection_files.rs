@@ -66,16 +66,23 @@ impl CollectionFileInclusion {
 
 /// Discover non-Markdown collection files without traversing hard-excluded roots.
 ///
-/// `managed_paths` must come from the mdbase snapshot. This keeps record and
-/// structural-resource classification owned by mdbase instead of duplicating
-/// it in Connect.
+/// Engine file-path policy owns record and structural-resource exclusion.
+/// `managed_paths` may add exclusions for callers already holding a snapshot;
+/// ordinary file operations do not need to capture record contents.
 pub fn discover_collection_files(
     collection: &Collection,
     managed_paths: &BTreeSet<String>,
 ) -> Result<CollectionFileInventory, ConnectError> {
     let root = collection.root().canonicalize()?;
     let mut inventory = CollectionFileInventory::default();
-    visit_directory(collection, &root, &root, managed_paths, &mut inventory)?;
+    visit_directory(
+        collection,
+        &root,
+        &root,
+        managed_paths,
+        &mut inventory,
+        None,
+    )?;
     remove_portable_aliases(&mut inventory);
     inventory
         .files
@@ -86,6 +93,81 @@ pub fn discover_collection_files(
             .then_with(|| left.code.cmp(right.code))
     });
     Ok(inventory)
+}
+
+/// Inspect one ordinary file using the same eligibility rules as full discovery.
+/// Namespace aliases are checked at each directory component, without visiting
+/// unrelated subtrees or reading file contents.
+pub(crate) fn discover_collection_file(
+    collection: &Collection,
+    relative: &str,
+) -> Result<Option<CollectionFileCandidate>, ConnectError> {
+    let canonical =
+        collection
+            .validate_file_path(relative)
+            .map_err(|error| ConnectError::File {
+                code: "unsafe_file_path".into(),
+                message: error.to_string(),
+            })?;
+    if canonical.as_str() != relative {
+        return Err(ConnectError::File {
+            code: "unsafe_file_path".into(),
+            message: "A file path must use canonical forward slashes.".into(),
+        });
+    }
+    let root = collection.root().canonicalize()?;
+    let mut parent = root.clone();
+    let parts = relative.split('/').collect::<Vec<_>>();
+    for (index, part) in parts.iter().enumerate() {
+        match fs::symlink_metadata(&parent) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+            Ok(metadata) if metadata.is_dir() && !is_link_or_reparse_point(&metadata) => {}
+            Ok(_) => {
+                return Err(ConnectError::File {
+                    code: "unsafe_file_path".into(),
+                    message: "A file parent is not a regular directory.".into(),
+                })
+            }
+        }
+        if parent != root && nested_collection(&parent) {
+            return Err(ConnectError::File {
+                code: "nested_collection_excluded".into(),
+                message: "A file parent belongs to a nested collection.".into(),
+            });
+        }
+        if index + 1 < parts.len() {
+            for entry in fs::read_dir(&parent)? {
+                let name = entry?.file_name();
+                if let Some(name) = name.to_str() {
+                    if name != *part && portable_path_key(name) == portable_path_key(part) {
+                        return Err(ConnectError::File {
+                            code: "path_alias".into(),
+                            message: "The requested path aliases an existing filesystem entry."
+                                .into(),
+                        });
+                    }
+                }
+            }
+            parent.push(part);
+        }
+    }
+    let mut inventory = CollectionFileInventory::default();
+    visit_directory(
+        collection,
+        &root,
+        &parent,
+        &BTreeSet::new(),
+        &mut inventory,
+        Some(relative),
+    )?;
+    if let Some(issue) = inventory.issues.first() {
+        return Err(ConnectError::File {
+            code: issue.code.into(),
+            message: issue.message.clone(),
+        });
+    }
+    Ok(inventory.files.pop())
 }
 
 /// Apply sync inclusion independently from authority inventory and app grants.
@@ -109,6 +191,7 @@ fn visit_directory(
     directory: &Path,
     managed_paths: &BTreeSet<String>,
     inventory: &mut CollectionFileInventory,
+    target: Option<&str>,
 ) -> Result<(), ConnectError> {
     let mut entries = fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
     entries.sort_by_key(fs::DirEntry::file_name);
@@ -118,6 +201,9 @@ fn visit_directory(
             ConnectError::CollectionOpen("Collection file escaped its authority root.".to_string())
         })?;
         let Some(relative) = relative_path.to_str().map(path_with_forward_slashes) else {
+            if target.is_some() {
+                continue;
+            }
             inventory.issues.push(CollectionFileIssue {
                 path: relative_path.to_string_lossy().to_string(),
                 code: "non_unicode_path",
@@ -125,6 +211,17 @@ fn visit_directory(
             });
             continue;
         };
+        if let Some(target) = target {
+            if target != relative {
+                if portable_path_key(target) == portable_path_key(&relative) {
+                    return Err(ConnectError::File {
+                        code: "path_alias".into(),
+                        message: "The requested file aliases an existing filesystem entry.".into(),
+                    });
+                }
+                continue;
+            }
+        }
         let Some(name) = entry.file_name().to_str().map(str::to_string) else {
             inventory.issues.push(CollectionFileIssue {
                 path: relative,
@@ -143,10 +240,23 @@ fn visit_directory(
             continue;
         }
         if metadata.is_dir() {
+            if target.is_some() {
+                return Err(ConnectError::File {
+                    code: "unsafe_file_path".into(),
+                    message: "The file target is a directory.".into(),
+                });
+            }
             if excluded_directory(&name) || nested_collection(&absolute_path) {
                 continue;
             }
-            visit_directory(collection, root, &absolute_path, managed_paths, inventory)?;
+            visit_directory(
+                collection,
+                root,
+                &absolute_path,
+                managed_paths,
+                inventory,
+                None,
+            )?;
             continue;
         }
         if !metadata.is_file() {

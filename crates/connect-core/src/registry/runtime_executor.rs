@@ -40,6 +40,9 @@ pub(super) struct CollectionExecutor {
     feed: Mutex<Option<ChangeFeed>>,
     read_cursors: Mutex<ReadCursorState>,
     last_used: Mutex<Instant>,
+    // Successful feed reads (including empty pages), and total events returned.
+    #[cfg(test)]
+    pub(super) feed_read_work: Mutex<(usize, usize)>,
 }
 
 impl std::fmt::Debug for CollectionExecutor {
@@ -81,6 +84,8 @@ impl CollectionExecutor {
             feed: Mutex::new(feed),
             read_cursors: Mutex::new(ReadCursorState::default()),
             last_used: Mutex::new(Instant::now()),
+            #[cfg(test)]
+            feed_read_work: Mutex::new((0, 0)),
         })
     }
 
@@ -377,7 +382,8 @@ impl CollectionExecutor {
                 "the legacy collection has no runtime change feed".to_string(),
             )
         })?;
-        self.runtime
+        let page = self
+            .runtime
             .as_ref()
             .expect("a runtime feed always has a runtime")
             .read_change_events(
@@ -385,8 +391,14 @@ impl CollectionExecutor {
                 after,
                 NonZeroUsize::new(256).expect("constant is non-zero"),
                 context,
-            )
-            .map_err(Into::into)
+            )?;
+        #[cfg(test)]
+        {
+            let mut work = self.feed_read_work.lock().unwrap();
+            work.0 += 1;
+            work.1 += page.events.len();
+        }
+        Ok(page)
     }
 
     pub(super) fn ack_change_events(

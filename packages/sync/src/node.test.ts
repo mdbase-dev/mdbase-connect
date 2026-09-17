@@ -297,6 +297,36 @@ describe("receive-only Markdown mirror", () => {
 });
 
 describe("writable Markdown mirror", () => {
+  it.each([
+    "\uFEFF---\r\ntitle: [broken\r\n---\r\n\r\nExact body — no final newline",
+    "\uFEFF---\r\ntitle: Present\r\n---\r\n\r\nExact body — no final newline",
+    "\uFEFF# Body-only note\r\n"
+  ])("round-trips BOM-prefixed Markdown through real Node filesystem adapters: %j", async (document) => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-opaque-writer-"));
+    const receiverRoot = await mkdtemp(join(tmpdir(), "mdbase-opaque-reader-"));
+    try {
+      const hosted = new MemoryAuthority();
+      const writerId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+      const readerId = hosted.registerReplica({ name: "Reader", mode: "read_only" });
+      const bytes = Buffer.from(document, "utf8");
+      await writeFile(join(root, "opaque.md"), bytes);
+      await writeFile(join(root, "valid.md"), "Valid sibling\n");
+      const writer = new WritableDirectoryMirror(root, writerId, hosted.transport(writerId), deviceState());
+      const reader = new DirectoryMirror(receiverRoot, readerId, hosted.transport(readerId), deviceState());
+      const plan = await writer.inspect();
+      expect(plan.summary).toMatchObject({ uploads: 2, blocking_issues: 0 });
+      await expect(writer.apply(plan)).resolves.toMatchObject({ status: "applied" });
+      await reader.sync();
+      expect(await readFile(join(root, "opaque.md"))).toEqual(bytes);
+      expect(await readFile(join(receiverRoot, "opaque.md"))).toEqual(bytes);
+      expect(await readFile(join(receiverRoot, "valid.md"), "utf8")).toBe("Valid sibling\n");
+      expect((await reader.inspect()).actions).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(receiverRoot, { recursive: true, force: true });
+    }
+  });
+
   it("builds a stable canonical authority manifest", async () => {
     expect(authorityManifestDigest([
       {

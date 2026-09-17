@@ -31,6 +31,7 @@ export interface MirrorFileEntry {
   file: CollectionFileDescriptor;
 }
 
+/** Diagnostics, not an apply gate. Use the inspected plan's blocking issues. */
 export interface MirrorLocalIssue {
   path: string;
   code: "invalid_frontmatter" | "file_read_failed";
@@ -148,7 +149,7 @@ export interface MirrorFileSystem {
   /** True when any filesystem entry occupies this exact portable path. */
   exists(path: string): Promise<boolean>;
   read(path: string): Promise<string | null>;
-  /** Classified byte-aware read; expected I/O failures reject as `SyncError("file_read_failed")`. */
+  /** Exact UTF-8 read, preserving a leading BOM; expected I/O failures reject as `SyncError("file_read_failed")`. */
   readText(path: string): Promise<MirrorTextReadResult>;
   write(path: string, value: string): Promise<void>;
   /** Atomically rename one managed path without changing its bytes. */

@@ -30,8 +30,9 @@ impl CollectionRegistry {
         let connection = self.connection()?;
         if transfer_direction(&connection, id, owner_id, transfer_id)? == "upload" {
             let transfer = required_upload(&connection, id, Some(owner_id), transfer_id)?;
-            let status = transfer_status(&connection, &transfer)?;
-            Ok(upload_session(&transfer, status.received))
+            // This session supplies frame bounds/crypto, not resumability state.
+            // Open and explicit status requests retain the complete chunk list.
+            Ok(upload_session(&transfer, Vec::new()))
         } else {
             Ok(download_session(&required_download(
                 &connection,
