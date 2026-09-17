@@ -144,7 +144,7 @@ fn legacy_recovery_is_preview_first_selective_verified_and_audited() {
     assert!(!preview.to_string().contains(application.as_str()));
     assert!(!preview.to_string().contains("exact body"));
     assert!(registry
-        .recover_runtime_claims(collection.id, &[selected_id.clone()], false)
+        .recover_runtime_claims(collection.id, std::slice::from_ref(&selected_id), false)
         .is_err());
     for blocked in [
         changed_id,
@@ -162,7 +162,7 @@ fn legacy_recovery_is_preview_first_selective_verified_and_audited() {
             .is_some());
     }
     let recovered = registry
-        .recover_runtime_claims(collection.id, &[selected_id.clone()], true)
+        .recover_runtime_claims(collection.id, std::slice::from_ref(&selected_id), true)
         .unwrap();
     assert_eq!(recovered["recovered"], json!([selected_id]));
     assert!(recovered["audit"][0]["completed_at_ms"].is_i64());
