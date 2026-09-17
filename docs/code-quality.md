@@ -172,6 +172,18 @@ actual installer, alongside pure encoding tests. This adds one production file
 (total: 3,200), not a second service owner, recovery state, or public protocol.
 File-size and cycle budgets are unchanged.
 
+Local runtime claim recovery (#443) replaces the scoped-preflight-only
+acknowledgement with one local ownership/settlement boundary. Its core module
+adds one production file (core: 36; total: 696) and seven counted Rust visibility
+declarations (total: 3,215), including the intervening beta103 file-I/O changes, for the local administration parameters and registry
+entry points. The reproduced 128-slot exhaustion and prepare/commit interruption
+windows justify a minimal durable local-owner table; a separate selection audit
+records explicit historical recovery, not payloads or application replay. Engine
+journal interpretation and revision verification remain in `mdbase-rs`.
+Historical compatibility serves existing v2/v3 journals until their verified
+owners acknowledge them; it never infers ownership from a missing ledger entry.
+No file-size, cycle, package, import or TypeScript export limit changes.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;

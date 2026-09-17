@@ -159,7 +159,9 @@ fn application_declaration_migration_upgrades_existing_authority_without_inventi
         .execute_batch(
             "ALTER TABLE grants DROP COLUMN application_declaration;
          ALTER TABLE revoked_grant_replay_material DROP COLUMN application_declaration;
-         DELETE FROM authority_schema_migrations WHERE version = 4;
+         DROP TABLE local_runtime_claims;
+         DROP TABLE runtime_claim_recoveries;
+         DELETE FROM authority_schema_migrations WHERE version >= 4;
          PRAGMA user_version = 3;",
         )
         .unwrap();

@@ -70,6 +70,7 @@ pub(super) enum OutputKind {
     Mirrors,
     Mirror,
     HostedConnections,
+    WriteRecovery,
     Generic,
 }
 
@@ -263,6 +264,42 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
             },
             "No hosted collections are authorized for direct CLI access.",
         ),
+        OutputKind::WriteRecovery => {
+            let mut lines = vec!["Retained writes (before recovery):".to_string()];
+            for item in value["transactions_before"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                let status = if item["application_owned"] == true {
+                    "protected: application-owned"
+                } else if item["eligible_for_confirmed_local_recovery"] == true {
+                    "requires verified local ownership"
+                } else {
+                    "protected: unsettled or revision mismatch"
+                };
+                lines.push(format!(
+                    "{}  {}  {}",
+                    text(item, "commit_id"),
+                    text(item, "phase"),
+                    status
+                ));
+                for path in item["paths"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                {
+                    lines.push(format!("  {path}"));
+                }
+            }
+            let recovered = value["recovered"].as_array().map_or(0, Vec::len);
+            lines.push(format!(
+                "Acknowledged {recovered} selected transactions. Record contents were not changed."
+            ));
+            lines.push(format!("Preview is read-only. After independently verifying local CLI writes, run:\nmdbase connect collection recover-writes {} --commit <id> --confirm-local\nRepeat --commit for each verified transaction. Never select an unknown owner. Use --json for the recovery audit.", text(value, "collection_id")));
+            lines.join("\n")
+        }
         OutputKind::Generic => {
             if value.is_null() || value == &serde_json::json!({}) {
                 "Done.".to_string()

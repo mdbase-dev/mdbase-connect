@@ -182,6 +182,7 @@ try {
 
   agent = startAgent([]);
   await waitForAgent();
+  await assertLocalBatchClaimSettlement();
   await run(cliBinary, [
     "--state-dir", stateDir,
     "connect",
@@ -1495,6 +1496,34 @@ async function approvePortalAuthorization(authorizationId, cookie, decision) {
   throw new Error(
     `Portal approval returned HTTP ${response.status}: ${JSON.stringify(body)}`
   );
+}
+
+async function assertLocalBatchClaimSettlement() {
+  const root = join(scratch, "claim-regression");
+  const created = await cliJson(["collection", "create", root, "--name", "[test] claim regression"]);
+  const id = created.result.id;
+  const record = join(root, "note.md");
+  const requestPath = join(scratch, "claim-batch.json");
+  await writeFile(record, "---\ntitle: Keep\ncounter: 0\n---\nunchanged body\n");
+  for (let counter = 1; counter <= 140; counter += 1) {
+    const before = await readFile(record);
+    await writeFile(requestPath, JSON.stringify({ operations: [{ kind: "update", input: {
+      path: "note.md", patch: { counter },
+      if_revision: `sha256:${createHash("sha256").update(before).digest("hex")}`
+    } }] }));
+    const response = await run(cliBinary, ["--state-dir", stateDir, "--collection", id, "--json", "batch", "--request", requestPath]);
+    const result = JSON.parse(response.stdout);
+    if (result.valid !== true) throw new Error(`Local batch ${counter} failed: ${response.stdout}`);
+    const after = await readFile(record, "utf8");
+    if (after !== `---\ntitle: Keep\ncounter: ${counter}\n---\nunchanged body\n`) {
+      throw new Error(`Local batch ${counter} changed unrelated content`);
+    }
+  }
+  await poll(async () => {
+    const report = await cliJson(["collection", "recover-writes", id]);
+    return report.result.transactions_before.length === 0;
+  }, { timeoutMs: 10_000, description: "local runtime claim retirement" });
+  await cliJson(["collection", "remove", id]);
 }
 
 async function cliJson(args) {

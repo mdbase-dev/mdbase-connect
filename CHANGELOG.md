@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-beta.104
+
+- Local daemon mutations now retain a durable owner and settle completion claims,
+  preventing successful CLI batches from exhausting runtime transaction capacity.
+- Interrupted local preparations and completed writes reconcile before the next
+  mutation; application and relay replay boundaries remain unchanged.
+- `mdbase connect collection recover-writes <collection-id>` previews retained
+  writes and supports explicitly selected, independently verified local recovery.
+  It preserves application-owned, unsettled and revision-mismatched transactions.
+- Local authority state advances to schema 5. Older daemons reject upgraded state;
+  restarting alone does not recover historical orphaned claims. See
+  [local write recovery](docs/local-write-recovery.md).
+
 ## 0.1.0-beta.94
 
 Beta.94 replaces type-scoped application grants with explicit collection-level

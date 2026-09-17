@@ -3,6 +3,38 @@ use crate::output::render_human;
 use mdbase_connect_protocol::COLLECTION_OPERATIONS;
 
 #[test]
+fn write_recovery_requires_explicit_local_confirmation() {
+    let id = "01900000-0000-7000-8000-000000000000";
+    let base = ["mdbase", "connect", "collection", "recover-writes", id];
+    assert!(Args::try_parse_from(base).is_ok());
+    assert!(Args::try_parse_from(base.into_iter().chain(["--commit", "abc"])).is_err());
+    assert!(Args::try_parse_from(base.into_iter().chain(["--confirm-local"])).is_err());
+    let parsed = Args::try_parse_from(base.into_iter().chain([
+        "--commit",
+        "abc",
+        "--commit",
+        "def",
+        "--confirm-local",
+    ]))
+    .unwrap();
+    let RootCommand::Connect { command } = parsed.command else {
+        panic!("expected connect command")
+    };
+    let (command, _) = control_command(command).unwrap();
+    let ControlCommand::CollectionRecoverWrites(params) = command else {
+        panic!("expected recovery")
+    };
+    assert_eq!(params.commits, ["abc", "def"]);
+    assert!(params.confirm_local);
+    let text = render_human(
+        OutputKind::WriteRecovery,
+        &serde_json::json!({"collection_id": id, "transactions_before": [], "recovered": []}),
+    );
+    assert!(text.contains("Preview is read-only"));
+    assert!(text.contains("--confirm-local"));
+}
+
+#[test]
 fn parser_keeps_data_and_connect_namespaces_unambiguous() {
     let direct =
         Args::try_parse_from(["mdbase", "--root", "/data/notes", "read", "note.md"]).unwrap();

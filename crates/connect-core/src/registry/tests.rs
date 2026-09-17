@@ -8,6 +8,8 @@ mod collections;
 pub(super) mod file_io;
 mod file_sync;
 mod operations;
+mod runtime_claim_recovery;
+mod runtime_claims;
 mod scope;
 mod security_state;
 

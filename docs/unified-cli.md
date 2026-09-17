@@ -28,6 +28,13 @@ The final executable is a leaf. The mdbase engine never imports Connect.
 Connect continues to depend on public mdbase APIs and remains the local
 authorization, routing, replication, and service-lifecycle boundary.
 
+## Retained-write recovery
+
+If local daemon writes fail with `runtime_capacity_exhausted`, preview with
+`mdbase connect collection recover-writes <collection-id>`. See
+[local write recovery](local-write-recovery.md) for safe, explicitly selected
+acknowledgement of verified historical writes. Restart alone is not recovery.
+
 ## Command ownership
 
 Top-level data commands operate on records, types, views, validation,

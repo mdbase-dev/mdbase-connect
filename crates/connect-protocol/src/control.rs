@@ -52,6 +52,9 @@ pub enum ControlCommand {
     CollectionValidate(CollectionIdParams),
     #[serde(rename = "collections.operation")]
     CollectionOperation(CollectionOperationParams),
+    /// Additive local-only v1 administration command; never an application operation.
+    #[serde(rename = "collections.recover-writes-v1")]
+    CollectionRecoverWrites(CollectionRecoverWritesParams),
     #[serde(rename = "access.snapshot")]
     AccessSnapshot,
     #[serde(rename = "access.pause")]
@@ -207,6 +210,15 @@ pub struct CollectionAuthorityTransferRecoveryParams {
 #[serde(rename_all = "snake_case")]
 pub enum AuthorityTarget {
     Remote,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionRecoverWritesParams {
+    pub collection_id: Uuid,
+    #[serde(default)]
+    pub commits: Vec<String>,
+    #[serde(default)]
+    pub confirm_local: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
