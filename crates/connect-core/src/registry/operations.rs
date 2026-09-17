@@ -63,7 +63,14 @@ impl CollectionRegistry {
             if request.operation.is_mutation() {
                 sync_store.assert_mutation_allowed(id)?;
                 let result = executor.with_mutation(&context, |runtime| {
-                    execute_runtime_request(require_runtime(runtime)?, &request, None, &context)
+                    execute_runtime_request(
+                        self,
+                        id,
+                        require_runtime(runtime)?,
+                        &request,
+                        None,
+                        &context,
+                    )
                 })?;
                 synchronize()?;
                 operation_response_value(&result.operation)
@@ -319,8 +326,14 @@ impl CollectionRegistry {
         );
         let context = operation_context(&mdbase::OperationCancellation::new());
         let applied = executor.with_mutation(&context, |runtime| {
-            let execution =
-                execute_runtime_request(require_runtime(runtime)?, &request, None, &context)?;
+            let execution = execute_runtime_request(
+                self,
+                id,
+                require_runtime(runtime)?,
+                &request,
+                None,
+                &context,
+            )?;
             let result = v03_operation_result(&execution.operation);
             if !execution.operation.is_valid() {
                 return Err(type_pack_setup_error(&result));

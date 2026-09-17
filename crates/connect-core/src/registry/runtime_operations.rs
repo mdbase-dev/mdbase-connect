@@ -43,6 +43,8 @@ pub(super) fn operation_context(
 }
 
 pub(super) fn execute_runtime_request(
+    registry: &CollectionRegistry,
+    collection_id: Uuid,
     runtime: &FilesystemRuntime,
     request: &mdbase::runtime::OperationRequest,
     claim: Option<&mdbase::runtime::HostClaimId>,
@@ -55,14 +57,29 @@ pub(super) fn execute_runtime_request(
             outcome: Some(outcome),
         });
     }
-    let generated;
-    let claim = match claim {
-        Some(claim) => claim,
-        None => {
-            generated = mdbase::runtime::HostClaimId::generate();
-            &generated
+    // All callers hold the collection mutation gate. Reconcile only claims
+    // durably owned by local, non-replayable operations, never application claims.
+    registry.settle_local_runtime_claims(collection_id, runtime)?;
+    let Some(claim) = claim else {
+        let claim = registry.create_local_runtime_claim(collection_id)?;
+        let result = execute_claimed_runtime_request(runtime, request, &claim, context);
+        // A cancelled request must not cancel its cleanup. If cleanup fails the
+        // durable owner remains and the next mutation retries it. In particular,
+        // do not turn a successful write into a retryable write failure.
+        if let Err(error) = registry.settle_local_runtime_claims(collection_id, runtime) {
+            tracing::warn!(code = error.code(), "local mutation settlement deferred");
         }
+        return result;
     };
+    execute_claimed_runtime_request(runtime, request, claim, context)
+}
+
+fn execute_claimed_runtime_request(
+    runtime: &FilesystemRuntime,
+    request: &mdbase::runtime::OperationRequest,
+    claim: &mdbase::runtime::HostClaimId,
+    context: &mdbase::runtime::OperationContext,
+) -> Result<RuntimeExecution, ConnectError> {
     if let Some((commit_id, state)) = runtime.resolve_claim(claim, context)? {
         return resolve_runtime_execution(runtime, claim, commit_id, state, context);
     }
@@ -329,9 +346,6 @@ impl CollectionRegistry {
             sync_store.assert_mutation_allowed(registered.id)?;
             executor.with_mutation(&context, |runtime| {
                 let runtime = require_runtime(runtime)?;
-                let local_claim = (serialized_scoped_preflight && claim.is_none())
-                    .then(mdbase::runtime::HostClaimId::generate);
-                let execution_claim = claim.or(local_claim.as_ref());
                 if serialized_scoped_preflight {
                     let (resolved_scope, selector) = plan
                         .projection
@@ -363,14 +377,14 @@ impl CollectionRegistry {
                     })?;
                     bind_preflight_revision(&mut plan.request, &current.revision)?;
                 }
-                let execution =
-                    execute_runtime_request(runtime, &plan.request, execution_claim, &context)?;
-                if let Some(local_claim) = local_claim.as_ref() {
-                    if let Some((commit_id, _)) = runtime.resolve_claim(local_claim, &context)? {
-                        runtime.ack_commit_resolution(&commit_id, &context)?;
-                    }
-                }
-                Ok(execution)
+                execute_runtime_request(
+                    self,
+                    registered.id,
+                    runtime,
+                    &plan.request,
+                    claim,
+                    &context,
+                )
             })?
         } else {
             execute_runtime_read(

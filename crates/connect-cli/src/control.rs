@@ -42,6 +42,18 @@ pub(super) fn control_command(
             ControlCommand::CollectionValidate(CollectionIdParams { collection_id }),
             OutputKind::Generic,
         ),
+        ConnectCommand::Collection(CollectionCommand::RecoverWrites {
+            collection_id,
+            commits,
+            confirm_local,
+        }) => (
+            ControlCommand::CollectionRecoverWrites(CollectionRecoverWritesParams {
+                collection_id,
+                commits,
+                confirm_local,
+            }),
+            OutputKind::WriteRecovery,
+        ),
         ConnectCommand::Collection(CollectionCommand::TransferAuthority {
             collection_id,
             target,

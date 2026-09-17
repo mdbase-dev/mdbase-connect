@@ -6,7 +6,12 @@ use std::sync::{mpsc, Condvar};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const AUTHORITY_SCHEMA_VERSION: u32 = 4;
+const AUTHORITY_SCHEMA_VERSION: u32 = 5;
+const AUTHORITY_SCHEMA_V5_NAME: &str = "local_runtime_claims";
+const AUTHORITY_SCHEMA_V5_CHECKSUM: &str =
+    "ec7c2be6efa2bb75e1a6703f4747ec326f5836ce4dc1fe009b8219f0d905c207";
+const AUTHORITY_SCHEMA_V5_SQL: &str =
+    include_str!("migrations/authority/0005_local_runtime_claims.sql");
 const AUTHORITY_SCHEMA_V1_NAME: &str = "isolated_authority_store";
 const AUTHORITY_SCHEMA_V1_CHECKSUM: &str =
     "9130129006fd8b244b969bbbd6588d508e416fc10089df4fd1fe17cf1aca45b2";
@@ -588,6 +593,7 @@ fn migrate_authority_store_with_hook(
     apply_authority_v2(&mut connection)?;
     apply_authority_v3(&mut connection)?;
     apply_authority_v4(&mut connection)?;
+    apply_authority_v5(&mut connection)?;
     connection.pragma_update(None, "journal_mode", "WAL")?;
     hook("after_authority_wal")?;
     let quick_check: String =
@@ -716,6 +722,11 @@ fn verify_authority_store(path: &Path) -> Result<(), ConnectError> {
             AUTHORITY_SCHEMA_V4_NAME,
             AUTHORITY_SCHEMA_V4_CHECKSUM,
         ),
+        (
+            5_u32,
+            AUTHORITY_SCHEMA_V5_NAME,
+            AUTHORITY_SCHEMA_V5_CHECKSUM,
+        ),
     ] {
         let checksum: String = connection.query_row(
             "SELECT checksum FROM authority_schema_migrations WHERE version = ?1 AND name = ?2",
@@ -760,13 +771,19 @@ fn upgrade_authority_store(path: &Path) -> Result<(), ConnectError> {
             }
             apply_authority_v2(&mut connection)?;
             apply_authority_v3(&mut connection)?;
-            apply_authority_v4(&mut connection)
+            apply_authority_v4(&mut connection)?;
+            apply_authority_v5(&mut connection)
         }
         2 => {
             apply_authority_v3(&mut connection)?;
-            apply_authority_v4(&mut connection)
+            apply_authority_v4(&mut connection)?;
+            apply_authority_v5(&mut connection)
         }
-        3 => apply_authority_v4(&mut connection),
+        3 => {
+            apply_authority_v4(&mut connection)?;
+            apply_authority_v5(&mut connection)
+        }
+        4 => apply_authority_v5(&mut connection),
         found => Err(ConnectError::RegistrySchemaIncompatible {
             path: path.to_path_buf(),
             found,
@@ -821,6 +838,22 @@ fn apply_authority_v4(connection: &mut Connection) -> Result<(), ConnectError> {
             AUTHORITY_SCHEMA_V4_CHECKSUM,
             current_time_ms()
         ],
+    )?;
+    transaction.pragma_update(None, "user_version", 4_u32)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn apply_authority_v5(connection: &mut Connection) -> Result<(), ConnectError> {
+    debug_assert_eq!(
+        sha256_hex(AUTHORITY_SCHEMA_V5_SQL.as_bytes()),
+        AUTHORITY_SCHEMA_V5_CHECKSUM
+    );
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    transaction.execute_batch(AUTHORITY_SCHEMA_V5_SQL)?;
+    transaction.execute(
+        "INSERT INTO authority_schema_migrations (version, name, checksum, applied_at_ms) VALUES (5, ?1, ?2, ?3)",
+        params![AUTHORITY_SCHEMA_V5_NAME, AUTHORITY_SCHEMA_V5_CHECKSUM, current_time_ms()],
     )?;
     transaction.pragma_update(None, "user_version", AUTHORITY_SCHEMA_VERSION)?;
     transaction.commit()?;

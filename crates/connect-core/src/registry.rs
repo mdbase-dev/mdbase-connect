@@ -93,6 +93,7 @@ mod operation_setup;
 mod operations;
 mod receipts;
 mod runtime_changes;
+mod runtime_claims;
 mod runtime_executor;
 mod runtime_operations;
 mod runtime_residency;

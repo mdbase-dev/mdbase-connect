@@ -7,6 +7,8 @@ mod authority;
 mod collections;
 mod file_sync;
 mod operations;
+mod runtime_claim_recovery;
+mod runtime_claims;
 mod scope;
 mod security_state;
 

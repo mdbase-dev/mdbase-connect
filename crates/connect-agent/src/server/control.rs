@@ -15,6 +15,10 @@ impl AgentState {
                 ),
             );
         }
+        let operation_collection = match &request.command {
+            ControlCommand::CollectionOperation(params) => Some(params.collection_id),
+            _ => None,
+        };
         let result = match request.command {
             ControlCommand::Ping => {
                 let readiness = self.readiness();
@@ -145,6 +149,19 @@ impl AgentState {
             ControlCommand::CollectionOperation(params) => {
                 self.collection_operation(params.collection_id, params.operation, params.input)
                     .await
+            }
+            ControlCommand::CollectionRecoverWrites(params) => {
+                let registry = self.registry.clone();
+                tokio::task::spawn_blocking(move || {
+                    registry.recover_runtime_claims(
+                        params.collection_id,
+                        &params.commits,
+                        params.confirm_local,
+                    )
+                })
+                .await
+                .map_err(local_operation_task_error)
+                .and_then(|result| result)
             }
             ControlCommand::AccessSnapshot => self.access_snapshot().await,
             ControlCommand::AccessPause(params) => self
@@ -354,7 +371,15 @@ impl AgentState {
 
         match result {
             Ok(result) => ControlResponse::success(id, result),
-            Err(error) => ControlResponse::failure(id, error.code(), error.to_string()),
+            Err(error) => {
+                let message = match operation_collection {
+                    Some(collection) if error.code() == "runtime_capacity_exhausted" => format!(
+                        "{error}. Inspect retained writes with `mdbase connect collection recover-writes {collection}` using the same --state-dir. Restart alone does not acknowledge historical transactions."
+                    ),
+                    _ => error.to_string(),
+                };
+                ControlResponse::failure(id, error.code(), message)
+            }
         }
     }
 

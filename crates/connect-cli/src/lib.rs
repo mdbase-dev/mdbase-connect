@@ -23,8 +23,8 @@ use mdbase_connect_protocol::{
     AccessPauseParams, ActivityListParams, AuthorityTarget, AuthorizationApproveParams,
     AuthorizationIdParams, CollectionAuthorityTransferParams,
     CollectionAuthorityTransferRecoveryParams, CollectionCreateParams, CollectionIdParams,
-    CollectionOperationParams, CollectionPathParams, ControlCommand, ControlRequest,
-    ControlResponse, FileMediaClass, GrantIdParams, GrantUpdateParams,
+    CollectionOperationParams, CollectionPathParams, CollectionRecoverWritesParams, ControlCommand,
+    ControlRequest, ControlResponse, FileMediaClass, GrantIdParams, GrantUpdateParams,
     HostedCollectionCreateParams, HostedCollectionRenameParams, HostedConnectionAuthorization,
     HostedConnectionAuthorizationPollParams, HostedConnectionAuthorizationStatus,
     HostedConnectionAuthorizeParams, MirrorAddParams, MirrorApplyParams,
@@ -336,6 +336,16 @@ enum CollectionCommand {
     },
     Validate {
         collection_id: Uuid,
+    },
+    /// Preview retained writes; acknowledge only explicitly selected, verified local writes.
+    RecoverWrites {
+        collection_id: Uuid,
+        /// Commit ID from the preview (repeat for each verified local transaction).
+        #[arg(long = "commit", requires = "confirm_local")]
+        commits: Vec<String>,
+        /// Attest selected transactions were local CLI writes, independently verified.
+        #[arg(long, requires = "commits")]
+        confirm_local: bool,
     },
     TransferAuthority {
         collection_id: Uuid,
