@@ -27,7 +27,7 @@
     "@mdbase-dev/connect": "workspace:*",
     "@mdbase-dev/connect-protocol": "workspace:*",
     "ajv": "^8.20.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.1"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/cli.js',0o755)\"",
