@@ -27,10 +27,10 @@ test("upgrade pins an exact versioned published fixture", async () => {
   );
   assert.equal(fixture, `# Versioned published upgrade fixture; not the mutable newest-release pointer.
 # Advance deliberately during release preparation; publication alone cannot invalidate CI.
-MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.103
-MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=1102ab2750b8144ee3bf3f69e58fbd3e20578738
-MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:42443dd32c9a74e8c00c4bac4f6ea4f2087d609e8d34aa18c18d429eda9a7d5b
-MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:868fbadfe13ec74d522446450ab527ce0b7c519b147b3ca145123676fdf7c3ea
+MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.104
+MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=3397ddf1f127f0a0c74c51b4d4f3cb587428d6f5
+MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:aa6ff14c5f41e8d09dc61741a52833e7a3d40a634de52346660e7a1f4cfdc613
+MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:e38b18748992ce6a42428bd7c0f7084019bb3621af26aab1086641e761c25958
 `);
 });
 
