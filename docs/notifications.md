@@ -110,6 +110,55 @@ Namespaces contain letters, numbers, dots, underscores, and dashes, and one
 reconciliation accepts at most 10,000 timers with up to 16 KiB of private data
 per timer.
 
+## Timer compatibility across Connect upgrades
+
+The `notification-timer` implementation uses the independently versioned
+`TIMER_SOURCE_VERSION` (`1.0.0`), not the Connect release number. An unrelated
+binary release must not invalidate a scheduled timer. Exact event-contract,
+collection, grant and criterion checks remain unchanged. An incompatible
+adapter change requires an explicit persisted-timer transition; do not bump
+this version with the release train or accept arbitrary historical sources.
+
+Hosted migration `0043_notification_timer_source_identity.sql` and the local
+connector's idempotent SQLite data migration correct only Connect-owned timer
+sources from beta.27 through beta.104 with the exact current timer contract.
+Beta.27 first shipped that digest. Other sources, contracts and versions are
+not normalized. The migrations preserve IDs, generations, due times, data,
+terminal states and all admitted events/runs. Updating fired timer metadata
+prevents later reconciliation from rescheduling it solely for a version change.
+
+Both migrations exclude new claims while inspecting/updating and refuse active
+claims. Expired claim tokens are cleared so a late old worker cannot commit
+against its former lease. The hosted migration additionally retires old-source
+writes with a database check: an overlapping predecessor cannot reintroduce an
+old identity after migration. Its timer writes can fail until it is replaced;
+this does not suspend ordinary record access. The check is intentionally not
+validated against unrelated historical records left for exact admission to
+reject. The local migration runs before a runtime is exposed for execution,
+under the connector's ordinary single-daemon ownership; it is not a perpetual
+legacy reader. Retain it until upgrades from these old local profiles are no
+longer supported, then remove that migration hook.
+
+This is a forward-recovery transition. Older hosted binaries reject the new
+ledger, and older local binaries cannot execute the new timer identity. Do not
+downgrade a migrated profile or restore a predecessor image over migrated data.
+Managed deployment still needs the normal signed-release, migration-policy and
+staging upgrade qualification; source tests do not authorize a rollout.
+
+Notification recovery remains pending/degraded while an overdue timer in a
+collection with registered notification grants is `scheduled` or `firing`,
+even when it is leased. Future timers and retained timers in a collection whose
+last notification grant was revoked do not make the service degraded. Core routing readiness stays separate from outbound delivery
+so a control-plane outage cannot cause a provider readiness/restart cycle.
+`notification_runtime_error` metrics retain an allowlisted error code and stage,
+never diagnostic messages or timer contents.
+
+Regression coverage includes local migration identity/lifecycle preservation,
+active and stale claim fencing, compatible release changes without client
+reconciliation, and the hosted PostgreSQL recovery/migration/restart sequence
+in `pnpm e2e:provider`. The latter replays exact historical record shapes on the
+current schema; it does not replace the previous-release binary upgrade gate.
+
 ## Browser registration
 
 Register a service worker from a user gesture, then enable all declared

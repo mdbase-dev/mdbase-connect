@@ -25,6 +25,7 @@ mdbase-connect-runtime = { path = "../connect-runtime" }
 p256.workspace = true
 rand_core.workspace = true
 reqwest.workspace = true
+rusqlite.workspace = true
 # Select the same provider for standalone daemon tests and embedders; binaries
 # install it process-wide before starting their runtimes.
 rustls.workspace = true
@@ -45,6 +46,3 @@ url.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
-[dev-dependencies]
-rusqlite.workspace = true

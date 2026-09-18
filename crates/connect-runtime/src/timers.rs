@@ -388,6 +388,48 @@ mod tests {
     use uuid::Uuid;
 
     #[tokio::test]
+    async fn scheduled_and_fired_timers_survive_a_connect_release_change() {
+        let (runtime, store) = runtime();
+        let grant = grant("reminder");
+        let source = |version: &str| ImplementationIdentity {
+            application: "mdbase.connect".into(),
+            implementation: "hosted-authority".into(),
+            version: version.into(),
+            instance_id: Some(grant.collection_id.to_string()),
+        };
+        let old = crate::compose_notification_catalog(
+            std::slice::from_ref(&grant),
+            source("0.1.0-beta.104"),
+            "urn:test:authority",
+        )
+        .unwrap();
+        let new = crate::compose_notification_catalog(
+            std::slice::from_ref(&grant),
+            source("0.1.0-beta.105"),
+            "urn:test:authority",
+        )
+        .unwrap();
+        assert_eq!(old.timer_source(), new.timer_source());
+        assert_eq!(new.timer_source().version, crate::TIMER_SOURCE_VERSION);
+        put(&runtime, &old, &grant, "offline", "reminder", "00:00:00", 1).await;
+        let before = store.snapshot().await.unwrap().timers[0].clone();
+        assert!(matches!(
+            runtime.fire_due_timer(new.admission()).await.unwrap(),
+            TimerFireOutcome::Fired { generation: 1, .. }
+        ));
+        let after = store.snapshot().await.unwrap();
+        assert_eq!(after.timers[0].id, before.id);
+        assert_eq!(after.timers[0].fire_at, before.fire_at);
+        put(&runtime, &new, &grant, "offline", "reminder", "00:00:00", 1).await;
+        assert_eq!(
+            runtime.fire_due_timer(new.admission()).await.unwrap(),
+            TimerFireOutcome::Idle
+        );
+        assert_eq!(store.snapshot().await.unwrap().events.len(), 1);
+        assert_eq!(store.snapshot().await.unwrap().timers[0].generation, 1);
+    }
+
+    #[tokio::test]
     async fn grant_cleanup_cancels_all_namespaces_and_preserves_other_prefixes() {
         let (runtime, store) = runtime();
         let grant_a = grant("reminder");
