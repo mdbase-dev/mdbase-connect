@@ -343,10 +343,9 @@ impl RuntimeNotificationService {
         collection_id: Uuid,
         timezone: Option<String>,
     ) -> mdbase_runtime::RuntimeResult<Runtime> {
-        let store: Arc<dyn RuntimeStore> = Arc::new(SqliteRuntimeStore::open(runtime_path(
-            &self.runtime_dir,
-            collection_id,
-        ))?);
+        let path = runtime_path(&self.runtime_dir, collection_id);
+        let store: Arc<dyn RuntimeStore> = Arc::new(SqliteRuntimeStore::open(&path)?);
+        migrate_timer_source(&path, collection_id)?;
         let providers = ProviderRegistry::default();
         let catalog = compose_catalog(&[], collection_id)?;
         providers.register(
@@ -375,6 +374,73 @@ impl RuntimeNotificationService {
             },
         )
     }
+}
+
+// Idempotent local counterpart of hosted migration 0043, not a legacy reader.
+fn migrate_timer_source(path: &Path, collection_id: Uuid) -> mdbase_runtime::RuntimeResult<()> {
+    use mdbase_connect_runtime::TIMER_EVENT_DIGEST;
+    use mdbase_runtime::RuntimeError;
+    use rusqlite::{params, Connection, TransactionBehavior};
+
+    // beta.27 first shipped this exact contract; beta.104 is the last
+    // release-stamped source. Unknown sources/contracts are not normalized.
+    const ELIGIBLE: &str = "
+        json_extract(record_json, '$.event_source.application') = 'mdbase.connect'
+        AND json_extract(record_json, '$.event_source.implementation') = 'notification-timer'
+        AND json_extract(record_json, '$.event_source.instance_id') = ?1
+        AND json_extract(record_json, '$.subject') = ?1
+        AND json_extract(record_json, '$.source_uri') = 'urn:mdbase:connect:local:' || ?1
+        AND json_extract(record_json, '$.event_contract.id') = 'mdbase.runtime.timer.fired'
+        AND json_extract(record_json, '$.event_contract.version') = '1.0.0'
+        AND json_extract(record_json, '$.event_contract.digest') = ?2
+        AND (SELECT count(*) FROM json_each(record_json, '$.event_contract')) = 3
+        AND json_extract(record_json, '$.event_source.version') IN (
+            WITH RECURSIVE releases(n) AS (
+                VALUES(27) UNION ALL SELECT n + 1 FROM releases WHERE n < 104
+            ) SELECT '0.1.0-beta.' || n FROM releases
+        )";
+    let store_error = |_error: rusqlite::Error| {
+        RuntimeError::Store("Could not migrate the local notification timer source.".to_string())
+    };
+    // The runtime has already validated its schema. Exclude new claims before
+    // inspection; a still-running old worker must not lose its active claim.
+    let mut connection = Connection::open(path).map_err(store_error)?;
+    connection
+        .busy_timeout(Duration::from_secs(1))
+        .map_err(store_error)?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(store_error)?;
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let busy: bool = transaction
+        .query_row(
+            &format!(
+                "SELECT EXISTS(SELECT 1 FROM runtime_timers WHERE {ELIGIBLE}
+            AND lease_token IS NOT NULL AND (lease_expires_at IS NULL OR lease_expires_at > ?3))"
+            ),
+            params![collection_id.to_string(), TIMER_EVENT_DIGEST, now],
+            |row| row.get(0),
+        )
+        .map_err(store_error)?;
+    if busy {
+        return Err(RuntimeError::diagnostic(
+            "notification_timer_source_migration_busy",
+            "An active timer claim must finish or expire before source migration.",
+        ));
+    }
+    // Fence expired workers too: expiry alone does not prevent a late commit.
+    transaction
+        .execute(
+            &format!(
+                "UPDATE runtime_timers
+            SET record_json = json_set(record_json, '$.event_source.version', '1.0.0'),
+                lease_token = NULL, lease_worker = NULL, lease_expires_at = NULL
+            WHERE {ELIGIBLE}"
+            ),
+            params![collection_id.to_string(), TIMER_EVENT_DIGEST],
+        )
+        .map_err(store_error)?;
+    transaction.commit().map_err(store_error)
 }
 
 fn collection_timezone(
@@ -744,3 +810,5 @@ fn denied(code: &str, message: &str) -> AuthorizationDecision {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod timer_source_migration_tests;

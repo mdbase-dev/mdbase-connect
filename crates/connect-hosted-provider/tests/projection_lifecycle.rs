@@ -182,7 +182,7 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(final_versions, (1_i64..=42).collect::<Vec<_>>());
+    assert_eq!(final_versions, (1_i64..=43).collect::<Vec<_>>());
     let runtime_columns: Vec<String> = sqlx::query_scalar(
         r#"SELECT column_name
            FROM information_schema.columns
@@ -239,7 +239,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
             .fetch_all(&fixture.pool)
             .await
             .unwrap();
-    assert_eq!(versions, (1..=42).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=43).collect::<Vec<_>>());
     let plan = fixture
         .provider
         .projection_index_plan(None, 1)
@@ -248,7 +248,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
     assert!(plan.migration_ledger_valid);
     assert!(plan.schema_valid);
     assert_eq!(plan.migration_baseline, 34);
-    assert_eq!(plan.migration_target, 42);
+    assert_eq!(plan.migration_target, 43);
 
     // Only this disposable fixture's ledger is corrupted. Save every original
     // column, including checksum bytes and timestamps; never rerun migrations
@@ -283,7 +283,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
         assert_eq!(restored, original, "exact restoration after {name}");
         let plan = result.unwrap();
         assert!(!plan.migration_ledger_valid, "accepted {name}");
-        assert_eq!(plan.migration_target, 42, "target changed for {name}");
+        assert_eq!(plan.migration_target, 43, "target changed for {name}");
         assert!(plan.schema_valid, "schema changed for {name}");
         assert!(fixture.provider.projection_index_plan(None, 1).await.unwrap().migration_ledger_valid);
     }

@@ -38,6 +38,10 @@ pub const RECORD_DELETED_EVENT_DIGEST: &str =
 pub const RECORD_RENAMED_EVENT_ID: &str = "mdbase.record.renamed";
 pub const RECORD_RENAMED_EVENT_DIGEST: &str =
     "sha256:c825ef8d7db775b784d7af27e6acdf6f2799d2c6440d486f5bfa78afcca71471";
+// Version the durable timer adapter, not the Connect binary. Bump this only
+// with an explicit persisted-timer compatibility transition. Build revisions
+// remain available through service health and authority identities.
+const TIMER_SOURCE_VERSION: &str = "1.0.0";
 pub const TIMER_EVENT_ID: &str = "mdbase.runtime.timer.fired";
 pub const TIMER_EVENT_DIGEST: &str =
     "sha256:41105be7a7abf33b31ced47e1e1965242236e40ccaea286b959b0a8c591f5642";
@@ -139,7 +143,7 @@ pub fn compose_notification_catalog(
     let timer_source = ImplementationIdentity {
         application: "mdbase.connect".to_string(),
         implementation: "notification-timer".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: TIMER_SOURCE_VERSION.to_string(),
         instance_id: authority_source.instance_id.clone(),
     };
     let notification_provider = notification_provider_identity();

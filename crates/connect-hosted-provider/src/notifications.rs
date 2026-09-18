@@ -66,7 +66,7 @@ impl HostedNotificationRuntime {
     pub async fn prepare(&self) -> ApiResult<()> {
         PostgresRuntimeStore::prepare(&self.pool)
             .await
-            .map_err(runtime_error)?;
+            .map_err(runtime_error("store_prepare"))?;
         let rows = sqlx::query(
             "SELECT grant_id, collection_id, grant_json
              FROM hosted_provider_notification_grants
@@ -170,8 +170,8 @@ impl HostedNotificationRuntime {
                 .map_err(|error| ApiError::internal(error.to_string()))
         })?;
         ensure_canonical_application_grant(&grant)?;
-        let catalog =
-            compose_catalog(std::slice::from_ref(&grant), collection_id).map_err(runtime_error)?;
+        let catalog = compose_catalog(std::slice::from_ref(&grant), collection_id)
+            .map_err(runtime_error("catalog"))?;
         let runtime = self.runtime(collection_id).await?;
         perform_timer_operation(&runtime, &catalog, &grant, operation, input)
             .await
@@ -196,14 +196,15 @@ impl HostedNotificationRuntime {
             if grants.is_empty() {
                 continue;
             }
-            let catalog = compose_catalog(&grants, collection_id).map_err(runtime_error)?;
+            let catalog =
+                compose_catalog(&grants, collection_id).map_err(runtime_error("catalog"))?;
             let runtime = self.runtime(collection_id).await?;
             for _ in 0..100 {
                 if matches!(
                     runtime
                         .fire_due_timer(catalog.admission())
                         .await
-                        .map_err(runtime_error)?,
+                        .map_err(runtime_error("timer_fire"))?,
                     TimerFireOutcome::Idle
                 ) {
                     break;
@@ -211,7 +212,7 @@ impl HostedNotificationRuntime {
             }
             drain_notification_runtime(&runtime, 100)
                 .await
-                .map_err(runtime_error)?;
+                .map_err(runtime_error("run_drain"))?;
         }
         Ok(processed)
     }
@@ -229,6 +230,16 @@ impl HostedNotificationRuntime {
                  FROM mdbase_runtime_runs
                  WHERE namespace LIKE 'connect-hosted:%:notifications'
                    AND status IN ('queued', 'running', 'waiting')
+               )
+               OR EXISTS (
+                 SELECT 1
+                 FROM mdbase_runtime_timers timer
+                 WHERE timer.status IN ('scheduled', 'firing')
+                   AND timer.fire_at <= now()
+                   AND EXISTS (
+                     SELECT 1 FROM hosted_provider_notification_grants grant_row
+                     WHERE timer.namespace = 'connect-hosted:' || grant_row.collection_id::text || ':notifications'
+                   )
                )",
         )
         .fetch_one(&self.pool)
@@ -346,7 +357,7 @@ impl HostedNotificationRuntime {
         }) {
             return Ok(());
         }
-        let catalog = compose_catalog(&grants, collection_id).map_err(runtime_error)?;
+        let catalog = compose_catalog(&grants, collection_id).map_err(runtime_error("catalog"))?;
         let runtime = self.runtime(collection_id).await?;
         let envelope = notification_event_envelope(
             &AuthorityEvent {
@@ -358,14 +369,14 @@ impl HostedNotificationRuntime {
             },
             &catalog,
         )
-        .map_err(runtime_error)?;
+        .map_err(runtime_error("event_envelope"))?;
         runtime
             .deliver_event(catalog.admission(), envelope)
             .await
-            .map_err(runtime_error)?;
+            .map_err(runtime_error("event_admission"))?;
         drain_notification_runtime(&runtime, 100)
             .await
-            .map_err(runtime_error)?;
+            .map_err(runtime_error("run_drain"))?;
         Ok(())
     }
 
@@ -399,7 +410,7 @@ impl HostedNotificationRuntime {
                 format!("connect-hosted:{collection_id}:notifications"),
             )
             .await
-            .map_err(runtime_error)?,
+            .map_err(runtime_error("store_open"))?,
         );
         let providers = ProviderRegistry::default();
         let timezone = sqlx::query_scalar::<_, String>(
@@ -408,7 +419,7 @@ impl HostedNotificationRuntime {
         .bind(collection_id)
         .fetch_one(&self.pool)
         .await?;
-        let catalog = compose_catalog(&[], collection_id).map_err(runtime_error)?;
+        let catalog = compose_catalog(&[], collection_id).map_err(runtime_error("catalog"))?;
         providers.register(
             catalog.notification_provider_binding().clone(),
             Arc::new(HostedSignalProvider {
@@ -438,7 +449,7 @@ impl HostedNotificationRuntime {
                     max_items: 50,
                 },
             )
-            .map_err(runtime_error)?,
+            .map_err(runtime_error("runtime_create"))?,
         );
         let mut runtimes = self.runtimes.lock().await;
         Ok(runtimes
@@ -666,8 +677,34 @@ fn denied(code: &str, message: &str) -> AuthorizationDecision {
     }
 }
 
-fn runtime_error(error: mdbase_runtime::RuntimeError) -> ApiError {
-    ApiError::internal(error.to_string())
+fn runtime_error(stage: &'static str) -> impl FnOnce(mdbase_runtime::RuntimeError) -> ApiError {
+    move |error| {
+        // Runtime diagnostics may include record content in their messages.
+        // Emit only owned categories, never arbitrary diagnostic codes/messages.
+        let code = safe_runtime_error_code(&error);
+        tracing::warn!(
+            target: "mdbase_connect::metrics",
+            metric = "notification_runtime_error",
+            stage,
+            runtime_error_code = code,
+            "privacy-safe hosted provider metric"
+        );
+        ApiError::internal(error.to_string())
+    }
+}
+
+fn safe_runtime_error_code(error: &mdbase_runtime::RuntimeError) -> &'static str {
+    match error.code() {
+        "event_source_unavailable" => "event_source_unavailable",
+        "unknown_contract" => "unknown_contract",
+        "invalid_runtime_event" => "invalid_runtime_event",
+        "stale_timer_lease" => "stale_timer_lease",
+        "runtime_store_error" => "runtime_store_error",
+        "action_provider_error" => "action_provider_error",
+        "runtime_serialization_error" => "runtime_serialization_error",
+        "runtime_clock_error" => "runtime_clock_error",
+        _ => "runtime_diagnostic_error",
+    }
 }
 
 fn retry_delay_seconds(attempt: i32) -> i64 {
@@ -678,8 +715,31 @@ fn retry_delay_seconds(attempt: i32) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_canonical_application_scope, retry_delay_seconds};
+    use super::{is_canonical_application_scope, retry_delay_seconds, safe_runtime_error_code};
     use mdbase_connect_protocol::{ApplicationAccess, GrantScope};
+
+    #[test]
+    fn runtime_metrics_keep_codes_but_never_untrusted_diagnostics() {
+        use mdbase_runtime::RuntimeError;
+        assert_eq!(
+            safe_runtime_error_code(&RuntimeError::diagnostic(
+                "event_source_unavailable",
+                "private timer content"
+            )),
+            "event_source_unavailable"
+        );
+        assert_eq!(
+            safe_runtime_error_code(&RuntimeError::diagnostic(
+                "private-diagnostic-code",
+                "private timer content"
+            )),
+            "runtime_diagnostic_error"
+        );
+        assert_eq!(
+            safe_runtime_error_code(&RuntimeError::Store("private database error".into())),
+            "runtime_store_error"
+        );
+    }
 
     #[test]
     fn notification_authority_requires_canonical_collection_scope() {

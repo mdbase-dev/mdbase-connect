@@ -384,16 +384,16 @@ async function proveCurrentRollbackIsNotAuthorized(database) {
   const token = randomUUID();
   await psql(database, `DO $assert$ BEGIN
     IF (SELECT array_agg(version ORDER BY version) FROM _sqlx_migrations)
-         IS DISTINCT FROM ARRAY(SELECT generate_series(1, 42)::bigint)
+         IS DISTINCT FROM ARRAY(SELECT generate_series(1, 43)::bigint)
        OR EXISTS (SELECT 1 FROM _sqlx_migrations WHERE NOT success) THEN
-      RAISE EXCEPTION 'test assertion: expected genuine current ledger 1-42';
+      RAISE EXCEPTION 'test assertion: expected genuine current ledger 1-43';
     END IF;
   END $assert$`);
   await psqlFile(database, "suspend", {
     fence_token: token, fence_kind: "rollback", owner_lease_seconds: "7200"
   });
   for (const [predecessor, candidate, expectedError] of [
-    ["37", "38", "final_rollback_blocked: live ledger endpoint 42 is not authorized by pair 37 -> 38"],
+    ["37", "38", "final_rollback_blocked: live ledger endpoint 43 is not authorized by pair 37 -> 38"],
     ["38", "40", "final_rollback_blocked: unsupported migration pair 38 -> 40"],
     ["38", "41", "final_rollback_blocked: unsupported migration pair 38 -> 41"],
     ["41", "42", "final_rollback_blocked: unsupported migration pair 41 -> 42"]
@@ -422,7 +422,7 @@ async function proveCurrentRollbackIsNotAuthorized(database) {
       RAISE EXCEPTION 'test assertion: matching-token fixture cleanup failed';
     END IF;
   END $assert$`);
-  console.log("Current migration 42: historical endpoint and unsupported pairs rejected; admission retained until matching-token fixture cleanup (not rollback qualified)");
+  console.log("Current migration 43: historical endpoint and unsupported pairs rejected; admission retained until matching-token fixture cleanup (not rollback qualified)");
 }
 
 async function proveBeta69CutoverGate(database) {
