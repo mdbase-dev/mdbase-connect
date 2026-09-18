@@ -50,8 +50,8 @@
   ],
   "dependencies": {
     "@mdbase-dev/connect-protocol": "workspace:*",
-    "@noble/hashes": "^2.2.0",
-    "yaml": "^2.9.0"
+    "@noble/hashes": "^2.4.0",
+    "yaml": "^2.9.1"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/cli.js',0o755)\"",
