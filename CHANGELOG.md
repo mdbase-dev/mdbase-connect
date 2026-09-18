@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.0-beta.105
+
+- Durable notification timers now use the stable `notification-timer` source
+  identity instead of the surrounding Connect release version, so compatible
+  upgrades no longer strand scheduled notifications.
+- Hosted migration 43 and the matching local migration rewrite only known
+  beta.27–beta.104 timer identities with the exact compatible contract. Unknown
+  identities remain rejected, active hosted claims block migration, and expired
+  claims are fenced before recovery.
+- Notification recovery no longer reports success while overdue timers remain
+  leased, and privacy-bounded diagnostics expose only allowlisted runtime error
+  stages and categories.
+- Hosted provider schema 43 is forward-only: beta.104 must not be restored over
+  a migrated database. Staging and production require the registered 42→43
+  transition and forward-recovery qualification.
+
 ## 0.1.0-beta.104
 
 - Local daemon mutations now retain a durable owner and settle completion claims,
