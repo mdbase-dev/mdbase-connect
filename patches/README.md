@@ -20,7 +20,7 @@ Verification:
   executable fixtures; disposable Ubuntu 24.04 and Fedora 43 containers test fresh
   installation, reinstallation, upgrade from a desktop-only package, ownership,
   non-root invocation, and removal.
-- `node apps/desktop/scripts/verify-linux-packages.mjs current.deb current.rpm
+- `node apps/desktop/test/linux-packages/verify.mjs current.deb current.rpm
   [previous.deb previous.rpm]`: the same lifecycle checks for actual release
   artifacts. The desktop release workflow runs this against both built packages.
 

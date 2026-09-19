@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = fileURLToPath(new URL("../../../", import.meta.url));
+const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const output = await mkdtemp(join(tmpdir(), "mdbase-package-lifecycle-"));
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: "inherit", cwd: root });
@@ -14,7 +14,7 @@ function run(command, args) {
 try {
   run("docker", ["run", "--rm", "--volume", `${root}:/work:ro`, "--volume", `${output}:/output`,
     "--workdir", "/work", "node:24-bookworm", "sh", "-ec",
-    "apt-get update && apt-get install -y fakeroot rpm && node apps/desktop/scripts/linux-package-fixtures.cjs"]);
+    "apt-get update && apt-get install -y fakeroot rpm && node apps/desktop/test/linux-packages/fixtures.cjs"]);
   const artifacts = [];
   for (const version of ["0.0.2", "0.0.1"]) {
     for (const format of ["deb", "rpm"]) {
@@ -23,7 +23,7 @@ try {
       artifacts.push(join(output, paths[0].slice("/output/".length)));
     }
   }
-  run(process.execPath, ["apps/desktop/scripts/verify-linux-packages.mjs", ...artifacts]);
+  run(process.execPath, ["apps/desktop/test/linux-packages/verify.mjs", ...artifacts]);
 } finally {
   // Container output is root-owned; remove it inside the same isolated mount.
   run("docker", ["run", "--rm", "--volume", `${output}:/output`, "node:24-bookworm",

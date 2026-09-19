@@ -3,7 +3,7 @@ const { mkdir, writeFile } = require("node:fs/promises");
 const { join } = require("node:path");
 const { MakerDeb } = require("@electron-forge/maker-deb");
 const { MakerRpm } = require("@electron-forge/maker-rpm");
-const forge = require("../forge.config.cjs");
+const forge = require("../../forge.config.cjs");
 
 async function main() {
   for (const version of ["0.0.1", "0.0.2"]) {

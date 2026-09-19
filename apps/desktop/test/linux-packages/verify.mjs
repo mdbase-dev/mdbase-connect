@@ -5,7 +5,7 @@ import { resolve, dirname, basename } from "node:path";
 // Optional previous packages exercise a real upgrade, in addition to fresh install.
 const [deb, rpm, previousDeb, previousRpm] = process.argv.slice(2);
 if (!deb || !rpm || Boolean(previousDeb) !== Boolean(previousRpm)) {
-  throw new Error("Usage: node verify-linux-packages.mjs current.deb current.rpm [previous.deb previous.rpm]");
+  throw new Error("Usage: node apps/desktop/test/linux-packages/verify.mjs current.deb current.rpm [previous.deb previous.rpm]");
 }
 
 for (const [format, artifact, previous, image] of [
