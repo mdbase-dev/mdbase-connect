@@ -251,6 +251,14 @@ jobs:
       - run: pnpm build
       - run: pnpm --filter @mdbase/connect-desktop make
 
+      - name: Verify Linux package CLI lifecycle
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          deb="$(find apps/desktop/out/make -type f -name '*.deb' -print -quit)"
+          rpm="$(find apps/desktop/out/make -type f -name '*.rpm' -print -quit)"
+          node apps/desktop/test/linux-packages/verify.mjs "$deb" "$rpm"
+
       - name: Verify macOS release mode
         if: matrix.platform == 'macos'
         shell: bash

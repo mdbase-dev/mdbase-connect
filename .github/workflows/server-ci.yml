@@ -500,7 +500,7 @@ jobs:
             browser: false
             timeout: 35
           - shard: desktop
-            suites: desktop
+            suites: desktop,linux-packages
             browser: true
             timeout: 60
     defaults:

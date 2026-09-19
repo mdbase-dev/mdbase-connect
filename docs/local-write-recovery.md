@@ -15,6 +15,22 @@ ledger boundary. This does not add response replay to the local CLI: after a los
 response, read back the record and use revision preconditions rather than blindly
 retrying a write.
 
+## Finding the CLI on Linux
+
+RPM and DEB desktop packages provide `mdbase` on PATH alongside the
+`mdbase-connect` desktop launcher. Older packages (including the reported
+`0.1.0-beta.100` RPM) may bundle the CLI without exposing that command. For the
+standard `/usr/lib/mdbase-connect` layout, check:
+
+```sh
+/usr/lib/mdbase-connect/resources/mdbase --version
+```
+
+If present, use that full executable path instead of `mdbase` in the commands
+below, preserving `--state-dir` and all other arguments. Run as your usual user,
+not with `sudo`. This workaround is only needed until you install a package
+that provides the CLI entry point; custom installation layouts may differ.
+
 ## Preview (no changes)
 
 Use the same state directory and collection ID as the failing command:

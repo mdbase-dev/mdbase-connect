@@ -34,6 +34,11 @@ export const systemSuites = Object.freeze({
     prepare: [],
     command: ["node", "scripts/container-e2e.mjs"]
   },
+  "linux-packages": {
+    description: "RPM and DEB CLI entry-point installation, upgrade, and removal",
+    prepare: [],
+    command: ["node", "apps/desktop/test/linux-packages/run.mjs"]
+  },
   desktop: {
     description: "Native Electron client against the packaged environment",
     prepare: ["desktop", "cli-binary"],

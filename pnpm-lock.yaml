@@ -26,6 +26,10 @@ overrides:
   tar@<7.5.21: 7.5.21
   tmp@<0.2.6: 0.2.7
 
+patchedDependencies:
+  electron-installer-common@0.10.4: b1094beec871a05a8e2f5422eab2499ddb2af8767cde264995a60f31d14a8821
+  electron-installer-redhat@3.4.0: cae2bc378eeebede2a9144c6ad828613617f38af7005034eb34660da859391da
+
 importers:
 
   .:
@@ -5715,7 +5719,7 @@ snapshots:
       '@electron-forge/maker-base': 7.11.2(supports-color@10.2.2)
       '@electron-forge/shared-types': 7.11.2(supports-color@10.2.2)
     optionalDependencies:
-      electron-installer-redhat: 3.4.0(supports-color@10.2.2)
+      electron-installer-redhat: 3.4.0(patch_hash=cae2bc378eeebede2a9144c6ad828613617f38af7005034eb34660da859391da)(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -7966,7 +7970,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  electron-installer-common@0.10.4(supports-color@10.2.2):
+  electron-installer-common@0.10.4(patch_hash=b1094beec871a05a8e2f5422eab2499ddb2af8767cde264995a60f31d14a8821)(supports-color@10.2.2):
     dependencies:
       '@electron/asar': 3.4.1
       '@malept/cross-spawn-promise': 1.1.1
@@ -7987,7 +7991,7 @@ snapshots:
     dependencies:
       '@malept/cross-spawn-promise': 1.1.1
       debug: 4.4.3(supports-color@10.2.2)
-      electron-installer-common: 0.10.4(supports-color@10.2.2)
+      electron-installer-common: 0.10.4(patch_hash=b1094beec871a05a8e2f5422eab2499ddb2af8767cde264995a60f31d14a8821)(supports-color@10.2.2)
       fs-extra: 9.1.0
       get-folder-size: 2.0.1
       lodash: 4.18.1
@@ -8008,11 +8012,11 @@ snapshots:
       - supports-color
     optional: true
 
-  electron-installer-redhat@3.4.0(supports-color@10.2.2):
+  electron-installer-redhat@3.4.0(patch_hash=cae2bc378eeebede2a9144c6ad828613617f38af7005034eb34660da859391da)(supports-color@10.2.2):
     dependencies:
       '@malept/cross-spawn-promise': 1.1.1
       debug: 4.4.3(supports-color@10.2.2)
-      electron-installer-common: 0.10.4(supports-color@10.2.2)
+      electron-installer-common: 0.10.4(patch_hash=b1094beec871a05a8e2f5422eab2499ddb2af8767cde264995a60f31d14a8821)(supports-color@10.2.2)
       fs-extra: 9.1.0
       lodash: 4.18.1
       word-wrap: 1.2.5

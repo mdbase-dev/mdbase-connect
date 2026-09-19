@@ -25,6 +25,8 @@ const linuxMakerOptions = {
   productDescription:
     "Connect applications to authorized local and hosted mdbase collections.",
   bin: "mdbase-connect",
+  // Supported by the pinned electron-installer patches; both links are package-owned.
+  additionalBinaries: { mdbase: "resources/mdbase" },
   homepage: "https://mdbase.dev",
   icon: linuxIcon,
   categories: ["Utility"]
