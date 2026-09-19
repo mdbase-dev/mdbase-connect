@@ -7,6 +7,13 @@ import test from "node:test";
 
 const require = createRequire(import.meta.url);
 const config = require("../forge.config.cjs");
+
+for (const service of ["server", "mcp"]) {
+  test(`${service} Docker build includes workspace patches before installing`, async () => {
+    const dockerfile = await readFile(new URL(`../../../deploy/docker/Dockerfile.${service}`, import.meta.url), "utf8");
+    assert.match(dockerfile.split("RUN pnpm install")[0], /^COPY patches patches$/m);
+  });
+}
 function installerRequire() {
   const makerRequire = createRequire(require.resolve("@electron-forge/maker-rpm"));
   return createRequire(makerRequire.resolve("electron-installer-redhat"));
