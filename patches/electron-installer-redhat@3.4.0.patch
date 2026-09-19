@@ -1,0 +1,15 @@
+diff --git a/resources/spec.ejs b/resources/spec.ejs
+index e07a8a3dac52b7ac5e165d203bc26d0ac336c6ec..70ba307254df39bcc41544fcf16a032dbbb1e297 100644
+--- a/resources/spec.ejs
++++ b/resources/spec.ejs
+@@ -29,6 +29,10 @@ cp <%= process.platform === 'darwin' ? '-R' : '-r' %> usr/* %{buildroot}/usr/
+ 
+ %files
+ /usr/bin/<%= name %>
++<% if (typeof additionalBinaries !== 'undefined') {
++  Object.keys(additionalBinaries).forEach(function (binary) {
++    %>/usr/bin/<%= binary %>
++<% }) } %>
+ /usr/lib/<%= name %>/
+ /usr/share/applications/<%= name %>.desktop
+ /usr/share/doc/<%= name %>/

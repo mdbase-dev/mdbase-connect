@@ -1,0 +1,24 @@
+diff --git a/src/installer.js b/src/installer.js
+index d4eb491c48afa6c5f388e89e531bae9f164603b8..35eb8057d7c456b04093a1648d2239bd55d6839d 100644
+--- a/src/installer.js
++++ b/src/installer.js
+@@ -143,11 +143,16 @@ class ElectronInstaller {
+    * Create the symlink to the binary for the package.
+    */
+   async createBinarySymlink () {
+-    const binSrc = path.join('../lib', this.appIdentifier, this.options.bin)
+-    const binDest = path.join(this.stagingDir, this.baseAppDir, 'bin', this.appIdentifier)
++    const binaries = { [this.appIdentifier]: this.options.bin, ...this.options.additionalBinaries }
++    await Promise.all(Object.entries(binaries).map(([name, binary]) => this.createNamedBinarySymlink(name, binary)))
++  }
++
++  async createNamedBinarySymlink (name, binary) {
++    const binSrc = path.join('../lib', this.appIdentifier, binary)
++    const binDest = path.join(this.stagingDir, this.baseAppDir, 'bin', name)
+     debug(`Symlinking binary from ${binSrc} to ${binDest}`)
+ 
+-    const bundledBin = path.join(this.sourceDir, this.options.bin)
++    const bundledBin = path.join(this.sourceDir, binary)
+ 
+     return error.wrapError('creating binary symlink', async () => {
+       if (!await fs.pathExists(bundledBin)) {

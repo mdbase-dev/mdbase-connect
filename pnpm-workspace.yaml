@@ -55,3 +55,7 @@ auditConfig:
 
 minimumReleaseAgeExclude:
   - hono@4.12.34
+
+patchedDependencies:
+  electron-installer-common@0.10.4: patches/electron-installer-common@0.10.4.patch
+  electron-installer-redhat@3.4.0: patches/electron-installer-redhat@3.4.0.patch

@@ -18,6 +18,7 @@ test("every system suite has an existing command and known preparation steps", a
     "files",
     "files-adversarial",
     "container",
+    "linux-packages",
     "desktop"
   ]);
   for (const [name, suite] of Object.entries(systemSuites)) {
