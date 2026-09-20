@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { DatabasePool } from "./db.js";
 import { compatibilityReport } from "./auth-admin-compatibility.js";
-import { reconcileActiveHostedEntitlements } from "./auth-admin-entitlements.js";
+import {
+  inspectAccountEntitlements,
+  reconcileActiveHostedEntitlements
+} from "./auth-admin-entitlements.js";
 import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
@@ -9,13 +12,8 @@ import {
 import { PasswordAccountService } from "./password-auth.js";
 import { normalizeEmailAddress } from "./email-identity.js";
 import type { RegistrationMode } from "./runtime-config.js";
+import type { HostedProviderClient } from "./hosted-provider.js";
 import {
-  HostedProviderResponseError,
-  type HostedAccountUsage,
-  type HostedProviderClient
-} from "./hosted-provider.js";
-import {
-  effectiveEntitlement,
   grantOperatorEntitlement,
   reconcileHostedAccountCollections
 } from "./entitlements.js";
@@ -134,44 +132,7 @@ async function showEntitlements(
 ): Promise<unknown> {
   const flags = parseFlags(argv, new Set(["user"]));
   const found = await instanceAdmin(context).showUser(requiredFlag(flags, "user"));
-  const userId = found.user.id;
-  const entitlement = await effectiveEntitlement(context.db, userId);
-  const storage = await context.db.query(
-    `SELECT provider_account_id, entitlement_revision, provider_revision,
-            created_at, updated_at
-     FROM account_storage_accounts WHERE user_id = $1`,
-    [userId]
-  );
-  const grants = await context.db.query(
-    `SELECT profile_code, source, source_reference, starts_at, ends_at,
-            revoked_at, created_at
-     FROM account_entitlement_grants WHERE user_id = $1
-     ORDER BY created_at, id`,
-    [userId]
-  );
-  let providerUsage: HostedAccountUsage | null = null;
-  if (context.hostedProvider && storage.rows[0]) {
-    try {
-      providerUsage = await context.hostedProvider.accountUsage(storage.rows[0].provider_account_id);
-    } catch (error) {
-      // Signup commits the control-plane account before the first hosted
-      // operation provisions it at the provider. Keep that state inspectable,
-      // but do not hide a missing previously reconciled account or an outage.
-      if (!(error instanceof HostedProviderResponseError
-        && error.status === 404
-        && error.code === "hosted_account_not_found"
-        && Number(storage.rows[0].provider_revision) === 0)) {
-        throw error;
-      }
-    }
-  }
-  return {
-    user: { id: userId, email: found.user.email, name: found.user.name },
-    effective: entitlement,
-    storage_account: storage.rows[0] ?? null,
-    provider_usage: providerUsage,
-    grants: grants.rows
-  };
+  return inspectAccountEntitlements(context.db, context.hostedProvider, found.user);
 }
 
 async function grantEntitlements(
