@@ -24,9 +24,23 @@ afterEach(async () => {
 });
 
 describe("invite-only password accounts", () => {
+  it("rejects an omitted entitlement even when called without the operator CLI", async () => {
+    const { db, service } = await fixture();
+    const input = {
+      email: "person@example.com",
+      actor: "operator:test",
+      reason: "An accidental omission must not create an invitation"
+    };
+    // @ts-expect-error Exercise a JavaScript/operator caller violating the required input.
+    await expect(service.createInvitation(input)).rejects.toThrow(/entitlement profile must be explicit/);
+    expect((await db.query("SELECT id FROM invitations")).rows).toHaveLength(0);
+    expect((await db.query("SELECT id FROM audit_events WHERE event_type = 'invitation.created'")).rows).toHaveLength(0);
+  });
+
   it("issues only one active hashed invitation for a new identity", async () => {
     const { db, service } = await fixture();
     const first = await service.createInvitation({
+      entitlementProfile: null,
       email: "  Person@Example.com ",
       actor: "operator:test",
       reason: "Private beta"
@@ -54,6 +68,7 @@ describe("invite-only password accounts", () => {
     expect(JSON.stringify(stored.rows[0])).not.toContain(first.token);
 
     const replacement = await service.createInvitation({
+      entitlementProfile: null,
       email: "person@example.com",
       actor: "operator:test",
       reason: "Replace a lost invitation"
@@ -219,7 +234,8 @@ describe("invite-only password accounts", () => {
     const invitation = await service.createInvitation({
       email: "person@example.com",
       actor: "operator:test",
-      reason: "Private beta"
+      reason: "Private beta",
+      entitlementProfile: null
     });
     const account = await service.acceptInvitation({
       invitationToken: invitation.token,
@@ -260,7 +276,8 @@ describe("invite-only password accounts", () => {
     const invitation = await service.createInvitation({
       email: "upgrade@example.com",
       actor: "operator:test",
-      reason: "Credential upgrade test"
+      reason: "Credential upgrade test",
+      entitlementProfile: null
     });
     const password = "a durable credential upgrade password";
     const account = await service.acceptInvitation({
@@ -303,7 +320,8 @@ describe("invite-only password accounts", () => {
     const invitation = await service.createInvitation({
       email: "person@example.com",
       actor: "operator:test",
-      reason: "Private beta"
+      reason: "Private beta",
+      entitlementProfile: null
     });
     const input = {
       invitationToken: invitation.token,
@@ -336,7 +354,8 @@ describe("invite-only password accounts", () => {
     const closedInvitation = await service.createInvitation({
       email: "second@example.com",
       actor: "operator:test",
-      reason: "Prepare without admitting"
+      reason: "Prepare without admitting",
+      entitlementProfile: null
     });
     await expect(service.acceptInvitation({
       invitationToken: closedInvitation.token,
@@ -353,7 +372,8 @@ describe("invite-only password accounts", () => {
     const invitation = await service.createInvitation({
       email: "concurrent@example.com",
       actor: "operator:test",
-      reason: "Concurrent redemption test"
+      reason: "Concurrent redemption test",
+      entitlementProfile: null
     });
     const input = {
       invitationToken: invitation.token,
@@ -381,7 +401,8 @@ describe("invite-only password accounts", () => {
     const existingInvitation = await service.createInvitation({
       email: "existing@example.com",
       actor: "operator:test",
-      reason: "Create the first account"
+      reason: "Create the first account",
+      entitlementProfile: null
     });
     await service.acceptInvitation({
       invitationToken: existingInvitation.token,
@@ -393,7 +414,8 @@ describe("invite-only password accounts", () => {
     await expect(service.createInvitation({
       email: "EXISTING@example.com",
       actor: "operator:test",
-      reason: "Must not merge"
+      reason: "Must not merge",
+      entitlementProfile: null
     })).rejects.toBeInstanceOf(InvitationTargetConflictError);
 
     await createExternalSession(db, {
@@ -408,7 +430,8 @@ describe("invite-only password accounts", () => {
     await expect(service.createInvitation({
       email: "google@example.com",
       actor: "operator:test",
-      reason: "Must require explicit linking"
+      reason: "Must require explicit linking",
+      entitlementProfile: null
     })).rejects.toBeInstanceOf(InvitationTargetConflictError);
     await db.query(
       "INSERT INTO users (id, email, name) VALUES ($1, 'Legacy@Example.com', 'Legacy')",
@@ -417,7 +440,8 @@ describe("invite-only password accounts", () => {
     await expect(service.createInvitation({
       email: "legacy@example.com",
       actor: "operator:test",
-      reason: "Must not duplicate a legacy account email"
+      reason: "Must not duplicate a legacy account email",
+      entitlementProfile: null
     })).rejects.toBeInstanceOf(InvitationTargetConflictError);
     expect((await db.query("SELECT id FROM users")).rows).toHaveLength(3);
   });

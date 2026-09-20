@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AuthAdminUsageError,
   InvitationDeliveryError,
@@ -94,7 +94,8 @@ describe("authentication operator command", () => {
       "--actor",
       "operator:test",
       "--reason",
-      "Invite the first private beta account"
+      "Invite the first private beta account",
+      "--entitlement-profile", "beta_v1"
     ], context) as {
       invitation: {
         token: string;
@@ -113,6 +114,52 @@ describe("authentication operator command", () => {
     );
     expect(stored.rows[0]?.token_hash).toBe(tokenHash(result.invitation.token));
     expect(JSON.stringify(stored.rows)).not.toContain(result.invitation.token);
+  });
+
+  it("requires an explicit invitation entitlement before replacing or delivering anything", async () => {
+    const context = await fixture();
+    await configurePolicy(context);
+    const command = [
+      "invite", "create", "--email", "person@example.com",
+      "--actor", "operator:test", "--reason", "Explicit local-only invitation"
+    ];
+    const created = await runAuthAdminCommand([
+      ...command, "--entitlement-profile", "none"
+    ], context) as { invitation: { id: string; entitlement_profile: string | null } };
+    expect(created.invitation.entitlement_profile).toBeNull();
+    // Exercise the same request-envelope entry point used by managed jobs.
+    await expect(runAuthAdminCommand([
+      "request", Buffer.from(JSON.stringify(command)).toString("base64url")
+    ], context)).rejects.toThrow(/entitlement-profile/);
+    const invitations = await context.db.query("SELECT id, revoked_at FROM invitations");
+    expect(invitations.rows).toEqual([{ id: created.invitation.id, revoked_at: null }]);
+    expect((await context.db.query("SELECT * FROM invitation_entitlements")).rows).toHaveLength(0);
+
+  });
+
+  it("does not silently resend a legacy invitation without a profile", async () => {
+    const base = await fixture();
+    await configurePolicy(base);
+    const send = vi.fn().mockResolvedValue({ provider: "test", messageId: "replacement" });
+    const context = { ...base, emailTransport: { send } };
+    const created = await runAuthAdminCommand([
+      "invite", "create", "--email", "person@example.com",
+      "--entitlement-profile", "none", "--actor", "operator:test",
+      "--reason", "Model a legacy invitation without storage"
+    ], context) as { invitation: { id: string } };
+    const resend = [
+      "invite", "resend", "--id", created.invitation.id,
+      "--actor", "operator:test", "--reason", "Repair invitation entitlement"
+    ];
+    await expect(runAuthAdminCommand(resend, context)).rejects.toThrow(/Resend requires --entitlement-profile/);
+    expect(send).not.toHaveBeenCalled();
+    expect((await context.db.query("SELECT id, revoked_at FROM invitations")).rows)
+      .toEqual([{ id: created.invitation.id, revoked_at: null }]);
+    const repaired = await runAuthAdminCommand([
+      ...resend, "--entitlement-profile", "beta_v1"
+    ], context) as { invitation: { entitlement_profile: string } };
+    expect(repaired.invitation.entitlement_profile).toBe("beta_v1");
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it("lists beta requests and marks a matching request when invited", async () => {
@@ -145,7 +192,8 @@ describe("authentication operator command", () => {
       "--actor",
       "operator:test",
       "--reason",
-      "Invite the next beta participant"
+      "Invite the next beta participant",
+      "--entitlement-profile", "beta_v1"
     ], context) as { invitation: { id: string } };
     expect(await runAuthAdminCommand([
       "beta",
@@ -213,6 +261,7 @@ describe("authentication operator command", () => {
       "operator:test",
       "--reason",
       "Deliver the private beta invitation",
+      "--entitlement-profile", "beta_v1",
       "--send-email",
       "enabled"
     ], context) as {
@@ -255,6 +304,7 @@ describe("authentication operator command", () => {
       "operator:test",
       "--reason",
       "Exercise safe delivery failure",
+      "--entitlement-profile", "beta_v1",
       "--send-email",
       "enabled"
     ], failing).catch((reason: unknown) => reason);
@@ -307,6 +357,7 @@ describe("authentication operator command", () => {
       "operator:test",
       "--reason",
       "Private beta participant",
+      "--entitlement-profile", "beta_v1",
       "--send-email",
       "enabled",
       "--token-output",
@@ -464,6 +515,47 @@ describe("authentication operator command", () => {
     expect(reconciledAudit.rows).toEqual([
       { user_id: userId, subject_id: userId }
     ]);
+  });
+
+  it.each([
+    { revision: 0, status: 404, code: "hosted_account_not_found", pending: true },
+    { revision: 1, status: 404, code: "hosted_account_not_found", pending: false },
+    { revision: 0, status: 404, code: "not_found", pending: false },
+    { revision: 0, status: 503, code: "hosted_account_not_found", pending: false }
+  ])("inspects an unprovisioned account without hiding provider failures: $revision/$status/$code", async ({ revision, status, code, pending }) => {
+    const context = await fixture();
+    const userId = "10000000-0000-4000-8000-000000000088";
+    await context.db.query("INSERT INTO users (id, name) VALUES ($1, 'Legacy signup')", [userId]);
+    // Reading a legacy storage-less account does not silently grant it access.
+    const missing = await runAuthAdminCommand([
+      "entitlements", "show", "--user", userId
+    ], context);
+    expect(missing).toMatchObject({ effective: null, storage_account: null, grants: [] });
+    await runAuthAdminCommand([
+      "entitlements", "grant", "--user", userId, "--profile", "open_beta_v1",
+      "--operation-id", "20000000-0000-4000-8000-000000000088",
+      "--actor", "operator:test", "--reason", "Explicit legacy signup repair"
+    ], context);
+    await context.db.query("UPDATE account_storage_accounts SET provider_revision = $2 WHERE user_id = $1", [userId, revision]);
+    const provider = fakeHostedProvider();
+    const error = new HostedProviderResponseError(status, code, "Provider lookup failed.");
+    vi.spyOn(provider, "accountUsage").mockRejectedValue(error);
+    const upsert = vi.spyOn(provider, "upsertAccount");
+    const result = runAuthAdminCommand([
+      "entitlements", "show", "--user", userId
+    ], { ...context, hostedProvider: provider });
+    if (pending) {
+      await expect(result).resolves.toMatchObject({
+        effective: { profileCodes: ["open_beta_v1"] },
+        storage_account: { provider_revision: 0 },
+        grants: [expect.objectContaining({ profile_code: "open_beta_v1" })],
+        provider_usage: null
+      });
+    } else {
+      await expect(result).rejects.toBe(error);
+    }
+    expect(upsert).not.toHaveBeenCalled();
+    expect((await context.db.query("SELECT provider_revision FROM account_storage_accounts WHERE user_id = $1", [userId])).rows[0]?.provider_revision).toBe(revision);
   });
 
   it("reconciles active hosted accounts as one resumable private batch", async () => {

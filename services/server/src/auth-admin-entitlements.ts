@@ -1,12 +1,60 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseConnection, DatabasePool } from "./db.js";
-import { reconcileHostedAccountCollections } from "./entitlements.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
+import { effectiveEntitlement, reconcileHostedAccountCollections } from "./entitlements.js";
+import {
+  HostedProviderResponseError,
+  type HostedAccountUsage,
+  type HostedProviderClient
+} from "./hosted-provider.js";
 import { quarantineMissingHostedCollection } from "./hosted-capability-lifecycle.js";
 import {
   InstanceAdminConflictError,
   type OperatorMutation
 } from "./instance-admin.js";
+
+export async function inspectAccountEntitlements(
+  db: DatabasePool,
+  provider: HostedProviderClient | undefined,
+  user: { id: string; email: string | null; name: string }
+): Promise<unknown> {
+  const entitlement = await effectiveEntitlement(db, user.id);
+  const storage = await db.query(
+    `SELECT provider_account_id, entitlement_revision, provider_revision,
+            created_at, updated_at
+     FROM account_storage_accounts WHERE user_id = $1`,
+    [user.id]
+  );
+  const grants = await db.query(
+    `SELECT profile_code, source, source_reference, starts_at, ends_at,
+            revoked_at, created_at
+     FROM account_entitlement_grants WHERE user_id = $1
+     ORDER BY created_at, id`,
+    [user.id]
+  );
+  let providerUsage: HostedAccountUsage | null = null;
+  if (provider && storage.rows[0]) {
+    try {
+      providerUsage = await provider.accountUsage(storage.rows[0].provider_account_id);
+    } catch (error) {
+      // Signup commits the control-plane account before the first hosted
+      // operation provisions it at the provider. Keep that state inspectable,
+      // but do not hide a missing previously reconciled account or an outage.
+      if (!(error instanceof HostedProviderResponseError
+        && error.status === 404
+        && error.code === "hosted_account_not_found"
+        && Number(storage.rows[0].provider_revision) === 0)) {
+        throw error;
+      }
+    }
+  }
+  return {
+    user: { id: user.id, email: user.email, name: user.name },
+    effective: entitlement,
+    storage_account: storage.rows[0] ?? null,
+    provider_usage: providerUsage,
+    grants: grants.rows
+  };
+}
 
 interface ActiveHostedReconciliationOutput {
   operation_id: string;

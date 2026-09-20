@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { DatabasePool } from "./db.js";
 import { compatibilityReport } from "./auth-admin-compatibility.js";
-import { reconcileActiveHostedEntitlements } from "./auth-admin-entitlements.js";
+import {
+  inspectAccountEntitlements,
+  reconcileActiveHostedEntitlements
+} from "./auth-admin-entitlements.js";
 import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
@@ -11,7 +14,6 @@ import { normalizeEmailAddress } from "./email-identity.js";
 import type { RegistrationMode } from "./runtime-config.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import {
-  effectiveEntitlement,
   grantOperatorEntitlement,
   reconcileHostedAccountCollections
 } from "./entitlements.js";
@@ -30,7 +32,7 @@ import {
   type OperatorMutation
 } from "./instance-admin.js";
 
-export interface AuthAdminContext {
+interface AuthAdminContext {
   db: DatabasePool;
   defaultRegistrationMode: RegistrationMode;
   publicUrl?: string;
@@ -130,31 +132,7 @@ async function showEntitlements(
 ): Promise<unknown> {
   const flags = parseFlags(argv, new Set(["user"]));
   const found = await instanceAdmin(context).showUser(requiredFlag(flags, "user"));
-  const userId = found.user.id;
-  const entitlement = await effectiveEntitlement(context.db, userId);
-  const storage = await context.db.query(
-    `SELECT provider_account_id, entitlement_revision, provider_revision,
-            created_at, updated_at
-     FROM account_storage_accounts WHERE user_id = $1`,
-    [userId]
-  );
-  const grants = await context.db.query(
-    `SELECT profile_code, source, source_reference, starts_at, ends_at,
-            revoked_at, created_at
-     FROM account_entitlement_grants WHERE user_id = $1
-     ORDER BY created_at, id`,
-    [userId]
-  );
-  const providerUsage = context.hostedProvider && storage.rows[0]
-    ? await context.hostedProvider.accountUsage(storage.rows[0].provider_account_id)
-    : null;
-  return {
-    user: { id: userId, email: found.user.email, name: found.user.name },
-    effective: entitlement,
-    storage_account: storage.rows[0] ?? null,
-    provider_usage: providerUsage,
-    grants: grants.rows
-  };
+  return inspectAccountEntitlements(context.db, context.hostedProvider, found.user);
 }
 
 async function grantEntitlements(
@@ -412,6 +390,9 @@ async function createAndDeliverInvitation(
   context: AuthAdminContext,
   emailTemplate: InvitationEmailTemplate = "standard"
 ): Promise<unknown> {
+  // An omitted profile used to silently create storage-less invitations.
+  // Local-only invitations remain possible, but must be deliberate.
+  const profile = entitlementProfile(requiredFlag(flags, "entitlement-profile"));
   const policy = new AuthenticationPolicyStore(
     context.db,
     context.defaultRegistrationMode
@@ -444,13 +425,7 @@ async function createAndDeliverInvitation(
     email: requiredFlag(flags, "email"),
     actor: requiredFlag(flags, "actor"),
     reason: requiredFlag(flags, "reason"),
-    ...(flags.has("entitlement-profile")
-      ? {
-          entitlementProfile: entitlementProfile(
-            requiredFlag(flags, "entitlement-profile")
-          )
-        }
-      : {}),
+    entitlementProfile: profile === "none" ? null : profile,
     ...(flags.has("expires-in")
       ? {
           expiresInSeconds: positiveInteger(
@@ -615,7 +590,7 @@ async function resendInvitation(
 ): Promise<unknown> {
   const flags = parseFlags(
     argv,
-    new Set(["id", "actor", "reason", "expires-in", "email-template"])
+    new Set(["id", "actor", "reason", "expires-in", "email-template", "entitlement-profile"])
   );
   const invitationId = requiredFlag(flags, "id");
   const existing = await instanceAdmin(context).showInvitation(invitationId) as {
@@ -640,12 +615,13 @@ async function resendInvitation(
   if (flags.has("expires-in")) {
     createFlags.set("expires-in", requiredFlag(flags, "expires-in"));
   }
-  if (existing.invitation.entitlement_profile) {
-    createFlags.set(
-      "entitlement-profile",
-      existing.invitation.entitlement_profile
+  const profile = flags.get("entitlement-profile") ?? existing.invitation.entitlement_profile;
+  if (!profile) {
+    throw new AuthAdminUsageError(
+      "This invitation has no entitlement profile. Resend requires --entitlement-profile <code|none>."
     );
   }
+  createFlags.set("entitlement-profile", profile);
   const emailTemplate = flags.has("email-template")
     ? invitationEmailTemplate(requiredFlag(flags, "email-template"))
     : "standard";
@@ -959,17 +935,17 @@ function requireNoArguments(argv: string[]): void {
   if (argv.length > 0) throw new AuthAdminUsageError(usage());
 }
 
-export function usage(): string {
+function usage(): string {
   return [
     "Usage:",
     "  auth-admin policy show",
     "  auth-admin policy history [--limit <n>] [--before-revision <n>]",
     "  auth-admin policy update --expected-revision <n> --actor <id> --reason <text> [changes]",
-    "  auth-admin invite create --email <address> --actor <id> --reason <text> [--entitlement-profile <code>] [--expires-in <seconds>] [--send-email enabled] [--token-output shown|omitted]",
+    "  auth-admin invite create --email <address> --entitlement-profile <code|none> --actor <id> --reason <text> [--expires-in <seconds>] [--send-email enabled] [--token-output shown|omitted]",
     "  auth-admin invite list [--status <status>] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin invite show --id <uuid>",
     "  auth-admin invite revoke --id <uuid> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin invite resend --id <uuid> --actor <id> --reason <text> [--expires-in <seconds>] [--email-template standard|signup-recovery]",
+    "  auth-admin invite resend --id <uuid> --actor <id> --reason <text> [--entitlement-profile <code|none>] [--expires-in <seconds>] [--email-template standard|signup-recovery]",
     "  auth-admin beta list [--status pending|invited] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin entitlements show --user <uuid|email>",
     "  auth-admin entitlements grant --user <uuid|email> --profile <code> --operation-id <uuid> --actor <id> --reason <text>",

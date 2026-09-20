@@ -233,7 +233,8 @@ async function fixture(): Promise<{
   const invitation = await passwordAccounts.createInvitation({
     email: "person@example.com",
     actor: "operator:test",
-    reason: "Create password recovery fixture"
+    reason: "Create password recovery fixture",
+    entitlementProfile: null
   });
   const account = await passwordAccounts.acceptInvitation({
     invitationToken: invitation.token,

@@ -154,7 +154,8 @@ describe("password authentication HTTP boundary", () => {
     await passwordAccounts.createInvitation({
       email: "person@example.com",
       actor: "operator:test",
-      reason: "Reissue the HTTP test invitation"
+      reason: "Reissue the HTTP test invitation",
+      entitlementProfile: null
     });
     const revoked = await app.inject({
       method: "POST",
@@ -200,7 +201,8 @@ describe("password authentication HTTP boundary", () => {
     const invitation = await passwordAccounts.createInvitation({
       email: "person@example.com",
       actor: "operator:test",
-      reason: "Missing limiter configuration"
+      reason: "Missing limiter configuration",
+      entitlementProfile: null
     });
     const { app } = await buildApp({ db, publicUrl: origin });
     resources.push(() => app.close());
@@ -233,7 +235,8 @@ describe("password authentication HTTP boundary", () => {
     ).createInvitation({
       email: "person@example.com",
       actor: "operator:test",
-      reason: "Incomplete registration configuration"
+      reason: "Incomplete registration configuration",
+      entitlementProfile: null
     });
     const withoutDocuments = await buildApp({
       db,
@@ -474,7 +477,8 @@ async function fixture() {
   const invitation = await passwordAccounts.createInvitation({
     email: "person@example.com",
     actor: "operator:test",
-    reason: "HTTP authentication test"
+    reason: "HTTP authentication test",
+    entitlementProfile: null
   });
   const { app } = await buildApp({
     db,
