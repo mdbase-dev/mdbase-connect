@@ -50,9 +50,8 @@ export function registerResendWebhookRoute(
         );
       }
 
-      let verified: unknown;
       try {
-        verified = webhook.verify(rawBody, {
+        webhook.verify(rawBody, {
           "svix-id": eventId,
           "svix-timestamp": timestamp,
           "svix-signature": signature
@@ -60,6 +59,14 @@ export function registerResendWebhookRoute(
       } catch {
         return reply.code(400).send(
           apiError("invalid_webhook", "The webhook signature is invalid.")
+        );
+      }
+      let verified: unknown;
+      try {
+        verified = JSON.parse(rawBody);
+      } catch {
+        return reply.code(400).send(
+          apiError("invalid_webhook", "The webhook payload is invalid.")
         );
       }
       if (!isResendEvent(verified)) {
