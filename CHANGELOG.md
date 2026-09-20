@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Fixed Windows startup failing with `Unexpected token 'S'` when Task Scheduler
+  success messages were mixed into the connector's JSON response. Thanks to
+  @shonatiger for reporting this in
+  [TaskNotes #2350](https://github.com/callumalpass/tasknotes/issues/2350).
+
 ## 0.1.0-beta.105
 
 - Durable notification timers now use the stable `notification-timer` source

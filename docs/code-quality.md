@@ -184,6 +184,13 @@ Historical compatibility serves existing v2/v3 journals until their verified
 owners acknowledge them; it never infers ownership from a missing ledger entry.
 No file-size, cycle, package, import or TypeScript export limit changes.
 
+The follow-up Windows CLI JSON repair adds one parent-visible scheduler-command
+helper to the Windows task module (integrated Rust visibility budget: 3,216). It replaces
+inherited scheduler stdout at all four lifecycle call sites with captured output
+and retained failure diagnostics. It deliberately does not change the streaming
+log runner. Native actual-CLI tests reproduce the corrupt JSON before the fix;
+no new production module, protocol, state, or permission bypass is introduced.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;
