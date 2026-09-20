@@ -32,7 +32,7 @@ import {
   type OperatorMutation
 } from "./instance-admin.js";
 
-export interface AuthAdminContext {
+interface AuthAdminContext {
   db: DatabasePool;
   defaultRegistrationMode: RegistrationMode;
   publicUrl?: string;
@@ -935,7 +935,7 @@ function requireNoArguments(argv: string[]): void {
   if (argv.length > 0) throw new AuthAdminUsageError(usage());
 }
 
-export function usage(): string {
+function usage(): string {
   return [
     "Usage:",
     "  auth-admin policy show",
