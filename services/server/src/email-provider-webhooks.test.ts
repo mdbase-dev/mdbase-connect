@@ -28,7 +28,8 @@ describe("Resend provider webhooks", () => {
       created_at: new Date().toISOString(),
       data: { email_id: "resend-message-1" }
     };
-    const payload = JSON.stringify(event);
+    // Verify the exact bytes, including formatting, before parsing the event.
+    const payload = JSON.stringify(event, null, 2);
     const headers = signedHeaders(payload, "event-1");
 
     const first = await app.inject({
@@ -55,6 +56,33 @@ describe("Resend provider webhooks", () => {
     const events = await db.query("SELECT event_id FROM email_provider_events");
     expect(events.rows).toHaveLength(1);
   });
+
+  it.each(["not json", "null", '{"type":"email.delivered"}'])(
+    "rejects authenticated invalid payload %s without recording an event",
+    async (payload) => {
+      const { db } = await fixture();
+      const { app } = await buildApp({
+        db,
+        devAuth: true,
+        publicUrl: "http://connect.test",
+        resendWebhookSecret: signingSecret
+      });
+      resources.push(() => app.close());
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/email/provider-events/resend",
+        headers: {
+          "content-type": "text/plain",
+          ...signedHeaders(payload, "event-invalid-payload")
+        },
+        payload
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.message).toBe("The webhook payload is invalid.");
+      const events = await db.query("SELECT event_id FROM email_provider_events");
+      expect(events.rows).toHaveLength(0);
+    }
+  );
 
   it("rejects invalid signatures and suppresses bounced identities", async () => {
     const { db, emailIdentityId } = await fixture();
