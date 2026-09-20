@@ -9,7 +9,11 @@ import {
 import { PasswordAccountService } from "./password-auth.js";
 import { normalizeEmailAddress } from "./email-identity.js";
 import type { RegistrationMode } from "./runtime-config.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
+import {
+  HostedProviderResponseError,
+  type HostedAccountUsage,
+  type HostedProviderClient
+} from "./hosted-provider.js";
 import {
   effectiveEntitlement,
   grantOperatorEntitlement,
@@ -145,9 +149,22 @@ async function showEntitlements(
      ORDER BY created_at, id`,
     [userId]
   );
-  const providerUsage = context.hostedProvider && storage.rows[0]
-    ? await context.hostedProvider.accountUsage(storage.rows[0].provider_account_id)
-    : null;
+  let providerUsage: HostedAccountUsage | null = null;
+  if (context.hostedProvider && storage.rows[0]) {
+    try {
+      providerUsage = await context.hostedProvider.accountUsage(storage.rows[0].provider_account_id);
+    } catch (error) {
+      // Signup commits the control-plane account before the first hosted
+      // operation provisions it at the provider. Keep that state inspectable,
+      // but do not hide a missing previously reconciled account or an outage.
+      if (!(error instanceof HostedProviderResponseError
+        && error.status === 404
+        && error.code === "hosted_account_not_found"
+        && Number(storage.rows[0].provider_revision) === 0)) {
+        throw error;
+      }
+    }
+  }
   return {
     user: { id: userId, email: found.user.email, name: found.user.name },
     effective: entitlement,
@@ -412,6 +429,9 @@ async function createAndDeliverInvitation(
   context: AuthAdminContext,
   emailTemplate: InvitationEmailTemplate = "standard"
 ): Promise<unknown> {
+  // An omitted profile used to silently create storage-less invitations.
+  // Local-only invitations remain possible, but must be deliberate.
+  const profile = entitlementProfile(requiredFlag(flags, "entitlement-profile"));
   const policy = new AuthenticationPolicyStore(
     context.db,
     context.defaultRegistrationMode
@@ -444,13 +464,7 @@ async function createAndDeliverInvitation(
     email: requiredFlag(flags, "email"),
     actor: requiredFlag(flags, "actor"),
     reason: requiredFlag(flags, "reason"),
-    ...(flags.has("entitlement-profile")
-      ? {
-          entitlementProfile: entitlementProfile(
-            requiredFlag(flags, "entitlement-profile")
-          )
-        }
-      : {}),
+    entitlementProfile: profile === "none" ? null : profile,
     ...(flags.has("expires-in")
       ? {
           expiresInSeconds: positiveInteger(
@@ -615,7 +629,7 @@ async function resendInvitation(
 ): Promise<unknown> {
   const flags = parseFlags(
     argv,
-    new Set(["id", "actor", "reason", "expires-in", "email-template"])
+    new Set(["id", "actor", "reason", "expires-in", "email-template", "entitlement-profile"])
   );
   const invitationId = requiredFlag(flags, "id");
   const existing = await instanceAdmin(context).showInvitation(invitationId) as {
@@ -640,12 +654,13 @@ async function resendInvitation(
   if (flags.has("expires-in")) {
     createFlags.set("expires-in", requiredFlag(flags, "expires-in"));
   }
-  if (existing.invitation.entitlement_profile) {
-    createFlags.set(
-      "entitlement-profile",
-      existing.invitation.entitlement_profile
+  const profile = flags.get("entitlement-profile") ?? existing.invitation.entitlement_profile;
+  if (!profile) {
+    throw new AuthAdminUsageError(
+      "This invitation has no entitlement profile. Resend requires --entitlement-profile <code|none>."
     );
   }
+  createFlags.set("entitlement-profile", profile);
   const emailTemplate = flags.has("email-template")
     ? invitationEmailTemplate(requiredFlag(flags, "email-template"))
     : "standard";
@@ -965,11 +980,11 @@ export function usage(): string {
     "  auth-admin policy show",
     "  auth-admin policy history [--limit <n>] [--before-revision <n>]",
     "  auth-admin policy update --expected-revision <n> --actor <id> --reason <text> [changes]",
-    "  auth-admin invite create --email <address> --actor <id> --reason <text> [--entitlement-profile <code>] [--expires-in <seconds>] [--send-email enabled] [--token-output shown|omitted]",
+    "  auth-admin invite create --email <address> --entitlement-profile <code|none> --actor <id> --reason <text> [--expires-in <seconds>] [--send-email enabled] [--token-output shown|omitted]",
     "  auth-admin invite list [--status <status>] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin invite show --id <uuid>",
     "  auth-admin invite revoke --id <uuid> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin invite resend --id <uuid> --actor <id> --reason <text> [--expires-in <seconds>] [--email-template standard|signup-recovery]",
+    "  auth-admin invite resend --id <uuid> --actor <id> --reason <text> [--entitlement-profile <code|none>] [--expires-in <seconds>] [--email-template standard|signup-recovery]",
     "  auth-admin beta list [--status pending|invited] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin entitlements show --user <uuid|email>",
     "  auth-admin entitlements grant --user <uuid|email> --profile <code> --operation-id <uuid> --actor <id> --reason <text>",

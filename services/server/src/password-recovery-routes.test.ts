@@ -232,7 +232,8 @@ async function fixture(emailTransport: EmailTransport) {
   const invitation = await passwordAccounts.createInvitation({
     email: "person@example.com",
     actor: "operator:test",
-    reason: "Create HTTP recovery fixture"
+    reason: "Create HTTP recovery fixture",
+    entitlementProfile: null
   });
   const account = await passwordAccounts.acceptInvitation({
     invitationToken: invitation.token,

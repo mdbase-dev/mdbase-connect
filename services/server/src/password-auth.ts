@@ -41,7 +41,7 @@ export interface CreateInvitationInput {
   actor: string;
   reason: string;
   expiresInSeconds?: number;
-  entitlementProfile?: string;
+  entitlementProfile: string | null;
 }
 
 export interface CreatedInvitation {
@@ -175,6 +175,9 @@ export class PasswordAccountService {
   ) {}
 
   async createInvitation(input: CreateInvitationInput): Promise<CreatedInvitation> {
+    if (input.entitlementProfile === undefined) {
+      throw new TypeError("Invitation entitlement profile must be explicit; use null only for a local-only invitation.");
+    }
     const actor = requiredText(input.actor, 200, "Invitation actor");
     const reason = requiredText(input.reason, 500, "Invitation reason");
     const normalizedEmail = normalizeEmailAddress(input.email);
@@ -224,7 +227,7 @@ export class PasswordAccountService {
           expiresAt
         ]
       );
-      if (input.entitlementProfile) {
+      if (input.entitlementProfile !== null) {
         await attachInvitationEntitlement(
           connection,
           id,
@@ -234,7 +237,7 @@ export class PasswordAccountService {
       await audit(connection, null, "invitation.created", id, {
         actor,
         reason,
-        entitlement_profile: input.entitlementProfile ?? null
+        entitlement_profile: input.entitlementProfile
       });
       await connection.query("COMMIT");
       return {
@@ -242,7 +245,7 @@ export class PasswordAccountService {
         email,
         token,
         expiresAt,
-        entitlementProfile: input.entitlementProfile ?? null,
+        entitlementProfile: input.entitlementProfile,
         ...agreements
       };
     } catch (error) {

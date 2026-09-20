@@ -41,6 +41,16 @@ invitation, or audit list. Policy history uses `next_before_revision`.
 operational metadata and counts; it never returns password hashes, session
 tokens, invitation tokens, provider credentials, or collection contents.
 
+`entitlements show --user USER_UUID` reports the effective profiles, all grant
+history, the control-plane storage account, and provider usage without granting
+or provisioning anything. A new account may have `provider_revision: 0` and
+`provider_usage: null`: its first hosted operation has not yet provisioned the
+provider account. Only that exact provider `hosted_account_not_found` response is
+accepted as pending. A missing previously reconciled provider account, an outage,
+or any other provider error still fails the command. An account with
+`effective: null`, `storage_account: null`, and an empty `grants` array has no
+hosted provisioning; do not confuse it with a pending provider account.
+
 ## Account operations
 
 Every account mutation requires a stable operator identity, a human-readable
@@ -116,11 +126,23 @@ Create and deliver an invitation after configuring the Resend environment:
 ```bash
 pnpm --filter @mdbase/connect-server instance:admin -- invite create \
   --email person@example.com \
+  --entitlement-profile beta_v1 \
   --send-email enabled \
   --token-output omitted \
   --actor operator:example \
   --reason "Approved beta participant"
 ```
+
+Invitation creation requires an explicit `--entitlement-profile`: use a configured
+profile such as `beta_v1`, or `none` for an intentionally local-only account.
+Omission fails before creating, replacing, or delivering an invitation. Managed
+hosted invitations must specify their promised profile, never `none`. This is an
+intentional CLI change: update older operator scripts that omitted the option.
+The managed wrapper already supplies `beta_v1`; it requires no compatibility
+fallback. The underlying invitation service also requires an explicit profile or
+`null` for local-only use and rejects omitted values at runtime, so direct
+JavaScript callers cannot silently omit the decision. No default profile is
+inferred from registration mode or email address.
 
 Self-hosters may omit delivery and receive the one-time invitation URL on
 standard output. Treat that output as a credential. Managed wrappers should
@@ -129,6 +151,9 @@ force `--send-email enabled --token-output omitted`.
 Invitation delivery uses `invitation/<invitation-id>` as the provider
 idempotency key. `invite resend --id ...` intentionally creates a replacement
 invitation and emails it; the previous active invitation becomes invalid.
+It preserves the existing entitlement profile unless explicitly overridden with
+`--entitlement-profile`. If the original has no profile, resending requires an
+explicit profile or `none`; it cannot silently perpetuate an unentitled invitation.
 Use `--email-template signup-recovery` only when replacing an invitation whose
 signup failed because of a confirmed service incident. It sends the apology
 and fresh one-time link together without exposing that credential to an

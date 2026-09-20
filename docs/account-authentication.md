@@ -320,9 +320,16 @@ Create an invitation:
 ```bash
 node services/server/dist/auth-admin-cli.js invite create \
   --email person@example.com \
+  --entitlement-profile beta_v1 \
   --actor operator:example \
   --reason "Approved private beta participant"
 ```
+
+The entitlement selection is required. Use a configured profile for hosted
+access, or explicitly choose `--entitlement-profile none` for a local-only
+invitation. Omission is rejected rather than silently creating an account without
+hosted storage. Existing accounts are not automatically granted entitlements on
+login; legacy provisioning repairs require an audited operator decision.
 
 To deliver the generated link through Resend in the same operation, configure
 `MDBASE_CONNECT_RESEND_API_KEY` and `MDBASE_CONNECT_EMAIL_FROM`, enable
