@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('registration', 'fresh', 'upgrade')][string]$Scenario = 'registration',
+    [ValidateSet('registration', 'elevated-registration', 'fresh', 'upgrade')][string]$Scenario = 'registration',
     [switch]$Child,
     [string]$Root
 )
@@ -17,7 +17,7 @@ if (-not $Child) {
     $user = 'mdbase428test'
     $password = ConvertTo-SecureString ('Aa1!' + [guid]::NewGuid().ToString('N')) -AsPlainText -Force
     $localUser = $null
-    if ($Scenario -eq 'registration') { $localUser = New-LocalUser -Name $user -Password $password -Description 'Disposable issue 428 qualification' }
+    if ($Scenario -in @('registration', 'elevated-registration')) { $localUser = New-LocalUser -Name $user -Password $password -Description 'Disposable issue 428 qualification' }
     Add-Type @'
 using System;
 using System.Text;
@@ -37,6 +37,22 @@ public static class TestUserProfile {
             & icacls.exe $Root /grant "${env:COMPUTERNAME}\${user}:(OI)(CI)M" | Out-Null
             if ($LASTEXITCODE -ne 0) { throw 'Could not grant fixture access.' }
         }
+        if ($Scenario -eq 'elevated-registration') {
+            # Administrator-created task for the SAME standard user. This differs
+            # from a task created and replaced entirely by the unprivileged user.
+            $sid = $localUser.SID.Value
+            $xml = @"
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+<Triggers><LogonTrigger><Enabled>true</Enabled><UserId>$sid</UserId></LogonTrigger></Triggers>
+<Principals><Principal id="Author"><UserId>$sid</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+<Actions Context="Author"><Exec><Command>C:\Windows\System32\cmd.exe</Command><Arguments>/c exit 0</Arguments></Exec></Actions>
+</Task>
+"@
+            $taskXml = Join-Path $Root 'elevated-task.xml'
+            $xml | Set-Content -Encoding Unicode $taskXml
+            & schtasks.exe /Create /F /TN 'mdbase connect' /XML $taskXml
+            if ($LASTEXITCODE -ne 0) { throw 'Could not seed elevated task fixture.' }
+        }
         # Use Process directly: no PowerShell Start-Process job-tree wait when a
         # tested CLI launches its long-running background daemon.
         $info = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
@@ -52,6 +68,22 @@ public static class TestUserProfile {
         $process = [Diagnostics.Process]::Start($info)
         if (-not $process.WaitForExit(240000)) { $process.Kill($true); throw 'Native lifecycle child timed out; partial results retained.' }
         if ($process.ExitCode -ne 0) { throw "Native lifecycle child failed with exit $($process.ExitCode)." }
+        if ($Scenario -eq 'elevated-registration') {
+            $reportPath = Join-Path $Root 'result.json'
+            $beforeRepair = Get-Content $reportPath -Raw | ConvertFrom-Json
+            if ($beforeRepair.elevatedReplacementSucceeded -ne $false) { throw 'Admin-owned task denial was not reproduced.' }
+            # Only the elevated fixture owner removes its task. Product code must
+            # not bypass its ACL or start a competing task/process on denial.
+            & schtasks.exe /Delete /F /TN 'mdbase connect' | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Fixture owner could not remove its task.' }
+            $info.ArgumentList[$info.ArgumentList.IndexOf('-Scenario') + 1] = 'registration'
+            $process = [Diagnostics.Process]::Start($info)
+            if (-not $process.WaitForExit(240000)) { $process.Kill($true); throw 'Post-repair registration timed out.' }
+            $afterRepair = Get-Content $reportPath -Raw | ConvertFrom-Json
+            @{ scenario = $Scenario; beforeRepair = $beforeRepair; afterRepair = $afterRepair; passed = ($process.ExitCode -eq 0 -and $afterRepair.passed) } |
+                ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 $reportPath
+            if ($process.ExitCode -ne 0 -or -not $afterRepair.passed) { throw 'Standard-user registration after task removal failed.' }
+        }
     } finally {
         $old = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
@@ -125,8 +157,8 @@ function Wait-Running([string]$Binary, [bool]$Expected) {
     throw "Task did not bring daemon running state to $Expected in this logon session."
 }
 try {
-    if ($Scenario -eq 'registration' -and -not $report.standardUser) { throw 'Registration must use a non-administrator test token.' }
-    $report['lifecycleAccount'] = if ($Scenario -eq 'registration') { 'noninteractive-standard-user-registration-only' } else { 'existing-interactive-runner-account-with-limited-task' }
+    if ($Scenario -in @('registration', 'elevated-registration') -and -not $report.standardUser) { throw 'Registration must use a non-administrator test token.' }
+    $report['lifecycleAccount'] = if ($Scenario -in @('registration', 'elevated-registration')) { 'noninteractive-standard-user-registration-only' } else { 'existing-interactive-runner-account-with-limited-task' }
     # Replace inherited runner-administrator environment with the profile that
     # Windows registered for this authenticated SID. No product state overrides.
     $profileKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$($identity.User.Value)"
@@ -146,17 +178,26 @@ try {
     }
 
     $initial = if ($Scenario -eq 'upgrade') { Binary '96' } else { $binary }
-    Require-Success (Invoke-Probe 'production-scoped-install' $probe @('install', $initial, $state))
+    $installation = Invoke-Probe 'production-scoped-install' $probe @('install', $initial, $state)
+    if ($Scenario -eq 'elevated-registration') {
+        # Assert the reproduced ACL boundary, NOT successful automatic recovery.
+        $report['elevatedReplacementSucceeded'] = $installation.exitCode -eq 0
+        if ($installation.exitCode -eq 0) { throw 'Admin-owned task denial was not reproduced.' }
+        if ($installation.stderr -notmatch 'Access is denied') { throw 'Unexpected elevated-task replacement failure.' }
+        $report['passed'] = $true
+        return
+    }
+    Require-Success $installation
     $task = Get-ScheduledTask -TaskName 'mdbase connect'
     $report['task'] = @{ triggerMatchesUser = (Is-CurrentUser $task.Triggers[0].UserId); principalMatchesUser = (Is-CurrentUser $task.Principal.UserId); runLevel = [string]$task.Principal.RunLevel; logonType = [string]$task.Principal.LogonType }
     if ((Is-CurrentUser 'S-1-5-18') -or -not $report.task.triggerMatchesUser -or -not $report.task.principalMatchesUser -or $report.task.runLevel -ne 'Limited' -or $report.task.logonType -ne 'Interactive') { throw 'Task identity/least-privilege invariant failed.' }
-    if ($Scenario -ne 'registration') {
+    if ($Scenario -in @('fresh', 'upgrade')) {
         Wait-Running $initial $true
         Require-Success (Invoke-Probe 'stop-before-replacement' $probe @('stop'))
         Wait-Running $initial $false
     }
     Require-Success (Invoke-Probe 'production-scoped-replacement' $probe @('install', $binary, $state))
-    if ($Scenario -ne 'registration') {
+    if ($Scenario -in @('fresh', 'upgrade')) {
         Wait-Running $binary $true
         Require-Success (Invoke-Probe 'stop-before-cold-start' $probe @('stop'))
         Wait-Running $binary $false

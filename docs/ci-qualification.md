@@ -104,6 +104,21 @@ new non-interactive test accounts cannot execute `InteractiveToken` tasks, and
 successful registration alone is not counted as daemon execution. This does
 not replace packaged Electron/Squirrel or actual sign-out/logon qualification.
 
+A separate job builds the **current actual CLI**, using the pinned engine, and
+executes `--json connect daemon` commands through Node's `execFile` with the
+same whole-stdout `JSON.parse` contract as Electron. It verifies install,
+replacement, stop, start, restart, uninstall, and real daemon running state.
+Exit-code-only service tests cannot detect scheduler output corrupting CLI JSON.
+Raw stdout/stderr and the failing command are retained as a bounded artifact.
+This job uses the interactive runner account, not a standard-user desktop session.
+
+The elevated-registration fixture creates a task as the runner administrator
+for a separate standard-user principal. It proves that principal cannot replace
+the administrator-owned task, then has the fixture owner remove it and verifies
+normal standard-user registration again. This qualifies an ACL failure and
+owner-assisted repair, **not** automatic permission recovery or same-account
+UAC token transitions. No production task permissions are weakened.
+
 ## Publication
 
 Server and client images are built after a successful `main` push qualification,
