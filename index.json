@@ -2,6 +2,16 @@
   "schema_version": 1,
   "results": [
     {
+      "observation_id": "run-35648401958-attempt-1",
+      "generated_at": "2026-09-21T20:06:04.477835655+00:00",
+      "connect_commit": "b3d896f7a8629fc806ef6b8c0cf866329e40f82c",
+      "mdbase_rs_commit": "4227a60ab71e1e9319323b4dc4ac11734d3b2ba8",
+      "run_url": "https://github.com/mdbase-dev/mdbase-connect/actions/runs/35648401958",
+      "provider_10k": false,
+      "file": "results/2026/09/run-35648401958-attempt-1.json",
+      "summary": "results/2026/09/run-35648401958-attempt-1.md"
+    },
+    {
       "observation_id": "run-34889468121-attempt-1",
       "generated_at": "2026-09-14T19:57:28.108262985+00:00",
       "connect_commit": "e6b32bd292d0f82afbeaca64ae438bdb84234576",
