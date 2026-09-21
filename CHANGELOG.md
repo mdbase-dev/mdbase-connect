@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0-beta.106
+## 0.1.0-beta.107
 
 - Fixed Windows startup failing with `Unexpected token 'S'` when Task Scheduler
   success messages were mixed into the connector's JSON response. Thanks to
