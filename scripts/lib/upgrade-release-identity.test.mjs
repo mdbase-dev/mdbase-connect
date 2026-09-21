@@ -9,9 +9,9 @@ import { promisify } from "node:util";
 const execute = promisify(execFile);
 const root = resolve(import.meta.dirname, "../..");
 const beta95 = "408c67bc10f128e0833f0da62cb3efb9d94657d7";
-const predecessorCommit = "21d035cc31b9b16548c3a57b51ecdc3c1b8c9dde";
+const predecessorCommit = "3397ddf1f127f0a0c74c51b4d4f3cb587428d6f5";
 const release95 = { id: 95, tag_name: "v0.1.0-beta.95", draft: false, published_at: "2026-09-08T00:00:00Z" };
-const predecessorRelease = { ...release95, id: 105, tag_name: "v0.1.0-beta.105" };
+const predecessorRelease = { ...release95, id: 104, tag_name: "v0.1.0-beta.104" };
 const annotated = (tag, commit) => `${"a".repeat(40)}\trefs/tags/${tag}\n${commit}\trefs/tags/${tag}^{}\n`;
 
 async function verify(context, { historical = false, metadata, refs, override = "", network = "ok", image = false, inspection } = {}) {
@@ -61,7 +61,7 @@ ${image ? 'upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
         TAG: tag, NETWORK: network,
         EXPECTED_URL: historical
           ? "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/tags/v0.1.0-beta.95"
-          : "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/tags/v0.1.0-beta.105",
+          : "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/tags/v0.1.0-beta.104",
         METADATA: typeof metadata === "string" ? metadata : JSON.stringify(metadata ?? (historical ? release95 : predecessorRelease)),
         REFS: refs ?? annotated(tag, commit),
         INSPECTION: JSON.stringify(inspection ?? [{ Config: { Labels: {
@@ -78,18 +78,18 @@ ${image ? 'upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
   return { code, stderr, calls: await readFile(calls, "utf8").catch(() => "") };
 }
 
-test("ordinary fixture verifies exact beta105 without consulting the mutable release inventory", async (context) => {
+test("ordinary fixture verifies exact beta104 without consulting the mutable release inventory", async (context) => {
   // The mock rejects every endpoint except the pinned tag. Publication of
-  // beta106 (or a hundred later releases) cannot affect this request/result.
+  // beta105 (or a hundred later releases) cannot affect this request/result.
   const result = await verify(context);
   assert.equal(result.code, 0, result.stderr);
-  assert.match(result.calls, /releases\/tags\/v0\.1\.0-beta\.105\ngit\n$/);
+  assert.match(result.calls, /releases\/tags\/v0\.1\.0-beta\.104\ngit\n$/);
   assert.doesNotMatch(result.calls, /releases\?/);
 });
 
 for (const [name, metadata] of [
   ["wrong tag", release95],
-  ["newer release substituted for pin", { ...predecessorRelease, tag_name: "v0.1.0-beta.106" }],
+  ["newer release substituted for pin", { ...predecessorRelease, tag_name: "v0.1.0-beta.105" }],
   ["release inventory instead of exact metadata", [predecessorRelease, release95]],
   ["draft", { ...predecessorRelease, draft: true }],
   ["missing release", {}],
