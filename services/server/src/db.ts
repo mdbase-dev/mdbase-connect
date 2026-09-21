@@ -1,4 +1,4 @@
-import pg, { type Pool, type PoolConfig } from "pg";
+import pg, { type PoolConfig } from "pg";
 import type { DatabasePool } from "./database-types.js";
 
 export type {
@@ -65,9 +65,55 @@ export async function openDatabase(
     const adapter = memory.adapters.createPg();
     pool = new adapter.Pool() as unknown as DatabasePool;
   } else {
-    pool = new pg.Pool(postgresPoolConfig(databaseUrl)) as Pool;
+    const postgres = new pg.Pool(postgresPoolConfig(databaseUrl));
+    // pg-pool owns errors while a client is idle, but removes its listener on
+    // checkout. A disconnect between queries (e.g. during provider I/O inside
+    // a transaction) would otherwise be an unhandled EventEmitter error and
+    // kill the process. pg still rejects queries and discards broken clients;
+    // these listeners contain/report the event, never retry or claim success.
+    postgres.on("error", reportDatabaseConnectionFailure);
+    postgres.on("acquire", (client) => {
+      client.on("error", reportDatabaseConnectionFailure);
+    });
+    postgres.on("release", (_error, client) => {
+      client.removeListener("error", reportDatabaseConnectionFailure);
+    });
+    pool = {
+      query: postgres.query.bind(postgres),
+      end: () => postgres.end(),
+      async connect() {
+        const client = await postgres.connect();
+        let failed = false;
+        return {
+          async query(text, values) {
+            try {
+              return await client.query(text, values);
+            } catch (error) {
+              // A fatal query response can precede the socket's error/close
+              // event. Do not return that client to the pool in this window.
+              // Discard on any query failure, even if ROLLBACK later succeeds.
+              failed = true;
+              throw error;
+            }
+          },
+          release: () => client.release(failed)
+        };
+      }
+    };
   }
   return pool;
+}
+
+function reportDatabaseConnectionFailure(error: Error): void {
+  // Never log the error object: pg can attach the client, credentials, SQL,
+  // and database details. Keep the observed incident distinguishable using
+  // only an owned classification, not arbitrary server error fields.
+  console.warn("privacy-safe Connect metric", {
+    metric: "database_connection_failure",
+    failure_class: (error as { code?: unknown }).code === "25P03"
+      ? "idle_transaction_timeout"
+      : "connection_failure"
+  });
 }
 
 export function postgresPoolConfig(connectionString: string): PoolConfig {

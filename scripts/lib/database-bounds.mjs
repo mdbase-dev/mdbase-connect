@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 const execute = promisify(execFile);
 
@@ -82,6 +83,16 @@ export async function verifyControlPlaneDatabaseBounds(databaseUrl) {
     for (const client of held) client.release();
     await pool.end();
   }
+  // Keep crash regressions in a subprocess so the system runner retains
+  // ownership of its disposable containers even with the unfixed driver path.
+  const { stdout } = await execute(process.execPath, [fileURLToPath(
+    new URL("./database-client-failure-fixture.mjs", import.meta.url)
+  )], {
+    env: { ...process.env, MDBASE_TEST_DATABASE_BOUNDS_URL: databaseUrl },
+    timeout: 40_000,
+    maxBuffer: 1024 * 1024
+  });
+  assert.equal(stdout, "database client failure containment passed\n");
 }
 
 export async function verifyHostedProviderDatabaseBounds(databaseUrl, repoRoot) {
