@@ -1,11 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-beta.106
 
 - Fixed Windows startup failing with `Unexpected token 'S'` when Task Scheduler
   success messages were mixed into the connector's JSON response. Thanks to
   @shonatiger for reporting this in
   [TaskNotes #2350](https://github.com/callumalpass/tasknotes/issues/2350).
+- PostgreSQL connection failures are contained at both idle-pool and checked-out
+  client boundaries, preventing an idle-transaction timeout during hosted
+  provider I/O from terminating the Connect process.
+- Failed checked-out clients are discarded even when a fatal query response
+  races the socket-close event; failed transactions remain rolled back and are
+  never retried or reported as successful.
+- Real PostgreSQL coverage verifies process survival, rollback, CORS-preserving
+  HTTP failure, idle-client termination, active-query termination, and recovery.
 
 ## 0.1.0-beta.105
 
