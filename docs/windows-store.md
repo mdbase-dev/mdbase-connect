@@ -63,13 +63,19 @@ submission; do not try to replace an incomplete first draft using CI.
 
 ### Windows lifecycle acceptance is still required
 
-Store replacement is not the macOS Electron updater transaction. The current
-boot gate intentionally rejects a daemon whose exact binary version differs
-from the app. A pre-existing independently running daemon or installed service
-can therefore block startup after an external Store update. Do not enable
-unattended Store publication until the version-adoption/recovery path is
-implemented and tested for this case. Do not loosen exact health checks or
-silently take over an unrelated CLI installation to hide it.
+Store replacement is not the macOS Electron updater transaction. Before ordinary
+IPC admission, the existing `UpdateCoordinator.initialize()` invokes
+`ElectronUpdateBackend.reconcileInstalledRuntime()`: a missing, stopped or older
+service is reconciled from the new bundled executable. The CLI installs a private
+stable runtime outside the package directory and registers the Windows background
+task against that runtime. Exact version, readiness and local-protocol checks
+remain mandatory; failure blocks startup instead of claiming an update succeeded.
+`store-update-startup.test.mjs` exercises this existing boot path with a simulated
+OS boundary, including install failure. No second updater is introduced.
+
+Actual Store identity/WindowsApps filesystem virtualization, task registration,
+package replacement and service health still need native Windows N→N+1 acceptance.
+Do not enable unattended Store publication until that evidence is retained.
 
 Store builds do not offer the existing registry-based launch-at-login toggle:
 it is not a packaged StartupTask and would refer to a versioned WindowsApps
