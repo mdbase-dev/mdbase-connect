@@ -754,7 +754,8 @@ function restartApplication(delay = 250): void {
 }
 
 function registerDeepLinks(): void {
-  if (!shouldRegisterDeepLinks()) return;
+  // Store protocol registration belongs to AppxManifest.xml, not the registry.
+  if (process.windowsStore || !shouldRegisterDeepLinks()) return;
   if (process.defaultApp && process.argv[1]) {
     app.setAsDefaultProtocolClient("mdbase-connect", process.execPath, [resolve(process.argv[1])]);
   } else {
@@ -776,7 +777,9 @@ function showRoute(route: string): void {
 }
 
 async function getLaunchAtLogin(): Promise<{ enabled: boolean; available: boolean }> {
-  if (!app.isPackaged) return { enabled: false, available: false };
+  // Electron's registry login items are not a Store StartupTask. Do not offer a
+  // toggle which would record a versioned WindowsApps executable path.
+  if (!app.isPackaged || process.windowsStore) return { enabled: false, available: false };
   if (process.platform === "linux") {
     const path = join(app.getPath("appData"), "autostart", "mdbase-connect.desktop");
     try {
@@ -790,7 +793,7 @@ async function getLaunchAtLogin(): Promise<{ enabled: boolean; available: boolea
 }
 
 async function setLaunchAtLogin(enabled: boolean): Promise<{ enabled: boolean; available: boolean }> {
-  if (!app.isPackaged) return { enabled: false, available: false };
+  if (!app.isPackaged || process.windowsStore) return { enabled: false, available: false };
   if (process.platform === "linux") {
     const directory = join(app.getPath("appData"), "autostart");
     const path = join(directory, "mdbase-connect.desktop");

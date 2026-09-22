@@ -56,12 +56,17 @@ const windowsStoreIdentity =
   process.env.WINDOWS_STORE_PUBLISHER_DISPLAY_NAME &&
   process.env.WINDOWS_STORE_PACKAGE_VERSION;
 
+if (windowsStoreIdentity && !process.env.WINDOWS_STORE_MANIFEST) {
+  throw new Error("Run scripts/configure-windows-store-package.ps1 to generate the Store manifest first");
+}
+
 const windowsStoreMakers = windowsStoreIdentity
   ? [
       {
         name: "@electron-forge/maker-appx",
         config: {
           assets: windowsStoreAssets,
+          manifest: process.env.WINDOWS_STORE_MANIFEST,
           identityName: process.env.WINDOWS_STORE_IDENTITY_NAME,
           packageName: "mdbaseConnect",
           packageDisplayName: "mdbase connect",
