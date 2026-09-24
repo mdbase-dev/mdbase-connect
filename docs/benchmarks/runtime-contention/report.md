@@ -2,7 +2,7 @@
 
 ## Scope and integration
 
-Based on Connect `b3d896f7a8629fc806ef6b8c0cf866329e40f82c` (beta.107), with companion engine commit `f21e9d5a7d7435f7e3c0d7c692ec5f6f665a0e97`. The Docker engine pin is updated. Publish/integrate the companion engine commit before building from that pin remotely. These changes were developed in isolated worktrees, not in the independently modified main checkouts.
+Based on Connect `b3d896f7a8629fc806ef6b8c0cf866329e40f82c` (beta.107), with companion engine commit `0eef12efd20337e009279b645ec4c43097b762d9`. The Docker engine pin is updated. Publish/integrate the companion engine commit before building from that pin remotely. These changes were developed in isolated worktrees, not in the independently modified main checkouts. PR #462 integrates current main (`ac0060d6`) after the measurements below. PR qualification also extracts existing test/readiness helpers to retain unchanged per-file size limits; reviewed surface increases are documented in `docs/code-quality.md` and the engine architecture note.
 
 ## Changes
 

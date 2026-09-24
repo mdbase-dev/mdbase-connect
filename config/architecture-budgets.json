@@ -8,10 +8,10 @@
     "apps/desktop": 43,
     "apps/editor": 111,
     "apps/portal": 16,
-    "crates/connect-agent": 35,
+    "crates/connect-agent": 37,
     "crates/connect-cli": 8,
     "crates/connect-core": 36,
-    "crates/connect-hosted-provider": 106,
+    "crates/connect-hosted-provider": 107,
     "crates/connect-hosted-storage-benchmark": 6,
     "crates/connect-mirror": 18,
     "crates/connect-protocol": 17,
@@ -43,10 +43,10 @@
     "semanticProjectionFormatVersion": 6
   },
   "reviewBudgets": {
-    "productionFiles": 696,
+    "productionFiles": 699,
     "relativeImports": 1514,
     "workspacePackages": 24,
-    "rustPublicDeclarations": 3217,
+    "rustPublicDeclarations": 3235,
     "typeScriptExportDeclarations": 2466,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1

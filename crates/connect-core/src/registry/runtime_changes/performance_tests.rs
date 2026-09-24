@@ -3,7 +3,7 @@ use super::*;
 use std::time::Instant;
 
 include!("batching_tests.rs");
-include!("fairness_performance.rs");
+include!("fairness_performance_tests.rs");
 
 struct Fixture {
     registry: CollectionRegistry,

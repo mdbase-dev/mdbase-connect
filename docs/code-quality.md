@@ -115,6 +115,19 @@ identity after removal/restart, and matching-marker precedence. Lifecycle fixtur
 use the same canonical folder paths as enrollment on Linux, macOS, and Windows.
 It adds no persisted state, protocol fields, production files, or package dependencies.
 
+Runtime contention fixes (#462) add three cohesive production modules: the
+bounded outbound dispatch queue, the independently joined local-admission worker,
+and the hosted JSON byte counter (699 production files). Core test helpers and
+fairness fixtures are explicitly test-only; the runtime-change module remains
+below the unchanged 1,000-line limit. Eighteen additional conservative Rust public
+visibility references (3,235 total) cover turn results, internal dispatch methods,
+readiness forwarding, and durable admission acknowledgements. These expose one
+owner for each scheduling/lifecycle boundary rather than a new persistence layer
+or collection interpreter. Partial-admission replay, cancellation, fencing,
+shutdown, fair turns and blocked-HTTP regressions justify these boundaries; see
+[the performance report](benchmarks/runtime-contention/report.md). No package,
+dependency, wire-format or per-file limit is raised.
+
 The installed-desktop daemon fix adds one 26-line `daemon-lifecycle.ts` module
 shared by startup and update recovery. Its two internal exports and two imports
 replace duplicated CLI profile selection, keeping packaged default-service
