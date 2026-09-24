@@ -193,97 +193,13 @@ async fn load_base_projected_snapshot(
     let (rows, candidate_projection_bytes) =
         load_base_candidate_projections(transaction, collection_id, state, plan).await?;
     let candidate_ids = rows.iter().map(|row| row.record_id).collect::<Vec<_>>();
-    let mut adjacency = HashMap::<Uuid, BTreeSet<Uuid>>::new();
-    let relationship_rows = if plan.requirements.backlinks
+    let (adjacency, relationship_rows) = if plan.requirements.backlinks
         || plan.requirements.outgoing_relationships
         || plan.requirements.link_resolution
     {
-        let relationship_rows = sqlx::query(
-            r#"WITH live AS (
-                 SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
-                 FROM hosted_provider_record_versions
-                 WHERE collection_id = $1 AND sequence <= $3
-                 ORDER BY record_id, sequence DESC
-               )
-               SELECT DISTINCT relationship.source_record_id, relationship.target_record_id
-               FROM hosted_provider_record_relationships relationship
-               JOIN live source ON source.record_id = relationship.source_record_id
-                 AND NOT source.deleted
-               JOIN hosted_provider_record_projections source_projection
-                 ON source_projection.collection_id = relationship.collection_id
-                AND source_projection.generation_id = relationship.generation_id
-                AND source_projection.record_id = source.record_id
-                AND source_projection.record_sequence = source.sequence
-                AND source_projection.record_revision = source.revision
-                AND source_projection.valid_from_sequence <= $3
-                AND (source_projection.valid_to_sequence IS NULL
-                     OR source_projection.valid_to_sequence > $3)
-                AND source_projection.catalog_revision = $5
-                AND source_projection.projection_format_version = $6
-                AND source_projection.semantic_engine_version = $7
-                AND source_projection.semantic_complete
-                AND source_projection.resolution_complete
-                AND hosted_provider_projection_digest_valid(
-                      source_projection.projection_digest,
-                      source_projection.projection_observed_digest)
-               WHERE relationship.collection_id = $1
-                 AND relationship.generation_id = $2
-                 AND relationship.valid_from_sequence <= $3
-                 AND (relationship.valid_to_sequence IS NULL
-                      OR relationship.valid_to_sequence > $3)
-                 AND relationship.catalog_revision = $5
-                 AND relationship.projection_format_version = $6
-                 AND relationship.semantic_engine_version = $7
-                 AND relationship.resolution_state = 'resolved'
-                 AND (relationship.source_record_id = ANY($4::uuid[])
-                      OR relationship.target_record_id = ANY($4::uuid[]))
-               ORDER BY relationship.source_record_id,
-                        relationship.target_record_id
-               LIMIT $8"#,
-        )
-        .bind(collection_id)
-        .bind(state.generation_id)
-        .bind(to_i64(state.snapshot_head, "query snapshot head")?)
-        .bind(&candidate_ids)
-        .bind(&state.catalog_revision)
-        .bind(i64::from(state.projection_format_version))
-        .bind(&state.semantic_engine_version)
-        .bind(to_i64(
-            state
-                .plan
-                .budgets
-                .max_operator_steps
-                .min(MAX_HOSTED_BASE_RELATIONSHIP_PAIRS)
-                .saturating_add(1),
-            "relationship operator budget",
-        )?)
-        .fetch_all(&mut **transaction)
-        .await?;
-        let relationship_pair_budget = state
-            .plan
-            .budgets
-            .max_operator_steps
-            .min(MAX_HOSTED_BASE_RELATIONSHIP_PAIRS);
-        if relationship_rows.len() as u64 > relationship_pair_budget {
-            return Err(query_budget_error(
-                "hosted_operator_budget_exceeded",
-                "The Obsidian Base exceeded its relationship-pair budget.",
-                "relationship_pairs",
-                relationship_pair_budget,
-                relationship_rows.len() as u64,
-            ));
-        }
-        for row in &relationship_rows {
-            let source: Uuid = row.get("source_record_id");
-            let Some(target) = row.get::<Option<Uuid>, _>("target_record_id") else {
-                continue;
-            };
-            adjacency.entry(source).or_default().insert(target);
-            adjacency.entry(target).or_default().insert(source);
-        }
-        relationship_rows.len() as u64
+        load_relationship_adjacency(transaction, collection_id, state, &candidate_ids).await?
     } else {
-        0
+        (HashMap::new(), 0)
     };
     let candidate_set = candidate_ids.iter().copied().collect::<BTreeSet<_>>();
     let related_ids = adjacency
@@ -735,4 +651,100 @@ async fn load_base_exact_fallback_snapshot(
         exact_ciphertext_bytes,
         query_context,
     })
+}
+
+/// Resolved relationship pairs touching the candidates at the query snapshot, as undirected
+/// adjacency, with the number of pairs read. Only relationships from current, complete source
+/// projections count, and the pair budget bounds the read.
+async fn load_relationship_adjacency(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    candidate_ids: &[Uuid],
+) -> ApiResult<(HashMap<Uuid, BTreeSet<Uuid>>, u64)> {
+    let mut adjacency = HashMap::<Uuid, BTreeSet<Uuid>>::new();
+    let relationship_rows = sqlx::query(
+        r#"WITH live AS (
+             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
+             FROM hosted_provider_record_versions
+             WHERE collection_id = $1 AND sequence <= $3
+             ORDER BY record_id, sequence DESC
+           )
+           SELECT DISTINCT relationship.source_record_id, relationship.target_record_id
+           FROM hosted_provider_record_relationships relationship
+           JOIN live source ON source.record_id = relationship.source_record_id
+             AND NOT source.deleted
+           JOIN hosted_provider_record_projections source_projection
+             ON source_projection.collection_id = relationship.collection_id
+            AND source_projection.generation_id = relationship.generation_id
+            AND source_projection.record_id = source.record_id
+            AND source_projection.record_sequence = source.sequence
+            AND source_projection.record_revision = source.revision
+            AND source_projection.valid_from_sequence <= $3
+            AND (source_projection.valid_to_sequence IS NULL
+                 OR source_projection.valid_to_sequence > $3)
+            AND source_projection.catalog_revision = $5
+            AND source_projection.projection_format_version = $6
+            AND source_projection.semantic_engine_version = $7
+            AND source_projection.semantic_complete
+            AND source_projection.resolution_complete
+            AND hosted_provider_projection_digest_valid(
+                  source_projection.projection_digest,
+                  source_projection.projection_observed_digest)
+           WHERE relationship.collection_id = $1
+             AND relationship.generation_id = $2
+             AND relationship.valid_from_sequence <= $3
+             AND (relationship.valid_to_sequence IS NULL
+                  OR relationship.valid_to_sequence > $3)
+             AND relationship.catalog_revision = $5
+             AND relationship.projection_format_version = $6
+             AND relationship.semantic_engine_version = $7
+             AND relationship.resolution_state = 'resolved'
+             AND (relationship.source_record_id = ANY($4::uuid[])
+                  OR relationship.target_record_id = ANY($4::uuid[]))
+           ORDER BY relationship.source_record_id,
+                    relationship.target_record_id
+           LIMIT $8"#,
+    )
+    .bind(collection_id)
+    .bind(state.generation_id)
+    .bind(to_i64(state.snapshot_head, "query snapshot head")?)
+    .bind(candidate_ids)
+    .bind(&state.catalog_revision)
+    .bind(i64::from(state.projection_format_version))
+    .bind(&state.semantic_engine_version)
+    .bind(to_i64(
+        state
+            .plan
+            .budgets
+            .max_operator_steps
+            .min(MAX_HOSTED_BASE_RELATIONSHIP_PAIRS)
+            .saturating_add(1),
+        "relationship operator budget",
+    )?)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let relationship_pair_budget = state
+        .plan
+        .budgets
+        .max_operator_steps
+        .min(MAX_HOSTED_BASE_RELATIONSHIP_PAIRS);
+    if relationship_rows.len() as u64 > relationship_pair_budget {
+        return Err(query_budget_error(
+            "hosted_operator_budget_exceeded",
+            "The hosted query exceeded its relationship-pair budget.",
+            "relationship_pairs",
+            relationship_pair_budget,
+            relationship_rows.len() as u64,
+        ));
+    }
+    for row in &relationship_rows {
+        let source: Uuid = row.get("source_record_id");
+        let Some(target) = row.get::<Option<Uuid>, _>("target_record_id") else {
+            continue;
+        };
+        adjacency.entry(source).or_default().insert(target);
+        adjacency.entry(target).or_default().insert(source);
+    }
+    Ok((adjacency, relationship_rows.len() as u64))
 }

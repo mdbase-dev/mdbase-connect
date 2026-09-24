@@ -195,6 +195,66 @@ async fn load_base_candidate_projections(
     Ok((rows, projection_bytes))
 }
 
+/// Each candidate's relationship neighborhood, for queries that follow links. A neighborhood
+/// is complete only when the candidate and every neighbor have current projections; an
+/// incomplete one makes evaluation fail closed rather than read a partial graph.
+async fn load_query_neighborhoods(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    candidates: &HashMap<Uuid, mdbase::runtime::SemanticProjection>,
+    candidate_ids: &[Uuid],
+) -> ApiResult<HashMap<Uuid, mdbase::runtime::HostedRelationshipNeighborhood>> {
+    if candidate_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let (adjacency, _) =
+        load_relationship_adjacency(transaction, collection_id, state, candidate_ids).await?;
+    let wanted = candidate_ids.iter().collect::<std::collections::HashSet<_>>();
+    let missing = adjacency
+        .iter()
+        .filter(|(record_id, _)| wanted.contains(record_id))
+        .flat_map(|(_, neighbors)| neighbors)
+        .filter(|record_id| !candidates.contains_key(record_id))
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let (related, _) = load_base_related_projections(
+        transaction,
+        collection_id,
+        state,
+        &missing,
+        state.plan.budgets.max_candidate_bytes,
+    )
+    .await?;
+    let projections = candidates
+        .iter()
+        .map(|(record_id, projection)| (*record_id, projection))
+        .chain(related.iter().map(|(record_id, projection)| (*record_id, projection)))
+        .collect::<HashMap<_, _>>();
+    Ok(candidate_ids
+        .iter()
+        .map(|record_id| {
+            let neighbors = adjacency.get(record_id).cloned().unwrap_or_default();
+            let related = neighbors
+                .iter()
+                .filter_map(|neighbor| projections.get(neighbor).map(|projection| (*projection).clone()))
+                .collect::<Vec<_>>();
+            let own = projections.get(record_id).map(|projection| (*projection).clone());
+            let complete = own.is_some() && related.len() == neighbors.len();
+            (
+                *record_id,
+                mdbase::runtime::HostedRelationshipNeighborhood {
+                    projection: own,
+                    related,
+                    complete,
+                },
+            )
+        })
+        .collect())
+}
+
 async fn load_base_related_projections(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
@@ -475,6 +535,15 @@ async fn execute_bounded_residual_page(
     let exact_ciphertext_bytes = loaded_exact.ciphertext_bytes;
     let exact_bytes = loaded_exact.plaintext_bytes;
     let exact_records = loaded_exact.records;
+    let neighborhoods = if state.plan.requirements.relationships {
+        let candidates = current_projections
+            .iter()
+            .map(|(record_id, row)| (*record_id, row.projection.clone()))
+            .collect::<HashMap<_, _>>();
+        load_query_neighborhoods(transaction, collection_id, state, &candidates, &exact_ids).await?
+    } else {
+        HashMap::new()
+    };
 
     let mut diagnostics = Vec::new();
     let offset = if state.last_path.is_none() {
@@ -498,10 +567,11 @@ async fn execute_bounded_residual_page(
                     ApiError::internal("A bounded hosted candidate has no exact snapshot record.")
                 })?;
                 catalog
-                    .evaluate_hosted_residual_with_context(
+                    .evaluate_hosted_residual_with_neighborhood(
                         &state.plan,
                         record,
                         state.exact_context.as_ref(),
+                        neighborhoods.get(&candidate.record_id),
                     )
                     .map_err(projection_inconsistent)?
             };
