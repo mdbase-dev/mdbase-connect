@@ -20,6 +20,22 @@ single-flight, preserves the exact durable invocation, and cannot return to
 and runtime JSON therefore follows the same version-and-migrate discipline as
 ordinary SQL columns.
 
+Each executed notification recovery sweep emits a privacy-safe
+`notification_recovery_sweep` metric with `outcome` (`ok`, `pending`, or
+`failed`) and elapsed milliseconds. Successful sweeps also report the number
+of outbox entries processed. When pending, a separate
+`notification_recovery_pending_sample` reports bounded counts and sampled
+maximum ages for unprocessed outbox entries, non-terminal notification runs,
+and due notification timers. Each count is capped at 101 (101 means **at least**
+101); ages are capped at one day and are the maximum ages among those sampled
+rows, **not** guaranteed global oldest ages. Timer age means time overdue, not
+time since scheduling. The sample aggregates at most 101 matching rows per category under a
+read-only, two-second statement timeout; predicate scans may touch more rows. If it cannot complete, a distinct
+`notification_recovery_sample_unavailable` metric is emitted without changing
+readiness or treating unknown counts as zero. No collection, grant, run, timer,
+record, payload, or error detail is emitted by these metrics. Correlate sweep
+and sample metrics by timestamp and process instance, not by customer identity.
+
 ## Boundaries
 
 The hosted provider is a Rust data-plane service. PostgreSQL is the durable

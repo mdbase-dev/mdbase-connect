@@ -375,12 +375,14 @@ impl HostedProvider {
         let Ok(_guard) = self.notification_recovery_guard.try_lock() else {
             return Ok(0);
         };
+        let started = Instant::now();
         match notifications.recover(limit).await {
             Ok(processed) => {
                 let pending = match notifications.has_pending_delivery().await {
                     Ok(pending) => pending,
                     Err(error) => {
                         self.mark_notification_recovery_degraded(&error).await;
+                        tracing::info!(target: "mdbase_connect::metrics", metric = "notification_recovery_sweep", outcome = "failed", duration_ms = started.elapsed().as_millis() as u64);
                         return Err(error);
                     }
                 };
@@ -389,6 +391,7 @@ impl HostedProvider {
                     if status.recovery != NotificationRecoveryState::Degraded {
                         status.recovery = NotificationRecoveryState::Pending;
                     }
+                    tracing::info!(target: "mdbase_connect::metrics", metric = "notification_recovery_sweep", outcome = "pending", processed, duration_ms = started.elapsed().as_millis() as u64);
                     return Ok(processed);
                 }
                 let recovered_from_degraded =
@@ -400,6 +403,7 @@ impl HostedProvider {
                     last_success_at: Some(Utc::now()),
                 };
                 drop(status);
+                tracing::info!(target: "mdbase_connect::metrics", metric = "notification_recovery_sweep", outcome = "ok", processed, duration_ms = started.elapsed().as_millis() as u64);
                 if recovered_from_degraded {
                     tracing::info!(
                         target: "mdbase_connect::metrics",
@@ -411,6 +415,7 @@ impl HostedProvider {
             }
             Err(error) => {
                 self.mark_notification_recovery_degraded(&error).await;
+                tracing::info!(target: "mdbase_connect::metrics", metric = "notification_recovery_sweep", outcome = "failed", duration_ms = started.elapsed().as_millis() as u64);
                 Err(error)
             }
         }
