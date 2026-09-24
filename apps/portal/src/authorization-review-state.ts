@@ -6,19 +6,25 @@ export interface StoredAuthorizationReview {
   reviewing?: boolean;
 }
 
+// A single compatible collection is not an ambiguous choice: open on the review,
+// which names the collection before anything can be allowed. Several collections
+// always require an explicit choice.
 export function initialAuthorizationSelection(
   compatibleCollectionIds: readonly string[],
   savedReview: StoredAuthorizationReview | null
 ): { collectionId: string; reviewing: boolean } {
-  const collectionId = savedReview?.collectionConfirmed === true
+  if (savedReview?.collectionConfirmed === true
     && savedReview.collectionId
-    && compatibleCollectionIds.includes(savedReview.collectionId)
-      ? savedReview.collectionId
-      : "";
-  return {
-    collectionId,
-    reviewing: Boolean(collectionId && savedReview?.reviewing === true)
-  };
+    && compatibleCollectionIds.includes(savedReview.collectionId)) {
+    return {
+      collectionId: savedReview.collectionId,
+      reviewing: savedReview.reviewing === true
+    };
+  }
+  if (compatibleCollectionIds.length === 1) {
+    return { collectionId: compatibleCollectionIds[0], reviewing: true };
+  }
+  return { collectionId: "", reviewing: false };
 }
 
 interface CollectionLocationChoice {

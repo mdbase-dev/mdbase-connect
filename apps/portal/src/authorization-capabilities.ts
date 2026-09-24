@@ -91,7 +91,7 @@ export function authorizationCapabilityGroups(
         id: operation.id,
         semantics: "exact" as const,
         label: operation.label,
-        description: `Allow the ${operation.id} operation.`,
+        description: "",
         operations: [operation.id],
         required: false,
         higherImpact: group.id === "delete" || group.id === "manage"
@@ -129,12 +129,17 @@ export function toggleAuthorizationGroup(
   return next;
 }
 
+// Without a saved review, a declared-optional higher-impact capability starts
+// denied so destructive or structural access is an explicit choice. Exact v1
+// operations cannot distinguish required from optional, so they start selected.
 export function selectedOperationsForCapabilityGroups(
   groups: readonly AuthorizationCapabilityGroup[],
   savedOperations?: readonly string[]
 ): Set<string> {
   if (!savedOperations) {
-    return new Set(groups.flatMap((group) => group.operations));
+    return new Set(groups.flatMap((group) =>
+      group.required || group.semantics === "exact" || !group.higherImpact ? group.operations : []
+    ));
   }
   const saved = new Set(savedOperations);
   return new Set(groups.flatMap((group) =>
@@ -143,6 +148,8 @@ export function selectedOperationsForCapabilityGroups(
       : []
   ));
 }
+
+export const HIGHER_IMPACT_FILE_ACTIONS: ReadonlySet<ApplicationFileAction> = new Set(["delete"]);
 
 export function selectedFileActions(
   files: NonNullable<ApplicationRequirements["files"]>,
@@ -155,6 +162,6 @@ export function selectedFileActions(
     ...(savedActions
       ? savedActions.filter((action): action is ApplicationFileAction =>
           declaredOptional.has(action as ApplicationFileAction))
-      : files.optional ?? [])
+      : (files.optional ?? []).filter((action) => !HIGHER_IMPACT_FILE_ACTIONS.has(action)))
   ]);
 }

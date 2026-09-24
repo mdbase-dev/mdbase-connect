@@ -60,10 +60,6 @@ export function provisionNames(provisions: TypePackProvision[]) {
     .map((provision) => provision.manifest.name ?? provision.manifest.id)
     .join(" and ");
 }
-export function scopeDescription(contracts: ContractRequirement[]) {
-  const names = contracts.map((contract) => `${contract.id} v${contract.version}`);
-  return `Compatibility and setup require ${names.join(" and ")}.`;
-}
 type ReturnLocation = Pick<Location, "origin" | "search">;
 
 function validatedReturnTarget(currentLocation: ReturnLocation): URL | null {

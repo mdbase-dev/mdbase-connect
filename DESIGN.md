@@ -108,10 +108,11 @@ and interaction guidance in
 
 ## Components
 
-- Buttons: 4px radius, 34 to 36px height. Primary and secondary actions remain
-  on the current surface with different border emphasis; quiet and danger
-  actions are text led. No contrasting fills or shadows. All include hover,
-  focus, disabled, and busy states.
+- Buttons: 4 to 5px radius, 34 to 36px height in dense views and 44px on
+  transactional pages. Secondary actions stay on the current surface with a
+  fine outline; quiet and danger actions are text led. A view's one committing
+  action, such as `Allow access`, may use a filled accent. No shadows. All
+  include hover, focus, disabled, and busy states.
 - Status: pair a colored dot with a text label. Never show a dot alone.
 - Direct access: explain the browser's local-network prompt beside one quiet,
   user-initiated action. Afterward, show only `Connected directly` or

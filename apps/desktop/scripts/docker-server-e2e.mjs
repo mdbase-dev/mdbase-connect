@@ -226,12 +226,15 @@ try {
   await portalPage
     .getByRole("heading", { name: "Docker fixture consumer" })
     .waitFor();
-  await portalPage
-    .locator(`.collection-choice-list input[value="${collection.id}"]`)
-    .check();
-  await portalPage
-    .getByRole("button", { name: "Review access", exact: true })
-    .click();
+  // A single compatible collection opens directly on the access review.
+  const collectionChoice = portalPage
+    .locator(`.collection-choice-list input[value="${collection.id}"]`);
+  if (await collectionChoice.isVisible()) {
+    await collectionChoice.check();
+    await portalPage
+      .getByRole("button", { name: "Review access", exact: true })
+      .click();
+  }
   await portalPage
     .locator(".selected-collection-summary")
     .filter({ hasText: "Docker fixture" })

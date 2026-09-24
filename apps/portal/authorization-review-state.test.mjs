@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { initialAuthorizationSelection } from "./src/authorization-review-state.ts";
 
-test("requires explicit selection when one compatible collection is available", () => {
+test("opens the review when exactly one compatible collection is available", () => {
   assert.deepEqual(initialAuthorizationSelection(["one"], null), {
-    collectionId: "",
-    reviewing: false
+    collectionId: "one",
+    reviewing: true
   });
 });
 
@@ -16,17 +16,18 @@ test("requires explicit selection when multiple compatible collections are avail
   });
 });
 
-test("requires confirmation for a specifically requested compatible collection", () => {
+test("opens the review for a specifically requested compatible collection", () => {
   // A requested collection is represented by the sole visible compatible choice.
   assert.deepEqual(initialAuthorizationSelection(["requested"], null), {
-    collectionId: "",
-    reviewing: false
+    collectionId: "requested",
+    reviewing: true
   });
 });
 
-test("discards a stale saved collection instead of silently replacing it", () => {
-  assert.deepEqual(initialAuthorizationSelection(["current"], {
+test("discards a stale saved collection instead of silently replacing it among several", () => {
+  assert.deepEqual(initialAuthorizationSelection(["current", "other"], {
     collectionId: "stale",
+    collectionConfirmed: true,
     reviewing: true
   }), {
     collectionId: "",
@@ -35,7 +36,7 @@ test("discards a stale saved collection instead of silently replacing it", () =>
 });
 
 test("does not restore an unconfirmed selection saved by an older portal", () => {
-  assert.deepEqual(initialAuthorizationSelection(["only"], {
+  assert.deepEqual(initialAuthorizationSelection(["only", "other"], {
     collectionId: "only",
     reviewing: true
   }), {
@@ -45,12 +46,23 @@ test("does not restore an unconfirmed selection saved by an older portal", () =>
 });
 
 test("restores an explicit valid selection", () => {
-  assert.deepEqual(initialAuthorizationSelection(["selected"], {
+  assert.deepEqual(initialAuthorizationSelection(["selected", "other"], {
     collectionId: "selected",
     collectionConfirmed: true,
     reviewing: true
   }), {
     collectionId: "selected",
     reviewing: true
+  });
+});
+
+test("restores a confirmed return to the collection step for a single collection", () => {
+  assert.deepEqual(initialAuthorizationSelection(["only"], {
+    collectionId: "only",
+    collectionConfirmed: true,
+    reviewing: false
+  }), {
+    collectionId: "only",
+    reviewing: false
   });
 });

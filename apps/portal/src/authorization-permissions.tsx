@@ -1,104 +1,7 @@
-import { useId } from "react";
 import type { ApplicationFileAction, PendingAuthorization } from "./api";
-import type { AuthorizationCapabilityGroup } from "./authorization-capabilities";
+import { HIGHER_IMPACT_FILE_ACTIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities";
 
-export function PermissionDelta({ existingAccess, collectionId, groups, selected }: {
-  existingAccess: PendingAuthorization["existing_access"];
-  collectionId: string;
-  groups: AuthorizationCapabilityGroup[];
-  selected: ReadonlySet<string>;
-}) {
-  const existing = new Set(existingAccess?.find((access) =>
-    access.collection_id === collectionId)?.operations ?? []);
-  if (existing.size === 0) return null;
-  const selectedGroups = groups.filter((group) =>
-    group.operations.every((operation) => selected.has(operation))
-  );
-  const approved = selectedGroups.filter((group) =>
-    group.operations.every((operation) => existing.has(operation))
-  ).length;
-  const added = selectedGroups.length - approved;
-  const unit = groups.some((group) => group.semantics === "exact") ? "action" : "capability";
-  return <div className="permission-delta" role="note">
-    <span><strong>{approved}</strong> already approved</span>
-    <span><strong>{added}</strong> {added === 1 ? unit : unit === "action" ? "actions" : "capabilities"} added by this request</span>
-  </div>;
-}
-
-export function PermissionCapabilitySummary({
-  groups,
-  selected,
-  files,
-  selectedFiles
-}: {
-  groups: AuthorizationCapabilityGroup[];
-  selected: ReadonlySet<string>;
-  files?: PendingAuthorization["requirements"]["files"];
-  selectedFiles: ReadonlySet<string>;
-}) {
-  const capabilities = groups.filter((group) =>
-    group.operations.every((operation) => selected.has(operation))
-  ).map((group) => ({
-    id: group.id,
-    label: group.label,
-    description: group.description,
-    higherImpact: group.higherImpact
-  }));
-  if (files && selectedFiles.size > 0) {
-    capabilities.push({
-      id: "files",
-      label: selectedFiles.has("delete") ? "Manage and delete files" : "Work with files",
-      description: files.scope.kind === "collection"
-        ? "Use the approved file actions in every visible folder."
-        : `Use the approved file actions in ${files.scope.folders.join(", ")}.`,
-      higherImpact: selectedFiles.has("delete")
-    });
-  }
-  return (
-    <ul className="permission-capabilities" aria-label="What this application can do">
-      {capabilities.map((capability) => <li className={capability.higherImpact ? "higher-impact" : undefined} key={capability.id}>
-        <span className="capability-mark" aria-hidden="true">{capability.higherImpact ? "!" : "\u2713"}</span>
-        <span><strong>{capability.label}</strong><small>{capability.description}</small></span>
-        {capability.higherImpact && <b>Higher impact</b>}
-      </li>)}
-    </ul>
-  );
-}
-
-export function PermissionChoices({ groups, selected, disabled, onToggle }: {
-  groups: AuthorizationCapabilityGroup[];
-  selected: ReadonlySet<string>;
-  disabled: boolean;
-  onToggle(group: AuthorizationCapabilityGroup): void;
-}) {
-  const descriptionId = useId();
-  const exact = groups.some((group) => group.semantics === "exact");
-  const optional = groups.filter((group) => !group.required);
-  if (optional.length === 0) return null;
-  return (
-    <details className="permission-review">
-      <summary>
-        <span><strong>{exact ? "Review exact permissions" : "Optional capabilities"}</strong><small>{exact ? "Choose each requested action independently." : "Optional capabilities can only be allowed or denied as a complete group."}</small></span>
-        <b>Review</b>
-      </summary>
-      <div className="permission-groups">{optional.map((group) => (
-        <fieldset className="permission-group" key={group.id} aria-describedby={`${descriptionId}-${group.id}`}>
-          <legend>{group.label}</legend>
-          <p id={`${descriptionId}-${group.id}`}>{group.description}</p>
-          <div><label>
-            <input
-              type="checkbox"
-              checked={group.operations.every((operation) => selected.has(operation))}
-              onChange={() => onToggle(group)}
-              disabled={disabled}
-            />
-            <span>{exact ? group.label : "Allow this capability"}</span>
-          </label></div>
-        </fieldset>
-      ))}</div>
-    </details>
-  );
-}
+type FileRequirements = NonNullable<PendingAuthorization["requirements"]["files"]>;
 
 const FILE_ACTION_LABELS: Record<ApplicationFileAction, string> = {
   list: "List file names and metadata",
@@ -109,61 +12,152 @@ const FILE_ACTION_LABELS: Record<ApplicationFileAction, string> = {
   delete: "Delete files"
 };
 
-export function FilePermissionSummary({ files, selected, disabled, onToggle, allowedActions }: {
-  files: NonNullable<PendingAuthorization["requirements"]["files"]>;
-  selected: ReadonlySet<string>;
-  disabled: boolean;
-  onToggle(action: ApplicationFileAction): void;
-  allowedActions?: readonly ApplicationFileAction[];
-}) {
-  const scope = files.scope.kind === "collection"
-    ? "Every visible folder in this collection. Hidden folders are always excluded."
+export function fileScopeDescription(files: FileRequirements): string {
+  return files.scope.kind === "collection"
+    ? "Every visible folder. Hidden folders are always excluded."
     : `Only ${files.scope.folders.join(", ")}. Hidden folders are always excluded.`;
-  if ("actions" in files) return <details className="permission-review file-permission-review">
-    <summary><span><strong>Review exact file permissions</strong><small>{files.actions.length} requested {files.actions.length === 1 ? "action" : "actions"}, approved together. {scope}</small></span><b>Details</b></summary>
-    <div className="permission-groups"><fieldset className="permission-group">
-      <legend>Files</legend>
-      <p>{scope} These actions are approved together.</p>
-      <ul className="permission-action-list">{files.actions.map((action) => <li key={action}>{FILE_ACTION_LABELS[action]}</li>)}</ul>
-    </fieldset></div>
-  </details>;
+}
+
+function groupSelected(group: AuthorizationCapabilityGroup, selected: ReadonlySet<string>) {
+  return group.operations.every((operation) => selected.has(operation));
+}
+
+// A compact, read-only statement of what the request asks for, shown before a
+// collection is chosen so the user can deny without choosing anything.
+export function RequestedAccessSummary({ groups, files }: {
+  groups: AuthorizationCapabilityGroup[];
+  files?: FileRequirements;
+}) {
+  const items = groups.map((group) => ({ id: group.id, label: group.label, higherImpact: group.higherImpact }));
+  if (files) {
+    const actions = "actions" in files ? files.actions : [...files.required, ...(files.optional ?? [])];
+    const deletes = actions.some((action) => HIGHER_IMPACT_FILE_ACTIONS.has(action));
+    items.push({ id: "files", label: deletes ? "Manage and delete files" : "Work with files", higherImpact: deletes });
+  }
   return (
-    <details className="permission-review file-permission-review">
-      <summary>
-        <span><strong>File access</strong><small>{selected.size} approved {selected.size === 1 ? "action" : "actions"}. {scope}</small></span>
-        <b>Review</b>
-      </summary>
-      <div className="permission-groups">
-        <fieldset className="permission-group">
-          <legend>Files</legend>
-          <p>{scope} Required actions stay enabled; optional actions can be denied.</p>
-          <div>{files.required.map((action) => <label key={action}>
-            <input type="checkbox" checked disabled />
-            <span>{FILE_ACTION_LABELS[action]} (required)</span>
-          </label>)}</div>
-          {(files.optional ?? []).length > 0 && <div>{(files.optional ?? []).filter((action) => !allowedActions || allowedActions.includes(action)).map((action) => <label key={action}>
-            <input
-              type="checkbox"
-              checked={selected.has(action)}
-              disabled={disabled}
-              onChange={() => onToggle(action)}
-            />
-            <span>{FILE_ACTION_LABELS[action]} (optional)</span>
-          </label>)}</div>}
-        </fieldset>
-      </div>
-    </details>
+    <ul className="requested-access" aria-label="Requested access">
+      {items.map((item) => <li className={item.higherImpact ? "higher-impact" : undefined} key={item.id}>
+        {item.label}
+        {item.higherImpact && <span className="sr-only"> (higher impact)</span>}
+      </li>)}
+    </ul>
   );
 }
 
-export function NotificationAccess({ notifications }: {
+// A locked row has no control: it is either required by the application or,
+// for exact v1 file actions, approved together with the rest of the request.
+function PermissionRow({ id, label, description, locked, required, checked, higherImpact, isNew, disabled, onToggle }: {
+  id: string;
+  label: string;
+  description?: string;
+  locked: boolean;
+  required: boolean;
+  checked: boolean;
+  higherImpact: boolean;
+  isNew: boolean;
+  disabled: boolean;
+  onToggle?(): void;
+}) {
+  const content = <>
+    {locked
+      ? <span className="permission-fixed" aria-hidden="true">✓</span>
+      : <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />}
+    <span className="permission-copy">
+      <strong>{label}</strong>
+      {description && <small>{description}</small>}
+    </span>
+    <span className="permission-tags">
+      {isNew && <span className="permission-tag new">New</span>}
+      {higherImpact && <span className="permission-tag impact"><i aria-hidden="true" />Higher impact</span>}
+      {required && <span className="permission-tag">Required</span>}
+    </span>
+  </>;
+  return <li className={`permission-row${higherImpact ? " higher-impact" : ""}`} data-permission={id}>
+    {locked ? <div>{content}</div> : <label>{content}</label>}
+  </li>;
+}
+
+export function PermissionList({
+  groups,
+  selected,
+  existingOperations,
+  files,
+  selectedFiles,
+  allowedFileActions,
+  disabled,
+  onToggleGroup,
+  onToggleFile
+}: {
+  groups: AuthorizationCapabilityGroup[];
+  selected: ReadonlySet<string>;
+  existingOperations?: ReadonlySet<string>;
+  files?: FileRequirements;
+  selectedFiles: ReadonlySet<string>;
+  allowedFileActions?: readonly ApplicationFileAction[];
+  disabled: boolean;
+  onToggleGroup(group: AuthorizationCapabilityGroup): void;
+  onToggleFile(action: ApplicationFileAction): void;
+}) {
+  const reauthorizing = Boolean(existingOperations && existingOperations.size > 0);
+  const fileRows = files ? "actions" in files
+    ? files.actions.map((action) => ({ action, locked: true, required: false }))
+    : [
+        ...files.required.map((action) => ({ action, locked: true, required: true })),
+        ...(files.optional ?? [])
+          .filter((action) => !allowedFileActions || allowedFileActions.includes(action))
+          .map((action) => ({ action, locked: false, required: false }))
+      ] : [];
+  return <>
+    {groups.length > 0 && <ul className="permission-list" aria-label="Collection permissions">
+      {groups.map((group) => <PermissionRow
+        key={group.id}
+        id={group.id}
+        label={group.label}
+        description={group.description}
+        locked={group.required}
+        required={group.required}
+        checked={groupSelected(group, selected)}
+        higherImpact={group.higherImpact}
+        isNew={reauthorizing && !group.operations.every((operation) => existingOperations!.has(operation))}
+        disabled={disabled}
+        onToggle={() => onToggleGroup(group)}
+      />)}
+    </ul>}
+    {files && <div className="permission-files">
+      <p className="permission-files-heading">
+        <strong>Files</strong>
+        <small>{fileScopeDescription(files)}{"actions" in files ? " These actions are approved together." : ""}</small>
+      </p>
+      <ul className="permission-list" aria-label="File permissions">
+        {fileRows.map(({ action, locked, required }) => <PermissionRow
+          key={action}
+          id={`files.${action}`}
+          label={FILE_ACTION_LABELS[action]}
+          locked={locked}
+          required={required}
+          checked={selectedFiles.has(action)}
+          higherImpact={HIGHER_IMPACT_FILE_ACTIONS.has(action)}
+          isNew={false}
+          disabled={disabled}
+          onToggle={() => onToggleFile(action)}
+        />)}
+      </ul>
+    </div>}
+  </>;
+}
+
+export function NotificationAccess({ applicationName, notifications }: {
+  applicationName: string;
   notifications: PendingAuthorization["notifications"];
 }) {
   if (notifications.criteria.length === 0) return null;
   return (
     <details className="notification-access">
       <summary>
-        <span><strong>Change notifications</strong><small>{notifications.criteria.length} optional {notifications.criteria.length === 1 ? "rule" : "rules"}; pushes contain no record content.</small></span>
+        <span>
+          <strong>Change notifications</strong>
+          <small>{applicationName} can turn on {notifications.criteria.length === 1 ? "this rule" : `these ${notifications.criteria.length} rules`} after access is allowed. Notifications never contain record content.</small>
+        </span>
         <b>Details</b>
       </summary>
       <ul>{notifications.criteria.map((criterion) => (
@@ -172,7 +166,7 @@ export function NotificationAccess({ notifications }: {
           <code>{criterion.event.id} v{criterion.event.version}</code>
         </li>
       ))}</ul>
-      <p>If you enable these in the application, the rules run inside the collection.</p>
+      <p>The rules run inside the collection. A notification tells {applicationName} that something changed, not what changed.</p>
     </details>
   );
 }
