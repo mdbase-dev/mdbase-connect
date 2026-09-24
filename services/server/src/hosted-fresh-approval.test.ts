@@ -24,7 +24,7 @@ it("v2-enabled approval refuses a prelude provider before any setup, replica or 
   const register = vi.spyOn(provider, "registerReplica");
   const update = vi.spyOn(provider, "updateApplicationReplica");
   await expect(approveHostedAuthorization(db, provider, { requestId: "pending", userId: "owner", collectionId: "selected",
-    operations: [], contracts: [], contractSetups: [], access: {} as CollectionAccessContext
+    operations: [], contractSetups: [], access: {} as CollectionAccessContext
   })).rejects.toThrow("hosted storage provider");
   expect(setup).not.toHaveBeenCalled();
   expect(register).not.toHaveBeenCalled();

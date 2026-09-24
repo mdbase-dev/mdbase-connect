@@ -863,8 +863,12 @@ impl HostedProvider {
     pub async fn collection_type_candidates(
         &self,
         collection_id: Uuid,
-    ) -> ApiResult<Vec<CollectionTypeDescriptor>> {
-        let mut types = self.collection_resources(collection_id).await?.types;
+    ) -> ApiResult<(
+        Vec<CollectionTypeDescriptor>,
+        Vec<CollectionContractDescriptor>,
+    )> {
+        let resources = self.collection_resources(collection_id).await?;
+        let mut types = resources.types;
         for candidate in &mut types {
             candidate.path = None;
             candidate.definition = None;
@@ -873,7 +877,7 @@ impl HostedProvider {
             candidate.extensions.clear();
         }
         types.retain(|candidate| candidate.revision.is_some());
-        Ok(types)
+        Ok((types, resources.contracts))
     }
 
     pub(super) async fn collection_resources(

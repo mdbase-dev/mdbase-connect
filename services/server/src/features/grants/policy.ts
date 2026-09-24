@@ -206,7 +206,7 @@ export function validateContractSetupChoices(
       !keys.has(`${contract.id}@${contract.version}#${contract.digest}`))
   ) {
     throw new RequestValidationError(
-      "Choose starter or existing-type setup for each missing contract only."
+      "Choose starter or existing-type setup for each missing contract only. The collection may have changed; reload the approval page and review its current definitions."
     );
   }
 }

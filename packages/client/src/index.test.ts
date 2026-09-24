@@ -1128,8 +1128,25 @@ describe("provider-neutral collection client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
-  it("accepts a scoped hosted capability from the same portable device flow", async () => {
+  it.each([
+    { pageUrl: "file:///portable.html", origin: "null" },
+    { pageUrl: "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo/capture.html", origin: "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo" },
+    { pageUrl: "moz-extension://2c0d3f4e-5a6b-47c8-9012-3456789abcde/capture.html", origin: "moz-extension://2c0d3f4e-5a6b-47c8-9012-3456789abcde" },
+    { pageUrl: "https://portable.example:8443/app.html", origin: "https://portable.example:8443" }
+  ].flatMap((value) => [
+    { ...value, tokenOrigin: value.origin, accepted: true },
+    { ...value, tokenOrigin: value.origin === "null" ? "https://wrong.example" : "null", accepted: false },
+    { ...value, tokenOrigin: "chrome-extension://another-extension", accepted: false }
+  ]))("binds portable hosted authorization to $origin (returned $tokenOrigin)", async ({ pageUrl, origin, tokenOrigin, accepted }) => {
     vi.useFakeTimers();
+    const pageLocation = new URL(pageUrl);
+    if (pageLocation.protocol === "file:") {
+      Object.defineProperty(pageLocation, "origin", { value: "file://" });
+      vi.stubGlobal("URL", class extends URL {
+        get origin() { return this.protocol === "file:" ? "file://" : super.origin; }
+      });
+    }
+    vi.stubGlobal("location", pageLocation);
     const keyStore = new MemoryGrantKeyStore();
     const deleteKey = vi.spyOn(keyStore, "delete");
     const opened = vi.fn();
@@ -1184,7 +1201,7 @@ describe("provider-neutral collection client", () => {
           operations: ["describe", "query"],
           scope: { contracts: [], access: "full_collection" },
           grant_id: "00000000-0000-0000-0000-000000000003",
-          application_origin: "null",
+          application_origin: tokenOrigin,
           encryption: null,
           file_capability: {
             kind: "files",
@@ -1228,8 +1245,11 @@ describe("provider-neutral collection client", () => {
           }
         }
       },
-      keyStore
+      keyStore,
+      storage: new MemoryStorage(),
+      identityStore: new MemoryApplicationIdentityStore()
     });
+    expect(connect.environment().applicationOrigin).toBe(origin);
 
     const authorization = connect.authorize({
       capabilities: ["collection.read"],
@@ -1238,7 +1258,14 @@ describe("provider-neutral collection client", () => {
     await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
     await vi.advanceTimersByTimeAsync(1_000);
 
-    const result = unwrapConnectOutcome(await authorization);
+    const outcome = await authorization;
+    if (!accepted) {
+      expect(outcome).toMatchObject({ ok: false, problem: { code: "invalid_token_response" } });
+      expect(connect.connections()).toHaveLength(0);
+      expect(deleteKey).toHaveBeenCalledOnce();
+      return;
+    }
+    const result = unwrapConnectOutcome(outcome);
     expect(result.connection).toMatchObject({
       collectionId: TEST_COLLECTION_ID,
       route: "remote",

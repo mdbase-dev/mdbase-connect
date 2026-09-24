@@ -540,7 +540,6 @@ export async function approveHostedAuthorization(
     collectionId: string;
     operations: CollectionOperation[];
     fileActions?: FileAction[];
-    contracts: CollectionContractDescriptor[];
     contractSetups: ContractSetupChoice[];
     access: CollectionAccessContext;
   }
@@ -550,6 +549,7 @@ export async function approveHostedAuthorization(
   let notificationGrantId: string | null = null;
   let retainedReplicaUpdated = false;
   let compensateRetainedReplica: (() => Promise<void>) | null = null;
+  let reconcileContracts = false;
   try {
     await connection.query("BEGIN");
     const hostedCollection = await connection.query(
@@ -659,12 +659,15 @@ export async function approveHostedAuthorization(
       );
     }
     const requiredContracts = requiredContractsForRequirements(pending.requirements);
-    let availableDescriptors = input.contracts;
-    validateContractSetupChoices(
-      input.contractSetups,
-      requiredContracts,
-      availableDescriptors
-    );
+    const provisions = pending.provisions.type_packs ?? [];
+    const hasApplicationSetup = provisions.length > 0
+      || (pending.provisions.configuration?.length ?? 0) > 0;
+    // The SQL cache may have rolled back after a prior external setup committed.
+    // Never use that cache as authority for missing-contract choices.
+    reconcileContracts = requiredContracts.length > 0 || hasApplicationSetup;
+    let availableDescriptors = reconcileContracts
+      ? await provider.collectionContracts(input.collectionId) : [];
+    validateContractSetupChoices(input.contractSetups, requiredContracts, availableDescriptors);
     let availableContracts = contractRequirements(availableDescriptors);
     const contractProvisions = requiredTypePackProvisions(
       pending.requirements,
@@ -676,9 +679,6 @@ export async function approveHostedAuthorization(
         "This hosted collection does not provide the contracts required by the application."
       );
     }
-    const provisions = pending.provisions.type_packs ?? [];
-    const hasApplicationSetup = provisions.length > 0
-      || (pending.provisions.configuration?.length ?? 0) > 0;
     if (hasApplicationSetup) {
       requireCollectionAction(currentAccess, "schema.manage");
       const setupResult = await provider.provisionApplicationSetup(
@@ -705,6 +705,8 @@ export async function approveHostedAuthorization(
       }
       availableDescriptors = setupResult.contracts;
       availableContracts = contractRequirements(availableDescriptors);
+    }
+    if (reconcileContracts) {
       await connection.query(
         "UPDATE hosted_collections SET contracts = $2::jsonb WHERE id = $1",
         [input.collectionId, JSON.stringify(availableDescriptors)]
@@ -969,32 +971,23 @@ export async function approveHostedAuthorization(
     }
     if (newReplicaId) await provider.revokeReplica(newReplicaId).catch(() => undefined);
     if (retainedReplicaUpdated) await compensateRetainedReplica?.();
+    if (reconcileContracts) {
+      // Setup is committed by a separate authority, not by this SQL transaction.
+      // Refresh compatibility metadata only: never replay setup or mapping choices
+      // and never issue access while compensating a failed approval.
+      try {
+        const contracts = await provider.collectionContracts(input.collectionId);
+        await connection.query(
+          "UPDATE hosted_collections SET contracts = $2::jsonb WHERE id = $1 AND quarantined_at IS NULL",
+          [input.collectionId, JSON.stringify(contracts)]
+        );
+      } catch {
+        // Preserve the original approval error. The next approval reads authority
+        // metadata again, so an unavailable refresh cannot poison future setup.
+      }
+    }
     throw error;
   } finally {
     connection.release();
   }
-}
-
-export async function denyAuthorization(
-  db: DatabasePool,
-  input: {
-    requestId: string;
-    userId: string;
-    connectorId?: string;
-    source: "connector" | "portal";
-  }
-): Promise<boolean> {
-  const pending = await db.query<{ id: string }>(
-    `UPDATE authorization_requests SET completed_at = now(), denied_at = now()
-     WHERE id = $1 AND user_id = $2 AND completed_at IS NULL
-       AND grant_id IS NULL AND expires_at > now()
-     RETURNING id`,
-    [input.requestId, input.userId]
-  );
-  if (!pending.rows[0]) return false;
-  await audit(db, input.userId, "authorization.denied", input.requestId, {
-    ...(input.connectorId ? { connector_id: input.connectorId } : {}),
-    source: input.source
-  });
-  return true;
 }

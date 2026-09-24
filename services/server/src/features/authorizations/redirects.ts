@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseQueryable } from "../../db.js";
+import { RequestValidationError } from "../../platform/http-errors.js";
 import { randomToken, tokenHash } from "../../security.js";
 
 export function deniedAuthorizationRedirect(input: { redirect_uri: string; state: string | null }): string {
@@ -21,7 +22,8 @@ export function normalizedApplicationOrigin(value: string): string {
   const url = new URL(value);
   if (["chrome-extension:", "moz-extension:"].includes(url.protocol)) {
     if (
-      !url.hostname
+      !/^[a-z0-9-]+$/.test(url.hostname)
+      || url.port
       || url.username
       || url.password
       || (url.pathname !== "" && url.pathname !== "/")
@@ -32,12 +34,19 @@ export function normalizedApplicationOrigin(value: string): string {
     }
     return `${url.protocol}//${url.host}`;
   }
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new TypeError("The application origin scheme is unsupported.");
+  }
   return url.origin;
 }
 
 export function applicationOriginForDeviceRequest(origin: string | undefined): string {
   if (!origin || origin === "null") return "null";
-  return normalizedApplicationOrigin(origin);
+  try {
+    return normalizedApplicationOrigin(origin);
+  } catch {
+    throw new RequestValidationError("The application origin must be null, HTTP(S), or a valid browser extension origin.");
+  }
 }
 
 export async function createAuthorizationRedirect(

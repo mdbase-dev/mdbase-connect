@@ -18,6 +18,7 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
+import { collectionContractDescriptorSchema } from "./protocol-schemas.js";
 import { z } from "zod";
 
 export interface HostedProviderConfig {
@@ -471,10 +472,18 @@ export class HostedProviderClient {
     };
   }
 
+  async collectionContracts(collectionId: string): Promise<CollectionContractDescriptor[]> {
+    const result = await this.request("GET", `/internal/v1/collections/${encodeURIComponent(collectionId)}/types`);
+    const parsed = z.object({ contracts: z.array(collectionContractDescriptorSchema) }).safeParse(result);
+    if (!parsed.success) throw new HostedProviderResponseError(
+      502, "invalid_provider_response", "Hosted contract metadata was missing or invalid."
+    );
+    return parsed.data.contracts;
+  }
+
   async collectionTypeCandidates(collectionId: string): Promise<CollectionTypeDescriptor[]> {
     const result = await this.request(
-      "GET",
-      `/internal/v1/collections/${encodeURIComponent(collectionId)}/types`
+      "GET", `/internal/v1/collections/${encodeURIComponent(collectionId)}/types`
     ) as { types?: CollectionTypeDescriptor[] } | undefined;
     return result?.types ?? [];
   }

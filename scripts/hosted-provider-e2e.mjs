@@ -27,6 +27,7 @@ import {
 } from "../packages/protocol/dist/index.js";
 import { availableTcpPort, delay } from "./lib/test-runtime.mjs";
 import { portableHostedFileE2E } from "./system/provider/portable-hosted-file.mjs";
+import { extensionOriginRecoveryE2E } from "./system/provider/extension-origin-recovery.mjs";
 import { portalLifecycleE2E } from "./system/provider/portal-lifecycle.mjs";
 import {
   verifyControlPlaneDatabaseBounds,
@@ -1689,11 +1690,12 @@ schema:
   const controlUrl = `http://127.0.0.1:${controlPort}`;
   const localEditor = await startEditorServer();
   editorServer = localEditor.server;
+  const controlProvider = new HostedProviderClient({ url: provider.url, internalToken });
   ({ app: controlApp } = await buildApp({
     db: controlDatabase,
     devAuth: true,
     hostedCollections: true,
-    hostedProvider: new HostedProviderClient({ url: provider.url, internalToken }),
+    hostedProvider: controlProvider,
     publicUrl: controlUrl,
     editorOrigin: localEditor.origin,
     managementOrigins: [localEditor.origin],
@@ -1708,6 +1710,13 @@ schema:
   assert.equal(login.status, 200);
   const cookie = login.headers.get("set-cookie")?.split(";", 1)[0];
   assert.ok(cookie);
+  phase("extension origins and recovery after committed setup with rejected enrollment");
+  for (const semanticVersion of [1, 2]) {
+    await extensionOriginRecoveryE2E({
+      controlUrl, cookie, directory: portableRoot, repoRoot, controlRequest, rawRequest,
+      provider: controlProvider, database: controlDatabase, provision: WORK_ITEM_PROVISION, semanticVersion
+    });
+  }
   const created = await controlRequest(controlUrl, "/v1/hosted/collections", cookie, {
     method: "POST",
     body: { display_name: "Hosted records", template: "mdbase", timezone: "UTC" }
