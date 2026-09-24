@@ -94,6 +94,7 @@ jobs:
           fi
           parent=$(git rev-parse "$SOURCE_COMMIT^")
           if git diff --quiet "$parent" "$SOURCE_COMMIT" -- \
+            .github/previous-release.env \
             Cargo.toml \
             apps/editor \
             apps/portal \
@@ -114,7 +115,9 @@ jobs:
             pnpm-workspace.yaml \
             services/mcp \
             services/server \
-            scripts/deploy-editor-dev.mjs
+            scripts/deploy-editor-dev.mjs \
+            scripts/lib/upgrade-release-identity.test.mjs \
+            scripts/lib/upgrade-test-contract.test.mjs
           then
             echo "publish=false" >> "$GITHUB_OUTPUT"
           else
