@@ -338,6 +338,10 @@ pub struct FileTransferSession {
     /// retransmitting parts. Empty for framed transfers and single PUTs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub uploaded_parts: Vec<UploadedFilePart>,
+    /// Optional create-only single-PUT capability. Journal replay preserves the
+    /// original URL/expiry; it does NOT promise fresh transfer progress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prepared_upload_part: Option<PreparedFilePart>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

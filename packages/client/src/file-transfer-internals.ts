@@ -234,7 +234,11 @@ export function requirePreparedPart(
     || part.part_index !== partIndex
     || part.offset !== offset
     || part.content_length !== contentLength
+    || typeof part.method !== "string"
     || part.method.toUpperCase() !== method
+    || !part.headers || typeof part.headers !== "object" || Array.isArray(part.headers)
+    || Object.values(part.headers).some((value) => typeof value !== "string")
+    || typeof part.expires_at !== "string" || !Number.isFinite(Date.parse(part.expires_at))
     || url.protocol !== "https:"
       && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname))
     || url.username

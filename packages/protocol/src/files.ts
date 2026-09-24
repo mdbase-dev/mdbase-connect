@@ -192,6 +192,8 @@ export interface FileTransferSession {
   received: number[];
   /** R2/S3 part receipts for bandwidth-efficient multipart resume. */
   uploaded_parts?: UploadedFilePart[];
+  /** Create-only single PUT; replay preserves its original URL and expiry, not fresh progress. */
+  prepared_upload_part?: PreparedFilePart;
 }
 
 export interface FileTransferStatus {

@@ -209,6 +209,7 @@ impl HostedProvider {
             ));
         }
         Ok(FileTransferSession {
+            prepared_upload_part: None,
             protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
             message_type: FileTransferSessionKind::FileTransfer,
             transfer_id: request.transfer_id,
