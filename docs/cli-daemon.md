@@ -187,6 +187,30 @@ The Rust mirror engine uses the Connect replication protocol and public
 `mdbase-rs` document APIs. It does not duplicate validation, query, type, view,
 or mutation semantics.
 
+### Retained local collection identity
+
+Removing a computer-owned collection unregisters it; it deliberately preserves
+`mdbase.yaml`, including `x-mdbase-connect.collection_id`. That durable identity
+allows the folder to be registered again with the same ID. An empty local
+collection list is not proof that the identity is orphaned.
+
+Mirror enrollment checks local role metadata before remote pairing and again
+before writing the mirror marker. If the folder retains a Connect identity:
+
+- For a verified live computer-owned authority, use the explicit authority
+  transfer workflow, rather than removing its registration to reuse the folder.
+- For an interrupted transfer, use the existing transfer recovery workflow.
+- If registration was removed, verify the identity's ownership and transfer
+  state before attempting repair. If that state cannot be established, stop
+  and seek support; there is no automatic orphan-identity cleanup.
+
+Do not delete `mdbase.yaml` or strip its identity to bypass authority fencing.
+Keep unrelated configuration and notes intact. A matching
+`.mdbase/connect-role.json` created by the transfer workflow permits the folder
+to retain its portable identity while acting as that collection's mirror;
+do not create or edit this marker manually. Invalid or unreadable metadata is
+an error, not evidence that the folder is unowned.
+
 ## Desktop boundary
 
 Electron is responsible for windows, native folder selection, opening browser

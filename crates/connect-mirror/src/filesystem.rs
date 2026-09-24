@@ -44,8 +44,15 @@ pub fn mirror_lock_path(lock_root: &Path, canonical_root: &Path) -> PathBuf {
     ))
 }
 
-pub fn mark_mirror(root: &Path, collection_id: Uuid) -> Result<(), MirrorError> {
-    fs::create_dir_all(root).map_err(|error| MirrorError::io("Could not create", root, error))?;
+/// Check local role metadata without writing a marker or changing configuration.
+/// A matching mirror marker takes precedence over the portable collection identity.
+pub fn validate_mirror_folder(root: &Path, collection_id: Uuid) -> Result<(), MirrorError> {
+    pending_mirror_marker(root, collection_id).map(|_| ())
+}
+
+// None means this exact mirror already has its marker; Some is the checked
+// destination for a new marker. Both callers use the same read-only role check.
+fn pending_mirror_marker(root: &Path, collection_id: Uuid) -> Result<Option<PathBuf>, MirrorError> {
     if fs::symlink_metadata(root).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err(MirrorError::new(
             "mirror_symlink_refused",
@@ -55,7 +62,12 @@ pub fn mark_mirror(root: &Path, collection_id: Uuid) -> Result<(), MirrorError> 
     let root = fs::canonicalize(root)
         .map_err(|error| MirrorError::io("Could not resolve", root, error))?;
     let marker = safe_path(&root, ".mdbase/connect-role.json")?;
-    if let Ok(existing) = fs::read(&marker) {
+    let existing = match fs::read(&marker) {
+        Ok(existing) => Some(existing),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(MirrorError::io("Could not read", &marker, error)),
+    };
+    if let Some(existing) = existing {
         let value = serde_json::from_slice::<Value>(&existing).map_err(|_| {
             MirrorError::new("invalid_mirror_marker", "Mirror role marker is corrupt.")
         })?;
@@ -63,28 +75,48 @@ pub fn mark_mirror(root: &Path, collection_id: Uuid) -> Result<(), MirrorError> 
             && value["role"] == "mirror"
             && value["collection_id"] == collection_id.to_string()
         {
-            return Ok(());
+            return Ok(None);
         }
         return Err(MirrorError::new(
             "mirror_identity_conflict",
             "This folder is already assigned to a different storage role.",
         ));
     }
-    let configuration = root.join("mdbase.yaml");
-    if let Ok(source) = fs::read_to_string(&configuration) {
-        if let Ok(value) = serde_yaml::from_str::<Value>(&source) {
-            if value
-                .pointer("/x-mdbase-connect/collection_id")
-                .and_then(Value::as_str)
-                .is_some()
-            {
-                return Err(MirrorError::new(
-                    "local_authority_requires_transfer",
-                    "This folder is a computer-owned authority; transfer it explicitly before mirroring.",
-                ));
-            }
+    let configuration = safe_path(&root, "mdbase.yaml")?;
+    let source = match fs::read_to_string(&configuration) {
+        Ok(source) => source,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Some(marker)),
+        Err(error) => return Err(MirrorError::io("Could not read", &configuration, error)),
+    };
+    let invalid_configuration = || {
+        MirrorError::new(
+            "invalid_mirror_configuration",
+            "Cannot verify this folder's Connect identity: mdbase.yaml must be a YAML mapping, \
+             and x-mdbase-connect.collection_id, if present, must be a UUID string. \
+             Preserve the file and correct its configuration before retrying.",
+        )
+    };
+    let value: Value = serde_yaml::from_str(&source).map_err(|_| invalid_configuration())?;
+    let mapping = value.as_object().ok_or_else(invalid_configuration)?;
+    if let Some(extension) = mapping.get("x-mdbase-connect") {
+        let extension = extension.as_object().ok_or_else(invalid_configuration)?;
+        if let Some(identity) = extension.get("collection_id") {
+            let identity = identity.as_str().ok_or_else(invalid_configuration)?;
+            Uuid::parse_str(identity).map_err(|_| invalid_configuration())?;
+            return Err(MirrorError::new(
+                "local_authority_requires_transfer",
+                "This folder contains a Connect identity in mdbase.yaml at x-mdbase-connect.collection_id. Removing its local registration does not remove that identity. If this computer still owns the collection, use the explicit authority transfer; if a transfer is interrupted, recover it first. If the registration was removed, verify ownership and transfer state before repairing the identity. Do not delete mdbase.yaml or remove the identity to bypass this check.",
+            ));
         }
     }
+    Ok(Some(marker))
+}
+
+pub fn mark_mirror(root: &Path, collection_id: Uuid) -> Result<(), MirrorError> {
+    fs::create_dir_all(root).map_err(|error| MirrorError::io("Could not create", root, error))?;
+    let Some(marker) = pending_mirror_marker(root, collection_id)? else {
+        return Ok(());
+    };
     atomic_write(
         &marker,
         &serde_json::to_vec_pretty(&serde_json::json!({
