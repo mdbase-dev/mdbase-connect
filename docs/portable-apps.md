@@ -53,7 +53,8 @@ The SDK uses OAuth device authorization with PKCE:
    file warning, selects a compatible local or hosted collection, and narrows
    the operations.
 5. The SDK polls at the server-provided interval. Every successful response is
-   bound to the opaque application origin `null`. A local grant must also
+   bound to the application's exact origin (`null` for a downloaded file).
+   The SDK rejects a token bound to any other origin. A local grant must also
    contain the application agreement public key, operation transport v3, and
    grant encryption profile v1;
    a hosted grant instead contains a collection-bound provider capability bound
@@ -75,11 +76,28 @@ provider. Its short-lived bearer capability selects one replica, collection,
 grant, operation set, entire collection, and expiry. Every request additionally
 carries an ECDSA proof from the approved signing key over the method, target, body,
 credential, timestamp, and a one-use nonce. The provider requires the exact
-`Origin: null`, verifies the signature, and persists the nonce before serving
+approved origin (`Origin: null` for a downloaded file), verifies the signature,
+and persists the nonce before serving
 the operation. Refreshing is signed by that key and rotates both the Connect
 credential and provider capability. A copied bearer or refresh token is
 therefore insufficient, and CORS permission alone is never an operation
 capability.
+
+## Browser extensions and hosted access
+
+Browser extensions may use the same portable manifest and device-code flow.
+The SDK and hosted provider preserve their exact `chrome-extension://<id>` or
+`moz-extension://<id>` origin, even though the generic URL API may serialize it
+as `null`. An extension never accepts an opaque-origin token in its place, nor a
+token belonging to another extension. Proof-of-possession remains required.
+Portable manifests opened in an HTTP(S) page likewise retain that page's origin;
+`portable` describes the authorization flow, not permission to discard origin
+identity. Native and downloaded-file clients continue to use `null`.
+
+This does not change credential-storage defaults: extension callers still need
+explicit storage/key/identity adapters if credentials should survive reopening.
+Previously stored opaque-origin credentials cannot substitute for an exact
+extension-origin grant; authorize again rather than migrating that authority.
 
 ## Storage and `file://`
 

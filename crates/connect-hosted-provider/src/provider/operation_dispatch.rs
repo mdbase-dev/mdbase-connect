@@ -860,6 +860,14 @@ impl HostedProvider {
         ))
     }
 
+    /// Authoritative compatibility metadata; no records or credentials are returned.
+    pub async fn collection_contracts(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<Vec<CollectionContractDescriptor>> {
+        Ok(self.collection_resources(collection_id).await?.contracts)
+    }
+
     pub async fn collection_type_candidates(
         &self,
         collection_id: Uuid,

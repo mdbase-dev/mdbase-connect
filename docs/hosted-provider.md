@@ -39,12 +39,48 @@ Application capabilities also authorize the collection replication stream used b
 offline caches. Session and snapshot reads require record-read access, change
 pages require change access, and each queued mutation requires its corresponding
 create, update, rename, or delete permission. Browser requests are checked
-against the exact origin stored on that application capability. Opaque `null`
-capabilities used by downloaded portable applications also require a P-256
-signature over the request and consume a one-use nonce. Missing origins, stale
+against the exact origin stored on that application capability. Device-code
+applications may bind an exact `chrome-extension://<id>` or `moz-extension://<id>`
+origin; these are not rewritten to `null`. Extension origins and opaque `null`
+capabilities used by downloaded portable applications require a P-256
+signature over the request and consume a one-use nonce. Extension origin bindings
+exclude credentials, ports, paths, queries, fragments, and wildcard hosts. Missing origins, stale
 or replayed proofs, and body or credential substitutions are rejected. Mirror
 credentials have no browser origin and are rejected when presented by browser
 JavaScript.
+
+### Setup and failed approval recovery
+
+Installing definitions is an external provider commit, not part of the control
+plane's grant transaction. Hosted approval reads authoritative contract descriptors
+from the internally authenticated `GET /internal/v1/collections/{id}/contracts`
+before validating setup choices. The cached `hosted_collections.contracts` column
+is only a compatibility hint; it cannot settle whether a setup is still missing.
+
+After a failed approval, the control plane rolls back access changes and refreshes
+that metadata from the provider. It does not replay setup, issue access, or
+reapply an existing-type mapping during recovery. Stale starter/mapping choices
+require reloading the approval page and reviewing the current definitions. If
+metadata refresh itself is unavailable, the original approval error is preserved;
+the next approval again reads authority metadata rather than trusting the cache.
+This also repairs collections left half-prepared by an older failed approval.
+
+Deploy the provider before the control plane. The versioned
+`contract-metadata-read-v1` readiness capability is required by the updated
+control plane; old providers fail compatibility checks rather than silently
+falling back to stale metadata. Existing application grants, exact-origin checks,
+and proof-of-possession requirements are unchanged.
+
+The registered `provider` system suite (`pnpm test:system --suite provider`)
+includes `scripts/system/provider/extension-origin-recovery.mjs`: a real Chromium
+extension, control plane, provider, and disposable PostgreSQL, covering both
+supported application semantic versions (v1 and v2). It corrupts only
+the first enrollment's origin, leaving the real authority to commit setup and
+reject the grant. Assertions cover metadata reconciliation, repair of an older
+stale cache, re-review without replacing mappings, successful signed extension
+writes/reads, wrong/missing origins, missing proofs, and replay rejection. No
+production fault-injection hook is added. Like other provider system scenarios,
+this requires a working local Docker daemon.
 
 `mdbase-rs` remains the only collection-semantics implementation. The provider
 materializes a collection working set from canonical PostgreSQL documents and

@@ -221,6 +221,10 @@ pub fn app(state: AppState) -> Router {
             post(setup_contracts),
         )
         .route(
+            "/internal/v1/collections/{collection_id}/contracts",
+            get(collection_contracts),
+        )
+        .route(
             "/internal/v1/collections/{collection_id}/application-setup",
             post(setup_application),
         )
@@ -896,6 +900,14 @@ async fn setup_application(
         "setup_assessment": assessment,
         "provision_receipt": receipt,
     })))
+}
+
+async fn collection_contracts(
+    State(state): State<AppState>,
+    Path(collection_id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    let contracts = state.provider.collection_contracts(collection_id).await?;
+    Ok(Json(json!({ "contracts": contracts })))
 }
 
 async fn collection_type_candidates(

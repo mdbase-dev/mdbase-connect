@@ -911,10 +911,6 @@ export function registerAuthorizationRoutes(
         collectionId: input.collection_id,
         operations: input.operations,
         fileActions: input.file_actions,
-        contracts: effectiveHostedContractDescriptors(
-          hosted.contracts,
-          hosted.template
-        ),
         contractSetups: input.contract_setups,
         access
       });
