@@ -128,6 +128,18 @@ shutdown, fair turns and blocked-HTTP regressions justify these boundaries; see
 [the performance report](benchmarks/runtime-contention/report.md). No package,
 dependency, wire-format or per-file limit is raised.
 
+Upload-bootstrap consumer support (#466) adds one public Rust DTO field,
+`FileTransferSession::prepared_upload_part`, taking the visibility budget to
+3,236. Rust transports and the TypeScript SDK share this optional protocol
+boundary; all in-tree producers initialize it to `None`, omitted on the wire.
+The schema restricts it to a create-only single PUT, and authoritative commit
+remains mandatory after PUT/412. Expiry, cancellation, stale-open/multipart
+resume, malformed capabilities and negative 412 regressions justify the
+consumer path. PostgreSQL/S3 E2E verifies that ordinary producers still omit
+the field and retain open/status/prepare/commit. This adds no provider strategy,
+database migration, production module, dependency, or other budget increase.
+Experimental producer activation remains separately gated.
+
 The installed-desktop daemon fix adds one 26-line `daemon-lifecycle.ts` module
 shared by startup and update recovery. Its two internal exports and two imports
 replace duplicated CLI profile selection, keeping packaged default-service
