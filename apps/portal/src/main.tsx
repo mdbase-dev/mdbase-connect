@@ -28,6 +28,7 @@ import {
 } from "./portal-model";
 import { GettingStarted } from "./onboarding-view";
 import "./styles.css";
+import "./authorization.css";
 
 function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets }) {
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];

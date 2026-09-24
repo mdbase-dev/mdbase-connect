@@ -22,6 +22,7 @@ try {
   if (!process.argv.includes("--portal-only")) await auditEditorConnect();
   await auditPortalColdStartAuthorization();
   await auditPortalColdStartAuthorization({ atomic: true });
+  await auditPortalExpiredAuthorization();
   await auditPortalDeviceAuthorization();
   if (!process.argv.includes("--portal-only")) {
     await auditDesktopResumedAuthorization();
@@ -515,6 +516,22 @@ async function auditPortalDeviceAuthorization() {
   await page.close();
 }
 
+async function auditPortalExpiredAuthorization() {
+  const page = await localPage();
+  const errors = watchPageErrors(page);
+  const requestId = "66666666-6666-4666-8666-666666666666";
+  await page.route("**/v1/**", (route) => route.fulfill({
+    status: 404,
+    json: { error: { code: "authorization_not_found", message: "Authorization request expired or was not found." } }
+  }));
+  await page.goto(`${servers[0].origin}/authorize/${requestId}`);
+  await page.getByRole("heading", { level: 1, name: "This request has expired or was already answered." }).waitFor();
+  await auditPage(page, "portal expired authorization", { keyboard: true });
+  // The browser reports the deliberate 404 responses; nothing else may fail.
+  assert.deepEqual(errors.filter((error) => !/status of 404/.test(error)), []);
+  await page.close();
+}
+
 async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   const page = await localPage();
   const errors = watchPageErrors(page);
@@ -576,11 +593,14 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   await applicationIcon.evaluate((element) => element.dispatchEvent(new Event("error")));
   assert.equal(await applicationIcon.count(), 0, "portal authorization: a failed application icon is removed");
   assert.equal(await page.locator(".request-identity-mark").textContent(), "WJ", "portal authorization: initials replace a failed application icon");
+  assert.equal(await page.locator(".request-origin code").textContent(), "journal.example", "portal authorization: the origin is shown as technical identity");
   const reviewAccess = page.getByRole("button", { name: "Review access" });
   assert.equal(await reviewAccess.isDisabled(), true, "portal authorization: multiple collections require a deliberate choice");
   assert.equal(await page.getByRole("radio").count(), 2, "portal authorization: compatible collections are visible");
   assert.equal(await page.getByRole("radio", { checked: true }).count(), 0, "portal authorization: no ambiguous collection is preselected");
-  assert.equal(await page.getByText("Delete records", { exact: true }).count(), 0, "portal authorization: permissions wait until collection choice");
+  const requested = page.getByRole("list", { name: "Requested access" });
+  await requested.getByText("Delete records").waitFor();
+  assert.equal(await page.getByRole("checkbox").count(), 0, "portal authorization: requested access is visible before collection choice, without controls");
   const selectionHelp = page.getByText("Select a collection to continue.", { exact: true });
   await selectionHelp.waitFor();
   assert.equal(
@@ -634,19 +654,21 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   assert.equal(await personalNotesChoice.isChecked(), true, "portal authorization: clicking collection copy selects its radio");
   assert.equal(await selectionHelp.count(), 0, "portal authorization: selection guidance clears after choosing a collection");
   await reviewAccess.click();
-  await page.getByText(atomic ? "Optional capabilities" : "Review exact permissions", { exact: true }).click();
-  const permissionColumns = await page.locator(".approval-page .permission-groups").first().evaluate(
-    (element) => getComputedStyle(element).gridTemplateColumns.trim().split(/\s+/u).length
-  );
-  assert.equal(permissionColumns, 1, "portal authorization: permission review follows one calm reading column");
+  const permissions = page.getByRole("list", { name: "Collection permissions" });
+  const labels = atomic
+    ? ["Read this collection", "Create records", "Edit records", "Delete records"]
+    : ["Read records", "Create records", "Delete records"];
+  assert.deepEqual(await permissions.locator(".permission-copy strong").allTextContents(), labels,
+    "portal authorization: one list names exactly the requested permissions");
+  assert.equal(await permissions.getByText("Higher impact", { exact: true }).count(), 1);
   await page.reload();
   await page.getByText("Personal notes", { exact: true }).first().waitFor();
-  await page.getByText("Delete records", { exact: true }).first().waitFor();
-  await page.getByText(atomic ? "Optional capabilities" : "Review exact permissions", { exact: true }).click();
   const allowAccess = page.getByRole("button", { name: "Allow access" });
+  await allowAccess.waitFor();
   assert.equal(await allowAccess.count(), 1, "portal authorization: review state survives refresh with a stable action label");
   assert.equal(await allowAccess.evaluate((element) => getComputedStyle(element).textDecorationLine), "none", "portal authorization: committing actions do not look like hyperlinks");
   assert.notEqual(await allowAccess.evaluate((element) => getComputedStyle(element).backgroundColor), "rgba(0, 0, 0, 0)", "portal authorization: the affirmative decision is visually primary");
+  assert.equal(await allowAccess.evaluate((element) => getComputedStyle(element).boxShadow), "none", "portal authorization: actions stay flat on the canvas");
   assert.equal(await allowAccess.evaluate((element) => element.getBoundingClientRect().height >= 44), true, "portal authorization: actions retain a full touch target");
   await allowAccess.focus();
   assert.equal(await allowAccess.evaluate((element) => {
@@ -658,11 +680,10 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   assert.equal(await page.getByRole("radio", { checked: true }).count(), 1, "portal authorization: changing the collection preserves exactly one selection");
   await reviewAccess.click();
   await allowAccess.waitFor();
-  await page.getByText(atomic ? "Optional capabilities" : "Review exact permissions", { exact: true }).click();
   await auditPage(page, "portal application access review", { keyboard: true });
   const approvalTypeScale = await page.evaluate(() => {
     const heading = document.querySelector(".approval-page h1");
-    const permission = document.querySelector(".approval-page .permission-group label");
+    const permission = document.querySelector(".approval-page .permission-copy strong");
     const visibleCopy = [...document.querySelectorAll(".approval-page :is(h1, h2, p, small, strong, label, button, summary, li, span, code)")]
       .filter((element) => element.getBoundingClientRect().height > 0)
       .map((element) => Number.parseFloat(getComputedStyle(element).fontSize));
@@ -675,18 +696,23 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   assert.equal(approvalTypeScale.heading > approvalTypeScale.permission, true, "portal authorization: application identity has clear typographic hierarchy");
   assert.equal(approvalTypeScale.minimum >= 12, true, "portal authorization: supporting copy remains legible");
   const approvalTextFamilies = await page.locator(
-    ".approval-page :is(h1, h2, p, small, strong, label, button, summary, li, span):not(.request-metadata):not(.request-metadata *)"
+    ".approval-page .authorization-panel :is(h1, h2, p, small, strong, label, button, summary, li, span)"
   ).evaluateAll((elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontFamily))]);
   assert.deepEqual(
     approvalTextFamilies,
     ["\"Atkinson Hyperlegible\", \"Segoe UI\", sans-serif"],
     "portal authorization: nontechnical copy uses only Atkinson Hyperlegible"
   );
-  const approvalFontWeights = await page.locator(".approval-page").evaluateAll((elements) => {
+  const approvalFontWeights = await page.locator(".approval-page .authorization-panel").evaluateAll((elements) => {
     const copy = elements[0].querySelectorAll("h1, h2, p, small, strong, label, button, summary, li, span, code");
     return [...new Set([...copy].map((element) => getComputedStyle(element).fontWeight))].sort();
   });
   assert.deepEqual(approvalFontWeights, ["400", "700"], "portal authorization: copy uses only regular and bold weights");
+  const cardTreatment = await page.locator(".authorization-panel").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { shadow: style.boxShadow, border: style.borderTopWidth };
+  });
+  assert.deepEqual(cardTreatment, { shadow: "none", border: "0px" }, "portal authorization: the decision sits on the canvas, not in a card");
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -694,15 +720,14 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     "portal authorization: narrow view does not overflow horizontally"
   );
   const footerClearsPermissions = await page.evaluate(() => {
-    const footer = document.querySelector(".approval-footer");
-    const deleteChoice = [...document.querySelectorAll(".permission-review:not(.file-permission-review) .permission-group")]
-      .find((element) => element.querySelector("legend")?.textContent?.trim() === "Delete records");
+    const footer = document.querySelector(".approval-form > .approval-footer");
+    const rows = [...document.querySelectorAll(".permission-row")];
+    const last = rows.at(-1);
     return footer instanceof HTMLElement
-      && deleteChoice instanceof HTMLElement
-      && deleteChoice.getBoundingClientRect().height > 0
-      && footer.getBoundingClientRect().top >= deleteChoice.getBoundingClientRect().bottom;
+      && last instanceof HTMLElement
+      && footer.getBoundingClientRect().top >= last.getBoundingClientRect().bottom;
   });
-  assert.equal(footerClearsPermissions, true, "portal authorization: mobile actions do not obscure the visible final permission");
+  assert.equal(footerClearsPermissions, true, "portal authorization: mobile actions do not obscure the final permission");
   await auditPage(page, "portal application access review mobile", { keyboard: true });
   await page.setViewportSize({ width: 320, height: 640 });
   assert.equal(
@@ -710,76 +735,57 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     true,
     "portal authorization: compact mobile view does not overflow horizontally"
   );
-  await page.getByText(atomic ? "Optional capabilities" : "Review exact permissions", { exact: true }).click();
   await page.setViewportSize({ width: 1280, height: 900 });
-  const summary = page.getByRole("list", { name: "What this application can do" });
-  const labels = atomic
-    ? ["Read this collection", "Create records", "Edit records", "Delete records"]
-    : ["Read records", "Create records", "Delete records"];
-  for (const label of labels) await summary.getByText(label, { exact: true }).waitFor();
-  const summaryLabels = [...labels, "Manage and delete files"];
-  assert.deepEqual(await summary.locator("strong").allTextContents(), summaryLabels,
-    "portal authorization: summary names exactly the requested permissions");
-  assert.equal(await summary.getByText("Higher impact", { exact: true }).count(), 2);
-  assert.match(await page.locator(".file-permission-review summary").innerText(), atomic
-    ? /2 approved actions.*Only attachments.*Hidden folders are always excluded/
-    : /2 requested actions.*Every visible folder.*Hidden folders are always excluded/);
-  assert.match(await page.locator(".notification-access summary").innerText(), /1 optional rule.*no record content/);
+  const fileHeading = await page.locator(".permission-files-heading").innerText();
+  assert.match(fileHeading, atomic
+    ? /Only attachments.*Hidden folders are always excluded/s
+    : /Every visible folder.*Hidden folders are always excluded.*approved together/s);
+  assert.match(await page.locator(".notification-access summary").innerText(), /can turn on this rule.*never contain record content/s);
   assert.equal(await page.getByText(/until you revoke/).count(), 1, "approval discloses persistent access once");
-  await page.getByText(atomic ? "Optional capabilities" : "Review exact permissions", { exact: true }).click();
-  assert.equal(await page.locator(".permission-group[aria-describedby]").evaluateAll((groups) =>
-    groups.length > 0 && groups.every((group) => document.getElementById(group.getAttribute("aria-describedby"))?.textContent.trim())
-  ), true, "permission fieldsets have accessible descriptions");
+  const checkbox = (label) => page.getByRole("checkbox", { name: new RegExp(`^${label}`) });
   if (atomic) {
-    const permissionChoices = page.locator(".permission-review:not(.file-permission-review)");
-    assert.deepEqual(await permissionChoices.getByRole("group").locator("legend").allTextContents(),
-      ["Create records", "Edit records", "Delete records"],
-      "portal authorization: required read capability has no optional toggle");
-    assert.equal(await permissionChoices.getByRole("checkbox").count(), 3,
-      "portal authorization: one checkbox per optional atomic capability");
-    await page.getByRole("group", { name: "Edit records", exact: true }).getByRole("checkbox").uncheck();
-    assert.equal(await summary.getByText("Edit records", { exact: true }).count(), 0,
-      "portal authorization: denied edit group is absent from approved summary");
+    assert.equal(await permissions.getByRole("checkbox").count(), 3,
+      "portal authorization: one checkbox per optional atomic capability; the required read capability has none");
+    await permissions.getByText("Required", { exact: true }).waitFor();
+    assert.equal(await checkbox("Create records").isChecked(), true);
+    assert.equal(await checkbox("Edit records").isChecked(), true);
+    assert.equal(await checkbox("Delete records").isChecked(), false, "portal authorization: optional destructive access starts denied");
+    await checkbox("Edit records").uncheck();
+    await checkbox("Delete records").check();
+    await page.getByText(/Includes delete records/).waitFor();
   } else {
-    assert.deepEqual(await page.getByRole("checkbox").evaluateAll((inputs) =>
-      inputs.map((input) => input.closest("label").textContent.trim())), labels,
+    assert.deepEqual(await permissions.getByRole("checkbox").evaluateAll((inputs) =>
+      inputs.map((input) => input.closest("label").querySelector("strong").textContent.trim())), labels,
       "portal authorization: only read, create, delete have exact action controls (not query, update, or rename)");
-    for (const label of labels) {
-      assert.equal(await page.getByRole("checkbox", { name: label, exact: true }).isChecked(), true);
-    }
-    await page.getByRole("checkbox", { name: "Create records", exact: true }).uncheck();
-    assert.equal(await summary.getByText("Create records", { exact: true }).count(), 0,
-      "portal authorization: denied create action is absent from approved summary");
+    assert.equal(await checkbox("Read records").isChecked(), true);
+    assert.equal(await checkbox("Create records").isChecked(), true);
+    assert.equal(await checkbox("Delete records").isChecked(), true, "portal authorization: exact v1 operations start as requested");
+    await checkbox("Create records").uncheck();
   }
   await auditPage(page, `portal ${atomic ? "atomic" : "legacy exact"} permission controls`, { keyboard: true });
   await page.reload();
   await page.getByText("Personal notes", { exact: true }).first().waitFor();
-  await summary.getByText("Delete records", { exact: true }).waitFor();
-  assert.deepEqual(await summary.locator("strong").allTextContents(),
-    summaryLabels.filter((label) => label !== (atomic ? "Edit records" : "Create records")),
-    "portal authorization: selected and denied permissions survive refresh");
-  await page.getByText(atomic ? "Optional capabilities" : "Review exact permissions", { exact: true }).click();
-  assert.equal(await page.getByRole("checkbox", {
-    name: atomic ? "Allow this capability" : "Create records", exact: true
-  }).filter({ visible: true }).count(), atomic ? 3 : 1);
-  const denied = atomic
-    ? page.getByRole("group", { name: "Edit records", exact: true }).getByRole("checkbox")
-    : page.getByRole("checkbox", { name: "Create records", exact: true });
-  assert.equal(await denied.isChecked(), false, "portal authorization: denied control stays unchecked after refresh");
-  assert.equal(await page.getByRole("button", { name: "Allow access" }).count(), 1, "portal authorization: review state survives refresh");
-  await auditPage(page, `portal ${atomic ? "atomic" : "legacy exact"} application access review`, { keyboard: true });
-  await page.locator(".file-permission-review summary").click();
-  const fileControls = page.locator(".file-permission-review");
+  await allowAccess.waitFor();
   if (atomic) {
-    assert.equal(await fileControls.getByRole("checkbox", { name: "Read file contents (required)", exact: true }).isDisabled(), true);
-    await fileControls.getByRole("checkbox", { name: "Delete files (optional)", exact: true }).uncheck();
-    await page.reload();
-    await page.locator(".file-permission-review summary").click();
-    assert.equal(await fileControls.getByRole("checkbox", { name: "Delete files (optional)", exact: true }).isChecked(), false, "optional file denial survives refresh");
-    assert.equal(await fileControls.getByRole("checkbox", { name: "Read file contents (required)", exact: true }).isChecked(), true);
+    assert.equal(await checkbox("Edit records").isChecked(), false, "portal authorization: denied control stays unchecked after refresh");
+    assert.equal(await checkbox("Delete records").isChecked(), true, "portal authorization: chosen destructive access survives refresh");
   } else {
-    assert.equal(await fileControls.getByRole("checkbox").count(), 0, "legacy file actions are fixed, not optional capabilities");
-    assert.deepEqual(await fileControls.getByRole("listitem").allTextContents(), ["Read file contents", "Delete files"]);
+    assert.equal(await checkbox("Create records").isChecked(), false, "portal authorization: denied control stays unchecked after refresh");
+  }
+  await auditPage(page, `portal ${atomic ? "atomic" : "legacy exact"} application access review`, { keyboard: true });
+  const files = page.getByRole("list", { name: "File permissions" });
+  if (atomic) {
+    assert.equal(await files.getByRole("checkbox").count(), 1, "required file actions have no control");
+    assert.equal(await checkbox("Delete files").isChecked(), false, "optional file deletion starts denied");
+    await checkbox("Delete files").check();
+    await page.reload();
+    await allowAccess.waitFor();
+    assert.equal(await checkbox("Delete files").isChecked(), true, "optional file choice survives refresh");
+    await page.getByText(/Includes .*delete files/).waitFor();
+  } else {
+    assert.equal(await files.getByRole("checkbox").count(), 0, "legacy file actions are fixed, not optional capabilities");
+    assert.deepEqual(await files.locator(".permission-copy strong").allTextContents(), ["Read file contents", "Delete files"]);
+    assert.equal(await files.getByText("Required", { exact: true }).count(), 0, "legacy file actions are approved together, not required");
   }
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "approval controls do not overflow a narrow viewport");
@@ -800,6 +806,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   assert.match(await page.getByRole("note").innerText(), /Continue only if you opened it intentionally and it shows ABCD-EFGH/);
   assert.match(await page.getByRole("note").innerText(), /journal\.example does not verify its origin/);
   assert.equal(await page.getByText(/until you revoke/).count(), 0, "portable approval does not promise durability");
+  await page.getByText(/only while the file stays open/).waitFor();
   assert.deepEqual(errors, []);
   await page.close();
 }

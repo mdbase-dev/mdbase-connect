@@ -64,33 +64,45 @@ offer a retry rather than restarting silently.
 Goal: let the user make one informed decision about one application and one
 collection.
 
-The decision adapts to the number of compatible collections. When one valid
-collection is available, open directly on the compact access review. When
-several are available, ask the user to choose one first and do not preselect an
-ambiguous target. Creation, desktop handoff, and unavailable collections stay
-under `Need a different collection?` until required.
+Access is granted to a whole collection. The decision adapts to the number of
+compatible collections. When one valid collection is available, open directly
+on the access review, which names that collection with a `Change` action. When
+several are available, show what the application requests, then ask the user to
+choose one; never preselect an ambiguous target. Creation, desktop handoff, and
+unavailable collections stay under `Add or connect another collection` until
+required. If a chosen collection becomes unavailable during review, return to
+the choice and say why.
 
-The review reads from identity to consequence:
+The page reads from identity to consequence:
 
-1. Application name, origin, and request expiry.
-2. Compatible collection and its authority.
-3. Requested capabilities, grouped in plain language. Delete and structural
-   access remain visible without opening exact permissions.
-4. Contract-derived scope and any collection changes that approval will add.
-5. Optional content-free notification rules.
-6. A sentence stating what the application will use and how long access lasts.
-7. `Deny` and `Allow [application]`.
+1. Application name, origin in mono, trust guidance, and request expiry.
+2. Before a collection is chosen: the requested access as a read-only list,
+   with higher-impact items marked, and any collection setup the request adds.
+3. The collection, marked `Already connected` when the application has access.
+4. One list of permissions. Required permissions are fixed and labelled;
+   optional ones have a checkbox on the same row. Higher-impact permissions
+   carry a warning dot and label. On reauthorization, permissions the
+   application does not already have are marked `New`. File actions follow as
+   rows under their folder scope.
+5. Collection changes that approval will make.
+6. Optional content-free notification rules.
+7. A sentence stating what the application can use and for how long, the
+   higher-impact access included, and why approval is unavailable if it is.
+8. `Deny` and `Allow access` (`Set up and allow access` when setup applies).
 
-Start with all requested operations selected, then let the user narrow them
-under `Review exact permissions`. The collapsed state still shows `n of n
-selected`. Describe mandatory type or configuration setup as a consequence,
-not a choice. Show type mapping controls only when the collection offers a real
-existing-type alternative; keep contract identifiers under `Expert details`.
-An unavailable collection stays explainable, but cannot be selected. Preserve
-the in-progress collection and permission review for the browser session.
+Optional permissions start selected, except higher-impact ones (deleting
+records or files, managing definitions), which start denied and must be chosen.
+Describe mandatory type or configuration setup as a consequence, not a choice.
+Show type mapping controls only when the collection offers a real existing-type
+alternative; keep contract identifiers under `Expert details`. An unavailable
+collection stays explainable, but cannot be selected. Preserve the in-progress
+collection and permission review for the browser session.
 
-Approval returns the user to the requesting application. Denial is a complete
-outcome, not an error.
+Approval returns the user to the requesting application; if the redirect does
+not happen, offer a link back. Denial is a complete outcome, not an error. An
+expired or already answered request says so instead of loading indefinitely.
+Downloaded files normally keep access only while open, so their review does not
+promise lasting access.
 
 ## Review and revoke access
 

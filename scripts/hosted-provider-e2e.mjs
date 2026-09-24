@@ -4351,16 +4351,21 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     const page = await context.newPage();
     await page.goto(authorizationUrl);
     await expect(page.getByRole("heading", { name: "Hosted SDK E2E" })).toBeVisible();
-    await expect(page.getByText("Requests access to the entire selected collection.", { exact: true })).toBeVisible();
-    await page.getByText("Add or connect another collection", { exact: true }).click();
+    await page.locator(".approval-form").waitFor();
     const collection = page.getByRole("radio", {
       name: /Hosted writing.*Hosted by mdbase/
     });
-    await expect(collection).toHaveAttribute("value", collectionId);
-    await collection.check();
-    await expect(collection).toBeChecked();
-    await expect(page.getByRole("button", { name: "Create hosted collection" })).toBeVisible();
-    await page.getByRole("button", { name: "Review access" }).click();
+    // A single compatible collection opens directly on the access review.
+    if (await collection.isVisible()) {
+      await page.getByText("Add or connect another collection", { exact: true }).click();
+      await expect(collection).toHaveAttribute("value", collectionId);
+      await collection.check();
+      await expect(collection).toBeChecked();
+      await expect(page.getByRole("button", { name: "Create hosted collection" })).toBeVisible();
+      await page.getByRole("button", { name: "Review access" }).click();
+    }
+    await expect(page.locator(".selected-collection-summary")).toContainText("Hosted writing");
+    await expect(page.getByText(/Covers every record in Hosted writing\./)).toBeVisible();
     await page.getByRole("button", { name: "Allow access", exact: true }).click();
     const outcome = await Promise.race([
       page.waitForURL((url) => authorizationCallbackMatches(url, redirectUri))

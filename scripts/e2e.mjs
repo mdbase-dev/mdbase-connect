@@ -598,10 +598,14 @@ implements:
     }]);
     const setupPage = await setupContext.newPage();
     await setupPage.goto(`${serverUrl}/authorize/${setupAuthorizationId}`);
-    await setupPage.locator(
+    const setupPageChoice = setupPage.locator(
       `.collection-choice-list input[value="${collection.id}"]`
-    ).click();
-    await setupPage.getByRole("button", { name: "Review access" }).click();
+    );
+    await setupPage.locator(".approval-form").waitFor();
+    if (await setupPageChoice.isVisible()) {
+      await setupPageChoice.click();
+      await setupPage.getByRole("button", { name: "Review access" }).click();
+    }
     const editor = setupPage.locator(".contract-setup-editor");
     await editor.getByText("Help Planning E2E understand planning item").waitFor();
     const setupOptions = await editor.locator(".contract-setup-mode > label").allTextContents();
@@ -769,10 +773,14 @@ implements:
     await taskNotesPage.goto(
       `${serverUrl}/authorize/${taskNotesAuthorization.id}`
     );
-    await taskNotesPage.locator(
+    const taskNotesPageChoice = taskNotesPage.locator(
       `.collection-choice-list input[value="${collection.id}"]`
-    ).click();
-    await taskNotesPage.getByRole("button", { name: "Review access" }).click();
+    );
+    await taskNotesPage.locator(".approval-form").waitFor();
+    if (await taskNotesPageChoice.isVisible()) {
+      await taskNotesPageChoice.click();
+      await taskNotesPage.getByRole("button", { name: "Review access" }).click();
+    }
     await taskNotesPage.getByText("Collection changes", { exact: true }).waitFor();
     await taskNotesPage.getByText("x-obsidian → bases → include").waitFor();
     await taskNotesPage.getByText("views/tasknotes/**/*.base").waitFor();

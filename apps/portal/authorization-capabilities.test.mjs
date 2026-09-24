@@ -56,6 +56,21 @@ test("required file actions survive restoration while optional actions remain se
     "list", "read", "delete"
   ]);
   assert.deepEqual([...selectedFileActions(files)], [
-    "list", "read", "add", "delete"
+    "list", "read", "add"
   ]);
+});
+
+test("optional higher-impact capabilities start denied without a saved review", () => {
+  const groups = authorizationCapabilityGroups(
+    requirements,
+    [...read, "update", "rename", "delete"]
+  );
+  assert.deepEqual(
+    [...selectedOperationsForCapabilityGroups(groups)],
+    [...read, "update", "rename"]
+  );
+  assert.deepEqual(
+    [...selectedOperationsForCapabilityGroups(groups, [...read, "delete"])],
+    [...read, "delete"]
+  );
 });
