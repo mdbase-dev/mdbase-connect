@@ -441,6 +441,7 @@ async fn rejects_an_unsupported_local_control_protocol() {
         response.error.expect("protocol error").code,
         "unsupported_local_protocol"
     );
+    drop(state); // Join the finalizer before removing its live database.
     fs::remove_dir_all(test_root).unwrap();
 }
 
@@ -464,6 +465,7 @@ async fn status_reports_the_running_binary_version_for_upgrade_health_checks() {
     // Issuance support belongs to the authenticated relay handshake, not an
     // additional diagnostic status API with no feature consumer.
     assert!(result.get("capabilities").is_none());
+    drop(state);
     fs::remove_dir_all(test_root).unwrap();
 }
 
@@ -743,6 +745,7 @@ async fn daemon_shutdown_is_requested_only_after_the_response_is_flushed() {
     )
     .await
     .expect("shutdown notification must follow the flushed response");
+    drop(state);
     fs::remove_dir_all(test_root).unwrap();
 }
 
@@ -964,6 +967,7 @@ schema:
         }
     ));
     assert_eq!(registry.list_grants().unwrap()[0].id, grant.id);
+    drop(state);
     fs::remove_dir_all(test_root).unwrap();
 }
 
@@ -1102,6 +1106,7 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
         .unwrap();
     assert_eq!(busy_body["ok"], true);
     database.execute_batch("ROLLBACK").unwrap();
+    drop(state);
 
     fs::remove_dir_all(test_root).unwrap();
 }
@@ -1222,5 +1227,6 @@ fn unauthorized_legacy_mutation_fails_before_replay_or_collection_write() {
         .unwrap();
     assert_eq!(replay_rows, 0);
     assert!(!collection_dir.join("must-not-exist.md").exists());
+    drop(state);
     fs::remove_dir_all(test_root).unwrap();
 }

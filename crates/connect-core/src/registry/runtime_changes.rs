@@ -7,6 +7,8 @@ use std::num::NonZeroUsize;
 use std::time::Duration;
 
 const RUNTIME_CHANGE_RECEIPT_PREFIX: &str = "runtime_change_receipt:";
+type RuntimeChangeDelivery<'a> =
+    dyn FnMut(&[(mdbase::watch::WatchEvent, u64)]) -> Result<(), ConnectError> + 'a;
 
 impl CollectionRegistry {
     /// Let the mdbase-owned watcher normalize one external filesystem observation.
@@ -86,43 +88,288 @@ impl CollectionRegistry {
         executor: Arc<CollectionExecutor>,
         cancellation: &mdbase::OperationCancellation,
     ) -> Result<Vec<(mdbase::watch::WatchEvent, u64)>, ConnectError> {
+        self.drain_runtime_changes(
+            collection_id,
+            executor,
+            cancellation,
+            None,
+            false,
+            &mut |_| Ok(()),
+        )
+        .map(|turn| turn.events)
+    }
+
+    /// Finalize at most 16 provider events (or 10 ms of append work) before
+    /// yielding. `target` pins the first turn's head so new writes cannot keep a
+    /// synchronous caller waiting forever. No page survives the background
+    /// permit: concurrent consumers always reread the current durable prefix.
+    pub fn finalize_runtime_turn(
+        &self,
+        collection_id: Uuid,
+        target: Option<u64>,
+        cancellation: &mdbase::OperationCancellation,
+    ) -> Result<RuntimeFinalizationTurn, ConnectError> {
+        self.finalize_runtime_turn_delivering(
+            collection_id,
+            target,
+            cancellation,
+            false,
+            |_| Ok(()),
+        )
+    }
+
+    /// Admit each persisted prefix before acknowledging its provider feed. A
+    /// failed admission leaves receipts and feed events replayable. Delivery
+    /// must be idempotent by public cursor and must not reenter this executor.
+    /// Resident-only work never reopens an evicted runtime or updates its LRU age.
+    pub fn finalize_runtime_turn_delivering<F>(
+        &self,
+        collection_id: Uuid,
+        target: Option<u64>,
+        cancellation: &mdbase::OperationCancellation,
+        resident_only: bool,
+        mut deliver: F,
+    ) -> Result<RuntimeFinalizationTurn, ConnectError>
+    where
+        F: FnMut(&[(mdbase::watch::WatchEvent, u64)]) -> Result<(), ConnectError>,
+    {
+        let registered = self.get(collection_id)?;
+        let executor = if resident_only {
+            if registered.enabled {
+                self.resident_executor(collection_id)?
+            } else {
+                None
+            }
+        } else {
+            if !registered.enabled {
+                return Err(ConnectError::AccessDenied(
+                    "The collection is disabled.".into(),
+                ));
+            }
+            Some(self.executor_for(&registered)?)
+        };
+        let Some(executor) = executor else {
+            return Ok(RuntimeFinalizationTurn {
+                events: Vec::new(),
+                target: target.unwrap_or(0),
+                complete: true,
+            });
+        };
+        self.drain_runtime_changes(
+            collection_id,
+            executor,
+            cancellation,
+            target,
+            true,
+            &mut deliver,
+        )
+    }
+
+    pub fn finalize_resident_runtime_turn(
+        &self,
+        collection_id: Uuid,
+        target: Option<u64>,
+        cancellation: &mdbase::OperationCancellation,
+    ) -> Result<RuntimeFinalizationTurn, ConnectError> {
+        self.finalize_runtime_turn_delivering(collection_id, target, cancellation, true, |_| Ok(()))
+    }
+
+    fn drain_runtime_changes(
+        &self,
+        collection_id: Uuid,
+        executor: Arc<CollectionExecutor>,
+        cancellation: &mdbase::OperationCancellation,
+        mut target: Option<u64>,
+        bounded: bool,
+        deliver: &mut RuntimeChangeDelivery<'_>,
+    ) -> Result<RuntimeFinalizationTurn, ConnectError> {
         if !executor.is_coordinated() {
-            return Ok(Vec::new());
+            return Ok(RuntimeFinalizationTurn {
+                events: Vec::new(),
+                target: target.unwrap_or(0),
+                complete: true,
+            });
         }
         let runtime = executor.runtime()?;
         let context = runtime_context(cancellation);
         executor.with_background(&context, |_| {
+            let mut connection = self.connection()?;
             let mut persisted = Vec::new();
+            let mut delivered = 0;
+            let started = std::time::Instant::now();
+            let mut pending = Vec::with_capacity(16);
             loop {
-                let page = executor.read_change_events(None, &context)?;
-                if page.events.is_empty() {
-                    return Ok(persisted);
+                let page = if bounded {
+                    executor.read_change_events_limit(
+                        None,
+                        NonZeroUsize::new(16).unwrap(),
+                        &context,
+                    )?
+                } else {
+                    executor.read_change_events(None, &context)?
+                };
+                // A crash after feed acknowledgement but before receipt cleanup
+                // leaves only settled receipts. Reclaim them from the durable
+                // unacknowledged boundary, never from an in-memory assumption.
+                let acknowledged = page.events.first().map_or(page.feed_head.get(), |event| {
+                    event.identity.watermark.get() - 1
+                });
+                self.cleanup_settled_runtime_receipts(
+                    &mut connection,
+                    collection_id,
+                    acknowledged,
+                )?;
+                let target = *target.get_or_insert(page.feed_head.get());
+                let page_len = page.events.len();
+                if page_len == 0 {
+                    return Ok(RuntimeFinalizationTurn {
+                        events: persisted,
+                        target,
+                        complete: true,
+                    });
                 }
-                // Consume the entire owned page before fetching again. Acknowledging
-                // one event does not invalidate the remaining events in this page.
-                for event in page.events {
-                    let events = runtime_watch_events(runtime.as_ref(), &event, &context)?;
+                for (index, event) in page.events.into_iter().enumerate() {
+                    if event.identity.watermark.get() > target {
+                        self.settle_runtime_prefix(
+                            &executor,
+                            &mut connection,
+                            &mut pending,
+                            &persisted[delivered..],
+                            deliver,
+                        )?;
+                        return Ok(RuntimeFinalizationTurn {
+                            events: persisted,
+                            target,
+                            complete: true,
+                        });
+                    }
                     let receipt_key = runtime_change_receipt_key(collection_id, &event);
-                    let (events, cursors) =
-                        self.append_runtime_change(collection_id, &receipt_key, &event, &events)?;
-                    // Keep settlement per event: never acknowledge later events
-                    // if persistence, acknowledgement, or cleanup of this one fails.
-                    executor.ack_change_events(event.identity.watermark, &context)?;
-                    self.delete_runtime_change_receipt(&receipt_key)?;
+                    let append = (|| {
+                        context.check()?;
+                        let events = runtime_watch_events(runtime.as_ref(), &event, &context)?;
+                        self.append_runtime_change_in(
+                            &mut connection,
+                            collection_id,
+                            &receipt_key,
+                            &event,
+                            &events,
+                        )
+                    })();
+                    let (events, cursors) = match append {
+                        Ok(value) => value,
+                        Err(error) => {
+                            // Preserve the old failure-prefix contract: successful
+                            // earlier appends are settled, never this failed event.
+                            self.settle_runtime_prefix(
+                                &executor,
+                                &mut connection,
+                                &mut pending,
+                                &persisted[delivered..],
+                                deliver,
+                            )?;
+                            return Err(error);
+                        }
+                    };
+                    pending.push((receipt_key, event.identity.watermark));
                     persisted.extend(events.into_iter().zip(cursors));
+                    let yield_now = bounded
+                        && (index + 1 == page_len
+                            || started.elapsed() >= Duration::from_millis(10));
+                    if pending.len() == 16 || index + 1 == page_len || yield_now {
+                        self.settle_runtime_prefix(
+                            &executor,
+                            &mut connection,
+                            &mut pending,
+                            &persisted[delivered..],
+                            deliver,
+                        )?;
+                        delivered = persisted.len();
+                    }
+                    if yield_now {
+                        return Ok(RuntimeFinalizationTurn {
+                            events: persisted,
+                            target,
+                            complete: event.identity.watermark.get() >= target,
+                        });
+                    }
                 }
             }
         })
     }
 
-    fn append_runtime_change(
+    /// Once public changes and receipts are durable, settlement owns that prefix
+    /// even if the request is cancelled. Bound settlement independently; on any
+    /// failure retain receipts so replay can neither skip nor duplicate changes.
+    fn settle_runtime_prefix(
         &self,
+        executor: &CollectionExecutor,
+        connection: &mut Connection,
+        pending: &mut Vec<(String, mdbase::runtime::ChangeWatermark)>,
+        events: &[(mdbase::watch::WatchEvent, u64)],
+        deliver: &mut RuntimeChangeDelivery<'_>,
+    ) -> Result<(), ConnectError> {
+        let Some((_, through)) = pending.last() else {
+            return Ok(());
+        };
+        deliver(events)?;
+        let context = runtime_context(&mdbase::OperationCancellation::new());
+        executor.ack_change_events(*through, &context)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        for (key, _) in pending.iter() {
+            transaction.execute("DELETE FROM settings WHERE key = ?1", [key])?;
+        }
+        transaction.commit()?;
+        pending.clear();
+        Ok(())
+    }
+
+    fn cleanup_settled_runtime_receipts(
+        &self,
+        connection: &mut Connection,
+        collection_id: Uuid,
+        acknowledged: u64,
+    ) -> Result<(), ConnectError> {
+        let candidates = {
+            let mut statement =
+                connection.prepare("SELECT key, value FROM settings WHERE key GLOB ?1")?;
+            let rows = statement
+                .query_map(
+                    [format!("{RUNTIME_CHANGE_RECEIPT_PREFIX}{collection_id}:*")],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        let mut settled = Vec::new();
+        for (key, value) in candidates {
+            let receipt: RuntimeChangeReceipt =
+                serde_json::from_str(&value).map_err(|error| ConnectError::RegistryCorrupt {
+                    path: self.db_path.clone(),
+                    detail: format!("runtime change receipt is invalid: {error}"),
+                })?;
+            if receipt.provider_watermark <= acknowledged {
+                settled.push(key);
+            }
+        }
+        if !settled.is_empty() {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            for key in settled {
+                transaction.execute("DELETE FROM settings WHERE key = ?1", [key])?;
+            }
+            transaction.commit()?;
+        }
+        Ok(())
+    }
+
+    fn append_runtime_change_in(
+        &self,
+        connection: &mut Connection,
         collection_id: Uuid,
         receipt_key: &str,
         runtime_event: &RuntimeChangeEvent,
         events: &[mdbase::watch::WatchEvent],
     ) -> Result<(Vec<mdbase::watch::WatchEvent>, Vec<u64>), ConnectError> {
-        let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(stored) = transaction
             .query_row(
@@ -187,12 +434,6 @@ impl CollectionRegistry {
         )?;
         transaction.commit()?;
         Ok((events.to_vec(), cursors))
-    }
-
-    fn delete_runtime_change_receipt(&self, key: &str) -> Result<(), ConnectError> {
-        self.connection()?
-            .execute("DELETE FROM settings WHERE key = ?1", [key])?;
-        Ok(())
     }
 }
 
@@ -376,63 +617,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::time::Instant;
 
-    fn collect_external_events(
-        registry: &CollectionRegistry,
-        collection_id: Uuid,
-        expected: usize,
-    ) -> Vec<(mdbase::watch::WatchEvent, u64)> {
-        let cancellation = mdbase::OperationCancellation::new();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let mut events = Vec::new();
-        while events.len() < expected && Instant::now() < deadline {
-            registry
-                .ingest_runtime_external(collection_id, Duration::from_millis(100), &cancellation)
-                .unwrap();
-            events.extend(
-                registry
-                    .finalize_runtime_changes(collection_id, &cancellation)
-                    .unwrap(),
-            );
-        }
-        assert_eq!(
-            events.len(),
-            expected,
-            "timed out waiting for watcher events"
-        );
-        events
-    }
-
-    fn assert_runtime_feed_quiet(registry: &CollectionRegistry, collection_id: Uuid) {
-        let cancellation = mdbase::OperationCancellation::new();
-        assert!(!registry
-            .ingest_runtime_external(collection_id, Duration::from_millis(200), &cancellation,)
-            .unwrap());
-        assert!(registry
-            .finalize_runtime_changes(collection_id, &cancellation)
-            .unwrap()
-            .is_empty());
-    }
-
-    fn event_paths(
-        events: &[(mdbase::watch::WatchEvent, u64)],
-    ) -> BTreeSet<(String, String, Option<String>)> {
-        events
-            .iter()
-            .map(|(event, _)| {
-                (
-                    event.event_type.clone(),
-                    event
-                        .payload
-                        .get("path")
-                        .or_else(|| event.payload.get("to"))
-                        .and_then(Value::as_str)
-                        .expect("record event has path or rename target")
-                        .to_string(),
-                    event.payload["from"].as_str().map(str::to_string),
-                )
-            })
-            .collect()
-    }
+    include!("runtime_changes/event_helpers_tests.rs");
 
     #[test]
     fn provider_event_receipt_closes_append_before_ack_crash_window() {

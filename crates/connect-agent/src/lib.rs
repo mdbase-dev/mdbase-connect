@@ -129,7 +129,7 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
             )
         }
     };
-    let (runtime_events, runtime_event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (runtime_events, runtime_event_rx) = tokio::sync::mpsc::channel(256);
     let watcher =
         CollectionWatchService::start_with_runtime_events(registry.clone(), Some(runtime_events));
     let (runtime_timers, runtime_worker) = runtime_notifications::start(

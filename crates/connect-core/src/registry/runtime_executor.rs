@@ -373,6 +373,15 @@ impl CollectionExecutor {
         after: Option<ChangeWatermark>,
         context: &OperationContext,
     ) -> Result<RuntimeChangeEventPage, ConnectError> {
+        self.read_change_events_limit(after, NonZeroUsize::new(256).unwrap(), context)
+    }
+
+    pub(super) fn read_change_events_limit(
+        &self,
+        after: Option<ChangeWatermark>,
+        limit: NonZeroUsize,
+        context: &OperationContext,
+    ) -> Result<RuntimeChangeEventPage, ConnectError> {
         let feed = self
             .feed
             .lock()
@@ -386,12 +395,7 @@ impl CollectionExecutor {
             .runtime
             .as_ref()
             .expect("a runtime feed always has a runtime")
-            .read_change_events(
-                feed,
-                after,
-                NonZeroUsize::new(256).expect("constant is non-zero"),
-                context,
-            )?;
+            .read_change_events(feed, after, limit, context)?;
         #[cfg(test)]
         {
             let mut work = self.feed_read_work.lock().unwrap();

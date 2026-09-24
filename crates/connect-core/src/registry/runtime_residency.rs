@@ -2,7 +2,24 @@ use super::*;
 
 const MAX_RESIDENT_COLLECTION_RUNTIMES: usize = 8;
 
+#[cfg(test)]
+#[path = "runtime_residency_tests.rs"]
+mod tests;
+
 impl CollectionRegistry {
+    /// Readiness only: no record payloads, no second filesystem watcher.
+    pub fn set_runtime_waker(&self, callback: Arc<dyn Fn() + Send + Sync>) {
+        self.runtime_wakeup.set(callback);
+    }
+
+    pub(super) fn lock_runtime_lifecycle(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, ()>, ConnectError> {
+        self.runtime_lifecycle
+            .lock()
+            .map_err(|_| ConnectError::CollectionOpen("runtime lifecycle lock poisoned".into()))
+    }
+
     pub(super) fn provider_for(
         &self,
         registered: &CollectionSummary,
@@ -23,20 +40,44 @@ impl CollectionRegistry {
         if let Some(executor) = executors.get(&registered.id) {
             executor.touch();
             let executor = executor.clone();
-            trim_idle_executors(
+            let retired = trim_idle_executors(
                 &mut executors,
                 MAX_RESIDENT_COLLECTION_RUNTIMES,
                 Some(registered.id),
             );
+            drop(executors);
+            drop(retired); // Joining retired watchers must not hold the map lock.
             return Ok(executor);
         }
-        let executor = self.open_executor(registered.id, Path::new(&registered.path))?;
-        trim_idle_executors(
+        drop(executors);
+        let _lifecycle = self.lock_runtime_lifecycle()?;
+        // A previous cold opener or a lifecycle operation may have completed
+        // while we waited. Never publish from the caller's stale registration.
+        let current = self.get(registered.id)?;
+        if !current.enabled {
+            return Err(ConnectError::AccessDenied(
+                "The collection is disabled.".into(),
+            ));
+        }
+        if let Some(executor) = self.resident_executor(current.id)? {
+            executor.touch();
+            return Ok(executor);
+        }
+        assert_local_authority_folder(Path::new(&current.path))?;
+        let executor = self.open_executor(current.id, Path::new(&current.path))?;
+        let mut executors = self
+            .executors
+            .lock()
+            .map_err(|_| ConnectError::CollectionOpen("executor registry lock poisoned".into()))?;
+        let retired = trim_idle_executors(
             &mut executors,
             MAX_RESIDENT_COLLECTION_RUNTIMES.saturating_sub(1),
             None,
         );
         executors.insert(registered.id, executor.clone());
+        drop(executors);
+        drop(retired);
+        self.runtime_wakeup.wake();
         Ok(executor)
     }
 
@@ -49,11 +90,13 @@ impl CollectionRegistry {
             .lock()
             .map_err(|_| ConnectError::CollectionOpen("executor registry lock poisoned".into()))?;
         let resident = executors.get(&collection_id).cloned();
-        trim_idle_executors(
+        let retired = trim_idle_executors(
             &mut executors,
             MAX_RESIDENT_COLLECTION_RUNTIMES,
             resident.as_ref().map(|_| collection_id),
         );
+        drop(executors);
+        drop(retired);
         Ok(resident)
     }
 
@@ -66,12 +109,15 @@ impl CollectionRegistry {
             .executors
             .lock()
             .map_err(|_| ConnectError::CollectionOpen("executor registry lock poisoned".into()))?;
-        trim_idle_executors(
+        let mut retired = trim_idle_executors(
             &mut executors,
             MAX_RESIDENT_COLLECTION_RUNTIMES.saturating_sub(1),
             None,
         );
-        executors.insert(collection_id, executor);
+        retired.extend(executors.insert(collection_id, executor));
+        drop(executors);
+        drop(retired);
+        self.runtime_wakeup.wake();
         Ok(())
     }
 
@@ -96,6 +142,12 @@ impl CollectionRegistry {
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        // Fence all initialization already in flight before clearing residency.
+        // Callers may deliberately reopen after this barrier (e.g. a folder move).
+        let _lifecycle = self
+            .runtime_lifecycle
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let roots = if let Ok(mut executors) = self.executors.lock() {
             let roots = executors
                 .values()
@@ -165,7 +217,14 @@ impl CollectionRegistry {
         let coordinated = read_collection_metadata(root)?
             .spec_version
             .starts_with("0.3");
-        CollectionExecutor::open(root, &owner, coordinated).map(Arc::new)
+        let executor = Arc::new(CollectionExecutor::open(root, &owner, coordinated)?);
+        if coordinated {
+            let wakeup = self.runtime_wakeup.clone();
+            executor
+                .runtime()?
+                .set_event_waker(Arc::new(move || wakeup.wake()))?;
+        }
+        Ok(executor)
     }
 
     fn runtime_feed_owner(
@@ -273,7 +332,8 @@ fn trim_idle_executors(
     executors: &mut HashMap<Uuid, Arc<CollectionExecutor>>,
     target: usize,
     keep: Option<Uuid>,
-) {
+) -> Vec<Arc<CollectionExecutor>> {
+    let mut retired = Vec::new();
     while executors.len() > target {
         let candidate = executors
             .iter()
@@ -283,6 +343,7 @@ fn trim_idle_executors(
             .min_by_key(|(_, executor)| executor.last_used())
             .map(|(id, _)| *id);
         let Some(candidate) = candidate else { break };
-        executors.remove(&candidate);
+        retired.extend(executors.remove(&candidate));
     }
+    retired
 }

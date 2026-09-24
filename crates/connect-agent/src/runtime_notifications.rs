@@ -1,5 +1,5 @@
 use crate::cloud::CloudControlClient;
-use crate::watcher::CollectionRuntimeEvent;
+use crate::watcher::{CollectionRuntimeEvent, RuntimeEventDelivery};
 use async_trait::async_trait;
 use mdbase_connect_core::{CollectionRegistry, ConnectError};
 use mdbase_connect_protocol::GrantSummary;
@@ -22,17 +22,20 @@ use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
+mod dispatch;
+mod worker;
+use dispatch::DispatchQueue;
+
 pub fn start(
     state_dir: &Path,
     local_registry: CollectionRegistry,
     cloud: Option<CloudControlClient>,
-    mut events: tokio::sync::mpsc::UnboundedReceiver<CollectionRuntimeEvent>,
+    mut events: tokio::sync::mpsc::Receiver<RuntimeEventDelivery>,
 ) -> (RuntimeTimerHandle, tokio::task::JoinHandle<()>) {
     let runtime_dir = state_dir.join("runtime");
-    let (commands, mut command_rx) = tokio::sync::mpsc::unbounded_channel::<TimerCommand>();
-    let (cleanup_commands, mut cleanup_rx) =
-        tokio::sync::mpsc::unbounded_channel::<CleanupCommand>();
-    let task = tokio::spawn(async move {
+    let (commands, mut command_rx) = tokio::sync::mpsc::channel::<TimerCommand>(64);
+    let (cleanup_commands, mut cleanup_rx) = tokio::sync::mpsc::channel::<CleanupCommand>(16);
+    let task = worker::spawn(async move {
         if let Err(error) = std::fs::create_dir_all(&runtime_dir) {
             tracing::error!(%error, path = %runtime_dir.display(), "failed to create runtime state directory");
             return;
@@ -42,16 +45,23 @@ pub fn start(
             local_registry,
             cloud,
             runtimes: HashMap::new(),
+            dispatch: DispatchQueue::default(),
         };
         let mut recovery = tokio::time::interval(Duration::from_secs(15));
         recovery.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
+            let dispatch_active = service.dispatch.has_tasks();
             tokio::select! {
+                _ = service.dispatch.completed(), if dispatch_active => {}
                 event = events.recv() => {
                     let Some(event) = event else { return; };
-                    if let Err(error) = service.handle_event(event).await {
+                    let result = service.handle_event(event.change).await.map_err(|error| {
                         tracing::warn!(code = error.code(), %error, "notification runtime rejected a collection event");
-                    }
+                        ConnectError::CollectionOpen(format!("Notification admission failed: {}", error.code()))
+                    });
+                    // Capacity one: acknowledging durable local admission never
+                    // waits for the finalizer or for outbound HTTP delivery.
+                    let _ = event.admitted.send(result);
                 }
                 command = command_rx.recv() => {
                     let Some(command) = command else { return; };
@@ -122,15 +132,15 @@ struct CleanupCommand {
 
 #[derive(Clone)]
 pub struct RuntimeTimerHandle {
-    commands: tokio::sync::mpsc::UnboundedSender<TimerCommand>,
-    cleanup_commands: tokio::sync::mpsc::UnboundedSender<CleanupCommand>,
+    commands: tokio::sync::mpsc::Sender<TimerCommand>,
+    cleanup_commands: tokio::sync::mpsc::Sender<CleanupCommand>,
 }
 
 impl RuntimeTimerHandle {
     pub fn cleanup_orphaned_timers(&self) -> Result<usize, TimerOperationError> {
         let (response, receiver) = std::sync::mpsc::channel();
         self.cleanup_commands
-            .send(CleanupCommand { response })
+            .try_send(CleanupCommand { response })
             .map_err(|_| TimerOperationError {
                 code: "timer_authority_unavailable".to_string(),
                 message: "The local timer authority is unavailable.".to_string(),
@@ -154,7 +164,7 @@ impl RuntimeTimerHandle {
     ) -> Result<Value, TimerOperationError> {
         let (response, receiver) = std::sync::mpsc::channel();
         self.commands
-            .send(TimerCommand {
+            .try_send(TimerCommand {
                 collection_id,
                 grant,
                 operation: operation.to_string(),
@@ -180,7 +190,8 @@ struct RuntimeNotificationService {
     runtime_dir: PathBuf,
     local_registry: CollectionRegistry,
     cloud: Option<CloudControlClient>,
-    runtimes: HashMap<Uuid, Runtime>,
+    runtimes: HashMap<Uuid, Arc<Runtime>>,
+    dispatch: DispatchQueue,
 }
 
 impl RuntimeNotificationService {
@@ -189,7 +200,12 @@ impl RuntimeNotificationService {
         change: CollectionRuntimeEvent,
     ) -> mdbase_runtime::RuntimeResult<()> {
         let grants = notification_grants(&self.local_registry, change.collection_id)?;
-        if grants.is_empty() {
+        if !grants.iter().any(|grant| {
+            grant
+                .notification_criteria
+                .iter()
+                .any(|criterion| criterion.event.id == change.event.event_type)
+        }) {
             return Ok(());
         }
         let catalog = compose_catalog(&grants, change.collection_id)?;
@@ -203,7 +219,9 @@ impl RuntimeNotificationService {
             admitted = outcome.admitted_run_ids.len(),
             "notification event admitted"
         );
-        drain_runtime(runtime).await
+        let runtime = runtime.clone();
+        self.dispatch.schedule(change.collection_id, runtime);
+        Ok(())
     }
 
     async fn cleanup_orphaned_timers(&mut self) -> mdbase_runtime::RuntimeResult<usize> {
@@ -230,7 +248,7 @@ impl RuntimeNotificationService {
     ) -> mdbase_runtime::RuntimeResult<usize> {
         let ephemeral;
         let runtime = if let Some(runtime) = self.runtimes.get(&collection_id) {
-            runtime
+            runtime.as_ref()
         } else {
             ephemeral = self.build_runtime(collection_id, None)?;
             &ephemeral
@@ -304,11 +322,8 @@ impl RuntimeNotificationService {
                 keep_resident.insert(collection_id);
                 continue;
             }
-            if let Err(error) = drain_runtime(runtime).await {
-                tracing::warn!(%collection_id, code = error.code(), %error, "notification runtime recovery deferred");
-                keep_resident.insert(collection_id);
-                continue;
-            }
+            let runtime = runtime.clone();
+            self.dispatch.schedule(collection_id, runtime);
             match inspect_sqlite_recovery(
                 runtime_path(&self.runtime_dir, collection_id),
                 chrono::Utc::now(),
@@ -327,11 +342,11 @@ impl RuntimeNotificationService {
             .retain(|collection_id, _| keep_resident.contains(collection_id));
     }
 
-    fn runtime(&mut self, collection_id: Uuid) -> mdbase_runtime::RuntimeResult<&Runtime> {
+    fn runtime(&mut self, collection_id: Uuid) -> mdbase_runtime::RuntimeResult<&Arc<Runtime>> {
         if !self.runtimes.contains_key(&collection_id) {
             let timezone = collection_timezone(&self.local_registry, collection_id)?;
             let runtime = self.build_runtime(collection_id, timezone)?;
-            self.runtimes.insert(collection_id, runtime);
+            self.runtimes.insert(collection_id, Arc::new(runtime));
         }
         self.runtimes.get(&collection_id).ok_or_else(|| {
             mdbase_runtime::RuntimeError::Store("notification runtime was not initialized".into())
@@ -475,11 +490,6 @@ async fn fire_due_timers(
             break;
         }
     }
-    Ok(())
-}
-
-async fn drain_runtime(runtime: &Runtime) -> mdbase_runtime::RuntimeResult<()> {
-    drain_notification_runtime(runtime, 100).await?;
     Ok(())
 }
 

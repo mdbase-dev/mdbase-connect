@@ -4,6 +4,12 @@ The local loop has two complementary profilers. Both run optimized binaries
 and avoid including collection paths, query inputs, frontmatter, or bodies in
 their reports.
 
+## Runtime contention and finalization
+
+See [runtime contention fixes](benchmarks/runtime-contention/report.md) for the
+lifecycle, durable-prefix, fair-turn, readiness and notification-admission
+invariants, regression tests, and isolated performance reproduction commands.
+
 ## Hosted mirror regression gate
 
 `pnpm profile:mirror:check` exercises initial, no-op, and incremental

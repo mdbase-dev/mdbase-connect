@@ -278,7 +278,7 @@ async fn execute_path_keyset_base_page(
             "values": result.values,
         }));
     }
-    let result_bytes = serialized_value_bytes(&Value::Array(results.clone()));
+    let result_bytes = serialized_value_bytes(&results);
     let resident_bytes = page
         .projection_bytes
         .saturating_mul(2)
@@ -628,10 +628,8 @@ async fn execute_bounded_base_page(
             })
         })
         .collect::<Vec<_>>();
-    let result_bytes = serialized_value_bytes(&Value::Array(results.clone()));
-    let group_bytes = groups.as_ref().map_or(0, |groups| {
-        serialized_value_bytes(&Value::Array(groups.clone()))
-    });
+    let result_bytes = serialized_value_bytes(&results);
+    let group_bytes = groups.as_ref().map_or(0, serialized_value_bytes);
     let resident_bytes = pre_reduction_resident_bytes
         .saturating_add(result_bytes)
         .saturating_add(group_bytes);

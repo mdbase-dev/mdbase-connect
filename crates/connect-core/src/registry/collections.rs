@@ -129,6 +129,7 @@ impl CollectionRegistry {
     }
 
     pub fn add(&self, path: impl AsRef<Path>) -> Result<CollectionSummary, ConnectError> {
+        let _lifecycle = self.lock_runtime_lifecycle()?;
         let requested_path = path.as_ref();
         if !requested_path.exists() {
             return Err(ConnectError::PathNotFound(
@@ -142,7 +143,6 @@ impl CollectionRegistry {
         }
 
         let id = ensure_collection_id(&path)?;
-        let executor = self.open_executor(id, &path)?;
         let metadata = read_collection_metadata(&path)?;
         let path_string = path.to_string_lossy().to_string();
         let display_name = collection_display_name(&metadata, &path);
@@ -164,6 +164,19 @@ impl CollectionRegistry {
                 });
             }
         }
+
+        // Validate duplicate identity before opening/fencing any runtime. An
+        // idempotent registration of the same resident root must not fence its
+        // existing feed consumer.
+        let executor = match self.resident_executor(id)? {
+            Some(executor)
+                if executor.provider().root() == path
+                    && executor.is_coordinated() == metadata.spec_version.starts_with("0.3") =>
+            {
+                executor
+            }
+            _ => self.open_executor(id, &path)?,
+        };
 
         self.connection()?.execute(
             "INSERT INTO collections (id, path, display_name, description, spec_version, enabled)
@@ -260,6 +273,7 @@ impl CollectionRegistry {
     }
 
     pub fn make_independent(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
+        let _lifecycle = self.lock_runtime_lifecycle()?;
         let collection = self.get(id)?;
         crate::LocalSyncStore::for_registry(self).assert_mutation_allowed(id)?;
         let path = PathBuf::from(&collection.path);
@@ -351,6 +365,12 @@ impl CollectionRegistry {
         let registered = self.get(id)?;
         assert_local_authority_folder(Path::new(&registered.path))?;
         let provider = self.provider_for(&registered)?;
+        let _lifecycle = self.lock_runtime_lifecycle()?;
+        if self.get(id)?.path != registered.path {
+            return Err(ConnectError::CollectionOpen(
+                "The collection moved during metadata update.".into(),
+            ));
+        }
         let sync_store = crate::LocalSyncStore::for_registry(self);
         provider.with_collection::<_, ConnectError>(|_| {
             sync_store.assert_mutation_allowed(id)?;
@@ -399,6 +419,7 @@ impl CollectionRegistry {
     }
 
     pub fn set_enabled(&self, id: Uuid, enabled: bool) -> Result<CollectionSummary, ConnectError> {
+        let _lifecycle = self.lock_runtime_lifecycle()?;
         let store = crate::LocalSyncStore::for_registry(self);
         if enabled {
             let registered = self.get(id)?;
@@ -458,6 +479,7 @@ impl CollectionRegistry {
     }
 
     pub fn remove(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
+        let _lifecycle = self.lock_runtime_lifecycle()?;
         let collection = self.get(id)?;
         crate::LocalSyncStore::for_registry(self).assert_not_transferring(id)?;
         self.set_collection_access_overlay(id, false)?;

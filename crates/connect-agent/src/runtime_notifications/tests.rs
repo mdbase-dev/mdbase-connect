@@ -11,6 +11,22 @@ use rusqlite::Connection;
 use serde_json::json;
 use tempfile::tempdir;
 
+include!("dispatch_tests.rs");
+
+async fn dispatch_all(service: &mut RuntimeNotificationService) {
+    while service.dispatch.has_tasks() {
+        service.dispatch.completed().await;
+    }
+}
+
+async fn recover_and_dispatch(service: &mut RuntimeNotificationService) {
+    service.recover().await;
+    dispatch_all(service).await;
+    // Residency is sampled during recovery, after dispatch has settled.
+    service.recover().await;
+    dispatch_all(service).await;
+}
+
 #[test]
 fn local_notification_runtime_upgrades_unversioned_state() {
     let state_dir = tempdir().unwrap();
@@ -48,6 +64,7 @@ fn local_notification_runtime_upgrades_unversioned_state() {
         local_registry: registry,
         cloud: None,
         runtimes: HashMap::new(),
+        dispatch: DispatchQueue::default(),
     };
     service.runtime(collection_id).unwrap();
     drop(service);
@@ -78,6 +95,7 @@ fn orphan_cleanup_runtime_does_not_require_collection_configuration() {
         local_registry: registry,
         cloud: None,
         runtimes: HashMap::new(),
+        dispatch: DispatchQueue::default(),
     };
 
     assert!(service.build_runtime(collection.id, None).is_ok());
@@ -104,9 +122,10 @@ async fn recovery_keeps_idle_registered_collections_cold() {
         local_registry: registry,
         cloud: None,
         runtimes: HashMap::new(),
+        dispatch: DispatchQueue::default(),
     };
 
-    service.recover().await;
+    recover_and_dispatch(&mut service).await;
 
     assert!(service.runtimes.is_empty());
     assert_eq!(std::fs::read_dir(runtime_dir).unwrap().count(), 0);
@@ -301,6 +320,7 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
             "connector-token".to_string(),
         )),
         runtimes: HashMap::new(),
+        dispatch: DispatchQueue::default(),
     };
     std::fs::create_dir_all(&service.runtime_dir).unwrap();
     service
@@ -325,6 +345,7 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
         })
         .await
         .unwrap();
+    dispatch_all(&mut service).await;
     let signal = tokio::time::timeout(Duration::from_secs(1), signal_rx.recv())
         .await
         .unwrap()
@@ -374,8 +395,9 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
         local_registry,
         cloud,
         runtimes: HashMap::new(),
+        dispatch: DispatchQueue::default(),
     };
-    service.recover().await;
+    recover_and_dispatch(&mut service).await;
     assert!(
         service.runtimes.is_empty(),
         "completed notification work should release its runtime"
@@ -469,8 +491,9 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
             local_registry,
             cloud,
             runtimes: HashMap::new(),
+            dispatch: DispatchQueue::default(),
         };
-        service.recover().await;
+        recover_and_dispatch(&mut service).await;
         let timers = service
             .runtime(collection.id)
             .unwrap()
@@ -508,6 +531,7 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
             })
             .await
             .unwrap();
+        dispatch_all(&mut service).await;
         let signal = tokio::time::timeout(Duration::from_secs(1), signal_rx.recv())
             .await
             .unwrap()
@@ -545,7 +569,7 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
         .unwrap();
     }
     service.local_registry.replace_grants(&[]).unwrap();
-    service.recover().await;
+    recover_and_dispatch(&mut service).await;
     assert!(
         tokio::time::timeout(Duration::from_millis(100), signal_rx.recv())
             .await
@@ -655,7 +679,7 @@ fn timer_handle_fixture() -> (tempfile::TempDir, CollectionRegistry, GrantSummar
                 event: ContractRequirement {
                     id: TIMER_EVENT_ID.to_string(),
                     version: "1.0.0".to_string(),
-                    digest: format!("sha256:{}", "0".repeat(64)),
+                    digest: TIMER_EVENT_DIGEST.to_string(),
                 },
                 r#if: None,
                 debounce: None,
@@ -688,6 +712,7 @@ async fn revoked_timer_cleanup_count_depends_on_recovery_order() {
             local_registry: registry.clone(),
             cloud: None,
             runtimes: HashMap::new(),
+            dispatch: DispatchQueue::default(),
         };
         let catalog = compose_catalog(std::slice::from_ref(&grant), collection_id).unwrap();
         perform_timer_operation(
@@ -715,13 +740,13 @@ async fn revoked_timer_cleanup_count_depends_on_recovery_order() {
         // These are the two serial orderings of the production select! branches.
         // The interval's immediately-ready first tick may win before cleanup.
         if recovery_first {
-            service.recover().await;
+            recover_and_dispatch(&mut service).await;
         }
         let cancelled = service.cleanup_orphaned_timers().await.unwrap();
         assert_eq!(cancelled, if recovery_first { 0 } else { 1 });
         eprintln!("recovery_first={recovery_first}, explicit_cleanup_cancelled={cancelled}");
         assert_eq!(service.cleanup_orphaned_timers().await.unwrap(), 0);
-        service.recover().await;
+        recover_and_dispatch(&mut service).await;
         drop(service);
         assert_cancelled_timer_cannot_fire(&runtime_dir, collection_id).await;
     }
@@ -750,7 +775,7 @@ async fn timer_handle_reconciles_through_the_running_local_authority() {
     let (state_dir, registry, grant) = timer_handle_fixture();
     let collection_id = grant.collection_id;
     let grant_id = grant.id;
-    let (events, event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (events, event_rx) = tokio::sync::mpsc::channel(256);
     let (timers, task) = start(state_dir.path(), registry.clone(), None, event_rx);
     let operation_timers = timers.clone();
     let result = tokio::task::spawn_blocking(move || {
