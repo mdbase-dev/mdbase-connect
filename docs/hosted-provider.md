@@ -53,8 +53,9 @@ JavaScript.
 
 Installing definitions is an external provider commit, not part of the control
 plane's grant transaction. Hosted approval reads authoritative contract descriptors
-from the internally authenticated `GET /internal/v1/collections/{id}/contracts`
-before validating setup choices. The cached `hosted_collections.contracts` column
+from the existing internally authenticated `GET /internal/v1/collections/{id}/types`
+before validating setup choices. Its response now includes `contracts` alongside
+the type candidates, from the same authoritative resource snapshot. The cached `hosted_collections.contracts` column
 is only a compatibility hint; it cannot settle whether a setup is still missing.
 
 After a failed approval, the control plane rolls back access changes and refreshes

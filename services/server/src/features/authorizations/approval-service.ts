@@ -991,27 +991,3 @@ export async function approveHostedAuthorization(
     connection.release();
   }
 }
-
-export async function denyAuthorization(
-  db: DatabasePool,
-  input: {
-    requestId: string;
-    userId: string;
-    connectorId?: string;
-    source: "connector" | "portal";
-  }
-): Promise<boolean> {
-  const pending = await db.query<{ id: string }>(
-    `UPDATE authorization_requests SET completed_at = now(), denied_at = now()
-     WHERE id = $1 AND user_id = $2 AND completed_at IS NULL
-       AND grant_id IS NULL AND expires_at > now()
-     RETURNING id`,
-    [input.requestId, input.userId]
-  );
-  if (!pending.rows[0]) return false;
-  await audit(db, input.userId, "authorization.denied", input.requestId, {
-    ...(input.connectorId ? { connector_id: input.connectorId } : {}),
-    source: input.source
-  });
-  return true;
-}

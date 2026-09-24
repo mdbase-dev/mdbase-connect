@@ -59,8 +59,7 @@ import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { liveAuthorizationCollections } from "./local-collections.js";
 import {
   approveHostedAuthorization,
-  approvePortalAuthorization,
-  denyAuthorization
+  approvePortalAuthorization
 } from "./approval-service.js";
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
@@ -933,6 +932,30 @@ export function registerAuthorizationRoutes(
   });
 
   registerAuthorizationPollingRoutes(app, options);
+}
+
+async function denyAuthorization(
+  db: AuthorizationRouteOptions["db"],
+  input: {
+    requestId: string;
+    userId: string;
+    connectorId?: string;
+    source: "connector" | "portal";
+  }
+): Promise<boolean> {
+  const pending = await db.query<{ id: string }>(
+    `UPDATE authorization_requests SET completed_at = now(), denied_at = now()
+     WHERE id = $1 AND user_id = $2 AND completed_at IS NULL
+       AND grant_id IS NULL AND expires_at > now()
+     RETURNING id`,
+    [input.requestId, input.userId]
+  );
+  if (!pending.rows[0]) return false;
+  await audit(db, input.userId, "authorization.denied", input.requestId, {
+    ...(input.connectorId ? { connector_id: input.connectorId } : {}),
+    source: input.source
+  });
+  return true;
 }
 
 async function hostedTypeCandidates(

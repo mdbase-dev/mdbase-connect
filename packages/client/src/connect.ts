@@ -75,7 +75,6 @@ import {
   MemoryStorage,
   apiError,
   applicationStorageOrigin,
-  portableApplicationOrigin,
   canonicalLoopbackUrl,
   collectionIdFromTokenKey,
   connectFetch,
@@ -160,9 +159,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       : this.application?.distribution ?? "web";
     return {
       distribution,
-      applicationOrigin: distribution === "portable"
-        ? portableApplicationOrigin()
-        : this.defaultApplicationOrigin(),
+      applicationOrigin: this.defaultApplicationOrigin(),
       credentialStorage: this.credentialStorage
     };
   }
@@ -641,7 +638,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           && tokenBody.encryption.suite === RELAY_ENCRYPTION_SUITE
           && tokenBody.encryption.application_agreement_public_key
             === grantKey.agreementPublicKey;
-        if (tokenBody.application_origin !== portableApplicationOrigin()) {
+        if (tokenBody.application_origin !== this.defaultApplicationOrigin()) {
           throw connectError(
             "invalid_token_response",
             "Authorization did not bind the portable grant to its exact application origin."

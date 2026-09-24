@@ -828,7 +828,7 @@ describe("hosted provider control client", () => {
     const provider = new HostedProviderClient({ url: "https://provider.example", internalToken: "test" });
     await expect(provider.collectionContracts("collection")).resolves.toEqual(contracts);
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
-      "https://provider.example/internal/v1/collections/collection/contracts",
+      "https://provider.example/internal/v1/collections/collection/types",
       expect.objectContaining({ method: "GET", headers: { authorization: "Bearer test" } })
     );
   });
