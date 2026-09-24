@@ -1,15 +1,4 @@
-import {
-  assessMapping,
-  contractFields,
-  guidedBindingSupported,
-  propertyFields,
-  provisionedContract,
-  setupLabel,
-  suggestTypes,
-  typeFields,
-  type SetupContract,
-  type SetupType
-} from "@mdbase/connect-ui/contract-setup";
+import { provisionedContract, type SetupType } from "@mdbase/connect-ui/contract-setup";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
@@ -39,10 +28,13 @@ import {
   storedAuthorizationReview
 } from "./authorization-review-state";
 import {
+  ContractSetupEditor,
+  contractSetupProblem,
   NotificationAccess,
   PermissionList,
-  RequestedAccessSummary
-} from "./authorization-permissions";
+  RequestedAccessSummary,
+  type ContractSetupChoice
+} from "./authorization-review";
 import {
   formatDeviceCode,
   host,
@@ -365,175 +357,10 @@ function DesktopContinuation({ request, onReviewHere }: {
   );
 }
 
-type ContractSetupChoice = ReturnType<typeof initialContractSetupChoice>;
-
-function ContractSetupEditor({
-  applicationName,
-  contract,
-  types,
-  value,
-  disabled,
-  onChange
-}: {
-  applicationName: string;
-  contract: SetupContract;
-  types: SetupType[];
-  value: ContractSetupChoice;
-  disabled: boolean;
-  onChange(value: ContractSetupChoice): void;
-}) {
-  const suggestions = useMemo(() => suggestTypes(contract, types), [contract, types]);
-  const canGuideExistingType = guidedBindingSupported(contract);
-  const canChooseExistingType = suggestions.length > 0 && canGuideExistingType;
-  const selectedType = types.find((type) => type.name === value.typeName);
-  const availableFields = selectedType ? typeFields(selectedType) : [];
-  const fields = contractFields(contract);
-  const bindingFields = contract.binding_schema ? propertyFields(contract.binding_schema) : [];
-  const requiredBinding = new Set(
-    Array.isArray(contract.binding_schema?.required)
-      ? contract.binding_schema.required.filter((field): field is string => typeof field === "string")
-      : []
-  );
-
-  function selectType(typeName: string) {
-    const suggestion = suggestions.find((candidate) => candidate.type.name === typeName);
-    onChange({ ...value, typeName, fields: suggestion?.fields ?? {} });
-  }
-
-  if (!canChooseExistingType) {
-    return (
-      <div className="contract-setup-consequence">
-        <span className="setup-change-mark" aria-hidden="true">+</span>
-        <div>
-          <strong>{applicationName} needs a {setupLabel(contract).toLocaleLowerCase()} type</strong>
-          <small>Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged.</small>
-          <details className="contract-expert-details">
-            <summary>Expert details</summary>
-            <code>{contract.id} · {contract.version}</code>
-            {contract.description && <p>{contract.description}</p>}
-            {!canGuideExistingType && suggestions.length > 0 && <p>This application uses advanced behavior settings, so an existing type cannot be connected during approval.</p>}
-          </details>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="contract-setup-editor">
-      <div className="contract-setup-heading">
-        <div>
-          <strong>Help {applicationName} understand {setupLabel(contract).toLocaleLowerCase()}</strong>
-          <small>{contract.description ?? `Choose whether to add a new ${setupLabel(contract).toLocaleLowerCase()} type or use one you already have.`}</small>
-        </div>
-        <details className="contract-expert-details">
-          <summary>Expert details</summary>
-          <code>{contract.id} · {contract.version}</code>
-        </details>
-      </div>
-      <div className="contract-setup-mode" role="radiogroup" aria-label={`Setup for ${setupLabel(contract)}`}>
-        <label className={value.mode === "starter" ? "selected" : undefined}>
-          <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "starter"} disabled={disabled} onChange={() => onChange({ ...value, mode: "starter" })} />
-          <span><strong>Add a new {setupLabel(contract).toLocaleLowerCase()} type</strong><small>Create a separate type supplied by {applicationName}.</small></span>
-        </label>
-        <label className={value.mode === "existing" ? "selected" : undefined}>
-          <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "existing"} disabled={disabled} onChange={() => onChange({ ...value, mode: "existing" })} />
-          <span><strong>Use an existing type</strong><small>Keep your current records and explain which fields mean the same thing.</small></span>
-        </label>
-      </div>
-      {value.mode === "existing" && canGuideExistingType && <div className="contract-mapping">
-        <label className="contract-type-choice">
-          <span>Existing type</span>
-          <select value={value.typeName} disabled={disabled} onChange={(event) => selectType(event.target.value)}>
-            {suggestions.map((suggestion, index) => <option value={suggestion.type.name} key={suggestion.type.name}>{suggestion.type.name}{index === 0 && suggestion.requiredMatched === suggestion.requiredTotal ? " · suggested" : ""}</option>)}
-          </select>
-        </label>
-        <div className="contract-field-list">{fields.map((field) => {
-          const mapped = value.fields[field.reference] ?? "";
-          const typeField = availableFields.find((candidate) => candidate.reference === mapped);
-          const assessment = assessMapping(field, typeField);
-          return <label key={field.reference}>
-            <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? `The application’s ${field.label.toLocaleLowerCase()} value.`}</small></span>
-            <select value={mapped} disabled={disabled} aria-invalid={assessment.level === "error"} onChange={(event) => {
-              const next = { ...value.fields };
-              if (event.target.value) next[field.reference] = event.target.value;
-              else delete next[field.reference];
-              onChange({ ...value, fields: next });
-            }}>
-              <option value="">{field.required ? "Choose a field" : "Do not share"}</option>
-              {availableFields.map((candidate) => <option key={candidate.reference} value={candidate.reference}>{candidate.label}</option>)}
-            </select>
-            <small className={`mapping-assessment ${assessment.level}`}>{assessment.label} · {assessment.message}</small>
-          </label>;
-        })}</div>
-        {bindingFields.length > 0 && <fieldset className="contract-binding">
-          <legend>How this type behaves in {applicationName}</legend>
-          {bindingFields.map((field) => <SchemaInput key={field.name} field={field} required={requiredBinding.has(field.name)} value={value.binding[field.name]} disabled={disabled} onChange={(next) => onChange({ ...value, binding: { ...value.binding, [field.name]: next } })} />)}
-        </fieldset>}
-        <p className="field-note">Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active.</p>
-      </div>}
-    </div>
-  );
-}
-
-function SchemaInput({ field, required, value, disabled, onChange }: {
-  field: ReturnType<typeof propertyFields>[number];
-  required: boolean;
-  value: unknown;
-  disabled: boolean;
-  onChange(value: unknown): void;
-}) {
-  const options = Array.isArray(field.schema.enum) ? field.schema.enum : undefined;
-  return <label>
-    <span>{field.label}{required ? " *" : ""}</span>
-    {options ? <select value={value === undefined ? "" : String(value)} disabled={disabled} onChange={(event) => onChange(options.find((option) => String(option) === event.target.value))}>
-      <option value="">Choose</option>
-      {options.map((option) => <option key={String(option)} value={String(option)}>{String(option)}</option>)}
-    </select> : field.kind === "boolean" ? <input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input
-      type={field.kind === "number" || field.kind === "integer" ? "number" : "text"}
-      value={typeof value === "string" || typeof value === "number" ? value : ""}
-      disabled={disabled}
-      onChange={(event) => onChange(field.kind === "number" || field.kind === "integer" ? event.target.value === "" ? undefined : Number(event.target.value) : event.target.value)}
-    />}
-    {field.description && <small>{field.description}</small>}
-  </label>;
-}
-
 export function ApprovalForm(props: React.ComponentProps<typeof SupportedApprovalForm>) {
   const error = authorizationRequirementsError(props.request.requirements);
   if (error) return <div className="message error" role="alert">{error}</div>;
   return <SupportedApprovalForm {...props} />;
-}
-
-function contractSetupProblem(
-  contract: SetupContract,
-  choice: ContractSetupChoice | undefined,
-  types: SetupType[]
-): string | undefined {
-  const label = setupLabel(contract);
-  if (!choice) return `Choose how to set up ${label}.`;
-  if (choice.mode === "starter") return undefined;
-  const type = types.find((candidate) => candidate.name === choice.typeName);
-  if (!type?.revision) return `Choose an existing type for ${label}.`;
-  const available = typeFields(type);
-  const unmapped = contractFields(contract).find((field) => {
-    const candidate = available.find((value) => value.reference === choice.fields[field.reference]);
-    return assessMapping(field, candidate).level === "error";
-  });
-  if (unmapped) return `Choose a matching field for ${unmapped.label} in ${label}.`;
-  const requiredBinding = Array.isArray(contract.binding_schema?.required)
-    ? contract.binding_schema.required.filter((field): field is string => typeof field === "string")
-    : [];
-  const missing = requiredBinding.find((field) => {
-    const value = choice.binding[field];
-    return value === undefined || value === null || value === "";
-  });
-  if (missing) {
-    const field = contract.binding_schema
-      ? propertyFields(contract.binding_schema).find((candidate) => candidate.name === missing)
-      : undefined;
-    return `Fill in ${field?.label ?? missing} in ${label}.`;
-  }
-  return undefined;
 }
 
 function lostCollectionNotice(

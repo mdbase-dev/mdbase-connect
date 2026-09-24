@@ -9,7 +9,7 @@ import {
 } from "./src/authorization-capabilities.ts";
 
 const server = await createServer({ server: { middlewareMode: true }, appType: "custom" });
-const ui = await server.ssrLoadModule("/src/authorization-permissions.tsx");
+const ui = await server.ssrLoadModule("/src/authorization-review.tsx");
 const { ApprovalForm } = await server.ssrLoadModule("/src/authorization-view.tsx");
 await server.close();
 const render = (component, props) => renderToStaticMarkup(React.createElement(component, props));
