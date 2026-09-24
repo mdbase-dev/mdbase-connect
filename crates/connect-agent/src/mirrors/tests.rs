@@ -13,6 +13,61 @@ fn overlap_is_component_aware() {
 }
 
 #[test]
+fn removed_authority_identity_blocks_mirror_preflight_after_restart() {
+    let temporary = tempfile::tempdir().unwrap();
+    let state = temporary.path().join("state");
+    let root = temporary.path().join("collection");
+    let registry = CollectionRegistry::open(&state).unwrap();
+    let created = registry
+        .create(&root, Some("Retained identity"), "UTC")
+        .unwrap();
+    // Enrollment canonicalizes the selected folder before checking overlap.
+    // Match that contract on macOS (/var -> /private/var) and Windows too.
+    let root = root.canonicalize().unwrap();
+    let configuration = root.join("mdbase.yaml");
+    let source = format!(
+        "{}\n# Preserve application metadata\nx-app:\n  keep: true\n",
+        fs::read_to_string(&configuration).unwrap()
+    );
+    fs::write(&configuration, &source).unwrap();
+    fs::write(root.join("note.md"), "Original note\n").unwrap();
+    registry.remove(created.id).unwrap();
+    assert!(registry.list().unwrap().is_empty());
+    drop(registry);
+
+    let registry = CollectionRegistry::open(&state).unwrap();
+    assert!(registry.list().unwrap().is_empty());
+    let manager = MirrorManager::open(
+        &state,
+        registry,
+        None,
+        Some("Test does not use credentials".into()),
+    )
+    .unwrap();
+    let hosted_id = Uuid::new_v4();
+    let error = manager.ensure_path_available(&root, hosted_id).unwrap_err();
+    assert_eq!(error.code(), "local_authority_requires_transfer");
+    assert!(error.to_string().contains("x-mdbase-connect.collection_id"));
+    assert!(manager.entries().is_empty());
+    assert!(!root.join(".mdbase/connect-role.json").exists());
+    assert_eq!(fs::read_to_string(&configuration).unwrap(), source);
+    assert_eq!(
+        fs::read_to_string(root.join("note.md")).unwrap(),
+        "Original note\n"
+    );
+
+    let added = manager.registry.add(&root).unwrap();
+    assert_eq!(added.id, created.id);
+    assert_eq!(
+        manager
+            .ensure_path_available(&root, hosted_id)
+            .unwrap_err()
+            .code(),
+        "mirror_path_overlaps_authority"
+    );
+}
+
+#[test]
 fn registry_contains_no_credentials() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("mirrors.json");

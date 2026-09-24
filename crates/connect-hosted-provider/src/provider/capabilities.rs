@@ -194,38 +194,66 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
                 ));
             }
             if let Some(origin) = input.allowed_origin.as_deref() {
-                if origin == "null" && input.proof_public_key.is_none() {
-                    return Err(ApiError::bad_request(
-                        "authority_proof_required",
-                        "Opaque-origin application capabilities require a proof-of-possession key.",
-                    ));
-                }
-                if origin != "null" {
-                    let url = url::Url::parse(origin).map_err(|_| {
-                        ApiError::bad_request(
-                            "invalid_application_origin",
-                            "Application origin must be `null` or an absolute HTTP(S) origin.",
-                        )
-                    })?;
-                    if !matches!(url.scheme(), "http" | "https")
-                        || !url.username().is_empty()
-                        || url.password().is_some()
-                        || url.path() != "/"
-                        || url.query().is_some()
-                        || url.fragment().is_some()
-                        || url.origin().ascii_serialization() != origin
-                    {
-                        return Err(ApiError::bad_request(
-                            "invalid_application_origin",
-                            "Application origin must be `null` or a canonical HTTP(S) origin.",
-                        ));
-                    }
-                }
+                validate_application_origin(origin, input.proof_public_key.is_some())?;
             }
             if let Some(public_key) = input.proof_public_key.as_deref() {
                 validate_proof_public_key(public_key)?;
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_application_origin(origin: &str, has_proof_key: bool) -> ApiResult<()> {
+    let invalid = || {
+        ApiError::bad_request(
+            "invalid_application_origin",
+            "Application origin must be `null`, canonical HTTP(S), or an exact extension origin.",
+        )
+    };
+    let portable = if origin == "null" {
+        true
+    } else {
+        let url = url::Url::parse(origin).map_err(|_| invalid())?;
+        if !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            return Err(invalid());
+        }
+        match url.scheme() {
+            "http" | "https"
+                if url.path() == "/" && url.origin().ascii_serialization() == origin =>
+            {
+                false
+            }
+            "chrome-extension" | "moz-extension" => {
+                // URL's generic origin serialization is `null` for these schemes.
+                // Keep the exact browser origin instead; it is also used by the proof boundary.
+                let host = url
+                    .host_str()
+                    .filter(|host| !host.is_empty())
+                    .ok_or_else(invalid)?;
+                if url.port().is_some()
+                    || !url.path().is_empty()
+                    || !host.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                    })
+                    || format!("{}://{}", url.scheme(), host) != origin
+                {
+                    return Err(invalid());
+                }
+                true
+            }
+            _ => return Err(invalid()),
+        }
+    };
+    if portable && !has_proof_key {
+        return Err(ApiError::bad_request(
+            "authority_proof_required",
+            "Portable application capabilities require a proof-of-possession key.",
+        ));
     }
     Ok(())
 }

@@ -105,6 +105,16 @@ references, 2,292 TypeScript export references, 16 `mdbase::Collection`
 references, and one `TypedCollection` reference. These checks are architectural
 alarms rather than substitutes for review.
 
+The retained-identity mirror enrollment fix (#450) adds one Rust public function,
+`connect-mirror::validate_mirror_folder`, bringing the reviewed limit to 3,217.
+The agent calls it before remote pairing; marker creation shares its private
+role validator and repeats the check before writing. This is a real cross-crate
+boundary replacing late-only validation, not a second interpretation of identity
+metadata. Tests cover read-only preflight, provisioning revalidation, retained
+identity after removal/restart, and matching-marker precedence. Lifecycle fixtures
+use the same canonical folder paths as enrollment on Linux, macOS, and Windows.
+It adds no persisted state, protocol fields, production files, or package dependencies.
+
 The installed-desktop daemon fix adds one 26-line `daemon-lifecycle.ts` module
 shared by startup and update recovery. Its two internal exports and two imports
 replace duplicated CLI profile selection, keeping packaged default-service

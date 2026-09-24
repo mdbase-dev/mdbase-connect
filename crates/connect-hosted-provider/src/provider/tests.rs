@@ -984,6 +984,51 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         ),
     );
     validate_replica_capability(&portable_capability).unwrap();
+    for origin in [
+        "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo",
+        "moz-extension://2c0d3f4e-5a6b-47c8-9012-3456789abcde",
+    ] {
+        let mut extension = portable_capability.clone();
+        extension.allowed_origin = Some(origin.to_string());
+        validate_replica_capability(&extension).unwrap();
+        extension.proof_public_key = None;
+        assert_eq!(
+            validate_replica_capability(&extension).unwrap_err().code,
+            "authority_proof_required"
+        );
+        extension.proof_public_key = Some("invalid-key".into());
+        assert_eq!(
+            validate_replica_capability(&extension).unwrap_err().code,
+            "invalid_authority_proof_key"
+        );
+    }
+    for origin in [
+        "chrome-extension://",
+        "chrome-extension://extension/",
+        "chrome-extension://extension/page.html",
+        "chrome-extension://extension?query",
+        "chrome-extension://extension#fragment",
+        "chrome-extension://user@extension",
+        "chrome-extension://extension:443",
+        "chrome-extension://EXTENSION",
+        "CHROME-EXTENSION://extension",
+        "chrome-extension://*.example",
+        "chrome-extension://extension\\n",
+        "moz-extension://example:443",
+        "file:///extension",
+        "data:text/plain,extension",
+        "https://example.com/path",
+        "https://example.com/",
+        "https://user@example.com",
+    ] {
+        let mut extension = portable_capability.clone();
+        extension.allowed_origin = Some(origin.to_string());
+        assert_eq!(
+            validate_replica_capability(&extension).unwrap_err().code,
+            "invalid_application_origin",
+            "{origin}"
+        );
+    }
     let mut proof_without_origin = portable_capability.clone();
     proof_without_origin.allowed_origin = None;
     assert_eq!(
@@ -1009,6 +1054,27 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         grant_id: portable_capability.grant_id,
         scope_epoch: 1,
     };
+    for origin in [
+        "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo",
+        "moz-extension://2c0d3f4e-5a6b-47c8-9012-3456789abcde",
+    ] {
+        let mut extension_replica = portable_replica.clone();
+        extension_replica.allowed_origin = Some(origin.to_string());
+        authorize_application_operation(&extension_replica, "query", Some(origin)).unwrap();
+        for other in [
+            None,
+            Some("null"),
+            Some("https://tasks.example"),
+            Some("chrome-extension://another-extension"),
+        ] {
+            assert_eq!(
+                authorize_application_operation(&extension_replica, "query", other)
+                    .unwrap_err()
+                    .code,
+                "origin_denied"
+            );
+        }
+    }
     authorize_application_operation(&portable_replica, "query", Some("null")).unwrap();
     assert_eq!(
         authorize_application_operation(&portable_replica, "query", None)

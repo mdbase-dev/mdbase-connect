@@ -34,7 +34,9 @@ impl MirrorManager {
                 "Mirror folder overlaps another hosted mirror.",
             ));
         }
-        Ok(())
+        // Reject conflicting or unreadable on-disk roles before remote pairing.
+        // Provisioning repeats this check before writing the mirror marker.
+        validate_mirror_folder(path, collection_id).map_err(from_mirror)
     }
 
     pub(super) fn cloud(&self) -> Result<&CloudControlClient, ConnectError> {

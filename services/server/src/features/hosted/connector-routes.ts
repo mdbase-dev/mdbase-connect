@@ -1,6 +1,5 @@
 import { approveMirrorPairing } from "../../hosted-mirror-policy.js";
 import type {
-  CollectionContractDescriptor,
   CollectionOperation,
   ContractSetupChoice
 } from "@mdbase-dev/connect-protocol";
@@ -14,7 +13,6 @@ import {
 } from "../../collection-access.js";
 import { resolveHostedCollection } from "../../collection-catalog.js";
 import type { HostedAuthorityRegistry } from "../../hosted.js";
-import { effectiveHostedContractDescriptors } from "../../hosted.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
@@ -38,7 +36,6 @@ interface ConnectorHostedRoutesOptions extends HostedServiceOptions {
     userId: string;
     collectionId: string;
     operations: CollectionOperation[];
-    contracts: CollectionContractDescriptor[];
     contractSetups: ContractSetupChoice[];
     access: CollectionAccessContext;
   }): Promise<unknown | null>;
@@ -247,10 +244,6 @@ export function registerConnectorHostedRoutes(
         userId: connector.user_id,
         collectionId: collection.locator.collectionId,
         operations: input.operations,
-        contracts: effectiveHostedContractDescriptors(
-          collection.contracts,
-          collection.template
-        ),
         contractSetups: input.contract_setups,
         access
       });

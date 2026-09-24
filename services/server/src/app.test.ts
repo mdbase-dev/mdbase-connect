@@ -2835,6 +2835,7 @@ describe("mdbase connect server", () => {
       createCollection: vi.fn(),
       renameCollection: vi.fn(),
       deleteCollection: vi.fn(),
+      collectionContracts: vi.fn().mockResolvedValue([existingContract]),
       collectionTypeCandidates: vi.fn().mockResolvedValue([typeCandidate]),
       provisionTypePacks: vi.fn()
         .mockResolvedValueOnce({

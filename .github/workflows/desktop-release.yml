@@ -713,6 +713,8 @@ jobs:
         with:
           path: mdbase-connect
 
+      # Keep 6.0.9 until the action can bootstrap pnpm 11.15.1 on Intel macOS:
+      # 6.1.0 fails self-update with ERR_PNPM_PNPM_ENGINE_IDENTITY_UNVERIFIABLE.
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 11.15.1

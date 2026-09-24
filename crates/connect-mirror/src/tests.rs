@@ -2959,4 +2959,119 @@ fn marker_refuses_a_local_authority() {
     .unwrap();
     let error = mark_mirror(temporary.path(), Uuid::new_v4()).unwrap_err();
     assert_eq!(error.code, "local_authority_requires_transfer");
+    assert!(error.message.contains("mdbase.yaml"));
+    assert!(error.message.contains("x-mdbase-connect.collection_id"));
+    assert!(error
+        .message
+        .contains("verify ownership and transfer state"));
+    assert!(!temporary.path().join(".mdbase/connect-role.json").exists());
+}
+
+#[test]
+fn mirror_preflight_is_read_only_and_provisioning_rechecks_identity() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path();
+    let id = Uuid::new_v4();
+    validate_mirror_folder(root, id).unwrap();
+    assert_eq!(fs::read_dir(root).unwrap().count(), 0);
+    let source = format!(
+        "spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: {id}\n# Keep this comment\nx-app:\n  keep: true\n"
+    );
+    fs::write(root.join("mdbase.yaml"), &source).unwrap();
+    let error = mark_mirror(root, id).unwrap_err();
+    assert_eq!(error.code, "local_authority_requires_transfer");
+    assert_eq!(
+        fs::read_to_string(root.join("mdbase.yaml")).unwrap(),
+        source
+    );
+    assert!(!root.join(".mdbase").exists());
+}
+
+#[test]
+fn mirror_role_marker_takes_precedence_over_portable_identity() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path();
+    let id = Uuid::new_v4();
+    mark_mirror(root, id).unwrap();
+    let source = format!("spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: {id}\n");
+    fs::write(root.join("mdbase.yaml"), &source).unwrap();
+    let marker = root.join(".mdbase/connect-role.json");
+    let existing = format!("{{\"version\":1,\"role\":\"mirror\",\"collection_id\":\"{id}\"}}\n");
+    fs::write(&marker, &existing).unwrap();
+    validate_mirror_folder(root, id).unwrap();
+    mark_mirror(root, id).unwrap();
+    assert_eq!(fs::read_to_string(&marker).unwrap(), existing);
+    assert_eq!(
+        fs::read_to_string(root.join("mdbase.yaml")).unwrap(),
+        source
+    );
+    let error = validate_mirror_folder(root, Uuid::new_v4()).unwrap_err();
+    assert_eq!(error.code, "mirror_identity_conflict");
+}
+
+#[test]
+fn mirror_preflight_rejects_invalid_configuration_without_modifying_it() {
+    for source in [
+        "spec_version: [\n",
+        "[]\n",
+        "",
+        "x-mdbase-connect: []\n",
+        "x-mdbase-connect: null\n",
+        "x-mdbase-connect:\n  collection_id: 42\n",
+        "x-mdbase-connect:\n  collection_id: null\n",
+        "x-mdbase-connect:\n  collection_id: not-a-uuid\n",
+    ] {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        fs::write(root.join("mdbase.yaml"), source).unwrap();
+        let id = Uuid::new_v4();
+        for error in [
+            validate_mirror_folder(root, id).unwrap_err(),
+            mark_mirror(root, id).unwrap_err(),
+        ] {
+            assert_eq!(error.code, "invalid_mirror_configuration", "{source:?}");
+        }
+        assert_eq!(
+            fs::read_to_string(root.join("mdbase.yaml")).unwrap(),
+            source
+        );
+        assert!(!root.join(".mdbase").exists());
+    }
+}
+
+#[test]
+fn mirror_preflight_does_not_treat_unreadable_metadata_as_absent() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path();
+    fs::create_dir(root.join("mdbase.yaml")).unwrap();
+    assert_eq!(
+        validate_mirror_folder(root, Uuid::new_v4())
+            .unwrap_err()
+            .code,
+        "mirror_io_failed"
+    );
+    fs::remove_dir(root.join("mdbase.yaml")).unwrap();
+    fs::create_dir_all(root.join(".mdbase/connect-role.json")).unwrap();
+    assert_eq!(
+        validate_mirror_folder(root, Uuid::new_v4())
+            .unwrap_err()
+            .code,
+        "mirror_io_failed"
+    );
+}
+
+#[test]
+fn mirror_preflight_accepts_configuration_without_connect_identity() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path();
+    let source = "spec_version: 0.3.0\nx-mdbase-connect:\n  other: preserved\n";
+    fs::write(root.join("mdbase.yaml"), source).unwrap();
+    let id = Uuid::new_v4();
+    validate_mirror_folder(root, id).unwrap();
+    assert!(!root.join(".mdbase").exists());
+    mark_mirror(root, id).unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("mdbase.yaml")).unwrap(),
+        source
+    );
 }

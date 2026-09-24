@@ -370,6 +370,18 @@ export function defaultRedirectUri(): string {
   return location.href.split(/[?#]/)[0];
 }
 
+export function portableApplicationOrigin(): string {
+  if (typeof location === "undefined") return "null";
+  const url = new URL(location.href);
+  if (["chrome-extension:", "moz-extension:"].includes(url.protocol)) {
+    // Generic URL parsers can serialize extension origins as null. Browsers
+    // send their exact scheme/host as the request Origin.
+    return `${url.protocol}//${url.host}`;
+  }
+  // Chromium can serialize file URL origins as file://; their wire origin is null.
+  return ["http:", "https:"].includes(url.protocol) ? url.origin : "null";
+}
+
 export function applicationStorageOrigin(
   manifest: MdbaseAppManifest | string,
   manifestSource: string,
@@ -379,7 +391,7 @@ export function applicationStorageOrigin(
   if (
     (typeof manifest !== "string" && manifest.distribution === "portable")
     || registeredPortable
-  ) return "null";
+  ) return portableApplicationOrigin();
   const redirect = new URL(redirectUri);
   if (["http:", "https:"].includes(redirect.protocol)) return redirect.origin;
   if (typeof location !== "undefined") return location.origin;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RequestValidationError } from "../../platform/http-errors.js";
 import {
   applicationOriginForDeviceRequest,
   applicationOriginForRedirect,
@@ -34,15 +35,25 @@ describe("application authorization origins", () => {
     )).toBe("moz-extension://2c0d3f4e-5a6b-47c8-9012-3456789abcde");
   });
 
+  it.each(["ftp://example.com", "file:///extension", "data:text/plain,extension", "custom://app"])(
+    "does not turn an unsupported device origin into portable authority: %s", (value) => {
+      expect(() => applicationOriginForDeviceRequest(value)).toThrow(RequestValidationError);
+    }
+  );
+
   it("continues to normalize web origins", () => {
     expect(applicationOriginForDeviceRequest("https://app.example:8443")).toBe(
       "https://app.example:8443"
     );
   });
 
-  it("rejects an extension URL that is not an origin", () => {
-    expect(() => normalizedApplicationOrigin(
-      "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo/page.html"
-    )).toThrow("browser extension origin is invalid");
+  it.each([
+    "chrome-extension://extension/page.html", "chrome-extension://extension:443",
+    "chrome-extension://extension?query", "chrome-extension://extension#fragment",
+    "chrome-extension://user@extension", "chrome-extension://EXTENSION",
+    "chrome-extension://*.example", "moz-extension://example:443"
+  ])("rejects an extension URL that is not an origin: %s", (value) => {
+    expect(() => normalizedApplicationOrigin(value)).toThrow("browser extension origin is invalid");
+    expect(() => applicationOriginForDeviceRequest(value)).toThrow(RequestValidationError);
   });
 });

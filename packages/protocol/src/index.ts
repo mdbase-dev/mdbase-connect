@@ -46,7 +46,8 @@ export const MINIMUM_CONNECTOR_VERSION = "0.1.0-beta.33" as const;
 export const POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION = "0.1.0-beta.91" as const;
 export const HOSTED_PROVIDER_REQUIRED_CAPABILITIES = [
   "durable-mutation-journal-v1",
-  "durable-file-lifecycle-v1"
+  "durable-file-lifecycle-v1",
+  "contract-metadata-read-v1"
 ] as const;
 export const HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY =
   "candidate-b-activation-v1" as const;

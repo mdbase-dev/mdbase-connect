@@ -66,7 +66,7 @@ pub use sync_model::{
 pub use directory_files::validate_selective_sync_policy;
 use directory_files::{classify_file_media, validate_visible_file_path};
 
-pub use filesystem::{clear_mirror_marker, mark_mirror, mirror_lock_path};
+pub use filesystem::{clear_mirror_marker, mark_mirror, mirror_lock_path, validate_mirror_folder};
 pub use transport::{HttpSyncTransport, SyncTransport};
 
 #[cfg(test)]

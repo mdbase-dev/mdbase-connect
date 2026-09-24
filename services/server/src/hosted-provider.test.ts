@@ -32,6 +32,14 @@ function readinessDocument(contractSupport: ConnectContractSupport = CONNECT_CON
 }
 
 describe("hosted provider control client", () => {
+  it("requires versioned authoritative contract metadata support before using a provider", async () => {
+    const document = readinessDocument();
+    document.provider.capabilities = document.provider.capabilities.filter((capability) => capability !== "contract-metadata-read-v1");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(document));
+    const provider = new HostedProviderClient({ url: "https://provider.example", internalToken: "test" });
+    await expect(provider.ready()).rejects.toBeInstanceOf(HostedProviderUnavailableError);
+  });
+
   it("requires an exact durable cancellation acknowledgement, never an absence response", async () => {
     const provider = new HostedProviderClient({ url: "https://provider.example", internalToken: "test-internal" });
     const expected = { transfer_id: "transfer", collection_id: "collection", authority_epoch: 2, cancelled: true };
@@ -810,6 +818,27 @@ describe("hosted provider control client", () => {
         })
       })
     );
+  });
+
+  it("reads authoritative contracts without provisioning or requesting collection records", async () => {
+    const contracts = [{ contract_type: "record", id: "example.task", version: "1.0.0",
+      digest: `sha256:${"a".repeat(64)}`, schema: { type: "object" },
+      implementations: [{ type_name: "task", type_version: 1, digest: `sha256:${"b".repeat(64)}`, fields: {} }] }];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ contracts }));
+    const provider = new HostedProviderClient({ url: "https://provider.example", internalToken: "test" });
+    await expect(provider.collectionContracts("collection")).resolves.toEqual(contracts);
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+      "https://provider.example/internal/v1/collections/collection/types",
+      expect.objectContaining({ method: "GET", headers: { authorization: "Bearer test" } })
+    );
+  });
+
+  it.each([{}, { contracts: null }, { contracts: [{}] }])("fails closed on invalid authoritative contract metadata: %j", async (payload) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(payload));
+    const provider = new HostedProviderClient({ url: "https://provider.example", internalToken: "test" });
+    await expect(provider.collectionContracts("collection")).rejects.toMatchObject({
+      status: 502, code: "invalid_provider_response"
+    });
   });
 
   it("reads private hosted type candidates and forwards reviewed contract mappings", async () => {

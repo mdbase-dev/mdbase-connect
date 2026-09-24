@@ -902,11 +902,11 @@ async fn collection_type_candidates(
     State(state): State<AppState>,
     Path(collection_id): Path<Uuid>,
 ) -> ApiResult<Json<Value>> {
-    let types = state
+    let (types, contracts) = state
         .provider
         .collection_type_candidates(collection_id)
         .await?;
-    Ok(Json(json!({ "types": types })))
+    Ok(Json(json!({ "types": types, "contracts": contracts })))
 }
 
 async fn operation(
