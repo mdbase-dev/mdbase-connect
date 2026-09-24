@@ -3,8 +3,9 @@ use mdbase_connect_core::{
     collection_identity, CollectionRegistry, ConnectError, SystemSecretStore,
 };
 use mdbase_connect_mirror::{
-    clear_mirror_marker, mark_mirror, mirror_lock_path, validate_selective_sync_policy,
-    DirectoryMirror, HttpSyncTransport, MirrorApplyResult, MirrorError, MirrorSyncPlan,
+    clear_mirror_marker, mark_mirror, mirror_lock_path, validate_mirror_folder,
+    validate_selective_sync_policy, DirectoryMirror, HttpSyncTransport, MirrorApplyResult,
+    MirrorError, MirrorSyncPlan,
 };
 use mdbase_connect_protocol::{
     MirrorAddParams, MirrorApplyParams, MirrorConfigureSelectiveSyncParams, MirrorIdParams,
