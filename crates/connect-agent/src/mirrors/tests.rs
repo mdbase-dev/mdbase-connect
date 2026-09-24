@@ -21,6 +21,9 @@ fn removed_authority_identity_blocks_mirror_preflight_after_restart() {
     let created = registry
         .create(&root, Some("Retained identity"), "UTC")
         .unwrap();
+    // Enrollment canonicalizes the selected folder before checking overlap.
+    // Match that contract on macOS (/var -> /private/var) and Windows too.
+    let root = root.canonicalize().unwrap();
     let configuration = root.join("mdbase.yaml");
     let source = format!(
         "{}\n# Preserve application metadata\nx-app:\n  keep: true\n",
