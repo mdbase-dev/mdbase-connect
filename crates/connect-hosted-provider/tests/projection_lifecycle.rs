@@ -8081,6 +8081,90 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn hosted_queries_follow_links_through_the_relationship_graph() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id: Uuid = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    for (path, document) in [
+        ("projects/mobile.md", "---\ntitle: Mobile roadmap\n---\n"),
+        ("projects/web.md", "---\ntitle: Web roadmap\n---\n"),
+        ("projects/idle.md", "---\ntitle: Idle\n---\n"),
+        (
+            "tasks/mobile-task.md",
+            "---\nproject: '[[projects/mobile]]'\n---\nShip mobile\n",
+        ),
+        (
+            "tasks/web-task.md",
+            "---\nproject: '[[projects/web]]'\n---\nShip web\n",
+        ),
+    ] {
+        put(
+            &fixture,
+            replica_id,
+            scope_epoch,
+            Uuid::now_v7(),
+            None,
+            path,
+            document,
+        )
+        .await;
+    }
+    complete_generation(&fixture).await;
+    let (_, token) = register_query_application(&fixture, Vec::new()).await;
+    let query = |input: Value| {
+        let fixture = &fixture;
+        let token = token.clone();
+        async move {
+            fixture
+                .provider
+                .operation(
+                    fixture.collection_id,
+                    &token,
+                    "query",
+                    Uuid::new_v4(),
+                    input,
+                    None,
+                )
+                .await
+                .unwrap()
+        }
+    };
+    let paths = |result: &Value| {
+        assert_eq!(result["valid"], true, "{result}");
+        result["result"]["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|record| record["path"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+
+    let forward = query(json!({
+        "where": "project.asFile().title == 'Mobile roadmap'",
+        "order_by": [{"field": "file.path"}]
+    }))
+    .await;
+    assert_eq!(paths(&forward), ["tasks/mobile-task.md"]);
+
+    let backward = query(json!({
+        "where": "file.backlinks.size() > 0",
+        "order_by": [{"field": "file.path"}]
+    }))
+    .await;
+    assert_eq!(paths(&backward), ["projects/mobile.md", "projects/web.md"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn hosted_base_skips_a_malformed_record_and_returns_readable_rows() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");

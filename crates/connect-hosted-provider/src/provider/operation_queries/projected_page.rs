@@ -93,6 +93,16 @@ async fn execute_projected_page(
             (exact_records.len() as u64).saturating_add(context_documents),
         ));
     }
+    let neighborhoods = if state.plan.requirements.relationships {
+        let candidates = rows
+            .iter()
+            .map(|row| (row.record_id, row.projection.clone()))
+            .collect::<HashMap<_, _>>();
+        let ids = rows.iter().map(|row| row.record_id).collect::<Vec<_>>();
+        load_query_neighborhoods(transaction, collection_id, state, &candidates, &ids).await?
+    } else {
+        HashMap::new()
+    };
     let mut results = Vec::with_capacity(rows.len());
     let mut diagnostics = Vec::new();
     let mut last_order_values = None;
@@ -101,10 +111,11 @@ async fn execute_projected_page(
             let record = exact_records.get(&row.record_id).ok_or_else(|| {
                 ApiError::internal("A selected hosted query row has no exact snapshot record.")
             })?;
-            catalog.evaluate_hosted_residual_with_context(
+            catalog.evaluate_hosted_residual_with_neighborhood(
                 &state.plan,
                 record,
                 state.exact_context.as_ref(),
+                neighborhoods.get(&row.record_id),
             )
         } else {
             catalog.evaluate_hosted_projection_residual(&state.plan, &row.projection)
