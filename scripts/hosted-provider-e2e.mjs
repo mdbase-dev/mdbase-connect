@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { buildS3TestImages } from "./lib/s3-test-images.mjs";
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -4469,7 +4470,7 @@ async function startObjectStore() {
     "--env", "MINIO_ROOT_USER=mdbase-test-access",
     "--env", "MINIO_ROOT_PASSWORD=mdbase-test-secret-key",
     "--publish", "127.0.0.1::9000",
-    "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+    (await buildS3TestImages()).minio,
     "server", "/data", "--address", ":9000"
   ]);
   objectStoreStarted = true;
@@ -4485,7 +4486,7 @@ async function startObjectStore() {
   await execute("docker", [
     "run", "--rm", "--network", `container:${objectStoreContainer}`,
     "--entrypoint", "/bin/sh",
-    "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
+    (await buildS3TestImages()).mc,
     "-c",
     "mc alias set local http://127.0.0.1:9000 mdbase-test-access mdbase-test-secret-key && mc mb --ignore-existing local/mdbase-connect-files"
   ]);
