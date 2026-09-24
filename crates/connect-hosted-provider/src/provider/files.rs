@@ -211,6 +211,7 @@ pub(super) fn descriptor(
 
 fn download_session(transfer: &HostedDownloadTransfer, part_size: u64) -> FileTransferSession {
     FileTransferSession {
+        prepared_upload_part: None,
         protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
         message_type: FileTransferSessionKind::FileTransfer,
         transfer_id: transfer.id,

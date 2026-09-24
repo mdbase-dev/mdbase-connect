@@ -284,6 +284,7 @@ fn rust_file_messages_match_the_canonical_wire_schema() {
     );
 
     let session = FileTransferSession {
+        prepared_upload_part: None,
         protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
         message_type: FileTransferSessionKind::FileTransfer,
         transfer_id: Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),
@@ -299,7 +300,7 @@ fn rust_file_messages_match_the_canonical_wire_schema() {
     };
     assert_file_schema(
         "/$defs/transferSession",
-        serde_json::to_value(session).unwrap(),
+        serde_json::to_value(&session).unwrap(),
     );
 
     let status = FileTransferStatus {
@@ -333,7 +334,31 @@ fn rust_file_messages_match_the_canonical_wire_schema() {
     };
     assert_file_schema(
         "/$defs/preparedPart",
-        serde_json::to_value(prepared_part).unwrap(),
+        serde_json::to_value(&prepared_part).unwrap(),
+    );
+    assert_eq!(
+        serde_json::from_value::<FileTransferSession>(serde_json::to_value(&session).unwrap())
+            .unwrap(),
+        session
+    );
+    let bootstrapped = FileTransferSession {
+        protection: FileTransferProtection::TransportTls,
+        strategy: FileTransferStrategy::ObjectPut,
+        total_size: 123,
+        received: Vec::new(),
+        prepared_upload_part: Some(PreparedFilePart {
+            part_index: 0,
+            offset: 0,
+            headers: BTreeMap::from([("if-none-match".to_string(), "*".to_string())]),
+            ..prepared_part
+        }),
+        ..session
+    };
+    let encoded = serde_json::to_value(&bootstrapped).unwrap();
+    assert_file_schema("/$defs/transferSession", encoded.clone());
+    assert_eq!(
+        serde_json::from_value::<FileTransferSession>(encoded).unwrap(),
+        bootstrapped
     );
 
     let receipt = CommitFileUploadReceipt {

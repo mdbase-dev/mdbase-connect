@@ -195,6 +195,24 @@ test("file transfer control messages are bounded and resumable", () => {
   }), false);
   assert.equal(validateSession({ ...session, received: [0, 0] }), false);
 
+  const bootstrap = {
+    ...session,
+    protection: "transport_tls",
+    strategy: { kind: "object_put" },
+    received: [],
+    prepared_upload_part: {
+      protocol_version: 1, type: "file_part", transfer_id: session.transfer_id,
+      part_index: 0, offset: 0, content_length: session.total_size,
+      method: "PUT", url: "https://example.invalid/candidate",
+      headers: { "if-none-match": "*" }, expires_at: session.expires_at
+    }
+  };
+  assert.equal(validateSession(bootstrap), true, JSON.stringify(validateSession.errors));
+  assert.equal(validateSession({ ...bootstrap, direction: "download" }), false);
+  assert.equal(validateSession({ ...bootstrap, strategy: { kind: "object_multipart", part_size: 8388608 } }), false);
+  assert.equal(validateSession({ ...bootstrap, prepared_upload_part: { ...bootstrap.prepared_upload_part, part_index: 1 } }), false);
+  assert.equal(validateSession({ ...bootstrap, prepared_upload_part: { ...bootstrap.prepared_upload_part, headers: {} } }), false);
+
   const validateHeader = validator(`${filesSchema.$id}#/$defs/frameHeader`);
   const header = {
     protocol_version: 1,

@@ -266,6 +266,7 @@ pub(super) fn required_download(
 
 pub(super) fn download_session(transfer: &DownloadTransfer) -> FileTransferSession {
     FileTransferSession {
+        prepared_upload_part: None,
         protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
         message_type: FileTransferSessionKind::FileTransfer,
         transfer_id: transfer.transfer_id,

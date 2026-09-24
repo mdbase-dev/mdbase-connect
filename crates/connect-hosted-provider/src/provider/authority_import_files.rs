@@ -442,6 +442,7 @@ impl HostedProvider {
             unreachable!("multipart progress handled above")
         };
         Ok(FileTransferSession {
+            prepared_upload_part: None,
             protocol_version: FILE_PROTOCOL_VERSION,
             message_type: FileTransferSessionKind::FileTransfer,
             transfer_id: transfer.id,

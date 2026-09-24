@@ -76,9 +76,18 @@ try {
   const largeUpload = await upload(provider.url, collectionId, writer.token, "Media/large.bin", large);
   assert.equal(largeUpload.open.strategy.kind, "object_multipart");
 
-  const sdk = fileSdk(provider.url, collectionId, writer.token);
+  const sdkControls = [];
+  const sdk = fileSdk(provider.url, collectionId, writer.token, sdkControls);
   const sdkBytes = Buffer.from("uploaded and verified through the public SDK");
   const sdkFile = await sdk.upload("Assets/sdk.bin", sdkBytes);
+  assert.deepEqual(sdkControls.map(({ method, path }) => [
+    method, path.replace(/[0-9a-f-]{36}/giu, ":id")
+  ]), [
+    ["POST", "uploads"],
+    ["GET", "transfers/:id"],
+    ["POST", "uploads/:id/parts"],
+    ["POST", "uploads/:id/commit"]
+  ], "ordinary uploads must retain fresh status and prepare round trips");
   assert.equal(sdkFile.contentDigest, digest(sdkBytes));
   assert.deepEqual(Buffer.from(await sdk.downloadBytes(sdkFile)), sdkBytes);
 
@@ -264,6 +273,8 @@ async function upload(url, collectionId, token, path, bytes) {
   const body = { protocol_version: 1, type: "open_file_upload", transfer_id: transferId,
     path, size: bytes.length, content_digest: digest(bytes) };
   const open = await json(url, `/v1/authorities/${collectionId}/files/uploads`, token, body);
+  assert.equal(Object.hasOwn(open, "prepared_upload_part"), false,
+    "ordinary providers must preserve the legacy session wire shape");
   assert.deepEqual(await json(url, `/v1/authorities/${collectionId}/files/uploads`, token, body), open);
   const partSize = (open.strategy.part_size ?? bytes.length) || 1;
   const parts = [];
@@ -335,7 +346,7 @@ async function download(url, collectionId, token, file) {
   return bytes;
 }
 
-function fileSdk(url, collectionId, token) {
+function fileSdk(url, collectionId, token, controls = []) {
   return new MdbaseFileClient(
     () => ({
       kind: "files",
@@ -343,11 +354,14 @@ function fileSdk(url, collectionId, token) {
       actions: ["list", "read", "add", "replace", "move", "delete"],
       scope: { kind: "collection" }
     }),
-    async (method, path = "", input) => ok(request(
-      url,
-      `/v1/authorities/${collectionId}/files${path === "" || path.startsWith("?") ? path : `/${path}`}`,
-      { method, token, ...(input === undefined ? {} : { body: input }) }
-    )),
+    async (method, path = "", input) => {
+      controls.push({ method, path });
+      return ok(request(
+        url,
+        `/v1/authorities/${collectionId}/files${path === "" || path.startsWith("?") ? path : `/${path}`}`,
+        { method, token, ...(input === undefined ? {} : { body: input }) }
+      ));
+    },
     undefined,
     {
       async downloadPart(session, partIndex, expectedLength) {

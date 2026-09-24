@@ -317,8 +317,27 @@
           "type": "array",
           "maxItems": 10000,
           "items": { "$ref": "#/$defs/uploadedPart" }
-        }
-      }
+        },
+        "prepared_upload_part": { "$ref": "#/$defs/preparedPart" }
+      },
+      "allOf": [{
+        "if": { "required": ["prepared_upload_part"] },
+        "then": { "properties": {
+          "direction": { "const": "upload" },
+          "protection": { "const": "transport_tls" },
+          "strategy": { "type": "object", "properties": { "kind": { "const": "object_put" } } },
+          "prepared_upload_part": { "type": "object", "properties": {
+            "part_index": { "const": 0 },
+            "offset": { "const": 0 },
+            "method": { "const": "PUT" },
+            "headers": {
+              "type": "object",
+              "required": ["if-none-match"],
+              "properties": { "if-none-match": { "const": "*" } }
+            }
+          } }
+        } }
+      }]
     },
     "transferStatus": {
       "type": "object",

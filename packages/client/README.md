@@ -685,6 +685,20 @@ browser and Node streams already produce much smaller chunks. After an
 ambiguous failure, call it again with a newly opened source and the same
 `transferId` to resume safely.
 
+The SDK can consume an optional `prepared_upload_part` on an upload-open
+response. It is only valid for a create-only single PUT, bound to the transfer,
+size and `If-None-Match: *` condition. With more than 60 seconds remaining, it
+avoids the initial status and prepare requests. A successful PUT or HTTP 412
+still requires authoritative commit; neither proves that the stored bytes match.
+Expired capabilities, slow streams and ambiguous PUTs recover through fresh
+status. A replayed open response is never treated as fresh transfer progress.
+Ordinary, multipart and framed transfers retain their existing status path.
+
+This is consumer support only: providers in this release omit the optional
+field, so it does not activate immutable uploads or change their wire responses.
+Provider activation and reclamation require separate qualification; the SDK
+must not be taken as authorization to enable an experimental producer.
+
 Both lifecycle methods are optimistic and use the descriptor revision by
 default. Pass a stable `mutationId` when retrying after an ambiguous network
 failure; the authority returns the original durable receipt instead of applying

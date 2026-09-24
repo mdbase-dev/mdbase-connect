@@ -199,6 +199,7 @@ impl HostedProvider {
     ) -> ApiResult<FileTransferSession> {
         let (received, _, uploaded_parts) = self.upload_progress(transfer).await?;
         Ok(FileTransferSession {
+            prepared_upload_part: None,
             protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
             message_type: FileTransferSessionKind::FileTransfer,
             transfer_id: transfer.id,

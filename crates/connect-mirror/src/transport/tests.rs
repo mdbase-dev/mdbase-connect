@@ -16,6 +16,7 @@ struct RetryUploadState {
 
 async fn open_retry_upload(State(state): State<RetryUploadState>) -> Json<FileTransferSession> {
     Json(FileTransferSession {
+        prepared_upload_part: None,
         protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
         message_type: FileTransferSessionKind::FileTransfer,
         transfer_id: state.transfer_id,

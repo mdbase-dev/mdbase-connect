@@ -25,6 +25,273 @@ afterEach(() => {
 });
 
 describe("MdbaseFileClient", () => {
+  it.each([200, 412])(
+    "uses a replay-safe open bootstrap without status or prepare (PUT %s)",
+    async (putStatus) => {
+      const content = bytes("bootstrap");
+      const controls: string[] = [];
+      const status = vi.fn(() => {
+        throw new Error("unexpected status round trip");
+      });
+      const client = fileClient(
+        async (_method, path, input) => {
+          controls.push(path ?? "");
+          if (path === "uploads")
+            return bootstrappedUploadSession(input.transfer_id, content.length);
+          if (path?.endsWith("/commit"))
+            return {
+              protocol_version: 1,
+              type: "file_upload_committed",
+              transfer_id: input.transfer_id,
+              file: wireDescriptor("bootstrap.bin", content)
+            };
+          throw new Error(`Unexpected control path ${path}`);
+        },
+        undefined,
+        undefined,
+        status
+      );
+      const put = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: putStatus }));
+      await expect(client.upload("bootstrap.bin", content)).resolves.toMatchObject({
+        path: "bootstrap.bin"
+      });
+      expect(status).not.toHaveBeenCalled();
+      expect(controls).toHaveLength(2);
+      expect(controls[1]).toMatch(/\/commit$/);
+      expect(put).toHaveBeenCalledOnce();
+      expect(new Headers(put.mock.calls[0]?.[1]?.headers).get("if-none-match")).toBe("*");
+    }
+  );
+
+  it.each(["expired", "slow-source"])(
+    "recovers %s bootstrap through fresh status and committed replay",
+    async (mode) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2030-01-01T00:00:00Z"));
+      const content = bytes("resume bootstrap");
+      const status = vi.fn((id: string) => ({
+        protocol_version: 1,
+        type: "file_transfer_status",
+        transfer_id: id,
+        state: "committed",
+        received: [0],
+        received_bytes: content.length,
+        uploaded_parts: []
+      }));
+      const client = fileClient(
+        async (_method, path, input) => {
+          if (path === "uploads")
+            return bootstrappedUploadSession(
+              input.transfer_id,
+              content.length,
+              mode === "expired" ? "2029-01-01T00:00:00Z" : "2030-01-01T00:05:00Z"
+            );
+          if (path?.endsWith("/commit"))
+            return {
+              protocol_version: 1,
+              type: "file_upload_committed",
+              transfer_id: input.transfer_id,
+              file: wireDescriptor("resume.bin", content)
+            };
+          throw new Error(`Unexpected control path ${path}`);
+        },
+        undefined,
+        undefined,
+        status
+      );
+      const put = vi.spyOn(globalThis, "fetch");
+      if (mode === "slow-source") {
+        const stream = (async function* () {
+          vi.setSystemTime(new Date("2030-01-01T00:10:00Z"));
+          yield content;
+        })();
+        await client.uploadStream(
+          "resume.bin",
+          { stream, size: content.length, contentDigest: digest(content) },
+          { timeoutMs: null }
+        );
+      } else await client.upload("resume.bin", content);
+      expect(status).toHaveBeenCalledOnce();
+      expect(put).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(["mutable", "conflicting-condition", "wrong-transfer", "bad-expiry", "multipart"])(
+    "rejects malformed bootstrap: %s",
+    async (kind) => {
+      const content = bytes("invalid bootstrap");
+      const status = vi.fn(() => {
+        throw new Error("invalid bootstrap must not reach status");
+      });
+      const client = fileClient(
+        async (method, path, input) => {
+          if (method === "DELETE") return {};
+          if (path === "uploads") {
+            const session = bootstrappedUploadSession(input.transfer_id, content.length);
+            if (kind === "mutable") session.prepared_upload_part.headers = {};
+            if (kind === "conflicting-condition")
+              session.prepared_upload_part.headers = {
+                "If-None-Match": "*",
+                "if-none-match": "etag"
+              };
+            if (kind === "wrong-transfer")
+              session.prepared_upload_part.transfer_id = crypto.randomUUID();
+            if (kind === "bad-expiry") session.prepared_upload_part.expires_at = "invalid";
+            if (kind === "multipart")
+              session.strategy = { kind: "object_multipart", part_size: content.length };
+            return session;
+          }
+          throw new Error(`Unexpected control path ${path}`);
+        },
+        undefined,
+        undefined,
+        status
+      );
+      const put = vi.spyOn(globalThis, "fetch");
+      await expect(client.upload("invalid.bin", content)).rejects.toMatchObject({
+        code: "invalid_operation_response"
+      });
+      expect(put).not.toHaveBeenCalled();
+      expect(status).not.toHaveBeenCalled();
+    }
+  );
+
+  it("recovers an ambiguous bootstrap PUT using fresh progress before authoritative commit", async () => {
+    const content = bytes("lost response");
+    const status = vi.fn((id: string) => ({
+      protocol_version: 1,
+      type: "file_transfer_status",
+      transfer_id: id,
+      state: "open",
+      received: [0],
+      received_bytes: content.length,
+      uploaded_parts: []
+    }));
+    const client = fileClient(
+      async (_method, path, input) => {
+        if (path === "uploads") return bootstrappedUploadSession(input.transfer_id, content.length);
+        if (path?.endsWith("/commit"))
+          return {
+            protocol_version: 1,
+            type: "file_upload_committed",
+            transfer_id: input.transfer_id,
+            file: wireDescriptor("lost.bin", content)
+          };
+        throw new Error(`Unexpected control path ${path}`);
+      },
+      undefined,
+      undefined,
+      status
+    );
+    const put = vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(client.upload("lost.bin", content)).resolves.toMatchObject({ path: "lost.bin" });
+    expect(status).toHaveBeenCalledOnce();
+    expect(put).toHaveBeenCalledOnce();
+  });
+
+  it("does not commit a bootstrapped upload after cancellation", async () => {
+    const content = bytes("cancel bootstrap"),
+      abort = new AbortController();
+    let commits = 0;
+    const client = fileClient(async (method, path, input) => {
+      if (method === "DELETE") return {};
+      if (path === "uploads") return bootstrappedUploadSession(input.transfer_id, content.length);
+      if (path?.endsWith("/commit")) commits++;
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      abort.abort();
+      return new Response(null, { status: 200 });
+    });
+    await expect(
+      client.upload("cancel.bin", content, { signal: abort.signal })
+    ).rejects.toBeDefined();
+    expect(commits).toBe(0);
+  });
+  it.each([
+    { valid: true, bootstrap: false },
+    { valid: false, bootstrap: false },
+    { valid: false, bootstrap: true }
+  ])(
+    "resolves create-only PUT replay through verified commit (valid=$valid, bootstrap=$bootstrap)",
+    async ({ valid, bootstrap }) => {
+      const content = bytes("candidate");
+      let commits = 0;
+      const client = fileClient(async (_method, path, input) => {
+        if (path === "uploads")
+          return bootstrap
+            ? bootstrappedUploadSession(input.transfer_id, content.length)
+            : uploadSession(input.transfer_id, { kind: "object_put" }, content.length);
+        if (path?.endsWith("/parts"))
+          return {
+            ...prepared(
+              input.transfer_id,
+              0,
+              0,
+              content.length,
+              "PUT",
+              "https://r2.example/upload"
+            ),
+            headers: { "if-none-match": "*" }
+          };
+        if (path?.endsWith("/commit")) {
+          commits++;
+          if (!valid)
+            throw connectError(
+              "invalid_operation_response",
+              "Candidate failed authoritative digest verification"
+            );
+          return {
+            protocol_version: 1,
+            type: "file_upload_committed",
+            transfer_id: input.transfer_id,
+            file: wireDescriptor("candidate.bin", content)
+          };
+        }
+        throw new Error(`Unexpected control path ${path}`);
+      });
+      const put = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 412 }));
+      const result = client.upload("candidate.bin", content, {
+        transferId: "01933333-3333-7333-8333-333333333333"
+      });
+      if (valid) await expect(result).resolves.toMatchObject({ path: "candidate.bin" });
+      else await expect(result).rejects.toThrow("digest verification");
+      expect(put).toHaveBeenCalledOnce();
+      expect(commits).toBe(1);
+      expect(new Headers(put.mock.calls[0]?.[1]?.headers).get("if-none-match")).toBe("*");
+    }
+  );
+  it.each(["object_put", "object_multipart"] as const)(
+    "does not treat an ordinary %s 412 as upload success",
+    async (kind) => {
+      const content = bytes("legacy conflict");
+      const commit = vi.fn();
+      const client = fileClient(async (method, path, input) => {
+        if (path === "uploads") return uploadSession(input.transfer_id,
+          kind === "object_put" ? { kind } : { kind, part_size: content.length }, content.length);
+        if (path?.endsWith("/parts")) return {
+          ...prepared(input.transfer_id, 0, 0, input.content_length,
+            "PUT", "https://r2.example/legacy"),
+          // Even a conditional multipart request still requires its real ETag.
+          headers: kind === "object_multipart" ? { "if-none-match": "*" } : {}
+        };
+        if (path?.endsWith("/commit")) return commit();
+        if (method === "DELETE") return {};
+        throw new Error(`Unexpected control path ${path}`);
+      });
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 412 }));
+      await expect(client.upload("legacy.bin", content)).rejects.toMatchObject({
+        code: "temporarily_unavailable",
+        cause: expect.objectContaining({ message: "Object upload failed with HTTP 412." })
+      });
+      expect(commit).not.toHaveBeenCalled();
+    }
+  );
+
   it("hides cursor paging behind an async iterable", async () => {
     const calls: string[] = [];
     const client = fileClient(async (_method, path) => {
@@ -153,6 +420,7 @@ describe("MdbaseFileClient", () => {
     const preparedParts: number[] = [];
     const client = fileClient(async (_method, path, input) => {
       if (path === "uploads") {
+        // Journal replay can return the original, empty progress snapshot.
         return uploadSession(
           input.transfer_id,
           { kind: "object_multipart", part_size: 8 },
@@ -1169,6 +1437,21 @@ function prepared(
     url,
     headers: {},
     expires_at: "2026-08-01T12:00:00Z"
+  };
+}
+
+function bootstrappedUploadSession(
+  transferId: string,
+  size: number,
+  expires = new Date(Date.now() + 900_000).toISOString()
+) {
+  return {
+    ...uploadSession(transferId, { kind: "object_put" }, size),
+    prepared_upload_part: {
+      ...prepared(transferId, 0, 0, size, "PUT", "https://r2.example/bootstrap"),
+      headers: { "if-none-match": "*" } as Record<string, string>,
+      expires_at: expires
+    }
   };
 }
 

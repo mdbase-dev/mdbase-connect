@@ -357,21 +357,29 @@ export class MdbaseFileClient {
       const partCount = session.strategy.kind === "object_put"
         ? 1
         : Math.ceil(size / partSize);
-      const status = await this.request<FileTransferStatus>(
-        "GET",
-        `transfers/${encodeURIComponent(transferId)}`,
-        undefined,
-        options.signal
+      // Open replays its ORIGINAL receipt, not fresh progress. A still-valid
+      // create-only capability can nevertheless be reused safely: PUT either
+      // creates the candidate or returns 412, then commit verifies/replays it.
+      let bootstrap = session.prepared_upload_part;
+      if (bootstrap !== undefined) {
+        requirePreparedPart(bootstrap, transferId, 0, 0, size, "PUT");
+        if (session.strategy.kind !== "object_put"
+          || browserObjectHeaders(bootstrap.headers).get("if-none-match") !== "*") {
+          throw connectError("invalid_operation_response", "Upload bootstrap must be a create-only single PUT.");
+        }
+        if (Date.parse(bootstrap.expires_at) <= Date.now() + 60_000) bootstrap = undefined;
+      }
+      const status = bootstrap ? undefined : await this.request<FileTransferStatus>(
+        "GET", `transfers/${encodeURIComponent(transferId)}`, undefined, options.signal
       );
-      requireTransferStatus(status, session);
-      if (status.state !== "open" && status.state !== "committed") {
-        throw connectError(
-          "invalid_operation_response",
-          `The authority cannot resume a ${status.state} file transfer.`
-        );
+      if (status) {
+        requireTransferStatus(status, session);
+        if (status.state !== "open" && status.state !== "committed") {
+          throw connectError("invalid_operation_response", `The authority cannot resume a ${status.state} file transfer.`);
+        }
       }
       prepareSource?.(partSize);
-      if (!framed && status.received.length === partCount) {
+      if (!framed && status?.received.length === partCount) {
         const replay = await this.tryReplayUploadCommit(
           transferId,
           session.strategy.kind === "object_multipart" ? status.uploaded_parts : undefined,
@@ -382,9 +390,9 @@ export class MdbaseFileClient {
           return clientFileDescriptor(replay.file);
         }
       }
-      const received = new Set(status.received);
+      const received = new Set(status?.received ?? []);
       const uploadedParts = new Map(
-        status.uploaded_parts.map((part) => [part.part_number - 1, part])
+        (status?.uploaded_parts ?? []).map((part) => [part.part_number - 1, part])
       );
       let transferredBytes = [...received].reduce(
         (total, index) => total + chunkLength(size, partSize, index),
@@ -415,7 +423,8 @@ export class MdbaseFileClient {
             part,
             length,
             session.strategy.kind === "object_multipart",
-            options.signal
+            options.signal,
+            bootstrap ? { session, part: bootstrap } : undefined
           );
         transferredBytes += length;
         options.onProgress?.({
@@ -805,12 +814,25 @@ export class MdbaseFileClient {
     body: UploadPartBody,
     contentLength: number,
     requireEtag: boolean,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    bootstrap?: { session: FileTransferSession; part: PreparedFilePart }
   ): Promise<UploadedFilePart> {
     for (let attempt = 1; attempt <= MAX_OBJECT_ATTEMPTS; attempt += 1) {
       throwIfAborted(signal);
       try {
-        const prepared = await this.request<PreparedFilePart>(
+        const reuseBootstrap = attempt === 1 && bootstrap
+          && Date.parse(bootstrap.part.expires_at) > Date.now() + 60_000;
+        if (bootstrap && !reuseBootstrap) {
+          // A slow byte source, clock change, or ambiguous PUT can outlive the
+          // capability. Recover through fresh progress, never a stale receipt.
+          const status = await this.request<FileTransferStatus>("GET", `transfers/${encodeURIComponent(transferId)}`, undefined, signal);
+          requireTransferStatus(status, bootstrap.session);
+          if (status.state !== "open" && status.state !== "committed") {
+            throw connectError("invalid_operation_response", `The authority cannot resume a ${status.state} file transfer.`);
+          }
+          if (status.received.includes(partIndex)) return { part_number: partIndex + 1, etag: "" };
+        }
+        const prepared = reuseBootstrap ? bootstrap.part : await this.request<PreparedFilePart>(
           "POST",
           `uploads/${encodeURIComponent(transferId)}/parts`,
           {
@@ -823,13 +845,20 @@ export class MdbaseFileClient {
           signal
         );
         requirePreparedPart(prepared, transferId, partIndex, offset, contentLength, "PUT");
+        const requestHeaders = browserObjectHeaders(prepared.headers);
         const response = await fetch(prepared.url, {
           method: prepared.method,
-          headers: browserObjectHeaders(prepared.headers),
+          headers: requestHeaders,
           body,
           redirect: "error",
           signal
         });
+        // A lost successful create-only PUT can be retried after the object
+        // already exists. 412 is not proof of success: commit must still verify
+        // the authoritative object's digest/length and publish its receipt.
+        const existingCandidate = response.status === 412 && !requireEtag
+          && requestHeaders.get("if-none-match") === "*";
+        if (existingCandidate) return { part_number: partIndex + 1, etag: "" };
         if (!response.ok) throw new Error(`Object upload failed with HTTP ${response.status}.`);
         const etag = response.headers.get("etag");
         if (requireEtag && !etag) {
