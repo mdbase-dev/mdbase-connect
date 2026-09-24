@@ -27,6 +27,20 @@ pub struct HostedNotificationConfig {
     pub internal_token: String,
 }
 
+// Each category inspects at most this many rows plus one sentinel. Counts are
+// lower bounds when capped; ages describe only the bounded sample, not the
+// globally oldest item. No identifiers, payloads, or record content leave SQL.
+pub(crate) const PENDING_SAMPLE_LIMIT: i64 = 100;
+
+pub(crate) struct PendingDeliverySample {
+    pub outbox_count_capped: i64,
+    pub outbox_sample_max_age_seconds: Option<i64>,
+    pub runs_count_capped: i64,
+    pub runs_sample_max_age_seconds: Option<i64>,
+    pub due_timers_count_capped: i64,
+    pub due_timers_sample_max_overdue_seconds: Option<i64>,
+}
+
 #[derive(Clone)]
 pub struct HostedNotificationRuntime {
     pool: PgPool,
@@ -245,6 +259,59 @@ impl HostedNotificationRuntime {
         .fetch_one(&self.pool)
         .await
         .map_err(ApiError::from)
+    }
+
+    /// Diagnostic-only sample after a successful sweep found pending work.
+    /// A timeout must not alter the recovery state or block later sweeps.
+    pub(crate) async fn pending_delivery_sample(&self) -> ApiResult<PendingDeliverySample> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SET LOCAL statement_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SET LOCAL lock_timeout = '250ms'")
+            .execute(&mut *tx)
+            .await?;
+        let row = sqlx::query(
+            r#"WITH outbox AS (
+                 SELECT occurred_at AS at FROM hosted_provider_runtime_outbox
+                 WHERE processed_at IS NULL LIMIT $1
+               ), runs AS (
+                 SELECT created_at AS at FROM mdbase_runtime_runs
+                 WHERE namespace LIKE 'connect-hosted:%:notifications'
+                   AND status IN ('queued', 'running', 'waiting') LIMIT $1
+               ), due_timers AS (
+                 SELECT timer.fire_at AS at FROM mdbase_runtime_timers timer
+                 WHERE timer.status IN ('scheduled', 'firing')
+                   AND timer.fire_at <= now()
+                   AND EXISTS (
+                     SELECT 1 FROM hosted_provider_notification_grants grant_row
+                     WHERE timer.namespace = 'connect-hosted:' || grant_row.collection_id::text || ':notifications'
+                   ) LIMIT $1
+               )
+               SELECT
+                 (SELECT count(*) FROM outbox) AS outbox_count,
+                 (SELECT CASE WHEN count(*) = 0 THEN NULL ELSE least(86400, greatest(0, extract(epoch FROM now() - min(at))))::bigint END FROM outbox) AS outbox_age,
+                 (SELECT count(*) FROM runs) AS runs_count,
+                 (SELECT CASE WHEN count(*) = 0 THEN NULL ELSE least(86400, greatest(0, extract(epoch FROM now() - min(at))))::bigint END FROM runs) AS runs_age,
+                 (SELECT count(*) FROM due_timers) AS timers_count,
+                 (SELECT CASE WHEN count(*) = 0 THEN NULL ELSE least(86400, greatest(0, extract(epoch FROM now() - min(at))))::bigint END FROM due_timers) AS timers_age"#,
+        )
+        .bind(PENDING_SAMPLE_LIMIT + 1)
+        .fetch_one(&mut *tx)
+        .await?;
+        let sample = PendingDeliverySample {
+            outbox_count_capped: row.get("outbox_count"),
+            outbox_sample_max_age_seconds: row.get("outbox_age"),
+            runs_count_capped: row.get("runs_count"),
+            runs_sample_max_age_seconds: row.get("runs_age"),
+            due_timers_count_capped: row.get("timers_count"),
+            due_timers_sample_max_overdue_seconds: row.get("timers_age"),
+        };
+        tx.commit().await?;
+        Ok(sample)
     }
 
     async fn process_outbox(&self, limit: usize) -> ApiResult<usize> {
@@ -717,6 +784,86 @@ fn retry_delay_seconds(attempt: i32) -> i64 {
 mod tests {
     use super::{is_canonical_application_scope, retry_delay_seconds, safe_runtime_error_code};
     use mdbase_connect_protocol::{ApplicationAccess, GrantScope};
+
+    #[tokio::test]
+    #[ignore = "requires approved disposable loopback PostgreSQL database"]
+    async fn pending_sample_is_capped_scoped_and_has_nullable_ages() {
+        use super::{HostedNotificationConfig, HostedNotificationRuntime, PENDING_SAMPLE_LIMIT};
+        use sqlx::{postgres::PgPoolOptions, AssertSqlSafe};
+        use url::Url;
+        use uuid::Uuid;
+
+        assert_eq!(
+            std::env::var("MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL").as_deref(),
+            Ok("I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS")
+        );
+        let url = std::env::var("MDBASE_TEST_NOTIFICATION_SAMPLE_DATABASE_URL").unwrap();
+        let mut url = Url::parse(&url).unwrap();
+        assert!(matches!(
+            url.host_str(),
+            Some("localhost" | "127.0.0.1" | "::1")
+        ));
+        assert!(url.path().contains("test"));
+        let admin = PgPoolOptions::new().connect(url.as_str()).await.unwrap();
+        let schema = format!("notification_sample_{}", Uuid::new_v4().simple());
+        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&admin)
+            .await
+            .unwrap();
+        url.query_pairs_mut()
+            .append_pair("options", &format!("-csearch_path={schema}"));
+        let pool = PgPoolOptions::new().connect(url.as_str()).await.unwrap();
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        {
+            for ddl in [
+                "CREATE TABLE hosted_provider_runtime_outbox (occurred_at timestamptz, processed_at timestamptz)",
+                "CREATE TABLE mdbase_runtime_runs (namespace text, status text, created_at timestamptz)",
+                "CREATE TABLE mdbase_runtime_timers (namespace text, status text, fire_at timestamptz)",
+                "CREATE TABLE hosted_provider_notification_grants (collection_id uuid)",
+            ] {
+                sqlx::query(ddl).execute(&pool).await.unwrap();
+            }
+            let runtime = HostedNotificationRuntime::new(
+                pool.clone(),
+                HostedNotificationConfig {
+                    control_plane_url: "https://example.test".into(),
+                    internal_token: "x".repeat(32),
+                },
+            )
+            .unwrap();
+            let empty = runtime.pending_delivery_sample().await.unwrap();
+            assert_eq!(empty.outbox_count_capped, 0);
+            assert_eq!(empty.outbox_sample_max_age_seconds, None);
+            assert_eq!(empty.runs_sample_max_age_seconds, None);
+            assert_eq!(empty.due_timers_sample_max_overdue_seconds, None);
+
+            sqlx::query("INSERT INTO hosted_provider_runtime_outbox SELECT now()-interval '2 days', NULL FROM generate_series(1, 102)")
+                .execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO mdbase_runtime_runs VALUES ('connect-hosted:test:notifications', 'waiting', now()-interval '2 minutes'), ('unrelated', 'waiting', now()-interval '2 days')")
+                .execute(&pool).await.unwrap();
+            let collection = Uuid::new_v4();
+            sqlx::query("INSERT INTO hosted_provider_notification_grants VALUES ($1)")
+                .bind(collection)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO mdbase_runtime_timers VALUES ($1, 'scheduled', now()-interval '3 minutes'), ('unrelated', 'scheduled', now()-interval '2 days')")
+                .bind(format!("connect-hosted:{collection}:notifications"))
+                .execute(&pool).await.unwrap();
+            let sample = runtime.pending_delivery_sample().await.unwrap();
+            assert_eq!(sample.outbox_count_capped, PENDING_SAMPLE_LIMIT + 1);
+            assert_eq!(sample.outbox_sample_max_age_seconds, Some(86400));
+            assert_eq!(sample.runs_count_capped, 1);
+            assert!(sample.runs_sample_max_age_seconds.unwrap() >= 120);
+            assert_eq!(sample.due_timers_count_capped, 1);
+            assert!(sample.due_timers_sample_max_overdue_seconds.unwrap() >= 180);
+        }
+        pool.close().await;
+        sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+            .execute(&admin)
+            .await
+            .unwrap();
+    }
 
     #[test]
     fn runtime_metrics_keep_codes_but_never_untrusted_diagnostics() {
