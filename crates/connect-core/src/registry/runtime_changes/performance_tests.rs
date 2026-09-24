@@ -2,6 +2,9 @@
 use super::*;
 use std::time::Instant;
 
+include!("batching_tests.rs");
+include!("fairness_performance.rs");
+
 struct Fixture {
     registry: CollectionRegistry,
     collection: CollectionSummary,

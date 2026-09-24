@@ -20,7 +20,8 @@ pub use registry::{
     EncryptedReplayClass, EncryptedRequestClaim, GrantReplayContext, MutationClaim,
     MutationClaimRequest, MutationJournalDiagnostics, MutationJournalState, MutationLease,
     MutationRecoveryData, RegistryBackupDiagnostic, RegistryBackupMetadata, RegistryDiagnostics,
-    RemotePolicyAuthority, RemotePolicyAuthorityMode, RuntimeResidencyDiagnostics,
+    RemotePolicyAuthority, RemotePolicyAuthorityMode, RuntimeFinalizationTurn,
+    RuntimeResidencyDiagnostics,
 };
 pub use secrets::SystemSecretStore;
 pub mod profiling;

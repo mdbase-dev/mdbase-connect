@@ -206,8 +206,8 @@ async fn insert_query_cursor(
     let execution_proof_bytes = execution_proof_ciphertext.len() as u64;
     let cursor_bytes = 2_048_u64
         .saturating_add(serialized_value_bytes(&plan))
-        .saturating_add(serialized_value_bytes(&Value::Array(keyset.clone())))
-        .saturating_add(serialized_value_bytes(&Value::Object(state.result_meta.clone())))
+        .saturating_add(serialized_value_bytes(&keyset))
+        .saturating_add(serialized_value_bytes(&state.result_meta))
         .saturating_add(
             exact_context_ciphertext
                 .as_ref()

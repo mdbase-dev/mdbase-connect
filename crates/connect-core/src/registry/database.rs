@@ -16,6 +16,8 @@ impl CollectionRegistry {
             authority,
             process_epoch: Uuid::new_v4(),
             executors: Arc::new(Mutex::new(HashMap::new())),
+            runtime_lifecycle: Arc::new(Mutex::new(())),
+            runtime_wakeup: mdbase::watch::WatchWakeup::default(),
             file_reconciles: Arc::new(Mutex::new(HashMap::new())),
             file_warmups: Arc::new(Mutex::new(HashMap::new())),
             ephemeral_responses: Arc::new(Mutex::new(

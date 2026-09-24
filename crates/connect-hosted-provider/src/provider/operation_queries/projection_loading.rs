@@ -569,15 +569,9 @@ async fn execute_bounded_residual_page(
     let matching_bytes = matching.iter().fold(0_u64, |total, item| {
         total
             .saturating_add(serialized_value_bytes(&item.result))
-            .saturating_add(serialized_value_bytes(&Value::Array(
-                item.order_values.clone(),
-            )))
-            .saturating_add(serialized_value_bytes(&Value::Array(
-                item.reduction.group_values.clone(),
-            )))
-            .saturating_add(serialized_value_bytes(&Value::Array(
-                item.reduction.aggregate_values.clone(),
-            )))
+            .saturating_add(serialized_value_bytes(&item.order_values))
+            .saturating_add(serialized_value_bytes(&item.reduction.group_values))
+            .saturating_add(serialized_value_bytes(&item.reduction.aggregate_values))
     });
     let pre_reduction_resident_bytes = projection_bytes
         .saturating_add(exact_bytes)
@@ -600,7 +594,7 @@ async fn execute_bounded_residual_page(
         .map_err(|error| reduction_error(error, &state.plan.budgets))?;
     diagnostics.extend(reduction.diagnostics);
     let groups_bytes = reduction.groups.as_ref().map_or(0, |groups| {
-        serialized_value_bytes(&Value::Array(groups.clone()))
+        serialized_value_bytes(groups)
     });
     let resident_bytes = pre_reduction_resident_bytes.saturating_add(groups_bytes);
     if resident_bytes > state.plan.budgets.max_memory_bytes {

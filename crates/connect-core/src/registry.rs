@@ -429,9 +429,20 @@ pub struct CollectionRegistry {
     authority: Arc<AuthorityStore>,
     process_epoch: Uuid,
     executors: Arc<Mutex<HashMap<Uuid, Arc<CollectionExecutor>>>>,
+    // Cold initialization and registry lifecycle changes share a gate, not the
+    // executor-map lock used by unrelated warm requests.
+    runtime_lifecycle: Arc<Mutex<()>>,
+    runtime_wakeup: mdbase::watch::WatchWakeup,
     file_reconciles: Arc<Mutex<HashMap<Uuid, Arc<Mutex<()>>>>>,
     file_warmups: Arc<Mutex<HashMap<Uuid, FileWarmupState>>>,
     ephemeral_responses: Arc<Mutex<encrypted_requests::EphemeralResponseCache>>,
+}
+
+/// One bounded scheduling turn over a fixed durable feed watermark.
+pub struct RuntimeFinalizationTurn {
+    pub events: Vec<(mdbase::watch::WatchEvent, u64)>,
+    pub target: u64,
+    pub complete: bool,
 }
 
 #[derive(Debug, Clone)]

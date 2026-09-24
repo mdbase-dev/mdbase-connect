@@ -34,12 +34,12 @@ async fn execute_projected_page(
     )
     .await?;
     let projection_bytes = rows.iter().try_fold(0_u64, |total, row| {
-        let bytes = serde_json::to_vec(&row.projection).map_err(|error| {
+        let bytes = serialized_bytes(&row.projection).map_err(|error| {
             ApiError::internal(format!(
                 "Hosted semantic projection could not serialize: {error}"
             ))
         })?;
-        Ok::<_, ApiError>(total.saturating_add(bytes.len() as u64))
+        Ok::<_, ApiError>(total.saturating_add(bytes))
     })?;
     if projection_bytes > state.plan.budgets.max_candidate_bytes {
         return Err(query_budget_error(
@@ -124,7 +124,7 @@ async fn execute_projected_page(
     }
     let result_bytes = results
         .iter()
-        .map(|result| serde_json::to_vec(result).map_or(0, |bytes| bytes.len() as u64))
+        .map(serialized_value_bytes)
         .sum::<u64>();
     let groups = match cached_groups {
         Some(groups) => groups,
@@ -138,7 +138,7 @@ async fn execute_projected_page(
         }
     };
     let group_bytes = groups.as_ref().map_or(0, |groups| {
-        serialized_value_bytes(&Value::Array(groups.clone()))
+        serialized_value_bytes(groups)
     });
     let resident_bytes = projection_bytes
         .saturating_add(exact_bytes)

@@ -59,8 +59,9 @@ fn scoped_budget_observed(allowed_types: &[String], limit: u64, observed: u64) -
     }
 }
 
-fn serialized_value_bytes(value: &Value) -> u64 {
-    serde_json::to_vec(value).map_or(0, |bytes| bytes.len() as u64)
+// Only JSON values and their array/object containers use this infallible path.
+fn serialized_value_bytes<T: serde::Serialize + ?Sized>(value: &T) -> u64 {
+    serialized_bytes(value).expect("JSON values serialize into the byte counter")
 }
 
 async fn count_projected_candidates(
