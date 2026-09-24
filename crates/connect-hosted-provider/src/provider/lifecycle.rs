@@ -382,10 +382,7 @@ impl HostedProvider {
                     Ok(pending) => pending,
                     Err(error) => {
                         self.mark_notification_recovery_degraded(&error).await;
-                        tracing::info!(target: "mdbase_connect::metrics",
-                            metric = "notification_recovery_sweep", outcome = "failed",
-                            duration_ms = started.elapsed().as_millis() as u64,
-                            "privacy-safe hosted provider metric");
+                        tracing::info!(target: "mdbase_connect::metrics", metric = "notification_recovery_sweep", outcome = "failed", duration_ms = started.elapsed().as_millis() as u64);
                         return Err(error);
                     }
                 };
@@ -394,26 +391,7 @@ impl HostedProvider {
                     if status.recovery != NotificationRecoveryState::Degraded {
                         status.recovery = NotificationRecoveryState::Pending;
                     }
-                    drop(status);
-                    tracing::info!(target: "mdbase_connect::metrics",
-                        metric = "notification_recovery_sweep", outcome = "pending",
-                        processed, duration_ms = started.elapsed().as_millis() as u64,
-                        "privacy-safe hosted provider metric");
-                    match notifications.pending_delivery_sample().await {
-                        Ok(sample) => tracing::info!(target: "mdbase_connect::metrics",
-                            metric = "notification_recovery_pending_sample",
-                            sample_limit = super::super::notifications::PENDING_SAMPLE_LIMIT,
-                            outbox_count_capped = sample.outbox_count_capped,
-                            outbox_sample_max_age_seconds = ?sample.outbox_sample_max_age_seconds,
-                            runs_count_capped = sample.runs_count_capped,
-                            runs_sample_max_age_seconds = ?sample.runs_sample_max_age_seconds,
-                            due_timers_count_capped = sample.due_timers_count_capped,
-                            due_timers_sample_max_overdue_seconds = ?sample.due_timers_sample_max_overdue_seconds,
-                            "privacy-safe hosted provider metric"),
-                        Err(_) => tracing::warn!(target: "mdbase_connect::metrics",
-                            metric = "notification_recovery_sample_unavailable",
-                            "privacy-safe hosted provider metric"),
-                    }
+                    tracing::info!(target: "mdbase_connect::metrics", metric = "notification_recovery_sweep", outcome = "pending", processed, duration_ms = started.elapsed().as_millis() as u64);
                     return Ok(processed);
                 }
                 let recovered_from_degraded =
@@ -425,10 +403,7 @@ impl HostedProvider {
                     last_success_at: Some(Utc::now()),
                 };
                 drop(status);
-                tracing::info!(target: "mdbase_connect::metrics",
-                    metric = "notification_recovery_sweep", outcome = "ok",
-                    processed, duration_ms = started.elapsed().as_millis() as u64,
-                    "privacy-safe hosted provider metric");
+                tracing::info!(target: "mdbase_connect::metrics", metric = "notification_recovery_sweep", outcome = "ok", processed, duration_ms = started.elapsed().as_millis() as u64);
                 if recovered_from_degraded {
                     tracing::info!(
                         target: "mdbase_connect::metrics",
@@ -440,10 +415,7 @@ impl HostedProvider {
             }
             Err(error) => {
                 self.mark_notification_recovery_degraded(&error).await;
-                tracing::info!(target: "mdbase_connect::metrics",
-                    metric = "notification_recovery_sweep", outcome = "failed",
-                    duration_ms = started.elapsed().as_millis() as u64,
-                    "privacy-safe hosted provider metric");
+                tracing::info!(target: "mdbase_connect::metrics", metric = "notification_recovery_sweep", outcome = "failed", duration_ms = started.elapsed().as_millis() as u64);
                 Err(error)
             }
         }

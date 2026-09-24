@@ -30,15 +30,15 @@ pub struct HostedNotificationConfig {
 // Each category inspects at most this many rows plus one sentinel. Counts are
 // lower bounds when capped; ages describe only the bounded sample, not the
 // globally oldest item. No identifiers, payloads, or record content leave SQL.
-pub(crate) const PENDING_SAMPLE_LIMIT: i64 = 100;
+const PENDING_SAMPLE_LIMIT: i64 = 100;
 
-pub(crate) struct PendingDeliverySample {
-    pub outbox_count_capped: i64,
-    pub outbox_sample_max_age_seconds: Option<i64>,
-    pub runs_count_capped: i64,
-    pub runs_sample_max_age_seconds: Option<i64>,
-    pub due_timers_count_capped: i64,
-    pub due_timers_sample_max_overdue_seconds: Option<i64>,
+struct PendingDeliverySample {
+    outbox_count_capped: i64,
+    outbox_sample_max_age_seconds: Option<i64>,
+    runs_count_capped: i64,
+    runs_sample_max_age_seconds: Option<i64>,
+    due_timers_count_capped: i64,
+    due_timers_sample_max_overdue_seconds: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -232,7 +232,7 @@ impl HostedNotificationRuntime {
     }
 
     pub async fn has_pending_delivery(&self) -> ApiResult<bool> {
-        sqlx::query_scalar::<_, bool>(
+        let pending = sqlx::query_scalar::<_, bool>(
             "SELECT
                EXISTS (
                  SELECT 1
@@ -258,12 +258,16 @@ impl HostedNotificationRuntime {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(ApiError::from)
+        .map_err(ApiError::from)?;
+        if pending {
+            self.log_pending_delivery_sample().await;
+        }
+        Ok(pending)
     }
 
     /// Diagnostic-only sample after a successful sweep found pending work.
     /// A timeout must not alter the recovery state or block later sweeps.
-    pub(crate) async fn pending_delivery_sample(&self) -> ApiResult<PendingDeliverySample> {
+    async fn pending_delivery_sample(&self) -> ApiResult<PendingDeliverySample> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SET TRANSACTION READ ONLY")
             .execute(&mut *tx)
@@ -312,6 +316,24 @@ impl HostedNotificationRuntime {
         };
         tx.commit().await?;
         Ok(sample)
+    }
+
+    async fn log_pending_delivery_sample(&self) {
+        match self.pending_delivery_sample().await {
+            Ok(sample) => tracing::info!(target: "mdbase_connect::metrics",
+                metric = "notification_recovery_pending_sample",
+                sample_limit = PENDING_SAMPLE_LIMIT,
+                outbox_count_capped = sample.outbox_count_capped,
+                outbox_sample_max_age_seconds = ?sample.outbox_sample_max_age_seconds,
+                runs_count_capped = sample.runs_count_capped,
+                runs_sample_max_age_seconds = ?sample.runs_sample_max_age_seconds,
+                due_timers_count_capped = sample.due_timers_count_capped,
+                due_timers_sample_max_overdue_seconds = ?sample.due_timers_sample_max_overdue_seconds,
+                "privacy-safe hosted provider metric"),
+            Err(_) => tracing::warn!(target: "mdbase_connect::metrics",
+                metric = "notification_recovery_sample_unavailable",
+                "privacy-safe hosted provider metric"),
+        }
     }
 
     async fn process_outbox(&self, limit: usize) -> ApiResult<usize> {
