@@ -122,8 +122,12 @@ export class RecordSession<R> {
     this.edited();
   }
 
-  /** Offer a draft kept outside the session, such as a crash-recovery copy. Never writes by itself. */
-  restore(draft: { body: string; baseBody: string }): void {
+  /**
+   * Offer a draft kept outside the session, such as a crash-recovery copy.
+   * Never writes by itself. A draft whose base is unknown or has since
+   * changed is a conflict with the current record.
+   */
+  restore(draft: { body: string; baseBody?: string }): void {
     const current = this.adapter.body(this.record);
     if (draft.body === current) return;
     this.body = draft.body;

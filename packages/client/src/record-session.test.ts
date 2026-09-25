@@ -415,6 +415,9 @@ describe("restored drafts", () => {
     const conflicting = new RecordSession(changed, adapter(), { autosave: false });
     conflicting.restore({ body: "Local", baseBody: "Original" });
     expect(conflicting.snapshot).toMatchObject({ state: "conflict", remote: changed, body: "Local" });
+    const unknownBase = new RecordSession(current, adapter(), { autosave: false });
+    unknownBase.restore({ body: "Local" });
+    expect(unknownBase.snapshot.state).toBe("conflict");
   });
 
   // Reader source: "resumes safe recovery on mount"; annotation legacy drafts are never submitted on load
