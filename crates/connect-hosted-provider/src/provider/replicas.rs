@@ -411,6 +411,7 @@ impl HostedProvider {
         .map(|(authorized, _)| authorized)
     }
 
+    #[expect(clippy::too_many_arguments)]
     async fn authorize_request_with_retired_replay(
         &self,
         collection_id: Uuid,
