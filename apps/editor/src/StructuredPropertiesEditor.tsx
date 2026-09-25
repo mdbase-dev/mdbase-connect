@@ -27,7 +27,7 @@ export function StructuredPropertiesEditor({
   initializeRequired = false,
   allowAdd = true,
   allowCustom = true,
-  emptyMessage = "This note has no persisted properties.",
+  emptyMessage = "No properties yet.",
   readOnly = false,
   onChange,
   onValidityChange

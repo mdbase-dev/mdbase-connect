@@ -115,7 +115,6 @@ export function TypeList({ types, selectedName, packsSelected = false, leadingAc
       {leadingActions}
       <div><h1>Types</h1><p>{types.length} {types.length === 1 ? "definition" : "definitions"}</p></div>
       {trailingActions}
-      {onCreate && <button className="icon-button new-type-button" aria-label="New type" title="New type" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button>}
     </header>
     <label className="search-field">
       <Search aria-hidden="true" /><span className="sr-only">Search types</span>
@@ -125,7 +124,7 @@ export function TypeList({ types, selectedName, packsSelected = false, leadingAc
     <nav className="type-resource-nav" aria-label="Type resources">
       <button className={`type-pack-entry${packsSelected ? " selected" : ""}`} aria-current={packsSelected ? "page" : undefined} onClick={onPacks}>
         <span className="type-row-icon"><Package aria-hidden="true" /></span>
-        <span className="type-row-copy"><strong>Add a type</strong><small>Start with a ready-made type</small></span>
+        <span className="type-row-copy"><strong>Add a type</strong><small>{onCreate ? "Start blank or from a ready-made type" : "Browse ready-made types"}</small></span>
         <ChevronRight aria-hidden="true" />
       </button>
     </nav>
@@ -141,7 +140,7 @@ export function TypeList({ types, selectedName, packsSelected = false, leadingAc
   </section>;
 }
 
-export function TypePackBrowser({ types, contracts, catalog, loading = false, error, canInstall = false, leadingActions, onInstall, onOpenType, onRequestAccess, onReload, onBack }: {
+export function TypePackBrowser({ types, contracts, catalog, loading = false, error, canInstall = false, leadingActions, onCreate, onInstall, onOpenType, onRequestAccess, onReload, onBack }: {
   types: CollectionTypeDescriptor[];
   contracts: CollectionContractDescriptor[];
   catalog?: ContractCatalog;
@@ -149,6 +148,7 @@ export function TypePackBrowser({ types, contracts, catalog, loading = false, er
   error?: string;
   canInstall?: boolean;
   leadingActions?: ReactNode;
+  onCreate?: () => void;
   onInstall?: (pack: ContractCatalogPack) => Promise<void>;
   onOpenType?: (name: string) => void;
   onRequestAccess?: () => void;
@@ -168,13 +168,10 @@ export function TypePackBrowser({ types, contracts, catalog, loading = false, er
         <Package aria-hidden="true" />
         <h1>Add a type</h1>
       </div>
-      <p>Choose a ready-made type, then adapt its fields and contract mapping to fit your collection.</p>
-      <dl>
-        <div><dt>Types</dt><dd>{types.length}</dd></div>
-        <div><dt>Contracts</dt><dd>{contracts.length}</dd></div>
-      </dl>
+      <p>Start from an empty definition, or choose a ready-made type and adapt its fields and contract mapping to fit your collection.</p>
     </section>
     <section className="type-pack-document">
+      {onCreate && <button className="type-blank-button" aria-label="New type" aria-describedby="type-blank-description" onClick={onCreate}><FilePlus2 aria-hidden="true" /><span><strong>New type</strong><small id="type-blank-description">Start from an empty definition and add your own fields.</small></span><ChevronRight aria-hidden="true" /></button>}
       <div className="type-pack-intro">
         <h2>Ready-made types</h2>
         <p>Adding one creates a new editable type. Existing files are never overwritten.</p>
@@ -271,12 +268,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
         <h1>{name}</h1>
       </div>
       {creating ? <p>Give the type a unique name and describe its fields in JSON Schema.</p> : type!.description && <p>{type!.description}</p>}
-      {!creating && <dl>
-        <div><dt>Version</dt><dd>{type!.version ?? "Unversioned"}</dd></div>
-        <div><dt>Properties</dt><dd>{propertyCount(type!)}</dd></div>
-        <div><dt>App views</dt><dd>{contractState.implementations.length}</dd></div>
-        <div><dt>Extensions</dt><dd>{Object.keys(type!.extensions).length}</dd></div>
-      </dl>}
+      {!creating && <p className="type-heading-facts">{typeHeadingFacts(type!, contractState.implementations.length)}</p>}
     </section>
     <section className="type-source">
       {reviewing ? <div className="type-source-context reviewing">
@@ -288,9 +280,9 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
             <button className={view === "yaml" ? "selected" : ""} aria-pressed={view === "yaml"} onClick={() => { setView("yaml"); setReviewing(false); }}>YAML</button>
           </div>
           <div className="type-editor-actions">
-            <span className="type-change-scope">Collection-wide change</span>
+            {dirty && <span className="type-change-scope" id="type-change-scope"><CircleAlert aria-hidden="true" />{creating ? "Saving affects every matching note" : <>Saving affects every note of type <code>{type!.name}</code></>}</span>}
             <button className="type-secondary-action" onClick={creating ? onCancel : onRevert} disabled={readOnly || saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
-            <button className="save-type-button" onClick={() => setReviewing(true)} disabled={readOnly || loading || saving || !dirty || !parsed.value || contractErrors.length > 0}>{saving ? "Saving…" : "Review changes"}</button>
+            <button className="save-type-button" aria-describedby={dirty ? "type-change-scope" : undefined} onClick={() => setReviewing(true)} disabled={readOnly || loading || saving || !dirty || !parsed.value || contractErrors.length > 0}>{saving ? "Saving…" : "Review changes"}</button>
           </div></>}
         </div>
       }
@@ -460,6 +452,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
           field={field}
           source={source}
           depth={0}
+          typeKey={explicitTypeKeys.includes(field.name)}
           activeField={activeField}
           onActivate={setActiveField}
           onChange={onChange}
@@ -1598,6 +1591,12 @@ function textLikeField(option: TypeFieldOption): boolean {
   return option.node.kind === "string" || option.node.kind === "date" || option.node.kind === "datetime";
 }
 
+function typeHeadingFacts(type: CollectionTypeDescriptor, appViews: number): string {
+  const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? "" : "s"}`;
+  const extensions = Object.keys(type.extensions).length;
+  return [type.version === undefined ? "Unversioned" : `Version ${type.version}`, count(propertyCount(type), "field"), appViews ? count(appViews, "app view") : "", extensions ? count(extensions, "extension") : ""].filter(Boolean).join(" · ");
+}
+
 function defaultValueForField(field: TypeSchemaNode): unknown {
   if (field.kind === "boolean") return false;
   if (field.kind === "number" || field.kind === "integer") return 0;
@@ -1618,10 +1617,11 @@ function collectionRuleLabel(key: string): string {
   return key.replaceAll("_", " ");
 }
 
-function VisualFieldRow({ field, source, depth, activeField, onActivate, onChange }: {
+function VisualFieldRow({ field, source, depth, typeKey = false, activeField, onActivate, onChange }: {
   field: TypeFieldDefinition;
   source: string;
   depth: number;
+  typeKey?: boolean; // The explicit type field: renaming, retyping, or removing it changes type membership.
   activeField?: string;
   onActivate: (field?: string) => void;
   onChange: (change: (source: string) => string) => void;
@@ -1646,12 +1646,12 @@ function VisualFieldRow({ field, source, depth, activeField, onActivate, onChang
       <button className="field-disclosure" aria-label={`${expanded ? "Collapse" : "Expand"} ${fieldLabel} field`} aria-expanded={expanded} onClick={() => onActivate(expanded ? undefined : fieldLabel)}>
         {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </button>
-      <label className="visual-field-name"><span className="sr-only">Field name</span><input type="text" defaultValue={field.name} onBlur={(event) => onChange((current) => renameTypeField(current, field.path, event.target.value))} spellCheck="false" /></label>
-      <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field kind</span><SelectControl value={field.kind} onChange={(event) => chooseKind(event.target.value as TypeFieldKind)}>
+      <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only">Field name</span><input type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title="Notes use this field to declare their type. Edit it in YAML if you need to change it.">Type key</small>}</label>
+      <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field kind</span><SelectControl value={field.kind} disabled={typeKey} onChange={(event) => chooseKind(event.target.value as TypeFieldKind)}>
         <KindOptions current={field.kind} />
       </SelectControl></label>
       <label className="visual-field-required"><input type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span>Required</span></label>
-      <InlineRemoveButton className="remove-type-field" label={`Remove ${fieldLabel} field`} onClick={() => onChange((current) => removeTypeField(current, field.path))} />
+      {typeKey ? <span className="remove-type-field" aria-hidden="true" /> : <InlineRemoveButton className="remove-type-field" label={`Remove ${fieldLabel} field`} onClick={() => onChange((current) => removeTypeField(current, field.path))} />}
     </div>
     {expanded && <div className="visual-field-details">
       <div className="field-path"><span>{fieldLabel}</span>{field.advancedKeys.length > 0 && <strong>Advanced YAML rules</strong>}</div>

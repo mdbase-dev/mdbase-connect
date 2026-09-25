@@ -97,7 +97,7 @@ describe("new note schema fields", () => {
     render(<NewNoteComposer types={[eventType]} onCreate={onCreate} onCancel={() => undefined} onDraftChange={onDraftChange} />);
 
     expect(screen.getByRole("combobox", { name: "Type" })).toBeVisible();
-    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Untitled.md");
+    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("‹title›.md");
     const pathDetails = screen.getByText("File path", { selector: "summary > span" }).closest("details");
     expect(pathDetails).not.toHaveAttribute("open");
 

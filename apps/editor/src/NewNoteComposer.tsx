@@ -80,6 +80,7 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
     && requiredPropertiesValid
     && optionalPropertiesValid
   );
+  const incompleteReason = complete ? undefined : creationBlocker();
   const hasDraft = Boolean(
     title.trim()
     || body.trim()
@@ -100,6 +101,14 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
     setRequiredPropertiesValid(true);
     setOptionalPropertiesValid(true);
     if (!pathEdited) setPath(suggestedPath(title, defaultFolder ?? typeFolder(nextType)));
+  }
+
+  function creationBlocker(): string {
+    if (folderCreation && !validFolder(folderName)) return "Name the folder to create it.";
+    if (!title.trim()) return folderCreation ? "Title the first note to create the folder." : `Add a ${primaryLabel.toLocaleLowerCase()} to create the note.`;
+    if (!validPath(resolvedPath)) return "Use a Markdown file path ending in .md.";
+    if (!required.every((field) => schemaValueComplete(schema.properties[field], properties[field], formSchema))) return "Fill in the required properties.";
+    return "Fix the highlighted property values.";
   }
 
   function changeTitle(next: string) {
@@ -142,7 +151,6 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
   >
     <header className="editor-bar"><button className="mobile-back icon-button" aria-label={folderCreation ? "Cancel new folder" : "Cancel new note"} onClick={() => onCancel(hasDraft)}><ArrowLeft aria-hidden="true" /></button>{leadingActions}<span>{folderCreation ? "New folder" : "New note"}</span></header>
     <form className={folderCreation ? "new-folder-form" : "new-note-form"} onSubmit={(event) => void submit(event)} onKeyDown={createWithShortcut}>
-      <p className="eyebrow">{folderCreation ? "Create folder" : "Create note"}</p>
       {folderCreation
         ? <label className="new-note-title"><span className="sr-only">Folder name</span><input autoFocus value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="Folder name" spellCheck="false" /></label>
         : <label className="new-note-title"><span className="sr-only">{primaryLabel}</span><input autoFocus value={title} onChange={(event) => changeTitle(event.target.value)} placeholder={displayField ? primaryLabel : "Untitled"} /></label>}
@@ -156,7 +164,7 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
           {types.map((candidate) => <option key={candidate.name} value={candidate.name}>{candidate.name}</option>)}
         </SelectControl></label>
         {!folderCreation && <details className="new-note-path">
-          <summary aria-label="Edit file path"><span>File path</span><output aria-label="Suggested path">{path}</output><ChevronRight aria-hidden="true" /></summary>
+          <summary aria-label="Edit file path"><span>File path</span><output aria-label="Suggested path">{!pathEdited && !title.trim() ? <>{pathFolderPrefix(path)}<span className="path-pending">‹title›</span>.md</> : path}</output><ChevronRight aria-hidden="true" /></summary>
           <label><span className="sr-only">File path</span><input aria-label="Path" value={path} onChange={(event) => { setPathEdited(true); setPath(event.target.value); }} spellCheck="false" /><small>Where this Markdown file will live in the collection.</small></label>
         </details>}
         {folderCreation && <label className="new-folder-path"><span>Path</span><output>{resolvedPath}</output></label>}
@@ -208,14 +216,15 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
       />}
       {error && <p className="new-note-error" role="alert">{error}</p>}
       <div className="new-note-actions">
-        {!folderCreation && <span>Draft stays here until the note is created.</span>}
+        <span id="new-note-status" className={incompleteReason && !creating ? "blocked" : undefined}>{incompleteReason && !creating ? incompleteReason : folderCreation ? "" : "Draft stays here until the note is created."}</span>
         <button type="button" onClick={() => onCancel(hasDraft)}>Cancel</button>
         <button
           className="create-note-button"
           disabled={!complete || creating}
+          aria-describedby="new-note-status"
           aria-keyshortcuts={folderCreation ? undefined : "Control+Enter Meta+Enter"}
           title={folderCreation ? undefined : "Create note (Ctrl or Command + Enter)"}
-        >{creating ? (folderCreation ? "Creating folder" : "Creating") : (folderCreation ? "Create folder" : "Create note")}</button>
+        >{creating ? (folderCreation ? "Creating folder" : "Creating") : (folderCreation ? "Create folder" : "Create note")}{!folderCreation && !creating && <kbd aria-hidden="true">{shortcutModifier()}↵</kbd>}</button>
       </div>
     </form>
   </main>;
@@ -317,6 +326,14 @@ function isTextField(schema?: JsonObject): boolean {
     && !("properties" in schema)
     && !("items" in schema)
     && (!Array.isArray(schema.enum) || schema.enum.every((value) => typeof value === "string"));
+}
+
+function pathFolderPrefix(path: string): string {
+  return path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
+}
+
+function shortcutModifier(): string {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl ";
 }
 
 function suggestedPath(title: string, folder = ""): string {

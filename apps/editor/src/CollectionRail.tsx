@@ -99,7 +99,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
         onCopy={(tag) => onCopyFacet(tag, "tag")}
       />
       <RailFilterSection
-        label="Types"
+        label="By type"
         kind="type"
         items={typeFacets}
         activeFilter={surface === "notes" ? activeFilter : undefined}
@@ -234,7 +234,7 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
         aria-label={`Show notes in ${node.path}, ${node.count}${loading ? " or more" : ""} ${node.count === 1 && !loading ? "note" : "notes"}`}
         onClick={() => onFilter({ kind: "folder", value: node.path })}
       >
-        <span><Folder aria-hidden="true" />{node.name}</span>
+        <span><Folder aria-hidden="true" /><span className="rail-row-label">{node.name}</span></span>
         <small aria-label={facetCountLabel("folder", { name: node.path, count: node.count }, loading)}>{node.count}{loading && "+"}</small>
       </button>
     </ContextMenu>
@@ -304,11 +304,11 @@ function RailFilterSection({ label, kind, items, activeFilter, loading, onFilter
         >
           <span>{kind === "type" && isPhosphorIconName(item.icon)
             ? <PhosphorIcon name={item.icon} aria-hidden="true" />
-            : <Icon aria-hidden="true" />}{kind === "tag" ? `#${item.name}` : item.name}</span>
+            : <Icon aria-hidden="true" />}<span className="rail-row-label">{kind === "tag" ? `#${item.name}` : item.name}</span></span>
           <small aria-label={facetCountLabel(kind, item, loading)}>{item.count}{loading && "+"}</small>
         </button>
       </ContextMenu>)}
-      {!items.length && <p className="folder-placeholder">{loading ? `Finding ${label.toLocaleLowerCase()}…` : `No ${label.toLocaleLowerCase()}`}</p>}
+      {!items.length && <p className="folder-placeholder">{loading ? `Finding ${kind}s…` : `No ${kind}s`}</p>}
     </div>}
   </div>;
 }

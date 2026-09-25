@@ -55,8 +55,13 @@ states, or collection controls.
 
 The desktop app uses three persistent panes: a 176px collection rail, a 304px
 virtualized note list, and the editor. A properties inspector appears only when
-requested. Types reuse the list-and-document rhythm; settings become one quiet
-document rather than a dashboard. In the collection rail, Notes, Types, and
+requested. Between 761px and 1120px the collection rail starts hidden until
+someone opens it. Note rows keep one fixed height and read title, a one-line
+excerpt (the type's declared description field, else the opening prose), then
+time and folder; a declared type appears as a small badge, never in place of
+the folder. Search results are ordered by relevance without date groups.
+Types reuse the list-and-document rhythm; settings become one quiet
+document rather than a dashboard, with technical facts behind Details. In the collection rail, Notes, Types, and
 Settings remain the primary editing group. Connect sits in a bottom-aligned
 Manage group above connection and account status, visibly secondary until a
 pending authorization count requires attention. Mobile presents each level as

@@ -4,6 +4,7 @@ import {
   editableNote,
   folderTree,
   folders,
+  noteExcerpt,
   noteHeadings,
   noteTags,
   noteTitle,
@@ -212,5 +213,25 @@ describe("noteWordCount", () => {
   it("returns zero for empty or whitespace-only bodies", () => {
     expect(noteWordCount("")).toBe(0);
     expect(noteWordCount("  \n \n")).toBe(0);
+  });
+});
+
+describe("noteExcerpt", () => {
+  const excerpt = (body: string, title?: string) => noteExcerpt({ ...summary("Notes/n.md", {}), body: title ? `# ${title}\n\n${body}` : body });
+
+  it("reads the opening prose without Markdown syntax or the title heading", () => {
+    expect(excerpt("![[Assets/cover.png]]\n\n- [ ] Plant **tomatoes** near [[Notes/the-fence|the fence]] and [the shed](https://example.com)\n", "Garden notes")).toBe("Plant tomatoes near the fence and the shed");
+  });
+
+  it("skips fenced code and rules, and shortens long text on a word boundary", () => {
+    expect(excerpt("```js\nconst x = 1;\n```\n---\nAfter the code.")).toBe("After the code.");
+    const long = excerpt("word ".repeat(80));
+    expect(long.endsWith("…")).toBe(true);
+    expect(long.length).toBeLessThanOrEqual(161);
+    expect(long).not.toMatch(/wor…$/);
+  });
+
+  it("is empty for a body with no prose", () => {
+    expect(excerpt("", "Only a title")).toBe("");
   });
 });

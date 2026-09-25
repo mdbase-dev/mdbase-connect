@@ -124,7 +124,9 @@ export function QuickOpen({ index, recentPaths, types, commands = [], onSelect, 
                 onClick={() => choose(row)}
               ><span>
                 <strong><SearchMatchText text={noteTitle(result.note, types)} ranges={searchTextRanges(noteTitle(result.note, types), commandQuery)} /></strong>
-                <small className={`search-result-context ${result.context.kind}`}><SearchMatchText text={result.context.text} ranges={result.context.ranges} /></small>
+                {result.context.kind === "title"
+                  ? <small className="search-result-context path"><SearchMatchText text={result.note.path} ranges={searchTextRanges(result.note.path, commandQuery)} /></small>
+                  : <small className={`search-result-context ${result.context.kind}`}><SearchMatchText text={result.context.text} ranges={result.context.ranges} /></small>}
               </span></button>;
             })()}
           </Fragment>;

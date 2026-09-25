@@ -162,7 +162,7 @@ describe("mdbase editor", () => {
     await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
     expect(screen.getByRole("complementary", { name: "Note properties" })).toBeInTheDocument();
-    expect(within(screen.getByRole("complementary", { name: "Note properties" })).getByText("Journal/garden-notes-2.md")).toBeInTheDocument();
+    expect(screen.getByTitle("Rename Markdown path")).toHaveTextContent("Journal/garden-notes-2.md");
   });
 
   it("uploads attachments into a note-local folder and reconciles the file browser", async () => {
@@ -216,7 +216,7 @@ describe("mdbase editor", () => {
       expect(preview).toHaveAccessibleName(/Preview of/);
       expect(preview.querySelector("header strong")?.textContent).toBeTruthy();
       expect(preview.querySelector("header span")?.textContent).toMatch(/\.md$/);
-      expect(row).toHaveAttribute("aria-describedby", "note-preview-popover");
+      expect(row.getAttribute("aria-describedby")?.split(" ")).toContain("note-preview-popover");
 
       fireEvent.mouseLeave(row);
       expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
@@ -407,16 +407,16 @@ describe("mdbase editor", () => {
     firstRender.unmount();
     render(<App gateway={gateway} />);
     await screen.findByRole("heading", { name: "Writing" });
-    const types = screen.getByRole("group", { name: "Types" });
+    const types = screen.getByRole("group", { name: "By type" });
     await waitFor(() => expect(types).toHaveAttribute("aria-busy", "false"));
-    await user.click(within(types).getByRole("button", { name: "Types" }));
+    await user.click(within(types).getByRole("button", { name: "By type" }));
     const typeRow = within(types).getByRole("button", { name: /^Show notes with type note,/ });
     typeRow.focus();
     fireEvent.keyDown(typeRow, { key: "F10", shiftKey: true });
     await user.click(within(await screen.findByRole("menu", { name: "note type actions" }))
       .getByRole("menuitem", { name: "New note of type" }));
     expect(screen.getByRole("combobox", { name: "Type" })).toHaveValue("note");
-    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Notes/Untitled.md");
+    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Notes/‹title›.md");
   });
 
   it("collapses collection facets, filters notes, and follows backlinks", async () => {
@@ -441,8 +441,8 @@ describe("mdbase editor", () => {
     expect(screen.getByRole("heading", { name: "#ideas" })).toBeInTheDocument();
     expect(screen.getAllByRole("option")).toHaveLength(4);
 
-    const types = screen.getByRole("group", { name: "Types" });
-    await user.click(within(types).getByRole("button", { name: "Types" }));
+    const types = screen.getByRole("group", { name: "By type" });
+    await user.click(within(types).getByRole("button", { name: "By type" }));
     await user.click(within(types).getByRole("button", { name: /^Show notes with type note,/ }));
     expect(screen.getByRole("heading", { name: "note" })).toBeInTheDocument();
     expect(screen.getAllByRole("option")).toHaveLength(3);
@@ -506,9 +506,10 @@ describe("mdbase editor", () => {
     await user.click(within(collection).getByRole("button", { name: "Types (1)" }));
 
     const description = await screen.findByRole("textbox", { name: "Description" });
-    expect(screen.getByText("Collection-wide change")).toBeInTheDocument();
+    expect(screen.queryByText(/Saving affects every/)).not.toBeInTheDocument();
     await user.clear(description);
     await user.type(description, "A durable general note.");
+    expect(screen.getByText(/Saving affects every/)).toHaveTextContent("Saving affects every note of type note");
     await user.click(screen.getByRole("button", { name: "Add field" }));
     const addedField = screen.getByDisplayValue("field").closest<HTMLElement>(".visual-field-row")!;
     await user.click(within(addedField).getByRole("checkbox", { name: "Required" }));
@@ -522,7 +523,8 @@ describe("mdbase editor", () => {
     await user.click(screen.getByRole("button", { name: "YAML" }));
     expect((await screen.findByRole("textbox", { name: "note type YAML" }) as HTMLTextAreaElement).value).toContain("kind: mdbase.type");
 
-    await user.click(screen.getByRole("button", { name: "New type" }));
+    await user.click(screen.getByRole("button", { name: /Add a type/ }));
+    await user.click(await screen.findByRole("button", { name: "New type" }));
     const newTypeName = await screen.findByRole("textbox", { name: "Name" });
     await user.clear(newTypeName);
     await user.type(newTypeName, "project");

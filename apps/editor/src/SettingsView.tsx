@@ -1,4 +1,4 @@
-import { ArrowLeftIcon as ArrowLeft, TrashIcon as Trash2 } from "./icons";
+import { ArrowLeftIcon as ArrowLeft, CaretRightIcon as ChevronRight, TrashIcon as Trash2 } from "./icons";
 import type { CollectionDescription } from "@mdbase-dev/connect";
 import { useEffect, useState, type ReactNode } from "react";
 import type { ConnectionSummary } from "./model";
@@ -50,25 +50,31 @@ export function SettingsView({ description, connection, noteCount, preferences, 
       <section>
         <div className="settings-intro"><h2>Collection</h2><p>The collection you chose in mdbase connect.</p></div>
         <FactRow label="Name" value={description.displayName} />
-        <FactRow label="Specification" value={description.specVersion} />
-        <FactRow label="Records" value={String(noteCount)} />
+        <FactRow label="Notes" value={noteCount.toLocaleString()} />
         <FactRow label="Types" value={String(description.types.length)} />
-        <FactRow label="Types folder" value={stringValue(settings.types_folder, "_types")} />
-        <FactRow label="Explicit type keys" value={explicitTypeKeys.length ? explicitTypeKeys.join(", ") : "Disabled"} mono />
-        <FactRow label="Validation" value={stringValue(settings.validation, "error")} />
-        <FactRow label="Runtime" value={runtime.enabled === true ? `Enabled · ${stringValue(runtime.profile_version, "0.1.0")}` : "Disabled"} />
+        <details className="settings-details">
+          <summary><span>Details</span><ChevronRight aria-hidden="true" /></summary>
+          <FactRow label="Specification" value={description.specVersion} />
+          <FactRow label="Types folder" value={stringValue(settings.types_folder, "_types")} />
+          <FactRow label="Explicit type keys" value={explicitTypeKeys.length ? explicitTypeKeys.join(", ") : "Disabled"} mono />
+          <FactRow label="Validation" value={stringValue(settings.validation, "error")} />
+          <FactRow label="Runtime" value={runtime.enabled === true ? `Enabled · ${stringValue(runtime.profile_version, "0.1.0")}` : "Disabled"} />
+        </details>
       </section>
 
       <section>
         <div className="settings-intro"><h2>Connection</h2><p>Collection-wide access through mdbase connect. Storage remains local or hosted according to the collection you chose.</p></div>
         <FactRow label="Route" value={connectionRouteLabel(connection)} />
         <DirectAccessRow connection={connection} busy={directAccessBusy} onRequest={onRequestDirectAccess} />
-        <FactRow label="Operations" value={description.operations.join(", ")} mono />
-        <FactRow label="Collection ID" value={description.collectionId} mono />
         <div className="setting-row connection-action">
           <div><h3>Saved access</h3><p>Remove this collection from the editor without changing its files.</p></div>
           <button className="settings-danger-action" onClick={onForget}><Trash2 aria-hidden="true" />Forget from this browser</button>
         </div>
+        <details className="settings-details">
+          <summary><span>Details</span><ChevronRight aria-hidden="true" /></summary>
+          <FactRow label="Operations" value={description.operations.join(", ")} mono />
+          <FactRow label="Collection ID" value={description.collectionId} mono />
+        </details>
       </section>
     </div>
   </main>;
