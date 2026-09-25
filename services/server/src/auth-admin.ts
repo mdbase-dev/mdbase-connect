@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabasePool } from "./db.js";
 import { compatibilityReport } from "./auth-admin-compatibility.js";
-import { usageReport } from "./auth-admin-usage.js";
+import { usageReport } from "./usage-report.js";
 import {
   inspectAccountEntitlements,
   reconcileActiveHostedEntitlements
