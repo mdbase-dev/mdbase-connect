@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { AuthAdminUsageError, runAuthAdminCommand } from "./auth-admin.js";
 import { createDatabase, type DatabasePool } from "./db.js";
+import type { HostedProviderClient } from "./hosted-provider.js";
 import { pruneUsageHistory, USAGE_RETENTION_DAYS } from "./usage-report.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -71,11 +72,21 @@ describe("usage report", () => {
       [alice]
     );
 
-    await authorization(db, tasksV1, { userId: alice, expiresInMinutes: -60, outcome: "completed" });
+    const retryingBrowser = randomUUID();
+    const abandoningBrowser = randomUUID();
+    await authorization(db, tasksV1, {
+      userId: alice, expiresInMinutes: -60, outcome: "completed", installationId: retryingBrowser
+    });
     await authorization(db, reader, { userId: bob, expiresInMinutes: -60, outcome: "denied" });
-    await authorization(db, tasksV2, { userId: carol, expiresInMinutes: -60 });
-    await authorization(db, tasksV2, { userId: null, expiresInMinutes: -60 });
-    await authorization(db, tasksV2, { userId: null, expiresInMinutes: 10 });
+    await authorization(db, tasksV2, {
+      userId: carol, expiresInMinutes: -60, installationId: retryingBrowser
+    });
+    await authorization(db, tasksV2, {
+      userId: null, expiresInMinutes: -60, installationId: abandoningBrowser
+    });
+    await authorization(db, tasksV2, {
+      userId: null, expiresInMinutes: 10, installationId: abandoningBrowser, flow: "device_code"
+    });
     await authorization(db, tasksV1, { userId: alice, expiresInMinutes: -60 * 24 * 60 });
 
     await pairing(db, { ageMinutes: 60, approved: true, consumed: true });
@@ -118,7 +129,27 @@ describe("usage report", () => {
       }]
     });
     expect(report.consent).toEqual({
-      started: 5, approved: 1, denied: 1, abandoned: 2, abandoned_before_sign_in: 1, pending: 1
+      started: 5, approved: 1, denied: 1, abandoned: 2, abandoned_before_sign_in: 1, pending: 1,
+      installations: 3,
+      installations_approved: 1,
+      installations_abandoned_only: 1,
+      abandoned_from_installations_that_approved: 1
+    });
+    expect(report.consent_by_flow).toEqual({
+      authorization_code: {
+        started: 4, approved: 1, denied: 1, abandoned: 2, abandoned_before_sign_in: 1, pending: 0,
+        installations: 3,
+        installations_approved: 1,
+        installations_abandoned_only: 1,
+        abandoned_from_installations_that_approved: 1
+      },
+      device_code: {
+        started: 1, approved: 0, denied: 0, abandoned: 0, abandoned_before_sign_in: 0, pending: 1,
+        installations: 1,
+        installations_approved: 0,
+        installations_abandoned_only: 0,
+        abandoned_from_installations_that_approved: 0
+      }
     });
     expect(report.pairing).toEqual({
       started: 2, approved: 1, completed: 1, expired_unapproved: 1, pending: 0
@@ -127,7 +158,8 @@ describe("usage report", () => {
       local: { registered: 1, registered_in_window: 0, registration_time_unknown: 1 },
       hosted: { total: 1, created_in_window: 1 }
     });
-    expect(report.transport_users_in_window).toEqual({ direct: 1, relay: 0, hosted: 0 });
+    // Without a configured provider, hosted use is unknown rather than zero.
+    expect(report.transport_users_in_window).toEqual({ direct: 1, relay: 0, hosted: null });
     expect(report.applications).toEqual([
       {
         family: "bundle:dev.tasks",
@@ -142,7 +174,11 @@ describe("usage report", () => {
         revoked_in_window: 1,
         consent: {
           started: 4, approved: 1, denied: 0, abandoned: 2,
-          abandoned_before_sign_in: 1, pending: 1
+          abandoned_before_sign_in: 1, pending: 1,
+          installations: 2,
+          installations_approved: 1,
+          installations_abandoned_only: 1,
+          abandoned_from_installations_that_approved: 1
         }
       },
       {
@@ -158,16 +194,111 @@ describe("usage report", () => {
         revoked_in_window: 0,
         consent: {
           started: 1, approved: 0, denied: 1, abandoned: 0,
-          abandoned_before_sign_in: 0, pending: 0
+          abandoned_before_sign_in: 0, pending: 0,
+          installations: 1,
+          installations_approved: 0,
+          installations_abandoned_only: 0,
+          abandoned_from_installations_that_approved: 0
         }
       }
     ]);
 
     const serialized = JSON.stringify(report);
-    for (const hidden of [alice, bob, carol, dana, aliceTasks, localCollection, hostedCollection]) {
+    for (const hidden of [
+      alice, bob, carol, dana, aliceTasks, localCollection, hostedCollection,
+      retryingBrowser, abandoningBrowser
+    ]) {
       expect(serialized).not.toContain(hidden);
     }
     expect(serialized).not.toContain("@example.com");
+  });
+
+  it("tracks weekly signup cohorts by token activity in each following week", async () => {
+    const db = await database();
+    const app = await application(db, "dev.tasks", "v1", "Tasks", 30);
+    const returning = await user(db, "returning@example.com", 10);
+    const lapsed = await user(db, "lapsed@example.com", 10);
+    const recent = await user(db, "recent@example.com", 2);
+    await user(db, "outside@example.com", 40);
+    for (const [owner, tokenDaysAgo] of [
+      [returning, [9, 0]],
+      [lapsed, [9]],
+      [recent, [0]]
+    ] as const) {
+      const collection = randomUUID();
+      await db.query(
+        `INSERT INTO hosted_collections (id, user_id, display_name, template)
+         VALUES ($1, $2, 'Hosted', 'blank')`,
+        [collection, owner]
+      );
+      const grantId = await grant(db, owner, app, { hostedCollectionId: collection, ageDays: 10 });
+      for (const daysAgo of tokenDaysAgo) {
+        await db.query(
+          `INSERT INTO access_tokens (id, token_hash, grant_id, expires_at, created_at)
+           VALUES ($1, $2, $3, now(), now() - ($4::text || ' days')::interval)`,
+          [randomUUID(), randomUUID(), grantId, daysAgo]
+        );
+      }
+    }
+
+    const report = await runAuthAdminCommand(
+      ["usage", "report", "--days", "21"],
+      { db, defaultRegistrationMode: "closed" }
+    ) as Record<string, any>;
+
+    // Three whole weeks ending today; signups 10 days ago fall in the middle
+    // cohort, whose second week is the current one.
+    expect(report.retention.cohorts).toEqual([
+      { starts_on: expect.any(String), accounts: 0, active_by_week: [0, 0, 0] },
+      { starts_on: expect.any(String), accounts: 2, active_by_week: [2, 1] },
+      { starts_on: expect.any(String), accounts: 1, active_by_week: [1] }
+    ]);
+    const starts = report.retention.cohorts.map((cohort: { starts_on: string }) =>
+      Date.parse(`${cohort.starts_on}T00:00:00Z`)
+    );
+    expect(starts[1] - starts[0]).toBe(7 * 24 * 60 * 60 * 1_000);
+    expect(starts[2] - starts[1]).toBe(7 * 24 * 60 * 60 * 1_000);
+  });
+
+  it("counts hosted users from provider telemetry mapped through storage accounts", async () => {
+    const db = await database();
+    const hostedUser = await user(db, "hosted@example.com", 3);
+    const staleUser = await user(db, "stale@example.com", 90);
+    const hostedAccount = randomUUID();
+    const staleAccount = randomUUID();
+    for (const [owner, account] of [[hostedUser, hostedAccount], [staleUser, staleAccount]]) {
+      await db.query(
+        `INSERT INTO account_storage_accounts
+           (user_id, provider_account_id, entitlement_revision)
+         VALUES ($1, $2, 1)`,
+        [owner, account]
+      );
+    }
+    const now = new Date();
+    const long = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1_000);
+    const hostedProvider = {
+      async protocolUsage() {
+        return {
+          entries: [
+            { account_id: hostedAccount, protocol_version: 3, sample_count: 4,
+              first_seen_at: now.toISOString(), last_seen_at: now.toISOString() },
+            { account_id: staleAccount, protocol_version: 3, sample_count: 1,
+              first_seen_at: long.toISOString(), last_seen_at: long.toISOString() }
+          ],
+          unbound_application_replicas: 0,
+          v2_recovery_application_replicas: 0
+        };
+      }
+    } as unknown as HostedProviderClient;
+
+    const report = await runAuthAdminCommand(
+      ["usage", "report", "--days", "30"],
+      { db, defaultRegistrationMode: "closed", hostedProvider }
+    ) as Record<string, any>;
+
+    expect(report.transport_users_in_window).toEqual({ direct: 0, relay: 0, hosted: 1 });
+    expect(report.activation.all_accounts.active_in_window).toBe(1);
+    expect(JSON.stringify(report)).not.toContain(hostedAccount);
   });
 
   it("rejects an unsupported window", async () => {
@@ -348,26 +479,29 @@ async function authorization(
     expiresInMinutes: number;
     outcome?: "completed" | "denied";
     grantId?: string;
+    installationId?: string;
+    flow?: "authorization_code" | "device_code";
   }
 ): Promise<void> {
   await db.query(
     `INSERT INTO authorization_requests
        (id, user_id, application_id, requested_operations,
         application_authorization, application_installation_id, grant_id,
-        expires_at, completed_at, denied_at)
+        expires_at, completed_at, denied_at, flow)
      VALUES ($1, $2, $3, '[]'::jsonb,
        '{"binding":{"protocol_version":5}}'::jsonb, $4, $5,
        now() + ($6::text || ' minutes')::interval,
        CASE WHEN $7 = 'completed' THEN now() ELSE NULL END,
-       CASE WHEN $7 = 'denied' THEN now() ELSE NULL END)`,
+       CASE WHEN $7 = 'denied' THEN now() ELSE NULL END, $8)`,
     [
       randomUUID(),
       input.userId,
       applicationId,
-      randomUUID(),
+      input.installationId ?? randomUUID(),
       input.grantId ?? null,
       input.expiresInMinutes,
-      input.outcome ?? "none"
+      input.outcome ?? "none",
+      input.flow ?? "authorization_code"
     ]
   );
 }

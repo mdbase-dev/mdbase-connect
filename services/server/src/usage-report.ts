@@ -11,11 +11,18 @@ import { invitationStatus } from "./instance-admin-invitations.js";
 
 interface UsageReportContext {
   db: DatabasePool;
+  // The part of HostedProviderClient this report reads.
+  hostedProvider?: {
+    protocolUsage(): Promise<{
+      entries: Array<{ account_id: string; last_seen_at: string }>;
+    }>;
+  };
 }
 
 type Timestamp = Date | string;
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
+const MAX_RETENTION_COHORTS = 52;
 
 interface GrantRow {
   id: string;
@@ -48,7 +55,12 @@ interface ConsentCounts {
   abandoned: number;
   abandoned_before_sign_in: number;
   pending: number;
+  installations: Set<string>;
+  approved_installations: Set<string>;
+  abandoned_by_installation: Map<string, number>;
 }
+
+type ConsentOutcome = "approved" | "denied" | "abandoned" | "pending";
 
 export async function usageReport(
   argv: string[],
@@ -60,6 +72,10 @@ export async function usageReport(
   const now = generatedAt.getTime();
   const since = new Date(now - windowDays * DAY_MS);
   const start = since.getTime();
+  const today = Math.floor(now / DAY_MS);
+  const cohortCount = Math.min(MAX_RETENTION_COHORTS, Math.max(1, Math.floor(windowDays / 7)));
+  const firstCohortDay = today - cohortCount * 7 + 1;
+  const firstCohortDate = new Date(firstCohortDay * DAY_MS);
   const { db } = context;
   const [
     users,
@@ -73,9 +89,12 @@ export async function usageReport(
     applications,
     grants,
     tokenGrants,
+    tokenDays,
     transports,
     authorizations,
-    pairings
+    pairings,
+    storageAccounts,
+    hostedUsage
   ] = await Promise.all([
     db.query<{ id: string; created_at: Timestamp; suspended_at: Timestamp | null }>(
       "SELECT id, created_at, suspended_at FROM users"
@@ -133,6 +152,13 @@ export async function usageReport(
       "SELECT DISTINCT grant_id FROM access_tokens WHERE created_at >= $1",
       [since]
     ),
+    // Day offsets from the first retention cohort. Subtracting dates yields an
+    // integer in PostgreSQL, so no driver date parsing is involved.
+    db.query<{ grant_id: string; day: number | string }>(
+      `SELECT DISTINCT grant_id, (created_at::date - $2::date) AS day
+       FROM access_tokens WHERE created_at >= $1`,
+      [firstCohortDate, firstCohortDate.toISOString().slice(0, 10)]
+    ),
     // Direct same-computer use never refreshes; connectors report only
     // per-account protocol counts, which is the whole direct signal.
     db.query<{ user_id: string; surface: "direct" | "relay" | "hosted" }>(
@@ -145,11 +171,14 @@ export async function usageReport(
     db.query<{
       user_id: string | null;
       application_id: string;
+      application_installation_id: string;
+      flow: string;
       expires_at: Timestamp;
       completed_at: Timestamp | null;
       denied_at: Timestamp | null;
     }>(
-      `SELECT user_id, application_id, expires_at, completed_at, denied_at
+      `SELECT user_id, application_id, application_installation_id, flow,
+              expires_at, completed_at, denied_at
        FROM authorization_requests WHERE expires_at >= $1`,
       [since]
     ),
@@ -162,7 +191,13 @@ export async function usageReport(
       `SELECT created_at, approved_at, consumed_at, expires_at
        FROM pairing_requests WHERE created_at >= $1`,
       [since]
-    )
+    ),
+    db.query<{ user_id: string; provider_account_id: string }>(
+      "SELECT user_id, provider_account_id FROM account_storage_accounts"
+    ),
+    // Hosted operations never pass through the control plane; the provider
+    // keeps their protocol counts per storage account.
+    context.hostedProvider?.protocolUsage() ?? null
   ]);
 
   const pairedUsers = new Set(connectors.rows.map((row) => row.user_id));
@@ -174,7 +209,19 @@ export async function usageReport(
   const grantUsers = new Set(
     grants.rows.filter((grant) => grant.activated_at).map((grant) => grant.user_id)
   );
-  const activeUsers = new Set(transports.rows.map((row) => row.user_id));
+  const userByStorageAccount = new Map(
+    storageAccounts.rows.map((row) => [row.provider_account_id, row.user_id])
+  );
+  const hostedUsers = hostedUsage === null ? null : new Set(
+    hostedUsage.entries
+      .filter((entry) => instant(entry.last_seen_at) >= start)
+      .map((entry) => userByStorageAccount.get(entry.account_id))
+      .filter((userId): userId is string => userId !== undefined)
+  );
+  const activeUsers = new Set([
+    ...transports.rows.map((row) => row.user_id),
+    ...hostedUsers ?? []
+  ]);
   for (const { grant_id } of tokenGrants.rows) {
     const grant = grantsById.get(grant_id);
     if (grant) activeUsers.add(grant.user_id);
@@ -269,20 +316,22 @@ export async function usageReport(
     const grant = grantsById.get(grant_id);
     if (grant) usageFor(grant.application_id).active_users_in_window.add(grant.user_id);
   }
+  const consentByFlow = new Map<string, ConsentCounts>();
   for (const request of authorizations.rows) {
-    const outcome: keyof ConsentCounts = request.completed_at
+    const outcome: ConsentOutcome = request.completed_at
       ? "approved"
       : request.denied_at
         ? "denied"
         : instant(request.expires_at) <= now
           ? "abandoned"
           : "pending";
-    for (const counts of [consentTotals, usageFor(request.application_id).consent]) {
-      counts.started += 1;
-      counts[outcome] += 1;
-      if (outcome === "abandoned" && request.user_id === null) {
-        counts.abandoned_before_sign_in += 1;
-      }
+    if (!consentByFlow.has(request.flow)) consentByFlow.set(request.flow, emptyConsent());
+    for (const counts of [
+      consentTotals,
+      consentByFlow.get(request.flow)!,
+      usageFor(request.application_id).consent
+    ]) {
+      recordConsent(counts, outcome, request.user_id, request.application_installation_id);
     }
   }
 
@@ -300,6 +349,38 @@ export async function usageReport(
   const surfaceUsers = (surface: string) => new Set(
     transports.rows.filter((row) => row.surface === surface).map((row) => row.user_id)
   ).size;
+  const activeDaysByUser = new Map<string, Set<number>>();
+  for (const row of tokenDays.rows) {
+    const grant = grantsById.get(row.grant_id);
+    if (!grant) continue;
+    const days = activeDaysByUser.get(grant.user_id) ?? new Set<number>();
+    days.add(Number(row.day));
+    activeDaysByUser.set(grant.user_id, days);
+  }
+  const cohorts = Array.from({ length: cohortCount }, (_, cohort) => ({
+    starts_on: new Date((firstCohortDay + cohort * 7) * DAY_MS).toISOString().slice(0, 10),
+    accounts: 0,
+    active_by_week: Array.from({ length: cohortCount - cohort }, () => 0)
+  }));
+  for (const user of users.rows) {
+    const signupOffset = Math.floor(instant(user.created_at) / DAY_MS) - firstCohortDay;
+    if (signupOffset < 0) continue;
+    const cohort = Math.floor(signupOffset / 7);
+    const entry = cohorts[cohort]!;
+    entry.accounts += 1;
+    const days = activeDaysByUser.get(user.id);
+    if (!days) continue;
+    entry.active_by_week.forEach((_, week) => {
+      const weekStart = (cohort + week) * 7;
+      for (let day = weekStart; day < weekStart + 7; day += 1) {
+        if (days.has(day)) {
+          entry.active_by_week[week]! += 1;
+          return;
+        }
+      }
+    });
+  }
+
   const recentSignups = betaSignups
     .filter((userId) => userCreatedAt.get(userId)! >= start)
     .sort((left, right) => userCreatedAt.get(right)! - userCreatedAt.get(left)!);
@@ -341,7 +422,12 @@ export async function usageReport(
       }))
     },
     pairing,
-    consent: consentTotals,
+    consent: consentSummary(consentTotals),
+    consent_by_flow: Object.fromEntries(
+      [...consentByFlow.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([flow, counts]) => [flow, consentSummary(counts)])
+    ),
     collections: {
       local: {
         registered: activeLocal.length,
@@ -360,8 +446,9 @@ export async function usageReport(
     transport_users_in_window: {
       direct: surfaceUsers("direct"),
       relay: surfaceUsers("relay"),
-      hosted: surfaceUsers("hosted")
+      hosted: hostedUsers?.size ?? null
     },
+    retention: { cohorts },
     applications: [...usage.entries()]
       .filter(([, entry]) =>
         entry.active_grants > 0
@@ -380,7 +467,7 @@ export async function usageReport(
         hosted_active_grants: entry.hosted_active_grants,
         approved_in_window: entry.approved_in_window,
         revoked_in_window: entry.revoked_in_window,
-        consent: entry.consent
+        consent: consentSummary(entry.consent)
       }))
       .sort((left, right) =>
         right.active_users_in_window - left.active_users_in_window
@@ -397,7 +484,52 @@ function emptyConsent(): ConsentCounts {
     denied: 0,
     abandoned: 0,
     abandoned_before_sign_in: 0,
-    pending: 0
+    pending: 0,
+    installations: new Set(),
+    approved_installations: new Set(),
+    abandoned_by_installation: new Map()
+  };
+}
+
+function recordConsent(
+  counts: ConsentCounts,
+  outcome: ConsentOutcome,
+  userId: string | null,
+  installationId: string
+): void {
+  counts.started += 1;
+  counts[outcome] += 1;
+  counts.installations.add(installationId);
+  if (outcome === "approved") counts.approved_installations.add(installationId);
+  if (outcome !== "abandoned") return;
+  if (userId === null) counts.abandoned_before_sign_in += 1;
+  counts.abandoned_by_installation.set(
+    installationId,
+    (counts.abandoned_by_installation.get(installationId) ?? 0) + 1
+  );
+}
+
+// Installation IDs derive from a per-browser application signing key, so they
+// separate one browser retrying from many browsers giving up. They are counted,
+// never returned.
+function consentSummary(counts: ConsentCounts) {
+  let abandonedThenApproved = 0;
+  for (const [installationId, abandoned] of counts.abandoned_by_installation) {
+    if (counts.approved_installations.has(installationId)) abandonedThenApproved += abandoned;
+  }
+  return {
+    started: counts.started,
+    approved: counts.approved,
+    denied: counts.denied,
+    abandoned: counts.abandoned,
+    abandoned_before_sign_in: counts.abandoned_before_sign_in,
+    pending: counts.pending,
+    installations: counts.installations.size,
+    installations_approved: counts.approved_installations.size,
+    installations_abandoned_only: [...counts.abandoned_by_installation.keys()]
+      .filter((installationId) => !counts.approved_installations.has(installationId))
+      .length,
+    abandoned_from_installations_that_approved: abandonedThenApproved
   };
 }
 

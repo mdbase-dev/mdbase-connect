@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `usage report` now reports hosted users from the hosted provider (previously
+  always 0), a consent breakdown by authorization flow and by distinct
+  application installation, and weekly signup-cohort retention.
 - Added the operator `usage report` command: activation funnel, beta
   conversion, pairing and consent outcomes, collection mix, transport use, and
   per-application usage as aggregate counts from existing control-plane rows.
