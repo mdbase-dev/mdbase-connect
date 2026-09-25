@@ -22,7 +22,7 @@ export type {
   MdbaseSessionSnapshot
 } from "./session.js";
 /** Experimental record editing session. Its API may change between betas. */
-export { connectionRecordAdapter, RecordSession } from "./record-session.js";
+export { RecordSession } from "./record-session.js";
 export type {
   RecordChange,
   RecordResolution,

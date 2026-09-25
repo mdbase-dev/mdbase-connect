@@ -1,7 +1,5 @@
 import type { JsonObject } from "@mdbase-dev/connect-protocol";
-import type { MdbaseConnection } from "./connection.js";
 import { MdbaseConnectError } from "./errors.js";
-import type { RecordDocument } from "./operation-types.js";
 
 /**
  * Experimental. One open, editable record: a debounced write queue with
@@ -156,14 +154,23 @@ export class RecordSession<R> {
     this.emit();
   }
 
-  /** Accept a record produced by this application outside the session's writes (rename, whole-document replace). */
+  /**
+   * Accept a record this application produced outside the session's writes
+   * (rename, whole-document replace). It is never a conflict: local changes
+   * made meanwhile are kept on top of it.
+   */
   accept(record: R): void {
     this.seen.add(this.adapter.revision(record));
+    const body = this.adapter.body(record);
+    if (this.body === this.baseBody) this.body = body;
+    this.baseBody = body;
+    const matter = this.adapter.frontmatter?.(record) ?? {};
+    for (const [key, value] of Object.entries(this.patch)) {
+      if (sameJson(matter[key], value)) delete this.patch[key];
+    }
     this.record = record;
     this.remote = null;
     this.error = null;
-    this.baseBody = this.body = this.adapter.body(record);
-    this.patch = {};
     this.emit();
   }
 
@@ -263,6 +270,7 @@ export class RecordSession<R> {
       const requestId = outcomeUnknownRequestId(error);
       if (requestId) {
         this.busy = false;
+        this.error = error;
         this.pending = { requestId, sent };
         this.emit();
         this.schedule();
@@ -292,6 +300,7 @@ export class RecordSession<R> {
         && this.adapter.isPending?.(pending.requestId) === false;
       if (!settled) {
         this.busy = false;
+        this.error = error;
         this.emit();
         throw error;
       }
@@ -402,41 +411,6 @@ export class RecordSession<R> {
     this.current = this.compute();
     this.listeners.forEach((listener) => listener());
   }
-}
-
-/** Adapter for records read and written through an authorized connection. */
-export function connectionRecordAdapter<Frontmatter extends JsonObject = JsonObject>(
-  connection: Pick<MdbaseConnection<Frontmatter>, "update" | "read" | "pendingMutation">
-): RecordSessionAdapter<RecordDocument<Frontmatter>> {
-  return {
-    revision: (record) => record.revision,
-    body: (record) => record.body ?? "",
-    frontmatter: (record) => record.frontmatter,
-    async write(base, change) {
-      const outcome = await connection.update({
-        path: base.path,
-        ifRevision: base.revision,
-        patch: (change.patch ?? {}) as Partial<Frontmatter> & JsonObject,
-        ...(change.body === undefined ? {} : { body: change.body }),
-        includeDocument: true
-      });
-      if (!outcome.ok) throw new MdbaseConnectError(outcome.problem);
-      return outcome.value;
-    },
-    async read(base) {
-      const outcome = await connection.read({ path: base.path, includeDocument: true });
-      if (!outcome.ok) throw new MdbaseConnectError(outcome.problem);
-      return outcome.value;
-    },
-    async recover(requestId) {
-      const pending = connection.pendingMutation<RecordDocument<Frontmatter>>(requestId);
-      if (!pending) throw new Error("The interrupted write is no longer available. No new write was attempted.");
-      const outcome = await pending.recover();
-      if (!outcome.ok) throw new MdbaseConnectError(outcome.problem);
-      return outcome.value;
-    },
-    isPending: (requestId) => connection.pendingMutation(requestId) !== null
-  };
 }
 
 function outcomeUnknownRequestId(error: unknown): string | undefined {

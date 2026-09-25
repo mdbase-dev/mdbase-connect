@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { JsonObject } from "@mdbase-dev/connect-protocol";
 import { connectProblem, MdbaseConnectError } from "./errors.js";
-import { connectFailure, connectSuccess } from "./outcomes.js";
-import { connectionRecordAdapter, RecordSession, type RecordChange, type RecordSessionAdapter } from "./record-session.js";
+import { RecordSession, type RecordChange, type RecordSessionAdapter } from "./record-session.js";
 
 interface Doc {
   path: string;
@@ -383,6 +382,17 @@ describe("failures, conflicts and resolution", () => {
     expect(transport.write).toHaveBeenCalledExactlyOnceWith(doc("Theirs"), { body: "Mine and theirs" });
   });
 
+  it("accepts its own out-of-band result without conflict and keeps newer typing", () => {
+    const session = new RecordSession(original, adapter(), { autosave: false });
+    session.setBody("Typed during rename");
+    const renamed = { ...original, path: "renamed.md", revision: "7" };
+    session.accept(renamed);
+    expect(session.snapshot).toMatchObject({ record: renamed, body: "Typed during rename", state: "unsaved", remote: null });
+    const clean = new RecordSession(original, adapter(), { autosave: false });
+    clean.accept(doc("Replaced source", "8"));
+    expect(clean.snapshot).toMatchObject({ body: "Replaced source", state: "saved" });
+  });
+
   it("discards local changes on request", () => {
     const session = new RecordSession(original, adapter(), { autosave: false });
     session.setBody("Discard me");
@@ -505,83 +515,5 @@ describe("outcome-unknown recovery", () => {
     await expect(session.save()).rejects.toBeInstanceOf(MdbaseConnectError);
     await expect(session.save()).rejects.toThrow("No new write was attempted");
     expect(transport.write).toHaveBeenCalledOnce();
-  });
-});
-
-describe("connection adapter", () => {
-  function fakeConnection() {
-    let remote: Doc = original;
-    let pending = false;
-    const update = vi.fn(async (input: { path: string; ifRevision?: string; patch?: JsonObject; body?: string }) => {
-      if (input.ifRevision !== remote.revision) {
-        return connectFailure(connectProblem("concurrent_modification", "Revision changed", { operationOutcome: "rejected" }));
-      }
-      remote = { ...remote, revision: `${remote.revision}+`, body: input.body ?? remote.body, frontmatter: { ...remote.frontmatter, ...input.patch } };
-      return connectSuccess(remote);
-    });
-    const handle = {
-      requestId: "original-update", operation: "update",
-      recover: vi.fn(async () => { pending = false; return connectSuccess(remote); })
-    };
-    const connection = {
-      update,
-      read: vi.fn(async () => connectSuccess(remote)),
-      pendingMutation: (id: string) => pending && id === handle.requestId ? handle : null,
-      change(next: Doc) { remote = next; },
-      loseNextResponse() {
-        update.mockImplementationOnce(async (input) => {
-          remote = { ...remote, revision: "lost", body: input.body ?? remote.body };
-          pending = true;
-          return connectFailure(unknownProblem);
-        });
-      },
-      handle
-    };
-    return connection;
-  }
-
-  it("writes with the base revision, only the dirty parts and the document included", async () => {
-    const connection = fakeConnection();
-    const session = new RecordSession(original, connectionRecordAdapter(connection as never), { autosave: false });
-    session.patchFrontmatter({ title: "Mine" });
-    session.setBody("Body");
-    await session.flush();
-    expect(connection.update).toHaveBeenCalledExactlyOnceWith(
-      { path: "note.md", ifRevision: "1", patch: { title: "Mine" }, body: "Body", includeDocument: true }
-    );
-    expect(session.snapshot.record).toMatchObject({ revision: "1+", body: "Body" });
-  });
-
-  it("classifies a revision rejection by reading the current record", async () => {
-    const connection = fakeConnection();
-    const session = new RecordSession(original, connectionRecordAdapter(connection as never), { autosave: false });
-    connection.change(doc("Remote", "9"));
-    session.setBody("Local");
-    await expect(session.save()).rejects.toMatchObject({ code: "concurrent_modification" });
-    expect(connection.read).toHaveBeenCalledExactlyOnceWith({ path: "note.md", includeDocument: true });
-    expect(session.snapshot).toMatchObject({ state: "conflict", remote: doc("Remote", "9") });
-  });
-
-  it("recovers a lost response through the durable pending mutation, not a new write", async () => {
-    const connection = fakeConnection();
-    const session = new RecordSession(original, connectionRecordAdapter(connection as never), { autosave: false });
-    connection.loseNextResponse();
-    session.setBody("Lost");
-    await expect(session.save()).rejects.toBeInstanceOf(MdbaseConnectError);
-    await session.flush();
-    expect(connection.handle.recover).toHaveBeenCalledOnce();
-    expect(connection.update).toHaveBeenCalledOnce();
-    expect(session.snapshot).toMatchObject({ state: "saved", record: { revision: "lost", body: "Lost" } });
-  });
-
-  it("follows the record to a new path", async () => {
-    const connection = fakeConnection();
-    const session = new RecordSession(original, connectionRecordAdapter(connection as never), { autosave: false });
-    const moved = { ...original, path: "moved.md", revision: "5" };
-    session.receive(moved);
-    connection.change(moved);
-    session.setBody("After move");
-    await session.flush();
-    expect(connection.update.mock.calls[0]?.[0]).toMatchObject({ path: "moved.md", ifRevision: "5" });
   });
 });
