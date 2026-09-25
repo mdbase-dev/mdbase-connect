@@ -485,14 +485,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, [activateSession, createSession]);
 
   const refreshCachedNote = useCallback(async (path: string) => {
-    const epoch = collectionEpoch.current;
     const session = noteSessions.current.get(path);
     if (!session || session.deleted) return;
-    const next = await gateway.read(path);
-    if (epoch !== collectionEpoch.current || noteSessions.current.get(path) !== session || session.deleted) return;
-    // The record session defers this while its own write is unsettled and ignores its acknowledgements.
-    session.record.receive(next);
-  }, [gateway]);
+    // Read behind this note's own writes; the session classifies the result.
+    await session.record.refresh();
+  }, []);
 
   const refreshChangedNote = useCallback(async (path: string) => {
     const epoch = collectionEpoch.current;

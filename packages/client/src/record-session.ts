@@ -155,6 +155,27 @@ export class RecordSession<R> {
   }
 
   /**
+   * Read the current record after any queued write and classify it. Unlike a
+   * publication, an authoritative read ordered behind this session's writes is
+   * never stale, so a revision seen before (content revisions repeat when an
+   * edit is reverted) is still applied.
+   */
+  refresh(): Promise<void> {
+    return this.run(async () => {
+      const read = this.adapter.read;
+      if (!read || this.pending) return;
+      const current = await read(this.record);
+      if (current === null) {
+        this.markDeleted();
+        return;
+      }
+      this.seen.add(this.adapter.revision(current));
+      this.classify(current);
+      this.emit();
+    });
+  }
+
+  /**
    * Accept a record this application produced outside the session's writes
    * (rename, whole-document replace). It is never a conflict: local changes
    * made meanwhile are kept on top of it.

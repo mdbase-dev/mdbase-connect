@@ -241,6 +241,35 @@ describe("acknowledgements and external changes", () => {
     expect(session.snapshot.body).toBe("New revision");
   });
 
+  it("applies an authoritative refresh even when a revert repeats a seen revision", async () => {
+    let current = original;
+    const transport = adapter({ read: () => Promise.resolve(current) });
+    const session = new RecordSession(original, transport, { autosave: false });
+    session.setBody("Mine");
+    await session.flush();
+    current = original; // Another client restored the original bytes, and so its revision.
+    session.receive(original);
+    expect(session.snapshot.body).toBe("Mine");
+    await session.refresh();
+    expect(session.snapshot).toMatchObject({ body: "Original", record: original, state: "saved" });
+  });
+
+  it("orders a refresh behind its own in-flight write", async () => {
+    const read = vi.fn(() => Promise.resolve(doc("First")));
+    const transport = adapter({ read });
+    const finish = blockFirstWrite(transport.write);
+    const session = new RecordSession(original, transport, { autosave: false });
+    session.setBody("First");
+    const saving = session.save();
+    const refreshing = session.refresh();
+    await Promise.resolve();
+    expect(read).not.toHaveBeenCalled();
+    finish(doc("First"));
+    await Promise.all([saving, refreshing]);
+    expect(read).toHaveBeenCalledOnce();
+    expect(session.snapshot).toMatchObject({ body: "First", state: "saved" });
+  });
+
   it("adopts an external change while clean", () => {
     const session = new RecordSession(original, adapter(), { autosave: false });
     session.receive(doc("Remote"));
