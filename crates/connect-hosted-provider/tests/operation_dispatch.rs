@@ -8,8 +8,9 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;
 use mdbase_connect_hosted_provider::{app, AppState, RegisterReplica, ReplicaPurpose};
 use mdbase_connect_protocol::{
-    ListFilesRequest, ListFilesRequestKind, SyncMutation, SyncMutationOperation,
-    SyncMutationReceipt, SyncReplicaMode, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_NONCE_HEADER,
+    FileAction, FileCapability, FileCapabilityKind, FileScope, ListFilesRequest,
+    ListFilesRequestKind, SyncMutation, SyncMutationOperation, SyncMutationReceipt,
+    SyncReplicaMode, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_NONCE_HEADER,
     AUTHORITY_PROOF_SIGNATURE_HEADER, AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION,
     AUTHORITY_PROOF_VERSION_HEADER, FILE_PROTOCOL_VERSION,
 };
@@ -1588,4 +1589,162 @@ async fn legacy_record_effect_replay_is_exact_or_fails_closed_without_ambient_hy
         .await
         .unwrap_err();
     assert_eq!(replacement_error.code, "legacy_replay_evidence_missing");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn extension_file_get_without_origin_requires_bound_one_use_proof() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let token = format!("extension-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    let origin = "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo";
+    let signing_key = SigningKey::random(&mut rand_core::OsRng);
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                application_setup_evidence: None,
+                replica_id: Uuid::now_v7(),
+                name: "Extension file reader".into(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadOnly,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: Vec::new(),
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: vec![2],
+                file_capability: Some(FileCapability {
+                    kind: FileCapabilityKind::Files,
+                    protocol_version: FILE_PROTOCOL_VERSION,
+                    actions: vec![FileAction::List, FileAction::Read],
+                    scope: FileScope::SelectedFolders {
+                        folders: vec!["files/reader".into()],
+                    },
+                }),
+                allowed_origin: Some(origin.into()),
+                proof_public_key: Some(
+                    URL_SAFE_NO_PAD.encode(
+                        signing_key
+                            .verifying_key()
+                            .to_encoded_point(false)
+                            .as_bytes(),
+                    ),
+                ),
+                grant_id: Some(Uuid::new_v4()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: Some(3600),
+            },
+        )
+        .await
+        .unwrap();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = AppState::new(fixture.provider.clone(), &"internal-test-token-".repeat(2)).unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let client = reqwest::Client::new();
+    let files = format!(
+        "/v1/authorities/{}/files?protocol_version=1&folder=files%2Freader&limit=10",
+        fixture.collection_id
+    );
+    let request_headers = |target: &str| {
+        let mut headers = signed_application_headers(&signing_key, &token, "GET", target, &[]);
+        headers.remove(ORIGIN);
+        headers
+    };
+    let url = |target: &str| format!("http://{address}{target}");
+    let get = |target: &str, headers: HeaderMap| client.get(url(target)).headers(headers).send();
+
+    let headers = request_headers(&files);
+    assert_eq!(
+        get(&files, headers.clone()).await.unwrap().status(),
+        reqwest::StatusCode::OK
+    );
+    let mut explicit = request_headers(&files);
+    explicit.insert(ORIGIN, HeaderValue::from_static(origin));
+    assert_eq!(
+        get(&files, explicit).await.unwrap().status(),
+        reqwest::StatusCode::OK
+    );
+    let replay = get(&files, headers).await.unwrap();
+    assert_eq!(replay.status(), reqwest::StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        replay.json::<Value>().await.unwrap()["error"]["code"],
+        "authority_proof_replayed"
+    );
+    let missing = get(&files, {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+        );
+        headers
+    })
+    .await
+    .unwrap();
+    assert_eq!(missing.status(), reqwest::StatusCode::FORBIDDEN);
+    let mut wrong = request_headers(&files);
+    wrong.insert(ORIGIN, HeaderValue::from_static("https://evil.example"));
+    assert_eq!(
+        get(&files, wrong).await.unwrap().status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    let mut invalid = request_headers(&files);
+    invalid.insert(
+        AUTHORITY_PROOF_SIGNATURE_HEADER,
+        HeaderValue::from_static("invalid"),
+    );
+    assert_eq!(
+        get(&files, invalid).await.unwrap().status(),
+        reqwest::StatusCode::UNAUTHORIZED
+    );
+    let post = format!("/v1/authorities/{}/files/uploads", fixture.collection_id);
+    let mut post_headers = signed_application_headers(&signing_key, &token, "POST", &post, &[]);
+    post_headers.remove(ORIGIN);
+    assert_eq!(
+        client
+            .post(url(&post))
+            .headers(post_headers)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    let unrelated = format!(
+        "/v1/authorities/{}/files?protocol_version=1",
+        Uuid::new_v4()
+    );
+    assert_eq!(
+        get(&unrelated, request_headers(&unrelated))
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::UNAUTHORIZED
+    );
+
+    // Both remaining file GET entrypoints must pass the origin/proof gate before
+    // resolving a nonexistent transfer, rather than returning origin_denied.
+    for target in [
+        format!(
+            "/v1/authorities/{}/files/transfers/{}",
+            fixture.collection_id,
+            Uuid::new_v4()
+        ),
+        format!(
+            "/v1/authorities/{}/files/downloads/{}/parts/0",
+            fixture.collection_id,
+            Uuid::new_v4()
+        ),
+    ] {
+        let response = get(&target, request_headers(&target)).await.unwrap();
+        assert_ne!(response.status(), reqwest::StatusCode::FORBIDDEN);
+        assert_ne!(response.status(), reqwest::StatusCode::OK);
+    }
+    server.abort();
 }
