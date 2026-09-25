@@ -1,8 +1,9 @@
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
-import type { NoteDocument, TitleSource } from "./model";
-import { editableNote } from "./note";
+import { RecordSession, type RecordSessionAdapter } from "@mdbase-dev/connect/advanced";
+import type { CollectionGateway, NoteDocument, TitleSource } from "./model";
+import { editableNote, persistedBody, titlePatch } from "./note";
 
-export type SaveState = "saved" | "waiting" | "saving" | "conflict" | "recovery";
+export type SaveState = "saved" | "waiting" | "saving" | "conflict" | "recovery" | "error";
 export type NoteActivity = "saving" | "properties" | "renaming" | "moving" | "deleting" | "validating";
 
 export interface Draft {
@@ -11,46 +12,98 @@ export interface Draft {
   source: TitleSource;
 }
 
-export interface NoteSession {
-  editorSessionKey: string;
-  document: NoteDocument;
+export const AUTOSAVE_IDLE_MS = 650;
+
+let editorSessionSequence = 0;
+
+/**
+ * The editor's view of one open note. The SDK record session owns the write
+ * queue, revision checks, conflicts and recovery; the note session projects
+ * its Markdown into the editor's title/body draft and back.
+ */
+export class NoteSession {
+  readonly editorSessionKey = `note-editor-${++editorSessionSequence}`;
+  readonly record: RecordSession<NoteDocument>;
   draft: Draft;
-  persistedDraft: Draft;
-  remoteDocument?: NoteDocument;
-  saveState: SaveState;
   activity?: NoteActivity;
   activityDetail?: string;
   mutationController?: AbortController;
   mutationCancellable?: boolean;
   error?: string;
+  /** Staged tombstone: set when deletion starts, cleared if it fails. */
   deleted?: boolean;
-  saveAgain?: boolean;
-  savePromise?: Promise<void>;
-  pendingSave?: { requestId: string; draft: Draft };
+
+  constructor(
+    document: NoteDocument,
+    private readonly types: () => CollectionTypeDescriptor[],
+    adapter: RecordSessionAdapter<NoteDocument>
+  ) {
+    this.record = new RecordSession(document, adapter, { autosave: { idleMs: AUTOSAVE_IDLE_MS } });
+    this.draft = editableNote(document, types());
+  }
+
+  get document(): NoteDocument {
+    return this.record.snapshot.record;
+  }
+
+  get remoteDocument(): NoteDocument | undefined {
+    return this.record.snapshot.remote ?? undefined;
+  }
+
+  get pendingRequestId(): string | undefined {
+    return this.record.snapshot.pendingRequestId;
+  }
+
+  get saveState(): SaveState {
+    const { state } = this.record.snapshot;
+    return state === "unsaved" ? "waiting" : state === "deleted" ? "saved" : state;
+  }
+
+  edit(draft: Draft): void {
+    this.draft = draft;
+    this.record.setBody(persistedBody(draft.title, draft.body, draft.source));
+    const patch = titlePatch(draft.title, draft.source, this.record.snapshot.frontmatter);
+    if (!this.projects(this.draft)) this.record.patchFrontmatter(patch);
+  }
+
+  /**
+   * Re-derive the draft when the record session replaced the text itself
+   * (an adopted remote version, "Use latest", discard). Returns whether it did.
+   */
+  reproject(): boolean {
+    if (this.projects(this.draft)) return false;
+    const snapshot = this.record.snapshot;
+    this.draft = editableNote({ ...snapshot.record, body: snapshot.body, frontmatter: snapshot.frontmatter }, this.types());
+    return true;
+  }
+
+  /** Whether the draft's Markdown and title field match the record session's text. */
+  private projects(draft: Draft): boolean {
+    const snapshot = this.record.snapshot;
+    if (persistedBody(draft.title, draft.body, draft.source) !== snapshot.body) return false;
+    return Object.entries(titlePatch(draft.title, draft.source, snapshot.frontmatter))
+      .every(([key, value]) => JSON.stringify(snapshot.frontmatter[key]) === JSON.stringify(value));
+  }
 }
 
-let editorSessionSequence = 0;
-
-export function createNoteSession(
-  document: NoteDocument,
-  types: CollectionTypeDescriptor[]
-): NoteSession {
-  const draft = editableNote(document, types);
+/** Note records through the collection gateway. `guard` wraps each write or recovery. */
+export function noteRecordAdapter(
+  gateway: Pick<CollectionGateway, "update" | "read" | "recoverNoteMutation" | "pendingNoteMutations">,
+  guard: <Result>(operation: () => Promise<Result>) => Promise<Result> = (operation) => operation()
+): RecordSessionAdapter<NoteDocument> {
   return {
-    editorSessionKey: `note-editor-${++editorSessionSequence}`,
-    document,
-    draft,
-    persistedDraft: structuredClone(draft),
-    saveState: "saved"
+    revision: (note) => note.revision,
+    body: (note) => note.body ?? "",
+    frontmatter: (note) => note.frontmatter,
+    write: (base, change) => guard(() => gateway.update(base, change)),
+    read: (base) => gateway.read(base.path),
+    recover: (requestId) => guard(() => gateway.recoverNoteMutation(requestId)),
+    isPending: (requestId) => gateway.pendingNoteMutations().some((pending) => pending.requestId === requestId)
   };
 }
 
 export function sessionDirty(session: NoteSession): boolean {
-  return draftFingerprint(session.draft) !== draftFingerprint(session.persistedDraft);
-}
-
-function draftFingerprint(draft: Draft): string {
-  return JSON.stringify([draft.title, draft.body, draft.source]);
+  return session.record.snapshot.dirty;
 }
 
 /** Owns note-session identity and path changes independently of React renders. */
@@ -68,12 +121,6 @@ export class NoteSessionStore {
 
   set(path: string, session: NoteSession): void {
     this.sessions.set(path, session);
-  }
-
-  create(document: NoteDocument, types: CollectionTypeDescriptor[]): NoteSession {
-    const session = createNoteSession(document, types);
-    this.sessions.set(document.path, session);
-    return session;
   }
 
   activate(session: NoteSession): void {

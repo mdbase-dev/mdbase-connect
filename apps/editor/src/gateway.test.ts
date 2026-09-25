@@ -87,7 +87,7 @@ describe("ConnectCollectionGateway collection index", () => {
 });
 
 describe("ConnectCollectionGateway recovery operations", () => {
-  it("recovers a committed autosave by original ID without touching unrelated pending work", async () => {
+  it("surfaces an unknown autosave outcome and recovers it by original ID without touching unrelated pending work", async () => {
     const saved = { ...summary("note.md"), revision: "r2", body: "Accepted" } as NoteDocument;
     const recover = vi.fn(async () => connectSuccess(saved));
     const unrelated = vi.fn();
@@ -100,7 +100,9 @@ describe("ConnectCollectionGateway recovery operations", () => {
       update, pendingMutation,
       pendingMutations: () => [{ requestId: "unrelated-file", operation: "file_control:delete", recover: unrelated }]
     });
-    await expect(gateway.update({ path: "note.md", revision: "r1", frontmatter: {}, title: "Note", body: "Accepted", source: { kind: "heading" } })).resolves.toEqual(saved);
+    await expect(gateway.update({ ...summary("note.md"), revision: "r1" } as NoteDocument, { body: "Accepted" }))
+      .rejects.toMatchObject({ problem: { code: "operation_outcome_unknown" } });
+    await expect(gateway.recoverNoteMutation("original")).resolves.toEqual(saved);
     expect(update).toHaveBeenCalledOnce();
     expect(pendingMutation).toHaveBeenCalledExactlyOnceWith("original");
     expect(recover).toHaveBeenCalledOnce();
@@ -120,7 +122,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
     injectConnection(reloaded, connection);
     expect(reloaded.pendingNoteMutations()).toMatchObject([{ requestId: "original", operation: "rename" }]);
     await expect(reloaded.rename("note.md", "changed.md", "r1")).rejects.toThrow("No new write");
-    await expect(reloaded.update({ path: "note.md", revision: "r1", frontmatter: {}, title: "Changed", body: "Changed", source: { kind: "heading" } })).rejects.toThrow("No new write");
+    await expect(reloaded.update({ ...summary("note.md"), revision: "r1" } as NoteDocument, { body: "Changed" })).rejects.toThrow("No new write");
     await expect(reloaded.recoverNoteMutation("missing")).rejects.toThrow("No new write");
     await expect(reloaded.recoverNoteMutation("original")).resolves.toEqual(saved);
     expect(recover).toHaveBeenCalledOnce();
@@ -306,42 +308,19 @@ describe("ConnectCollectionGateway recovery operations", () => {
     });
   });
 
-  it("updates a nested display field without replacing its sibling properties", async () => {
-    const document: NoteDocument = {
-      path: "People/ada.md",
-      frontmatter: {
-        profile: { display_name: "Augusta Ada King", timezone: "Europe/London" }
-      },
-      effectiveFrontmatter: {
-        profile: { display_name: "Augusta Ada King", timezone: "Europe/London" }
-      },
-      body: "",
-      types: ["contact"],
-      revision: "revision:2",
-      file: { name: "ada.md", folder: "People", size: 0, mtime: "" }
-    };
+  it("writes only the changed parts against the base revision", async () => {
+    const document = { ...summary("People/ada.md"), revision: "revision:2", body: "" } as NoteDocument;
     const update = vi.fn(async () => ({ valid: true, diagnostics: [], result: document }));
     const gateway = new ConnectCollectionGateway("https://connect.example");
     injectConnection(gateway, { update });
 
-    await gateway.update({
-      path: "People/ada.md",
-      title: "Augusta Ada King",
-      body: "",
-      source: { kind: "frontmatter", field: "/profile/display_name" },
-      revision: "revision:1",
-      frontmatter: {
-        profile: { display_name: "Ada Lovelace", timezone: "Europe/London" },
-        kind: "individual"
-      }
+    await gateway.update({ ...document, revision: "revision:1" }, {
+      patch: { profile: { display_name: "Augusta Ada King", timezone: "Europe/London" } }
     });
 
     expect(update).toHaveBeenCalledWith({
       path: "People/ada.md",
-      patch: {
-        profile: { display_name: "Augusta Ada King", timezone: "Europe/London" }
-      },
-      body: "",
+      patch: { profile: { display_name: "Augusta Ada King", timezone: "Europe/London" } },
       ifRevision: "revision:1",
       includeDocument: true
     });

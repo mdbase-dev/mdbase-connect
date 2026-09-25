@@ -26,8 +26,8 @@ export function SaveIndicator({ state, activity, detail, onCancel }: { state: Sa
   };
   const label = detail ?? (activity
     ? activityLabels[activity]
-    : state === "saving" ? "Saving" : state === "waiting" ? "Unsaved" : state === "recovery" ? "Recovery pending" : state === "conflict" ? "Needs attention" : "Saved");
-  const tone = activity ? "saving" : state;
+    : state === "saving" ? "Saving" : state === "waiting" ? "Unsaved" : state === "recovery" ? "Recovery pending" : state === "conflict" || state === "error" ? "Needs attention" : "Saved");
+  const tone = activity ? "saving" : state === "error" ? "conflict" : state;
   return <div className="save-indicator"><span className={`save-state ${tone}`} aria-live="polite">{!activity && state === "saved" && <Check aria-hidden="true" />}{label}</span>{onCancel && <button className="cancel-operation" onClick={onCancel}>Cancel</button>}</div>;
 }
 export function BacklinksPanel({ notes, types, loading, onClose, onOpen }: {
