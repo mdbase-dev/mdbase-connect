@@ -6,13 +6,14 @@ interface CompatibilityReportContext {
   hostedProvider?: HostedProviderClient;
 }
 
-function compatibilityWindowDays(
+export function reportWindowDays(
   argv: string[],
+  report: string,
   invalid: (message: string) => never
 ): number {
   if (argv.length === 0) return 30;
   if (argv.length !== 2 || argv[0] !== "--days") {
-    return invalid("Compatibility report accepts only --days <1-365>.");
+    return invalid(`${report} report accepts only --days <1-365>.`);
   }
   const value = argv[1]!;
   if (!/^[1-9][0-9]*$/u.test(value)) {
@@ -48,7 +49,7 @@ export async function compatibilityReport(
   context: CompatibilityReportContext,
   invalid: (message: string) => never
 ): Promise<unknown> {
-  const windowDays = compatibilityWindowDays(argv, invalid);
+  const windowDays = reportWindowDays(argv, "Compatibility", invalid);
   const generatedAt = new Date();
   const observationStart = new Date(
     generatedAt.getTime() - windowDays * 24 * 60 * 60 * 1_000
@@ -391,10 +392,10 @@ function safeCount(value: number | string, label: string): number {
   return parsed;
 }
 
-function isoTimestamp(value: Date | string): string {
+export function isoTimestamp(value: Date | string): string {
   const timestamp = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(timestamp.getTime())) {
-    throw new Error("Stored compatibility telemetry has an invalid timestamp.");
+    throw new Error("Stored report data has an invalid timestamp.");
   }
   return timestamp.toISOString();
 }

@@ -132,6 +132,10 @@ readers can learn canonical paths, file facts, types, persisted/effective
 frontmatter, diagnostics, relationship edges, structural body facts, and value
 frequency. They must not receive exact Markdown or body prose from the projection.
 Logs and telemetry may record bounded counts and timing, never projection payloads.
+The operator usage report reads only control-plane lifecycle rows (accounts,
+pairing and authorization requests, grants, token issuance times, protocol
+counts) and returns aggregates; its inputs are deleted 395 days after they stop
+mattering to authorization. See [Usage report](usage-report.md).
 
 Snapshot cursors also make closed query metadata readable. Obsidian Base cursors
 reveal parsed formulas, filters, property references, renderer options,

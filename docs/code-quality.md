@@ -226,6 +226,19 @@ and retained failure diagnostics. It deliberately does not change the streaming
 log runner. Native actual-CLI tests reproduce the corrupt JSON before the fix;
 no new production module, protocol, state, or permission bypass is introduced.
 
+The [operator usage report](usage-report.md) adds one server module,
+`usage-report.ts`, which owns both the aggregate `usage report` command and the
+retention of the rows it reads. It replaces the managed wrapper's paginated
+client-side aggregation (one Render job per 100 rows) and adds no telemetry
+table, protocol field, or connector report. Seven TypeScript exports cover the
+command, the retention worker, its prune function and window, and three
+existing helpers (`reportWindowDays`, `isoTimestamp`, `invitationStatus`)
+shared instead of duplicated. Three relative imports connect it to the admin
+dispatcher, `app.ts`, and those helpers. Limits: server 141 files, 1,518
+relative imports, 2,473 TypeScript exports. Tests cover every funnel, consent,
+and pairing outcome, identity-free output, window validation, and retention
+boundaries. The migration, report, and prune were also run on PostgreSQL 16.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;

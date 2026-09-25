@@ -51,6 +51,11 @@ or any other provider error still fails the command. An account with
 `effective: null`, `storage_account: null`, and an empty `grants` array has no
 hosted provisioning; do not confuse it with a pending provider account.
 
+`usage report [--days <1-365>]` returns aggregate activation, consent, pairing,
+collection, transport, and per-application usage counts in one result. It
+contains no identifiers or email addresses. See [Usage report](usage-report.md)
+for each figure's source and limits.
+
 ## Account operations
 
 Every account mutation requires a stable operator identity, a human-readable

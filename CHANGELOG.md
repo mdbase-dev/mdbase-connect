@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Added the operator `usage report` command: activation funnel, beta
+  conversion, pairing and consent outcomes, collection mix, transport use, and
+  per-application usage as aggregate counts from existing control-plane rows.
+  See [Usage report](docs/usage-report.md).
+- Local collections now record their registration time (migration
+  `0033_collection_created_at`); existing rows remain unknown.
+- The Connect server deletes protocol usage counts, expired tokens, and
+  unfinished pairing and authorization requests 395 days after they stop
+  mattering to authorization.
+
 ## 0.1.0-beta.107
 
 - Fixed Windows startup failing with `Unexpected token 'S'` when Task Scheduler

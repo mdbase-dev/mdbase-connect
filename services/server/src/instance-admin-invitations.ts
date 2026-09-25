@@ -50,7 +50,7 @@ export function invitationStatusCondition(
   return "accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()";
 }
 
-function invitationStatus(
+export function invitationStatus(
   row: Pick<InvitationRow, "accepted_at" | "revoked_at" | "expires_at">
 ): "active" | "accepted" | "revoked" | "expired" {
   if (row.accepted_at) return "accepted";
