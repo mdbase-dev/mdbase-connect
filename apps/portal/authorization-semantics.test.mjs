@@ -10,7 +10,7 @@ import {
 
 const server = await createServer({ server: { middlewareMode: true }, appType: "custom" });
 const ui = await server.ssrLoadModule("/src/authorization-review.tsx");
-const { ApprovalForm } = await server.ssrLoadModule("/src/authorization-view.tsx");
+const { ApprovalForm, DeviceAuthorization, RequestIdentity, RequestOutcome } = await server.ssrLoadModule("/src/authorization-view.tsx");
 await server.close();
 const render = (component, props) => renderToStaticMarkup(React.createElement(component, props));
 
@@ -19,6 +19,56 @@ const list = (props) => render(ui.PermissionList, {
 });
 const checkboxes = (html) => (html.match(/type="checkbox"/g) ?? []).length;
 const checked = (html) => (html.match(/type="checkbox" checked=""/g) ?? []).length;
+
+test("device-code entry describes the application without assuming it is a file", () => {
+  const previousLocation = globalThis.location;
+  const previousStorage = globalThis.localStorage;
+  globalThis.location = { search: "" };
+  globalThis.localStorage = { getItem: () => null };
+  try {
+    const html = render(DeviceAuthorization);
+    assert.match(html, /Check the application/);
+    assert.match(html, /key created by that application/);
+    assert.doesNotMatch(html, /downloaded|file/i);
+  } finally {
+    if (previousLocation === undefined) delete globalThis.location;
+    else globalThis.location = previousLocation;
+    if (previousStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousStorage;
+  }
+});
+
+test("portable device-code identity retains unverified-origin and code guidance", () => {
+  const request = {
+    application_name: "mdbase Reader browser extension", distribution: "portable",
+    project_url: "https://reader.example/about", user_code: "ABCD-EFGH",
+    expires_at: new Date(Date.now() + 600_000).toISOString()
+  };
+  for (const project_url of [request.project_url, null]) {
+    const html = render(RequestIdentity, { request: { ...request, project_url } });
+    assert.match(html, /mdbase Reader browser extension/);
+    assert.match(html, /Application using a device code/);
+    assert.match(html, /Application origin unverified/);
+    assert.match(html, /ABCD-EFGH/);
+    assert.doesNotMatch(html, /Downloaded HTML file|Downloaded file|opened it intentionally/);
+    if (project_url) {
+      assert.match(html, /reader\.example does not verify its origin/);
+    } else {
+      assert.doesNotMatch(html, /does not verify its origin/);
+    }
+  }
+});
+
+for (const status of ["approved", "denied"]) {
+  test(`portable ${status} outcome returns to the named application`, () => {
+    const html = render(RequestOutcome, {
+      status, applicationName: "mdbase Reader browser extension", portable: true
+    });
+    assert.match(html, /Return to mdbase Reader browser extension/);
+    assert.match(html, /The application will/);
+    assert.doesNotMatch(html, /downloaded|The file/i);
+  });
+}
 
 for (const version of [undefined, 1]) {
   test(`v1 (${version ?? "absent"}) renders and selects only exact requested operations`, () => {
