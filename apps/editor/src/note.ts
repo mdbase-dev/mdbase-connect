@@ -74,7 +74,7 @@ export function noteExcerpt(note: NoteSummary, types: CollectionTypeDescriptor[]
   return value;
 }
 
-export function markdownExcerpt(body: string, title = "", maximumLength = 160): string {
+function markdownExcerpt(body: string, title = "", maximumLength = 160): string {
   const lines: string[] = [];
   let length = 0;
   let fenced = false;

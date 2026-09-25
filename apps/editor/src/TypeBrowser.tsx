@@ -171,11 +171,7 @@ export function TypePackBrowser({ types, contracts, catalog, loading = false, er
       <p>Start from an empty definition, or choose a ready-made type and adapt its fields and contract mapping to fit your collection.</p>
     </section>
     <section className="type-pack-document">
-      {onCreate && <button className="type-blank-button" aria-label="New type" aria-describedby="type-blank-description" onClick={onCreate}>
-        <FilePlus2 aria-hidden="true" />
-        <span><strong>New type</strong><small id="type-blank-description">Start from an empty definition and add your own fields.</small></span>
-        <ChevronRight aria-hidden="true" />
-      </button>}
+      {onCreate && <button className="type-blank-button" aria-label="New type" aria-describedby="type-blank-description" onClick={onCreate}><FilePlus2 aria-hidden="true" /><span><strong>New type</strong><small id="type-blank-description">Start from an empty definition and add your own fields.</small></span><ChevronRight aria-hidden="true" /></button>}
       <div className="type-pack-intro">
         <h2>Ready-made types</h2>
         <p>Adding one creates a new editable type. Existing files are never overwritten.</p>
@@ -1596,14 +1592,9 @@ function textLikeField(option: TypeFieldOption): boolean {
 }
 
 function typeHeadingFacts(type: CollectionTypeDescriptor, appViews: number): string {
-  const properties = propertyCount(type);
+  const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? "" : "s"}`;
   const extensions = Object.keys(type.extensions).length;
-  return [
-    type.version === undefined ? "Unversioned" : `Version ${type.version}`,
-    `${properties} ${properties === 1 ? "field" : "fields"}`,
-    appViews ? `${appViews} ${appViews === 1 ? "app view" : "app views"}` : undefined,
-    extensions ? `${extensions} ${extensions === 1 ? "extension" : "extensions"}` : undefined
-  ].filter(Boolean).join(" · ");
+  return [type.version === undefined ? "Unversioned" : `Version ${type.version}`, count(propertyCount(type), "field"), appViews ? count(appViews, "app view") : "", extensions ? count(extensions, "extension") : ""].filter(Boolean).join(" · ");
 }
 
 function defaultValueForField(field: TypeSchemaNode): unknown {
@@ -1630,8 +1621,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
   field: TypeFieldDefinition;
   source: string;
   depth: number;
-  /** The collection's explicit type field: renaming, retyping, or removing it would change which notes belong to types. */
-  typeKey?: boolean;
+  typeKey?: boolean; // The explicit type field: renaming, retyping, or removing it changes type membership.
   activeField?: string;
   onActivate: (field?: string) => void;
   onChange: (change: (source: string) => string) => void;
