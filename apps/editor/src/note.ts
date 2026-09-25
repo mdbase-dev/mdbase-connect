@@ -59,12 +59,48 @@ export function noteTitle(
   return basename(note.path);
 }
 
-export function notePreview(note: NoteSummary, types: CollectionTypeDescriptor[] = []): string {
+const excerptCache = new WeakMap<NoteSummary, { typeKey: CollectionTypeDescriptor[]; value: string }>();
+
+/** A one-line description for list rows: the type's declared description field, else the opening prose. */
+export function noteExcerpt(note: NoteSummary, types: CollectionTypeDescriptor[] = []): string {
+  const cached = excerptCache.get(note);
+  if (cached?.typeKey === types) return cached.value;
   const field = recordDisplayField(note.types, types, "description_field");
   const description = readFieldReference(note.effectiveFrontmatter, field);
-  if (typeof description === "string" && description.trim()) return description.trim();
-  if (note.types.length) return note.types.join(" · ");
-  return folder(note.path) || "Markdown";
+  const value = typeof description === "string" && description.trim()
+    ? description.trim()
+    : markdownExcerpt(note.body ?? "", noteTitle(note, types));
+  excerptCache.set(note, { typeKey: types, value });
+  return value;
+}
+
+export function markdownExcerpt(body: string, title = "", maximumLength = 160): string {
+  const lines: string[] = [];
+  let length = 0;
+  let fenced = false;
+  for (const raw of body.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(raw)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
+    const line = raw
+      .replace(/!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^)]*\)/g, "")
+      .replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_, target: string, alias?: string) => alias ?? target.split("/").at(-1) ?? target)
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/^\s{0,3}(#{1,6}\s+|>\s?|[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+[.)]\s+)/, "")
+      .replace(/(\*\*|__|~~|`)/g, "")
+      .replace(/(^|[^\w*])[*_]([^*_]+)[*_](?=[^\w*]|$)/g, "$1$2")
+      .replace(/<[^>]+>/g, "")
+      .trim();
+    if (!line || /^([-*_]\s*){3,}$/.test(line) || /^\|/.test(line)) continue;
+    if (!lines.length && title && line.toLocaleLowerCase() === title.toLocaleLowerCase()) continue;
+    lines.push(line);
+    length += line.length + 1;
+    if (length >= maximumLength) break;
+  }
+  const text = lines.join(" ");
+  return text.length > maximumLength ? `${text.slice(0, maximumLength).replace(/\s+\S*$/, "")}…` : text;
 }
 
 export function noteTimestamp(note: NoteSummary): string {

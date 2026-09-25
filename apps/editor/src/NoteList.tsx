@@ -3,12 +3,12 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { FilePlusIcon as FilePlus2, MagnifyingGlassIcon as Search, SidebarSimpleIcon as PanelLeft, XIcon as X } from "./icons";
 import type { CollectionFile } from "./model";
-import { notePreview, noteTimestamp, noteTitle } from "./note";
+import { folder, noteExcerpt, noteTimestamp, noteTitle } from "./note";
 import { noteSortSummary, moveListIndex, type NoteSort, type ListNavigationKey } from "./note-list-view";
 import { NoteListViewOptions } from "./NoteListViewOptions";
 import { notePreviewPopoverId, type NotePreviewAnchor, type NotePreviewSource } from "./NotePreview";
 import { isPhosphorIconName, PhosphorIcon, collectionTypeIcon } from "./PhosphorIcon";
-import { searchTextRanges, type NoteSearchResult } from "./note-search";
+import { searchTextRanges, type NoteSearchContext, type NoteSearchResult, type SearchTextRange } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
 import { browserListItems, collectionFileFormat, collectionFileTitle, formatFileSize, type CollectionBrowserEntry } from "./collection-browser";
 
@@ -67,10 +67,19 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
   onCollections: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const listItems = useMemo(() => browserListItems(entries, sort, types), [entries, sort, types]);
+  const searching = Boolean(searchQuery.trim());
+  const listItems = useMemo(() => browserListItems(entries, sort, types, undefined, searching), [entries, searching, sort, types]);
+  const rowSecondLine = useCallback((entry: CollectionBrowserEntry): { kind: "excerpt" | NoteSearchContext["kind"]; text: string; ranges: SearchTextRange[] } | undefined => {
+    if (entry.kind !== "note") return undefined;
+    const context = searching ? searchContexts.get(entry.note.path)?.context : undefined;
+    if (context && context.kind !== "title" && context.text) return context;
+    const text = noteExcerpt(entry.note, types);
+    return text ? { kind: "excerpt", text, ranges: searching ? searchTextRanges(text, searchQuery) : [] } : undefined;
+  }, [searchContexts, searchQuery, searching, types]);
   const virtualizer = useVirtualizer({
     count: listItems.length,
     getScrollElement: () => scrollRef.current,
+    // Rows keep one height whether or not an excerpt has loaded, so the list never reflows as bodies arrive.
     estimateSize: (index) => listItems[index].kind === "header" ? 34 : 76,
     overscan: 8,
     getItemKey: (index) => listItems[index].key
@@ -115,7 +124,7 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
   return <section className="note-list-pane" aria-label="Notes and files">
     <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && contentError)))}{structureError && <button className="list-retry" title={structureError} onClick={onRetryStructure}>Retry notes</button>}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}>Retry search</button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}>Retry files</button>}</p></div>{trailingActions}{onCreate && <button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button>}</header>
     <div className="note-list-controls">
-      <div className="search-field"><Search aria-hidden="true" /><label className="sr-only" htmlFor="note-search">Search notes and files</label><input id="note-search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search" />{search ? <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button> : <button className="quick-open-trigger" aria-label="Quick open" title="Quick open" onClick={onQuickOpen}><kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} P</kbd></button>}</div>
+      <div className="search-field"><Search aria-hidden="true" /><label className="sr-only" htmlFor="note-search">Search notes and files</label><input id="note-search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search" />{search ? <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button> : <button className="quick-open-trigger" aria-label="Quick open" title={`Quick open · ${navigator.platform.includes("Mac") ? "⌘" : "Ctrl+"}P anywhere, or ${navigator.platform.includes("Mac") ? "⌘" : "Ctrl+"}K outside the note text (where it inserts a link)`} onClick={onQuickOpen}><kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} P</kbd></button>}</div>
       <NoteListViewOptions sort={sort} scopeLabel={scopeLabel} onSort={onSort} onClearScope={onClearScope} />
     </div>
     <div className="note-scroll" ref={scrollRef} role="listbox" aria-label="Collection notes and files" aria-busy={structureLoading || filesLoading} tabIndex={entries.length ? 0 : undefined} aria-activedescendant={selectedItemId} onKeyDown={handleListKeyDown}>
@@ -134,14 +143,19 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
         }
         const note = entry.note;
         const status: NoteRowStatus | undefined = pendingPath === note.path ? { label: "Opening", tone: "busy", busy: true } : statuses.get(note.path);
-        const searchContext = searchQuery.trim() ? searchContexts.get(note.path)?.context : undefined;
+        const secondLine = rowSecondLine(entry);
         const title = noteTitle(note, types);
         const typeIcon = note.types.map((type) => typeIcons.get(type)).find(isPhosphorIconName);
+        const noteFolder = folder(note.path);
         const requestPreview = (target: HTMLButtonElement) => {
           const { left, right, top, bottom } = target.getBoundingClientRect();
           onPreview(note.path, { left, right, top, bottom }, "sidebar");
         };
-        return <button key={note.path} id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={note.path === selectedPath} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={previewPath === note.path ? notePreviewPopoverId() : undefined} className={`note-row${note.path === selectedPath ? " selected" : ""}${status ? ` ${status.tone}` : ""}`} onMouseEnter={(event) => requestPreview(event.currentTarget)} onMouseLeave={onDismissPreview} onFocus={(event) => requestPreview(event.currentTarget)} onBlur={onDismissPreview} onClick={() => { onDismissPreview(); if (!status?.disabled) onSelect(note.path); }} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title-line">{typeIcon && <PhosphorIcon name={typeIcon} aria-hidden="true" />}<span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span></span>{status ? <span className="note-transition">{status.label}</span> : searchContext ? <span className={`note-detail note-search-context ${searchContext.kind}`}><SearchMatchText text={searchContext.text} ranges={searchContext.ranges} /></span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note, types)}</span>}</button>;
+        return <button key={note.path} id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={note.path === selectedPath} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={[secondLine?.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined, previewPath === note.path ? notePreviewPopoverId() : undefined].filter(Boolean).join(" ") || undefined} className={`note-row${note.path === selectedPath ? " selected" : ""}${status ? ` ${status.tone}` : ""}`} onMouseEnter={(event) => requestPreview(event.currentTarget)} onMouseLeave={onDismissPreview} onFocus={(event) => requestPreview(event.currentTarget)} onBlur={onDismissPreview} onClick={() => { onDismissPreview(); if (!status?.disabled) onSelect(note.path); }} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}>
+          <span className="note-title-line">{typeIcon && <PhosphorIcon name={typeIcon} aria-hidden="true" />}<span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span>{note.types.length > 0 && <span className="note-type-badge" title={`Type: ${note.types.join(", ")}`}>{note.types.join(" · ")}</span>}</span>
+          {secondLine && <span id={secondLine.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} aria-hidden={secondLine.kind === "excerpt" || undefined} className={`note-excerpt${secondLine.kind === "excerpt" ? "" : ` note-search-context ${secondLine.kind}`}`}><SearchMatchText text={secondLine.text} ranges={secondLine.ranges} /></span>}
+          {status ? <span className="note-transition">{status.label}</span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{noteFolder && <span className="note-folder">{noteFolder}</span>}</span>}
+        </button>;
       })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status">Reading notes and files…</div> : <div className="list-empty"><p>{structureError ? "Notes could not finish loading." : search && contentError ? "Search is incomplete." : search ? "No notes or files found." : "This collection is empty."}</p>{!search && !structureError && onCreate && <button onClick={onCreate}>Create the first note</button>}</div>}
     </div>
   </section>;

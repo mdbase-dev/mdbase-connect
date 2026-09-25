@@ -210,12 +210,11 @@ export function PropertiesPanel({
 
   return <aside className="properties-panel" aria-label="Note properties">
     <header className="panel-header">
-      <div><h2>Properties</h2><p>{note.types.length ? note.types.join(", ") : "Untyped record"}</p></div>
+      <div><h2>Properties</h2><p>{note.types.length ? note.types.join(", ") : "No type"}</p></div>
       <button className="icon-button" aria-label="Close properties" onClick={closePanel}><X aria-hidden="true" /></button>
     </header>
 
     <dl className="file-facts">
-      <div><dt>Path</dt><dd>{note.path}</dd></div>
       <div><dt>Size</dt><dd>{formatBytes(note.file?.size)}</dd></div>
       <div><dt>Modified</dt><dd>{formatDate(note.file?.mtime)}</dd></div>
     </dl>

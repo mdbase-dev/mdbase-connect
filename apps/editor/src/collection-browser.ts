@@ -143,9 +143,15 @@ export function browserListItems(
   entries: readonly CollectionBrowserEntry[],
   sort: NoteSort,
   types: CollectionTypeDescriptor[] = [],
-  now = new Date()
+  now = new Date(),
+  searching = false
 ): BrowserListItem[] {
   const items: BrowserListItem[] = [];
+  if (searching) {
+    // Relevance order has no meaningful groups; recency headers would contradict it.
+    entries.forEach((entry, entryIndex) => items.push({ key: entry.kind === "file" ? `file:${entry.file.fileId}` : `note:${entry.note.path}`, kind: "entry", entry, entryIndex }));
+    return items;
+  }
   let currentLabel: string | undefined;
   let headerCount = 0;
   entries.forEach((entry, entryIndex) => {

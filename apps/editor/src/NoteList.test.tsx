@@ -74,14 +74,14 @@ describe("NoteList search presentation", () => {
     };
     const view = render(<NoteList {...props} />);
     expect(screen.getByText(`${(10_000).toLocaleString()} found · relevance`)).toBeInTheDocument();
-    // The first virtual row is the folder header.
-    expect(screen.getAllByRole("option")).toHaveLength(19);
-    expect(accessed).toEqual(notes.slice(0, 19).map((note) => note.path));
+    // Relevance results are ungrouped, so every virtual row is a result.
+    expect(screen.getAllByRole("option")).toHaveLength(20);
+    expect(accessed).toEqual(notes.slice(0, 20).map((note) => note.path));
     viewport.start = 9001;
     view.rerender(<NoteList {...props} />);
     expect(screen.getAllByRole("option")).toHaveLength(20);
-    expect(accessed.slice(19)).toEqual(notes.slice(9000, 9020).map((note) => note.path));
+    expect(accessed.slice(20)).toEqual(notes.slice(9001, 9021).map((note) => note.path));
     view.rerender(<NoteList {...props} />);
-    expect(accessed).toHaveLength(39);
+    expect(accessed).toHaveLength(40);
   });
 });

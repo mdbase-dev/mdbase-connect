@@ -1904,7 +1904,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     {(!layout.collectionCollapsed || mobileLayout) && <CollectionRail
       collectionId={description.collectionId}
       name={description.displayName}
-      count={(collectionTotal ?? allNotes.length) + fileInventory.files.length}
+      count={collectionTotal ?? allNotes.length}
       types={description.types}
       activeFilter={noteFilter}
       notes={allNotes}
@@ -2124,6 +2124,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         error={contractCatalog.status === "error" ? contractCatalog.message : undefined}
         canInstall={canInstallTypes}
         leadingActions={editorLeadingActions}
+        onCreate={canManageTypes ? beginTypeCreate : undefined}
         onInstall={installCatalogPack}
         onOpenType={selectType}
         onRequestAccess={() => void connectCollection()}

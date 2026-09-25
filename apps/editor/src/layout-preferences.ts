@@ -27,12 +27,19 @@ export function loadLayoutPreferences(): LayoutPreferences {
       collectionWidth: storedWidth(value?.collectionWidth, COLLECTION_WIDTH),
       listWidth: storedWidth(value?.listWidth, LIST_WIDTH),
       inspectorWidth: storedWidth(value?.inspectorWidth, INSPECTOR_WIDTH),
-      collectionCollapsed: typeof value?.collectionCollapsed === "boolean" ? value.collectionCollapsed : false,
+      collectionCollapsed: typeof value?.collectionCollapsed === "boolean" ? value.collectionCollapsed : narrowDesktop(),
       listCollapsed: typeof value?.listCollapsed === "boolean" ? value.listCollapsed : false
     };
   } catch {
-    return defaultLayoutPreferences;
+    return { ...defaultLayoutPreferences, collectionCollapsed: narrowDesktop() };
   }
+}
+
+/** Until someone chooses otherwise, small laptop widths give the note list and editor the room. */
+function narrowDesktop(): boolean {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(min-width: 761px) and (max-width: 1120px)").matches;
 }
 
 export function saveLayoutPreferences(value: LayoutPreferences): void {

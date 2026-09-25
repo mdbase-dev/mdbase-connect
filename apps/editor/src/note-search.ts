@@ -14,7 +14,7 @@ export interface NoteSearchEntry {
 }
 
 export interface NoteSearchContext {
-  kind: "path" | "metadata" | "body";
+  kind: "title" | "path" | "metadata" | "body";
   text: string;
   ranges: SearchTextRange[];
 }
@@ -215,6 +215,7 @@ function bestSearchContext(entry: NoteSearchEntry, query: string[], tokens: Sear
   const best = fields.find((field) => Number.isFinite(field.score))?.kind;
   if (best === "body") return searchContext(entry.bodyText, query, "body", true);
   if (best === "metadata") return searchContext(entry.metadataText, query, "metadata", true);
+  if (best === "title" || best === "filename") return { kind: "title", text: "", ranges: [] };
   return searchContext(entry.note.path, query, "path");
 }
 

@@ -962,7 +962,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(yaml).toContainText("contract: mdbase.contact");
   await expect(yaml).toContainText("local_context:");
   await expect(page.locator(".type-source .cm-lineNumbers")).toBeVisible();
-  await expect(page.getByText("Collection-wide change")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review changes" })).toBeVisible();
 
   await page.getByRole("button", { name: /^Notes, / }).click();
   await page.getByRole("button", { name: "New note" }).click();
@@ -1014,6 +1014,8 @@ test("shows line numbers and diagnostics in source mode", async ({ page }) => {
 test("edits complete type membership, choices, and multiple required fields", async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 600 });
   await page.goto("?demo=12");
+  // The collection rail starts hidden at small laptop widths.
+  await page.getByRole("button", { name: "Show collections sidebar" }).first().click();
   await page.getByRole("button", { name: "Types (1)" }).click();
   await expect(page.getByRole("heading", { name: "Type membership" })).toBeVisible();
   await page.getByRole("heading", { name: "Type membership" }).click();
@@ -1070,6 +1072,8 @@ test("edits complete type membership, choices, and multiple required fields", as
 test("edits and reviews portable collection behaviour", async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 700 });
   await page.goto("?demo=12");
+  // The collection rail starts hidden at small laptop widths.
+  await page.getByRole("button", { name: "Show collections sidebar" }).first().click();
   await page.getByRole("button", { name: "Types (1)" }).click();
   await expect(page.getByRole("heading", { name: "Collection behaviour" })).toBeVisible();
   await page.getByRole("heading", { name: "Collection behaviour" }).click();
@@ -1252,7 +1256,8 @@ test("keeps the current note inspector open and resizable between note switches"
   await page.getByRole("button", { name: "Note properties" }).click();
 
   const panel = page.getByRole("complementary", { name: "Note properties" });
-  await expect(panel).toContainText("Notes/the-shape-of-useful-tools.md");
+  await expect(panel).toBeVisible();
+  await expect(page.getByTitle("Rename Markdown path")).toContainText("Notes/the-shape-of-useful-tools.md");
   const resize = page.getByRole("separator", { name: "Resize note inspector" });
   const before = await panel.evaluate((element) => element.getBoundingClientRect().width);
   const handle = await resize.boundingBox();
@@ -1267,7 +1272,8 @@ test("keeps the current note inspector open and resizable between note switches"
   await page.getByRole("option").filter({ hasText: "Garden notes 2" }).click();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
   await expect(panel).toBeVisible();
-  await expect(panel).toContainText("Journal/garden-notes-2.md");
+  await expect(panel).toBeVisible();
+  await expect(page.getByTitle("Rename Markdown path")).toContainText("Journal/garden-notes-2.md");
   await expect(resize).toHaveAttribute("aria-valuenow", String(Math.round(after)));
 
   await page.reload();
@@ -1591,6 +1597,7 @@ test("keeps type editing usable at the minimum mobile width", async ({ page }) =
   expect(rightEdges.actions).toBeLessThanOrEqual(rightEdges.viewport);
 
   await page.getByRole("button", { name: "Back to types" }).click();
+  await page.getByRole("button", { name: "Add a type" }).click();
   await page.getByRole("button", { name: "New type" }).click();
   await expect(page.getByText("New", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Review changes" })).toBeVisible();
