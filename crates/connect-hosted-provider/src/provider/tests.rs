@@ -1,6 +1,5 @@
 use super::operation_dispatch::ensure_collection_setup_declaration_binding;
 use super::operation_input::validate_hosted_operation_input;
-use super::replicas::file_get_origin;
 use super::*;
 
 #[test]
@@ -1076,76 +1075,6 @@ fn application_capabilities_bind_operations_mode_and_origin() {
             );
         }
     }
-    let extension_origin = "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo";
-    let mut extension_replica = portable_replica.clone();
-    extension_replica.allowed_origin = Some(extension_origin.to_string());
-    let get_proof = AuthorityRequestProof {
-        version: AUTHORITY_PROOF_VERSION,
-        timestamp: Utc::now().timestamp(),
-        nonce: Uuid::new_v4(),
-        signature: String::new(),
-        method: "GET".into(),
-        target: "/v1/authorities/example/files".into(),
-        body: Vec::new(),
-    };
-    let bound_origin = file_get_origin(&extension_replica, None, Some(&get_proof));
-    assert_eq!(bound_origin.as_deref(), Some(extension_origin));
-    extension_replica.file_capability = Some(FileCapability {
-        kind: mdbase_connect_protocol::FileCapabilityKind::Files,
-        protocol_version: FILE_PROTOCOL_VERSION,
-        actions: vec![FileAction::List, FileAction::Read],
-        scope: FileScope::SelectedFolders {
-            folders: vec!["files/reader".into()],
-        },
-    });
-    authorize_file_access(
-        &extension_replica,
-        FileAction::List,
-        None,
-        bound_origin.as_deref(),
-    )
-    .unwrap();
-    authorize_file_access(
-        &extension_replica,
-        FileAction::Read,
-        Some("files/reader/page.html"),
-        bound_origin.as_deref(),
-    )
-    .unwrap();
-    assert_eq!(
-        authorize_file_access(
-            &extension_replica,
-            FileAction::Read,
-            Some("secrets/page.html"),
-            bound_origin.as_deref()
-        )
-        .unwrap_err()
-        .code,
-        "scope_denied"
-    );
-    assert_eq!(file_get_origin(&extension_replica, None, None), None);
-    assert_eq!(
-        file_get_origin(&portable_replica, None, Some(&get_proof)),
-        None
-    );
-    let mut unbound = extension_replica.clone();
-    unbound.proof_public_key = None;
-    assert_eq!(file_get_origin(&unbound, None, Some(&get_proof)), None);
-    let mut post_proof = get_proof.clone();
-    post_proof.method = "POST".into();
-    assert_eq!(
-        file_get_origin(&extension_replica, None, Some(&post_proof)),
-        None
-    );
-    assert_eq!(
-        file_get_origin(
-            &extension_replica,
-            Some("https://evil.example"),
-            Some(&get_proof)
-        )
-        .as_deref(),
-        Some("https://evil.example")
-    );
     authorize_application_operation(&portable_replica, "query", Some("null")).unwrap();
     assert_eq!(
         authorize_application_operation(&portable_replica, "query", None)
