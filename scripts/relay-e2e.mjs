@@ -23,6 +23,7 @@ import {
   signApplicationAuthorization
 } from "../packages/client/dist/crypto-entry.js";
 import { availableTcpPort, poll } from "./lib/test-runtime.mjs";
+import { freshRelayApproval } from "./system/relay-approval.mjs";
 
 process.env.NODE_ENV = "test";
 const run = promisify(execFile);
@@ -487,7 +488,8 @@ try {
     WebSocket,
     serverUrl: urlA,
     token: fixture.connectorToken,
-    owner: "instance-a-reconnected"
+    owner: "instance-a-reconnected",
+    collectionId: fixture.localCollectionId
   });
   socketA = connectorA2.socket;
   await connectorA2.waitForPolicy();
@@ -509,6 +511,7 @@ try {
   );
   assert(persisted.rows[0]?.count === 0, "Relay operation payload appeared in control-plane audit storage");
 
+  await freshRelayApproval({ db: databaseA, appA, appB, fixture, activations: connectorA2.activations });
   process.stdout.write("multi-instance NATS relay end-to-end path passed\n");
 } finally {
   for (const socket of [socketA, socketB]) {
@@ -767,12 +770,13 @@ async function authorizationDiagnostics(db, fixture) {
   return result.rows[0];
 }
 
-async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner }) {
+async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner, collectionId }) {
   const socket = new Socket(serverUrl.replace(/^http/, "ws") + "/v1/relay", {
     headers: { authorization: `Bearer ${token}` }
   });
   const policies = [];
   const messageTypes = [];
+  const activations = [];
   const encryptedRequestCounts = new Map();
   let closeDetails;
   let policyWaiter;
@@ -814,6 +818,19 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
       }));
       policyWaiter?.();
       policyWaiter = undefined;
+      return;
+    }
+    if (message.type === "authorization_offer_request") {
+      assert(collectionId, "An approval fixture must name its offered collection");
+      socket.send(JSON.stringify({ type: "authorization_offer_response", protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id: message.request_id, paused: false, collections: [{ collection_id: collectionId,
+          display_name: "Relay E2E collection", spec_version: "0.3.0", contracts: [], types: [] }] }));
+      return;
+    }
+    if (message.type === "authorization_activation_request") {
+      activations.push(message.grant);
+      socket.send(JSON.stringify({ type: "authorization_activation_response", protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id: message.request_id, ok: true, contracts: [], contract_setups: [] }));
       return;
     }
     if (message.type === "encrypted_operation_request") {
@@ -890,6 +907,7 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
   return {
     socket,
     policies,
+    activations,
     fileUploads,
     setDownloadFrame(frame) {
       downloadFrame = frame;

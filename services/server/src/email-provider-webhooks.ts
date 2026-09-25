@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { Webhook } from "svix";
+import { Webhook, WebhookVerificationError } from "svix";
 import type { DatabasePool, DatabaseQueryable } from "./database-types.js";
 import { apiError } from "./platform/http-errors.js";
 
@@ -50,24 +50,27 @@ export function registerResendWebhookRoute(
         );
       }
 
+      let verified: unknown;
       try {
+        // Verify the exact bytes and timestamp before parsing JSON.
         webhook.verify(rawBody, {
           "svix-id": eventId,
           "svix-timestamp": timestamp,
           "svix-signature": signature
         });
-      } catch {
-        return reply.code(400).send(
-          apiError("invalid_webhook", "The webhook signature is invalid.")
-        );
-      }
-      let verified: unknown;
-      try {
         verified = JSON.parse(rawBody);
-      } catch {
-        return reply.code(400).send(
-          apiError("invalid_webhook", "The webhook payload is invalid.")
-        );
+      } catch (error) {
+        if (error instanceof WebhookVerificationError) {
+          return reply.code(400).send(
+            apiError("invalid_webhook", "The webhook signature is invalid.")
+          );
+        }
+        if (error instanceof SyntaxError) {
+          return reply.code(400).send(
+            apiError("invalid_webhook", "The webhook payload is invalid.")
+          );
+        }
+        throw error;
       }
       if (!isResendEvent(verified)) {
         return reply.code(400).send(

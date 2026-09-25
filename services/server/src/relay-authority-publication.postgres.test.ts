@@ -129,7 +129,7 @@ suite("authorization publication PostgreSQL transaction fence", () => {
       if (change === "replacement") {
         session.generation = "2";
         session.contractSupport.semantic_capabilities = [1];
-        expect(hub.supportsContracts(id, v2)).toBe(false);
+        expect(() => hub.authorizationAuthority(id, v2)).toThrow();
       }
       await tx.query("BEGIN");
       try {

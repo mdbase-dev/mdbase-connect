@@ -10,6 +10,7 @@ import { registerApplicationManifest } from "./manifest.js";
 import { canonicalSha256 } from "./canonical-json.js";
 import { verifyApplicationAuthorization } from "./application-authorization.js";
 import type { RelayHub } from "./relay.js";
+import { registerErrorHandler } from "./platform/error-handler.js";
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
@@ -53,9 +54,11 @@ async function fixture(version: 1 | 2 = 2, files = false, optionalFiles = false)
     proof.binding.grant_agreement_public_key, proof.binding.grant_signing_public_key, JSON.stringify(proof), proof.binding.application_installation_id]);
   // Only the transport/daemon is simulated. Route authentication, database
   // binding, planning, activation orchestration, and publication are real.
+  let approvalHandler: Parameters<RelayHub["registerAuthorizationHandler"]>[0];
   const relay = {
+    registerAuthorizationHandler: (handler: typeof approvalHandler) => { approvalHandler = handler; },
+    requestAuthorization: (id: string, message: unknown) => approvalHandler({ connectorId: id, generation: "current-daemon-generation" }, message),
     authorizationAuthority: vi.fn(() => "current-daemon-generation"),
-    supportsContracts: vi.fn(() => true),
     assertAuthorizationAuthority: vi.fn(async () => {}),
     authorizationOffers: vi.fn(async () => ({ paused: false, collections: [{ collection_id: collectionId }] })),
     activateAuthorization: vi.fn(async (_connector: string, input: Parameters<RelayHub["activateAuthorization"]>[1]) => {
@@ -73,7 +76,7 @@ async function fixture(version: 1 | 2 = 2, files = false, optionalFiles = false)
     pushPolicy: vi.fn(async () => {})
   };
   const app = Fastify();
-  app.setErrorHandler((error, _request, reply) => reply.code(400).send({ error: String(error) }));
+  registerErrorHandler(app);
   registerAuthorizationRoutes(app, { db, relay: relay as unknown as RelayHub, publicUrl: "https://connect.example.test", drainProviderRevocations: async () => {} });
   cleanups.push(() => app.close());
   const approve = (payload: { collection_id: string; operations: typeof operations; file_actions?: FileAction[] } = { collection_id: collectionId, operations }, credential = token, id = requestId) => app.inject({

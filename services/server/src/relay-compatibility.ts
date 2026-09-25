@@ -1,6 +1,6 @@
 import type { ConnectContractRequirements, ConnectContractSupport } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "./database-types.js";
-import { RelayUnavailableError } from "./relay-errors.js";
+import { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 import {
   APPLICATION_DECLARATION_EVIDENCE_CAPABILITY,
   APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY,
@@ -154,16 +154,22 @@ export function relaySupportsContracts(
   );
 }
 
-/** Fresh activation only: retained semantic readers are not issuance support. */
-export function relaySupportsFreshAuthorization(
-  session: { capabilities: readonly string[] } | undefined,
+/** Fresh activation only: unavailable sessions are not capability mismatches. */
+export function relayAuthorizationAuthority(
+  session: {
+    generation: string; ready: boolean; socket: Pick<WebSocket, "readyState">;
+    capabilities: readonly string[]; contractSupport: ConnectContractSupport;
+  } | undefined,
   required: ConnectContractRequirements
-): boolean {
-  return required.semantic_capabilities !== 2 || Boolean(
-    Array.isArray(session?.capabilities)
-    && session.capabilities.every((value) => typeof value === "string")
-    && session.capabilities.includes(APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY)
-  );
+): string {
+  if (!session?.ready || session.socket.readyState !== 1) throw new RelayUnavailableError();
+  if (!relaySupportsContracts(session, required)
+      || (required.semantic_capabilities === 2
+        && !session.capabilities.includes(APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY))) {
+    throw new ConnectorOperationError("capability_contract_incompatible",
+      "Update mdbase connect on this computer before approving this application.");
+  }
+  return session.generation;
 }
 
 export async function currentRelayGeneration(

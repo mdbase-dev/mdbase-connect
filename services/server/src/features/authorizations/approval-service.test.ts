@@ -40,7 +40,7 @@ describe("fresh issuance policy for seeded pending requests", () => {
     const connect = vi.spyOn(fixture.db, "connect").mockResolvedValueOnce(connection);
     const approval = kind === "hosted"
       ? approveHostedAuthorization(fixture.db, provider, fixture.input)
-      : approvePortalAuthorization(fixture.db, relay as unknown as RelayHub, { ...fixture.input, offerId: randomUUID() });
+      : approvePortalAuthorization(fixture.db, relay as unknown as RelayHub, { ...fixture.input, offerId: randomUUID() }, { connectorId: randomUUID(), generation: "1" });
     await expect(approval).rejects.toThrow("Unsupported semantic capability contract version.");
     expect(queries.mock.calls.map(([sql]) => String(sql).trim().split(/\s+/)[0])).toEqual(kind === "hosted" ? ["BEGIN", "SELECT", "SELECT", "ROLLBACK"] : ["BEGIN", "SELECT", "ROLLBACK"]);
     queries.mockRestore();

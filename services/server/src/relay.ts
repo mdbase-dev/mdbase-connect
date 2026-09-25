@@ -33,7 +33,7 @@ import { recordConnectorProtocolUsage } from "./protocol-telemetry.js";
 import {
   CONNECTOR_UPDATE_URL, currentRelayGeneration, lockAuthorizationGeneration,
   receiveRelayHello, recordIncompatibleRelay, rejectIncompatibleRelay, rejectUnavailableRelay,
-  relayCapabilityMismatch, relayContractMismatch, relaySupportsContracts, relaySupportsFreshAuthorization, type RelayHello
+  relayCapabilityMismatch, relayContractMismatch, relaySupportsContracts, relayAuthorizationAuthority, type RelayHello
 } from "./relay-compatibility.js";
 import { grantIdFromMessage, hasPendingOperationCapacity } from "./relay-admission.js";
 import {
@@ -57,6 +57,13 @@ const POLICY_ACK_TIMEOUT_MS = 5_000;
 const BROKER_OFFER_TIMEOUT_MS = OFFER_TIMEOUT_MS + 1_000;
 // Keep a 5s clock-skew margin within the connector's 60s authority horizon.
 const POLICY_LEASE_MS = 55_000;
+// Covers activation plus publication/policy acknowledgement. Expiry does not
+// cancel the owner's transaction; callers reconcile through request status.
+const BROKER_AUTHORIZATION_TIMEOUT_MS = 45_000;
+
+type AuthorizationHandler = (
+  authority: { connectorId: string; generation: string }, message: unknown
+) => Promise<unknown>;
 
 export class RelayHub {
   private readonly connectors = new Map<string, ConnectorSession>();
@@ -66,6 +73,7 @@ export class RelayHub {
   private readonly leasePolicyPublisher: ExactPolicyPublisher;
   private readonly legacyPolicyPublisher: ExactPolicyPublisher;
   private closed = false;
+  private authorizationHandler?: AuthorizationHandler;
 
   constructor(
     private readonly db: DatabasePool,
@@ -509,23 +517,18 @@ export class RelayHub {
     return degraded ? "degraded" : "closed";
   }
 
-  supportsContracts(
-    connectorId: string,
-    required: ConnectContractRequirements
-  ): boolean {
-    const session = this.connectors.get(connectorId);
-    return relaySupportsContracts(
-      session?.ready && session.socket.readyState === 1 && !this.closed ? session : undefined,
-      required
-    );
+  registerAuthorizationHandler(handler: AuthorizationHandler): void {
+    if (this.authorizationHandler) throw new Error("Authorization handler already registered.");
+    this.authorizationHandler = handler;
+  }
+
+  async requestAuthorization(connectorId: string, message: unknown): Promise<unknown> {
+    return this.deliver(connectorId, await this.requireCurrentGeneration(connectorId),
+      message, BROKER_AUTHORIZATION_TIMEOUT_MS, "authorize");
   }
 
   authorizationAuthority(connectorId: string, required: ConnectContractRequirements): string {
-    if (!this.supportsContracts(connectorId, required)
-        || !relaySupportsFreshAuthorization(this.connectors.get(connectorId), required)) {
-      throw new RelayUnavailableError();
-    }
-    return this.connectors.get(connectorId)!.generation;
+    return relayAuthorizationAuthority(this.closed ? undefined : this.connectors.get(connectorId), required);
   }
 
   async assertAuthorizationAuthority(
@@ -658,12 +661,6 @@ export class RelayHub {
     await this.assertAuthorizationAuthority(
       connectorId, input.authorityGeneration ?? generation, required
     );
-    const { application_declaration, ...legacyGrant } = input.grant;
-    const evidence = this.connectors.get(connectorId)!.capabilities
-      .includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY);
-    if (required.semantic_capabilities === 2 && application_declaration == null) {
-      throw new RelayUnavailableError();
-    }
     const response = await this.deliver(connectorId, generation, {
       type: "authorization_activation_request",
       protocol_version: CONTROL_PROTOCOL_VERSION,
@@ -675,7 +672,7 @@ export class RelayHub {
       requirements: input.requirements,
       provisions: input.provisions,
       contract_setups: input.contractSetups,
-      grant: evidence ? input.grant : legacyGrant
+      grant: input.grant
     });
     return response as AuthorizationActivationResponse;
   }
@@ -713,22 +710,26 @@ export class RelayHub {
     connectorId: string,
     generation: string,
     message: unknown,
-    timeoutMs = BROKER_OPERATION_TIMEOUT_MS
+    timeoutMs = BROKER_OPERATION_TIMEOUT_MS,
+    kind: "deliver" | "authorize" = "deliver"
   ): Promise<unknown> {
     let reply: RelayBrokerReply;
     try {
       reply = await this.broker.request(
         connectorId,
         generation,
-        { version: 1, kind: "deliver", message },
+        { version: 1, kind, message },
         timeoutMs
       );
     } catch (error) {
-      if (error instanceof RelayBrokerUnavailableError) throw new RelayUnavailableError();
+      if (error instanceof RelayBrokerUnavailableError) throw new RelayUnavailableError(kind === "authorize"
+        ? "Approval could not be confirmed. Check the request status before trying again." : undefined);
       throw error;
     }
     if (reply.ok) return reply.value;
     if (reply.error.kind === "unavailable") throw new RelayUnavailableError();
+    // Old owners reject authorize during rollout. Never fall back or replay.
+    if (kind === "authorize") throw new Error("The relay owner could not complete approval.");
     if (reply.error.kind === "connector") {
       throw new ConnectorOperationError(
         reply.error.problem.code === "unknown"
@@ -748,7 +749,7 @@ export class RelayHub {
     command: RelayBrokerCommand
   ): Promise<RelayBrokerReply> {
     const session = this.connectors.get(connectorId);
-    if (!session
+    if (this.closed || !session
         || session.generation !== generation
         || session.socket.readyState !== 1
         || await this.currentGeneration(connectorId) !== generation) {
@@ -766,6 +767,11 @@ export class RelayHub {
     if (!session.ready || this.connectors.get(connectorId) !== session) {
       return brokerError("unavailable", "connector_offline", "The computer hosting this collection is offline.");
     }
+    if (command.kind === "authorize") {
+      if (!this.authorizationHandler) throw new Error("The approval service is not registered.");
+      const value = await this.authorizationHandler({ connectorId, generation }, command.message);
+      return { version: 1, ok: true, value };
+    }
     if (isContractSetupCommand(command.message)
         && !session.capabilities.includes(CONTRACT_SETUP_CAPABILITY)) {
       return brokerError(
@@ -778,7 +784,7 @@ export class RelayHub {
     if (activation?.type === "authorization_activation_request") {
       const grant = activation.grant;
       if (!grant?.application_authorization
-          || !this.supportsContracts(connectorId, grant.application_authorization.binding.contracts)
+          || !relaySupportsContracts(session, grant.application_authorization.binding.contracts)
           || (grant.application_authorization.binding.contracts.semantic_capabilities === 2
             && grant.application_declaration == null)) {
         return brokerError("connector", "capability_contract_incompatible",

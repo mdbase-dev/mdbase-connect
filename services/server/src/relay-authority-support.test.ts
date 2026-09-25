@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY, APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, CONNECT_CONTRACT_SUPPORT,
   authorizationContractRequirements } from "@mdbase-dev/connect-protocol";
-import { RelayHub } from "./relay.js";
+import { ConnectorOperationError, RelayHub, RelayUnavailableError } from "./relay.js";
+import { relaySupportsContracts } from "./relay-compatibility.js";
 
 function fixture() {
   const hub = Object.create(RelayHub.prototype) as RelayHub;
@@ -19,12 +20,24 @@ const v2 = authorizationContractRequirements(["read"]);
 const v1 = authorizationContractRequirements(["read"], undefined, [], 1);
 
 describe("exact selected local authority", () => {
+  it.each(["missing", "unready", "closed"])("classifies an %s session as unavailable, not incompatible", (state) => {
+    const { hub, sessions } = fixture();
+    if (state === "missing") sessions.delete("selected");
+    if (state === "unready") sessions.get("selected").ready = false;
+    if (state === "closed") sessions.get("selected").socket.readyState = 3;
+    expect(() => hub.authorizationAuthority("selected", v2)).toThrow(RelayUnavailableError);
+  });
+  it("classifies a live reader-only session as incompatible for fresh issuance", () => {
+    const { hub, sessions } = fixture();
+    sessions.get("selected").capabilities = [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY];
+    expect(() => hub.authorizationAuthority("selected", v2)).toThrow(ConnectorOperationError);
+  });
   it.each([{ capabilities: [] }, { capabilities: ["unknown-issuance"] },
     { capabilities: [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY] }])(
     "retained readers do not prove fresh issuance: $capabilities", ({ capabilities }) => {
       const { hub, sessions } = fixture();
       sessions.get("selected").capabilities = [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, ...capabilities];
-      expect(hub.supportsContracts("selected", v2)).toBe(true);
+      expect(relaySupportsContracts(sessions.get("selected"), v2)).toBe(true);
       expect(() => hub.authorizationAuthority("selected", v2)).toThrow();
       expect(hub.authorizationAuthority("selected", v1)).toBe("1");
       expect(hub.authorizationAuthority("other", v2)).toBe("1");
@@ -32,25 +45,32 @@ describe("exact selected local authority", () => {
   );
   it("requires both semantic and declaration evidence support, not some other connector", () => {
     const { hub, sessions } = fixture();
-    expect(hub.supportsContracts("selected", v2)).toBe(true);
+    expect(hub.authorizationAuthority("selected", v2)).toBe("1");
     sessions.get("selected").capabilities = [];
-    expect(hub.supportsContracts("selected", v2)).toBe(false);
-    expect(hub.supportsContracts("selected", v1)).toBe(true);
+    expect(() => hub.authorizationAuthority("selected", v2)).toThrow(ConnectorOperationError);
+    expect(hub.authorizationAuthority("selected", v1)).toBe("1");
     sessions.get("selected").contractSupport.semantic_capabilities = [1];
-    expect(hub.supportsContracts("selected", v2)).toBe(false);
+    expect(() => hub.authorizationAuthority("selected", v2)).toThrow(ConnectorOperationError);
     sessions.get("selected").socket.readyState = 3;
-    expect(hub.supportsContracts("selected", v1)).toBe(false);
+    expect(() => hub.authorizationAuthority("selected", v1)).toThrow(RelayUnavailableError);
     sessions.delete("selected");
-    expect(hub.supportsContracts("selected", v2)).toBe(false);
-    expect(hub.supportsContracts("other", v2)).toBe(true);
+    expect(() => hub.authorizationAuthority("selected", v2)).toThrow(RelayUnavailableError);
+    expect(hub.authorizationAuthority("other", v2)).toBe("1");
   });
   it("gates immediate activation evidence and refuses v2 on an old authority", async () => {
     const { hub, sessions } = fixture();
     const messages: any[] = [];
-    Object.assign(hub, { deliver: async (_id: string, _generation: string, message: unknown) => {
-      messages.push(message);
-      return { ok: true };
-    } });
+    Object.assign(hub, {
+      deliver: async (id: string, generation: string, message: unknown) => {
+        const reply = await (hub as any).handleBrokerCommand(id, generation, { version: 1, kind: "deliver", message });
+        if (!reply.ok) throw new Error(reply.error.message ?? reply.error.problem.message);
+        return reply.value;
+      },
+      sendToConnector: async (_socket: unknown, _id: string, _grant: string, _request: string, message: unknown) => {
+        messages.push(message);
+        return { ok: true };
+      }
+    });
     const input: any = { authorityGeneration: "1", authorizationId: "pending", grant: {
       application_declaration: { retained: "complete" },
       application_authorization: { binding: { contracts: v1 } }
@@ -76,7 +96,7 @@ describe("exact selected local authority", () => {
     await expect(hub.assertAuthorizationAuthority("selected", selected, v2)).rejects.toThrow();
     sessions.get("selected").generation = selected;
     sessions.get("selected").capabilities = [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY];
-    expect(hub.supportsContracts("selected", v2)).toBe(true);
+    expect(relaySupportsContracts(sessions.get("selected"), v2)).toBe(true);
     await expect(hub.assertAuthorizationAuthority("selected", selected, v2)).rejects.toThrow();
     sessions.get("selected").contractSupport.semantic_capabilities = [1];
     await expect(hub.assertAuthorizationAuthority("selected", selected, v2)).rejects.toThrow();

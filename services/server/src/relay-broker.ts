@@ -24,7 +24,7 @@ export interface RelayBrokerConfig {
 
 export interface RelayBrokerCommand {
   version: 1;
-  kind: "deliver" | "policy";
+  kind: "deliver" | "policy" | "authorize";
   message: unknown;
 }
 
@@ -486,7 +486,7 @@ function decodeBinaryReply(data: Uint8Array): RelayBrokerBinaryReply {
 
 function isRelayBrokerCommand(value: unknown): value is RelayBrokerCommand {
   if (!isObject(value) || value.version !== 1) return false;
-  return (value.kind === "deliver" || value.kind === "policy") && "message" in value;
+  return (value.kind === "deliver" || value.kind === "policy" || value.kind === "authorize") && "message" in value;
 }
 
 function isRelayBrokerReply(value: unknown): value is RelayBrokerReply {
