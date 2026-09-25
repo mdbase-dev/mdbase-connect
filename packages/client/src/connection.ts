@@ -135,7 +135,7 @@ import {
   type NotificationProblemCode,
   type RegistrationProblemCode
 } from "./outcomes.js";
-import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
+import type { MdbaseDeviceAuthorization } from "./connection-types.js";
 import {
   type ResolvedConnectTimeouts,
   withCooperativeRequestBudget,

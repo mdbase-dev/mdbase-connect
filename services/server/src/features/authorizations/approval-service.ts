@@ -33,7 +33,7 @@ import {
   retainedReplicaPolicy
 } from "../../hosted-replica-policy.js";
 import { planCollectionGrant } from "../../grant-planner.js";
-import { RelayHub } from "../../relay.js";
+import { RelayUnavailableError, type RelayHub } from "../../relay.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
@@ -65,12 +65,13 @@ export async function approvePortalAuthorization(
     operations: CollectionOperation[];
     fileActions?: FileAction[];
     contractSetups: ContractSetupChoice[];
-  }
+  },
+  authority: { connectorId: string; generation: string }
 ): Promise<boolean> {
   const connection = await db.connect();
   const grantId = randomUUID();
   let connectorId = "";
-  let authorityGeneration = "";
+  const authorityGeneration = authority.generation;
   let localCollectionId = "";
   let authorityRowId = "";
   let requirements: ApplicationRequirements;
@@ -202,10 +203,10 @@ export async function approvePortalAuthorization(
          AND col.present = true AND col.enabled = true
          AND col.authority_state = 'active'
          AND col.authority_epoch = offer.authority_epoch
-         AND con.revoked_at IS NULL
+         AND con.revoked_at IS NULL AND con.id = $5
          AND con.inventory_revision >= offer.inventory_revision
        FOR UPDATE`,
-      [input.offerId, input.requestId, input.userId, input.collectionId]
+      [input.offerId, input.requestId, input.userId, input.collectionId, authority.connectorId]
     );
     const selected = offer.rows[0];
     if (!selected) {
@@ -213,17 +214,11 @@ export async function approvePortalAuthorization(
         "That collection is no longer being offered by a live connector. Refresh and choose again."
       );
     }
-    if (!relay.supportsContracts(
-      selected.connector_id,
-      pending.application_authorization.binding.contracts
-    )) {
-      throw new RequestValidationError(
-        "Update mdbase connect on this computer before approving this application."
-      );
-    }
-    authorityGeneration = relay.authorizationAuthority(
+    if (relay.authorizationAuthority(
       selected.connector_id, pending.application_authorization.binding.contracts
-    );
+    ) !== authorityGeneration) {
+      throw new RelayUnavailableError();
+    }
     grantAccess = requireCollectionAction(
       await resolveLocalCollectionAccess(
         connection,

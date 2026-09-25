@@ -19,7 +19,6 @@ import {
 } from "./application-contract.js";
 import { abortableDelay } from "./async.js";
 import { authorizationCallbackState } from "./authorization-url.js";
-import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
 import { randomBase64Url } from "./base64.js";
 import {
   ApplicationIdentityStoreError,
@@ -39,8 +38,7 @@ import {
   type MdbaseConnectEnvironment
 } from "./connection.js";
 import type { MdbaseConnectOptions } from "./connect-options.js";
-import type { MdbaseConnectionInfo } from "./connection-types.js";
-import { addConnectionId, connectionIds, removeConnectionId } from "./connection-index.js";
+import type { MdbaseConnectionInfo, MdbaseDeviceAuthorization } from "./connection-types.js";
 import {
   assertFreshV2AuthorizationSupport,
   authorizationAbort,
@@ -73,6 +71,7 @@ import {
 import type { MdbaseUnavailableReason } from "./session.js";
 import {
   MemoryStorage,
+  addConnectionId, connectionIds, removeConnectionId,
   apiError,
   applicationStorageOrigin,
   canonicalLoopbackUrl,

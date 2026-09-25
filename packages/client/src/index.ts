@@ -1,4 +1,3 @@
-export type { MdbaseDeviceAuthorization } from "./authorization-types.js";
 export {
   MdbaseApplicationSession,
   MdbaseMemoryVerificationStore
@@ -29,6 +28,7 @@ export type {
   MdbaseConnectionRoute,
   DirectAccessStatus,
   MdbaseConnectionInfo,
+  MdbaseDeviceAuthorization,
   MdbaseAuthorizationCapabilities,
   MdbaseSyncTransport,
   MdbaseSyncConnection

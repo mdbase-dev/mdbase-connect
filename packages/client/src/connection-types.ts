@@ -11,6 +11,14 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import type { ConnectRequestOptions } from "./operation-types.js";
 
+export interface MdbaseDeviceAuthorization {
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete: string;
+  expiresAt: number;
+  intervalSeconds: number;
+}
+
 export type MdbaseConnectionRoute = "remote" | "direct" | "relay";
 export type DirectAccessStatus =
   | "disabled"

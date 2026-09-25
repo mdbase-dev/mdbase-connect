@@ -41,7 +41,8 @@ suite("grant narrowing HTTP PostgreSQL serialization", () => {
       CREATE TABLE grants(id uuid PRIMARY KEY, user_id uuid, application_id uuid, collection_id uuid,
         hosted_replica_id uuid, hosted_collection_id uuid, operations jsonb, encryption jsonb, scope jsonb,
         file_capability jsonb, application_origin text, proof_public_key text, application_authorization jsonb,
-        activated_at timestamptz, revoked_at timestamptz, notification_criteria jsonb DEFAULT '[]', created_at timestamptz DEFAULT now());
+        activated_at timestamptz, revoked_at timestamptz, revocation_policy_sequence bigint,
+        revocation_confirmed_at timestamptz, notification_criteria jsonb DEFAULT '[]', created_at timestamptz DEFAULT now());
       CREATE TABLE access_tokens(grant_id uuid, revoked_at timestamptz);
       CREATE TABLE refresh_tokens(grant_id uuid, revoked_at timestamptz);
       CREATE TABLE audit_events(id uuid, user_id uuid, event_type text, subject_id uuid, metadata jsonb)`);
@@ -109,7 +110,9 @@ suite("grant narrowing HTTP PostgreSQL serialization", () => {
       }
       const policyRead = text.includes("SELECT g.id, g.operations") && values?.[0] === id;
       const ordinal = policyRead ? ++reads : 0;
-      if (ordinal === 2) secondIssued.resolve();
+      if (ordinal === 2 || (scenario === "revoke_after_read" && text.trimStart().startsWith("UPDATE grants SET revocation_policy_sequence"))) {
+        secondIssued.resolve();
+      }
       const result = await client.query(text, values);
       if (ordinal === 1) { firstRead.resolve(); await releaseA.promise; }
       if (ordinal === 2) { secondRead.resolve(); await releaseB.promise; }
@@ -118,14 +121,6 @@ suite("grant narrowing HTTP PostgreSQL serialization", () => {
     const db = { query: async (text: string, values?: unknown[]) => {
       if (text.startsWith("SELECT encryption") || text.startsWith("UPDATE grants SET encryption")) {
         throw new Error("Encryption rotation must not check out a second pool connection");
-      }
-      if (scenario === "revoke_after_read" && text.startsWith("UPDATE grants SET revoked_at")) {
-        const client = await pool.connect();
-        try {
-          contenderPid = (await client.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
-          secondIssued.resolve();
-          return await client.query(text, values);
-        } finally { client.release(); }
       }
       return wrapQuery(pool)(text, values);
     }, end: async () => {}, connect: async () => {
@@ -141,7 +136,7 @@ suite("grant narrowing HTTP PostgreSQL serialization", () => {
         providerOperations = policy.allowedOperations;
         providerPolicies.push(policy.allowedOperations);
       } } as unknown as AuthorizationRouteOptions["hostedProvider"] : undefined,
-      relay: { pushPolicy: async () => {
+      relay: { registerAuthorizationHandler: () => {}, pushPolicy: async () => {
         const snapshot = await buildPolicySnapshot(pool, id, 60_000, '1', () => true, 'lease_v1', true);
         if (!snapshot || !("sequence" in snapshot)) throw new Error("Missing leased snapshot");
         sequences.push(snapshot.sequence);
@@ -187,7 +182,8 @@ suite("grant narrowing HTTP PostgreSQL serialization", () => {
         await waitUntil(async () => returned || (await admin.query(
           "SELECT cardinality(pg_blocking_pids($1)) > 0 AS blocked", [contenderPid])).rows[0].blocked);
         releaseA.resolve();
-        expect((await a).status).toBe(200);
+        const responseA = await a;
+        expect(responseA.status, await responseA.text()).toBe(200);
         releaseB.resolve();
         const response = await b;
         expect(response.status).toBe(scenario === "expansion" ? 409 : 200);
@@ -200,7 +196,10 @@ suite("grant narrowing HTTP PostgreSQL serialization", () => {
       expect(published.every((operations) => !operations.includes("delete"))).toBe(true);
       expect(providerPolicies.every((operations) => !operations.includes("delete"))).toBe(true);
       if (hostedRace) expect(providerPolicies).toEqual(scenario === "expansion" ? [aOps] : [aOps, bOps]);
-      expect(sequences).toEqual(scenario === "revocation" || hostedRace ? [] : scenario === "expansion" ? [1] : [1, 2]);
+      // Revocation reserves sequence 1 before waiting for PATCH's grant lock;
+      // both subsequently published snapshots must follow that barrier.
+      expect(sequences).toEqual(scenario === "revocation" || hostedRace ? []
+        : scenario === "revoke_after_read" ? [2, 3] : scenario === "expansion" ? [1] : [1, 2]);
       expect(pool.waitingCount).toBe(0);
     } finally {
       releaseA.resolve(); releaseB.resolve();

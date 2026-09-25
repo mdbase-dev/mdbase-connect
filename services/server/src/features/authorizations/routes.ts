@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { planCollectionGrant, previewCollectionGrant } from "../../grant-planner.js";
+import { previewCollectionGrant } from "../../grant-planner.js";
 import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
 import type {
   ApplicationNotifications,
@@ -56,11 +56,8 @@ import {
   rotateGrantEncryption
 } from "../grants/policy.js";
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
-import { liveAuthorizationCollections } from "./local-collections.js";
-import {
-  approveHostedAuthorization,
-  approvePortalAuthorization
-} from "./approval-service.js";
+import { createLocalApprovalService, liveAuthorizationCollections } from "./local-collections.js";
+import { approveHostedAuthorization } from "./approval-service.js";
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
 import {
@@ -79,6 +76,7 @@ export function registerAuthorizationRoutes(
 ): void {
   const relay = options.relay;
   const publicUrl = options.publicUrl;
+  const localApprovals = createLocalApprovalService(options.db, relay);
   registerGrantRevocationRoute(app, options);
   app.post("/v1/connectors/authorization-requests/:requestId/approve", async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);
@@ -90,80 +88,8 @@ export function registerAuthorizationRoutes(
       file_actions: z.array(z.enum(["list", "read", "add", "replace", "move", "delete"])).optional(),
       contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
     }).parse(request.body);
-    // A connector credential represents only its own local authority. Do not
-    // accept a caller-supplied portal offer or use account-wide visibility here.
-    const selection = await options.db.query<{
-      authority_id: string;
-      authority_epoch: string | number;
-      inventory_revision: string | number;
-      requirements: ApplicationRequirements;
-      provisions: ApplicationProvisions;
-      application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof | null;
-    }>(
-      `SELECT col.id AS authority_id, col.authority_epoch, con.inventory_revision,
-              a.requirements, a.provisions, ar.application_authorization
-       FROM authorization_requests ar
-       JOIN applications a ON a.id = ar.application_id
-       JOIN connectors con ON con.id = $3 AND con.user_id = ar.user_id
-       JOIN collections col ON col.connector_id = con.id AND col.local_id = $4
-       WHERE ar.id = $1 AND ar.user_id = $2
-         AND ar.completed_at IS NULL AND ar.denied_at IS NULL
-         AND ar.grant_id IS NULL AND ar.expires_at > now()
-         AND (ar.collection_id IS NULL OR ar.collection_id = col.local_id)
-         AND con.revoked_at IS NULL AND col.present = true AND col.enabled = true
-         AND col.authority_state = 'active'`,
-      [requestId, connector.user_id, connector.id, input.collection_id]
-    );
-    const selected = selection.rows[0];
-    if (!selected) return reply.code(404).send(apiError("authorization_not_found", "Authorization request or local collection is unavailable."));
-    const files = selected.requirements.files;
-    if (files && "optional" in files && files.optional?.length && input.file_actions === undefined) {
-      return reply.code(400).send(apiError("invalid_request", "Choose optional file permissions explicitly in Connect before approving this request."));
-    }
-    const access = await resolveLocalCollectionAccess(options.db, connector.user_id, selected.authority_id);
-    requireCollectionAction(access, "application.authorize");
-    if (input.contract_setups.length) requireCollectionAction(access, "schema.manage");
-    assertFreshApplicationAuthorization(selected.requirements);
-    if (!selected.application_authorization) {
-      return reply.code(409).send(apiError("signed_authorization_required", "This request needs a signed application authorization."));
-    }
-    const binding = selected.application_authorization.binding;
-    if (binding.authorization_id !== requestId
-      || Date.parse(binding.expires_at) <= Date.now()
-      || !Number.isFinite(Date.parse(binding.expires_at))
-      || (binding.collection_id && binding.collection_id !== input.collection_id)) {
-      return reply.code(409).send(apiError("authorization_binding_mismatch", "The signed request is expired or belongs to a different approval."));
-    }
-    // Refuse permission escalation before creating even an offer. The service
-    // repeats planning against the locked request and current access policy.
-    planCollectionGrant({
-      requestedOperations: input.operations,
-      applicationOperationCeiling: binding.requested_operations,
-      requestedFileActions: input.file_actions,
-      requirements: selected.requirements,
-      access: requireCollectionAction(access, "application.authorize")
-    });
-    // This checks fresh issuance on this selected daemon, not server/read support.
-    relay.authorizationAuthority(connector.id, selected.application_authorization.binding.contracts);
-    const live = await relay.authorizationOffers(connector.id, requestId, selected.requirements, selected.provisions);
-    if (live.paused || !live.collections.some((collection) => collection.collection_id === input.collection_id)) {
-      return reply.code(409).send(apiError("collection_unavailable", "This computer is no longer offering that collection."));
-    }
-    const offerId = randomUUID();
-    await options.db.query(
-      `INSERT INTO authorization_collection_offers
-         (id, authorization_id, user_id, connector_id, collection_id, local_id,
-          authority_epoch, inventory_revision, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now() + interval '45 seconds')
-       ON CONFLICT(authorization_id, connector_id, collection_id) DO UPDATE SET
-         id = excluded.id, authority_epoch = excluded.authority_epoch,
-         inventory_revision = excluded.inventory_revision, expires_at = excluded.expires_at
-       WHERE authorization_collection_offers.consumed_at IS NULL`,
-      [offerId, requestId, connector.user_id, connector.id, selected.authority_id,
-        input.collection_id, Number(selected.authority_epoch), Number(selected.inventory_revision)]
-    );
-    const approved = await approvePortalAuthorization(options.db, relay, {
-      requestId, userId: connector.user_id, offerId,
+    const approved = await localApprovals.connector(connector.id, {
+      source: "connector", requestId, userId: connector.user_id,
       collectionId: input.collection_id, operations: input.operations,
       fileActions: input.file_actions, contractSetups: input.contract_setups
     });
@@ -873,7 +799,8 @@ export function registerAuthorizationRoutes(
     }).parse(request.body);
     let approved: boolean;
     if (input.offer_id) {
-      approved = await approvePortalAuthorization(options.db, relay, {
+      approved = await localApprovals.portal({
+        source: "portal",
         requestId,
         userId: user.id,
         offerId: input.offer_id,

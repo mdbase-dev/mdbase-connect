@@ -22,6 +22,37 @@ The connector is the authority for local data and policy. The server routes a
 request only when its access token and grant allow the operation. The connector
 checks its local policy copy again before it opens a collection.
 
+## Local approval across server instances
+
+Fresh portal and desktop approvals execute on the server holding the selected
+connector's relay session. The receiving HTTP server authenticates the caller,
+resolves a routing hint, and sends the explicit consent choices over the existing
+broker, addressed to the connector's current PostgreSQL generation. It holds no
+transaction open while waiting. The owner revalidates the request, offer and
+permissions; neither routing metadata nor a previously advertised capability
+is authorization evidence.
+
+Activation and final publication remain one owner-side workflow. Publication
+locks the account, connector generation and collection, then checks local socket
+liveness immediately before commit. Replacements cannot switch an in-flight
+approval to another generation. The connector remains the final local data
+boundary, enforcing the signed grant and its exact origin. Unavailable sessions
+are not classified as capability mismatches.
+
+The internal broker v1 envelope adds the `authorize` command; no connector
+protocol or database migration is needed. Older server owners reject that
+command, without a compatibility fallback. Deployments introducing it must
+replace/drain all older web instances and let connectors reconnect before
+considering fresh local approval available on every instance. During a mixed
+rollout, requests reaching an old owner can fail closed. Hosted approval and
+existing-grant routing are unchanged.
+
+An approval RPC timeout does not cancel the owner's work or prove rollback.
+The receiving server never replays or compensates it. The existing authorization
+status endpoint reconciles `pending`, `setting_up`, and `approved`; compensation
+for failed activation/publication belongs exclusively to the executing owner.
+No new readiness cache, persisted job state, or distributed lease is introduced.
+
 ## Collection identity and application selection
 
 A local collection gets a random durable UUID the first time the connector

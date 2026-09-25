@@ -2,8 +2,8 @@ import type { ConnectProblem } from "@mdbase-dev/connect-protocol";
 import { normalizeConnectProblem } from "@mdbase-dev/connect-protocol";
 
 export class RelayUnavailableError extends Error {
-  constructor() {
-    super("The computer hosting this collection is offline.");
+  constructor(message = "The computer hosting this collection is offline or not ready. Open mdbase connect and try again.") {
+    super(message);
   }
 }
 

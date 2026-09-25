@@ -84,6 +84,20 @@ describe("Resend provider webhooks", () => {
     }
   );
 
+  it("checks authentication before reporting malformed JSON", async () => {
+    const { db } = await fixture();
+    const { app } = await buildApp({ db, devAuth: true, publicUrl: "http://connect.test", resendWebhookSecret: signingSecret });
+    resources.push(() => app.close());
+    const response = await app.inject({
+      method: "POST", url: "/v1/email/provider-events/resend",
+      headers: { "content-type": "text/plain", ...signedHeaders("different bytes", "tampered") },
+      payload: "not json"
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toBe("The webhook signature is invalid.");
+    expect((await db.query("SELECT event_id FROM email_provider_events")).rows).toHaveLength(0);
+  });
+
   it("rejects invalid signatures and suppresses bounced identities", async () => {
     const { db, emailIdentityId } = await fixture();
     const { app } = await buildApp({

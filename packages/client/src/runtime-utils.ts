@@ -10,13 +10,35 @@ import {
   connectError,
   serverConnectError
 } from "./errors.js";
-import type { StoredToken } from "./internal-types.js";
-import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
+import type { StoredConnectionIndex, StoredToken } from "./internal-types.js";
+import type { MdbaseDeviceAuthorization } from "./connection-types.js";
 import { canonicalJson } from "./operation-helpers.js";
 import {
   bytesToBase64Url,
   randomBase64Url
 } from "./base64.js";
+
+export function connectionIds(storage: Storage, storagePrefix: string): string[] {
+  const index = parseStored<StoredConnectionIndex>(storage.getItem(`${storagePrefix}:connections`));
+  return index?.version === 1 && Array.isArray(index.collectionIds)
+    && index.collectionIds.every((collectionId) => typeof collectionId === "string")
+    ? index.collectionIds
+    : [];
+}
+
+export function addConnectionId(storage: Storage, storagePrefix: string, collectionId: string): void {
+  writeConnectionIds(storage, storagePrefix, [...connectionIds(storage, storagePrefix), collectionId]);
+}
+
+export function removeConnectionId(storage: Storage, storagePrefix: string, collectionId: string): void {
+  writeConnectionIds(storage, storagePrefix, connectionIds(storage, storagePrefix).filter((id) => id !== collectionId));
+}
+
+function writeConnectionIds(storage: Storage, storagePrefix: string, ids: string[]): void {
+  storage.setItem(`${storagePrefix}:connections`, JSON.stringify({
+    version: 1, collectionIds: [...new Set(ids)]
+  } satisfies StoredConnectionIndex));
+}
 
 /** Resolve bundled declarations and their stable storage identity without loading URLs. */
 export function resolveManifestSource(input?: MdbaseAppManifest | string | URL, redirect?: string | URL): {
