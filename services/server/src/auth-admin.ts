@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabasePool } from "./db.js";
 import { compatibilityReport } from "./auth-admin-compatibility.js";
+import { usageReport } from "./auth-admin-usage.js";
 import {
   inspectAccountEntitlements,
   reconcileActiveHostedEntitlements
@@ -120,6 +121,11 @@ async function runCommand(
   }
   if (area === "compatibility" && action === "report") {
     return compatibilityReport(rest, context, (message) => {
+      throw new AuthAdminUsageError(message);
+    });
+  }
+  if (area === "usage" && action === "report") {
+    return usageReport(rest, context, (message) => {
       throw new AuthAdminUsageError(message);
     });
   }
@@ -957,6 +963,7 @@ function usage(): string {
     "  auth-admin users revoke-sessions --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin audit list [--user-id <uuid>] [--event-type <type>] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin compatibility report [--days <1-365>]",
+    "  auth-admin usage report [--days <1-365>]",
     "  auth-admin request <base64url-json-argv>",
     "",
     "Policy changes:",

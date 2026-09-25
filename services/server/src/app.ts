@@ -16,6 +16,7 @@ import type { EmailTransport } from "./email.js";
 import { registerResendWebhookRoute } from "./email-provider-webhooks.js";
 import { renderScheduledEmail } from "./beta-welcome-email.js";
 import { ScheduledEmailWorker } from "./scheduled-email.js";
+import { UsageRetentionWorker } from "./usage-retention.js";
 import type { GitHubAuthConfig } from "./github-auth.js";
 import type { GoogleAuthConfig } from "./google-auth.js";
 import { HostedAuthorityRegistry } from "./hosted.js";
@@ -136,6 +137,10 @@ export async function buildApp(options: BuildOptions) {
         )
       )
     : undefined;
+  const usageRetention = new UsageRetentionWorker(
+    options.db,
+    (error) => app.log.error({ err: error }, "usage retention worker failed")
+  );
   if (options.hostedProvider && options.hostedReferenceAuthority) {
     throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
   }
@@ -216,6 +221,7 @@ export async function buildApp(options: BuildOptions) {
 
   app.addHook("onClose", async () => {
     await scheduledEmails?.close();
+    await usageRetention.close();
     await applicationReconciliation.close();
     await providerRevocations?.close();
     await notifications?.close();
@@ -471,6 +477,7 @@ export async function buildApp(options: BuildOptions) {
   }
 
   scheduledEmails?.start();
+  usageRetention.start();
 
   return { app, relay };
 }
