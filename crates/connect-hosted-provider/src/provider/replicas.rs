@@ -4,6 +4,28 @@ use super::*;
 #[path = "setup_evidence_tests.rs"]
 mod setup_evidence_tests;
 
+// A missing Origin is not evidence of extension identity. Only the file GET
+// entrypoints may use this candidate, and only after the bound proof is
+// verified and its nonce consumed by authorize_request_with_retired_replay.
+pub(super) fn file_get_origin(
+    replica: &Replica,
+    request_origin: Option<&str>,
+    proof: Option<&AuthorityRequestProof>,
+) -> Option<String> {
+    if request_origin.is_none()
+        && replica
+            .allowed_origin
+            .as_deref()
+            .is_some_and(|origin| origin.starts_with("chrome-extension://"))
+        && replica.proof_public_key.is_some()
+        && proof.is_some_and(|proof| proof.method == "GET")
+    {
+        replica.allowed_origin.clone()
+    } else {
+        request_origin.map(str::to_owned)
+    }
+}
+
 impl HostedProvider {
     pub async fn register_replica(
         &self,
@@ -344,8 +366,32 @@ impl HostedProvider {
             proof,
             false,
             true,
+            false,
         )
         .await
+        .map(|(authorized, _)| authorized)
+    }
+
+    /// File GETs from Chromium extension workers may omit Origin. Return the
+    /// bound origin only after verifying the exact grant's request proof.
+    pub async fn authorize_file_get_request(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+        request_origin: Option<&str>,
+        proof: Option<&AuthorityRequestProof>,
+    ) -> ApiResult<Option<String>> {
+        self.authorize_request_with_retired_replay(
+            collection_id,
+            token,
+            request_origin,
+            proof,
+            false,
+            true,
+            true,
+        )
+        .await
+        .map(|(_, origin)| origin)
     }
 
     pub async fn authorize_replay_request(
@@ -362,8 +408,10 @@ impl HostedProvider {
             proof,
             true,
             true,
+            false,
         )
         .await
+        .map(|(authorized, _)| authorized)
     }
 
     pub(crate) async fn authorize_cursor_release_request(
@@ -380,8 +428,10 @@ impl HostedProvider {
             proof,
             false,
             false,
+            false,
         )
         .await
+        .map(|(authorized, _)| authorized)
     }
 
     async fn authorize_request_with_retired_replay(
@@ -392,16 +442,20 @@ impl HostedProvider {
         proof: Option<&AuthorityRequestProof>,
         allow_retired_replay: bool,
         consume_proof_nonce: bool,
-    ) -> ApiResult<AuthorizedRequest> {
+        allow_originless_extension_get: bool,
+    ) -> ApiResult<(AuthorizedRequest, Option<String>)> {
         // Originless mirror traffic is authenticated again inside the requested
         // operation. Avoid a duplicate database round trip for that hot path.
-        // Application capabilities with an allowed origin still fail closed in
-        // the operation-level origin check when the header is omitted.
+        // Application capabilities still fail closed at the operation-level
+        // origin check when the header and proof are both omitted.
         if request_origin.is_none() && proof.is_none() {
-            return Ok(AuthorizedRequest {
-                operation_transport_protocol: None,
-                operation_transport_recovery_protocols: Vec::new(),
-            });
+            return Ok((
+                AuthorizedRequest {
+                    operation_transport_protocol: None,
+                    operation_transport_recovery_protocols: Vec::new(),
+                },
+                None,
+            ));
         }
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
@@ -447,6 +501,7 @@ impl HostedProvider {
                 "Replica credential is invalid, expired, or revoked.",
             ));
         }
+        let mut effective_origin = request_origin.map(str::to_owned);
         match replica.purpose {
             ReplicaPurpose::Mirror => {
                 if request_origin.is_some() || proof.is_some() {
@@ -460,7 +515,10 @@ impl HostedProvider {
                 if !retired_credential {
                     ensure_canonical_application_replica(&replica)?;
                 }
-                authorize_application_origin(&replica, request_origin)?;
+                if allow_originless_extension_get && !retired_credential {
+                    effective_origin = file_get_origin(&replica, request_origin, proof);
+                }
+                authorize_application_origin(&replica, effective_origin.as_deref())?;
                 if let Some(public_key) = replica.proof_public_key.as_deref() {
                     let proof = proof.ok_or_else(|| {
                         ApiError::unauthorized(
@@ -502,7 +560,7 @@ impl HostedProvider {
                 .clone(),
         };
         transaction.commit().await?;
-        Ok(authorized)
+        Ok((authorized, effective_origin))
     }
 
     pub async fn update_application_replica(

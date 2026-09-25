@@ -54,11 +54,15 @@ async fn list_files(
     Query(query): Query<FilesQuery>,
 ) -> ApiResult<Json<ListFilesPage>> {
     let token = bearer(&headers)?;
-    let origin = request_origin(&headers);
     let proof = request_proof(&headers, Method::GET, &uri, &[])?;
-    state
+    let origin = state
         .provider
-        .authorize_request(collection_id, token, origin, proof.as_ref())
+        .authorize_file_get_request(
+            collection_id,
+            token,
+            request_origin(&headers),
+            proof.as_ref(),
+        )
         .await?;
     Ok(Json(
         state
@@ -73,7 +77,7 @@ async fn list_files(
                     after: query.after,
                     limit: query.limit,
                 },
-                origin,
+                origin.as_deref(),
             )
             .await?,
     ))
@@ -181,12 +185,26 @@ async fn download_file_part(
     OriginalUri(uri): OriginalUri,
     Path((collection_id, transfer_id, part_index)): Path<(Uuid, Uuid, u64)>,
 ) -> ApiResult<Response> {
-    let token =
-        authorize_file_request(&state, &headers, Method::GET, &uri, collection_id, &[]).await?;
-    let origin = request_origin(&headers);
+    let token = bearer(&headers)?;
+    let proof = request_proof(&headers, Method::GET, &uri, &[])?;
+    let origin = state
+        .provider
+        .authorize_file_get_request(
+            collection_id,
+            token,
+            request_origin(&headers),
+            proof.as_ref(),
+        )
+        .await?;
     let download = state
         .provider
-        .download_file_part(collection_id, token, transfer_id, part_index, origin)
+        .download_file_part(
+            collection_id,
+            token,
+            transfer_id,
+            part_index,
+            origin.as_deref(),
+        )
         .await?;
     Response::builder()
         .header("content-type", "application/octet-stream")
@@ -237,16 +255,20 @@ async fn file_transfer_status(
     Path((collection_id, transfer_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<FileTransferStatus>> {
     let token = bearer(&headers)?;
-    let origin = request_origin(&headers);
     let proof = request_proof(&headers, Method::GET, &uri, &[])?;
-    state
+    let origin = state
         .provider
-        .authorize_request(collection_id, token, origin, proof.as_ref())
+        .authorize_file_get_request(
+            collection_id,
+            token,
+            request_origin(&headers),
+            proof.as_ref(),
+        )
         .await?;
     Ok(Json(
         state
             .provider
-            .file_transfer_status(collection_id, token, transfer_id, origin)
+            .file_transfer_status(collection_id, token, transfer_id, origin.as_deref())
             .await?,
     ))
 }

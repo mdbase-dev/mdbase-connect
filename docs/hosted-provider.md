@@ -60,10 +60,16 @@ applications may bind an exact `chrome-extension://<id>` or `moz-extension://<id
 origin; these are not rewritten to `null`. Extension origins and opaque `null`
 capabilities used by downloaded portable applications require a P-256
 signature over the request and consume a one-use nonce. Extension origin bindings
-exclude credentials, ports, paths, queries, fragments, and wildcard hosts. Missing origins, stale
-or replayed proofs, and body or credential substitutions are rejected. Mirror
-credentials have no browser origin and are rejected when presented by browser
-JavaScript.
+exclude credentials, ports, paths, queries, fragments, and wildcard hosts. For
+hosted file GETs only, Chromium may omit `Origin` from an extension request.
+The provider accepts that omission only for an active, exact
+`chrome-extension://` application capability with its bound P-256 proof over
+the GET target and credential; it consumes the proof nonce before using the
+capability's stored origin for file action and scope checks. A present origin
+must still match exactly. Operations, POSTs, other origins, and retired
+credentials do not receive this exception. Missing, stale or replayed proofs,
+and body or credential substitutions are rejected. Mirror credentials have no
+browser origin and are rejected when presented by browser JavaScript.
 
 ### Setup and failed approval recovery
 
