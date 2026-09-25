@@ -55,7 +55,7 @@ export function DeviceAuthorization() {
   async function openRequest(value: string) {
     const userCode = formatDeviceCode(value);
     if (userCode.replace("-", "").length !== 8) {
-      setError("Enter the eight-character code shown by the downloaded application.");
+      setError("Enter the eight-character code shown by the application.");
       return;
     }
     setBusy(true);
@@ -84,13 +84,13 @@ export function DeviceAuthorization() {
 
   return (
     <main className="center-page">
-      <PageBrand label="Downloaded application" />
+      <PageBrand label="Application connection" />
       <form className="decision-panel device-panel" onSubmit={(event) => {
         event.preventDefault();
         void openRequest(code);
       }}>
         <p className="eyebrow">Short approval code</p>
-        <h1>Check the downloaded file.</h1>
+        <h1>Check the application.</h1>
         <p>Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed.</p>
         <label className="device-code-field">
           <span>Approval code</span>
@@ -104,7 +104,7 @@ export function DeviceAuthorization() {
             placeholder="ABCD-EFGH"
           />
         </label>
-        <p className="field-note">Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that file.</p>
+        <p className="field-note">Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application.</p>
         {error && <div className="message error" role="alert">{error}</div>}
         <button className="button primary" disabled={busy || code.replace("-", "").length !== 8}>
           {busy ? "Checking…" : "Review request"}
@@ -266,7 +266,7 @@ export function Authorization({ requestId }: { requestId: string }) {
 const RETURN_LINK_DELAY_MS = 4_000;
 const SLOW_SETUP_MS = 20_000;
 
-function RequestOutcome({ status, applicationName, portable = false, returnUrl = "", standalone = false }: {
+export function RequestOutcome({ status, applicationName, portable = false, returnUrl = "", standalone = false }: {
   status: Exclude<RequestStatus, "pending">;
   applicationName: string;
   portable?: boolean;
@@ -301,11 +301,11 @@ function RequestOutcome({ status, applicationName, portable = false, returnUrl =
   const approved = status === "approved";
   return <div className="request-outcome" role="status">
     <p className="eyebrow outcome-label">{approved ? "Access approved" : "Access denied"}</p>
-    <h2>{portable ? "Return to the downloaded application." : `Returning to ${applicationName}…`}</h2>
+    <h2>{portable ? `Return to ${applicationName}.` : `Returning to ${applicationName}…`}</h2>
     <p>{portable
       ? approved
-        ? "The file will finish connecting with its one-time device code. You can close this window."
-        : "The file will learn that access was not granted. You can close this window."
+        ? "The application will finish connecting with its one-time device code. You can close this window."
+        : "The application will learn that access was not granted. You can close this window."
       : approved
         ? "Your approved collection and permissions will follow you back."
         : "The application will show that access was not granted."}</p>
@@ -313,7 +313,7 @@ function RequestOutcome({ status, applicationName, portable = false, returnUrl =
   </div>;
 }
 
-function RequestIdentity({ request }: { request: PendingAuthorization }) {
+export function RequestIdentity({ request }: { request: PendingAuthorization }) {
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
   const portable = request.distribution === "portable";
   return (
@@ -324,10 +324,10 @@ function RequestIdentity({ request }: { request: PendingAuthorization }) {
       <div>
         <h1>{request.application_name}</h1>
         <p className="request-origin">{portable
-          ? <>Downloaded HTML file{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
+          ? <>Application using a device code{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
           : <code>{host(request.homepage)}</code>}</p>
         {portable
-          ? <p className="request-guidance portable-authorization-warning" role="note"><strong>Downloaded file; origin unverified.</strong> Continue only if you opened it intentionally{request.user_code ? <> and it shows <code>{request.user_code}</code></> : null}.{request.project_url ? <> {host(request.project_url)} does not verify its origin.</> : null}</p>
+          ? <p className="request-guidance portable-authorization-warning" role="note"><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <> and it shows <code>{request.user_code}</code></> : null}.{request.project_url ? <> {host(request.project_url)} does not verify its origin.</> : null}</p>
           : <p className="request-guidance">Only continue if you recognize this exact site.</p>}
         <p className="request-expiry">Request expires {relativeTime(request.expires_at)}</p>
       </div>
@@ -916,7 +916,7 @@ function SupportedApprovalForm({
       {reviewing && <footer className="approval-footer">
         <div className="approval-receipt">
           <p>{request.distribution === "portable"
-            ? `${request.application_name} can normally use ${selected?.display_name ?? "this collection"} only while the file stays open. You can revoke access sooner in mdbase connect.`
+            ? `${request.application_name} can use ${selected?.display_name ?? "this collection"} while it remains connected. You can revoke access in mdbase connect.`
             : `${request.application_name} can use ${selected?.display_name ?? "this collection"} until you revoke access in mdbase connect.`}</p>
           {higherImpactLabels.length > 0 && <p className="receipt-impact"><i aria-hidden="true" />Includes {higherImpactLabels.join(", ")}.</p>}
           {approvalBlocker && <p className="receipt-blocker" id={blockerId}>{approvalBlocker}</p>}
