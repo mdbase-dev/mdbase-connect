@@ -915,7 +915,9 @@ function SupportedApprovalForm({
       {reviewing && error && <div className="message error compact" role="alert">{error}</div>}
       {reviewing && <footer className="approval-footer">
         <div className="approval-receipt">
-          <p>{request.application_name} can use {selected?.display_name ?? "this collection"} until you revoke access in mdbase connect.</p>
+          <p>{request.distribution === "portable"
+            ? `${request.application_name} can use ${selected?.display_name ?? "this collection"} while it remains connected. You can revoke access in mdbase connect.`
+            : `${request.application_name} can use ${selected?.display_name ?? "this collection"} until you revoke access in mdbase connect.`}</p>
           {higherImpactLabels.length > 0 && <p className="receipt-impact"><i aria-hidden="true" />Includes {higherImpactLabels.join(", ")}.</p>}
           {approvalBlocker && <p className="receipt-blocker" id={blockerId}>{approvalBlocker}</p>}
         </div>

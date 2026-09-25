@@ -802,11 +802,11 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   authorization.user_code = "ABCD-EFGH";
   authorization.project_url = "https://journal.example";
   await page.reload();
-  await page.getByText("Downloaded file; origin unverified.", { exact: true }).waitFor();
-  assert.match(await page.getByRole("note").innerText(), /Continue only if you opened it intentionally and it shows ABCD-EFGH/);
+  await page.getByText("Application origin unverified.", { exact: true }).waitFor();
+  assert.match(await page.getByRole("note").innerText(), /Continue only if you started this connection intentionally and it shows ABCD-EFGH/);
   assert.match(await page.getByRole("note").innerText(), /journal\.example does not verify its origin/);
   assert.equal(await page.getByText(/until you revoke/).count(), 0, "portable approval does not promise durability");
-  await page.getByText(/only while the file stays open/).waitFor();
+  await page.getByText(/while it remains connected/).waitFor();
   assert.deepEqual(errors, []);
   await page.close();
 }
