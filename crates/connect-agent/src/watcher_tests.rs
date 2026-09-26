@@ -29,7 +29,10 @@ fn finalizer_serves_a_quiet_collection_before_a_busy_feed_drains() {
     let service = CollectionWatchService::start_with_runtime_events(registry.clone(), Some(sender));
     // Startup discovers registered residents. Start consuming immediately:
     // barriers require the independent durable-admission worker to be running.
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    // Fairness is asserted by delivery order below, not by elapsed time; the
+    // deadline only turns a hang into a failure. Durable admission of 81
+    // changes can take several seconds on slow Windows runners.
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     let mut busy_seen = 0;
     let mut quiet_seen = false;
     while busy_seen < 80 || !quiet_seen {
@@ -81,7 +84,10 @@ fn shutdown_interrupts_notification_channel_backpressure() {
     let (sender, _receiver) = tokio::sync::mpsc::channel(1);
     let service =
         CollectionWatchService::start_with_runtime_events(registry.clone(), Some(sender.clone()));
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    // Both waits below only turn a hang into a failure: a shutdown that waited
+    // for the stalled receiver would never finish. Startup admits 20 durable
+    // changes first, which can take several seconds on slow Windows runners.
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     while sender.capacity() != 0 {
         assert!(std::time::Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(1));
@@ -92,7 +98,7 @@ fn shutdown_interrupts_notification_channel_backpressure() {
         stopped.send(()).unwrap();
     });
     receiver
-        .recv_timeout(Duration::from_secs(5))
+        .recv_timeout(Duration::from_secs(30))
         .expect("shutdown waited for the stalled admission receiver");
     thread.join().unwrap();
     // The queued event was never durably admitted. All provider events remain

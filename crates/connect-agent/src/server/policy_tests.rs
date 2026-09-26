@@ -727,13 +727,35 @@ fn stuck_admitted_durable_work_does_not_delay_snapshot_or_publish_receipt() {
     let (release_tx, release_rx) = std::sync::mpsc::channel();
     let durable = std::thread::spawn(move || release_rx.recv().unwrap());
 
-    let started = Instant::now();
-    let applied = apply_policy_snapshot(&state, CONTROL_PROTOCOL_VERSION, snapshot(2));
+    // The durable work is released only after the snapshot is applied, so an
+    // apply that waited for it would never finish. Bound that hang generously
+    // instead of timing the apply's own durable write, which is slow on
+    // Windows runners.
+    let (applied_tx, applied_rx) = std::sync::mpsc::channel();
+    let applier = {
+        let state = state.clone();
+        std::thread::spawn(move || {
+            applied_tx
+                .send(apply_policy_snapshot(
+                    &state,
+                    CONTROL_PROTOCOL_VERSION,
+                    snapshot(2),
+                ))
+                .unwrap()
+        })
+    };
+    let applied = match applied_rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(applied) => applied,
+        Err(error) => {
+            release_tx.send(()).unwrap();
+            panic!("snapshot apply waited for stuck admitted durable work: {error}");
+        }
+    };
+    applier.join().unwrap();
     assert!(matches!(
         applied,
         RelayMessage::PolicyApplied { ok: true, .. }
     ));
-    assert!(started.elapsed() < Duration::from_millis(100));
     assert!(state
         .acquire_publication_permit(&old, tokio::time::Instant::now() + Duration::from_secs(1),)
         .is_err());
