@@ -236,3 +236,17 @@ Findings:
   visible paths are record files (not directories, and not a prefix of known
   records) as an incremental invalidation would remove it; that is a watcher
   semantics change for mdbase-rs.
+- **Fixed on mdbase-rs branch `incremental-rename-refresh` (`f7a6028`):** renames
+  now escalate to a full refresh only when they move a directory (an existing
+  directory or symlink, or a vanished path with indexed records or resources
+  under it). `mdbase profile engine --scenario core`,
+  `runtime_update_and_watch` mean: 200 records 26.2 → 16.7 ms; 5,000 records
+  158 → 43.7 ms (the full refresh had averaged 127.6 ms of each save). With a
+  connector built against that branch, this browser profile's 1 KB update
+  drops from 50 to 30 ms, 128 KB from 59 to 38 ms and 1 MB from 140 to 116 ms.
+  `cargo test --workspace` here passes against it.
+- **Open (mdbase-rs):** with `default_validation: error`, a plain
+  `Collection::update` captures a full collection snapshot for the uniqueness
+  check even when the record's types declare no unique or generated fields;
+  at 5,000 records that update takes ~320 ms. Runtime (connector) saves still
+  grow modestly with size (17 ms at 200 records, 44 ms at 5,000).
