@@ -138,10 +138,18 @@ export function operationProblem<Result>(
   | "collection_invalid"
   | "collection_type_registry_invalid"
   | "collection_version_unsupported"
+  | "concurrent_modification"
+  | "file_not_found"
+  | "invalid_path"
   | "operation_invalid"
 > {
   const code = diagnosticProblemCode(envelope.diagnostics);
   const message = diagnosticMessage(envelope.diagnostics);
+  // mdbase reports these record conditions as diagnostics; hosted authorities
+  // report them as problems. Surface one code for both.
+  if (code === "concurrent_modification" || code === "file_not_found" || code === "invalid_path") {
+    return connectProblem(code, message, { operationOutcome: "rejected" });
+  }
   if (code === "collection_version_unsupported") {
     const versions = diagnosticVersions(envelope.diagnostics);
     return connectProblem(code, message, {
@@ -173,6 +181,9 @@ function diagnosticProblemCode(diagnostics: MdbaseDiagnostic[]):
   | "collection_invalid"
   | "collection_type_registry_invalid"
   | "collection_version_unsupported"
+  | "concurrent_modification"
+  | "file_not_found"
+  | "invalid_path"
   | "operation_invalid" {
   const codes = new Set(
     diagnostics
@@ -192,6 +203,9 @@ function diagnosticProblemCode(diagnostics: MdbaseDiagnostic[]):
   ].some((code) => codes.has(code))) return "collection_type_registry_invalid";
   if (["collection_invalid", "collection_open_failed"]
     .some((code) => codes.has(code))) return "collection_invalid";
+  for (const code of ["concurrent_modification", "file_not_found", "invalid_path"] as const) {
+    if (codes.has(code)) return code;
+  }
   return "operation_invalid";
 }
 

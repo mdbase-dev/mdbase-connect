@@ -1586,6 +1586,22 @@ describe("actionable SDK errors", () => {
     }
   });
 
+  it.each([
+    ["concurrent_modification", "update", "File 'notes/one.md' was modified externally"],
+    ["file_not_found", "read", "File not found: notes/one.md"],
+    ["invalid_path", "read", "Path escapes the collection"]
+  ] as const)("reports a %s diagnostic as that problem, as hosted authorities do", async (code, operation, message) => {
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        return { valid: false, result: {}, diagnostics: [{ severity: "error", code, message, path: "notes/one.md" }] } as Result;
+      }
+    });
+    const outcome = operation === "read"
+      ? await client.read({ path: "notes/one.md" })
+      : await client.update({ path: "notes/one.md", patch: {}, ifRevision: "stale" });
+    expect(outcome).toMatchObject({ ok: false, problem: { code, message, operation_outcome: "rejected" } });
+  });
+
   it("distinguishes legacy, invalid configuration, and invalid type-registry setup", async () => {
     const envelopes = [
       {

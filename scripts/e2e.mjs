@@ -1851,18 +1851,30 @@ async function openApplicationServer(name, contracts, access) {
     await until(() => session.getSnapshot().body.includes("Changed while open."), "the watch to refresh the session");
     const followed = session.getSnapshot().state === "saved";
 
+    // Local and hosted authorities report record conditions with the same codes.
+    const staleUpdate = await connection.update({ path, patch: { status: "stale" }, ifRevision: saved.revision });
+    const missingRead = await connection.read({ path: "browser/missing.md" });
+
+    // Deleted elsewhere while unsaved text is open: the session keeps the text.
+    session.setBody("Unsaved when deleted.");
+    requireConnectSuccess(await connection.delete({ path }));
+    await until(() => session.getSnapshot().state === "deleted", "the watch to report the deletion");
+    const deletedKeepsText = session.getSnapshot().body === "Unsaved when deleted.";
+
     first.release();
     second.release();
     stopFollowing();
     watch.close();
-    requireConnectSuccess(await connection.delete({ path }));
     return {
       shared: first.session === second.session,
       saved: saved.body.includes("Typed in a session."),
       rebased: merged.body.includes("Typed after a metadata change.") && merged.frontmatter.status === "done",
       conflict: Boolean(conflict),
       kept: kept.body.includes("Mine."),
-      followed
+      followed,
+      staleConflict: !staleUpdate.ok && staleUpdate.problem.code === "concurrent_modification",
+      missingRecord: !missingRead.ok && missingRead.problem.code === "file_not_found",
+      deletedKeepsText
     };
   }
   const keyStore = new MemoryGrantKeyStore();
