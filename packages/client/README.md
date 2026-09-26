@@ -154,7 +154,9 @@ record first is not mistaken for someone else's edit. A change made elsewhere
 becomes a `conflict` only when it touched something edited locally; otherwise
 the session rebases onto it, and a clean session adopts it. A write whose
 response is lost enters `recovery` and is continued only through its durable
-pending mutation, never sent again. `follow()` refreshes open sessions from the
+pending mutation, never sent again, even after a reload: `open()` finds the
+record's interrupted update (by a digest, so its path is never stored) and
+resumes it as `recovery`. `follow()` refreshes open sessions from the
 watch, follows renames, marks deletions (local text is kept), and re-reads
 everything after a change gap. Releasing the last view never cancels a pending
 save. `snapshot.state` is one of `saved`, `unsaved`, `saving`, `conflict`,

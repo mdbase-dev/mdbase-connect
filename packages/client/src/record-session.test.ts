@@ -596,6 +596,24 @@ describe("outcome-unknown recovery", () => {
     expect(transport.write).toHaveBeenCalledOnce();
   });
 
+  it("resumes a write interrupted before a reload and keeps newer typing", async () => {
+    const recover = vi.fn(async () => ok(doc("Recovered after reload", "5")));
+    const transport = adapter({ recover, isPending: () => true });
+    const session = new MdbaseRecordSession(original, transport, { autosave: { idleMs: 1000 } });
+    session.resumeRecovery("from-before-reload");
+    expect(session.snapshot).toMatchObject({ state: "recovery", pendingRequestId: "from-before-reload" });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(recover).toHaveBeenCalledExactlyOnceWith("from-before-reload", undefined);
+    expect(transport.write).not.toHaveBeenCalled();
+    expect(session.snapshot).toMatchObject({ state: "saved", body: "Recovered after reload" });
+
+    const typing = new MdbaseRecordSession(original, adapter({ recover, isPending: () => true }), { autosave: false });
+    typing.resumeRecovery("from-before-reload");
+    typing.setBody("Typed while recovering");
+    await typing.flush();
+    expect(typing.snapshot).toMatchObject({ state: "saved", body: "Typed while recovering" });
+  });
+
   it("refuses to write when exact recovery is unavailable", async () => {
     const transport = adapter();
     transport.write.mockResolvedValueOnce(fail(unknownProblem));

@@ -89,6 +89,8 @@ export interface PendingMutation {
   operation: CollectionOperation;
   mutation?: MutationOperationIdentifier;
   inputFingerprint: string;
+  /** `recordDigest(collectionId, path)` of an update's record, never the path itself. */
+  recordDigest?: string;
   requestId: string;
   envelope?: EncryptedRelayOperationRequest;
   /** Exact plaintext protocol request for transports that do not use a grant envelope. */

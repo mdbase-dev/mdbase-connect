@@ -254,7 +254,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       },
       internals.timeouts
     );
-    this.records = new MdbaseRecords(this);
+    this.records = new MdbaseRecords(this, (path) => this.transport.pendingUpdate(path));
     this.collectionClient = new MdbaseCollectionClient(new CollectionRequestCoordinator({
       operation: (operation, input, requestOptions) =>
         this.transport.performOperation(operation, input, requestOptions)

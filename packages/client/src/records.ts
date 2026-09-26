@@ -52,11 +52,16 @@ export class MdbaseRecords<Frontmatter extends JsonObject = JsonObject> {
   private readonly entries = new Map<string, Entry<Frontmatter>>();
   private readonly opening = new Map<string, Promise<Opened<Frontmatter>>>();
 
-  constructor(private readonly connection: RecordConnection<Frontmatter>) {}
+  constructor(
+    private readonly connection: RecordConnection<Frontmatter>,
+    /** Finds this record's interrupted update, which survives reloads in durable storage. */
+    private readonly pendingUpdate: (path: string) => Promise<string | null> = async () => null
+  ) {}
 
   /**
    * Read a record and hold its editing session. Session options apply when
-   * the session is first created; later opens share it as it is.
+   * the session is first created; later opens share it as it is. A save
+   * interrupted before a reload resumes as exact recovery.
    */
   async open(
     path: string,
@@ -104,6 +109,8 @@ export class MdbaseRecords<Frontmatter extends JsonObject = JsonObject> {
     if (existing) return connectSuccess(existing);
     const entry = { path: read.value.path, leases: 0 } as Entry<Frontmatter>;
     entry.session = new MdbaseRecordSession(read.value, this.adapter(entry), { autosave });
+    const interrupted = await this.pendingUpdate(entry.path);
+    if (interrupted) entry.session.resumeRecovery(interrupted);
     this.entries.set(entry.path, entry);
     return connectSuccess(entry);
   }

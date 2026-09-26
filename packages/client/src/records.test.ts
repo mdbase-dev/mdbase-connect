@@ -174,6 +174,24 @@ describe("connection.records", () => {
     expect(session.snapshot.state).toBe("saved");
   });
 
+  it("resumes a save interrupted before a reload as exact recovery", async () => {
+    const fake = fakeConnection();
+    const { connection, loseNextResponse } = fake;
+    const before = new MdbaseRecords(connection as never);
+    const first = await open(before, "note.md", { autosave: false });
+    loseNextResponse();
+    first.session.setBody("Lost before reload");
+    await first.session.save();
+
+    // A new page: the pending write is found by its record, not replayed as new.
+    const after = new MdbaseRecords(connection as never, async (path) => path === "note.md" ? "lost" : null);
+    const reopened = await open(after);
+    expect(reopened.session.snapshot).toMatchObject({ state: "recovery", pendingRequestId: "lost" });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(reopened.session.snapshot).toMatchObject({ state: "saved", body: "Lost before reload" });
+    expect(connection.update).toHaveBeenCalledOnce();
+  });
+
   it("classifies a revision rejection against the current record", async () => {
     const { records, elsewhere } = setup();
     const { session } = await open(records, "note.md", { autosave: false });

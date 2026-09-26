@@ -75,6 +75,9 @@ interface Sent {
   patch?: JsonObject;
 }
 
+/** What an interrupted write sent, or `restored` when it was found after a reload. */
+type Interrupted = { requestId: string; sent: Sent | "restored" };
+
 type Classified = "resolved" | "rebased" | "failed";
 
 /**
@@ -93,7 +96,7 @@ export class MdbaseRecordSession<R> {
   private problem: ConnectProblem | null = null;
   private deleted = false;
   private busy = false;
-  private pending: { requestId: string; sent: Sent } | undefined;
+  private pending: Interrupted | undefined;
   private incoming: R[] = [];
   private readonly seen = new Set<string>();
   private readonly listeners = new Set<() => void>();
@@ -151,6 +154,18 @@ export class MdbaseRecordSession<R> {
     this.body = draft.body;
     if (draft.baseBody !== current) this.remote = this.record;
     this.emit();
+  }
+
+  /**
+   * Continue a write interrupted before this session existed, such as one
+   * found in durable storage after a reload. No new write is sent until it
+   * settles; with autosave, recovery is attempted after one idle interval.
+   */
+  resumeRecovery(requestId: string): void {
+    if (this.pending || this.busy) return;
+    this.pending = { requestId, sent: "restored" };
+    this.emit();
+    this.autosave();
   }
 
   /** Schedule an autosave one idle interval from now. */
@@ -346,7 +361,15 @@ export class MdbaseRecordSession<R> {
     this.emit();
     const outcome = await this.guard(() => recover(pending.requestId, options));
     if (outcome.ok) {
-      this.acknowledge(outcome.value, pending.sent);
+      if (pending.sent === "restored") {
+        // Unknown content, so accept it like an out-of-band result: newer typing is kept.
+        this.pending = undefined;
+        this.busy = false;
+        this.accept(outcome.value);
+        this.settle();
+      } else {
+        this.acknowledge(outcome.value, pending.sent);
+      }
       return connectSuccess(this.record);
     }
     // Only the SDK settling its durable handle proves the original intent was resolved.

@@ -1,3 +1,4 @@
+import { recordDigest } from "./record-digest.js";
 import type {
   CollectionOperation,
   EncryptedRelayOperationRequest,
@@ -198,6 +199,16 @@ export class ConnectionTransport {
       status: "outcome_unknown",
       createdAt: new Date(pending.createdAt).toISOString()
     }));
+  }
+
+  /** The request ID of an interrupted update to one record, if any. */
+  async pendingUpdate(path: string): Promise<string | null> {
+    const collectionId = this.currentToken()?.collectionId;
+    if (!collectionId) return null;
+    const digest = await recordDigest(collectionId, path);
+    return this.storedPendingMutations()
+      .find((pending) => pending.operation === "update" && pending.recordDigest === digest)
+      ?.requestId ?? null;
   }
 
   pendingMutation(requestId: string): PendingMutationSummary | null {
@@ -573,10 +584,15 @@ export class ConnectionTransport {
     let requestId: string = pendingRequestId ?? crypto.randomUUID();
     let pending: PendingMutation | null = null;
     let inputFingerprint: string | undefined;
+    let updatedRecord: string | undefined;
     if (pendingRequestId !== undefined) {
       pending = this.storedPendingMutation(pendingRequestId);
       inputFingerprint = pending?.inputFingerprint
         ?? await operationFingerprint(operation, input);
+      const path = (input as { path?: unknown } | undefined)?.path;
+      if (!pending && operation === "update" && typeof path === "string") {
+        updatedRecord = await recordDigest(token.collectionId, path);
+      }
       if (pending) {
         if (pending.collectionId !== token.collectionId
             || pending.operation !== operation
@@ -639,6 +655,7 @@ export class ConnectionTransport {
               operation,
               mutation: mutation!,
               inputFingerprint: inputFingerprint!,
+              ...(updatedRecord ? { recordDigest: updatedRecord } : {}),
               requestId,
               envelope: encryptedRequest,
               createdAt: Date.now()
@@ -674,6 +691,7 @@ export class ConnectionTransport {
           operation,
           mutation: mutation!,
           inputFingerprint: inputFingerprint!,
+          ...(updatedRecord ? { recordDigest: updatedRecord } : {}),
           requestId,
           request,
           createdAt: Date.now()

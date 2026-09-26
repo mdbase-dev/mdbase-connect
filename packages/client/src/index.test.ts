@@ -4137,6 +4137,30 @@ describe("direct loopback routing", () => {
     expect(outcome.ok ? undefined : outcome.problem.details?.request_id).toBe(pending?.requestId);
   });
 
+  it("finds an interrupted update by its record without storing the record path", async () => {
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("relay response lost"));
+
+    const outcome = await fixture.connect.update({
+      path: "Private/diary.md",
+      patch: {},
+      body: "Lost",
+      ifRevision: "r1"
+    });
+    expect(outcome).toMatchObject({ ok: false, problem: { code: "operation_outcome_unknown" } });
+    const requestId = fixture.connect.pendingMutations()[0]?.requestId;
+    const transport = (fixture.connect as unknown as {
+      transport: { pendingUpdate(path: string): Promise<string | null> };
+    }).transport;
+    await expect(transport.pendingUpdate("Private/diary.md")).resolves.toBe(requestId);
+    await expect(transport.pendingUpdate("Private/other.md")).resolves.toBeNull();
+    const stored = Array.from({ length: fixture.storage.length }, (_, index) =>
+      fixture.storage.getItem(fixture.storage.key(index) ?? "")).join("\n");
+    expect(stored).toContain(requestId);
+    expect(stored).not.toContain("Private/diary.md");
+  });
+
   it("retains a mutation when the authority reports an unknown deadline outcome", async () => {
     const fixture = await encryptedConnection();
     fixture.connect.disableDirectAccess();
