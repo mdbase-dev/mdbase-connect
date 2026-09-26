@@ -127,11 +127,14 @@ describe("LocalFileTransport", () => {
     expect(fixture.relayAvailable).toHaveBeenCalledOnce();
   });
 
-  it("falls back from an unreachable loopback to the relay with the same chunk", async () => {
+  it.each(["unreachable", "rejected"])("falls back from a %s loopback to the relay with the same chunk", async (failure) => {
     const fixture = await transportFixture("upload");
     const plaintext = new TextEncoder().encode("fallback!!!!");
     const fetch = vi.spyOn(globalThis, "fetch")
-      .mockRejectedValueOnce(new TypeError("loopback unavailable"))
+      .mockImplementationOnce(async () => {
+        if (failure === "unreachable") throw new TypeError("loopback unavailable");
+        return new Response(null, { status: 403 });
+      })
       .mockImplementationOnce(async (url, init) => {
         expect(String(url)).toContain("https://connect.example/v1/authorities/");
         const encoded = new Uint8Array(await new Response(init?.body).arrayBuffer());

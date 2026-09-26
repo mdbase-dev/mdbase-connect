@@ -351,9 +351,20 @@ fn authorize_browser_request(
         return Ok(origin.to_string());
     }
     let parsed = url::Url::parse(origin).map_err(|_| ())?;
-    if parsed.origin().ascii_serialization() != origin
-        || !matches!(parsed.scheme(), "http" | "https")
-    {
+    // Generic URL origin serialization is `null` for extension schemes.
+    // Validate their exact browser spelling instead, never an opaque alias.
+    let canonical = match parsed.scheme() {
+        "http" | "https" => parsed.origin().ascii_serialization() == origin,
+        "chrome-extension" | "moz-extension" => parsed.host_str().is_some_and(|host| {
+            !host.is_empty()
+                && host
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+                && format!("{}://{}", parsed.scheme(), host) == origin
+        }),
+        _ => false,
+    };
+    if !canonical {
         return Err(());
     }
     if !state.agent.origin_allowed(origin) || !within_rate_limit(state, origin) {
@@ -378,6 +389,9 @@ fn within_rate_limit(state: &LoopbackState, origin: &str) -> bool {
 }
 
 fn denied() -> Response<Body> {
+    // An empty 403 rejects the browser transport before any operation executes.
+    // The SDK may try the encrypted relay; grant/policy failures after admission
+    // must instead use structured errors and remain authorization failures.
     StatusCode::FORBIDDEN.into_response()
 }
 

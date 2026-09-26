@@ -39,7 +39,7 @@ import { authorityProofHeaders } from "./authority-proof.js";
 import { performAuthorizationRefresh } from "./authorization-refresh.js";
 import { PendingMutationStore } from "./pending-mutation-store.js";
 import {
-  directFallbackStatus,
+  directFallbackResponse,
   encryptedOperationError,
   fetchOperationRequest,
   isMutation,
@@ -690,7 +690,7 @@ export class ConnectionTransport {
           signal: options.signal
         }));
         if (
-          !directFallbackStatus(response.status)
+          !await directFallbackResponse(response)
           || await isExplicitConnectorBusyResponse(response)
         ) {
           if (response.ok) {
@@ -834,13 +834,18 @@ export class ConnectionTransport {
 
   private async probeDirectAccess(signal?: AbortSignal): Promise<DirectAccessStatus> {
     this.setDirectStatus("checking");
-    if (await probeLoopbackAccess(
-      this.loopbackUrl,
-      OPERATION_TRANSPORT_PROTOCOL_VERSION,
-      signal
-    )) {
-      this.markDirectAvailable();
-      return "available";
+    try {
+      if (await probeLoopbackAccess(
+        this.loopbackUrl,
+        OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        signal
+      )) {
+        this.markDirectAvailable();
+        return "available";
+      }
+    } catch (error) {
+      this.markDirectUnavailable();
+      throw error;
     }
     if ((await localNetworkPermission()) === "denied") return this.setDirectStatus("denied");
     this.markDirectUnavailable();

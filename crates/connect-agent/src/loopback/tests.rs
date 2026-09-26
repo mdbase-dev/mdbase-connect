@@ -178,29 +178,94 @@ async fn durable_changes_cross_direct_and_relay_only_as_encrypted_public_events(
 }
 
 #[tokio::test]
-async fn opaque_file_origin_requires_an_exact_encrypted_portable_grant() {
-    let fixture = fixture_for_origin("null", "portable");
-    let app = router(fixture.agent.clone(), 28_485);
+async fn portable_origins_require_an_exact_encrypted_grant() {
+    for origin in [
+        "null",
+        "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo",
+        "moz-extension://2c0d3f4e-5a6b-47c8-9012-3456789abcde",
+    ] {
+        let fixture = fixture_for_origin(origin, "portable");
+        let app = router(fixture.agent.clone(), 28_485);
 
-    let ready = app
-        .clone()
-        .oneshot(request(Method::GET, "/v1/ready", "null", None))
-        .await
-        .unwrap();
-    assert_eq!(ready.status(), StatusCode::OK);
-    assert_eq!(
-        ready.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
-        "null"
-    );
+        let ready = app
+            .clone()
+            .oneshot(request(Method::GET, "/v1/ready", origin, None))
+            .await
+            .unwrap();
+        assert_eq!(ready.status(), StatusCode::OK);
+        assert_eq!(
+            ready.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
+            origin
+        );
+        let preflight = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/v1/operations")
+                    .header(HOST, "127.0.0.1:28485")
+                    .header(ORIGIN, origin)
+                    .header("access-control-request-method", "POST")
+                    .header("access-control-request-headers", "content-type")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(preflight.status(), StatusCode::NO_CONTENT);
 
-    let described = fixture.direct(&app, "describe", json!({}), 1).await;
-    assert_eq!(described["ok"], true);
-    assert_eq!(described["result"]["display_name"], "Direct notes");
+        for other in [
+            "chrome-extension://another-extension",
+            "https://evil.example",
+        ] {
+            for path in ["/v1/ready", "/v1/files/download/00000000-0000-0000-0000-000000000001/00000000-0000-0000-0000-000000000002/0"] {
+            let denied = app.clone().oneshot(request(Method::GET, path, other, None)).await.unwrap();
+            assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+            assert!(denied.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
+        }
+        }
 
-    let root = fixture.root.clone();
-    drop(app);
-    drop(fixture);
-    remove_fixture_after_watchers_close(&root);
+        let described = fixture.direct(&app, "describe", json!({}), 1).await;
+        assert_eq!(described["ok"], true);
+        assert_eq!(described["result"]["display_name"], "Direct notes");
+
+        let root = fixture.root.clone();
+        drop(app);
+        drop(fixture);
+        remove_fixture_after_watchers_close(&root);
+    }
+}
+
+#[tokio::test]
+async fn malformed_extension_origins_are_rejected_even_with_a_matching_grant() {
+    for origin in [
+        "chrome-extension://",
+        "chrome-extension://extension/",
+        "chrome-extension://extension/page",
+        "chrome-extension://extension?query",
+        "chrome-extension://extension#fragment",
+        "chrome-extension://user@extension",
+        "chrome-extension://extension:443",
+        "chrome-extension://EXTENSION",
+        "CHROME-EXTENSION://extension",
+        "chrome-extension://*.example",
+        "moz-extension://example:443",
+    ] {
+        let fixture = fixture_for_origin(origin, "portable");
+        let app = router(fixture.agent.clone(), 28_485);
+        let response = app
+            .oneshot(request(Method::GET, "/v1/ready", origin, None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{origin}");
+        assert!(response
+            .headers()
+            .get(ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none());
+        let root = fixture.root.clone();
+        drop(fixture);
+        remove_fixture_after_watchers_close(&root);
+    }
 }
 
 #[tokio::test]
@@ -1004,11 +1069,22 @@ async fn encrypted_file_control_and_binary_frames_round_trip_directly() {
         FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
     };
 
-    let fixture = fixture();
-    let app = router(fixture.agent.clone(), 28_485);
-    let content = b"direct binary file";
-    let upload_id = Uuid::new_v4();
-    let opened = fixture
+    for (origin, distribution) in [
+        ("https://tasks.example", "web"),
+        (
+            "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo",
+            "portable",
+        ),
+        (
+            "moz-extension://2c0d3f4e-5a6b-47c8-9012-3456789abcde",
+            "portable",
+        ),
+    ] {
+        let fixture = fixture_for_origin(origin, distribution);
+        let app = router(fixture.agent.clone(), 28_485);
+        let content = b"direct binary file";
+        let upload_id = Uuid::new_v4();
+        let opened = fixture
             .file_control(
                 &app,
                 json!({
@@ -1023,167 +1099,169 @@ async fn encrypted_file_control_and_binary_frames_round_trip_directly() {
                 1,
             )
             .await;
-    assert_eq!(opened["ok"], true);
-    let upload: FileTransferSession = serde_json::from_value(opened["result"].clone()).unwrap();
-    let FileTransferStrategy::FramedChunks { chunk_size } = upload.strategy else {
-        panic!("direct upload must use framed chunks")
-    };
-    let upload_cipher = FileTransferCipher::derive(
-        &fixture.application,
-        &fixture.encryption.connector_agreement_public_key,
-        FileTransferBinding {
-            grant_id: fixture.grant_id,
-            application_id: fixture.application_id,
-            connector_id: fixture.encryption.connector_id,
-            authority_id: fixture.encryption.connector_id,
-            collection_id: fixture.encryption.collection_id,
-            scope_epoch: fixture.encryption.scope_epoch,
-            key_id: fixture.encryption.key_id.clone(),
-            transfer_id: upload_id,
-            direction: FileTransferDirection::Upload,
-        },
-    )
-    .unwrap();
-    let encoded = upload_cipher
-        .encrypt_chunk(
-            FileFrameKind::UploadChunk,
-            FileFrameHeader {
-                protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
-                protection: FileTransferProtection::GrantAeadV1,
+        assert_eq!(opened["ok"], true);
+        let upload: FileTransferSession = serde_json::from_value(opened["result"].clone()).unwrap();
+        let FileTransferStrategy::FramedChunks { chunk_size } = upload.strategy else {
+            panic!("direct upload must use framed chunks")
+        };
+        let upload_cipher = FileTransferCipher::derive(
+            &fixture.application,
+            &fixture.encryption.connector_agreement_public_key,
+            FileTransferBinding {
                 grant_id: fixture.grant_id,
+                application_id: fixture.application_id,
+                connector_id: fixture.encryption.connector_id,
                 authority_id: fixture.encryption.connector_id,
                 collection_id: fixture.encryption.collection_id,
+                scope_epoch: fixture.encryption.scope_epoch,
+                key_id: fixture.encryption.key_id.clone(),
                 transfer_id: upload_id,
                 direction: FileTransferDirection::Upload,
-                chunk_size,
-                chunk_index: 0,
-                offset: 0,
-                plaintext_length: content.len() as u32,
-                total_size: content.len() as u64,
-                scope_epoch: fixture.encryption.scope_epoch,
-                key_id: Some(fixture.encryption.key_id.clone()),
             },
-            content,
         )
-        .unwrap()
-        .encode()
         .unwrap();
-    let uploaded = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method(Method::POST)
-                .uri("/v1/files/upload")
-                .header(HOST, "127.0.0.1:28485")
-                .header(ORIGIN, &fixture.origin)
-                .header(CONTENT_TYPE, "application/mdbase-connect-file")
-                .body(Body::from(encoded))
+        let encoded = upload_cipher
+            .encrypt_chunk(
+                FileFrameKind::UploadChunk,
+                FileFrameHeader {
+                    protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
+                    protection: FileTransferProtection::GrantAeadV1,
+                    grant_id: fixture.grant_id,
+                    authority_id: fixture.encryption.connector_id,
+                    collection_id: fixture.encryption.collection_id,
+                    transfer_id: upload_id,
+                    direction: FileTransferDirection::Upload,
+                    chunk_size,
+                    chunk_index: 0,
+                    offset: 0,
+                    plaintext_length: content.len() as u32,
+                    total_size: content.len() as u64,
+                    scope_epoch: fixture.encryption.scope_epoch,
+                    key_id: Some(fixture.encryption.key_id.clone()),
+                },
+                content,
+            )
+            .unwrap()
+            .encode()
+            .unwrap();
+        let uploaded = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/v1/files/upload")
+                    .header(HOST, "127.0.0.1:28485")
+                    .header(ORIGIN, &fixture.origin)
+                    .header(CONTENT_TYPE, "application/mdbase-connect-file")
+                    .body(Body::from(encoded))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(uploaded.status(), StatusCode::NO_CONTENT);
+        // Fenced, unpolled responses intentionally retain publication ownership
+        // until the transport drops them.
+        drop(uploaded);
+
+        let committed = fixture
+            .file_control(
+                &app,
+                json!({
+                    "protocol_version": FILE_PROTOCOL_VERSION,
+                    "type": "commit_file_upload",
+                    "transfer_id": upload_id
+                }),
+                2,
+            )
+            .await;
+        assert_eq!(committed["ok"], true);
+        assert_eq!(
+            fs::read(fixture.root.join("collection/Assets/direct.bin")).unwrap(),
+            content
+        );
+        let file = committed["result"]["file"].clone();
+
+        let download_id = Uuid::new_v4();
+        let opened = fixture
+            .file_control(
+                &app,
+                json!({
+                    "protocol_version": FILE_PROTOCOL_VERSION,
+                    "type": "open_file_download",
+                    "transfer_id": download_id,
+                    "file_id": file["file_id"],
+                    "revision": file["revision"]
+                }),
+                3,
+            )
+            .await;
+        assert_eq!(opened["ok"], true);
+        let download: FileTransferSession =
+            serde_json::from_value(opened["result"].clone()).unwrap();
+        let downloaded = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!(
+                        "/v1/files/download/{}/{}/0",
+                        fixture.grant_id, download_id
+                    ))
+                    .header(HOST, "127.0.0.1:28485")
+                    .header(ORIGIN, &fixture.origin)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(downloaded.status(), StatusCode::OK);
+        assert_eq!(
+            downloaded.headers().get(CONTENT_TYPE).unwrap(),
+            "application/mdbase-connect-file"
+        );
+        let encoded = to_bytes(downloaded.into_body(), files::MAX_FILE_REQUEST_BYTES)
+            .await
+            .unwrap();
+        let download_cipher = FileTransferCipher::derive(
+            &fixture.application,
+            &fixture.encryption.connector_agreement_public_key,
+            FileTransferBinding {
+                grant_id: fixture.grant_id,
+                application_id: fixture.application_id,
+                connector_id: fixture.encryption.connector_id,
+                authority_id: fixture.encryption.connector_id,
+                collection_id: fixture.encryption.collection_id,
+                scope_epoch: fixture.encryption.scope_epoch,
+                key_id: fixture.encryption.key_id.clone(),
+                transfer_id: download_id,
+                direction: FileTransferDirection::Download,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            download_cipher
+                .decrypt_chunk(&mdbase_connect_protocol::FileFrame::decode(&encoded).unwrap())
                 .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(uploaded.status(), StatusCode::NO_CONTENT);
-    // Fenced, unpolled responses intentionally retain publication ownership
-    // until the transport drops them.
-    drop(uploaded);
+            content
+        );
+        assert_eq!(download.total_size, content.len() as u64);
 
-    let committed = fixture
-        .file_control(
-            &app,
-            json!({
-                "protocol_version": FILE_PROTOCOL_VERSION,
-                "type": "commit_file_upload",
-                "transfer_id": upload_id
-            }),
-            2,
-        )
-        .await;
-    assert_eq!(committed["ok"], true);
-    assert_eq!(
-        fs::read(fixture.root.join("collection/Assets/direct.bin")).unwrap(),
-        content
-    );
-    let file = committed["result"]["file"].clone();
+        let listed = fixture
+            .file_control(
+                &app,
+                json!({ "protocol_version": 1, "type": "list_files" }),
+                4,
+            )
+            .await;
+        assert_eq!(listed["result"]["files"][0]["path"], "Assets/direct.bin");
 
-    let download_id = Uuid::new_v4();
-    let opened = fixture
-        .file_control(
-            &app,
-            json!({
-                "protocol_version": FILE_PROTOCOL_VERSION,
-                "type": "open_file_download",
-                "transfer_id": download_id,
-                "file_id": file["file_id"],
-                "revision": file["revision"]
-            }),
-            3,
-        )
-        .await;
-    assert_eq!(opened["ok"], true);
-    let download: FileTransferSession = serde_json::from_value(opened["result"].clone()).unwrap();
-    let downloaded = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method(Method::GET)
-                .uri(format!(
-                    "/v1/files/download/{}/{}/0",
-                    fixture.grant_id, download_id
-                ))
-                .header(HOST, "127.0.0.1:28485")
-                .header(ORIGIN, &fixture.origin)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(downloaded.status(), StatusCode::OK);
-    assert_eq!(
-        downloaded.headers().get(CONTENT_TYPE).unwrap(),
-        "application/mdbase-connect-file"
-    );
-    let encoded = to_bytes(downloaded.into_body(), files::MAX_FILE_REQUEST_BYTES)
-        .await
-        .unwrap();
-    let download_cipher = FileTransferCipher::derive(
-        &fixture.application,
-        &fixture.encryption.connector_agreement_public_key,
-        FileTransferBinding {
-            grant_id: fixture.grant_id,
-            application_id: fixture.application_id,
-            connector_id: fixture.encryption.connector_id,
-            authority_id: fixture.encryption.connector_id,
-            collection_id: fixture.encryption.collection_id,
-            scope_epoch: fixture.encryption.scope_epoch,
-            key_id: fixture.encryption.key_id.clone(),
-            transfer_id: download_id,
-            direction: FileTransferDirection::Download,
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        download_cipher
-            .decrypt_chunk(&mdbase_connect_protocol::FileFrame::decode(&encoded).unwrap())
-            .unwrap(),
-        content
-    );
-    assert_eq!(download.total_size, content.len() as u64);
-
-    let listed = fixture
-        .file_control(
-            &app,
-            json!({ "protocol_version": 1, "type": "list_files" }),
-            4,
-        )
-        .await;
-    assert_eq!(listed["result"]["files"][0]["path"], "Assets/direct.bin");
-
-    let root = fixture.root.clone();
-    let agent = Arc::downgrade(&fixture.agent);
-    drop(app);
-    drop(fixture);
-    assert!(agent.upgrade().is_none());
-    remove_fixture_after_watchers_close(&root);
+        let root = fixture.root.clone();
+        let agent = Arc::downgrade(&fixture.agent);
+        drop(app);
+        drop(fixture);
+        assert!(agent.upgrade().is_none());
+        remove_fixture_after_watchers_close(&root);
+    }
 }
 
 struct Fixture {

@@ -24,7 +24,7 @@ import { GrantFileTransferCipher } from "./file-crypto.js";
 import type { StoredToken } from "./internal-types.js";
 import { GrantKeyLeaseSet, retainCurrentGrantToken } from "./grant-key-leases.js";
 import {
-  directFallbackStatus,
+  directFallbackResponse,
   loopbackRequest
 } from "./operation-helpers.js";
 import { apiError, decodeJsonResponse } from "./runtime-utils.js";
@@ -104,7 +104,7 @@ export class LocalFileTransport {
         this.options.onDirectUnavailable();
       }
       if (response && (
-        !directFallbackStatus(response.status)
+        !await directFallbackResponse(response)
         || await isExplicitConnectorBusyResponse(response)
       )) {
         if (response.ok) this.options.onDirectAvailable();
@@ -304,7 +304,7 @@ export class LocalFileTransport {
         this.options.onDirectUnavailable();
       }
       if (response && (
-        !directFallbackStatus(response.status)
+        !await directFallbackResponse(response)
         || await isExplicitConnectorBusyResponse(response)
       )) {
         if (response.ok) this.options.onDirectAvailable();
@@ -381,7 +381,7 @@ export class LocalFileTransport {
         this.options.onDirectUnavailable();
       }
       if (response && (
-        !directFallbackStatus(response.status)
+        !await directFallbackResponse(response)
         || await isExplicitConnectorBusyResponse(response)
       )) {
         if (response.ok) this.options.onDirectAvailable();

@@ -4752,6 +4752,39 @@ schema:
     expect(changes.at(-1)).toBe("available");
   });
 
+  it("reports rejected readiness without blocking relay or later direct retries", async () => {
+    const fixture = await encryptedConnection();
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const urls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.startsWith("http://127.0.0.1:")) return new Response(null, { status: 403 });
+      const request = JSON.parse(String(init?.body)) as EncryptedRelayOperationRequest;
+      const envelope = await encryptedFixtureResponse(fixture, request, {
+        ok: true, result: { valid: true, result: { results: [] }, diagnostics: [] }
+      });
+      return new Response(JSON.stringify({ envelope }), { status: 200 });
+    });
+
+    await expect(fixture.connect.requestDirectAccess()).resolves.toMatchObject({
+      ok: false, problem: { code: "operation_failed" }
+    });
+    expect(fixture.connect.info()?.directAccess).toBe("unavailable");
+    await expect(fixture.connect.query()).resolves.toMatchObject({ ok: true });
+    now += 3_000;
+    await expect(fixture.connect.query()).resolves.toMatchObject({ ok: true });
+    await expect(fixture.connect.query()).resolves.toMatchObject({ ok: true });
+    expect(urls).toEqual([
+      "http://127.0.0.1:28485/v1/ready",
+      `${fixture.serverUrl}/v1/authorities/${fixture.collectionId}/operations/query`,
+      "http://127.0.0.1:28485/v1/operations",
+      `${fixture.serverUrl}/v1/authorities/${fixture.collectionId}/operations/query`,
+      `${fixture.serverUrl}/v1/authorities/${fixture.collectionId}/operations/query`
+    ]);
+  });
+
   it("lets a user re-enable direct access after disabling it", async () => {
     const fixture = await encryptedConnection();
     fixture.connect.disableDirectAccess();
