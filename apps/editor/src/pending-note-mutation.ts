@@ -50,7 +50,7 @@ export async function recoverPendingNoteOperation(requestId: string, context: {
   const token = scope.token();
   context.setBusy(true);
   try {
-    const saving = [...context.sessions.values()].find((session) => session.pendingSave?.requestId === requestId);
+    const saving = [...context.sessions.values()].find((session) => session.pendingRequestId === requestId);
     if (saving) await context.save(saving);
     else if (context.rename?.requestId === requestId) {
       await context.resumeRename(context.rename.plan, context.rename.updateRefs, requestId);

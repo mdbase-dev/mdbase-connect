@@ -1,3 +1,4 @@
+import { interruptedUpdate, updatedRecordDigest } from "./record-digest.js";
 import type {
   CollectionOperation,
   EncryptedRelayOperationRequest,
@@ -191,24 +192,18 @@ export class ConnectionTransport {
 
   /** Return pending writes without exposing authority transport credentials. */
   pendingMutations(): readonly PendingMutationSummary[] {
-    return this.storedPendingMutations().map((pending) => ({
-      requestId: pending.requestId,
-      operation: this.pendingMutationStore.identifier(pending),
-      fingerprint: pending.inputFingerprint,
-      status: "outcome_unknown",
-      createdAt: new Date(pending.createdAt).toISOString()
-    }));
+    return this.storedPendingMutations().map((pending) => this.pendingMutationStore.summary(pending));
+  }
+
+  /** The request ID of an interrupted update to one record, if any. */
+  async pendingUpdate(path: string): Promise<string | null> {
+    const collectionId = this.currentToken()?.collectionId;
+    return collectionId ? interruptedUpdate(this.storedPendingMutations(), collectionId, path) : null;
   }
 
   pendingMutation(requestId: string): PendingMutationSummary | null {
     const pending = this.storedPendingMutation(requestId);
-    return pending ? {
-      requestId: pending.requestId,
-      operation: this.pendingMutationStore.identifier(pending),
-      fingerprint: pending.inputFingerprint,
-      status: "outcome_unknown",
-      createdAt: new Date(pending.createdAt).toISOString()
-    } : null;
+    return pending ? this.pendingMutationStore.summary(pending) : null;
   }
 
   async recoverPendingMutation<Result>(
@@ -573,10 +568,12 @@ export class ConnectionTransport {
     let requestId: string = pendingRequestId ?? crypto.randomUUID();
     let pending: PendingMutation | null = null;
     let inputFingerprint: string | undefined;
+    let updatedRecord: string | undefined;
     if (pendingRequestId !== undefined) {
       pending = this.storedPendingMutation(pendingRequestId);
       inputFingerprint = pending?.inputFingerprint
         ?? await operationFingerprint(operation, input);
+      if (!pending) updatedRecord = await updatedRecordDigest(token.collectionId, operation, input);
       if (pending) {
         if (pending.collectionId !== token.collectionId
             || pending.operation !== operation
@@ -639,6 +636,7 @@ export class ConnectionTransport {
               operation,
               mutation: mutation!,
               inputFingerprint: inputFingerprint!,
+              ...(updatedRecord ? { recordDigest: updatedRecord } : {}),
               requestId,
               envelope: encryptedRequest,
               createdAt: Date.now()
@@ -674,6 +672,7 @@ export class ConnectionTransport {
           operation,
           mutation: mutation!,
           inputFingerprint: inputFingerprint!,
+          ...(updatedRecord ? { recordDigest: updatedRecord } : {}),
           requestId,
           request,
           createdAt: Date.now()

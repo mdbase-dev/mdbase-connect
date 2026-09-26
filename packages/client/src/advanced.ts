@@ -21,3 +21,8 @@ export type {
   MdbaseSessionOptions,
   MdbaseSessionSnapshot
 } from "./session.js";
+/** Custom record transports, for sessions over an application's own repository or a test double. */
+export type {
+  MdbaseRecordChange,
+  MdbaseRecordSessionAdapter
+} from "./record-session.js";

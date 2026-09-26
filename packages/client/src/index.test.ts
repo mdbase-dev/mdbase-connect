@@ -1586,6 +1586,22 @@ describe("actionable SDK errors", () => {
     }
   });
 
+  it.each([
+    ["concurrent_modification", "update", "File 'notes/one.md' was modified externally"],
+    ["file_not_found", "read", "File not found: notes/one.md"],
+    ["invalid_path", "read", "Path escapes the collection"]
+  ] as const)("reports a %s diagnostic as that problem, as hosted authorities do", async (code, operation, message) => {
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        return { valid: false, result: {}, diagnostics: [{ severity: "error", code, message, path: "notes/one.md" }] } as Result;
+      }
+    });
+    const outcome = operation === "read"
+      ? await client.read({ path: "notes/one.md" })
+      : await client.update({ path: "notes/one.md", patch: {}, ifRevision: "stale" });
+    expect(outcome).toMatchObject({ ok: false, problem: { code, message, operation_outcome: "rejected" } });
+  });
+
   it("distinguishes legacy, invalid configuration, and invalid type-registry setup", async () => {
     const envelopes = [
       {
@@ -4119,6 +4135,30 @@ describe("direct loopback routing", () => {
     });
     expect(fixture.connect.pendingMutations()).toHaveLength(1);
     expect(outcome.ok ? undefined : outcome.problem.details?.request_id).toBe(pending?.requestId);
+  });
+
+  it("finds an interrupted update by its record without storing the record path", async () => {
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("relay response lost"));
+
+    const outcome = await fixture.connect.update({
+      path: "Private/diary.md",
+      patch: {},
+      body: "Lost",
+      ifRevision: "r1"
+    });
+    expect(outcome).toMatchObject({ ok: false, problem: { code: "operation_outcome_unknown" } });
+    const requestId = fixture.connect.pendingMutations()[0]?.requestId;
+    const transport = (fixture.connect as unknown as {
+      transport: { pendingUpdate(path: string): Promise<string | null> };
+    }).transport;
+    await expect(transport.pendingUpdate("Private/diary.md")).resolves.toBe(requestId);
+    await expect(transport.pendingUpdate("Private/other.md")).resolves.toBeNull();
+    const stored = Array.from({ length: fixture.storage.length }, (_, index) =>
+      fixture.storage.getItem(fixture.storage.key(index) ?? "")).join("\n");
+    expect(stored).toContain(requestId);
+    expect(stored).not.toContain("Private/diary.md");
   });
 
   it("retains a mutation when the authority reports an unknown deadline outcome", async () => {

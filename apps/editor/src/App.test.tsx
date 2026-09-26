@@ -1433,13 +1433,13 @@ class RemoteChangeGateway extends DemoCollectionGateway {
     return super.read(path);
   }
 
-  override async update(input: Parameters<DemoCollectionGateway["update"]>[0]): Promise<NoteDocument> {
+  override async update(...[base, change]: Parameters<DemoCollectionGateway["update"]>): Promise<NoteDocument> {
     this.updateCalls += 1;
-    if (!this.remote || this.remote.path !== input.path) return super.update(input);
-    if (this.remote.revision !== input.revision) throw new Error("This note changed elsewhere. Reload it before saving.");
+    if (!this.remote || this.remote.path !== base.path) return super.update(base, change);
+    if (this.remote.revision !== base.revision) throw new Error("This note changed elsewhere. Reload it before saving.");
     this.remote = {
       ...this.remote,
-      body: `# ${input.title}\n\n${input.body}`,
+      body: change.body ?? this.remote.body,
       revision: "remote-saved"
     };
     return structuredClone(this.remote);
@@ -1611,8 +1611,8 @@ class SaveCountingGateway extends DemoCollectionGateway {
     return super.list(options);
   }
 
-  override async update(input: Parameters<DemoCollectionGateway["update"]>[0]): Promise<NoteDocument> {
-    const updated = await super.update(input);
+  override async update(...input: Parameters<DemoCollectionGateway["update"]>): Promise<NoteDocument> {
+    const updated = await super.update(...input);
     this.listener?.({
       cursor: 1,
       type: "mdbase.record.modified",
@@ -1647,13 +1647,13 @@ class SlowUpdateGateway extends DemoCollectionGateway {
     return super.read(path);
   }
 
-  override async update(input: Parameters<DemoCollectionGateway["update"]>[0]): Promise<NoteDocument> {
+  override async update(...input: Parameters<DemoCollectionGateway["update"]>): Promise<NoteDocument> {
     this.events.push("save:start");
-    if (input.path === "Notes/the-shape-of-useful-tools.md") {
+    if (input[0].path === "Notes/the-shape-of-useful-tools.md") {
       this.markStarted?.();
       await this.blockedUpdate;
     }
-    const updated = await super.update(input);
+    const updated = await super.update(...input);
     this.events.push("save:end");
     return updated;
   }

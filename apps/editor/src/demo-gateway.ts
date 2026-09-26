@@ -11,7 +11,8 @@ import type {
   TypePackProvision
 } from "@mdbase-dev/connect";
 import { parse } from "yaml";
-import { persistedBody, titlePatch } from "./note";
+import { persistedBody } from "./note";
+import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import type {
   CollectionGateway,
@@ -31,7 +32,6 @@ import type {
   RenamePreflight,
   DeletePreflight,
   MutationOperationOptions,
-  SaveNoteInput,
   TypePackApplyResult
 } from "./model";
 
@@ -260,15 +260,14 @@ export class DemoCollectionGateway implements CollectionGateway {
     return clone(restored);
   }
 
-  async update(input: SaveNoteInput): Promise<NoteDocument> {
-    const note = this.required(input.path);
-    this.assertRevision(note, input.revision);
-    note.body = persistedBody(input.title, input.body, input.source);
-    note.frontmatter = { ...note.frontmatter, ...titlePatch(input.title, input.source, input.frontmatter) };
-    note.effectiveFrontmatter = {
-      ...note.effectiveFrontmatter,
-      ...titlePatch(input.title, input.source, input.frontmatter)
-    };
+  async update(base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> {
+    const note = this.required(base.path);
+    this.assertRevision(note, base.revision);
+    if (change.body !== undefined) note.body = change.body;
+    if (change.patch) {
+      note.frontmatter = { ...note.frontmatter, ...change.patch };
+      note.effectiveFrontmatter = { ...note.effectiveFrontmatter, ...change.patch };
+    }
     note.document = composeRecordSource(note.frontmatter, note.body ?? "");
     this.bump(note);
     return clone(note);

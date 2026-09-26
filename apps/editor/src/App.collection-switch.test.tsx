@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { CollectionDescription } from "@mdbase-dev/connect";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
-import type { CollectionAuthorizationTarget, CollectionFile, CollectionSessionSnapshot, ConnectionSummary, CreateNoteInput, FileUploadRequest, MutationOperationOptions, NoteDocument, NoteIndexRequest, NoteIndexResult, SaveNoteInput } from "./model";
+import type { CollectionAuthorizationTarget, CollectionFile, CollectionSessionSnapshot, ConnectionSummary, CreateNoteInput, FileUploadRequest, MutationOperationOptions, NoteDocument, NoteIndexRequest, NoteIndexResult } from "./model";
+import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 
 vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) => <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} /> }));
 vi.mock("./MarkdownNoteEditor", () => ({ MarkdownNoteEditor: ({ draft, insertion, embeddedNotes, readOnly, onTitleChange, onBodyChange, onCreateLink, onVisibleNoteEmbeds }: { draft: { title: string; body: string }; readOnly?: boolean; insertion?: { text: string }; embeddedNotes?: Array<{ key: string; body?: string }>; onTitleChange: (value: string) => void; onBodyChange: (value: string) => void; onCreateLink: (target: string, label: string | undefined, format: "wikilink") => void; onVisibleNoteEmbeds?: (keys: string[]) => void }) => {
@@ -32,7 +33,7 @@ class SwitchGateway extends DemoCollectionGateway {
   documents = { a: note("a"), b: note("b"), c: note("c") };
   authorizeGate = deferred<void>(); forgetGate = deferred<void>(); updateGate = deferred<void>();
   authorizeCalls = 0; authorizeTargets: Array<{ target: CollectionAuthorizationTarget; selected: string }> = [];
-  describeCalls = 0; forgetCalls: string[] = []; updateCalls: SaveNoteInput[] = []; events: string[] = []; selections: string[] = []; startOwners: string[] = [];
+  describeCalls = 0; forgetCalls: string[] = []; updateCalls: MdbaseRecordChange[] = []; events: string[] = []; selections: string[] = []; startOwners: string[] = [];
   bMissingCapabilities: string[] = []; forgotten = false;
   private sessionListener?: (snapshot: CollectionSessionSnapshot) => void;
   sessionSnapshot(): CollectionSessionSnapshot {
@@ -58,7 +59,7 @@ class SwitchGateway extends DemoCollectionGateway {
   async hydrateContent(options: NoteIndexRequest = {}) { return this.list(options); }
   async read(_path: string) { return structuredClone(this.documents[this.current]); }
   async listFiles(): Promise<CollectionFile[]> { const [file] = await super.listFiles(); return [{ ...file!, path: `${this.current}.txt`, revision: `${this.current}-file` }]; }
-  async update(input: SaveNoteInput) { const owner = this.current; this.updateCalls.push(input); this.events.push("update:start"); await this.updateGate.promise; const saved = { ...this.documents[owner], body: input.body, revision: `${owner}-2` }; this.documents[owner] = saved; this.events.push("update:end"); return structuredClone(saved); }
+  async update(_base: NoteDocument, change: MdbaseRecordChange) { const owner = this.current; this.updateCalls.push(change); this.events.push("update:start"); await this.updateGate.promise; const saved = { ...this.documents[owner], body: change.body ?? this.documents[owner].body, revision: `${owner}-2` }; this.documents[owner] = saved; this.events.push("update:end"); return structuredClone(saved); }
 }
 
 class EmbedSwitchGateway extends SwitchGateway {

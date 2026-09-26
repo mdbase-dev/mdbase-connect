@@ -7,7 +7,7 @@ import {
   PencilSimpleIcon as Pencil,
   TrashIcon as Trash2
 } from "./icons";
-import { type CollectionDescription, type CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MdbaseRecordSessionSnapshot } from "@mdbase-dev/connect";
 import {
   useCallback,
   useDeferredValue,
@@ -35,7 +35,7 @@ import {
 import { reviewCatalogPackInstallation } from "./catalog-pack-installation";
 import type { AppPhase, ConnectionState, ContractCatalogLoadState, CreationContext, MobileHistoryState, MobilePane, Surface } from "./app-state-types";
 import { editorPermissions, gatewayError, missingCoreCapabilities, missingTypeCapabilities } from "./gateway";
-import { CollectionMutationScope, type CollectionScopeToken } from "./collection-mutation-scope";
+import { CollectionMutationScope, StaleCollectionOperationError, type CollectionScopeToken } from "./collection-mutation-scope";
 import { useTypeDefinitionLifecycle } from "./use-type-definition-lifecycle";
 import { OpeningScreen, TypeWorkspaceLoading } from "./LoadingScreens";
 import { MarkdownNoteEditor } from "./MarkdownNoteEditor";
@@ -65,14 +65,15 @@ import {
   noteWordCount,
   safeRenamePath
 } from "./note";
-import { NoteOperationCoordinator } from "./note-operation-coordinator";
 import { pendingNoteRequestId, pendingNoteToasts, recoverPendingNoteOperation, type RenamePlan, type PendingRenameRecovery } from "./pending-note-mutation";
 import {
+  NoteSession,
   NoteSessionStore,
+  noteRecordAdapter,
+  requireSaved,
   sessionDirty,
   type Draft,
   type NoteActivity,
-  type NoteSession,
   type SaveState
 } from "./note-session";
 import { loadNoteSort, saveNoteSort, sortNotes, type NoteSort } from "./note-list-view";
@@ -410,32 +411,57 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setSessionTick((value) => value + 1);
   }, []);
 
-  const noteOperations = useMemo(() => new NoteOperationCoordinator({
-    recover: (requestId) => mutationScope.current.register(mutationScope.current.token(), gateway.recoverNoteMutation(requestId)),
-    isPending: (requestId) => gateway.pendingNoteMutations().some((pending) => pending.requestId === requestId),
-    update: (input) => mutationScope.current.register(mutationScope.current.token(), gateway.update(input)),
-    onSaved: (session, next) => {
-      if (noteSessions.current.get(session.document.path) !== session) return;
-      updateNoteSummary(next);
-      if (noteSessions.current.active === session) setDocument(next);
-    },
-    onSaveError: (session, error) => {
-      if (noteSessions.current.get(session.document.path) !== session) return;
-      const message = gatewayError(error);
+  /** Writes are bound to the collection that opened the session and refused once it changes. */
+  const sessionRecords = useCallback((token: CollectionScopeToken) => noteRecordAdapter(gateway, async (operation) => {
+    const current = mutationScope.current.token();
+    if (current.epoch !== token.epoch || current.collectionId !== token.collectionId) throw new StaleCollectionOperationError();
+    return mutationScope.current.register(token, operation());
+  }), [gateway]);
+
+  const sessionChanged = useCallback((session: NoteSession, previous: MdbaseRecordSessionSnapshot<NoteDocument>) => {
+    if (noteSessions.current.get(session.document.path) !== session) return;
+    const snapshot = session.record.snapshot;
+    const active = noteSessions.current.active === session;
+    if (snapshot.record !== previous.record) {
+      updateNoteSummary(snapshot.record);
+      if (active) setDocument(snapshot.record);
+    }
+    if (session.reproject() && active) {
+      setDraft(session.draft);
+      setPathDraft(snapshot.record.path);
+      setRemoteApplyToken((token) => token + 1);
+    }
+    if (snapshot.remote && snapshot.remote !== previous.remote) {
+      session.error = `“${session.draft.title || session.document.path}” changed elsewhere. Your edits are still here.`;
+      if (active) setNotice(session.error);
+    } else if (snapshot.problem && snapshot.problem !== previous.problem) {
+      const message = gatewayError(new MdbaseConnectError(snapshot.problem));
       session.error = message;
-      setNotice(noteSessions.current.active === session
-        ? message
-        : `Couldn’t save “${session.draft.title || session.document.path}”. ${message}`);
-    },
-    onChange: touchSession
-  }), [gateway, touchSession, updateNoteSummary]);
+      setNotice(active ? message : `Couldn’t save “${session.draft.title || session.document.path}”. ${message}`);
+    } else if (snapshot.state === "saved" && previous.state !== "saved") {
+      session.error = undefined;
+    }
+    touchSession(session);
+  }, [touchSession, updateNoteSummary]);
+
+  const createSession = useCallback((next: NoteDocument) => {
+    const session = new NoteSession(next, () => typeDescriptorsRef.current, sessionRecords(mutationScope.current.token()));
+    noteSessions.current.set(next.path, session);
+    let previous = session.record.snapshot;
+    session.record.subscribe(() => {
+      const current = session.record.snapshot;
+      sessionChanged(session, previous);
+      previous = current;
+    });
+    return session;
+  }, [sessionChanged, sessionRecords]);
 
   const activateSession = useCallback((session: NoteSession) => {
     const previous = noteSessions.current.active;
     // The old editor remains usable during a read. Save any edits made after
     // navigation started before adopting the newly loaded session.
     if (previous && previous !== session && sessionDirty(previous)) {
-      void noteOperations.requestSave(previous).catch(() => undefined);
+      void previous.record.save();
     }
     noteSessions.current.activate(session);
     setSelectedPath(session.document.path);
@@ -452,54 +478,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNotice(session.error);
     localStorage.setItem("mdbase-editor:last-note", session.document.path);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
-  }, [noteOperations]);
+  }, []);
 
   const adoptDocument = useCallback((next: NoteDocument) => {
-    const session = noteSessions.current.create(next, typeDescriptorsRef.current);
-    activateSession(session);
-  }, [activateSession]);
-
-  const applyRemoteDocument = useCallback((session: NoteSession, next: NoteDocument) => {
-    const nextDraft = editableNote(next, typeDescriptorsRef.current);
-    session.document = next;
-    session.draft = nextDraft;
-    session.persistedDraft = structuredClone(nextDraft);
-    session.remoteDocument = undefined;
-    session.saveState = "saved";
-    session.error = undefined;
-    updateNoteSummary(next);
-    if (noteSessions.current.active === session) {
-      setDocument(next);
-      setDraft(nextDraft);
-      setPathDraft(next.path);
-      setRemoteApplyToken((token) => token + 1);
-    }
-    touchSession(session);
-  }, [touchSession, updateNoteSummary]);
+    activateSession(createSession(next));
+  }, [activateSession, createSession]);
 
   const refreshCachedNote = useCallback(async (path: string) => {
-    const epoch = collectionEpoch.current;
-    const initial = noteSessions.current.get(path);
-    if (!initial || initial.deleted) return;
-
-    await noteOperations.wait(initial);
     const session = noteSessions.current.get(path);
-    if (session !== initial || session.deleted || session.pendingSave) return;
-
-    const next = await gateway.read(path);
-    if (epoch !== collectionEpoch.current || noteSessions.current.get(path) !== session || session.deleted || next.revision === session.document.revision) return;
-
-    if (sessionDirty(session)) {
-      session.remoteDocument = next;
-      session.saveState = "conflict";
-      session.error = `“${session.draft.title || session.document.path}” changed elsewhere. Your edits are still here.`;
-      touchSession(session);
-      if (noteSessions.current.active === session) setNotice(session.error);
-      return;
-    }
-
-    applyRemoteDocument(session, next);
-  }, [applyRemoteDocument, gateway, noteOperations, touchSession]);
+    if (!session || session.deleted) return;
+    // Read behind this note's own writes; the session classifies the result.
+    requireSaved(await session.record.refresh());
+  }, []);
 
   const refreshChangedNote = useCallback(async (path: string) => {
     const epoch = collectionEpoch.current;
@@ -643,43 +633,24 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   useCollectionWatch({ phase, connectionRetry, gateway, index: indexController, files: fileController, assets: fileAssetStore,
     loadIndex, refreshChangedNote, refreshDescription, refreshAfterConnectionGap, setConnectionState, setConnectionIssue, setNotice });
 
-  const requestSave = useCallback(
-    (session: NoteSession) => noteOperations.requestSave(session),
-    [noteOperations]
-  );
-
   const flushSession = useCallback(
-    (session: NoteSession) => noteOperations.flush(session),
-    [noteOperations]
+    async (session: NoteSession) => { requireSaved(await session.record.flush()); },
+    []
   );
 
   const saveCurrentInBackground = useCallback(() => {
     const session = noteSessions.current.active;
-    if (!session || (!sessionDirty(session) && !session.savePromise)) return;
-    void requestSave(session).catch(() => undefined);
-  }, [requestSave]);
-
-  useEffect(() => {
-    const session = noteSessions.current.active;
-    if (!document || !draft || !session || session.remoteDocument || session.document.path !== document.path || !sessionDirty(session)) return;
-    if (session.saveState !== "saving") {
-      session.saveState = "waiting";
-      setSaveState("waiting");
-    }
-    const timer = window.setTimeout(() => { if (!mutationScope.current.isFrozen) void requestSave(session).catch(() => undefined); }, 650);
-    return () => window.clearTimeout(timer);
-  }, [document, draft, requestSave]);
+    if (!session || !sessionDirty(session)) return;
+    void session.record.save();
+  }, []);
 
   function changeActiveDraft(change: (current: Draft) => Draft) {
     if (mutationScope.current.isFrozen || !canEditNotes) return;
     const session = noteSessions.current.active;
     if (!session || session.deleted) return;
     const next = change(session.draft);
-    session.draft = next;
-    if (!session.remoteDocument) {
-      session.error = undefined;
-      if (session.saveState !== "saving") session.saveState = "waiting";
-    }
+    session.edit(next);
+    if (!session.remoteDocument) session.error = undefined;
     setDraft(next);
     setSaveState(session.saveState);
     touchSession(session);
@@ -688,29 +659,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   function useRemoteVersion() {
     const session = noteSessions.current.active;
     if (!session?.remoteDocument) return;
-    applyRemoteDocument(session, session.remoteDocument);
+    session.record.resolve({ keep: "theirs" });
     setNotice("Loaded the latest version.", "success");
   }
 
   function keepLocalVersion() {
     const session = noteSessions.current.active;
-    const remote = session?.remoteDocument;
-    if (!session || !remote) return;
-
-    const localDraft = session.draft;
-    session.document = remote;
-    session.persistedDraft = editableNote(remote, typeDescriptors);
-    session.remoteDocument = undefined;
-    session.draft = localDraft;
+    if (!session?.remoteDocument) return;
+    session.record.resolve({ keep: "mine" });
     session.error = undefined;
-    session.saveState = "waiting";
-    updateNoteSummary(remote);
-    setDocument(remote);
-    setDraft(localDraft);
-    setSaveState("waiting");
     setNotice(undefined);
     touchSession(session);
-    void requestSave(session).catch(() => undefined);
+    void session.record.save();
   }
 
   function navigateToNote(path: string, options: NoteNavigationOptions = {}) {
@@ -785,8 +745,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (noteOperations.pendingCount > 0
-          || [...noteSessions.current.values()].some((session) => !session.deleted && sessionDirty(session))
+      if ([...noteSessions.current.values()].some((session) => !session.deleted && sessionDirty(session))
           || typeCreating
           || Boolean(typeDocument && typeSource !== typeDocument.document)) {
         event.preventDefault();
@@ -839,7 +798,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   ): Promise<Result> => {
     if (mutationScope.current.isFrozen) throw new Error("Collection mutations are temporarily disabled.");
     const token = mutationScope.current.token();
-    return mutationScope.current.register(token, noteOperations.run(session, async () => {
+    return mutationScope.current.register(token, session.record.run(async () => {
       session.activity = activity;
       session.activityDetail = undefined;
       touchSession(session);
@@ -851,7 +810,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         if (mutationScope.current.isCurrent(token)) touchSession(session);
       }
     }));
-  }, [noteOperations, touchSession]);
+  }, [touchSession]);
 
   async function connectCollection() {
     setNotice(undefined);
@@ -895,7 +854,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     await Promise.all([...noteSessions.current.values()]
       .filter((session) => !session.deleted)
       .map((session) => flushSession(session)));
-    await noteOperations.waitForIdle();
     await mutationScope.current.drain();
   }
 
@@ -1240,7 +1198,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       ));
       if (!mutationScope.current.isCurrent(token)) return;
       setPendingRenameRecovery(undefined);
-      session.document = renamed;
+      session.record.accept(renamed);
       session.error = undefined;
       noteSessions.current.move(from, renamed.path, session);
       updateNoteSummary(renamed, from);
@@ -1285,7 +1243,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const recoverPendingNote = (requestId: string) => recoverPendingNoteOperation(requestId, {
     busy: recoveryBusy, scope: mutationScope.current, sessions: noteSessions.current, gateway,
-    save: (session) => noteOperations.requestSave(session), rename: pendingRenameRecovery,
+    save: async (session) => { requireSaved(await session.record.save()); }, rename: pendingRenameRecovery,
     resumeRename: performRename, refresh: refreshChangedNote, reload: loadIndex,
     setBusy: setRecoveryBusy, onError: (message) => setNotice(message)
   });
@@ -1316,18 +1274,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         session.document.revision
       ));
       if (!mutationScope.current.isCurrent(token)) return;
-      const persistedDraft = editableNote(updated, typeDescriptors);
-      session.document = updated;
-      session.persistedDraft = persistedDraft;
-      session.draft = persistedDraft;
-      session.saveState = sessionDirty(session) ? "waiting" : "saved";
+      session.record.accept(updated);
       session.error = undefined;
-      updateNoteSummary(updated);
-      if (noteSessions.current.active === session) {
-        setDocument(updated);
-        setDraft(session.draft);
-        setSaveState(session.saveState);
-      }
       touchSession(session);
     } catch (error) {
       if (!mutationScope.current.isCurrent(token)) return;
@@ -1364,18 +1312,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         session.document.revision
       ));
       if (!mutationScope.current.isCurrent(token)) return false;
-      const persistedDraft = editableNote(updated, typeDescriptors);
-      session.document = updated;
-      session.persistedDraft = persistedDraft;
-      session.draft = persistedDraft;
-      session.saveState = "saved";
+      session.record.accept(updated);
       session.error = undefined;
-      updateNoteSummary(updated);
-      if (noteSessions.current.active === session) {
-        setDocument(updated);
-        setDraft(persistedDraft);
-        setSaveState("saved");
-      }
       touchSession(session);
       return updated;
     } catch (error) {
@@ -1476,6 +1414,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           });
         });
         if (!mutationScope.current.isCurrent(token)) return;
+        session.record.markDeleted();
         noteSessions.current.delete(path);
         indexController.commitRemoval(path);
         setRecentPaths((current) => forgetRecentPath(current, path));
@@ -1501,7 +1440,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       if (action.kind === "delete") {
         const restored = await mutationScope.current.register(token, gateway.restore(action.document));
         if (!mutationScope.current.isCurrent(token)) return;
-        noteSessions.current.create(restored, typeDescriptors);
+        createSession(restored);
         indexController.create(summaryFromDocument(restored));
         setNotice(`Restored “${noteTitle(restored, typeDescriptors)}”.`);
       } else {
@@ -1514,7 +1453,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           session.document.revision,
           true
         ));
-        session.document = restored;
+        session.record.accept(restored);
         session.error = undefined;
         noteSessions.current.move(action.to, action.from, session);
         updateNoteSummary(restored, action.to);

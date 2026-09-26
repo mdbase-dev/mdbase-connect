@@ -27,6 +27,8 @@ export type {
   MdbaseConnectorRelayFixture,
   MdbaseFixtureRelayOperation
 } from "./relay.js";
+export { createRecordTestAuthority } from "./records.js";
+export type { MdbaseRecordTestAuthority, MdbaseTestRecordInput } from "./records.js";
 
 /** Test-only throwing adapter for concise assertions around typed SDK outcomes. */
 export class ConnectTestOutcomeError extends Error {

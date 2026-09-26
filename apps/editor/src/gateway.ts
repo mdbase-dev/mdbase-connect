@@ -20,7 +20,8 @@ import {
   applyConnectServerOverride,
   connectServerUrl
 } from "./connect-endpoint";
-import { persistedBody, titlePatch } from "./note";
+import { persistedBody } from "./note";
+import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type {
   CollectionGateway,
   CollectionFile,
@@ -41,7 +42,6 @@ import type {
   RenamePreflight,
   DeletePreflight,
   MutationOperationOptions,
-  SaveNoteInput,
   TypePackApplyResult
 } from "./model";
 
@@ -284,28 +284,17 @@ export class ConnectCollectionGateway implements CollectionGateway {
     }
   }
 
-  async update(input: SaveNoteInput): Promise<NoteDocument> {
+  async update(base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> {
     const connection = this.requireConnection();
     this.assertNoPendingNoteMutation(connection);
-    const outcome = await connection.update({
-      path: input.path,
-      patch: titlePatch(input.title, input.source, input.frontmatter),
-      body: persistedBody(input.title, input.body, input.source),
-      ifRevision: input.revision,
+    // An unknown outcome surfaces to the record session, which recovers it exactly.
+    return requireOutcome(await connection.update({
+      path: base.path,
+      patch: change.patch ?? {},
+      ...(change.body === undefined ? {} : { body: change.body }),
+      ifRevision: base.revision,
       includeDocument: true
-    });
-    if (!outcome.ok && outcome.problem.code === "operation_outcome_unknown") {
-      const pending = connection.pendingMutation<NoteDocument>(outcome.problem.details.request_id);
-      // One exact continuation, not a transport retry or a newly constructed update.
-      if (pending?.operation === "update") {
-        const recovered = await pending.recover().catch(() => outcome);
-        // A failed probe may not have reached the authority. Only the SDK
-        // settling its handle proves that rejection resolved the original intent.
-        if (recovered.ok || !connection.pendingMutation(pending.requestId)) return requireOutcome(recovered);
-      }
-      // Without a settled handle, the original outcome remains unknown.
-    }
-    return requireOutcome(outcome);
+    }));
   }
 
   async updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> {

@@ -101,7 +101,10 @@ describe("note navigation ownership and recovery", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Note body" }), { target: { value: "Typed during navigation" } });
     await act(async () => gate.resolve());
     await screen.findByDisplayValue("Garden notes 2");
-    await waitFor(() => expect(update).toHaveBeenCalledWith(expect.objectContaining({ path: first.path, body: "Typed during navigation" })));
+    await waitFor(() => expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ path: first.path }),
+      { body: expect.stringContaining("Typed during navigation") }
+    ));
     expect((await originalRead(first.path)).body).toContain("Typed during navigation");
   });
 

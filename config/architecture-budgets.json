@@ -17,13 +17,13 @@
     "crates/connect-protocol": 17,
     "crates/connect-runtime": 3,
     "crates/connect-testbed-adapter": 1,
-    "packages/client": 70,
+    "packages/client": 71,
     "packages/devkit": 3,
     "packages/management": 1,
     "packages/pickle": 2,
     "packages/protocol": 12,
     "packages/sync": 48,
-    "packages/testing": 2,
+    "packages/testing": 3,
     "packages/ui": 5,
     "packages/webhooks": 1,
     "services/feedback": 1,
@@ -43,11 +43,11 @@
     "semanticProjectionFormatVersion": 6
   },
   "reviewBudgets": {
-    "productionFiles": 699,
-    "relativeImports": 1520,
+    "productionFiles": 700,
+    "relativeImports": 1531,
     "workspacePackages": 24,
     "rustPublicDeclarations": 3237,
-    "typeScriptExportDeclarations": 2475,
+    "typeScriptExportDeclarations": 2498,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }

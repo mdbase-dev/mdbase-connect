@@ -1,9 +1,7 @@
 import { expect, it } from 'vitest';
-import { MdbaseConnectError } from '@mdbase-dev/connect';
 import { connectFailure, connectProblem, connectSuccess } from '@mdbase-dev/connect-testing';
 import { ConnectCollectionGateway } from './gateway';
-import { NoteOperationCoordinator } from './note-operation-coordinator';
-import { createNoteSession } from './note-session';
+import { NoteSession, noteRecordAdapter } from './note-session';
 import type { NoteDocument } from './model';
 
 const document: NoteDocument = {
@@ -17,13 +15,15 @@ const rejected = connectFailure(connectProblem('concurrent_modification', 'Revis
   operationOutcome: 'rejected'
 }));
 
-for (const mode of ['success', 'automatic-rejection', 'deferred-rejection', 'automatic-not-sent', 'deferred-not-sent', 'deferred-unmarked', 'probe-rejection'] as const) {
+// The editor's gateway and note session together: an interrupted autosave is
+// settled only through the SDK's durable handle, never by a second update.
+for (const mode of ['success', 'rejection', 'deferred-rejection', 'not-sent', 'deferred-not-sent', 'unmarked', 'probe-rejection'] as const) {
   it(`${mode}: exact continuation settles the original pending identity`, async () => {
     let pending = false;
     let resolveNow = !mode.startsWith('deferred');
     const failure = mode.endsWith('not-sent')
       ? connectFailure(connectProblem('temporarily_unavailable', 'Not admitted', { operationOutcome: 'not_sent' }))
-      : mode.endsWith('unmarked') ? connectFailure(connectProblem('not_authorized', 'Grant expired')) : rejected;
+      : mode === 'unmarked' ? connectFailure(connectProblem('not_authorized', 'Grant expired')) : rejected;
     let updates = 0;
     const handle = {
       requestId: 'original-update', operation: 'update',
@@ -32,69 +32,43 @@ for (const mode of ['success', 'automatic-rejection', 'deferred-rejection', 'aut
         if (mode === 'probe-rejection') return rejected;
         // The SDK removes durable pending records on a definitive response.
         pending = false;
-        return mode === 'success' ? connectSuccess({ ...document, revision: 'r2' }) : failure;
+        return mode === 'success' ? connectSuccess({ ...document, revision: 'r2', body: '# Note\n\nKeep this draft' }) : failure;
       }
     };
     const connection = {
       pendingMutations: () => pending ? [handle] : [],
       pendingMutation: (id: string) => pending && id === handle.requestId ? handle : null,
-      async update() { updates++; pending = true; return unknown; }
+      async update() { updates++; pending = true; return unknown; },
+      async read() { return connectSuccess(document); }
     };
     const gateway = new ConnectCollectionGateway('https://connect.example');
     Object.defineProperty(gateway, 'session', { value: { connection: () => connection }, configurable: true });
-    const session = createNoteSession(document, []);
-    session.draft.body = 'Keep this draft';
-    const coordinator = new NoteOperationCoordinator({
-      update: input => gateway.update(input), recover: id => gateway.recoverNoteMutation(id),
-      isPending: id => gateway.pendingNoteMutations().some(pending => pending.requestId === id),
-      onSaved() {}, onChange() {}, onSaveError() {}
-    });
+    const session = new NoteSession(document, () => [], noteRecordAdapter(gateway));
+    session.edit({ ...session.draft, body: 'Keep this draft' });
+    await expect(session.record.save()).resolves.toMatchObject({ ok: false, problem: { code: 'operation_outcome_unknown' } });
+    expect(session.pendingRequestId).toBe('original-update');
+    expect(session.saveState).toBe('recovery');
+    if (mode.startsWith('deferred')) {
+      await expect(session.record.save()).resolves.toMatchObject({ ok: false, problem: { code: 'operation_outcome_unknown' } });
+      expect(session.pendingRequestId).toBe('original-update');
+      resolveNow = true;
+    }
+    const saved = await session.record.save();
+    expect(updates).toBe(1);
+    expect(session.draft.body).toBe('Keep this draft');
     if (mode === 'probe-rejection') {
-      await expect(coordinator.requestSave(session)).rejects.toMatchObject({ problem: { code: 'operation_outcome_unknown' } });
-      expect(session.pendingSave?.requestId).toBe('original-update');
       expect(pending).toBe(true);
-      expect(updates).toBe(1);
+      expect(session.pendingRequestId).toBe('original-update');
+      expect(session.saveState).toBe('recovery');
     } else if (mode === 'success') {
-      await coordinator.requestSave(session);
-      expect(session.pendingSave).toBeUndefined();
+      expect(saved.ok).toBe(true);
+      expect(session.pendingRequestId).toBeUndefined();
+      expect(session.saveState).toBe('saved');
     } else {
-      if (mode.startsWith('deferred')) {
-        await expect(coordinator.requestSave(session)).rejects.toMatchObject({ problem: { code: 'operation_outcome_unknown' } });
-        resolveNow = true;
-      }
-      let error: unknown;
-      try { await coordinator.requestSave(session); } catch (cause) { error = cause; }
-      expect(error).toBeInstanceOf(MdbaseConnectError);
+      expect(saved).toEqual({ ok: false, problem: failure.problem });
       expect(gateway.pendingNoteMutations()).toEqual([]);
-      expect(updates).toBe(1);
-      expect(session.draft.body).toBe('Keep this draft');
-      expect((error as MdbaseConnectError).problem.code).toBe(failure.problem.code);
-      expect(session.pendingSave).toBeUndefined();
-      expect(session.saveState).toBe('conflict');
+      expect(session.pendingRequestId).toBeUndefined();
+      expect(session.saveState).toBe('error');
     }
   });
 }
-
-it.each([
-  ['still unknown', new MdbaseConnectError(unknown.problem)],
-  ['probe not sent', new MdbaseConnectError(connectProblem('temporarily_unavailable', 'Probe unavailable', { operationOutcome: 'not_sent' }))],
-  ['probe rejected but original still pending', new MdbaseConnectError(rejected.problem)],
-  ['unstructured failure', new Error('Offline')]
-])('retains the original intent when recovery is %s', async (_name, failure) => {
-  let updates = 0;
-  const session = createNoteSession(document, []);
-  session.draft.body = 'Original accepted intent';
-  const coordinator = new NoteOperationCoordinator({
-    async update() { updates++; throw new MdbaseConnectError(unknown.problem); },
-    async recover() { throw failure; },
-    isPending: () => true,
-    onSaved() {}, onChange() {}, onSaveError() {}
-  });
-  await expect(coordinator.requestSave(session)).rejects.toBeInstanceOf(MdbaseConnectError);
-  session.draft.body = 'Newer unsent draft';
-  await expect(coordinator.requestSave(session)).rejects.toBe(failure);
-  expect(updates).toBe(1);
-  expect(session.pendingSave).toMatchObject({ requestId: 'original-update', draft: { body: 'Original accepted intent' } });
-  expect(session.draft.body).toBe('Newer unsent draft');
-  expect(session.saveState).toBe('recovery');
-});

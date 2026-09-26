@@ -4,10 +4,19 @@ export function randomBase64Url(size: number): string {
   return bytesToBase64Url(bytes);
 }
 
+// Encrypted requests and responses carry whole records, so these run over
+// megabytes: convert in chunks rather than one character at a time.
+const CHUNK = 0x8000;
+
 export function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  for (let index = 0; index < bytes.length; index += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(index, index + CHUNK) as unknown as number[]);
+  }
+  const encoded = btoa(binary).replaceAll("+", "-").replaceAll("/", "_");
+  let end = encoded.length;
+  while (end > 0 && encoded.charCodeAt(end - 1) === 61 /* = */) end -= 1;
+  return encoded.slice(0, end);
 }
 
 export function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {

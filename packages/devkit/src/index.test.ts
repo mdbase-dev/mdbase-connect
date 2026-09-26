@@ -464,9 +464,8 @@ describe("developer sandbox", () => {
     expect(stale).toMatchObject({
       ok: false,
       problem: {
-        code: "operation_invalid",
-        operation_outcome: "rejected",
-        details: { diagnostics: [{ code: "concurrent_modification" }] }
+        code: "concurrent_modification",
+        operation_outcome: "rejected"
       }
     });
     expect(transport.snapshot().find((record) => record.path === "tasks/new.md")?.frontmatter.title)

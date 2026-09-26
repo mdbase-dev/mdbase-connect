@@ -56,7 +56,13 @@ const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-e2e-"));
 const stateDir = join(scratch, "state");
 const collectionPath = join(scratch, "workouts");
 const extension = process.platform === "win32" ? ".exe" : "";
-const cliBinary = join(repoRoot, "target", "debug", `mdbase${extension}`);
+// The write profile measures an optimized connector; unoptimized timings mislead.
+const cliBinary = join(
+  repoRoot,
+  "target",
+  process.env.MDBASE_CONNECT_E2E_WRITE_PROFILE === "1" ? "release" : "debug",
+  `mdbase${extension}`
+);
 let agent;
 let manifestServer;
 let browserManifestServer;
@@ -1040,6 +1046,13 @@ implements:
         code_verifier: browserVerifier
       }
     });
+    const cpuProfilePath = process.env.MDBASE_CONNECT_E2E_WRITE_PROFILE_CPU;
+    const cdp = cpuProfilePath ? await page.context().newCDPSession(page) : null;
+    if (cdp) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+      await cdp.send("Profiler.start");
+    }
     const browserResult = await page.evaluate(async (config) => {
       return globalThis.directHarness.exercise(config);
     }, {
@@ -1048,6 +1061,7 @@ implements:
       manifest: manifest.browserApplicationManifest,
       redirectUri: manifest.browserRedirectUri,
       loopbackUrl,
+      profileWrites: process.env.MDBASE_CONNECT_E2E_WRITE_PROFILE === "1",
       token: {
         version: 1,
         accessToken: browserToken.body.access_token,
@@ -1067,7 +1081,17 @@ implements:
         savedAt: Date.now()
       }
     });
+    if (cdp) {
+      const { profile } = await cdp.send("Profiler.stop");
+      await writeFile(cpuProfilePath, JSON.stringify(profile));
+      await cdp.detach();
+    }
+        if (browserResult.writeProfile) {
+      console.log("Browser write profile (direct route):");
+      console.table(browserResult.writeProfile);
+    }
     if (browserResult.status !== "available"
+        || !Object.values(browserResult.recordSession).every(Boolean)
         || browserResult.route !== "direct"
         || browserResult.records !== 1_002
         || !browserResult.read
@@ -1801,6 +1825,149 @@ async function openApplicationServer(name, contracts, access) {
     if (!outcome.ok) throw Object.assign(new Error(outcome.problem.message), { problem: outcome.problem });
     return outcome.value;
   };
+  const until = async (condition, label) => {
+    const deadline = Date.now() + 15_000;
+    while (!condition()) {
+      if (Date.now() > deadline) throw new Error("Timed out waiting for " + label);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+  // One record edited through connection.records against the real connector and watch.
+  async function exerciseRecordSession(connection) {
+    const path = "browser/session.md";
+    requireConnectSuccess(await connection.create({
+      path,
+      frontmatter: { type: "workout", title: "Session", status: "open" },
+      body: "Opened."
+    }));
+    const watch = requireConnectSuccess(await connection.watch({ pollIntervalMs: 100 }));
+    const stopFollowing = connection.records.follow(watch);
+    const first = requireConnectSuccess(await connection.records.open(path, { autosave: false }));
+    const second = requireConnectSuccess(await connection.records.open(path));
+    const session = first.session;
+    const external = async (change) => {
+      const current = requireConnectSuccess(await connection.read({ path }));
+      requireConnectSuccess(await connection.update({ path, patch: {}, ...change, ifRevision: current.revision }));
+    };
+
+    session.setBody("Typed in a session.");
+    const saved = requireConnectSuccess(await session.flush());
+
+    // Elsewhere, only frontmatter changes: the session rebases and does not overwrite it.
+    await external({ patch: { status: "done" } });
+    session.setBody("Typed after a metadata change.");
+    requireConnectSuccess(await session.flush());
+    const merged = requireConnectSuccess(await connection.read({ path }));
+
+    // Elsewhere, the body changes under local text: a conflict until the user chooses.
+    session.setBody("Mine.");
+    await external({ body: "Written elsewhere." });
+    const conflicted = await session.flush();
+    const conflict = !conflicted.ok && conflicted.problem.code === "concurrent_modification"
+      && session.getSnapshot().remote?.body.includes("Written elsewhere.");
+    session.resolve({ keep: "mine" });
+    requireConnectSuccess(await session.flush());
+    const kept = requireConnectSuccess(await connection.read({ path }));
+
+    // A clean session stays current through the collection watch.
+    await external({ body: "Changed while open." });
+    await until(() => session.getSnapshot().body.includes("Changed while open."), "the watch to refresh the session");
+    const followed = session.getSnapshot().state === "saved";
+
+    // Local and hosted authorities report record conditions with the same codes.
+    const staleUpdate = await connection.update({ path, patch: { status: "stale" }, ifRevision: saved.revision });
+    const missingRead = await connection.read({ path: "browser/missing.md" });
+
+    // Deleted elsewhere while unsaved text is open: the session keeps the text.
+    session.setBody("Unsaved when deleted.");
+    requireConnectSuccess(await connection.delete({ path }));
+    await until(() => session.getSnapshot().state === "deleted", "the watch to report the deletion");
+    const deletedKeepsText = session.getSnapshot().body === "Unsaved when deleted.";
+
+    first.release();
+    second.release();
+    stopFollowing();
+    watch.close();
+    return {
+      shared: first.session === second.session,
+      saved: saved.body.includes("Typed in a session."),
+      rebased: merged.body.includes("Typed after a metadata change.") && merged.frontmatter.status === "done",
+      conflict: Boolean(conflict),
+      kept: kept.body.includes("Mine."),
+      followed,
+      staleConflict: !staleUpdate.ok && staleUpdate.problem.code === "concurrent_modification",
+      missingRecord: !missingRead.ok && missingRead.problem.code === "file_not_found",
+      deletedKeepsText
+    };
+  }
+  // Opt-in write-path profile: latency by body size, plus main-thread cost of
+  // the durable pending-request write to localStorage and long tasks.
+  async function profileWrites(connection) {
+    const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+    const storageCost = { ms: 0, bytes: 0 };
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      const started = performance.now();
+      setItem.call(this, key, value);
+      if (key.includes("pending")) {
+        storageCost.ms += performance.now() - started;
+        storageCost.bytes += value.length;
+      }
+    };
+    const network = { ms: 0 };
+    const fetchImpl = globalThis.fetch;
+    globalThis.fetch = async function (...args) {
+      const started = performance.now();
+      try {
+        return await fetchImpl.apply(this, args);
+      } finally {
+        network.ms += performance.now() - started;
+      }
+    };
+    const longTasks = [];
+    const observer = new PerformanceObserver((list) => longTasks.push(...list.getEntries().map((entry) => entry.duration)));
+    observer.observe({ type: "longtask" });
+    const rows = [];
+    try {
+      for (const size of [1_000, 16_000, 128_000, 1_000_000]) {
+        const path = "profile/body-" + size + ".md";
+        const body = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(Math.ceil(size / 57)).slice(0, size);
+        let current = requireConnectSuccess(await connection.create({ path, frontmatter: { title: "Profile" }, body: "" }));
+        const updates = [], reads = [], updateNetwork = [];
+        storageCost.ms = 0;
+        storageCost.bytes = 0;
+        longTasks.length = 0;
+        const runs = 7;
+        for (let run = 0; run < runs; run += 1) {
+          const started = performance.now();
+          network.ms = 0;
+          current = requireConnectSuccess(await connection.update({ path, patch: {}, body: body + run, ifRevision: current.revision }));
+          updates.push(performance.now() - started);
+          updateNetwork.push(network.ms);
+          const readStarted = performance.now();
+          requireConnectSuccess(await connection.read({ path }));
+          reads.push(performance.now() - readStarted);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        rows.push({
+          size,
+          updateMedianMs: Math.round(median(updates) * 10) / 10,
+          updateInFetchMs: Math.round(median(updateNetwork) * 10) / 10,
+          readMedianMs: Math.round(median(reads) * 10) / 10,
+          pendingStoreMsPerUpdate: Math.round((storageCost.ms / runs) * 100) / 100,
+          pendingStoreKBPerUpdate: Math.round(storageCost.bytes / runs / 1024),
+          longTasks: longTasks.length,
+          longestTaskMs: Math.round(Math.max(0, ...longTasks))
+        });
+        requireConnectSuccess(await connection.delete({ path }));
+      }
+    } finally {
+      globalThis.fetch = fetchImpl;
+      Storage.prototype.setItem = setItem;
+      observer.disconnect();
+    }
+    return rows;
+  }
   const keyStore = new MemoryGrantKeyStore();
   const key = await keyStore.create("browser-e2e-grant");
   globalThis.directHarness = {
@@ -1873,7 +2040,11 @@ schema:
       }));
       const changed = requireConnectSuccess(await connection.changes({ after: description.changeCursor }));
       const deleted = requireConnectSuccess(await connection.delete({ path: "browser/renamed.md" }));
+      const recordSession = await exerciseRecordSession(connection);
+      const writeProfile = config.profileWrites ? await profileWrites(connection) : null;
       return {
+        recordSession,
+        writeProfile,
         status,
         route: connection.route,
         records: query.results.length,

@@ -189,3 +189,82 @@ engine, Connect, mirror, and provider profilers rather than restoring those
 retired runtime modules. Eight-hour functional soak profiles, private live-vault
 profiles, CPU sampling, and staging or production network timing remain manual
 because they are unsuitable for ordinary GitHub-hosted runners.
+
+## Browser write path
+
+`pnpm profile:writes` builds the SDK and an optimized connector, then runs the
+local e2e browser harness with `MDBASE_CONNECT_E2E_WRITE_PROFILE=1`. The real
+Chromium page updates one record at 1 KB, 16 KB, 128 KB and 1 MB (seven runs
+each, median reported) over the direct route and prints update and read
+latency, time spent inside `fetch`, the durable pending-request write to
+`localStorage`, and long tasks. Set
+`MDBASE_CONNECT_E2E_WRITE_PROFILE_CPU=<file>.cpuprofile` to also capture a
+Chrome CPU profile of the page. Unoptimized connector timings are misleading;
+the profile always uses the release binary.
+
+Measured 2026-09-26 on Linux (Node 22, the harness's 1,002-record collection on
+tmpfs, so disk flushes are free):
+
+| Body | Update (ms) | Inside fetch | Read (ms) | Pending write to localStorage |
+| --- | --- | --- | --- | --- |
+| 1 KB | 50 | 49 | 9 | < 0.1 ms |
+| 128 KB | 59 (was 64) | 54 | 12 (was 18) | 0.3 ms |
+| 1 MB | 140 (was 188) | 98 | 32 (was 74) | 3.3 ms |
+
+The "was" values are before the base64 change below; no long tasks were
+observed after it.
+
+Findings:
+
+- **Fixed (SDK):** encrypted responses were decoded with
+  `Uint8Array.from(string, callback)`, one callback per character, and
+  requests were encoded one byte at a time. The decoder alone took 740 ms of
+  CPU across the profile run. Both now use the shared chunked implementation in
+  `base64.ts` (73 ms for the same run), and decryption no longer copies the
+  ciphertext first.
+- **Not a bottleneck:** `MdbaseRecordSession.setBody` costs under 1 µs per
+  keystroke at 1 MB, and the pending-request `localStorage` write costs 3.3 ms
+  at 1 MB.
+- **Open (mdbase-rs):** of a small update's ~50 ms, the connector's journal,
+  registry, encryption and watcher finalization take ~6 ms; mdbase-rs execution
+  takes ~36 ms. About 21 ms of that is a full collection rescan: atomic writes
+  (temporary file, then rename) produce `Modify(Name(_))` events, and
+  `invalidation_paths` in `mdbase-rs/src/watch/real.rs` escalates every rename
+  to a full refresh. An incremental refresh of the same path takes ~1.7 ms. The
+  full rescan reads the whole collection, so its cost is expected to grow with
+  collection size (not measured beyond 1,002 records). Treating a rename whose
+  visible paths are record files (not directories, and not a prefix of known
+  records) as an incremental invalidation would remove it; that is a watcher
+  semantics change for mdbase-rs.
+- **Fixed on mdbase-rs branch `incremental-rename-refresh` (`f7a6028`):** renames
+  now escalate to a full refresh only when they move a directory (an existing
+  directory or symlink, or a vanished path with indexed records or resources
+  under it). `mdbase profile engine --scenario core`,
+  `runtime_update_and_watch` mean: 200 records 26.2 → 16.7 ms; 5,000 records
+  158 → 43.7 ms (the full refresh had averaged 127.6 ms of each save). With a
+  connector built against that branch, this browser profile's 1 KB update
+  drops from 50 to 30 ms, 128 KB from 59 to 38 ms and 1 MB from 140 to 116 ms.
+  `cargo test --workspace` here passes against it.
+- **Fixed on the same branch (`28f2886`):** strict (`validation: error`)
+  create and update captured a full collection snapshot on every write for the
+  unique-field and duplicate-id checks. They now capture it only when a matched
+  type declares unique fields or the written frontmatter carries an id
+  (including one supplied by defaults). `mdbase profile engine --scenario core`
+  at 5,000 records: `create` 315 → 201 ms. `update` stays at ~318 ms because
+  the profile's task records carry `id`, so the duplicate-id check still needs
+  the snapshot; that cost remains for id-bearing records.
+- **Explained (mdbase-rs), not changed:** direct `Collection::typed()` create,
+  update and delete stage every write in a full copy of the collection. At
+  5,000 records a delete spends ~110 ms copying every file into the shadow and
+  ~65 ms reading every file back to diff it; planning and committing take
+  ~2 ms. Runtime (connector) writes already use a sparse stage holding only
+  configuration, types and the target record, which is why they cost 43 ms at
+  the same size. Connect uses the direct API only for reads and queries, so
+  this affects the `mdbase` CLI's write commands and library embedders, not the
+  SDK.
+- **Fixed on the same branch (`b338eaa`), correctness:** the sparse runtime
+  stage could not see other records, so a generated `sequence` restarted from
+  its start value on every connector create (with records at 3, 5 and 7 it
+  wrote 1). When a type generates sequences, the stage is now seeded with the
+  authority's maxima. That costs one collection snapshot per create or update
+  in collections that use sequences; others are unaffected.

@@ -105,6 +105,12 @@ and put raw diagnostics behind a details or repair view.
 Ordinary invalid operation input remains `operation_invalid`; it is not
 misrepresented as broken collection setup.
 
+Record conditions have one code whichever authority holds the collection. A
+stale `ifRevision` is `concurrent_modification`, a missing record is
+`file_not_found`, and an unsafe path is `invalid_path`, whether a hosted
+authority reports them as problems or mdbase reports them as envelope
+diagnostics.
+
 ## Mutation uncertainty
 
 `operation_outcome` is independent of the problem category:

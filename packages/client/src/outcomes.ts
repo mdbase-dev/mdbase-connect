@@ -276,6 +276,7 @@ export type CollectionSetupProblemCode =
 export type CollectionDescriptionProblemCode = CommonOperationProblemCode | CollectionSetupProblemCode;
 export type CollectionReadProblemCode =
   | CollectionDescriptionProblemCode
+  | "file_not_found"
   | "invalid_path"
   | "operation_invalid";
 export type CollectionQueryProblemCode =
@@ -307,6 +308,7 @@ export const COLLECTION_DESCRIPTION_PROBLEM_CODES = [
 
 export const COLLECTION_READ_PROBLEM_CODES = [
   ...COLLECTION_DESCRIPTION_PROBLEM_CODES,
+  "file_not_found",
   "invalid_path",
   "operation_invalid"
 ] as const satisfies readonly CollectionReadProblemCode[];

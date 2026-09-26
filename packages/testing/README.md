@@ -28,4 +28,25 @@ Failures throw `ConnectTestOutcomeError` with the original typed problem on its
 `problem` property; production application code should branch on outcomes
 instead.
 
+Editing features can be unit-tested against `createRecordTestAuthority()`, an
+in-memory authority with revision checks and a change watch. Its `records` is
+the real `MdbaseRecords`, so components written against `connection.records`
+take it unchanged. Controls make other clients and the network misbehave on
+cue:
+
+```ts
+const authority = createRecordTestAuthority();
+authority.seed("Notes/one.md", { body: "Original" });
+authority.records.follow(authority.watch);
+const opened = await authority.records.open("Notes/one.md", { autosave: false });
+
+authority.editElsewhere("Notes/one.md", { body: "Theirs" }); // conflict with local typing
+authority.loseNextResponse();                                // recovery without a second write
+authority.failNextWrite(connectProblem("connector_offline", "Offline"));
+authority.renameElsewhere("Notes/one.md", "Notes/two.md");
+authority.deleteElsewhere("Notes/two.md");
+authority.resetWatch();                                      // a change gap
+authority.writes;                                            // what reached the authority
+```
+
 The fixture grants no production backdoor and is intended only for test builds.
