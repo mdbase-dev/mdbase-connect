@@ -35,8 +35,12 @@ export async function localNetworkPermission(): Promise<PermissionState | null> 
   }
 }
 
-export function directFallbackStatus(status: number): boolean {
-  return status === 404 || status === 405 || status === 426 || status >= 500;
+export async function directFallbackResponse(response: Response): Promise<boolean> {
+  const { status } = response;
+  if (status === 404 || status === 405 || status === 426 || status >= 500) return true;
+  // Loopback rejects browser requests before execution with an empty 403.
+  // Structured grant/policy rejections must remain terminal, not route failures.
+  return status === 403 && (await response.clone().text()).trim() === "";
 }
 
 export function isMutation(operation: CollectionOperation, input?: unknown): boolean {

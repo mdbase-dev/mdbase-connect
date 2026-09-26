@@ -110,6 +110,26 @@ describe("connector policy sequence", () => {
       .toBe("sha256:141ae510bcd2582cc075046327940a622d68a87355e1f11fb7358bf5fe0803fd");
   });
 
+  it.each([
+    "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo",
+    "moz-extension://2c0d3f4e-5a6b-47c8-9012-3456789abcde",
+    "null"
+  ])("preserves portable origin %s in delivered policy", (origin) => {
+    const fixture = JSON.parse(readFileSync(new URL(
+      "../../../test-fixtures/protocol-v1-policy-canonical.json", import.meta.url
+    ), "utf8"));
+    const source = { ...fixture.db_like_grants[0],
+      application_distribution: "portable" as const, application_origin: origin };
+    const policy = normalizePolicyGrant(source);
+    expect(policy.application_origin).toBe(origin);
+    expect(policy.application_authorization).toEqual(source.application_authorization);
+    if (origin !== "null") {
+      expect(canonicalSha256(policy)).not.toBe(canonicalSha256({
+        ...policy, application_origin: "null"
+      }));
+    }
+  });
+
   it("retains complete declaration evidence and omits absent evidence without changing proofs", () => {
     const fixture = JSON.parse(readFileSync(new URL(
       "../../../test-fixtures/protocol-v1-policy-canonical.json", import.meta.url

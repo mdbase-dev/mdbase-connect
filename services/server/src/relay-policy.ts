@@ -7,6 +7,7 @@ import { CONTROL_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import { canonicalSha256 } from "./canonical-json.js";
 import type { DatabasePool } from "./db.js";
 import { ConnectorOperationError } from "./relay-errors.js";
+import { normalizedApplicationOrigin } from "./features/authorizations/redirects.js";
 
 const MAX_POLICY_SEQUENCE = BigInt(Number.MAX_SAFE_INTEGER);
 const POLICY_STAGE_DELAY_MS = 2_000;
@@ -218,9 +219,7 @@ export function normalizePolicyGrant(
     ...(grant.application_project_url == null
       ? {}
       : { application_project_url: grant.application_project_url }),
-    application_origin: grant.application_origin === "null"
-      ? "null"
-      : new URL(grant.application_origin).origin,
+    application_origin: normalizedApplicationOrigin(grant.application_origin),
     ...(grant.application_icon == null ? {} : { application_icon: grant.application_icon }),
     collection_name: grant.collection_name,
     notification_criteria: grant.notification_criteria,
