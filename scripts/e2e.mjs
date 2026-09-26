@@ -56,7 +56,13 @@ const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-e2e-"));
 const stateDir = join(scratch, "state");
 const collectionPath = join(scratch, "workouts");
 const extension = process.platform === "win32" ? ".exe" : "";
-const cliBinary = join(repoRoot, "target", "debug", `mdbase${extension}`);
+// The write profile measures an optimized connector; unoptimized timings mislead.
+const cliBinary = join(
+  repoRoot,
+  "target",
+  process.env.MDBASE_CONNECT_E2E_WRITE_PROFILE === "1" ? "release" : "debug",
+  `mdbase${extension}`
+);
 let agent;
 let manifestServer;
 let browserManifestServer;
@@ -1040,6 +1046,13 @@ implements:
         code_verifier: browserVerifier
       }
     });
+    const cpuProfilePath = process.env.MDBASE_CONNECT_E2E_WRITE_PROFILE_CPU;
+    const cdp = cpuProfilePath ? await page.context().newCDPSession(page) : null;
+    if (cdp) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+      await cdp.send("Profiler.start");
+    }
     const browserResult = await page.evaluate(async (config) => {
       return globalThis.directHarness.exercise(config);
     }, {
@@ -1048,6 +1061,7 @@ implements:
       manifest: manifest.browserApplicationManifest,
       redirectUri: manifest.browserRedirectUri,
       loopbackUrl,
+      profileWrites: process.env.MDBASE_CONNECT_E2E_WRITE_PROFILE === "1",
       token: {
         version: 1,
         accessToken: browserToken.body.access_token,
@@ -1067,6 +1081,15 @@ implements:
         savedAt: Date.now()
       }
     });
+    if (cdp) {
+      const { profile } = await cdp.send("Profiler.stop");
+      await writeFile(cpuProfilePath, JSON.stringify(profile));
+      await cdp.detach();
+    }
+        if (browserResult.writeProfile) {
+      console.log("Browser write profile (direct route):");
+      console.table(browserResult.writeProfile);
+    }
     if (browserResult.status !== "available"
         || !Object.values(browserResult.recordSession).every(Boolean)
         || browserResult.route !== "direct"
@@ -1877,6 +1900,74 @@ async function openApplicationServer(name, contracts, access) {
       deletedKeepsText
     };
   }
+  // Opt-in write-path profile: latency by body size, plus main-thread cost of
+  // the durable pending-request write to localStorage and long tasks.
+  async function profileWrites(connection) {
+    const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+    const storageCost = { ms: 0, bytes: 0 };
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      const started = performance.now();
+      setItem.call(this, key, value);
+      if (key.includes("pending")) {
+        storageCost.ms += performance.now() - started;
+        storageCost.bytes += value.length;
+      }
+    };
+    const network = { ms: 0 };
+    const fetchImpl = globalThis.fetch;
+    globalThis.fetch = async function (...args) {
+      const started = performance.now();
+      try {
+        return await fetchImpl.apply(this, args);
+      } finally {
+        network.ms += performance.now() - started;
+      }
+    };
+    const longTasks = [];
+    const observer = new PerformanceObserver((list) => longTasks.push(...list.getEntries().map((entry) => entry.duration)));
+    observer.observe({ type: "longtask" });
+    const rows = [];
+    try {
+      for (const size of [1_000, 16_000, 128_000, 1_000_000]) {
+        const path = "profile/body-" + size + ".md";
+        const body = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(Math.ceil(size / 57)).slice(0, size);
+        let current = requireConnectSuccess(await connection.create({ path, frontmatter: { title: "Profile" }, body: "" }));
+        const updates = [], reads = [], updateNetwork = [];
+        storageCost.ms = 0;
+        storageCost.bytes = 0;
+        longTasks.length = 0;
+        const runs = 7;
+        for (let run = 0; run < runs; run += 1) {
+          const started = performance.now();
+          network.ms = 0;
+          current = requireConnectSuccess(await connection.update({ path, patch: {}, body: body + run, ifRevision: current.revision }));
+          updates.push(performance.now() - started);
+          updateNetwork.push(network.ms);
+          const readStarted = performance.now();
+          requireConnectSuccess(await connection.read({ path }));
+          reads.push(performance.now() - readStarted);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        rows.push({
+          size,
+          updateMedianMs: Math.round(median(updates) * 10) / 10,
+          updateInFetchMs: Math.round(median(updateNetwork) * 10) / 10,
+          readMedianMs: Math.round(median(reads) * 10) / 10,
+          pendingStoreMsPerUpdate: Math.round((storageCost.ms / runs) * 100) / 100,
+          pendingStoreKBPerUpdate: Math.round(storageCost.bytes / runs / 1024),
+          longTasks: longTasks.length,
+          longestTaskMs: Math.round(Math.max(0, ...longTasks))
+        });
+        requireConnectSuccess(await connection.delete({ path }));
+      }
+    } finally {
+      globalThis.fetch = fetchImpl;
+      Storage.prototype.setItem = setItem;
+      observer.disconnect();
+    }
+    return rows;
+  }
   const keyStore = new MemoryGrantKeyStore();
   const key = await keyStore.create("browser-e2e-grant");
   globalThis.directHarness = {
@@ -1950,8 +2041,10 @@ schema:
       const changed = requireConnectSuccess(await connection.changes({ after: description.changeCursor }));
       const deleted = requireConnectSuccess(await connection.delete({ path: "browser/renamed.md" }));
       const recordSession = await exerciseRecordSession(connection);
+      const writeProfile = config.profileWrites ? await profileWrites(connection) : null;
       return {
         recordSession,
+        writeProfile,
         status,
         route: connection.route,
         records: query.results.length,

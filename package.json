@@ -59,6 +59,7 @@
     "profile:connect": "cargo run --release -p mdbase-cli -- profile connect",
     "profile:file-io": "cargo test --locked --release -p mdbase-connect-core benchmark_file_io -- --ignored --nocapture --test-threads=1 && pnpm --filter '@mdbase-dev/connect-sync...' build && node scripts/profile-file-mirror.mjs",
     "profile:finalizer": "cargo test --locked --release -p mdbase-connect-core benchmark_finalizer_ -- --ignored --nocapture --test-threads=1",
+    "profile:writes": "pnpm build && cargo build --release -p mdbase-cli && MDBASE_CONNECT_E2E_WRITE_PROFILE=1 node scripts/e2e.mjs",
     "profile:rs": "cargo run --release -p mdbase-cli -- profile engine --scenario queries",
     "profile:views:rs": "cargo run --release -p mdbase-cli -- profile engine --scenario views",
     "stress:prepare": "pnpm build:packages && pnpm --filter @mdbase/connect-server build",

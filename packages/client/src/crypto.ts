@@ -12,6 +12,7 @@ import {
   type EncryptedRelayOperationResponse,
   type GrantEncryption
 } from "@mdbase-dev/connect-protocol";
+import { base64UrlBytes, bytesToBase64Url } from "./base64.js";
 
 const DATABASE_NAME = "mdbase-connect-keys";
 const STORE_NAME = "grant-keys";
@@ -315,7 +316,7 @@ export async function decryptRelayResponse<Result>(
       iv: nonce(request.counter),
       additionalData: new TextEncoder().encode(aad(metadata, "response")),
       tagLength: 128
-    }, key, toArrayBuffer(base64UrlToBytes(response.ciphertext)));
+    }, key, base64UrlToBytes(response.ciphertext));
     const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(plaintext));
     if (value?.ok === true && "result" in value) return value;
     if (value?.ok === false && isConnectProblem(value.problem)) return value;
@@ -557,22 +558,14 @@ function nonce(counter: string): Uint8Array<ArrayBuffer> {
   return result;
 }
 
-function bytesToBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
-
 async function sha256Base64Url(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return bytesToBase64Url(new Uint8Array(digest));
 }
 
-function base64UrlToBytes(value: string): Uint8Array {
+function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new RelayCryptoError("invalid_base64", "Encrypted relay data is malformed.");
-  const padding = "=".repeat((4 - value.length % 4) % 4);
-  const binary = atob(value.replaceAll("-", "+").replaceAll("_", "/") + padding);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return base64UrlBytes(value);
 }
 
 function p256PublicKey(value: string): Uint8Array {
