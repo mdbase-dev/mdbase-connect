@@ -245,8 +245,16 @@ Findings:
   connector built against that branch, this browser profile's 1 KB update
   drops from 50 to 30 ms, 128 KB from 59 to 38 ms and 1 MB from 140 to 116 ms.
   `cargo test --workspace` here passes against it.
-- **Open (mdbase-rs):** with `default_validation: error`, a plain
-  `Collection::update` captures a full collection snapshot for the uniqueness
-  check even when the record's types declare no unique or generated fields;
-  at 5,000 records that update takes ~320 ms. Runtime (connector) saves still
-  grow modestly with size (17 ms at 200 records, 44 ms at 5,000).
+- **Fixed on the same branch (`28f2886`):** strict (`validation: error`)
+  create and update captured a full collection snapshot on every write for the
+  unique-field and duplicate-id checks. They now capture it only when a matched
+  type declares unique fields or the written frontmatter carries an id
+  (including one supplied by defaults). `mdbase profile engine --scenario core`
+  at 5,000 records: `create` 315 → 201 ms. `update` stays at ~318 ms because
+  the profile's task records carry `id`, so the duplicate-id check still needs
+  the snapshot; that cost remains for id-bearing records.
+- **Open (mdbase-rs):** strict `Collection` writes still cost ~200 ms at 5,000
+  records with no uniqueness snapshot at all (`delete` 202 ms, `create`
+  201 ms), which points to another collection-wide cost shared by the write
+  path. Not yet investigated. Runtime (connector) saves grow only modestly with
+  size (17 ms at 200 records, 43 ms at 5,000).
