@@ -119,6 +119,51 @@ function useMdbaseSession() {
 }
 ```
 
+An application that lets people type into a record opens it as a session
+instead of calling `update()` per change. Every view that opens the same path
+shares one session, so a record never has two competing writers:
+
+```ts
+if (watch.ok) connection.records.follow(watch.value);
+
+const opened = await connection.records.open("Notes/today.md", {
+  autosave: { idleMs: 1_000 },
+  timeoutMs: 8_000
+});
+if (!opened.ok) return renderProblem(opened.problem);
+const { session, release } = opened.value;
+
+const unsubscribeRecord = session.subscribe(() => render(session.getSnapshot()));
+editor.onChange((text) => session.setBody(text));
+propertiesPanel.onChange((patch) => session.patchFrontmatter(patch));
+
+// Leaving the view: write what is left, then let the session go.
+const flushed = await session.flush();
+if (!flushed.ok && flushed.problem.code === "concurrent_modification") {
+  showConflict(session.getSnapshot()); // then session.resolve({ keep: "mine" | "theirs" })
+}
+unsubscribeRecord();
+release();
+```
+
+The session autosaves after the idle interval, serializes its writes, sends
+only the body and frontmatter keys that changed, and checks each write against
+the revision it was based on. It recognizes its own saves after they settle, so
+a watch event or another view that publishes the saved (possibly normalized)
+record first is not mistaken for someone else's edit. A change made elsewhere
+becomes a `conflict` only when it touched something edited locally; otherwise
+the session rebases onto it, and a clean session adopts it. A write whose
+response is lost enters `recovery` and is continued only through its durable
+pending mutation, never sent again. `follow()` refreshes open sessions from the
+watch, follows renames, marks deletions (local text is kept), and re-reads
+everything after a change gap. Releasing the last view never cancels a pending
+save. `snapshot.state` is one of `saved`, `unsaved`, `saving`, `conflict`,
+`recovery`, `error` or `deleted`; `snapshot.problem` says why a write failed.
+The session is an external store, so `externalStore(session)` works with
+`useSyncExternalStore`. Applications whose records live behind their own
+repository construct `MdbaseRecordSession` with an `MdbaseRecordSessionAdapter`
+from `/advanced`.
+
 Browser and native callbacks share the same typed completion boundary:
 
 ```ts

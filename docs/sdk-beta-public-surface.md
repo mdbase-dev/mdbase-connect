@@ -181,6 +181,36 @@ new ID. Multiple pending mutations are supported. A handle remains available
 after restart until completed/acknowledged, deliberately abandoned before
 apply, or expired under the documented recovery horizon.
 
+## Record editing sessions
+
+`connection.records` owns editable records for one connection. `open(path,
+options)` reads the record within the caller's request budget and returns a
+`MdbaseRecordLease`: the shared `MdbaseRecordSession` plus an idempotent
+`release()`. Concurrent and later opens of the same path share one session and
+one write queue; a caller's cancellation does not end another caller's open.
+A released session stays until it has nothing left to save.
+
+```ts
+const opened = await connection.records.open("Notes/one.md", { autosave: { idleMs: 1_000 } });
+if (opened.ok) {
+  const { session, release } = opened.value;
+  session.setBody(text);
+  const flushed = await session.flush({ timeoutMs: 8_000 });
+  release();
+}
+connection.records.follow(watchSubscription); // returns an unsubscribe function
+```
+
+The session follows the lifecycle-owner rules: `subscribe()`/`getSnapshot()`
+with synchronous notification, typed outcomes from `save()`, `flush()` and
+`refresh()`, and final `ConnectRequestOptions`. Expected failures use existing
+catalogue codes: `concurrent_modification` for a conflict, `file_not_found` for
+a deleted record, `pending_mutation_unresolved` when exact recovery is
+unavailable, or the underlying operation's own problem. Own acknowledgements
+are recognized by revision after the write settles, never by comparing text.
+Outcome-unknown writes are continued only through `PendingMutation.recover()`.
+See `docs/record-session.md` for the behaviour matrix and its evidence.
+
 ## Outcome taxonomy
 
 All expected public failures are `ConnectOutcome` data. Raw JSON parse errors,
@@ -212,10 +242,11 @@ code.
 The candidate package exports are:
 
 - `@mdbase-dev/connect`: golden path, outcomes, manifests/capabilities needed by
-  ordinary apps, connection operations, files, session external store, and
-  durable recovery handles;
+  ordinary apps, connection operations, files, record editing sessions, session
+  external store, and durable recovery handles;
 - `@mdbase-dev/connect/advanced`: low-level collection transport/client,
-  token/PKCE plumbing, custom storage interfaces, and test-oriented construction
+  token/PKCE plumbing, custom storage interfaces, custom record-session
+  transports (`MdbaseRecordSessionAdapter`), and test-oriented construction
   seams. The browser and memory selection adapters and the custom selection
   interface remain at the root because every application session needs one;
 - `@mdbase-dev/connect/crypto`: key stores, application identity/signing,

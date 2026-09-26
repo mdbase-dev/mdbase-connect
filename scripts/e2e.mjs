@@ -1068,6 +1068,7 @@ implements:
       }
     });
     if (browserResult.status !== "available"
+        || !Object.values(browserResult.recordSession).every(Boolean)
         || browserResult.route !== "direct"
         || browserResult.records !== 1_002
         || !browserResult.read
@@ -1801,6 +1802,69 @@ async function openApplicationServer(name, contracts, access) {
     if (!outcome.ok) throw Object.assign(new Error(outcome.problem.message), { problem: outcome.problem });
     return outcome.value;
   };
+  const until = async (condition, label) => {
+    const deadline = Date.now() + 15_000;
+    while (!condition()) {
+      if (Date.now() > deadline) throw new Error("Timed out waiting for " + label);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+  // One record edited through connection.records against the real connector and watch.
+  async function exerciseRecordSession(connection) {
+    const path = "browser/session.md";
+    requireConnectSuccess(await connection.create({
+      path,
+      frontmatter: { type: "workout", title: "Session", status: "open" },
+      body: "Opened."
+    }));
+    const watch = requireConnectSuccess(await connection.watch({ pollIntervalMs: 100 }));
+    const stopFollowing = connection.records.follow(watch);
+    const first = requireConnectSuccess(await connection.records.open(path, { autosave: false }));
+    const second = requireConnectSuccess(await connection.records.open(path));
+    const session = first.session;
+    const external = async (change) => {
+      const current = requireConnectSuccess(await connection.read({ path }));
+      requireConnectSuccess(await connection.update({ path, patch: {}, ...change, ifRevision: current.revision }));
+    };
+
+    session.setBody("Typed in a session.");
+    const saved = requireConnectSuccess(await session.flush());
+
+    // Elsewhere, only frontmatter changes: the session rebases and does not overwrite it.
+    await external({ patch: { status: "done" } });
+    session.setBody("Typed after a metadata change.");
+    requireConnectSuccess(await session.flush());
+    const merged = requireConnectSuccess(await connection.read({ path }));
+
+    // Elsewhere, the body changes under local text: a conflict until the user chooses.
+    session.setBody("Mine.");
+    await external({ body: "Written elsewhere." });
+    const conflicted = await session.flush();
+    const conflict = !conflicted.ok && conflicted.problem.code === "concurrent_modification"
+      && session.getSnapshot().remote?.body.includes("Written elsewhere.");
+    session.resolve({ keep: "mine" });
+    requireConnectSuccess(await session.flush());
+    const kept = requireConnectSuccess(await connection.read({ path }));
+
+    // A clean session stays current through the collection watch.
+    await external({ body: "Changed while open." });
+    await until(() => session.getSnapshot().body.includes("Changed while open."), "the watch to refresh the session");
+    const followed = session.getSnapshot().state === "saved";
+
+    first.release();
+    second.release();
+    stopFollowing();
+    watch.close();
+    requireConnectSuccess(await connection.delete({ path }));
+    return {
+      shared: first.session === second.session,
+      saved: saved.body.includes("Typed in a session."),
+      rebased: merged.body.includes("Typed after a metadata change.") && merged.frontmatter.status === "done",
+      conflict: Boolean(conflict),
+      kept: kept.body.includes("Mine."),
+      followed
+    };
+  }
   const keyStore = new MemoryGrantKeyStore();
   const key = await keyStore.create("browser-e2e-grant");
   globalThis.directHarness = {
@@ -1873,7 +1937,9 @@ schema:
       }));
       const changed = requireConnectSuccess(await connection.changes({ after: description.changeCursor }));
       const deleted = requireConnectSuccess(await connection.delete({ path: "browser/renamed.md" }));
+      const recordSession = await exerciseRecordSession(connection);
       return {
+        recordSession,
         status,
         route: connection.route,
         records: query.results.length,
