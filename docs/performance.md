@@ -253,8 +253,18 @@ Findings:
   at 5,000 records: `create` 315 → 201 ms. `update` stays at ~318 ms because
   the profile's task records carry `id`, so the duplicate-id check still needs
   the snapshot; that cost remains for id-bearing records.
-- **Open (mdbase-rs):** strict `Collection` writes still cost ~200 ms at 5,000
-  records with no uniqueness snapshot at all (`delete` 202 ms, `create`
-  201 ms), which points to another collection-wide cost shared by the write
-  path. Not yet investigated. Runtime (connector) saves grow only modestly with
-  size (17 ms at 200 records, 43 ms at 5,000).
+- **Explained (mdbase-rs), not changed:** direct `Collection::typed()` create,
+  update and delete stage every write in a full copy of the collection. At
+  5,000 records a delete spends ~110 ms copying every file into the shadow and
+  ~65 ms reading every file back to diff it; planning and committing take
+  ~2 ms. Runtime (connector) writes already use a sparse stage holding only
+  configuration, types and the target record, which is why they cost 43 ms at
+  the same size. Connect uses the direct API only for reads and queries, so
+  this affects the `mdbase` CLI's write commands and library embedders, not the
+  SDK.
+- **Fixed on the same branch (`b338eaa`), correctness:** the sparse runtime
+  stage could not see other records, so a generated `sequence` restarted from
+  its start value on every connector create (with records at 3, 5 and 7 it
+  wrote 1). When a type generates sequences, the stage is now seeded with the
+  authority's maxima. That costs one collection snapshot per create or update
+  in collections that use sequences; others are unaffected.
