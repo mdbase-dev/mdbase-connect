@@ -169,7 +169,7 @@ export interface CollectionGateway {
   create(input: CreateNoteInput): Promise<NoteDocument>;
   restore(document: NoteDocument): Promise<NoteDocument>;
   /** Revision-checked write of only the changed parts, against `base`. */
-  update(base: NoteDocument, change: import("@mdbase-dev/connect/advanced").RecordChange): Promise<NoteDocument>;
+  update(base: NoteDocument, change: import("@mdbase-dev/connect/advanced").MdbaseRecordChange): Promise<NoteDocument>;
   updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument>;
   updateDocument(path: string, document: string, revision: string): Promise<NoteDocument>;
   preflightRename(from: string, to: string, revision: string): Promise<RenamePreflight>;

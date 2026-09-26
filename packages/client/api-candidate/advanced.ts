@@ -7,3 +7,4 @@ export type {
   MdbaseApplicationSessionConnect
 } from "../src/application-session.js";
 export type { MdbaseSessionSnapshot } from "../src/session.js";
+export type { MdbaseRecordChange, MdbaseRecordSessionAdapter } from "../src/record-session.js";

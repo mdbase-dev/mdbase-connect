@@ -12,7 +12,7 @@ import type {
 } from "@mdbase-dev/connect";
 import { parse } from "yaml";
 import { persistedBody } from "./note";
-import type { RecordChange } from "@mdbase-dev/connect/advanced";
+import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import type {
   CollectionGateway,
@@ -260,7 +260,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     return clone(restored);
   }
 
-  async update(base: NoteDocument, change: RecordChange): Promise<NoteDocument> {
+  async update(base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> {
     const note = this.required(base.path);
     this.assertRevision(note, base.revision);
     if (change.body !== undefined) note.body = change.body;

@@ -47,6 +47,15 @@ export {
 } from "./errors.js";
 export type { ConnectErrorContext } from "./errors.js";
 export { MdbaseFileClient } from "./files.js";
+export { MdbaseRecords } from "./records.js";
+export type { MdbaseRecordLease, MdbaseRecordOpenOptions } from "./records.js";
+export { MdbaseRecordSession } from "./record-session.js";
+export type {
+  MdbaseRecordResolution,
+  MdbaseRecordSessionOptions,
+  MdbaseRecordSessionSnapshot,
+  MdbaseRecordSessionState
+} from "./record-session.js";
 export type {
   MdbaseFileSource,
   CollectionFileDescriptor,

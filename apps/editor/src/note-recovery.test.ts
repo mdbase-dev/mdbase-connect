@@ -1,5 +1,4 @@
 import { expect, it } from 'vitest';
-import { MdbaseConnectError } from '@mdbase-dev/connect';
 import { connectFailure, connectProblem, connectSuccess } from '@mdbase-dev/connect-testing';
 import { ConnectCollectionGateway } from './gateway';
 import { NoteSession, noteRecordAdapter } from './note-session';
@@ -46,16 +45,15 @@ for (const mode of ['success', 'rejection', 'deferred-rejection', 'not-sent', 'd
     Object.defineProperty(gateway, 'session', { value: { connection: () => connection }, configurable: true });
     const session = new NoteSession(document, () => [], noteRecordAdapter(gateway));
     session.edit({ ...session.draft, body: 'Keep this draft' });
-    await expect(session.record.save()).rejects.toMatchObject({ problem: { code: 'operation_outcome_unknown' } });
+    await expect(session.record.save()).resolves.toMatchObject({ ok: false, problem: { code: 'operation_outcome_unknown' } });
     expect(session.pendingRequestId).toBe('original-update');
     expect(session.saveState).toBe('recovery');
     if (mode.startsWith('deferred')) {
-      await expect(session.record.save()).rejects.toMatchObject({ problem: { code: 'operation_outcome_unknown' } });
+      await expect(session.record.save()).resolves.toMatchObject({ ok: false, problem: { code: 'operation_outcome_unknown' } });
       expect(session.pendingRequestId).toBe('original-update');
       resolveNow = true;
     }
-    let error: unknown;
-    try { await session.record.save(); } catch (cause) { error = cause; }
+    const saved = await session.record.save();
     expect(updates).toBe(1);
     expect(session.draft.body).toBe('Keep this draft');
     if (mode === 'probe-rejection') {
@@ -63,12 +61,11 @@ for (const mode of ['success', 'rejection', 'deferred-rejection', 'not-sent', 'd
       expect(session.pendingRequestId).toBe('original-update');
       expect(session.saveState).toBe('recovery');
     } else if (mode === 'success') {
-      expect(error).toBeUndefined();
+      expect(saved.ok).toBe(true);
       expect(session.pendingRequestId).toBeUndefined();
       expect(session.saveState).toBe('saved');
     } else {
-      expect(error).toBeInstanceOf(MdbaseConnectError);
-      expect((error as MdbaseConnectError).problem.code).toBe(failure.problem.code);
+      expect(saved).toEqual({ ok: false, problem: failure.problem });
       expect(gateway.pendingNoteMutations()).toEqual([]);
       expect(session.pendingRequestId).toBeUndefined();
       expect(session.saveState).toBe('error');

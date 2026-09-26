@@ -38,6 +38,7 @@ import {
   operationProblem
 } from "./errors.js";
 import { MdbaseFileClient } from "./files.js";
+import { MdbaseRecords } from "./records.js";
 import {
   DEFAULT_OPERATIONS,
   type Application
@@ -213,6 +214,8 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   private readonly notifications: ConnectionNotifications;
   private readonly transport: ConnectionTransport;
   readonly files: MdbaseFileClient;
+  /** Editable record sessions shared by every view of this connection. */
+  readonly records: MdbaseRecords<Frontmatter>;
   private readonly connectionListeners = new Set<(connection: MdbaseConnectionInfo | null) => void>();
 
   constructor(
@@ -251,6 +254,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       },
       internals.timeouts
     );
+    this.records = new MdbaseRecords(this);
     this.collectionClient = new MdbaseCollectionClient(new CollectionRequestCoordinator({
       operation: (operation, input, requestOptions) =>
         this.transport.performOperation(operation, input, requestOptions)

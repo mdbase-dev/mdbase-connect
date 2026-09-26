@@ -1,5 +1,5 @@
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
-import { RecordSession, type RecordSessionAdapter } from "@mdbase-dev/connect/advanced";
+import { MdbaseConnectError, MdbaseRecordSession, type CollectionTypeDescriptor, type ConnectOutcome } from "@mdbase-dev/connect";
+import { connectFailure, connectProblem, connectSuccess, type MdbaseRecordSessionAdapter } from "@mdbase-dev/connect/advanced";
 import type { CollectionGateway, NoteDocument, TitleSource } from "./model";
 import { editableNote, persistedBody, titlePatch } from "./note";
 
@@ -23,7 +23,7 @@ let editorSessionSequence = 0;
  */
 export class NoteSession {
   readonly editorSessionKey = `note-editor-${++editorSessionSequence}`;
-  readonly record: RecordSession<NoteDocument>;
+  readonly record: MdbaseRecordSession<NoteDocument>;
   draft: Draft;
   activity?: NoteActivity;
   activityDetail?: string;
@@ -36,9 +36,9 @@ export class NoteSession {
   constructor(
     document: NoteDocument,
     private readonly types: () => CollectionTypeDescriptor[],
-    adapter: RecordSessionAdapter<NoteDocument>
+    adapter: MdbaseRecordSessionAdapter<NoteDocument>
   ) {
-    this.record = new RecordSession(document, adapter, { autosave: { idleMs: AUTOSAVE_IDLE_MS } });
+    this.record = new MdbaseRecordSession(document, adapter, { autosave: { idleMs: AUTOSAVE_IDLE_MS } });
     this.draft = editableNote(document, types());
   }
 
@@ -90,16 +90,33 @@ export class NoteSession {
 export function noteRecordAdapter(
   gateway: Pick<CollectionGateway, "update" | "read" | "recoverNoteMutation" | "pendingNoteMutations">,
   guard: <Result>(operation: () => Promise<Result>) => Promise<Result> = (operation) => operation()
-): RecordSessionAdapter<NoteDocument> {
+): MdbaseRecordSessionAdapter<NoteDocument> {
   return {
     revision: (note) => note.revision,
     body: (note) => note.body ?? "",
     frontmatter: (note) => note.frontmatter,
-    write: (base, change) => guard(() => gateway.update(base, change)),
-    read: (base) => gateway.read(base.path),
-    recover: (requestId) => guard(() => gateway.recoverNoteMutation(requestId)),
+    write: (base, change) => outcome(() => guard(() => gateway.update(base, change))),
+    read: (base) => outcome(() => gateway.read(base.path)),
+    recover: (requestId) => outcome(() => guard(() => gateway.recoverNoteMutation(requestId))),
     isPending: (requestId) => gateway.pendingNoteMutations().some((pending) => pending.requestId === requestId)
   };
+}
+
+/** The gateway reports failures as errors; the session expects them as outcomes. */
+async function outcome(operation: () => Promise<NoteDocument>): Promise<ConnectOutcome<NoteDocument>> {
+  try {
+    return connectSuccess(await operation());
+  } catch (error) {
+    if (error instanceof MdbaseConnectError) return connectFailure(error.problem);
+    if (error instanceof Error) return connectFailure(connectProblem("operation_failed", error.message));
+    throw error;
+  }
+}
+
+/** Throw a failed session outcome for the editor's error-based command flows. */
+export function requireSaved<Value>(result: ConnectOutcome<Value>): Value {
+  if (!result.ok) throw new MdbaseConnectError(result.problem);
+  return result.value;
 }
 
 export function sessionDirty(session: NoteSession): boolean {

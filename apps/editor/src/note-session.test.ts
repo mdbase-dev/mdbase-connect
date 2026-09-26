@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { RecordChange } from "@mdbase-dev/connect/advanced";
+import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import { NoteSession, NoteSessionStore, noteRecordAdapter, sessionDirty } from "./note-session";
 import type { NoteDocument } from "./model";
 
@@ -16,7 +16,7 @@ function document(path: string, overrides: Partial<NoteDocument> = {}): NoteDocu
   };
 }
 
-function session(note: NoteDocument, update = vi.fn(async (base: NoteDocument, change: RecordChange) => ({
+function session(note: NoteDocument, update = vi.fn(async (base: NoteDocument, change: MdbaseRecordChange) => ({
   ...base, revision: "2", body: change.body ?? base.body
 }))) {
   const gateway = { update, read: vi.fn(), recoverNoteMutation: vi.fn(), pendingNoteMutations: () => [] };

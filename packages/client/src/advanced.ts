@@ -21,13 +21,8 @@ export type {
   MdbaseSessionOptions,
   MdbaseSessionSnapshot
 } from "./session.js";
-/** Experimental record editing session. Its API may change between betas. */
-export { RecordSession } from "./record-session.js";
+/** Custom record transports, for sessions over an application's own repository or a test double. */
 export type {
-  RecordChange,
-  RecordResolution,
-  RecordSessionAdapter,
-  RecordSessionOptions,
-  RecordSessionSnapshot,
-  RecordSessionState
+  MdbaseRecordChange,
+  MdbaseRecordSessionAdapter
 } from "./record-session.js";

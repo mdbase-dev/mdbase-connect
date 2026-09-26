@@ -21,7 +21,7 @@ import {
   connectServerUrl
 } from "./connect-endpoint";
 import { persistedBody } from "./note";
-import type { RecordChange } from "@mdbase-dev/connect/advanced";
+import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type {
   CollectionGateway,
   CollectionFile,
@@ -284,7 +284,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
     }
   }
 
-  async update(base: NoteDocument, change: RecordChange): Promise<NoteDocument> {
+  async update(base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> {
     const connection = this.requireConnection();
     this.assertNoPendingNoteMutation(connection);
     // An unknown outcome surfaces to the record session, which recovers it exactly.
