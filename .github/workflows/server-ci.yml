@@ -178,6 +178,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm version:check
+      - name: Require the mdbase-rs pin on mdbase-rs main
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm check:mdbase-rs-pin
       - run: pnpm check:release-readiness
       - run: pnpm check:release-components
       - run: pnpm audit:dependencies
