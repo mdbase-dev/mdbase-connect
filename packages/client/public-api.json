@@ -9,6 +9,6 @@
     "ApplicationIdentity", "ApplicationIdentityStore", "ApplicationIdentityStoreError", "AuthorityProofInput", "FileTransferBinding", "FileTransferCryptoError", "GrantFileTransferCipher", "GrantKeyRecord", "GrantKeyStore", "IndexedDbApplicationIdentityStore", "IndexedDbGrantKeyStore", "MemoryApplicationIdentityStore", "MemoryGrantKeyStore", "RelayBinding", "RelayCryptoError", "applicationIdentity", "applicationInstallationId", "authorityProofMessage", "decryptRelayResponse", "deriveFileTransferKey", "deriveP256SharedSecret", "encryptRelayRequest", "signApplicationAuthorization", "signAuthorityRequest", "validateGrantEncryption"
   ],
   "testing": [
-    "ConnectTestOutcomeError", "MdbaseBrowserFixtureController", "MdbaseBrowserFixtureOptions", "MdbaseConnectorRelayFixture", "MdbaseFixtureApplication", "MdbaseFixtureAuthority", "MdbaseFixtureCollection", "MdbaseFixtureRelayOperation", "MdbaseTestPage", "connectError", "connectFailure", "connectProblem", "connectSuccess", "installMdbaseBrowserFixture", "operationProblem", "requireConnectSuccess"
+    "ConnectTestOutcomeError", "MdbaseBrowserFixtureController", "MdbaseBrowserFixtureOptions", "MdbaseConnectorRelayFixture", "MdbaseFixtureApplication", "MdbaseFixtureAuthority", "MdbaseFixtureCollection", "MdbaseFixtureRelayOperation", "MdbaseRecordTestAuthority", "MdbaseTestPage", "MdbaseTestRecordInput", "connectError", "connectFailure", "connectProblem", "connectSuccess", "createRecordTestAuthority", "installMdbaseBrowserFixture", "operationProblem", "requireConnectSuccess"
   ]
 }
