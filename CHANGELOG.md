@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- Added record sessions for editing a record while people type:
+  `connection.records.open(path)` returns a session shared by every view of
+  that record. It autosaves after a pause, never runs two writes for one
+  record, sends only changed frontmatter keys and the body, and reports a
+  conflict only when another change touched something edited locally. A save
+  whose response was lost is recovered exactly, including after a reload, and
+  `connection.records.follow(watch)` keeps open records current through
+  changes, renames, deletions and change gaps. See
+  [Record sessions](docs/record-session.md).
+- `@mdbase-dev/connect-testing` adds `createRecordTestAuthority()`, an
+  in-memory authority for testing record editing: revision checks, a change
+  watch, edits, renames and deletions from other clients, lost responses and
+  refused writes.
+- Local collections now report a stale `ifRevision` as
+  `concurrent_modification`, a missing record as `file_not_found` and an unsafe
+  path as `invalid_path`, as hosted collections already did. These were
+  previously `operation_invalid`; code matching on that for these conditions
+  must switch to the specific codes.
+- Encrypted requests and responses are encoded and decoded in chunks: a 1 MB
+  update takes 140 ms instead of 188 ms and a 1 MB read 32 ms instead of 74 ms
+  in the browser write profile (`pnpm profile:writes`).
+- Local saves no longer rescan the whole collection after each atomic write,
+  so a small browser update takes about 30 ms instead of 50 ms at 1,000
+  records, and runtime saves at 5,000 records take 44 ms instead of 158 ms.
+- Fixed local creates and updates restarting generated `sequence` fields from
+  their start value and duplicating values already in the collection.
 - `usage report` now reports hosted users from the hosted provider (previously
   always 0), a consent breakdown by authorization flow and by distinct
   application installation, and weekly signup-cohort retention.
