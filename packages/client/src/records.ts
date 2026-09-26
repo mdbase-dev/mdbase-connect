@@ -1,15 +1,18 @@
 import type { JsonObject } from "@mdbase-dev/connect-protocol";
-import type { MdbaseConnection } from "./connection.js";
 import { connectProblem } from "./errors.js";
 import type {
   CollectionChange,
   ConnectRequestOptions,
   MdbaseWatchSubscription,
-  RecordDocument
+  PendingMutation,
+  ReadInput,
+  RecordDocument,
+  UpdateInput
 } from "./operation-types.js";
 import {
   connectFailure,
   connectSuccess,
+  type CollectionMutationProblemCode,
   type CollectionReadProblemCode,
   type ConnectOutcome
 } from "./outcomes.js";
@@ -31,8 +34,14 @@ export interface MdbaseRecordLease<Frontmatter extends JsonObject = JsonObject> 
   release(): void;
 }
 
-type RecordConnection<Frontmatter extends JsonObject> =
-  Pick<MdbaseConnection<Frontmatter>, "read" | "update" | "pendingMutation">;
+/** The parts of a connection a record session uses; `MdbaseConnection` satisfies it. */
+interface RecordConnection<Frontmatter extends JsonObject> {
+  read(input: ReadInput, options?: ConnectRequestOptions):
+    Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionReadProblemCode>>;
+  update(input: UpdateInput<Frontmatter>, options?: ConnectRequestOptions):
+    Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionMutationProblemCode>>;
+  pendingMutation<Result>(requestId: string): PendingMutation<Result> | null;
+}
 
 interface Entry<Frontmatter extends JsonObject> {
   path: string;

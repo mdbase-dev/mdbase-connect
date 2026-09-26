@@ -1,4 +1,4 @@
-import { recordDigest } from "./record-digest.js";
+import { interruptedUpdate, updatedRecordDigest } from "./record-digest.js";
 import type {
   CollectionOperation,
   EncryptedRelayOperationRequest,
@@ -192,34 +192,18 @@ export class ConnectionTransport {
 
   /** Return pending writes without exposing authority transport credentials. */
   pendingMutations(): readonly PendingMutationSummary[] {
-    return this.storedPendingMutations().map((pending) => ({
-      requestId: pending.requestId,
-      operation: this.pendingMutationStore.identifier(pending),
-      fingerprint: pending.inputFingerprint,
-      status: "outcome_unknown",
-      createdAt: new Date(pending.createdAt).toISOString()
-    }));
+    return this.storedPendingMutations().map((pending) => this.pendingMutationStore.summary(pending));
   }
 
   /** The request ID of an interrupted update to one record, if any. */
   async pendingUpdate(path: string): Promise<string | null> {
     const collectionId = this.currentToken()?.collectionId;
-    if (!collectionId) return null;
-    const digest = await recordDigest(collectionId, path);
-    return this.storedPendingMutations()
-      .find((pending) => pending.operation === "update" && pending.recordDigest === digest)
-      ?.requestId ?? null;
+    return collectionId ? interruptedUpdate(this.storedPendingMutations(), collectionId, path) : null;
   }
 
   pendingMutation(requestId: string): PendingMutationSummary | null {
     const pending = this.storedPendingMutation(requestId);
-    return pending ? {
-      requestId: pending.requestId,
-      operation: this.pendingMutationStore.identifier(pending),
-      fingerprint: pending.inputFingerprint,
-      status: "outcome_unknown",
-      createdAt: new Date(pending.createdAt).toISOString()
-    } : null;
+    return pending ? this.pendingMutationStore.summary(pending) : null;
   }
 
   async recoverPendingMutation<Result>(
@@ -589,10 +573,7 @@ export class ConnectionTransport {
       pending = this.storedPendingMutation(pendingRequestId);
       inputFingerprint = pending?.inputFingerprint
         ?? await operationFingerprint(operation, input);
-      const path = (input as { path?: unknown } | undefined)?.path;
-      if (!pending && operation === "update" && typeof path === "string") {
-        updatedRecord = await recordDigest(token.collectionId, path);
-      }
+      if (!pending) updatedRecord = await updatedRecordDigest(token.collectionId, operation, input);
       if (pending) {
         if (pending.collectionId !== token.collectionId
             || pending.operation !== operation

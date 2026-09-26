@@ -4,6 +4,7 @@ import {
   type MutationOperationIdentifier
 } from "@mdbase-dev/connect-protocol";
 import type { PendingMutation } from "./internal-types.js";
+import type { PendingMutationSummary } from "./operation-types.js";
 import { parseStored } from "./runtime-utils.js";
 
 export class PendingMutationStore {
@@ -45,6 +46,17 @@ export class PendingMutationStore {
       pending.operation,
       pending.request?.input ?? (pending.operation === "sync" ? { action: "mutate" } : {})
     ) ?? (pending.operation === "sync" ? "sync:mutate" : pending.operation) as MutationOperationIdentifier;
+  }
+
+  /** A pending write without its authority transport credentials. */
+  summary(pending: PendingMutation): PendingMutationSummary {
+    return {
+      requestId: pending.requestId,
+      operation: this.identifier(pending),
+      fingerprint: pending.inputFingerprint,
+      status: "outcome_unknown",
+      createdAt: new Date(pending.createdAt).toISOString()
+    };
   }
 
   store(pending: PendingMutation): void {
