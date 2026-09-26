@@ -12,6 +12,7 @@
     "check:architecture": "node scripts/check-architecture.mjs",
     "check:cargo-features": "scripts/check-cargo-features",
     "check:npm-bootstrap": "node scripts/check-npm-package-bootstrap.mjs",
+    "check:mdbase-rs-pin": "node scripts/mdbase-rs-pin.mjs check-main",
     "check:release-readiness": "node scripts/check-release-readiness.mjs",
     "check:release-components": "node scripts/release-components.mjs --check",
     "check:workspace-pins": "node scripts/check-workspace-pins.mjs",
@@ -80,6 +81,8 @@
     "test:browser-storage": "pnpm --filter @mdbase-dev/connect test:browser-storage",
     "pretypecheck": "pnpm build:packages",
     "typecheck": "pnpm -r typecheck",
+    "ci:local": "node scripts/ci-local.mjs",
+    "pin:mdbase-rs": "node scripts/mdbase-rs-pin.mjs set",
     "version:check": "node scripts/check-release-version.mjs"
   },
   "devDependencies": {
