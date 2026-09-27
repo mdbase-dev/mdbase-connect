@@ -23,7 +23,8 @@ export function expectEditorRegistration(body: unknown): void {
       required: ["list", "read"],
       optional: ["add"],
       scope: { kind: "collection" }
-    }
+    },
+    people: { version: 1, optional: ["identity"] }
   });
   expect(body).toMatchObject({
     manifest: { manifest_version: 1, id: "dev.mdbase.editor" }
