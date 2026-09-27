@@ -9,7 +9,7 @@
   "requirements": {
     "people": {
       "version": 1,
-      "permissions": [
+      "optional": [
         "identity"
       ]
     },

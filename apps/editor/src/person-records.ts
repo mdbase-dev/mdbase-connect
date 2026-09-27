@@ -1,9 +1,10 @@
-import type { AccountIdentity, CollectionDescription, CollectionContractImplementationDescriptor, JsonObject } from "@mdbase-dev/connect";
+import { PERSON_CONTRACT, sameIdentity, suggestPersonId } from "@mdbase-dev/connect";
+import type { AccountIdentity, CollectionDescription, CollectionContractImplementationDescriptor, JsonObject, PeopleDirectory, PersonRecord } from "@mdbase-dev/connect";
 import { readFieldReference, fieldReferencePatch, writeFieldReference } from "./field-reference";
-import type { NoteSummary } from "./model";
+import type { CollectionGateway } from "./model";
 
 export function personImplementations(description: CollectionDescription) {
-  return description.contracts.find((contract) => contract.id === "mdbase.person" && contract.version === "1.0.0")?.implementations ?? [];
+  return description.contracts.find((contract) => contract.id === PERSON_CONTRACT.id && contract.version === PERSON_CONTRACT.version)?.implementations ?? [];
 }
 
 export function personField(implementation: CollectionContractImplementationDescriptor, field: "id" | "name" | "identities"): string {
@@ -12,46 +13,54 @@ export function personField(implementation: CollectionContractImplementationDesc
   return reference;
 }
 
-export function personRecords(description: CollectionDescription, notes: NoteSummary[]) {
-  const implementations = personImplementations(description);
-  return notes.flatMap((note) => {
-    const matches = implementations.filter((implementation) => note.types.includes(implementation.typeName));
-    if (matches.length > 1) throw new Error(`${note.path} implements Person through multiple types. Resolve its mappings before linking.`);
-    if (!matches.length) return [];
-    const implementation = matches[0];
-    const id = readFieldReference(note.frontmatter, personField(implementation, "id"));
-    const name = readFieldReference(note.frontmatter, personField(implementation, "name"));
-    const identities = readFieldReference(note.frontmatter, personField(implementation, "identities")) ?? [];
-    if (typeof id !== "string" || !id.trim() || typeof name !== "string" || !name.trim()
-      || !Array.isArray(identities) || identities.some((identity) => !identity || typeof identity !== "object"
-        || typeof identity.issuer !== "string" || typeof identity.subject !== "string")) {
-      throw new Error(`${note.path} has invalid Person fields. Edit the record before linking.`);
-    }
-    return [{ path: note.path, id, name, identities: identities as AccountIdentity[], implementation }];
-  });
+export const CONTACT_CONTRACT = { id: "mdbase.contact", version: "1.0.0" } as const;
+
+export interface ContactCandidate {
+  path: string;
+  name: string;
+  source: CollectionContractImplementationDescriptor;
 }
 
-export function matchingPerson(records: ReturnType<typeof personRecords>, identity: AccountIdentity) {
-  const matches = records.filter((record) => record.identities.some((candidate) => sameIdentity(candidate, identity)));
-  if (matches.length > 1 || matches.some((match) => records.filter((record) => record.id === match.id).length > 1)) {
-    throw new Error("Multiple person records match your identity or share its person ID. Resolve the duplicates before linking.");
+/**
+ * Individual Contact-only records, read through the contract rather than by
+ * scanning notes. Records already projected as Person, or implementing Contact
+ * through several types, are never conversion candidates.
+ */
+export async function contactCandidates(
+  gateway: Pick<CollectionGateway, "queryContract">,
+  description: CollectionDescription,
+  directory: PeopleDirectory,
+  signal?: AbortSignal
+): Promise<ContactCandidate[]> {
+  if (!gateway.queryContract) return [];
+  const excluded = new Set([...directory.people, ...directory.invalid].map((record) => record.path));
+  const implementations = description.contracts.find((contract) =>
+    contract.id === CONTACT_CONTRACT.id && contract.version === CONTACT_CONTRACT.version)?.implementations ?? [];
+  const byPath = new Map<string, Array<{ source: CollectionContractImplementationDescriptor; values: JsonObject }>>();
+  for (const source of implementations) {
+    for (const record of await gateway.queryContract({ ...CONTACT_CONTRACT, type: source.typeName }, { signal })) {
+      byPath.set(record.path, [...byPath.get(record.path) ?? [], { source, values: record.values }]);
+    }
   }
+  return [...byPath].flatMap(([path, entries]) => {
+    if (excluded.has(path) || entries.length !== 1) return [];
+    const { source, values } = entries[0];
+    const { name, kind } = values;
+    if (typeof name !== "string" || !name.trim() || (kind !== undefined && kind !== "individual")) return [];
+    return [{ path, name, source }];
+  }).sort((left, right) => left.path.localeCompare(right.path));
+}
+
+/** The one implementation through which a linked identity can be written. */
+export function writablePersonImplementation(description: CollectionDescription, person: PersonRecord) {
+  const matches = personImplementations(description).filter((implementation) => person.typeNames.includes(implementation.typeName));
+  if (matches.length !== 1) throw new Error(`${person.path} implements Person through multiple types. Resolve its mappings in Types before linking.`);
   return matches[0];
 }
 
-export function contactRecords(description: CollectionDescription, notes: NoteSummary[]) {
-  const people = personImplementations(description);
-  const contacts = description.contracts.find((contract) => contract.id === "mdbase.contact" && contract.version === "1.0.0")?.implementations ?? [];
-  return notes.flatMap((note) => {
-    if (people.some((candidate) => note.types.includes(candidate.typeName))) return [];
-    const matches = contacts.filter((candidate) => note.types.includes(candidate.typeName));
-    if (matches.length !== 1) return [];
-    const source = matches[0];
-    const name = readFieldReference(note.frontmatter, source.fields.name ?? source.fields["/name"]);
-    const kind = readFieldReference(note.frontmatter, source.fields.kind ?? source.fields["/kind"]);
-    if (typeof name !== "string" || !name.trim() || (kind !== undefined && kind !== "individual")) return [];
-    return [{ path: note.path, name, source }];
-  });
+/** Another account from the same issuer already claims this record. */
+export function claimedByAnotherAccount(person: PersonRecord, identity: AccountIdentity): boolean {
+  return person.identities.some((candidate) => candidate.issuer === identity.issuer && !sameIdentity(candidate, identity));
 }
 
 /** Explicit one-record conversion, never an implicit whole-address-book migration. */
@@ -61,8 +70,9 @@ export function contactPersonPatch(
   source: CollectionContractImplementationDescriptor,
   target: CollectionContractImplementationDescriptor,
   identity: AccountIdentity,
+  existingIds: Iterable<string>,
 ): { patch: JsonObject; personId: string } {
-  const contactTarget = description.contracts.find((contract) => contract.id === "mdbase.contact" && contract.version === "1.0.0")?.implementations.find((candidate) => candidate.typeName === target.typeName);
+  const contactTarget = description.contracts.find((contract) => contract.id === CONTACT_CONTRACT.id && contract.version === CONTACT_CONTRACT.version)?.implementations.find((candidate) => candidate.typeName === target.typeName);
   if (!contactTarget) throw new Error("Choose a target type that implements both Person and Contact so existing contact semantics are retained.");
   const type = description.types.find((candidate) => candidate.name === target.typeName);
   if (!type) throw new Error("The target person type is unavailable.");
@@ -73,8 +83,10 @@ export function contactPersonPatch(
   const properties = type.schema.properties;
   if (properties && typeof properties === "object" && !Array.isArray(properties)) {
     for (const [key, value] of Object.entries(properties)) {
+      // Type keys are handled once below, so a `types` collection never gains `type`.
+      if (keys.includes(key)) continue;
       if (value && typeof value === "object" && !Array.isArray(value) && "const" in value) {
-        if (!keys.includes(key) && frontmatter[key] !== undefined && JSON.stringify(frontmatter[key]) !== JSON.stringify(value.const)) throw new Error(`The target type would overwrite ${key}. Configure compatible mappings first.`);
+        if (frontmatter[key] !== undefined && JSON.stringify(frontmatter[key]) !== JSON.stringify(value.const)) throw new Error(`The target type would overwrite ${key}. Configure compatible mappings first.`);
         next = { ...next, [key]: structuredClone(value.const) };
       }
     }
@@ -103,7 +115,7 @@ export function contactPersonPatch(
   next = writeFieldReference(next, personField(target, "name"), name);
   const existingId = readFieldReference(frontmatter, personField(target, "id"));
   if (existingId !== undefined && typeof existingId !== "string") throw new Error("The target ID field is not a portable string ID. Configure a separate person-ID field first.");
-  const personId = typeof existingId === "string" && existingId.trim() ? existingId : `person_${crypto.randomUUID()}`;
+  const personId = typeof existingId === "string" && existingId.trim() ? existingId : suggestPersonId(name, existingIds);
   next = writeFieldReference(next, personField(target, "id"), personId);
   next = { ...next, ...identityPatch(next, target, identity) };
   for (const [canonical, field] of Object.entries(source.fields)) {
@@ -112,10 +124,6 @@ export function contactPersonPatch(
     if (value !== undefined && JSON.stringify(value) !== JSON.stringify(readFieldReference(next, mapped))) throw new Error("The Person mappings conflict with existing Contact fields. Configure non-overlapping mappings first.");
   }
   return { personId, patch: Object.fromEntries(Object.entries(next).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(frontmatter[key]))) };
-}
-
-export function sameIdentity(left: AccountIdentity, right: AccountIdentity): boolean {
-  return left.issuer === right.issuer && left.subject === right.subject;
 }
 
 export function identityPatch(frontmatter: JsonObject, implementation: CollectionContractImplementationDescriptor, identity: AccountIdentity) {
@@ -127,8 +135,9 @@ export function identityPatch(frontmatter: JsonObject, implementation: Collectio
   return fieldReferencePatch(frontmatter, field, next);
 }
 
-export function newPersonProperties(implementation: CollectionContractImplementationDescriptor, identity: AccountIdentity, name: string): JsonObject {
-  let properties = writeFieldReference({}, personField(implementation, "id"), `person_${crypto.randomUUID()}`);
+/** The ID is generated once, readable, and never regenerated when the name changes. */
+export function newPersonProperties(implementation: CollectionContractImplementationDescriptor, identity: AccountIdentity, name: string, existingIds: Iterable<string>): JsonObject {
+  let properties = writeFieldReference({}, personField(implementation, "id"), suggestPersonId(name, existingIds));
   properties = writeFieldReference(properties, personField(implementation, "name"), name);
   return writeFieldReference(properties, personField(implementation, "identities"), [{ issuer: identity.issuer, subject: identity.subject }]);
 }

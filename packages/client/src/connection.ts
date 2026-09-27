@@ -235,10 +235,14 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       timeouts: internals.timeouts,
       onChange: () => this.emitConnection()
     });
-    this.people = new MdbasePeopleClient((resource, options) => requestPeople(resource, options ?? {}, {
-      serverUrl: internals.serverUrl, collectionId, requestMs: internals.timeouts.requestMs,
-      authorizedToken: (signal) => this.transport.authorizedToken({ signal, timeoutMs: null })
-    }));
+    this.people = new MdbasePeopleClient({
+      request: (resource, options) => requestPeople(resource, options ?? {}, {
+        serverUrl: internals.serverUrl, collectionId, requestMs: internals.timeouts.requestMs,
+        authorizedToken: (signal) => this.transport.authorizedToken({ signal, timeoutMs: null })
+      }),
+      describe: (options) => this.describe(options),
+      queryPages: (input, options) => this.queryPages(input, options as QueryPagesOptions<Frontmatter>) as AsyncIterable<ConnectOutcome<QueryPage, CollectionQueryProblemCode>>
+    });
     this.files = new MdbaseFileClient(
       () => this.fileCapability,
       (method, path, input, signal) =>

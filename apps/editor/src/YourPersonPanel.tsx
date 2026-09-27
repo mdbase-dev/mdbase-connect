@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AccountProfile, CollectionDescription, JsonObject, TypePackAssessment, TypePackProvision } from "@mdbase-dev/connect";
+import type { CollectionDescription, JsonObject, PeopleDirectory, PersonResolution, TypePackAssessment, TypePackProvision } from "@mdbase-dev/connect";
 import type { CollectionGateway, CreateNoteInput } from "./model";
 import { NewNoteComposer } from "./NewNoteComposer";
-import { contactPersonPatch, contactRecords, identityPatch, matchingPerson, newPersonProperties, personImplementations, personRecords } from "./person-records";
+import { readFieldReference } from "./field-reference";
+import { claimedByAnotherAccount, contactCandidates, contactPersonPatch, identityPatch, newPersonProperties, personField, personImplementations, writablePersonImplementation, type ContactCandidate } from "./person-records";
 
 import { loadPersonSetup, requireAdditivePersonSetup } from "./person-setup";
-
-type Person = ReturnType<typeof personRecords>[number];
 
 export function YourPersonPanel({ gateway, description, canCreate, canEdit, canInstall = false, onRefreshDescription }: {
   gateway: CollectionGateway;
@@ -20,10 +19,9 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   useEffect(() => {
     if (location.hash === "#your-person") panel.current?.focus();
   }, []);
-  const [identity, setIdentity] = useState<AccountProfile>();
-  const [records, setRecords] = useState<Person[]>();
-  const [linked, setLinked] = useState<Person>();
-  const [contacts, setContacts] = useState<ReturnType<typeof contactRecords>>([]);
+  const [directory, setDirectory] = useState<PeopleDirectory>();
+  const [contacts, setContacts] = useState<ContactCandidate[]>([]);
+  const [confirmClaimed, setConfirmClaimed] = useState(false);
   const [conversion, setConversion] = useState<{ path: string; revision: string; patch: JsonObject; personId: string; typeName: string }>();
   const [path, setPath] = useState("");
   const [typeName, setTypeName] = useState("");
@@ -43,20 +41,25 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   const lifecycle = useRef<AbortController | null>(null);
   const implementations = personImplementations(description).filter((candidate) => ["id", "name", "identities"].every((field) => candidate.fields[field] || candidate.fields[`/${field}`]));
   const implementation = implementations.find((candidate) => candidate.typeName === typeName) ?? implementations[0];
-  const properties = useMemo(() => identity && implementation ? newPersonProperties(implementation, identity, identity.name) : {}, [identity, implementation]);
+  const identity = directory?.account;
+  const records = directory?.people;
+  const linked = directory?.me.status === "linked" ? directory.me.person : undefined;
+  const existingIds = useMemo(() => directory ? [...directory.people.map((person) => person.id), ...directory.duplicateIds] : [], [directory]);
+  const properties = useMemo(() => identity && implementation ? newPersonProperties(implementation, identity, identity.name, existingIds) : {}, [identity, implementation, existingIds]);
+  const selectedPerson = records?.find((record) => record.path === path);
+  const selectedIsClaimed = Boolean(identity && selectedPerson && claimedByAnotherAccount(selectedPerson, identity));
 
   useEffect(() => {
     const controller = new AbortController();
     lifecycle.current = controller;
-    setRecords(undefined); setIdentity(undefined); setLinked(undefined); setConversion(undefined); setSetup(undefined); setError("");
+    setDirectory(undefined); setContacts([]); setConversion(undefined); setSetup(undefined); setError(""); setConfirmClaimed(false);
     void (async () => {
       try {
-        if (!gateway.currentIdentity) throw new Error("This collection has no Connect account identity.");
-        const [account, index] = await Promise.all([gateway.currentIdentity({ signal: controller.signal }), gateway.list({ signal: controller.signal })]);
+        if (!gateway.peopleDirectory) throw new Error("This collection has no Connect account identity.");
+        const next = await gateway.peopleDirectory({ signal: controller.signal });
+        const candidates = next.me.status === "unlinked" ? await contactCandidates(gateway, description, next, controller.signal) : [];
         if (controller.signal.aborted) return;
-        const people = personRecords(description, index.notes);
-        const match = matchingPerson(people, account);
-        setIdentity(account); setRecords(people); setContacts(contactRecords(description, index.notes)); setLinked(match);
+        setDirectory(next); setContacts(candidates);
       } catch (reason) {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load people.");
       }
@@ -114,32 +117,42 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
     } finally { setBusy(false); }
   }
 
+  /** Requery before every write: never infer uniqueness from the loaded picker. */
+  async function freshUnlinkedDirectory() {
+    const fresh = await gateway.peopleDirectory!({ signal: lifecycle.current?.signal });
+    if (fresh.me.status !== "unlinked") throw new Error("A person record now matches your account. Reload these settings.");
+    return fresh;
+  }
+
   async function link() {
     if (!identity || !records || busy || !canEdit) return;
     setBusy(true); setError("");
     try {
       assertCurrent();
-      // Requery before linking: never infer uniqueness from the old picker.
-      const index = await gateway.list({ signal: lifecycle.current?.signal });
-      const people = personRecords(description, index.notes);
-      if (matchingPerson(people, identity)) throw new Error("Your account is already linked. Reload these settings.");
-      const contact = contactRecords(description, index.notes).find((record) => record.path === path);
+      const fresh = await freshUnlinkedDirectory();
+      const contact = contacts.find((record) => record.path === path);
       if (contact) {
         if (!implementation) throw new Error("Set up person records below before reviewing this contact.");
         assertCurrent();
         const record = await gateway.read(path);
         assertCurrent();
-        const prepared = contactPersonPatch(description, record.frontmatter, contact.source, implementation, identity);
-        if (people.some((person) => person.id === prepared.personId)) throw new Error("The contact's proposed person ID already belongs to another record.");
+        const ids = [...fresh.people.map((person) => person.id), ...fresh.duplicateIds];
+        const prepared = contactPersonPatch(description, record.frontmatter, contact.source, implementation, identity, ids);
+        if (ids.includes(prepared.personId)) throw new Error("The contact's proposed person ID already belongs to another record.");
         setConversion({ ...prepared, path, revision: record.revision, typeName: implementation.typeName });
         return;
       }
-      const selected = people.find((record) => record.path === path);
-      if (!selected || people.filter((record) => record.id === selected.id).length !== 1) throw new Error("Select a person with a unique ID.");
+      const selected = fresh.people.find((record) => record.path === path);
+      if (!selected || fresh.duplicateIds.includes(selected.id)) throw new Error("Select a person with a unique ID.");
+      if (claimedByAnotherAccount(selected, identity) && !confirmClaimed) {
+        setConfirmClaimed(true);
+        return;
+      }
+      const target = writablePersonImplementation(description, selected);
       assertCurrent();
       const record = await gateway.read(path);
       assertCurrent();
-      await gateway.updateProperties(path, identityPatch(record.frontmatter, selected.implementation, identity), record.revision);
+      await gateway.updateProperties(path, identityPatch(record.frontmatter, target, identity), record.revision);
       if (!lifecycle.current?.signal.aborted) setRevision((value) => value + 1);
     } catch (reason) {
       if (!lifecycle.current?.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not link this person.");
@@ -151,9 +164,8 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
     setBusy(true); setError("");
     try {
       assertCurrent();
-      const index = await gateway.list({ signal: lifecycle.current?.signal });
-      const people = personRecords(description, index.notes);
-      if (matchingPerson(people, identity) || people.some((person) => person.id === conversion.personId)) throw new Error("A person record now matches this account or ID. Reload and review the association.");
+      const fresh = await freshUnlinkedDirectory();
+      if (fresh.people.some((person) => person.id === conversion.personId)) throw new Error("Another person record now uses this ID. Reload and review the association.");
       assertCurrent();
       await gateway.updateProperties(conversion.path, conversion.patch, conversion.revision);
       if (!lifecycle.current?.signal.aborted) setRevision((value) => value + 1);
@@ -165,8 +177,10 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   async function create(input: CreateNoteInput) {
     assertCurrent();
     if (!identity || !implementation || !canCreate || input.type !== implementation.typeName) throw new Error("Select a Person-compatible type.");
-    const index = await gateway.list({ signal: lifecycle.current?.signal });
-    if (matchingPerson(personRecords(description, index.notes), identity)) throw new Error("Your account is already linked. Reload these settings.");
+    const fresh = await freshUnlinkedDirectory();
+    if (fresh.people.some((person) => person.id === readFieldReference(input.properties, personField(implementation, "id")))) {
+      throw new Error("Another person record now uses this ID. Choose a different ID.");
+    }
     assertCurrent();
     await gateway.create(input);
     if (!lifecycle.current?.signal.aborted) { setCreating(false); setRevision((value) => value + 1); }
@@ -178,12 +192,15 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
     {!records && !error && <p role="status">Loading your identity and person records…</p>}
     {error && <button type="button" onClick={() => setRevision((value) => value + 1)}>Retry</button>}
     {linked && <p>Linked to <strong>{linked.name}</strong> · <code>{linked.path}</code>. Edit this note to change its collection display name or identity associations.</p>}
-    {records && !linked && <>
+    {directory && <ResolutionProblem resolution={directory.me} />}
+    {directory && directory.invalid.length > 0 && <details><summary>{directory.invalid.length === 1 ? "1 person record needs attention" : `${directory.invalid.length} person records need attention`}</summary><ul>{directory.invalid.map((record) => <li key={record.path}><code>{record.path}</code>: {record.reason}</li>)}</ul></details>}
+    {records && directory?.me.status === "unlinked" && <>
       <p>Your account: <strong>{identity?.name}</strong>. The record's display name belongs to this collection and is not synchronised with your account.</p>
-      {(records.length > 0 || contacts.length > 0) && <div className="setting-row"><label>Existing person or contact<select aria-label="Existing person or contact" value={path} onChange={(event) => { setPath(event.target.value); setConversion(undefined); }} disabled={busy}>
+      {(records.length > 0 || contacts.length > 0) && <div className="setting-row"><label>Existing person or contact<select aria-label="Existing person or contact" value={path} onChange={(event) => { setPath(event.target.value); setConversion(undefined); setConfirmClaimed(false); }} disabled={busy}>
         <option value="">Choose a record…</option>{records.map((record) => <option key={record.path} value={record.path}>{record.name} · {record.path}</option>)}
         {contacts.map((contact) => <option key={contact.path} value={contact.path}>{contact.name} · {contact.path} (Contact-only)</option>)}
-      </select></label><button type="button" disabled={!path || busy || !canEdit} onClick={() => void link()}>{contacts.some((contact) => contact.path === path) ? "Review contact conversion" : "Link this record to me"}</button></div>}
+      </select></label><button type="button" disabled={!path || busy || !canEdit} onClick={() => void link()}>{contacts.some((contact) => contact.path === path) ? "Review contact conversion" : confirmClaimed ? "Link anyway" : "Link this record to me"}</button></div>}
+      {selectedIsClaimed && <p role={confirmClaimed ? "alert" : undefined}>This record is already linked to another account. Linking it to yours means you will both see its assignments as your own. Only continue if this record really represents you.</p>}
       {conversion && <div role="region" aria-label="Review contact conversion"><p>This changes only <code>{conversion.path}</code> to the <strong>{conversion.typeName}</strong> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed.</p><details><summary>Review fields to write</summary><pre>{JSON.stringify(conversion.patch, null, 2)}</pre></details><button type="button" disabled={busy || !canEdit} onClick={() => void convertContact()}>Convert and link this contact</button><button type="button" disabled={busy} onClick={() => setConversion(undefined)}>Cancel conversion</button></div>}
       {!canEdit && <p>Ask a collection editor to link your person record.</p>}
       <details><summary>About existing contacts</summary><p>You can link an existing person directly, or review converting a single contact without changing the rest of your address book. Advanced Person mappings are available in Types; required fields there affect every record of that type.</p></details>
@@ -203,4 +220,10 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       {creating && implementation && identity && <NewNoteComposer key={implementation.typeName} types={description.types.filter((type) => type.name === implementation.typeName)} defaultType={implementation.typeName} initialTitle={identity.name} initialProperties={properties} recordPaths={records.map((record) => record.path)} onCreate={create} onCancel={() => setCreating(false)} />}
     </>}
   </section>;
+}
+
+function ResolutionProblem({ resolution }: { resolution: PersonResolution }) {
+  if (resolution.status === "ambiguous") return <div role="alert"><p>Several person records match your account or share its person ID. Edit them so exactly one record represents you:</p><ul>{resolution.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>;
+  if (resolution.status === "invalid") return <div role="alert"><p>A person record linked to your account has invalid fields. Fix it before relying on it:</p><ul>{resolution.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>;
+  return null;
 }

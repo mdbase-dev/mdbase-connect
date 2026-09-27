@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { CollectionDescription } from "@mdbase-dev/connect";
 import type { CollectionGateway, NoteSummary } from "./model";
 import { YourPersonPanel } from "./YourPersonPanel";
+import { peopleGateway } from "./test/people-gateway";
 
 vi.mock("./NewNoteComposer", () => ({ NewNoteComposer: (props: { initialTitle: string; initialProperties: object; defaultType: string; onCreate(input: unknown): Promise<void> }) =>
   <button type="button" onClick={() => void props.onCreate({ title: props.initialTitle, properties: props.initialProperties, type: props.defaultType, path: "contacts/new.md", body: "" })}>Create fixture person</button>
@@ -11,12 +12,11 @@ afterEach(cleanup);
 const identity = { issuer: "https://connect.example", subject: "account", name: "Account name" };
 const implementation = { typeName: "contact", typeVersion: 1, digest: "digest", fields: { id: "uid", name: "/profile/name", identities: "/profile/accounts" } };
 const description = { collectionId: "collection", types: [{ name: "contact", schema: {} }], contracts: [{ id: "mdbase.person", version: "1.0.0", implementations: [implementation] }] } as unknown as CollectionDescription;
-function fixture() {
+function fixture(current: () => CollectionDescription = () => description) {
   const notes: NoteSummary[] = [{ path: "contacts/existing.md", types: ["contact"], frontmatter: { uid: "person_one", profile: { name: "Existing contact", accounts: [] } }, effectiveFrontmatter: {}, file: {} }];
   const gateway = {
-    currentIdentity: vi.fn(async () => identity),
+    ...peopleGateway(identity, current, () => notes),
     sessionSnapshot: () => ({ status: "ready", connection: { collectionId: "collection" } }),
-    list: vi.fn(async () => ({ notes })),
     read: vi.fn(async () => ({ ...notes[0], revision: "revision" })),
     updateProperties: vi.fn(async (_path: string, patch: object) => { notes[0].frontmatter = { ...notes[0].frontmatter, ...patch }; }),
     create: vi.fn(async () => {}),
@@ -40,15 +40,15 @@ it("prefills normal record creation with the account name and portable identity"
   fireEvent.click(screen.getByRole("button", { name: "Create my person record" }));
   fireEvent.click(screen.getByRole("button", { name: "Create fixture person" }));
   await waitFor(() => expect(f.gateway.create).toHaveBeenCalledWith(expect.objectContaining({
-    title: "Account name", type: "contact", properties: { uid: expect.stringMatching(/^person_/), profile: { name: "Account name", accounts: [{ issuer: identity.issuer, subject: identity.subject }] } }
+    title: "Account name", type: "contact", properties: { uid: "account-name", profile: { name: "Account name", accounts: [{ issuer: identity.issuer, subject: identity.subject }] } }
   })));
 });
 it("only shows a type choice when the collection has multiple compatible types", async () => {
-  const f = fixture();
   const multiple = { ...description,
     types: [...description.types, { name: "person", schema: {} }],
     contracts: [{ ...description.contracts[0], implementations: [implementation, { ...implementation, typeName: "person" }] }]
   } as unknown as CollectionDescription;
+  const f = fixture(() => multiple);
   render(<YourPersonPanel gateway={f.gateway as unknown as CollectionGateway} description={multiple} canCreate canEdit />);
   fireEvent.change(await screen.findByRole("combobox", { name: "Person type" }), { target: { value: "person" } });
   fireEvent.click(screen.getByRole("button", { name: "Create my person record" }));
@@ -56,7 +56,8 @@ it("only shows a type choice when the collection has multiple compatible types",
   await waitFor(() => expect(f.gateway.create).toHaveBeenCalledWith(expect.objectContaining({ type: "person" })));
 });
 it("requires explicit review before converting a Contact-only note, preserving its ID and fields", async () => {
-  const f = fixture();
+  let current = description;
+  const f = fixture(() => current);
   f.notes[0].frontmatter.type = "contact";
   f.notes[0].frontmatter.private_notes = "Keep this local field";
   const target = { ...implementation, typeName: "person" };
@@ -68,6 +69,7 @@ it("requires explicit review before converting a Contact-only note, preserving i
       { id: "mdbase.contact", version: "1.0.0", implementations: [contactSource, { ...contactSource, typeName: "person" }] }
     ]
   } as unknown as CollectionDescription;
+  current = convertedDescription;
   render(<YourPersonPanel gateway={f.gateway as unknown as CollectionGateway} description={convertedDescription} canCreate canEdit />);
   fireEvent.change(await screen.findByRole("combobox", { name: "Existing person or contact" }), { target: { value: "contacts/existing.md" } });
   fireEvent.click(screen.getByRole("button", { name: "Review contact conversion" }));
@@ -93,6 +95,25 @@ it("shows duplicate matches instead of choosing a contact", async () => {
   f.notes[0].frontmatter.profile = { name: "Existing contact", accounts: [identity] };
   f.notes.push({ ...f.notes[0], path: "contacts/duplicate.md" });
   f.render();
-  expect(await screen.findByRole("alert")).toHaveTextContent("Multiple person records");
+  expect(await screen.findByRole("alert")).toHaveTextContent("Several person records match your account");
+  expect(screen.getByRole("alert")).toHaveTextContent("contacts/duplicate.md");
+  expect(screen.queryByRole("button", { name: "Link this record to me" })).toBeNull();
   expect(f.gateway.updateProperties).not.toHaveBeenCalled();
+});
+it("keeps working when an unrelated person record is invalid", async () => {
+  const f = fixture();
+  f.notes.push({ ...f.notes[0], path: "contacts/broken.md", frontmatter: { uid: "", profile: { name: "Broken" } } });
+  f.render();
+  expect(await screen.findByText("1 person record needs attention")).toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "Existing person or contact" })).toBeInTheDocument();
+});
+it("asks for confirmation before linking a record another account claims", async () => {
+  const f = fixture();
+  f.notes[0].frontmatter.profile = { name: "Existing contact", accounts: [{ issuer: identity.issuer, subject: "someone-else" }] };
+  f.render();
+  fireEvent.change(await screen.findByRole("combobox", { name: "Existing person or contact" }), { target: { value: "contacts/existing.md" } });
+  expect(screen.getByText(/already linked to another account/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Link this record to me" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Link anyway" }));
+  await waitFor(() => expect(f.gateway.updateProperties).toHaveBeenCalledOnce());
 });

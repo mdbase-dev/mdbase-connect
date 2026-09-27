@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { CollectionDescription, TypePackAssessment, TypePackProvision } from "@mdbase-dev/connect";
 import type { CollectionGateway, NoteSummary } from "./model";
 import { YourPersonPanel } from "./YourPersonPanel";
+import { peopleGateway } from "./test/people-gateway";
 import { loadPersonSetup, requireAdditivePersonSetup } from "./person-setup";
 import bundled from "./person-setup.pack.json";
 
@@ -25,19 +26,20 @@ function assessment(): TypePackAssessment {
 }
 function fixture(canInstall = true) {
   let collectionId = "fixture";
+  let current = empty;
+  const notes: NoteSummary[] = [];
   const review = assessment();
   const gateway = {
-    currentIdentity: vi.fn(async () => ({ issuer: "https://connect.example", subject: "account", name: "Example person" })),
+    ...peopleGateway({ issuer: "https://connect.example", subject: "account", name: "Example person" }, () => current, () => notes),
     sessionSnapshot: () => ({ status: "ready", connection: { collectionId } }),
-    list: vi.fn(async () => ({ notes: [] as NoteSummary[] })),
     assessTypePack: vi.fn(async () => review),
     applyTypePack: vi.fn(async () => ({})),
     create: vi.fn()
   };
   const refresh = vi.fn(async () => { view.rerender(panel(ready)); return ready; });
-  const panel = (description: CollectionDescription) => <YourPersonPanel gateway={gateway as unknown as CollectionGateway} description={description} canCreate canEdit canInstall={canInstall} onRefreshDescription={refresh} />;
+  const panel = (description: CollectionDescription) => { current = description; return <YourPersonPanel gateway={gateway as unknown as CollectionGateway} description={description} canCreate canEdit canInstall={canInstall} onRefreshDescription={refresh} />; };
   const view = render(panel(empty));
-  return { gateway, review, refresh, view, panel, switchCollection: () => { collectionId = "another"; } };
+  return { gateway, notes, review, refresh, view, panel, switchCollection: () => { collectionId = "another"; } };
 }
 async function review() {
   fireEvent.click(await screen.findByRole("button", { name: "Set up person records" }));
@@ -107,7 +109,7 @@ it("keeps an existing contact selected after setup instead of opening duplicate 
   const f = fixture();
   const contacts = { ...empty, types: [{ name: "contact", schema: {} }], contracts: [{ id: "mdbase.contact", version: "1.0.0", implementations: [{ typeName: "contact", fields: { name: "name" } }] }] } as unknown as CollectionDescription;
   const combined = { ...ready, types: [...contacts.types, ...ready.types], contracts: [...contacts.contracts, ...ready.contracts] };
-  f.gateway.list.mockResolvedValue({ notes: [{ path: "contact.md", types: ["contact"], frontmatter: { type: "contact", name: "Existing contact" }, effectiveFrontmatter: {}, file: {} }] });
+  f.notes.push({ path: "contact.md", types: ["contact"], frontmatter: { type: "contact", name: "Existing contact" }, effectiveFrontmatter: {}, file: {} });
   f.view.rerender(f.panel(contacts));
   fireEvent.change(await screen.findByRole("combobox", { name: "Existing person or contact" }), { target: { value: "contact.md" } });
   // The new provision does not own or touch the collection's existing Contact type.

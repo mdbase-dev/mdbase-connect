@@ -160,8 +160,13 @@ export interface CollectionGateway {
   ): Promise<void>;
   forgetConnection(collectionId: string): void;
   describe(): Promise<CollectionDescription>;
-  /** Demo collections have no authenticated account. */
-  currentIdentity?(options?: { signal?: AbortSignal }): Promise<import("@mdbase-dev/connect").AccountProfile>;
+  /** Demo collections have no authenticated account. Members are never read here. */
+  peopleDirectory?(options?: { signal?: AbortSignal }): Promise<import("@mdbase-dev/connect").PeopleDirectory>;
+  /** Every page of one contract/type projection. */
+  queryContract?(
+    contract: import("@mdbase-dev/connect").DataContractSelector,
+    options?: { signal?: AbortSignal }
+  ): Promise<Array<{ path: string; values: import("@mdbase-dev/connect").JsonObject }>>;
   list(options?: NoteIndexRequest): Promise<NoteIndexResult>;
   hydrateContent(options?: NoteContentRequest): Promise<NoteIndexResult>;
   read(path: string): Promise<NoteDocument>;

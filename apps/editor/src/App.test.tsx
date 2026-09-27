@@ -1026,7 +1026,10 @@ describe("mdbase editor", () => {
     const gateway = new DemoCollectionGateway(1);
     const callbackGateway = Object.create(gateway) as CollectionGateway;
     callbackGateway.onSessionChange = vi.fn(() => () => undefined);
-    callbackGateway.currentIdentity = vi.fn(async () => ({ issuer: "https://connect.example", subject: "self", name: "Me" }));
+    callbackGateway.peopleDirectory = vi.fn(async () => ({
+      account: { issuer: "https://connect.example", subject: "self", name: "Me" },
+      me: { status: "unlinked" as const }, people: [], invalid: [], duplicateIds: []
+    }));
     callbackGateway.startSession = vi.fn(async () => {
       // Redirect callbacks initially mount at the registered root. The SDK
       // restores the stored same-origin return URL before publishing readiness.
