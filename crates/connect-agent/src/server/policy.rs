@@ -698,15 +698,13 @@ pub(crate) fn apply_policy_snapshot(
         );
     }
     if current_is_lease && sequence == current.sequence {
-        return match cleanup_orphaned_timers(state) {
-            Ok(()) => RelayMessage::PolicyApplied {
-                protocol_version: CONTROL_PROTOCOL_VERSION,
-                request_id,
-                revision,
-                ok: true,
-                error: None,
-            },
-            Err(error) => rejected(request_id, revision, error.code(), error.to_string()),
+        request_orphaned_timer_cleanup(state);
+        return RelayMessage::PolicyApplied {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            request_id,
+            revision,
+            ok: true,
+            error: None,
         };
     }
 
@@ -724,7 +722,9 @@ pub(crate) fn apply_policy_snapshot(
         );
         drop(authority);
         drop(publications);
-        let result = result.and_then(|()| cleanup_orphaned_timers(state));
+        if result.is_ok() {
+            request_orphaned_timer_cleanup(state);
+        }
         return applied(request_id, revision, normalized_grants.len(), result);
     }
 
@@ -792,7 +792,9 @@ pub(crate) fn apply_policy_snapshot(
     drop(publications);
     state.publication_gate.changed.notify_all();
 
-    let result = result.and_then(|()| cleanup_orphaned_timers(state));
+    if result.is_ok() {
+        request_orphaned_timer_cleanup(state);
+    }
     applied(request_id, revision, normalized_grants.len(), result)
 }
 
@@ -898,21 +900,21 @@ pub(crate) fn apply_legacy_policy_snapshot(
     drop(authority);
     drop(publications);
     state.publication_gate.changed.notify_all();
-    let result = result.and_then(|()| cleanup_orphaned_timers(state));
+    if result.is_ok() {
+        request_orphaned_timer_cleanup(state);
+    }
     applied(request_id, revision, grants.len(), result)
 }
 
-fn cleanup_orphaned_timers(state: &AgentState) -> Result<(), ConnectError> {
+/// Grants are already replaced, so the snapshot is applied either way. Waiting
+/// here would hold the relay acknowledgement hostage to the timer worker.
+fn request_orphaned_timer_cleanup(state: &AgentState) {
     let Some(runtime_timers) = &state.runtime_timers else {
-        return Ok(());
+        return;
     };
-    runtime_timers
-        .cleanup_orphaned_timers()
-        .map(|_| ())
-        .map_err(|error| ConnectError::CloudProblem {
-            code: "timer_cleanup_pending".to_string(),
-            message: format!("Grant-owned timer cleanup is pending: {error}"),
-        })
+    if !runtime_timers.request_orphaned_timer_cleanup() {
+        tracing::warn!("orphaned notification timer cleanup deferred to recovery");
+    }
 }
 
 fn applied(
