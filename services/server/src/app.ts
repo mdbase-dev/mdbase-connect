@@ -87,6 +87,8 @@ interface BuildOptions {
   hostedProvider?: HostedProviderClient;
   hostedReferenceAuthority?: boolean;
   publicUrl?: string;
+  /** Validated by runtime configuration; loopback tests default to publicUrl. */
+  identityIssuer?: string;
   portalDist?: string;
   allowInsecureManifests?: boolean;
   trustProxy?: boolean;
@@ -401,7 +403,12 @@ export async function buildApp(options: BuildOptions) {
     hostedProvider: options.hostedProvider
   });
   registerLocalOperationRoutes(app, { db: options.db, relay });
-  registerPeopleRoutes(app, { db: options.db, publicUrl });
+  registerPeopleRoutes(app, {
+    db: options.db,
+    issuer: options.identityIssuer ?? new URL(publicUrl).origin,
+    publicUrl,
+    editorOrigin: options.editorOrigin
+  });
   registerLocalFileRoutes(app, { db: options.db, relay });
   registerConnectorHostedRoutes(app, {
     db: options.db,

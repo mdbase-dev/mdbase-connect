@@ -64,6 +64,7 @@ export async function approvePortalAuthorization(
     collectionId: string;
     operations: CollectionOperation[];
     fileActions?: FileAction[];
+    peoplePermissions?: string[];
     contractSetups: ContractSetupChoice[];
   },
   authority: { connectorId: string; generation: string }
@@ -240,6 +241,7 @@ export async function approvePortalAuthorization(
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
       requestedFileActions: input.fileActions,
+      requestedPeoplePermissions: input.peoplePermissions,
       requirements: pending.requirements,
       access: grantAccess
     });
@@ -273,9 +275,10 @@ export async function approvePortalAuthorization(
       `INSERT INTO grants
          (id, user_id, application_id, collection_id, operations, scope, encryption,
           file_capability, application_origin, notification_criteria,
-          application_authorization, application_installation_id, activated_at)
+          application_authorization, application_installation_id, activated_at,
+          people_permissions)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb,
-               $9, $10::jsonb, $11::jsonb, $12, NULL)
+               $9, $10::jsonb, $11::jsonb, $12, NULL, $13::jsonb)
        RETURNING created_at`,
       [
         grantId,
@@ -289,7 +292,8 @@ export async function approvePortalAuthorization(
         applicationOrigin,
         JSON.stringify(pending.notifications.criteria),
         JSON.stringify(pending.application_authorization),
-        applicationInstallationId
+        applicationInstallationId,
+        plan.peoplePermissions ? JSON.stringify(plan.peoplePermissions) : null
       ]
     );
     await connection.query(
@@ -535,6 +539,7 @@ export async function approveHostedAuthorization(
     collectionId: string;
     operations: CollectionOperation[];
     fileActions?: FileAction[];
+    peoplePermissions?: string[];
     contractSetups: ContractSetupChoice[];
     access: CollectionAccessContext;
   }
@@ -722,6 +727,7 @@ export async function approveHostedAuthorization(
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
       requestedFileActions: input.fileActions,
+      requestedPeoplePermissions: input.peoplePermissions,
       requirements: pending.requirements,
       access: currentAccess
     });
@@ -859,6 +865,7 @@ export async function approveHostedAuthorization(
            application_installation_id = $9,
            logical_collection_id = $10, membership_id = $11,
            membership_policy_id = $12, membership_policy_revision = $13,
+           people_permissions = $14::jsonb,
            activated_at = now(), revoked_at = NULL
          WHERE id = $1`,
         [
@@ -874,7 +881,8 @@ export async function approveHostedAuthorization(
           input.collectionId,
           membershipBinding?.membershipId ?? null,
           membershipBinding?.policyId ?? null,
-          membershipBinding?.policyRevision ?? null
+          membershipBinding?.policyRevision ?? null,
+          plan.peoplePermissions ? JSON.stringify(plan.peoplePermissions) : null
         ]
       );
       await connection.query(
@@ -918,9 +926,10 @@ export async function approveHostedAuthorization(
              operations, scope, encryption, proof_public_key, application_origin,
              file_capability, notification_criteria, application_authorization,
              application_installation_id, logical_collection_id, membership_id,
-             membership_policy_id, membership_policy_revision)
+             membership_policy_id, membership_policy_revision, people_permissions)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NULL, $8, $9,
-                 $10::jsonb, $11::jsonb, $12::jsonb, $13, $14, $15, $16, $17)`,
+                 $10::jsonb, $11::jsonb, $12::jsonb, $13, $14, $15, $16, $17,
+                 $18::jsonb)`,
         [
           grantId,
           input.userId,
@@ -938,7 +947,8 @@ export async function approveHostedAuthorization(
           input.collectionId,
           membershipBinding?.membershipId ?? null,
           membershipBinding?.policyId ?? null,
-          membershipBinding?.policyRevision ?? null
+          membershipBinding?.policyRevision ?? null,
+          plan.peoplePermissions ? JSON.stringify(plan.peoplePermissions) : null
         ]
       );
     }

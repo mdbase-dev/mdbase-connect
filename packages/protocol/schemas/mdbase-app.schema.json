@@ -125,13 +125,12 @@
         "people": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["version", "permissions"],
+          "required": ["version"],
+          "anyOf": [{ "required": ["required"] }, { "required": ["optional"] }],
           "properties": {
             "version": { "const": 1 },
-            "permissions": {
-              "type": "array", "minItems": 1, "uniqueItems": true,
-              "items": { "enum": ["identity", "members"] }
-            }
+            "required": { "$ref": "#/$defs/peoplePermissions" },
+            "optional": { "$ref": "#/$defs/peoplePermissions" }
           }
         },
         "files": { "$ref": "#/$defs/fileRequirement" },
@@ -219,6 +218,10 @@
         "background.schedule",
         "offline.replica"
       ]
+    },
+    "peoplePermissions": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "enum": ["identity", "members"] }
     },
     "fileRequirement": {
       "type": "object",

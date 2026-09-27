@@ -6,8 +6,8 @@ SDK discovery, and guided person creation/linking in collection settings.
 TaskNotes provides person-ID assignment editing and an Assigned to me search
 filter through its repository. No existing grant acquires identity access.
 
-Companion candidates: `mdbase.person` 1.0.0 in Contact pack 1.1.0;
-`tasknotes.task` rc.4 in TaskNotes pack rc.13 (task type v2); `tasknotes-model`
+Companion candidates: `mdbase.person` 1.0.0 in Contact packs 1.1.0 and 1.2.0;
+`tasknotes.task` rc.4 in TaskNotes pack rc.14 (task type v2); `tasknotes-model`
 rc.12 and `tasknotes-spec` rc.4. Existing published versions are unchanged.
 Catalog publication and coordinated server/client rollout still require review.
 
@@ -46,7 +46,7 @@ Example collection data:
 
 ```yaml
 type: person
-id: person_2c1343ec-cac1-4d58-98c9-41736f4de7db
+id: callum
 name: Callum
 identities:
   - issuer: https://connect.example
@@ -93,14 +93,20 @@ record update; unlinked contacts remain valid and useful without an account.
 
 The issuer is a stable deployment identity, not a hosted provider URL, current
 relay route, authority URL, or a value inferred from an untrusted Host header.
-Its production value and migration rules must be explicit before issuance.
+It is configured separately as `MDBASE_CONNECT_IDENTITY_ISSUER`, an exact origin
+without a trailing slash, and is required outside loopback development (where it
+defaults to the local public origin). Production uses `https://mdbase.dev`;
+staging and LAB use their own values so test identities never match production.
+Changing a configured issuer is an identity migration. Apps never navigate to
+the issuer; the identity response carries a separate `person_settings_url`.
 
 The account subject must not be an email, external OAuth provider subject,
 membership ID, or recycled identifier. It remains stable across collections,
-renames, email changes, provider linking, and removal/rejoining. Recreating a
-deleted account gets a new subject. An existing random internal account UUID
-may be suitable, but exposing it is a deliberate public identifier decision,
-not an incidental database serialization.
+renames, email changes, provider linking, and removal/rejoining. It is the
+dedicated random `users.public_subject` (`acct_` plus 32 hex digits), never the
+internal `users.id`, so internal keys can change without rewriting identities
+stored in user notes. Recreating a deleted account creates a new row and
+therefore a new subject.
 
 Account-wide identifiers permit correlation across collections. Consent must
 say this plainly. The directory exposes only identity, display name, role, and
@@ -117,34 +123,40 @@ not existing collection operations. Do not silently add them to
 owner-only management directory to apps, or treat an empty operation group as
 proof of consent.
 
-Version 1 is deliberately required-only consent in the exact application manifest:
+The application manifest declares required and optional people permissions:
 
 ```json
-{"requirements":{"people":{"version":1,"permissions":["identity","members"]}}}
+{"requirements":{"people":{"version":1,"required":["identity"],"optional":["members"]}}}
 ```
 
-The existing signed binding already includes the exact manifest digest. The
-immutable application declaration therefore persists this required consent;
-there is no parallel binding database, new collection operation, or new mutable
-grant flag. Changing people permissions changes application identity and needs
-fresh approval. Removing people access alone means authorizing a declaration
-without it; the initial version does not offer optional permission toggles.
-Legacy declarations reject this field. Older servers reject the new manifest;
-older grants have no people requirement and the new endpoints deny them.
+Either list may be omitted, but not both; they must be unique and disjoint. The
+signed binding includes the exact manifest digest, so the declaration cannot
+change without fresh approval. The approving user must grant required
+permissions and chooses optional ones in the consent screen; the grant stores
+the result in `grants.people_permissions` (NULL for none). Approval without an
+explicit choice is refused when optional permissions exist, as for optional
+file actions. Declining optional People access still authorizes the app. Legacy
+declarations reject this field. Older servers reject the new manifest; older
+grants have no people permissions and the new endpoints deny them.
 
-`GET /v1/authorities/:collectionId/identity` returns `{issuer, subject, name}`.
+`GET /v1/authorities/:collectionId/identity` returns `{issuer, subject, name,
+person_settings_url?}`. The settings URL is present when an editor origin is
+configured; it is a route that may change, never an identity.
 `GET /v1/authorities/:collectionId/members` returns `{members: [...]}`, adding
 `role` to each profile. Both use the control-plane application access token,
-including for hosted collections. The issuer is the configured public URL with
-its final slash removed; subject is the existing random internal account UUID,
-now deliberately an account-wide public identifier. Changing the configured
-issuer is an identity migration, not a transparent routing change.
+including for hosted collections, and each checks the grant's approved
+permissions rather than the declaration.
 
-The SDK exposes `connection.people.current()` and `connection.people.members()`
+The SDK exposes `connection.people.current()`, `members()` and `directory()`
 with typed outcomes, cancellation and bounded requests. A missing endpoint is
 `unsupported_operation`; denied consent is `access_denied`; availability failures
-are not empty directories. The editor uses normal collection grants to create
-records or append an identity to an existing Person-compatible record.
+are not empty directories. `directory()` performs the resolution below once for
+every app. It includes members only when requested and approved; a declined
+optional members permission omits them rather than returning an empty list.
+`suggestPersonId()` generates readable, unique IDs from a name. The editor uses
+normal collection grants to create records or append an identity to an existing
+Person-compatible record, and asks for confirmation before linking a record that
+already carries another account from the same issuer.
 An existing Contact-only note can be explicitly converted to an installed type
 implementing both Person and Contact. The user reviews the changed fields before
 a revision-guarded update to that one note; its path, contact semantics, body,
@@ -176,12 +188,19 @@ shared HTTP intermediaries.
 ## Person resolution
 
 Use the normalized contract projection, not concrete frontmatter field names.
+`connection.people.directory()` implements these rules; apps should not copy them.
 
 - No exact issuer/subject match: unlinked.
 - One matching record with a unique person ID: linked.
 - Multiple matching records: ambiguous, even if their IDs happen to be equal.
 - One matching record whose ID also appears on another person: ambiguous.
+- A record that fails projection but still claims this account: invalid.
+- Other invalid records are reported, not thrown; they do not block anyone else.
 - Incomplete or failed query: unavailable, not unlinked or uniquely linked.
+
+Person IDs are opaque to consumers. New records get short readable IDs (for
+example `alex-rivera`, then `alex-rivera-2`), generated once and never
+regenerated from a changed name, because references appear in hand-edited notes.
 
 Do not normalize case, trim subjects, strip issuer slashes, follow redirects,
 match by email, or choose the first result. Query all implementing types and
@@ -216,7 +235,7 @@ name; do not label it a verified profile.
 - Same account yields the same issuer/subject in two hosted collections and a
   relay collection; a hosted authority transfer does not rewrite identity.
 - Self-hosted issuers namespace equal subjects without accidental matching.
-- Old grants, denied optional identity consent, expired tokens, revoked grants,
+- Old grants, declined optional people permissions, expired tokens, revoked grants,
   suspended accounts, and removed memberships cannot disclose identity data.
 - A viewer can read an explicitly authorized directory without managing shares.
 - No private email or pending invitation data appears in application responses.
@@ -237,7 +256,7 @@ SHA-256-pinned copy of canonical `mdbase.contact` 1.2.0 (the People
 pack), shows definition paths and the setup receipt, and writes only after
 **Add definitions and continue**. Catalog availability is not a prerequisite.
 The bundle is byte-identical to `mdbase-contracts/dist/packs/mdbase.contact/1.2.0.json`
-at contracts commit `1c05757`; updating it requires updating the pinned digest and
+on the contracts `feature/portable-people` branch; updating it requires updating the pinned digest and
 contract references together. This does not publish a public catalog entry.
 
 Fresh setup adds only the Person v2 type, implementing both contracts with

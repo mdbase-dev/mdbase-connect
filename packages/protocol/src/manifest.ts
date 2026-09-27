@@ -631,6 +631,17 @@ function validateCapabilityRequirements(value: unknown): ManifestValidationIssue
       `must not repeat required file action ${fileOverlap}`
     ));
   }
+  const people = asObject(requirements.people);
+  const requiredPeople = Array.isArray(people.required) ? people.required.map(String) : [];
+  const optionalPeople = Array.isArray(people.optional) ? people.optional.map(String) : [];
+  const peopleOverlap = optionalPeople.find((permission) => requiredPeople.includes(permission));
+  if (peopleOverlap) {
+    issues.push(issue(
+      "/requirements/people/optional",
+      "disjoint",
+      `must not repeat required people permission ${peopleOverlap}`
+    ));
+  }
   return issues;
 }
 

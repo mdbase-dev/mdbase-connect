@@ -6,23 +6,33 @@ fn people_consent_roundtrips_without_expanding_legacy_authority() {
     let input = json!({
         "contracts": [], "configuration": [],
         "capabilities": {"contract_version":2,"required":["collection.read"]},
-        "people": {"version":1,"permissions":["identity","members"]}
+        "people": {"version":1,"required":["identity"],"optional":["members"]}
     });
     let requirements: ApplicationRequirements = serde_json::from_value(input.clone()).unwrap();
     assert!(requirements.valid_for_semantic_contract(2));
     assert!(!requirements.valid_for_semantic_contract(1));
     assert_eq!(serde_json::to_value(requirements).unwrap(), input);
+    let mut optional_only = input.clone();
+    optional_only["people"] = json!({"version":1,"optional":["identity","members"]});
+    let requirements: ApplicationRequirements = serde_json::from_value(optional_only).unwrap();
+    assert!(requirements.valid_for_semantic_contract(2));
     for people in [
-        json!({"version":2,"permissions":["identity"]}),
-        json!({"version":1,"permissions":[]}),
-        json!({"version":1,"permissions":["identity","identity"]}),
-        json!({"version":1,"permissions":["emails"]}),
+        json!({"version":1}),
+        json!({"version":2,"required":["identity"]}),
+        json!({"version":1,"required":[]}),
+        json!({"version":1,"required":["identity"],"optional":[]}),
+        json!({"version":1,"required":["identity","identity"]}),
+        json!({"version":1,"required":["identity"],"optional":["identity"]}),
+        json!({"version":1,"optional":["emails"]}),
     ] {
         let mut invalid = input.clone();
         invalid["people"] = people;
         let requirements: ApplicationRequirements = serde_json::from_value(invalid).unwrap();
         assert!(!requirements.valid_for_semantic_contract(2));
     }
+    let mut unknown = input.clone();
+    unknown["people"] = json!({"version":1,"permissions":["identity"]});
+    assert!(serde_json::from_value::<ApplicationRequirements>(unknown).is_err());
 }
 
 #[test]

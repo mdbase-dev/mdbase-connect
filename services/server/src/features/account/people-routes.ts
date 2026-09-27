@@ -1,4 +1,4 @@
-import type { AccountProfile, CollectionMemberProfile, ApplicationPeopleRequirement } from "@mdbase-dev/connect-protocol";
+import type { AccountProfile, CollectionMemberProfile, CurrentAccountResponse, PeoplePermission } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../../collection-access.js";
@@ -10,15 +10,20 @@ import { tokenHash } from "../../security.js";
 
 interface PeopleRoutesOptions {
   db: DatabasePool;
+  /** Validated runtime identity issuer; never derived from request or routing URLs. */
+  issuer: string;
   publicUrl: string;
+  editorOrigin?: string;
 }
 
 interface PeopleGrant {
   user_id: string;
+  public_subject: string;
   name: string;
   collection_id: string | null;
+  local_collection_id: string | null;
   hosted_collection_id: string | null;
-  people: ApplicationPeopleRequirement | null;
+  people_permissions: PeoplePermission[] | null;
   membership_id: string | null;
   membership_policy_id: string | null;
   membership_policy_revision: number | null;
@@ -26,10 +31,9 @@ interface PeopleGrant {
 
 /** Identity metadata uses control-plane tokens for hosted AND local collections. */
 export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutesOptions): void {
-  // Stable configured deployment URL, never request Host or an authority/provider URL.
-  const issuer = new URL(options.publicUrl).href.replace(/\/$/, "");
-  const profile = (user: { user_id: string; name: string }): AccountProfile => ({
-    issuer, subject: user.user_id, name: user.name
+  const { issuer } = options;
+  const profile = (user: { public_subject: string; name: string }): AccountProfile => ({
+    issuer, subject: user.public_subject, name: user.name
   });
 
   for (const permission of ["identity", "members"] as const) {
@@ -39,8 +43,9 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
       const bearer = bearerToken(request);
       if (!bearer) return reply.code(401).send(apiError("invalid_token", "An application access token is required."));
       const result = await options.db.query<PeopleGrant>(
-        `SELECT g.user_id, u.name, g.collection_id, g.hosted_collection_id,
-                app.requirements->'people' AS people,
+        `SELECT g.user_id, u.public_subject, u.name, g.collection_id,
+                col.local_id AS local_collection_id, g.hosted_collection_id,
+                g.people_permissions,
                 g.membership_id, g.membership_policy_id, g.membership_policy_revision
          FROM access_tokens tok
          JOIN grants g ON g.id = tok.grant_id
@@ -60,9 +65,9 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
       );
       const grant = result.rows[0];
       if (!grant) return reply.code(401).send(apiError("invalid_token", "The application authorization is no longer active."));
-      // This is required consent in the exact immutable, signed manifest. No new
-      // scope is inferred from collection.read or a predecessor declaration.
-      if (grant.people?.version !== 1 || !grant.people.permissions.includes(permission)) {
+      // The grant records what the user approved from the exact signed
+      // declaration. Nothing is inferred from collection.read or old grants.
+      if (!grant.people_permissions?.includes(permission)) {
         return reply.code(403).send(apiError("insufficient_access", "This application was not approved to read this identity information."));
       }
       const access = grant.hosted_collection_id
@@ -75,16 +80,22 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
         || !matchesMembershipBinding(grant, membershipBindingForAccess(access))) {
         return reply.code(401).send(apiError("invalid_token", "Current collection membership no longer permits this authorization."));
       }
-      if (permission === "identity") return profile(grant);
+      if (permission === "identity") {
+        const settingsUrl = personSettingsUrl(options, grant.hosted_collection_id ?? grant.local_collection_id);
+        return {
+          ...profile(grant),
+          ...(settingsUrl ? { person_settings_url: settingsUrl } : {})
+        } satisfies CurrentAccountResponse;
+      }
 
-      const owner = await options.db.query<{ user_id: string; name: string }>(
-        "SELECT id AS user_id, name FROM users WHERE id = $1 AND suspended_at IS NULL",
+      const owner = await options.db.query<{ public_subject: string; name: string }>(
+        "SELECT public_subject, name FROM users WHERE id = $1 AND suspended_at IS NULL",
         [access.collection.ownerUserId]
       );
       const members: CollectionMemberProfile[] = owner.rows.map((row) => ({ ...profile(row), role: "owner" }));
       if (grant.hosted_collection_id) {
-        const rows = await options.db.query<{ user_id: string; name: string; role: "viewer" | "editor" }>(
-          `SELECT membership.user_id, account.name, policy.role
+        const rows = await options.db.query<{ public_subject: string; name: string; role: "viewer" | "editor" }>(
+          `SELECT account.public_subject, account.name, policy.role
            FROM collection_memberships membership
            JOIN users account ON account.id = membership.user_id
            JOIN collection_membership_policies policy ON policy.id = membership.current_policy_id
@@ -98,4 +109,15 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
       return { members };
     });
   }
+}
+
+/** A navigation route that may change freely; apps must never derive it from the issuer. */
+function personSettingsUrl(options: PeopleRoutesOptions, collectionId: string | null): string | null {
+  if (!options.editorOrigin || !collectionId) return null;
+  const url = new URL("/", options.editorOrigin);
+  url.searchParams.set("server", new URL(options.publicUrl).origin);
+  url.searchParams.set("collection", collectionId);
+  url.searchParams.set("surface", "settings");
+  url.hash = "your-person";
+  return url.href;
 }

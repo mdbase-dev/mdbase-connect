@@ -20,6 +20,11 @@ export interface TransactionalEmailConfig {
 export interface RuntimeConfig {
   host: string;
   publicUrl: string;
+  /**
+   * Stable account-identity namespace copied into user-owned person notes.
+   * Never a routing URL: changing it is an identity migration.
+   */
+  identityIssuer: string;
   environment: string;
   devAuth: boolean;
   tailscaleAuth: boolean;
@@ -213,15 +218,39 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
       keyIds.add(key.kid);
     }
   }
+  const identityIssuer = validateIdentityIssuer(
+    config.identityIssuer || (localPublicOrigin ? publicUrl.origin : "")
+  );
   return {
     ...config,
     publicUrl: publicUrl.origin,
+    identityIssuer,
     environment,
     betaAccessOrigin,
     managementOrigins: [...new Set(managementOrigins)],
     editorOrigin,
     hostedProvider
   };
+}
+
+function validateIdentityIssuer(value: string): string {
+  if (!value) {
+    throw new Error("MDBASE_CONNECT_IDENTITY_ISSUER is required outside loopback development.");
+  }
+  let issuer: URL;
+  try {
+    issuer = new URL(value);
+  } catch {
+    throw new Error("MDBASE_CONNECT_IDENTITY_ISSUER must be an exact origin, such as https://mdbase.dev.");
+  }
+  // One exact spelling: the value is compared byte-for-byte in person notes.
+  if (issuer.origin !== value) {
+    throw new Error("MDBASE_CONNECT_IDENTITY_ISSUER must be an exact origin, such as https://mdbase.dev.");
+  }
+  if (issuer.protocol !== "https:" && !isLoopback(issuer.hostname)) {
+    throw new Error("MDBASE_CONNECT_IDENTITY_ISSUER must use HTTPS outside loopback development.");
+  }
+  return value;
 }
 
 export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
@@ -322,6 +351,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
   return validateRuntimeConfig({
     host,
     publicUrl: env.PUBLIC_URL ?? `http://${host}:${port}`,
+    identityIssuer: env.MDBASE_CONNECT_IDENTITY_ISSUER?.trim() ?? "",
     environment: env.MDBASE_CONNECT_ENVIRONMENT?.trim() || "unspecified",
     devAuth: env.MDBASE_CONNECT_DEV_AUTH === "1",
     tailscaleAuth: env.MDBASE_CONNECT_TAILSCALE_AUTH === "1",

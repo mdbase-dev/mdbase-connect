@@ -3,10 +3,12 @@ import type {
   CollectionOperation,
   FileAction,
   FileCapability,
-  GrantScope
+  GrantScope,
+  PeoplePermission
 } from "@mdbase-dev/connect-protocol";
 import {
   APPLICATION_SETUP_OPERATIONS,
+  approvedPeoplePermissions,
   capabilityOperations,
   FILE_PROTOCOL_VERSION,
   applicationOperationSelectionIsAtomic
@@ -23,6 +25,8 @@ export interface GrantPlan {
   scope: GrantScope;
   replicaMode: "read_only" | "read_write";
   fileCapability?: FileCapability;
+  /** Control-plane only; never part of connector or replica authority. */
+  peoplePermissions?: PeoplePermission[];
 }
 
 /** Consent choices are a preview; approval rechecks the current locked policy. */
@@ -76,6 +80,7 @@ export function planCollectionGrant(input: {
   requestedOperations: readonly CollectionOperation[];
   applicationOperationCeiling: readonly CollectionOperation[];
   requestedFileActions?: readonly FileAction[];
+  requestedPeoplePermissions?: readonly string[];
   requirements: ApplicationRequirements;
   access: CollectionAccessContext;
 }): GrantPlan {
@@ -165,6 +170,15 @@ export function planCollectionGrant(input: {
       "Declared collection setup authority may not be partially denied."
     );
   }
+  let peoplePermissions: PeoplePermission[];
+  try {
+    peoplePermissions = approvedPeoplePermissions(
+      "people" in input.requirements ? input.requirements.people : undefined,
+      input.requestedPeoplePermissions
+    );
+  } catch (error) {
+    throw new GrantPlanningError(error instanceof Error ? error.message : String(error));
+  }
   const scope: GrantScope = collectionGrantScope();
   const fileCapability = fileCapabilityForRequirements(
     input.requirements,
@@ -180,7 +194,8 @@ export function planCollectionGrant(input: {
       || selectedFileActions?.some((action) => WRITE_FILE_ACTIONS.has(action))
       ? "read_write"
       : "read_only",
-    ...(fileCapability ? { fileCapability } : {})
+    ...(fileCapability ? { fileCapability } : {}),
+    ...(peoplePermissions.length ? { peoplePermissions } : {})
   };
 }
 

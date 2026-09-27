@@ -89,7 +89,10 @@ pub struct ApplicationRequirements {
 #[serde(deny_unknown_fields)]
 pub struct ApplicationPeopleRequirement {
     pub version: u8,
-    pub permissions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub optional: Option<Vec<String>>,
 }
 
 impl ApplicationRequirements {
@@ -103,19 +106,25 @@ impl ApplicationRequirements {
             return false;
         }
         if self.people.as_ref().is_some_and(|people| {
+            let lists = [&people.required, &people.optional];
+            let declared = lists
+                .iter()
+                .flat_map(|list| list.iter().flatten())
+                .collect::<Vec<_>>();
             version != 2
                 || people.version != 1
-                || people.permissions.is_empty()
-                || people
-                    .permissions
+                || lists
+                    .iter()
+                    .any(|list| list.as_ref().is_some_and(Vec::is_empty))
+                || declared.is_empty()
+                || declared
                     .iter()
                     .any(|permission| !matches!(permission.as_str(), "identity" | "members"))
-                || people
-                    .permissions
+                || declared
                     .iter()
                     .collect::<std::collections::BTreeSet<_>>()
                     .len()
-                    != people.permissions.len()
+                    != declared.len()
         }) {
             return false;
         }

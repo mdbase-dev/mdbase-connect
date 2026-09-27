@@ -10,21 +10,6 @@ export function editorRedirectTarget(
   source: RedirectLocation = location
 ): string {
   const target = new URL(configuredTarget, source.origin);
-  if (source.pathname === "/") {
-    const params = new URLSearchParams(source.search);
-    const collections = params.getAll("collection");
-    const collection = collections[0];
-    if (collections.length === 1 && collection && collection.trim() === collection) {
-      // A workspace deep link must not become the management landing page,
-      // where the editor may instead restore a previously selected collection.
-      target.pathname = "/";
-      target.searchParams.set("collection", collection);
-      const surface = params.get("surface");
-      if (surface && ["notes", "types", "settings"].includes(surface)) target.searchParams.set("surface", surface);
-      if (surface === "settings" && source.hash === "#your-person") target.hash = source.hash;
-    }
-    return target.href;
-  }
   if (source.pathname !== "/account") return target.href;
   target.pathname = "/connect/account";
   const linked = new URLSearchParams(source.search).get("linked");

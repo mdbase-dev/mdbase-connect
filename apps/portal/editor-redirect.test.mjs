@@ -33,36 +33,6 @@ test("drops malformed account callback values", () => {
   assert.equal(target.hash, "");
 });
 
-test("preserves an explicit collection and settings destination instead of opening remembered state", () => {
-  const target = new URL(editorRedirectTarget(configured, {
-    origin: "https://connect.example", pathname: "/",
-    search: "?collection=collection-b&surface=settings&server=https://evil.example&redirect_uri=https://evil.example",
-    hash: "#your-person"
-  }));
-  assert.equal(target.origin, "https://editor.example");
-  assert.equal(target.pathname, "/");
-  assert.equal(target.searchParams.get("server"), "https://connect.example");
-  assert.equal(target.searchParams.get("collection"), "collection-b");
-  assert.equal(target.searchParams.get("surface"), "settings");
-  assert.equal(target.searchParams.has("redirect_uri"), false);
-  assert.equal(target.hash, "#your-person");
-});
-
-test("only forwards recognized workspace state with one nonempty collection ID", () => {
-  for (const search of ["?collection=", "?collection=a&collection=b", "?surface=settings", "?collection=%20a"])
-    assert.equal(editorRedirectTarget(configured, {
-      origin: "https://connect.example", pathname: "/", search, hash: "#your-person"
-    }), configured);
-  const target = new URL(editorRedirectTarget(configured, {
-    origin: "https://connect.example", pathname: "/",
-    search: "?collection=collection-b&surface=https://evil.example&token=secret", hash: "#delete_token=act_token"
-  }));
-  assert.equal(target.searchParams.get("collection"), "collection-b");
-  assert.equal(target.searchParams.has("surface"), false);
-  assert.equal(target.searchParams.has("token"), false);
-  assert.equal(target.hash, "");
-});
-
 test("does not reinterpret ordinary portal redirects", () => {
   assert.equal(editorRedirectTarget(configured, {
     origin: "https://connect.example",
