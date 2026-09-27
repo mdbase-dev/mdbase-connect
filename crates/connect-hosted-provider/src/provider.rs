@@ -42,11 +42,18 @@ use subtle::ConstantTimeEq;
 use tokio::sync::{oneshot, Mutex, OwnedSemaphorePermit, RwLock, Semaphore};
 use uuid::Uuid;
 
-const CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION: u32 = 6;
+const CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION: u32 = 7;
 const _: () = assert!(
     mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION
         == CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION
 );
+
+/// How this provider takes over collections indexed by another semantic
+/// engine. `online-v1`: writes unbind such a generation instead of failing,
+/// background recovery leaves the collection on exact fallback, and the
+/// indexer's `upgrade` command rebuilds it once no provider on the previous
+/// engine can serve. Release tooling reads this line from source.
+pub const PROJECTION_ENGINE_UPGRADE: &str = "online-v1";
 
 use crate::{
     backup_admin::lock_blob_deletion,

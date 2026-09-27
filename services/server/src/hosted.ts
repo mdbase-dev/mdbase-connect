@@ -458,9 +458,9 @@ export function mdbaseResources(timezone = "UTC"): SyncCollectionResources {
   // Keep this revision and configuration aligned with the Rust hosted provider's
   // template; the in-process reference authority provisions collections independently.
   const configuration =
-    `spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n  timezone: ${timezone}\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n`;
+    `spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  validation: error\n  timezone: ${timezone}\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n`;
   return {
-    revision: "mdbase-template:2",
+    revision: "mdbase-template:3",
     spec_version: "0.3.0",
     types: [],
     contracts: [],

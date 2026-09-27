@@ -327,7 +327,7 @@ export function fixtureResources(version = 1) {
   return [{
     path: "mdbase.yaml",
     kind: "configuration",
-    document: "spec_version: \"0.3.0\"\nname: Hosted storage model benchmark\nsettings:\n  types_folder: _types\n  default_validation: warn\n  timezone: Australia/Melbourne\n"
+    document: "spec_version: \"0.3.0\"\nname: Hosted storage model benchmark\nsettings:\n  types_folder: _types\n  validation: warn\n  timezone: Australia/Melbourne\n"
   }, ...definitions];
 }
 

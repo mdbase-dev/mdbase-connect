@@ -404,7 +404,6 @@ fn portable_configuration(configuration: &Value) -> Option<Value> {
             "validation",
             "explicit_type_keys",
             "id_field",
-            "include_subfolders",
             "exclude",
         ],
     ) {

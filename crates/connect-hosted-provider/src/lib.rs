@@ -36,6 +36,7 @@ pub use key_wrapping::{
 };
 pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
 pub use provider::run_hosted_cutover_migrations;
+pub use provider::PROJECTION_ENGINE_UPGRADE;
 pub use provider::{
     DiagnosticSection, DrainStateDiagnostic, HostedDiagnostics, HostedLifecycleWorkDiagnostic,
     HostedMutationJournalDiagnostics, HostedProjectionBatch, HostedProjectionGeneration,
