@@ -18,8 +18,11 @@ use uuid::Uuid;
 
 #[path = "projection_indexer/cutover.rs"]
 mod cutover;
+#[path = "projection_indexer/upgrade.rs"]
+mod upgrade;
 
 use cutover::run_cutover;
+use upgrade::run_upgrade;
 
 #[derive(Parser)]
 #[command(name = "mdbase-hosted-projection-indexer")]
@@ -79,6 +82,9 @@ enum Command {
     /// Migrate, rebuild, and verify the complete active collection inventory.
     /// This is intended for a terminally suspended pre-deploy cutover job.
     Cutover(CutoverArguments),
+    /// Rebuild every collection indexed by another semantic engine while it
+    /// stays available. Run once no provider on that engine can still serve.
+    Upgrade(UpgradeArguments),
 }
 
 #[derive(clap::Args)]
@@ -104,6 +110,20 @@ struct CutoverArguments {
     max_batches: u64,
     #[arg(long, default_value_t = 10_000, value_parser = clap::value_parser!(u32).range(1..=100_000))]
     max_pages: u32,
+    #[arg(long, default_value_t = 3_600, value_parser = clap::value_parser!(u64).range(1..=86_400))]
+    max_seconds: u64,
+}
+
+#[derive(clap::Args)]
+struct UpgradeArguments {
+    #[arg(long)]
+    after: Option<Uuid>,
+    #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u32).range(1..=1000))]
+    page_limit: u32,
+    #[arg(long, default_value_t = 8, value_parser = clap::value_parser!(u32).range(1..=100))]
+    attempts_per_collection: u32,
+    #[arg(long, default_value_t = 10_000, value_parser = clap::value_parser!(u32).range(1..=100_000))]
+    batches_per_attempt: u32,
     #[arg(long, default_value_t = 3_600, value_parser = clap::value_parser!(u64).range(1..=86_400))]
     max_seconds: u64,
 }
@@ -501,6 +521,10 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
                     "collections": verifications,
                 }),
             )
+        }
+        Command::Upgrade(upgrade) => {
+            let (ok, result) = run_upgrade(&provider, upgrade).await?;
+            (ok, "upgrade", result)
         }
         Command::Cutover(cutover) => {
             let remaining =

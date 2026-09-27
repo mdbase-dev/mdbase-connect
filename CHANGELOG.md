@@ -9,8 +9,17 @@
   `YYYY-MM-DD` strings, and `lower()`/`upper()` fold case. Links read from
   `this` or from `asFile()` resolve relative to their own record, and
   `file.links` holds alias-free link values. Hosted updates send `patch`; the
-  `fields` alias is rejected. Stored semantic projections move to format 7 and
-  rebuild. New collections write `settings.validation` (template revision 3).
+  `fields` alias is rejected. Stored semantic projections move to format 7.
+  New collections write `settings.validation` (template revision 3).
+- Hosted collections stay available when the provider moves to a new semantic
+  engine. Queries on a collection still indexed by the previous engine run on
+  exact fallback, and writes unbind that index instead of failing with
+  `projection_engine_mismatch`, so a previous provider still serving during a
+  rolling deploy treats the collection as unindexed. Background recovery leaves
+  these collections for the new `mdbase-hosted-projection-indexer upgrade`
+  command, which rebuilds each one once the previous provider has stopped and
+  binds the new index atomically. Recovery also abandons an unfinished rebuild
+  left by a provider on another engine instead of stopping on it.
 - Added record sessions for editing a record while people type:
   `connection.records.open(path)` returns a session shared by every view of
   that record. It autosaves after a pause, never runs two writes for one

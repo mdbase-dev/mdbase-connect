@@ -590,6 +590,25 @@ impl HostedProvider {
                      AND terminal.projection_format_version = $2
                      AND terminal.semantic_engine_version = $3
                  )
+                 -- A collection indexed only by another semantic engine waits
+                 -- for the explicit engine upgrade, which runs once no
+                 -- provider on that engine can still be serving it.
+                 AND NOT (
+                   EXISTS (
+                     SELECT 1 FROM hosted_provider_projection_generations foreign_engine
+                     WHERE foreign_engine.collection_id = collection.id
+                       AND foreign_engine.status = 'complete'
+                       AND (foreign_engine.projection_format_version <> $2
+                            OR foreign_engine.semantic_engine_version <> $3)
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1 FROM hosted_provider_projection_generations own_engine
+                     WHERE own_engine.collection_id = collection.id
+                       AND own_engine.status = 'complete'
+                       AND own_engine.projection_format_version = $2
+                       AND own_engine.semantic_engine_version = $3
+                   )
+                 )
                ORDER BY collection.updated_at, collection.id
                LIMIT $1"#,
         )
@@ -620,7 +639,8 @@ impl HostedProvider {
         }
 
         let generations = sqlx::query(
-            r#"SELECT generation.collection_id, generation.generation_id, generation.phase
+            r#"SELECT generation.collection_id, generation.generation_id, generation.phase,
+                      generation.projection_format_version, generation.semantic_engine_version
                FROM hosted_provider_projection_generations generation
                JOIN hosted_provider_collections collection
                  ON collection.id = generation.collection_id
@@ -644,6 +664,16 @@ impl HostedProvider {
             let collection_id: Uuid = generation.get("collection_id");
             let generation_id: Uuid = generation.get("generation_id");
             let phase: String = generation.get("phase");
+            if i64::from(generation.get::<i32, _>("projection_format_version"))
+                != i64::from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION)
+                || generation.get::<String, _>("semantic_engine_version") != mdbase::VERSION
+            {
+                // Its owner ran another semantic engine and has gone; this
+                // engine cannot continue the build.
+                self.abandon_foreign_engine_generation(collection_id, generation_id)
+                    .await?;
+                continue;
+            }
             let outcome = if phase == "projection" {
                 self.project_generation_batch(collection_id, generation_id, MAX_PROJECTION_BATCH)
                     .await

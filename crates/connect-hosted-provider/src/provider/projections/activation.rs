@@ -87,11 +87,12 @@ impl HostedProvider {
         if format_version != u64::from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION)
             || engine_version != mdbase::VERSION
         {
-            return Err(ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "projection_engine_mismatch",
-                "The active projection requires a different semantic engine.",
-            ));
+            // A generation built by another semantic engine cannot be
+            // maintained here, and this engine's queries already bypass it.
+            // Unbinding it keeps the write available: a predecessor provider
+            // still serving during a rolling deployment treats the collection
+            // as unindexed, and the engine upgrade rebuilds it.
+            return unbind_foreign_engine_projection(transaction, collection_id).await;
         }
         let resources: SyncCollectionResources = self.crypto.decrypt_json(
             data_key,

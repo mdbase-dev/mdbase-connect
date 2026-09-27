@@ -457,7 +457,203 @@ async fn v5_projection_rows_are_stale_and_use_canonical_exact_fallback() {
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_eq!(rebuilt_versions, (6, 6, 6));
+    let current = i32::try_from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION).unwrap();
+    assert_eq!(rebuilt_versions, (current, current, current));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn a_predecessor_engine_projection_stays_available_until_the_online_upgrade() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id: Uuid = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "notes/before.md",
+        "Written under the predecessor engine.\n",
+    )
+    .await;
+    let predecessor_generation = complete_generation(&fixture).await;
+
+    // Relabel the active generation as one built by the previous release.
+    let predecessor_engine = "0.0.0-predecessor";
+    let predecessor_format =
+        i32::try_from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION).unwrap() - 1;
+    for statement in [
+        "UPDATE hosted_provider_record_projections SET projection_format_version = $2, semantic_engine_version = $3 WHERE collection_id = $1",
+        "UPDATE hosted_provider_projection_generations SET projection_format_version = $2, semantic_engine_version = $3 WHERE collection_id = $1",
+        "UPDATE hosted_provider_collections SET active_projection_format_version = $2, active_semantic_engine_version = $3 WHERE id = $1",
+    ] {
+        sqlx::query(statement)
+            .bind(fixture.collection_id)
+            .bind(predecessor_format)
+            .bind(predecessor_engine)
+            .execute(&fixture.pool)
+            .await
+            .unwrap();
+    }
+    let building_count = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM hosted_provider_projection_generations WHERE collection_id = $1 AND status = 'building'",
+        )
+        .bind(fixture.collection_id)
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap()
+    };
+
+    // Background recovery leaves the predecessor binding for the explicit
+    // upgrade, so a predecessor provider can keep maintaining it.
+    fixture
+        .provider
+        .recover_projection_generations(20)
+        .await
+        .unwrap();
+    let status = fixture
+        .provider
+        .projection_status(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(!status.ready);
+    assert_eq!(status.active_generation_id, Some(predecessor_generation));
+    assert_eq!(building_count().await, 0);
+
+    // Writes stay available and unbind the generation this engine cannot
+    // maintain; queries use exact fallback.
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "notes/during.md",
+        "Written while the upgrade is pending.\n",
+    )
+    .await;
+    let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
+    let query_paths = || async {
+        let result = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &application_token,
+                "query",
+                Uuid::new_v4(),
+                json!({"limit": 10, "order_by": [{"field": "file.path"}]}),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result["valid"], true);
+        result["result"]["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["path"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(query_paths().await, ["notes/before.md", "notes/during.md"]);
+    let status = fixture
+        .provider
+        .projection_status(fixture.collection_id)
+        .await
+        .unwrap();
+    assert_eq!(status.active_generation_id, None);
+    fixture
+        .provider
+        .recover_projection_generations(20)
+        .await
+        .unwrap();
+    assert_eq!(building_count().await, 0);
+
+    // A predecessor build whose owner has gone is abandoned rather than
+    // stalling recovery.
+    let orphan = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_projection_generations
+             (collection_id, generation_id, target_catalog_revision,
+              projection_format_version, semantic_engine_version, source_head,
+              source_resource_revision, lease_owner, lease_expires_at,
+              lease_fencing_generation)
+           SELECT id, $2, resource_revision, $3, $4, head, resource_revision,
+                  $5, now() - interval '1 second', 1
+           FROM hosted_provider_collections WHERE id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(orphan)
+    .bind(predecessor_format)
+    .bind(predecessor_engine)
+    .bind(Uuid::now_v7())
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    fixture
+        .provider
+        .recover_projection_generations(20)
+        .await
+        .unwrap();
+    let orphan_state: (String, Option<String>) = sqlx::query_as(
+        "SELECT status, last_error_code FROM hosted_provider_projection_generations WHERE collection_id = $1 AND generation_id = $2",
+    )
+    .bind(fixture.collection_id)
+    .bind(orphan)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        orphan_state,
+        ("abandoned".to_string(), Some("superseded".to_string()))
+    );
+    assert_eq!(building_count().await, 0);
+
+    // The online upgrade rebuilds and binds a generation of this engine.
+    let status = fixture
+        .provider
+        .projection_status(fixture.collection_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .provider
+            .upgrade_projection_engine(status, 8, 10_000)
+            .await
+            .unwrap(),
+        None
+    );
+    let status = fixture
+        .provider
+        .projection_status(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(status.ready);
+    let binding: (i32, String) = sqlx::query_as(
+        "SELECT active_projection_format_version, active_semantic_engine_version FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        binding,
+        (
+            i32::try_from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION).unwrap(),
+            mdbase::VERSION.to_string()
+        )
+    );
+    assert_eq!(query_paths().await, ["notes/before.md", "notes/during.md"]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
