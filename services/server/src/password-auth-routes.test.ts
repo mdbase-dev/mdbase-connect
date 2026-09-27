@@ -424,6 +424,12 @@ describe("password authentication HTTP boundary", () => {
       }
     });
     expect(completed.statusCode).toBe(201);
+    // A signup form from before the opt-in existed sends no choice: no consent.
+    const preferences = await db.query<{ product_enabled: boolean }>(
+      "SELECT product_enabled FROM account_email_preferences WHERE user_id = $1",
+      [completed.json().user.id]
+    );
+    expect(preferences.rows).toEqual([{ product_enabled: false }]);
     const signupScopes = await db.query<{ scope: string }>(
       `SELECT scope FROM auth_rate_limit_buckets
        WHERE scope LIKE 'password.signup_%' ORDER BY scope`

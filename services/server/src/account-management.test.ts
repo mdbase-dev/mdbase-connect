@@ -4,7 +4,7 @@ import { deleteAccountLocally } from "./account-management.js";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import { hashPassword } from "./password.js";
-import { tokenHash } from "./security.js";
+import { randomToken, tokenHash } from "./security.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -582,6 +582,93 @@ describe("account management", () => {
 
     expect(statements.at(-1)).toBe("ROLLBACK");
     expect(statements).not.toContain("COMMIT");
+  });
+});
+
+describe("email preferences", () => {
+  it("reports defaults and changes only the preferences given", async () => {
+    const { app, db } = await fixture();
+    const account = await seedSession(db);
+    const read = async () => (await app.inject({
+      method: "GET",
+      url: "/v1/account",
+      headers: { cookie: account.cookie }
+    })).json().email_preferences;
+
+    expect(await read()).toEqual({ announcements: true, product_updates: false });
+    const changed = await app.inject({
+      method: "PATCH",
+      url: "/v1/account/email-preferences",
+      headers: { cookie: account.cookie, origin },
+      payload: { product_updates: true }
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().email_preferences).toEqual({
+      announcements: true,
+      product_updates: true
+    });
+    expect(await read()).toEqual({ announcements: true, product_updates: true });
+
+    const empty = await app.inject({
+      method: "PATCH",
+      url: "/v1/account/email-preferences",
+      headers: { cookie: account.cookie, origin },
+      payload: {}
+    });
+    expect(empty.statusCode).toBe(400);
+    const crossSite = await app.inject({
+      method: "PATCH",
+      url: "/v1/account/email-preferences",
+      headers: { cookie: account.cookie, origin: "https://attacker.example" },
+      payload: { announcements: false }
+    });
+    expect(crossSite.statusCode).toBe(403);
+    expect(await read()).toEqual({ announcements: true, product_updates: true });
+  });
+
+  it("unsubscribes through a one-click POST without a session", async () => {
+    const { app, db } = await fixture();
+    const account = await seedSession(db);
+    const token = randomToken("uns");
+    await db.query(
+      `INSERT INTO email_unsubscribe_tokens (token_hash, user_id, preference)
+       VALUES ($1, $2, 'announcements')`,
+      [tokenHash(token), account.userId]
+    );
+
+    const oneClick = await app.inject({
+      method: "POST",
+      url: `/v1/email/unsubscribe?token=${token}`,
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: "https://mail.example"
+      },
+      payload: "List-Unsubscribe=One-Click"
+    });
+    expect(oneClick.statusCode).toBe(200);
+    expect(oneClick.json()).toEqual({ unsubscribed: "announcements" });
+    const again = await app.inject({
+      method: "POST",
+      url: `/v1/email/unsubscribe?token=${token}`
+    });
+    expect(again.statusCode).toBe(200);
+
+    const details = await app.inject({
+      method: "GET",
+      url: "/v1/account",
+      headers: { cookie: account.cookie }
+    });
+    expect(details.json().email_preferences).toEqual({
+      announcements: false,
+      product_updates: false
+    });
+
+    const unknown = await app.inject({
+      method: "POST",
+      url: `/v1/email/unsubscribe?token=uns_${"b".repeat(43)}`
+    });
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json().error.code).toBe("unsubscribe_link_invalid");
   });
 });
 

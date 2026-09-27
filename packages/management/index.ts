@@ -62,6 +62,7 @@ export interface AccountData {
       };
     }>;
   };
+  email_preferences: EmailPreferences;
   deletion: {
     available: boolean;
     unavailable_reason: "managed_identity" | "temporarily_disabled" | null;
@@ -70,6 +71,12 @@ export interface AccountData {
     computers: number;
     development_confirmation: boolean;
   };
+}
+
+/** Optional email. Essential account email cannot be turned off. */
+export interface EmailPreferences {
+  announcements: boolean;
+  product_updates: boolean;
 }
 
 export interface CollectionContractDescriptor {
@@ -315,6 +322,16 @@ export class ConnectManagementClient {
         current_password: currentPassword,
         new_password: newPassword
       })
+    }, options);
+  }
+
+  updateEmailPreferences(
+    changes: Partial<EmailPreferences>,
+    options?: ManagementRequestOptions
+  ): Promise<{ email_preferences: EmailPreferences }> {
+    return this.request("/v1/account/email-preferences", {
+      method: "PATCH",
+      body: JSON.stringify(changes)
     }, options);
   }
 

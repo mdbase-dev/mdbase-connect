@@ -88,6 +88,7 @@ export type PortalBootstrapSecrets = Readonly<{
   invitationToken: string;
   verificationToken: string;
   resetToken: string;
+  unsubscribeToken: string;
 }>;
 
 export function capturePortalBootstrapSecrets(
@@ -98,12 +99,14 @@ export function capturePortalBootstrapSecrets(
   const secrets = Object.freeze({
     invitationToken: parameters.get("invitation")?.trim() ?? "",
     verificationToken: parameters.get("verification")?.trim() ?? "",
-    resetToken: parameters.get("reset")?.trim() ?? ""
+    resetToken: parameters.get("reset")?.trim() ?? "",
+    unsubscribeToken: parameters.get("unsubscribe")?.trim() ?? ""
   });
   if (
     secrets.invitationToken
     || secrets.verificationToken
     || secrets.resetToken
+    || secrets.unsubscribeToken
   ) {
     currentHistory.replaceState(
       currentHistory.state,

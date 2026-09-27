@@ -7,6 +7,11 @@ import {
 } from "../../account-management.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
+import {
+  readEmailPreferences,
+  redeemUnsubscribeToken,
+  updateEmailPreferences
+} from "../../scheduled-email.js";
 import type {
   HostedCollectionUsage,
   HostedProviderClient
@@ -72,7 +77,15 @@ export function registerAccountManagementRoutes(
       options.tailscaleAuth
     );
     if (!user) return;
-    const [identities, methods, passwordEmail, hostedCollections, counts, settings] =
+    const [
+      identities,
+      methods,
+      passwordEmail,
+      hostedCollections,
+      counts,
+      settings,
+      emailPreferences
+    ] =
       await Promise.all([
         options.db.query<ExternalIdentityRow>(
           `SELECT provider, subject, login, email, email_verified, created_at
@@ -105,7 +118,8 @@ export function registerAccountManagementRoutes(
              (SELECT count(*) FROM collections WHERE user_id = $1 AND present = true) AS local_collections`,
           [user.id]
         ),
-        options.authenticationPolicy.current()
+        options.authenticationPolicy.current(),
+        readEmailPreferences(options.db, user.id)
       ]);
     const storage = await storageSnapshot(
       hostedCollections.rows,
@@ -152,6 +166,7 @@ export function registerAccountManagementRoutes(
         }
       },
       storage,
+      email_preferences: emailPreferences,
       deletion: {
         available: authenticationProvider !== "tailscale"
           && options.accountDeletionEnabled !== false,
@@ -166,6 +181,47 @@ export function registerAccountManagementRoutes(
         development_confirmation: options.developmentAuth === true
       }
     };
+  });
+
+  app.patch("/v1/account/email-preferences", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    requireSameOrigin(request, options.publicUrl, options.managementOrigins);
+    const authenticated = await requireSessionContext(request, reply, options.db);
+    if (!authenticated) return;
+    const input = z.object({
+      announcements: z.boolean().optional(),
+      product_updates: z.boolean().optional()
+    }).strict().refine(
+      (value) => value.announcements !== undefined || value.product_updates !== undefined,
+      "Change at least one email preference."
+    ).parse(request.body);
+    return {
+      email_preferences: await updateEmailPreferences(
+        options.db,
+        authenticated.user.id,
+        input
+      )
+    };
+  });
+
+  // The token is the only credential. Mail clients POST here directly for
+  // RFC 8058 one-click unsubscribe (body "List-Unsubscribe=One-Click", no
+  // cookies, any origin); the portal's confirmation page posts the same way.
+  app.post("/v1/email/unsubscribe", {
+    config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const { token } = z.object({
+      token: z.string().min(1).max(200)
+    }).parse(request.query);
+    const preference = await redeemUnsubscribeToken(options.db, token);
+    if (!preference) {
+      return reply.code(404).send(apiError(
+        "unsubscribe_link_invalid",
+        "This unsubscribe link is not valid. Manage email preferences from your account settings."
+      ));
+    }
+    return { unsubscribed: preference };
   });
 
   app.patch("/v1/account/password", {

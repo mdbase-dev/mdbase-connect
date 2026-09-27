@@ -395,7 +395,10 @@ export function registerPasswordAuthRoutes(
       password: z.string().min(1).max(PASSWORD_MAX_UTF8_BYTES),
       terms_version: z.string().min(1).max(100),
       privacy_version: z.string().min(1).max(100),
-      timezone: ianaTimezoneSchema.optional()
+      timezone: ianaTimezoneSchema.optional(),
+      // Optional so a portal page loaded before this release can still
+      // finish signup; absence means no consent.
+      product_updates: z.boolean().default(false)
     }).strict().parse(request.body);
     const allowed = await consumeAuthenticationLimits(
       authenticationRateLimiter,
@@ -426,7 +429,8 @@ export function registerPasswordAuthRoutes(
       termsVersion: input.terms_version,
       privacyVersion: input.privacy_version,
       timezone: input.timezone,
-      clientName: sessionClientName(request.headers["user-agent"])
+      clientName: sessionClientName(request.headers["user-agent"]),
+      productUpdates: input.product_updates
     });
     setSessionCookie(reply, session.token, options.publicUrl);
     return reply.code(201).send({

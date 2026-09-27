@@ -19,6 +19,7 @@ try {
   await auditPortalLogin();
   await auditPortalSignup();
   await auditPortalRecovery();
+  await auditPortalUnsubscribe();
   if (!process.argv.includes("--portal-only")) await auditEditorConnect();
   await auditPortalColdStartAuthorization();
   await auditPortalColdStartAuthorization({ atomic: true });
@@ -254,7 +255,9 @@ async function auditPortalSignup() {
   assert.equal(await page.getByRole("button", { name: "Create account", exact: true }).isEnabled(), false);
   await page.getByRole("textbox", { name: "Name", exact: true }).fill("Chosen Name");
   await auditPage(page, "provider signup confirmation", { keyboard: true });
-  await page.getByRole("checkbox").check();
+  assert.equal(await page.getByRole("checkbox", { name: /product updates/ }).isChecked(), false,
+    "provider signup: product updates are opt-in");
+  await page.getByRole("checkbox", { name: /I agree/ }).check();
   await page.route(`**/authorize/**`, (route) => route.fulfill({ contentType: "text/html", body: "<h1>Continue authorization</h1>" }));
   await page.getByRole("button", { name: "Create account", exact: true }).click();
   await page.getByRole("heading", { name: "Continue authorization" }).waitFor();
@@ -264,6 +267,7 @@ async function auditPortalSignup() {
   assert.equal(submitted.terms_version, "terms-v1");
   assert.equal(submitted.privacy_version, "privacy-v1");
   assert.equal(typeof submitted.timezone, "string");
+  assert.equal(submitted.product_updates, false);
   assert.equal("password" in submitted, false);
   assert.equal("credential" in submitted, false);
   assert.deepEqual(errors, []);
@@ -320,6 +324,29 @@ async function auditPortalRecovery() {
     assert.equal(await page.getByRole("alert").count(), 0);
     await page.close();
   }
+}
+
+async function auditPortalUnsubscribe() {
+  const page = await localPage();
+  const errors = watchPageErrors(page);
+  const redeemed = [];
+  await page.route("**/v1/email/unsubscribe*", async (route) => {
+    const url = new URL(route.request().url());
+    redeemed.push([route.request().method(), url.searchParams.get("token")]);
+    await route.fulfill({ json: { unsubscribed: "announcements" } });
+  });
+  await page.goto(`${servers[0].origin}/unsubscribe#unsubscribe=uns_${"a".repeat(43)}`);
+  await page.getByRole("heading", { name: "Unsubscribe from mdbase email" }).waitFor();
+  assert.equal(new URL(page.url()).hash, "", "unsubscribe: token leaves the address bar");
+  assert.deepEqual(redeemed, [], "unsubscribe: opening the link alone changes nothing");
+  await auditPage(page, "portal unsubscribe", { keyboard: true });
+  await page.getByRole("button", { name: "Unsubscribe", exact: true }).click();
+  await page.getByRole("heading", { name: "You’re unsubscribed" }).waitFor();
+  assert.deepEqual(redeemed, [["POST", `uns_${"a".repeat(43)}`]]);
+  assert.match(await page.getByRole("status").innerText(), /won’t receive announcements/);
+  await auditPage(page, "portal unsubscribed", { keyboard: true });
+  assert.deepEqual(errors, []);
+  await page.close();
 }
 
 async function auditEditorConnect() {
@@ -476,6 +503,7 @@ async function auditEditorConnect() {
             }
           }]
         },
+        email_preferences: { announcements: true, product_updates: false },
         deletion: { available: true, hosted_collections: 1, local_collections: 1, computers: 1, development_confirmation: true }
       } });
       return;

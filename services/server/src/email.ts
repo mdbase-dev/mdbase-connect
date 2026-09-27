@@ -3,6 +3,7 @@ export interface TransactionalEmail {
   subject: string;
   text: string;
   html: string;
+  headers?: Readonly<Record<string, string>>;
 }
 
 export interface EmailDelivery {
@@ -91,7 +92,8 @@ export class ResendEmailTransport implements EmailTransport {
           to: [message.to],
           subject: message.subject,
           text: message.text,
-          html: message.html
+          html: message.html,
+          ...(message.headers ? { headers: message.headers } : {})
         }),
         signal: AbortSignal.timeout(15_000)
       });
@@ -131,6 +133,11 @@ function validateMessage(message: TransactionalEmail): void {
     || !message.html
   ) {
     throw new TypeError("Transactional email message is invalid.");
+  }
+  for (const [name, value] of Object.entries(message.headers ?? {})) {
+    if (!/^[A-Za-z][A-Za-z0-9-]{0,99}$/u.test(name) || !value || /[\r\n]/u.test(value)) {
+      throw new TypeError("Transactional email header is invalid.");
+    }
   }
 }
 

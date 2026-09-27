@@ -2,6 +2,7 @@ import type { DatabaseQueryable } from "./database-types.js";
 import { scheduleStarterCollection } from "./account-onboarding.js";
 import { scheduleOpenBetaWelcomeEmail } from "./beta-welcome-email.js";
 import { materializePublicSignupEntitlement } from "./entitlements.js";
+import { updateEmailPreferences } from "./scheduled-email.js";
 
 /** Runs inside the account-creation transaction for every public signup method. */
 export async function completePublicAccountOnboarding(
@@ -13,6 +14,8 @@ export async function completePublicAccountOnboarding(
     privacyVersion: string;
     acceptanceMethod: "email_verification" | "external_identity";
     timezone: string;
+    /** The unticked-by-default signup checkbox; product email is opt-in. */
+    productUpdates: boolean;
   }
 ): Promise<void> {
   await db.query(
@@ -22,6 +25,9 @@ export async function completePublicAccountOnboarding(
     [input.userId, input.termsVersion, input.privacyVersion, input.acceptanceMethod]
   );
   await materializePublicSignupEntitlement(db, input.userId);
+  if (input.productUpdates) {
+    await updateEmailPreferences(db, input.userId, { product_updates: true });
+  }
   await scheduleOpenBetaWelcomeEmail(db, input);
   await scheduleStarterCollection(db, input.userId, input.timezone);
 }

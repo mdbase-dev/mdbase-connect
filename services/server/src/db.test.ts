@@ -72,7 +72,8 @@ describe("database migrations", () => {
       "0030_sharing_cleanup_seat_reservations",
       "0031_authority_import_abort_receipts",
       "0032_local_revocation_confirmation",
-      "0033_collection_created_at"
+      "0033_collection_created_at",
+      "0034_email_announcements_and_unsubscribe"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -711,7 +712,8 @@ describe("database migrations", () => {
       "0030_sharing_cleanup_seat_reservations",
       "0031_authority_import_abort_receipts",
       "0032_local_revocation_confirmation",
-      "0033_collection_created_at"
+      "0033_collection_created_at",
+      "0034_email_announcements_and_unsubscribe"
     ]);
   });
 

@@ -31,7 +31,8 @@ describe("Beta welcome email", () => {
   it("renders the approved plain-text copy exactly", () => {
     const message = renderBetaWelcomeEmail({
       name: "Person Example",
-      email: "person@example.com"
+      email: "person@example.com",
+      unsubscribeUrl: null
     });
     expect(message).toMatchObject({
       to: "person@example.com",
@@ -44,7 +45,8 @@ describe("Beta welcome email", () => {
   it("renders the open Beta collection and replica limits", () => {
     const message = renderOpenBetaWelcomeEmail({
       name: "Person Example",
-      email: "person@example.com"
+      email: "person@example.com",
+      unsubscribeUrl: null
     });
     expect(message.text).toContain("2 GB retained-file allowance");
     expect(message.text).toContain("up to 10,000 files");
@@ -56,18 +58,35 @@ describe("Beta welcome email", () => {
       name: "Person Example",
       email: "person@example.com",
       messageKind: OPEN_BETA_WELCOME_MESSAGE_KIND,
-      templateVersion: 1
+      templateVersion: 1,
+      unsubscribeUrl: null
     })).toEqual(message);
   });
 
   it("escapes recipient names in the matching HTML version", () => {
     const message = renderBetaWelcomeEmail({
       name: "<Person & Friend>",
-      email: "person@example.com"
+      email: "person@example.com",
+      unsubscribeUrl: null
     });
     expect(message.html).toContain("Hi &lt;Person &amp; Friend&gt;,");
     expect(message.html).not.toContain("Hi <Person & Friend>,");
     expect(message.html).toContain("1 GB hosted-storage allowance");
+  });
+
+  it("ends with the unsubscribe link when one is issued", () => {
+    const unsubscribeUrl = "https://connect.example/unsubscribe#unsubscribe=uns_a&b";
+    const message = renderOpenBetaWelcomeEmail({
+      name: "Person Example",
+      email: "person@example.com",
+      unsubscribeUrl
+    });
+    expect(message.text.endsWith(
+      `To stop announcements like this one, unsubscribe: ${unsubscribeUrl}`
+    )).toBe(true);
+    expect(message.html).toContain(
+      'href="https://connect.example/unsubscribe#unsubscribe=uns_a&amp;b"'
+    );
   });
 
   it("fails closed for an unknown kind or template version", () => {
@@ -76,7 +95,8 @@ describe("Beta welcome email", () => {
       name: "Person",
       email: "person@example.com",
       messageKind: "unknown",
-      templateVersion: 1
+      templateVersion: 1,
+      unsubscribeUrl: null
     })).toThrow("Scheduled email template is unavailable.");
   });
 });
