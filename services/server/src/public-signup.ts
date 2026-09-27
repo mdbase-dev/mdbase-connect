@@ -38,6 +38,7 @@ export interface CompletePublicSignupInput {
   privacyVersion: string;
   timezone?: string;
   clientName?: string;
+  productUpdates: boolean;
 }
 
 export type PublicSignupDeliveryOutcome =
@@ -231,7 +232,8 @@ export class PublicSignupService {
         termsVersion: input.termsVersion,
         privacyVersion: input.privacyVersion,
         acceptanceMethod: "email_verification",
-        timezone: input.timezone ?? "UTC"
+        timezone: input.timezone ?? "UTC",
+        productUpdates: input.productUpdates
       });
       await connection.query(
         `INSERT INTO sessions

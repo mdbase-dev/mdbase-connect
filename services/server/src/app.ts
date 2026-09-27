@@ -130,6 +130,7 @@ export async function buildApp(options: BuildOptions) {
         options.db,
         options.emailTransport,
         renderScheduledEmail,
+        publicUrl,
         undefined,
         (error) => app.log.error(
           { err: error },

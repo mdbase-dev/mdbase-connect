@@ -3,6 +3,7 @@ import {
   type AccountData,
   type AccountSession,
   type ConnectManagementClient,
+  type EmailPreferences,
   type ManagementOverview
 } from "@mdbase/connect-management";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
@@ -112,6 +113,15 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     } finally {
       finishOperation("sharing-code");
     }
+  }
+
+  async function setEmailPreference(preference: keyof EmailPreferences, enabled: boolean) {
+    const label = preference === "announcements" ? "Announcements" : "Product updates";
+    await run(
+      `email-${preference}`,
+      async () => { await client.updateEmailPreferences({ [preference]: enabled }); },
+      `${label} ${enabled ? "turned on" : "turned off"}.`
+    );
   }
 
   async function changePassword(event: FormEvent) {
@@ -240,6 +250,30 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     </section>}
 
     <section>
+      <SectionTitle title="Email" note={account.user.email ? `Sent to ${account.user.email}.` : undefined} />
+      <div className="connect-account-list">
+        <div className="connect-account-row">
+          <div><strong>Account email</strong><small>Verification and messages about your account. These are always sent.</small></div>
+          <span>Always on</span>
+        </div>
+        <EmailPreferenceRow
+          title="Announcements"
+          description="Occasional news about significant changes to mdbase Connect and new mdbase applications."
+          checked={account.email_preferences.announcements}
+          busy={busy.has("email-announcements")}
+          onChange={(enabled) => void setEmailPreference("announcements", enabled)}
+        />
+        <EmailPreferenceRow
+          title="Product updates"
+          description="More regular updates about new features and improvements."
+          checked={account.email_preferences.product_updates}
+          busy={busy.has("email-product_updates")}
+          onChange={(enabled) => void setEmailPreference("product_updates", enabled)}
+        />
+      </div>
+    </section>
+
+    <section>
       <SectionTitle title="Account details" note="Identity and service configuration." />
       <dl className="connect-account-details"><div><dt>Name</dt><dd>{overview.user.name}</dd></div><div><dt>Identity</dt><dd>{identityLabel(overview.user)}</dd></div><div><dt>Authentication</dt><dd>{providerLabel(overview.authentication.provider)}</dd></div><div><dt>Registration</dt><dd>{registrationLabel(overview.authentication.registration)}</dd></div></dl>
     </section>
@@ -274,6 +308,19 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 
 export function DeletedAccount({ client }: { client: ConnectManagementClient }) {
   return <main className="connect-deleted-account"><div><h1>Your account has been deleted.</h1><span>Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}>Return to sign in</a></div></main>;
+}
+
+function EmailPreferenceRow({ title, description, checked, busy, onChange }: {
+  title: string;
+  description: string;
+  checked: boolean;
+  busy: boolean;
+  onChange(enabled: boolean): void;
+}) {
+  return <label className="connect-account-row">
+    <div><strong>{title}</strong><small>{description}</small></div>
+    <input type="checkbox" checked={checked} disabled={busy} onChange={(event) => onChange(event.target.checked)} />
+  </label>;
 }
 
 function StorageRow({ collection }: { collection: AccountData["storage"]["collections"][number] }) {

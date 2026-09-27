@@ -5,11 +5,14 @@ import {
   type EmailTransport,
   type TransactionalEmail
 } from "./email.js";
+import { randomToken, tokenHash } from "./security.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
 const MAX_ATTEMPTS = 8;
 const PROVIDER_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
+// "onboarding" covers the welcome message and later announcements; it is sent
+// under the announcements preference. "product" is opt-in.
 export type EmailCategory = "essential" | "onboarding" | "product";
 
 export interface ScheduleEmailInput {
@@ -28,6 +31,8 @@ export interface EmailRenderContext {
   email: string;
   messageKind: string;
   templateVersion: number;
+  /** Present for every non-essential message; the body must include it. */
+  unsubscribeUrl: string | null;
 }
 
 export type EmailRenderer = (
@@ -53,6 +58,7 @@ interface EmailRecipientRow {
   retired_at: Date | string | null;
   suspended_at: Date | string | null;
   onboarding_enabled: boolean | null;
+  announcements_enabled: boolean | null;
   product_enabled: boolean | null;
   suppression_reason: string | null;
 }
@@ -99,6 +105,7 @@ export class ScheduledEmailWorker {
     private readonly db: DatabasePool,
     private readonly transport: EmailTransport,
     private readonly render: EmailRenderer,
+    private readonly publicUrl: string,
     private readonly pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
     private readonly onError: (error: unknown) => void = () => undefined
   ) {}
@@ -185,6 +192,14 @@ export class ScheduledEmailWorker {
       await this.cancel(job, recipient ? "preference_or_suppression" : "recipient_unavailable");
       return;
     }
+    // A fresh token per attempt keeps tokens hashed at rest. Every issued
+    // token stays valid, so a retry the provider deduplicates to an earlier
+    // rendering still carries a working link.
+    const preference = categoryPreference(job.category);
+    const links = preference
+      ? await issueUnsubscribeLinks(this.db, this.publicUrl, job.user_id, preference)
+      : null;
+    const unsubscribeUrl = links?.page ?? null;
     let message: TransactionalEmail;
     try {
       message = this.render({
@@ -192,8 +207,21 @@ export class ScheduledEmailWorker {
         name: recipient.name,
         email: recipient.email,
         messageKind: job.message_kind,
-        templateVersion: job.template_version
+        templateVersion: job.template_version,
+        unsubscribeUrl
       });
+      if (links) {
+        if (!message.text.includes(links.page)) {
+          throw new TypeError("Optional email must include its unsubscribe link.");
+        }
+        message = {
+          ...message,
+          headers: {
+            "List-Unsubscribe": `<${links.oneClick}>`,
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
+          }
+        };
+      }
     } catch {
       await this.fail(job, new EmailDeliveryError("template_error", false));
       return;
@@ -228,7 +256,8 @@ export class ScheduledEmailWorker {
     const result = await this.db.query<EmailRecipientRow>(
       `SELECT account.name, account.suspended_at, identity.email,
               identity.verified_at, identity.retired_at,
-              preferences.onboarding_enabled, preferences.product_enabled,
+              preferences.onboarding_enabled,
+              preferences.announcements_enabled, preferences.product_enabled,
               suppression.reason AS suppression_reason
        FROM users account
        JOIN email_identities identity
@@ -305,7 +334,12 @@ function eligible(category: EmailCategory, recipient: EmailRecipientRow): boolea
     || recipient.retired_at
     || recipient.suppression_reason
   ) return false;
-  if (category === "onboarding") return recipient.onboarding_enabled ?? true;
+  // onboarding_enabled predates the announcements preference and has no
+  // writer; it is honoured only so an operator-set false still holds.
+  if (category === "onboarding") {
+    return (recipient.announcements_enabled ?? true)
+      && (recipient.onboarding_enabled ?? true);
+  }
   if (category === "product") return recipient.product_enabled ?? false;
   return true;
 }
@@ -327,4 +361,121 @@ function validateSchedule(input: ScheduleEmailInput): void {
   if (!Number.isFinite(input.scheduledFor.getTime())) {
     throw new TypeError("Scheduled email time is invalid.");
   }
+}
+
+// Optional email preferences and unsubscribe tokens.
+
+type EmailPreference = "announcements" | "product_updates";
+
+interface EmailPreferences {
+  announcements: boolean;
+  product_updates: boolean;
+}
+
+const UNSUBSCRIBE_TOKEN = /^uns_[A-Za-z0-9_-]{43}$/u;
+
+/**
+ * The preference a category's messages are sent under, or null for essential
+ * account email, which cannot be turned off.
+ */
+function categoryPreference(category: EmailCategory): EmailPreference | null {
+  if (category === "product") return "product_updates";
+  if (category === "onboarding") return "announcements";
+  return null;
+}
+
+/** Accounts without a preferences row receive the column defaults. */
+export async function readEmailPreferences(
+  db: DatabaseQueryable,
+  userId: string
+): Promise<EmailPreferences> {
+  const result = await db.query<{
+    announcements_enabled: boolean;
+    product_enabled: boolean;
+  }>(
+    `SELECT announcements_enabled, product_enabled
+     FROM account_email_preferences WHERE user_id = $1`,
+    [userId]
+  );
+  const row = result.rows[0];
+  return {
+    announcements: row?.announcements_enabled ?? true,
+    product_updates: row?.product_enabled ?? false
+  };
+}
+
+export async function updateEmailPreferences(
+  db: DatabaseQueryable,
+  userId: string,
+  changes: Partial<EmailPreferences>
+): Promise<EmailPreferences> {
+  // An omitted preference keeps its current value, or the column default.
+  const result = await db.query<{
+    announcements_enabled: boolean;
+    product_enabled: boolean;
+  }>(
+    `INSERT INTO account_email_preferences
+       (user_id, announcements_enabled, product_enabled)
+     VALUES ($1, COALESCE($2::boolean, true), COALESCE($3::boolean, false))
+     ON CONFLICT (user_id) DO UPDATE SET
+       announcements_enabled = COALESCE(
+         $2::boolean, account_email_preferences.announcements_enabled
+       ),
+       product_enabled = COALESCE(
+         $3::boolean, account_email_preferences.product_enabled
+       ),
+       updated_at = now()
+     RETURNING announcements_enabled, product_enabled`,
+    [userId, changes.announcements ?? null, changes.product_updates ?? null]
+  );
+  const row = result.rows[0]!;
+  return {
+    announcements: row.announcements_enabled,
+    product_updates: row.product_enabled
+  };
+}
+
+/**
+ * Issues a token that turns off one preference for one account, as the two
+ * links an optional message carries: a confirmation page in the portal for the
+ * body (a scanner that opens it changes nothing) and the RFC 8058 one-click
+ * target that mail clients POST to directly.
+ */
+async function issueUnsubscribeLinks(
+  db: DatabaseQueryable,
+  publicUrl: string,
+  userId: string,
+  preference: EmailPreference
+): Promise<{ page: string; oneClick: string }> {
+  const token = randomToken("uns");
+  await db.query(
+    `INSERT INTO email_unsubscribe_tokens (token_hash, user_id, preference)
+     VALUES ($1, $2, $3)`,
+    [tokenHash(token), userId, preference]
+  );
+  const page = new URL("/unsubscribe", publicUrl);
+  page.hash = new URLSearchParams({ unsubscribe: token }).toString();
+  const oneClick = new URL("/v1/email/unsubscribe", publicUrl);
+  oneClick.searchParams.set("token", token);
+  return { page: page.href, oneClick: oneClick.href };
+}
+
+/**
+ * Turns off the preference a token was issued for. Redeeming a token again is
+ * harmless, so tokens stay valid; they grant nothing beyond this.
+ */
+export async function redeemUnsubscribeToken(
+  db: DatabaseQueryable,
+  token: string
+): Promise<EmailPreference | null> {
+  if (!UNSUBSCRIBE_TOKEN.test(token)) return null;
+  const result = await db.query<{ user_id: string; preference: EmailPreference }>(
+    `SELECT user_id, preference FROM email_unsubscribe_tokens
+     WHERE token_hash = $1`,
+    [tokenHash(token)]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  await updateEmailPreferences(db, row.user_id, { [row.preference]: false });
+  return row.preference;
 }

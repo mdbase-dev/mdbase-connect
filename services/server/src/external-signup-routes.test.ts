@@ -121,6 +121,19 @@ describe("external public signup", () => {
     expect((await f.db.query("SELECT id FROM users")).rows).toHaveLength(0);
   });
 
+  it.each([
+    [{ ...payload, product_updates: true }, true],
+    [payload, false]
+  ])("records the unticked-by-default product updates choice with the new account", async (input, expected) => {
+    const f = await fixture();
+    const proof = await f.start("google");
+    expect((await f.complete(proof.cookie, input as typeof payload)).statusCode).toBe(200);
+    const preferences = await f.db.query(
+      "SELECT product_enabled, announcements_enabled FROM account_email_preferences"
+    );
+    expect(preferences.rows).toEqual([{ product_enabled: expected, announcements_enabled: true }]);
+  });
+
   it("does not infer linking from matching email", async () => {
     const f = await fixture();
     await createExternalSession(f.db, { provider: "google", subject: "different-subject", name: "Existing", email: "new@example.com", emailVerified: true, login: null, avatarUrl: null });

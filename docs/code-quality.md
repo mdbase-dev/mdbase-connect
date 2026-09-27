@@ -239,6 +239,18 @@ relative imports, 2,473 TypeScript exports. Tests cover every funnel, consent,
 and pairing outcome, identity-free output, window validation, and retention
 boundaries. The migration, report, and prune were also run on PostgreSQL 16.
 
+Email preferences and unsubscribe add no production file. `scheduled-email.ts`
+already owns email categories and eligibility, so it also owns the preferences
+they are gated by and the hashed unsubscribe tokens its worker issues; the
+routes join the existing account management module. Five TypeScript exports
+cover the three store functions those routes and public signup use, the
+management client's `EmailPreferences` type, and the portal's unsubscribe page.
+Three relative imports connect the store to its routes, to signup onboarding,
+and to the existing token helpers. Limits: 1,534 relative imports, 2,503
+TypeScript exports. Tests cover one-click and page unsubscribe, token hashing,
+the refusal to send optional email without its link, essential email without
+controls, preference changes and origin checks, and the signup opt-in default.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;

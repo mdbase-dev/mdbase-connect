@@ -258,6 +258,55 @@ export function ForgotPassword() {
   );
 }
 
+// A mail scanner may open this link, so only the explicit button unsubscribes.
+export function Unsubscribe({ unsubscribeToken }: { unsubscribeToken: string }) {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [unsubscribed, setUnsubscribed] = useState<"announcements" | "product_updates" | null>(null);
+
+  async function unsubscribe(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<{ unsubscribed: "announcements" | "product_updates" }>(
+        `/v1/email/unsubscribe?${new URLSearchParams({ token: unsubscribeToken })}`,
+        { method: "POST" }
+      );
+      setUnsubscribed(result.unsubscribed);
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const topic = unsubscribed === "product_updates" ? "product updates" : "announcements";
+  return (
+    <MinimalAuthPage>
+      <section className="auth-panel">
+        <h1>{unsubscribed ? "You’re unsubscribed" : unsubscribeToken ? "Unsubscribe from mdbase email" : "This unsubscribe link can’t be opened"}</h1>
+        <p role={unsubscribed ? "status" : undefined} aria-live={unsubscribed ? "polite" : undefined}>
+          {unsubscribed
+            ? `You won’t receive ${topic} from mdbase Connect. Messages about your account, such as verification and security email, are still sent.`
+            : unsubscribeToken
+              ? "Stop receiving the kind of email this link came in. Messages about your account are still sent."
+              : "Open the link from the email again, or change email preferences in your account settings."}
+        </p>
+        {error && <div className="message error" role="alert">{error}</div>}
+        {unsubscribeToken && !unsubscribed && (
+          <form className="password-auth-form" onSubmit={(event) => void unsubscribe(event)}>
+            <button className="button primary" disabled={busy} type="submit">
+              {busy ? "Unsubscribing…" : "Unsubscribe"}
+            </button>
+          </form>
+        )}
+        <a className="quiet-auth-link" href="/account">Manage email preferences</a>
+      </section>
+    </MinimalAuthPage>
+  );
+}
+
 export function ResetPassword({ resetToken }: { resetToken: string }) {
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [password, setPassword] = useState("");
@@ -377,6 +426,7 @@ export function Signup({
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [agreementsAccepted, setAgreementsAccepted] = useState(false);
+  const [productUpdates, setProductUpdates] = useState(false);
   const [error, setError] = useState(authenticationFlowError);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -473,7 +523,8 @@ export function Signup({
           name,
           terms_version: config.agreements.terms.version,
           privacy_version: config.agreements.privacy.version,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ...(externalSignup || publicSignup ? { product_updates: productUpdates } : {})
         })
       });
       location.href = result.redirect_to ?? (result.onboarding?.starter_collection === "pending"
@@ -618,6 +669,14 @@ export function Signup({
                 </a>.
               </span>
             </label>
+            {!isInvitation && <label className="auth-agreement">
+              <input
+                type="checkbox"
+                checked={productUpdates}
+                onChange={(event) => setProductUpdates(event.target.checked)}
+              />
+              <span>Send me occasional product updates. You can change this at any time.</span>
+            </label>}
             <button
               className="button primary"
               disabled={busy || !agreementsAccepted}

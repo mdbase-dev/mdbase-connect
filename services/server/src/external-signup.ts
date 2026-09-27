@@ -67,6 +67,7 @@ export class ExternalSignupService {
     privacyVersion: string;
     timezone: string;
     clientName: string;
+    productUpdates: boolean;
   }) {
     // Bind confirmation to the identity displayed by preview. Another tab may
     // have replaced the browser cookie while this form was open. The digest is

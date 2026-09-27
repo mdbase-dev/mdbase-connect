@@ -11,7 +11,7 @@ test("captures one-time auth fragments before rendering and removes them from hi
   const replacements = [];
   const secrets = capturePortalBootstrapSecrets(
     {
-      hash: "#invitation=%20invite-secret%20&verification=verify-secret&reset=reset-secret",
+      hash: "#invitation=%20invite-secret%20&verification=verify-secret&reset=reset-secret&unsubscribe=unsubscribe-secret",
       pathname: "/signup",
       search: "?return_to=%2Fauthorize%2Frequest"
     },
@@ -26,7 +26,8 @@ test("captures one-time auth fragments before rendering and removes them from hi
   assert.deepEqual(secrets, {
     invitationToken: "invite-secret",
     verificationToken: "verify-secret",
-    resetToken: "reset-secret"
+    resetToken: "reset-secret",
+    unsubscribeToken: "unsubscribe-secret"
   });
   assert.deepEqual(replacements, [{
     state: { preserved: true },
@@ -46,7 +47,8 @@ test("does not rewrite unrelated fragments", () => {
   assert.deepEqual(secrets, {
     invitationToken: "",
     verificationToken: "",
-    resetToken: ""
+    resetToken: "",
+    unsubscribeToken: ""
   });
   assert.equal(replaced, false);
 });

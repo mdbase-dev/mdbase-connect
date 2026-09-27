@@ -698,6 +698,43 @@ describe("ConnectApp", () => {
       .not.toBeInTheDocument();
   });
 
+  it("changes one optional email preference and keeps account email always on", async () => {
+    let preferences = { announcements: true, product_updates: false };
+    const requests: Array<{ path: string; method?: string; body?: string }> = [];
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      requests.push({ path, method: init?.method, body: init?.body as string | undefined });
+      if (path === "/v1/account/sessions") return Response.json({ sessions: [] });
+      if (path === "/v1/account/email-preferences") {
+        preferences = { ...preferences, ...JSON.parse(String(init?.body)) };
+        return Response.json({ email_preferences: preferences });
+      }
+      if (path === "/v1/account") {
+        return Response.json({ ...accountFixture(), email_preferences: preferences });
+      }
+      return Response.json(overview);
+    });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await user.click(await screen.findByRole("link", { name: "Open account and sessions" }));
+    expect(await screen.findByRole("heading", { name: "Email" })).toBeInTheDocument();
+    expect(screen.getByText("Always on")).toBeInTheDocument();
+    const announcements = screen.getByRole("checkbox", { name: /Announcements/ });
+    expect(announcements).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Product updates/ })).not.toBeChecked();
+
+    await user.click(announcements);
+
+    expect(await screen.findByText("Announcements turned off.")).toBeInTheDocument();
+    expect(requests).toContainEqual({
+      path: "/v1/account/email-preferences",
+      method: "PATCH",
+      body: JSON.stringify({ announcements: false })
+    });
+    expect(screen.getByRole("checkbox", { name: /Announcements/ })).not.toBeChecked();
+  });
+
   it("keeps hosted storage, sign-in methods, and account deletion in the editor", async () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
@@ -862,6 +899,7 @@ function accountFixture(): AccountData {
         }
       }]
     },
+    email_preferences: { announcements: true, product_updates: false },
     deletion: {
       available: true,
       unavailable_reason: null,

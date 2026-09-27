@@ -11,7 +11,8 @@ import {
   ForgotPassword,
   Login,
   ResetPassword,
-  Signup
+  Signup,
+  Unsubscribe
 } from "./auth-view";
 import {
   AuthorityAdoption,
@@ -44,6 +45,7 @@ function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets
   if (location.pathname === "/getting-started") return <GettingStarted />;
   if (location.pathname === "/forgot-password") return <ForgotPassword />;
   if (location.pathname === "/reset-password") return <ResetPassword resetToken={bootstrapSecrets.resetToken} />;
+  if (location.pathname === "/unsubscribe") return <Unsubscribe unsubscribeToken={bootstrapSecrets.unsubscribeToken} />;
   if (location.pathname === "/device") return <DeviceAuthorization />;
   if (pairingId) return <Pairing pairingId={pairingId} />;
   if (mirrorPairingId) return <MirrorPairing pairingId={mirrorPairingId} />;

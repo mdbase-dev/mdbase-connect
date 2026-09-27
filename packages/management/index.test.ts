@@ -90,6 +90,26 @@ describe("ConnectManagementClient", () => {
     });
   });
 
+  it("changes only the email preferences it is given", async () => {
+    const fetch = vi.fn(async () => Response.json({
+      email_preferences: { announcements: false, product_updates: false }
+    }));
+    vi.stubGlobal("fetch", fetch);
+    const client = new ConnectManagementClient("https://connect.example");
+
+    await expect(client.updateEmailPreferences({ announcements: false })).resolves.toEqual({
+      email_preferences: { announcements: false, product_updates: false }
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("https://connect.example/v1/account/email-preferences"),
+      expect.objectContaining({
+        method: "PATCH",
+        credentials: "include",
+        body: JSON.stringify({ announcements: false })
+      })
+    );
+  });
+
   it("revokes an application through one exact batch request", async () => {
     const fetch = vi.fn(async () => Response.json({
       ok: true,

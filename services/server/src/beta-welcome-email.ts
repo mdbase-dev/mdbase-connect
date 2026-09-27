@@ -72,7 +72,7 @@ export function renderScheduledEmail(
 }
 
 export function renderBetaWelcomeEmail(
-  input: Pick<EmailRenderContext, "name" | "email">
+  input: Pick<EmailRenderContext, "name" | "email" | "unsubscribeUrl">
 ): TransactionalEmail {
   return renderWelcomeEmail(input,
     "Because you joined during the beta, your account has a 1 GB hosted-storage allowance that does not expire when the beta ends. It is shared across your Markdown files and other files. You can create up to 10 hosted collections, connect up to 10 replicas to each collection, store Markdown documents up to 2 MB, and store individual files up to 250 MB. I hope to offer paid plans with more storage later, and you'll be able to add one without losing your beta allowance."
@@ -80,7 +80,7 @@ export function renderBetaWelcomeEmail(
 }
 
 export function renderOpenBetaWelcomeEmail(
-  input: Pick<EmailRenderContext, "name" | "email">
+  input: Pick<EmailRenderContext, "name" | "email" | "unsubscribeUrl">
 ): TransactionalEmail {
   return renderWelcomeEmail(input,
     "Because you joined during the open beta, your account has a 1 GB hosted-storage allowance that does not expire when the beta ends. It is shared across your Markdown files and other files. Your account also includes a 2 GB retained-file allowance, and each collection can contain up to 10,000 files. You can have up to 3 hosted collections in total, including the starter collection created with your account. Each collection can connect up to 10 synced folders and 50 application installations. Markdown documents can be up to 2 MB and individual files up to 250 MB. I hope to offer paid plans with more storage later, and you'll be able to add one without losing your beta allowance."
@@ -88,7 +88,7 @@ export function renderOpenBetaWelcomeEmail(
 }
 
 function renderWelcomeEmail(
-  input: Pick<EmailRenderContext, "name" | "email">,
+  input: Pick<EmailRenderContext, "name" | "email" | "unsubscribeUrl">,
   entitlement: string
 ): TransactionalEmail {
   const paragraphs = [
@@ -103,19 +103,25 @@ function renderWelcomeEmail(
     "There will probably be some rough edges, so please let me know when something breaks, behaves unexpectedly, or is confusing. You can send an email to support@mdbase.dev or open an issue on GitHub. mdbase is early in its development and so feedback is super-helpful!",
     "Best,\nCallum."
   ];
+  const footer = input.unsubscribeUrl
+    ? `You're receiving this because you created an mdbase Connect account. To stop announcements like this one, unsubscribe: ${input.unsubscribeUrl}`
+    : null;
   return {
     to: input.email,
     subject: SUBJECT,
-    text: paragraphs.join("\n\n"),
-    html: renderHtml(paragraphs)
+    text: [...paragraphs, ...footer ? [footer] : []].join("\n\n"),
+    html: renderHtml(paragraphs, input.unsubscribeUrl)
   };
 }
 
-function renderHtml(paragraphs: string[]): string {
+function renderHtml(paragraphs: string[], unsubscribeUrl: string | null): string {
   const body = paragraphs.map((paragraph) => {
     const lines = escapeHtml(paragraph).replaceAll("\n", "<br>");
     return `    <p style="margin:0 0 20px">${lines}</p>`;
   }).join("\n");
+  const footer = unsubscribeUrl
+    ? `\n    <p style="margin:32px 0 0;font-size:13px;color:#5b6470">You're receiving this because you created an mdbase Connect account. <a href="${escapeHtml(unsubscribeUrl)}" style="color:#5b6470">Unsubscribe from announcements</a>.</p>`
+    : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -125,7 +131,7 @@ function renderHtml(paragraphs: string[]): string {
 </head>
 <body style="margin:0;background:#ffffff;color:#222831;font-family:Arial,sans-serif">
   <div style="max-width:640px;margin:0 auto;padding:36px 24px;font-size:16px;line-height:1.6">
-${body}
+${body}${footer}
   </div>
 </body>
 </html>`;
