@@ -714,6 +714,40 @@ fn wire_revision_advance_alone_preserves_authority_permit() {
 }
 
 #[test]
+fn busy_timer_worker_does_not_delay_or_reject_revocation() {
+    let (connector_id, grant) = fixture_grant();
+    let directory = tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let initial = snapshot_for(connector_id, 1, 55_000);
+    registry
+        .replace_remote_grants_at_revision(
+            connector_id,
+            &initial.revision,
+            initial.sequence,
+            initial.lease_issued_at_ms,
+            initial.lease_expires_at_ms,
+            &[grant],
+        )
+        .unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    let (timers, mut worker) = crate::runtime_notifications::RuntimeTimerHandle::stalled();
+    let mut state = AgentState::new(registry, watcher, None);
+    state.runtime_timers = Some(timers);
+
+    // A worker that never answers makes a waiting apply time out and reject,
+    // so the acknowledgement's outcome is the check, not wall-clock time.
+    assert!(matches!(
+        apply_policy_snapshot(
+            &state,
+            CONTROL_PROTOCOL_VERSION,
+            snapshot_for(connector_id, 2, 55_000)
+        ),
+        RelayMessage::PolicyApplied { ok: true, .. }
+    ));
+    assert_eq!(worker.queued_cleanups(), 1);
+}
+
+#[test]
 fn stuck_admitted_durable_work_does_not_delay_snapshot_or_publish_receipt() {
     let (_directory, state) = state_with_lease(60_000);
     let old = state.capture_policy_revision().unwrap();
