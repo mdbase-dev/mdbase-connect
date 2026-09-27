@@ -199,7 +199,7 @@ describe("provider-neutral collection client", () => {
     });
     const result = await client.query({
       types: ["task"],
-      projections: { targets: { expr: "assignees.map(a, a.asFile() == null ? null : a.asFile().file.path)" } },
+      projections: { targets: { expression: "assignees.map(a, a.asFile() == null ? null : a.asFile().file.path)" } },
       select: ["projection.targets"]
     });
     expect(result.ok && result.value.results[0].values).toEqual({ targets: ["people/alex.md", null] });
