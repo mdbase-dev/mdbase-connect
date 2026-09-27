@@ -101,7 +101,16 @@ pub fn start(
                             internal: true,
                         }
                     });
-                    let _ = cleanup.response.send(result);
+                    match cleanup.response {
+                        Some(response) => {
+                            let _ = response.send(result);
+                        }
+                        None => {
+                            if let Err(error) = result {
+                                tracing::warn!(code = %error.code, error = %error.message, "requested orphaned notification timer cleanup deferred to recovery");
+                            }
+                        }
+                    }
                 }
                 _ = recovery.tick() => {
                     service.recover().await;
@@ -127,7 +136,21 @@ struct TimerCommand {
 }
 
 struct CleanupCommand {
-    response: std::sync::mpsc::Sender<Result<usize, TimerOperationError>>,
+    /// Absent when the requester does not wait; failures are then logged here.
+    response: Option<std::sync::mpsc::Sender<Result<usize, TimerOperationError>>>,
+}
+
+#[cfg(test)]
+pub(crate) struct StalledTimerWorker {
+    _commands: tokio::sync::mpsc::Receiver<TimerCommand>,
+    cleanup: tokio::sync::mpsc::Receiver<CleanupCommand>,
+}
+
+#[cfg(test)]
+impl StalledTimerWorker {
+    pub(crate) fn queued_cleanups(&mut self) -> usize {
+        std::iter::from_fn(|| self.cleanup.try_recv().ok()).count()
+    }
 }
 
 #[derive(Clone)]
@@ -137,10 +160,40 @@ pub struct RuntimeTimerHandle {
 }
 
 impl RuntimeTimerHandle {
-    pub fn cleanup_orphaned_timers(&self) -> Result<usize, TimerOperationError> {
+    /// Queues cleanup without waiting for the single-threaded timer authority,
+    /// which may be busy admitting events for longer than a relay acknowledgement
+    /// may wait. Revoked grants cannot fire meanwhile: dispatch re-authorizes
+    /// against the local registry, and periodic recovery repeats this cleanup.
+    pub fn request_orphaned_timer_cleanup(&self) -> bool {
+        self.cleanup_commands
+            .try_send(CleanupCommand { response: None })
+            .is_ok()
+    }
+
+    /// A handle whose worker never services commands, like one stuck admitting events.
+    #[cfg(test)]
+    pub(crate) fn stalled() -> (Self, StalledTimerWorker) {
+        let (commands, command_rx) = tokio::sync::mpsc::channel(64);
+        let (cleanup_commands, cleanup_rx) = tokio::sync::mpsc::channel(16);
+        (
+            Self {
+                commands,
+                cleanup_commands,
+            },
+            StalledTimerWorker {
+                _commands: command_rx,
+                cleanup: cleanup_rx,
+            },
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cleanup_orphaned_timers(&self) -> Result<usize, TimerOperationError> {
         let (response, receiver) = std::sync::mpsc::channel();
         self.cleanup_commands
-            .try_send(CleanupCommand { response })
+            .try_send(CleanupCommand {
+                response: Some(response),
+            })
             .map_err(|_| TimerOperationError {
                 code: "timer_authority_unavailable".to_string(),
                 message: "The local timer authority is unavailable.".to_string(),
