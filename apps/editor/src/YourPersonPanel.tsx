@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CollectionDescription, JsonObject, PeopleDirectory, PersonResolution, TypePackAssessment, TypePackProvision } from "@mdbase-dev/connect";
 import type { CollectionGateway, CreateNoteInput } from "./model";
 import { NewNoteComposer } from "./NewNoteComposer";
@@ -32,7 +32,8 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   const setupPanel = useRef<HTMLElement>(null);
   const setupButton = useRef<HTMLButtonElement>(null);
   const wasReviewing = useRef(false);
-  useEffect(() => {
+  // Layout effect: focus moves in the same commit that shows or hides the review.
+  useLayoutEffect(() => {
     if (setup) setupPanel.current?.focus();
     else if (wasReviewing.current) setupButton.current?.focus();
     wasReviewing.current = !!setup;
