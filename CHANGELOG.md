@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Collections use mdbase-rs 0.4.0-rc.5, which implements mdbase spec
+  v0.3.0-rc.4. Expressions are standard CEL: `note.` and `present.` are gone
+  (use `record.` and `has()`), selecting a field of null is an error (use a
+  null check or optional selection such as `a.?b.orValue(null)`), dates are
+  `YYYY-MM-DD` strings, and `lower()`/`upper()` fold case. Links read from
+  `this` or from `asFile()` resolve relative to their own record, and
+  `file.links` holds alias-free link values. Hosted updates send `patch`; the
+  `fields` alias is rejected. Stored semantic projections move to format 7 and
+  rebuild. New collections write `settings.validation` (template revision 3).
 - Added record sessions for editing a record while people type:
   `connection.records.open(path)` returns a session shared by every view of
   that record. It autosaves after a pause, never runs two writes for one
