@@ -959,14 +959,14 @@ fn type_pack_provision_error(result: &OperationResult) -> ApiError {
         .first()
         .map(|diagnostic| diagnostic.message.as_str())
         .or_else(|| {
-            result.result["resources"]
-                .as_array()
-                .and_then(|resources| {
-                    resources
-                        .iter()
-                        .find(|resource| resource["action"] == "conflict")
-                })
-                .and_then(|resource| resource["reason"].as_str())
+            // A pack assessment lists resources; a collection setup, each pack's.
+            let packs = result.result["type_packs"].as_array().into_iter().flatten();
+            std::iter::once(&result.result)
+                .chain(packs)
+                .filter_map(|assessment| assessment["resources"].as_array())
+                .flatten()
+                .filter(|resource| resource["action"] == "conflict")
+                .find_map(|resource| resource["reason"].as_str())
         })
         .unwrap_or("the type pack requires review");
     ApiError::conflict(
