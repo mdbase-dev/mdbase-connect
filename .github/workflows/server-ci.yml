@@ -316,6 +316,10 @@ jobs:
           docker pull "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE" >/dev/null
           docker pull postgres:17-alpine >/dev/null
       - name: Preserve pending v2 state through beta95 rollback and reupgrade
+        env:
+          # The script re-queries beta95 release metadata; anonymous API calls
+          # from shared runner addresses intermittently get 403.
+          GITHUB_TOKEN: ${{ github.token }}
         run: env -u DATABASE_URL -u UPGRADE_SERVER_URL test/upgrade/server-from-previous --retained-v2-pending
 
   previous-provider-upgrade:

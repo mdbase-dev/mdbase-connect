@@ -22,7 +22,10 @@ fn collect_external_events(
     expected: usize,
 ) -> Vec<(mdbase::watch::WatchEvent, u64)> {
     let cancellation = mdbase::OperationCancellation::new();
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // The loop returns as soon as the events arrive; the deadline only turns
+    // a missing event into a failure. Watcher delivery after a directory
+    // rename can take over 5 s on loaded Windows runners.
+    let deadline = Instant::now() + Duration::from_secs(30);
     let mut events = Vec::new();
     while events.len() < expected && Instant::now() < deadline {
         registry
@@ -37,7 +40,8 @@ fn collect_external_events(
     assert_eq!(
         events.len(),
         expected,
-        "timed out waiting for watcher events"
+        "timed out waiting for watcher events; received {:?}",
+        event_paths(&events)
     );
     events
 }
