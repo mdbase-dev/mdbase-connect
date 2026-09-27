@@ -40,7 +40,7 @@
     "directCanonicalOutcomeStructs": 0,
     "privateCanonicalResultFieldCalls": 0,
     "legacyCrudFeatures": 0,
-    "semanticProjectionFormatVersion": 6
+    "semanticProjectionFormatVersion": 7
   },
   "reviewBudgets": {
     "productionFiles": 700,

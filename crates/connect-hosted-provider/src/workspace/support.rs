@@ -28,12 +28,6 @@ pub(super) fn operation_input(
                 ApiError::not_found("record_not_found", "The hosted record does not exist.")
             })?;
             let mut input = source.clone();
-            // Connect exposes `patch`; the embedded Collection API consumes
-            // the equivalent `fields` object. Keep that translation isolated
-            // at this engine adapter.
-            if let Some(patch) = input.remove("patch") {
-                input.insert("fields".to_string(), patch);
-            }
             input.insert("path".to_string(), Value::String(path.to_string()));
             Ok((Value::Object(input), Some(path.to_string())))
         }

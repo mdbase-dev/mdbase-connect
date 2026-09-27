@@ -19,7 +19,7 @@ describe("hosted collection profiles", () => {
   it.each(["mdbase", "onboarding"])("allows neutral Base paths in fresh %s templates", (name) => {
     const resources = hostedResources(name);
     const configuration = resources.documents[0]!;
-    expect(resources.revision).toBe("mdbase-template:2");
+    expect(resources.revision).toBe("mdbase-template:3");
     expect(configuration).toMatchObject({
       path: "mdbase.yaml",
       kind: "configuration"
@@ -28,7 +28,7 @@ describe("hosted collection profiles", () => {
       spec_version: "0.3.0",
       settings: {
         types_folder: "_types",
-        default_validation: "error",
+        validation: "error",
         timezone: "UTC"
       },
       "x-obsidian": {

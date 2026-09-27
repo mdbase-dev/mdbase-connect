@@ -342,7 +342,7 @@ async function main() {
 
   const bodySuccess = (await operation("query", {
     ...queryBase,
-    where: `${folderPredicate} && record.status == 'open' && file.body.lower().contains('deterministic mission body')`,
+    where: `${folderPredicate} && record.status == 'open' && file.body.contains('Deterministic mission body')`,
     include_body: true,
     limit: 20
   }, 60_000)).value;
@@ -355,7 +355,7 @@ async function main() {
   try {
     const bodyBudget = (await operation("query", {
       ...queryBase,
-      where: `${folderPredicate} && file.body.lower().contains('needle-that-does-not-exist')`,
+      where: `${folderPredicate} && file.body.contains('needle-that-does-not-exist')`,
       limit: 20
     }, 60_000)).value;
     bodyBudgetDiagnostics = diagnosticCodes(bodyBudget);
@@ -442,7 +442,7 @@ async function main() {
       "--input",
       JSON.stringify({
         ...queryBase,
-        where: `${folderPredicate} && file.body.lower().contains('cancellation-never-matches')`,
+        where: `${folderPredicate} && file.body.contains('cancellation-never-matches')`,
         limit: 20
       })
     ], { env: childEnvironment, stdio: ["ignore", "ignore", "ignore"] });

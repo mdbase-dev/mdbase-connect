@@ -6086,7 +6086,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
             "query",
             Uuid::new_v4(),
             json!({
-                "where": "record.tags.contains('hosted') && record.due < '2026-06-01'",
+                "where": "'hosted' in record.tags && record.due < '2026-06-01'",
                 "limit": 10,
                 "order_by": [{"field": "file.path"}],
             }),
