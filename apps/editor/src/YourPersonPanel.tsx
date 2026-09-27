@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionDescription, JsonObject, PeopleDirectory, PersonResolution, TypePackAssessment, TypePackProvision } from "@mdbase-dev/connect";
 import type { CollectionGateway, CreateNoteInput } from "./model";
 import { NewNoteComposer } from "./NewNoteComposer";
-import { readFieldReference } from "./field-reference";
-import { claimedByAnotherAccount, contactCandidates, contactPersonPatch, identityPatch, newPersonProperties, personField, personImplementations, writablePersonImplementation, type ContactCandidate } from "./person-records";
+import { claimedByAnotherAccount, contactCandidates, contactPersonPatch, identityPatch, newPersonProperties, personImplementations, writablePersonImplementation, type ContactCandidate } from "./person-records";
 
 import { loadPersonSetup, requireAdditivePersonSetup } from "./person-setup";
 
@@ -22,7 +21,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   const [directory, setDirectory] = useState<PeopleDirectory>();
   const [contacts, setContacts] = useState<ContactCandidate[]>([]);
   const [confirmClaimed, setConfirmClaimed] = useState(false);
-  const [conversion, setConversion] = useState<{ path: string; revision: string; patch: JsonObject; personId: string; typeName: string }>();
+  const [conversion, setConversion] = useState<{ path: string; revision: string; patch: JsonObject; typeName: string }>();
   const [path, setPath] = useState("");
   const [typeName, setTypeName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -39,13 +38,12 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
     wasReviewing.current = !!setup;
   }, [setup]);
   const lifecycle = useRef<AbortController | null>(null);
-  const implementations = personImplementations(description).filter((candidate) => ["id", "name", "identities"].every((field) => candidate.fields[field] || candidate.fields[`/${field}`]));
+  const implementations = personImplementations(description).filter((candidate) => ["name", "identities"].every((field) => candidate.fields[field] || candidate.fields[`/${field}`]));
   const implementation = implementations.find((candidate) => candidate.typeName === typeName) ?? implementations[0];
   const identity = directory?.account;
   const records = directory?.people;
   const linked = directory?.me.status === "linked" ? directory.me.person : undefined;
-  const existingIds = useMemo(() => directory ? [...directory.people.map((person) => person.id), ...directory.duplicateIds] : [], [directory]);
-  const properties = useMemo(() => identity && implementation ? newPersonProperties(implementation, identity, identity.name, existingIds) : {}, [identity, implementation, existingIds]);
+  const properties = useMemo(() => identity && implementation ? newPersonProperties(implementation, identity, identity.name) : {}, [identity, implementation]);
   const selectedPerson = records?.find((record) => record.path === path);
   const selectedIsClaimed = Boolean(identity && selectedPerson && claimedByAnotherAccount(selectedPerson, identity));
 
@@ -107,7 +105,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       assertCurrent();
       const next = await onRefreshDescription();
       if (!next || next.collectionId !== description.collectionId) return;
-      if (!personImplementations(next).some((candidate) => ["id", "name", "identities"].every((field) => candidate.fields[field] || candidate.fields[`/${field}`]))) {
+      if (!personImplementations(next).some((candidate) => ["name", "identities"].every((field) => candidate.fields[field] || candidate.fields[`/${field}`]))) {
         throw new Error("Definitions were added, but their Person mappings need review in Types.");
       }
       setSetup(undefined); setCreating(canCreate && !path);
@@ -136,14 +134,13 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
         assertCurrent();
         const record = await gateway.read(path);
         assertCurrent();
-        const ids = [...fresh.people.map((person) => person.id), ...fresh.duplicateIds];
-        const prepared = contactPersonPatch(description, record.frontmatter, contact.source, implementation, identity, ids);
-        if (ids.includes(prepared.personId)) throw new Error("The contact's proposed person ID already belongs to another record.");
-        setConversion({ ...prepared, path, revision: record.revision, typeName: implementation.typeName });
+        if (fresh.people.some((person) => person.path === path)) throw new Error("This record is already a person record. Reload these settings.");
+        const patch = contactPersonPatch(description, record.frontmatter, contact.source, implementation, identity);
+        setConversion({ patch, path, revision: record.revision, typeName: implementation.typeName });
         return;
       }
       const selected = fresh.people.find((record) => record.path === path);
-      if (!selected || fresh.duplicateIds.includes(selected.id)) throw new Error("Select a person with a unique ID.");
+      if (!selected) throw new Error("Select a person record.");
       if (claimedByAnotherAccount(selected, identity) && !confirmClaimed) {
         setConfirmClaimed(true);
         return;
@@ -164,8 +161,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
     setBusy(true); setError("");
     try {
       assertCurrent();
-      const fresh = await freshUnlinkedDirectory();
-      if (fresh.people.some((person) => person.id === conversion.personId)) throw new Error("Another person record now uses this ID. Reload and review the association.");
+      await freshUnlinkedDirectory();
       assertCurrent();
       await gateway.updateProperties(conversion.path, conversion.patch, conversion.revision);
       if (!lifecycle.current?.signal.aborted) setRevision((value) => value + 1);
@@ -177,10 +173,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   async function create(input: CreateNoteInput) {
     assertCurrent();
     if (!identity || !implementation || !canCreate || input.type !== implementation.typeName) throw new Error("Select a Person-compatible type.");
-    const fresh = await freshUnlinkedDirectory();
-    if (fresh.people.some((person) => person.id === readFieldReference(input.properties, personField(implementation, "id")))) {
-      throw new Error("Another person record now uses this ID. Choose a different ID.");
-    }
+    await freshUnlinkedDirectory();
     assertCurrent();
     await gateway.create(input);
     if (!lifecycle.current?.signal.aborted) { setCreating(false); setRevision((value) => value + 1); }
@@ -223,7 +216,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
 }
 
 function ResolutionProblem({ resolution }: { resolution: PersonResolution }) {
-  if (resolution.status === "ambiguous") return <div role="alert"><p>Several person records match your account or share its person ID. Edit them so exactly one record represents you:</p><ul>{resolution.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>;
+  if (resolution.status === "ambiguous") return <div role="alert"><p>Several person records are linked to your account. Edit them so exactly one record represents you:</p><ul>{resolution.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>;
   if (resolution.status === "invalid") return <div role="alert"><p>A person record linked to your account has invalid fields. Fix it before relying on it:</p><ul>{resolution.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>;
   return null;
 }

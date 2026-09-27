@@ -14,7 +14,7 @@ vi.mock("./person-setup", async (original) => ({
 vi.mock("./NewNoteComposer", () => ({ NewNoteComposer: () => <div role="region" aria-label="Create person form" /> }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const empty = { collectionId: "fixture", types: [], contracts: [] } as unknown as CollectionDescription;
-const ready = { ...empty, types: [{ name: "person", schema: {} }], contracts: [{ id: "mdbase.person", version: "1.0.0", implementations: [{ typeName: "person", fields: { id: "id", name: "name", identities: "identities" } }] }] } as unknown as CollectionDescription;
+const ready = { ...empty, types: [{ name: "person", schema: {} }], contracts: [{ id: "mdbase.person", version: "2.0.0", implementations: [{ typeName: "person", fields: { name: "name", identities: "identities" } }] }] } as unknown as CollectionDescription;
 function assessment(): TypePackAssessment {
   return {
     applicable: true, status: "install", assessmentDigest: "reviewed-digest",

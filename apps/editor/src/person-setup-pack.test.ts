@@ -11,7 +11,7 @@ it("loads the exact SHA-pinned canonical People/Contact provision without a cata
   expect(provision).toEqual(JSON.parse(document));
   expect(provision.manifest.id).toBe("mdbase.contact");
   expect(provision.manifest.version).toBe("1.2.0");
-  expect(provision.manifest.resources).toHaveLength(5);
+  expect(provision.manifest.resources).toHaveLength(7);
   expect(provision.manifest.resources.filter(({ kind }) => kind === "type").map(({ target }) => target)).toEqual(["_types/person.md"]);
   expect(provision.resources.find(({ source }) => source === "types/person/2.md")?.document).toContain("no first/last-name split is required");
   expect(fetcher).toHaveBeenCalledTimes(1);

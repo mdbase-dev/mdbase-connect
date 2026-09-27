@@ -56,7 +56,7 @@ export type {
   MdbaseRecordSessionSnapshot,
   MdbaseRecordSessionState
 } from "./record-session.js";
-export { MdbasePeopleClient, PERSON_CONTRACT, sameIdentity, suggestPersonId } from "./people-client.js";
+export { MdbasePeopleClient, PERSON_CONTRACT, sameIdentity } from "./people-client.js";
 export type { CurrentAccount, InvalidPersonRecord, PeopleDirectory, PeopleDirectoryOptions, PersonRecord, PersonResolution } from "./people-client.js";
 export type { AccountIdentity, AccountProfile, CollectionMemberProfile, ApplicationPeopleRequirement, PeoplePermission } from "@mdbase-dev/connect-protocol";
 export type {

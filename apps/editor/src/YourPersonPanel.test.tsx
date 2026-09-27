@@ -10,8 +10,8 @@ vi.mock("./NewNoteComposer", () => ({ NewNoteComposer: (props: { initialTitle: s
 }));
 afterEach(cleanup);
 const identity = { issuer: "https://connect.example", subject: "account", name: "Account name" };
-const implementation = { typeName: "contact", typeVersion: 1, digest: "digest", fields: { id: "uid", name: "/profile/name", identities: "/profile/accounts" } };
-const description = { collectionId: "collection", types: [{ name: "contact", schema: {} }], contracts: [{ id: "mdbase.person", version: "1.0.0", implementations: [implementation] }] } as unknown as CollectionDescription;
+const implementation = { typeName: "contact", typeVersion: 1, digest: "digest", fields: { name: "/profile/name", identities: "/profile/accounts" } };
+const description = { collectionId: "collection", types: [{ name: "contact", schema: {} }], contracts: [{ id: "mdbase.person", version: "2.0.0", implementations: [implementation] }] } as unknown as CollectionDescription;
 function fixture(current: () => CollectionDescription = () => description) {
   const notes: NoteSummary[] = [{ path: "contacts/existing.md", types: ["contact"], frontmatter: { uid: "person_one", profile: { name: "Existing contact", accounts: [] } }, effectiveFrontmatter: {}, file: {} }];
   const gateway = {
@@ -23,7 +23,7 @@ function fixture(current: () => CollectionDescription = () => description) {
   };
   return { gateway, notes, render: (canEdit = true) => render(<YourPersonPanel gateway={gateway as unknown as CollectionGateway} description={description} canCreate canEdit={canEdit} />) };
 }
-it("links an existing contact with mapped fields without replacing its name or ID", async () => {
+it("links an existing contact with mapped fields without replacing its name or local fields", async () => {
   const f = fixture(); f.render();
   fireEvent.change(await screen.findByRole("combobox", { name: "Existing person or contact" }), { target: { value: "contacts/existing.md" } });
   fireEvent.click(screen.getByRole("button", { name: "Link this record to me" }));
@@ -40,7 +40,7 @@ it("prefills normal record creation with the account name and portable identity"
   fireEvent.click(screen.getByRole("button", { name: "Create my person record" }));
   fireEvent.click(screen.getByRole("button", { name: "Create fixture person" }));
   await waitFor(() => expect(f.gateway.create).toHaveBeenCalledWith(expect.objectContaining({
-    title: "Account name", type: "contact", properties: { uid: "account-name", profile: { name: "Account name", accounts: [{ issuer: identity.issuer, subject: identity.subject }] } }
+    title: "Account name", type: "contact", properties: { profile: { name: "Account name", accounts: [{ issuer: identity.issuer, subject: identity.subject }] } }
   })));
 });
 it("only shows a type choice when the collection has multiple compatible types", async () => {
@@ -55,7 +55,7 @@ it("only shows a type choice when the collection has multiple compatible types",
   fireEvent.click(screen.getByRole("button", { name: "Create fixture person" }));
   await waitFor(() => expect(f.gateway.create).toHaveBeenCalledWith(expect.objectContaining({ type: "person" })));
 });
-it("requires explicit review before converting a Contact-only note, preserving its ID and fields", async () => {
+it("requires explicit review before converting a Contact-only note, preserving its local fields", async () => {
   let current = description;
   const f = fixture(() => current);
   f.notes[0].frontmatter.type = "contact";
@@ -65,7 +65,7 @@ it("requires explicit review before converting a Contact-only note, preserving i
   const convertedDescription = { ...description,
     types: [{ name: "person", schema: { type: "object", properties: { type: { const: "person" } } } }],
     contracts: [
-      { id: "mdbase.person", version: "1.0.0", implementations: [target] },
+      { id: "mdbase.person", version: "2.0.0", implementations: [target] },
       { id: "mdbase.contact", version: "1.0.0", implementations: [contactSource, { ...contactSource, typeName: "person" }] }
     ]
   } as unknown as CollectionDescription;
@@ -95,14 +95,14 @@ it("shows duplicate matches instead of choosing a contact", async () => {
   f.notes[0].frontmatter.profile = { name: "Existing contact", accounts: [identity] };
   f.notes.push({ ...f.notes[0], path: "contacts/duplicate.md" });
   f.render();
-  expect(await screen.findByRole("alert")).toHaveTextContent("Several person records match your account");
+  expect(await screen.findByRole("alert")).toHaveTextContent("Several person records are linked to your account");
   expect(screen.getByRole("alert")).toHaveTextContent("contacts/duplicate.md");
   expect(screen.queryByRole("button", { name: "Link this record to me" })).toBeNull();
   expect(f.gateway.updateProperties).not.toHaveBeenCalled();
 });
 it("keeps working when an unrelated person record is invalid", async () => {
   const f = fixture();
-  f.notes.push({ ...f.notes[0], path: "contacts/broken.md", frontmatter: { uid: "", profile: { name: "Broken" } } });
+  f.notes.push({ ...f.notes[0], path: "contacts/broken.md", frontmatter: { profile: { name: " " } } });
   f.render();
   expect(await screen.findByText("1 person record needs attention")).toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "Existing person or contact" })).toBeInTheDocument();

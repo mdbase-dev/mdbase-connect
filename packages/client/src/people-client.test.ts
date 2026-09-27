@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { connectError } from "./errors.js";
 import { connectFailure, connectSuccess } from "./outcomes.js";
-import { MdbasePeopleClient, suggestPersonId, type PeopleClientContext } from "./people-client.js";
+import { MdbasePeopleClient, type PeopleClientContext } from "./people-client.js";
 
 const account = { issuer: "https://id.example", subject: "acct_123", name: "Callum" };
 const other = { issuer: "https://id.example", subject: "acct_456", name: "Alex" };
@@ -32,15 +32,15 @@ function client(options: {
   const context = {
     request,
     describe: async () => connectSuccess({
-      contracts: [{ id: "mdbase.person", version: "1.0.0", implementations: types.map((typeName) => ({ typeName, fields: {} })) }]
+      contracts: [{ id: "mdbase.person", version: "2.0.0", implementations: types.map((typeName) => ({ typeName, fields: {} })) }]
     }),
     queryPages
   } as unknown as PeopleClientContext;
   return { people: new MdbasePeopleClient(context), request, queryPages };
 }
 
-const person = (path: string, id: string, identities: unknown[] = [], name = path) =>
-  ({ path, frontmatter: { id, name, identities } });
+const person = (path: string, identities: unknown[] = [], name = path) =>
+  ({ path, frontmatter: { name, identities } });
 
 describe("people account discovery", () => {
   it("returns exact identity values, the settings route, and strips unrelated fields", async () => {
@@ -75,46 +75,43 @@ describe("person directory", () => {
     const { people, queryPages } = client({
       types: ["person", "contact"], pages: 3,
       records: {
-        person: [person("people/alex.md", "alex", [other]), person("people/callum.md", "callum", [me])],
-        contact: [person("contacts/sam.md", "sam"), person("contacts/jo.md", "jo"), person("contacts/kim.md", "kim")]
+        person: [person("people/alex.md", [other]), person("people/callum.md", [me])],
+        contact: [person("contacts/sam.md"), person("contacts/jo.md"), person("contacts/kim.md")]
       }
     });
     const directory = await people.directory();
     if (!directory.ok) throw new Error(directory.problem.message);
-    expect(directory.value.me).toEqual({ status: "linked", person: expect.objectContaining({ id: "callum", path: "people/callum.md", typeNames: ["person"] }) });
-    expect(directory.value.people.map((record) => record.id)).toEqual(["jo", "kim", "sam", "alex", "callum"]);
+    expect(directory.value.me).toEqual({ status: "linked", person: expect.objectContaining({ path: "people/callum.md", typeNames: ["person"] }) });
+    expect(directory.value.people.map((record) => record.path)).toEqual(["contacts/jo.md", "contacts/kim.md", "contacts/sam.md", "people/alex.md", "people/callum.md"]);
     expect(directory.value.members).toEqual([{ ...account, role: "owner" }]);
-    expect(queryPages).toHaveBeenCalledWith({ contract: { id: "mdbase.person", version: "1.0.0", type: "contact" } }, expect.anything());
+    expect(queryPages).toHaveBeenCalledWith({ contract: { id: "mdbase.person", version: "2.0.0", type: "contact" } }, expect.anything());
   });
 
   it("matches exactly and reports unlinked without guessing by name or normalized issuer", async () => {
     const { people } = client({ records: { person: [
-      person("a.md", "a", [{ issuer: account.issuer + "/", subject: account.subject }], "Callum"),
-      person("b.md", "b", [{ issuer: account.issuer, subject: account.subject.toUpperCase() }])
+      person("a.md", [{ issuer: account.issuer + "/", subject: account.subject }], "Callum"),
+      person("b.md", [{ issuer: account.issuer, subject: account.subject.toUpperCase() }])
     ] } });
     const directory = await people.directory();
     expect(directory.ok && directory.value.me).toEqual({ status: "unlinked" });
   });
 
-  it("treats several matches or a shared person ID as ambiguous", async () => {
-    const several = await client({ records: { person: [person("a.md", "a", [me]), person("b.md", "b", [me])] } }).people.directory();
+  it("treats several records claiming the account as ambiguous", async () => {
+    const several = await client({ records: { person: [person("a.md", [me]), person("b.md", [me]), person("c.md")] } }).people.directory();
     expect(several.ok && several.value.me).toEqual({ status: "ambiguous", paths: ["a.md", "b.md"] });
-    const sharedId = await client({ records: { person: [person("a.md", "same", [me]), person("b.md", "same")] } }).people.directory();
-    expect(sharedId.ok && sharedId.value.me).toEqual({ status: "ambiguous", paths: ["a.md", "b.md"] });
-    expect(sharedId.ok && sharedId.value.duplicateIds).toEqual(["same"]);
   });
 
   it("reports invalid records without failing the directory, unless they claim this account", async () => {
-    const unrelated = await client({ records: { person: [person("bad.md", " "), person("me.md", "me", [me])] } }).people.directory();
+    const unrelated = await client({ records: { person: [person("bad.md", [], " "), person("me.md", [me])] } }).people.directory();
     expect(unrelated.ok && unrelated.value.me).toMatchObject({ status: "linked" });
-    expect(unrelated.ok && unrelated.value.invalid).toEqual([{ path: "bad.md", reason: "It needs a non-blank person ID." }]);
-    const claiming = await client({ records: { person: [person("bad.md", "bad", [me], ""), person("me.md", "me", [me])] } }).people.directory();
+    expect(unrelated.ok && unrelated.value.invalid).toEqual([{ path: "bad.md", reason: "It needs a non-blank name." }]);
+    const claiming = await client({ records: { person: [person("bad.md", [me], ""), person("me.md", [me])] } }).people.directory();
     expect(claiming.ok && claiming.value.me).toEqual({ status: "invalid", paths: ["bad.md"] });
   });
 
   it("reports a record whose implementations project different values", async () => {
     const { people } = client({ types: ["person", "contact"], records: {
-      person: [person("x.md", "one", [me])], contact: [person("x.md", "two", [me])]
+      person: [person("x.md", [me], "One")], contact: [person("x.md", [me], "Two")]
     } });
     const directory = await people.directory();
     expect(directory.ok && directory.value.invalid).toEqual([{ path: "x.md", reason: "Its Person implementations project different values." }]);
@@ -137,15 +134,5 @@ describe("person directory", () => {
       yield connectFailure({ code: "temporarily_unavailable", message: "Page failed", category: "availability", recovery: "retry" } as never);
     });
     expect(await people.directory()).toMatchObject({ ok: false, problem: { code: "temporarily_unavailable" } });
-  });
-});
-
-describe("suggestPersonId", () => {
-  it("creates readable, unique IDs", () => {
-    expect(suggestPersonId("Callum Alpass", [])).toBe("callum-alpass");
-    expect(suggestPersonId("Callum Alpass", ["callum-alpass", "callum-alpass-2"])).toBe("callum-alpass-3");
-    expect(suggestPersonId("Zoë O'Brien", [])).toBe("zoe-o-brien");
-    expect(suggestPersonId("王小明", [])).toBe("王小明");
-    expect(suggestPersonId("  !! ", ["person"])).toBe("person-2");
   });
 });

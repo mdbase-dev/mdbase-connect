@@ -12,7 +12,7 @@ import {
   type ConnectOutcome
 } from "./outcomes.js";
 
-export const PERSON_CONTRACT = { id: "mdbase.person", version: "1.0.0" } as const;
+export const PERSON_CONTRACT = { id: "mdbase.person", version: "2.0.0" } as const;
 
 /** The authenticated account, plus where it manages its person record. */
 export interface CurrentAccount extends AccountProfile {
@@ -20,10 +20,9 @@ export interface CurrentAccount extends AccountProfile {
   personSettingsUrl?: string;
 }
 
-/** One record's normalized `mdbase.person` projection. */
+/** One record's normalized `mdbase.person` projection. Other records refer to it by link. */
 export interface PersonRecord {
   path: string;
-  id: string;
   name: string;
   identities: AccountIdentity[];
   /** Every type through which this record implements the Person contract. */
@@ -43,7 +42,7 @@ export interface InvalidPersonRecord {
 export type PersonResolution =
   | { status: "linked"; person: PersonRecord }
   | { status: "unlinked" }
-  /** Several records match, or the match shares its person ID with another record. */
+  /** Several records claim this account. */
   | { status: "ambiguous"; paths: string[] }
   /** A record that fails projection claims this account; fix it before relying on it. */
   | { status: "invalid"; paths: string[] };
@@ -53,8 +52,6 @@ export interface PeopleDirectory {
   me: PersonResolution;
   people: PersonRecord[];
   invalid: InvalidPersonRecord[];
-  /** Person IDs shared by more than one record; never resolve these. */
-  duplicateIds: string[];
   /** Absent when not requested or not approved; never an empty stand-in. */
   members?: CollectionMemberProfile[];
 }
@@ -106,7 +103,7 @@ export class MdbasePeopleClient {
   }
 
   /**
-   * Reads every record of every type implementing `mdbase.person` 1.0.0, across
+   * Reads every record of every type implementing `mdbase.person` 2.0.0, across
    * all pages, and resolves the current account. Any failed read fails the
    * whole directory: a partial directory is never presented as complete.
    */
@@ -121,14 +118,11 @@ export class MdbasePeopleClient {
         }),
         this.readRecords(request)
       ]);
-      const duplicateIds = [...countBy(records.people.map((person) => person.id))]
-        .filter(([, count]) => count > 1).map(([id]) => id).sort();
       return {
         account,
-        me: resolvePerson(records, account, new Set(duplicateIds)),
+        me: resolvePerson(records, account),
         people: records.people,
         invalid: records.invalid.map(({ path, reason }) => ({ path, reason })),
-        duplicateIds,
         ...(members ? { members } : {})
       };
     }, COLLECTION_QUERY_PROBLEM_CODES);
@@ -192,17 +186,13 @@ export class MdbasePeopleClient {
 
 function resolvePerson(
   records: { people: PersonRecord[]; invalid: Array<InvalidPersonRecord & { claims: AccountIdentity[] }> },
-  account: AccountIdentity,
-  duplicateIds: ReadonlySet<string>
+  account: AccountIdentity
 ): PersonResolution {
   const invalid = records.invalid.filter((record) => record.claims.some((claim) => sameIdentity(claim, account)));
   if (invalid.length) return { status: "invalid", paths: invalid.map((record) => record.path) };
   const matches = records.people.filter((person) => person.identities.some((identity) => sameIdentity(identity, account)));
   if (matches.length === 0) return { status: "unlinked" };
-  if (matches.length > 1 || duplicateIds.has(matches[0].id)) {
-    const ids = new Set(matches.map((match) => match.id));
-    return { status: "ambiguous", paths: records.people.filter((person) => ids.has(person.id) || matches.includes(person)).map((person) => person.path) };
-  }
+  if (matches.length > 1) return { status: "ambiguous", paths: matches.map((person) => person.path) };
   return { status: "linked", person: matches[0] };
 }
 
@@ -210,24 +200,8 @@ export function sameIdentity(left: AccountIdentity, right: AccountIdentity): boo
   return left.issuer === right.issuer && left.subject === right.subject;
 }
 
-/**
- * Suggests a readable person ID from a display name, unique among `existing`.
- * Generate it once when a record is created; never regenerate it on rename.
- */
-export function suggestPersonId(name: string, existing: Iterable<string>): string {
-  const taken = new Set(existing);
-  const base = name.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u).filter(Boolean).join("-").slice(0, 48).replace(/-+$/, "") || "person";
-  if (!taken.has(base)) return base;
-  for (let suffix = 2; ; suffix += 1) {
-    const candidate = `${base}-${suffix}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-}
-
 function parsePerson(value: JsonObject): Omit<PersonRecord, "path" | "typeNames"> | { reason: string } {
-  const { id, name, identities = [] } = value;
-  if (typeof id !== "string" || !id.trim()) return { reason: "It needs a non-blank person ID." };
+  const { name, identities = [] } = value;
   if (typeof name !== "string" || !name.trim()) return { reason: "It needs a non-blank name." };
   if (!Array.isArray(identities)) return { reason: "Its account identities must be a list." };
   const parsed: AccountIdentity[] = [];
@@ -238,7 +212,7 @@ function parsePerson(value: JsonObject): Omit<PersonRecord, "path" | "typeNames"
     }
     parsed.push({ issuer: identity.issuer, subject: identity.subject });
   }
-  return { id, name, identities: parsed };
+  return { name, identities: parsed };
 }
 
 /** Identities an invalid record still appears to claim, so it can block resolution. */
@@ -249,12 +223,6 @@ function looseIdentities(value: JsonObject): AccountIdentity[] {
       && "issuer" in identity && "subject" in identity
       && typeof identity.issuer === "string" && typeof identity.subject === "string"
       ? [{ issuer: identity.issuer, subject: identity.subject }] : []);
-}
-
-function countBy(values: string[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
-  return counts;
 }
 
 function unwrap<Value>(outcome: ConnectOutcome<Value, CollectionQueryProblemCode>): Value {

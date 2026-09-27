@@ -1,4 +1,4 @@
-import { PERSON_CONTRACT, sameIdentity, suggestPersonId } from "@mdbase-dev/connect";
+import { PERSON_CONTRACT, sameIdentity } from "@mdbase-dev/connect";
 import type { AccountIdentity, CollectionDescription, CollectionContractImplementationDescriptor, JsonObject, PeopleDirectory, PersonRecord } from "@mdbase-dev/connect";
 import { readFieldReference, fieldReferencePatch, writeFieldReference } from "./field-reference";
 import type { CollectionGateway } from "./model";
@@ -7,7 +7,7 @@ export function personImplementations(description: CollectionDescription) {
   return description.contracts.find((contract) => contract.id === PERSON_CONTRACT.id && contract.version === PERSON_CONTRACT.version)?.implementations ?? [];
 }
 
-export function personField(implementation: CollectionContractImplementationDescriptor, field: "id" | "name" | "identities"): string {
+export function personField(implementation: CollectionContractImplementationDescriptor, field: "name" | "identities"): string {
   const reference = implementation.fields[field] ?? implementation.fields[`/${field}`];
   if (!reference) throw new Error(`The ${implementation.typeName} type needs a writable ${field} mapping for mdbase.person.`);
   return reference;
@@ -70,8 +70,7 @@ export function contactPersonPatch(
   source: CollectionContractImplementationDescriptor,
   target: CollectionContractImplementationDescriptor,
   identity: AccountIdentity,
-  existingIds: Iterable<string>,
-): { patch: JsonObject; personId: string } {
+): JsonObject {
   const contactTarget = description.contracts.find((contract) => contract.id === CONTACT_CONTRACT.id && contract.version === CONTACT_CONTRACT.version)?.implementations.find((candidate) => candidate.typeName === target.typeName);
   if (!contactTarget) throw new Error("Choose a target type that implements both Person and Contact so existing contact semantics are retained.");
   const type = description.types.find((candidate) => candidate.name === target.typeName);
@@ -113,17 +112,13 @@ export function contactPersonPatch(
   const existingName = readFieldReference(frontmatter, personField(target, "name"));
   if (existingName !== undefined && existingName !== name) throw new Error("The target person name field contains different data. Configure a non-conflicting mapping first.");
   next = writeFieldReference(next, personField(target, "name"), name);
-  const existingId = readFieldReference(frontmatter, personField(target, "id"));
-  if (existingId !== undefined && typeof existingId !== "string") throw new Error("The target ID field is not a portable string ID. Configure a separate person-ID field first.");
-  const personId = typeof existingId === "string" && existingId.trim() ? existingId : suggestPersonId(name, existingIds);
-  next = writeFieldReference(next, personField(target, "id"), personId);
   next = { ...next, ...identityPatch(next, target, identity) };
   for (const [canonical, field] of Object.entries(source.fields)) {
     const value = readFieldReference(frontmatter, field);
     const mapped = contactTarget.fields[canonical] ?? contactTarget.fields[canonical.startsWith("/") ? canonical.slice(1) : `/${canonical}`];
     if (value !== undefined && JSON.stringify(value) !== JSON.stringify(readFieldReference(next, mapped))) throw new Error("The Person mappings conflict with existing Contact fields. Configure non-overlapping mappings first.");
   }
-  return { personId, patch: Object.fromEntries(Object.entries(next).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(frontmatter[key]))) };
+  return Object.fromEntries(Object.entries(next).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(frontmatter[key])));
 }
 
 export function identityPatch(frontmatter: JsonObject, implementation: CollectionContractImplementationDescriptor, identity: AccountIdentity) {
@@ -135,9 +130,7 @@ export function identityPatch(frontmatter: JsonObject, implementation: Collectio
   return fieldReferencePatch(frontmatter, field, next);
 }
 
-/** The ID is generated once, readable, and never regenerated when the name changes. */
-export function newPersonProperties(implementation: CollectionContractImplementationDescriptor, identity: AccountIdentity, name: string, existingIds: Iterable<string>): JsonObject {
-  let properties = writeFieldReference({}, personField(implementation, "id"), suggestPersonId(name, existingIds));
-  properties = writeFieldReference(properties, personField(implementation, "name"), name);
+export function newPersonProperties(implementation: CollectionContractImplementationDescriptor, identity: AccountIdentity, name: string): JsonObject {
+  const properties = writeFieldReference({}, personField(implementation, "name"), name);
   return writeFieldReference(properties, personField(implementation, "identities"), [{ issuer: identity.issuer, subject: identity.subject }]);
 }

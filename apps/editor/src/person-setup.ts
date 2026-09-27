@@ -7,10 +7,10 @@ import { loadTypePackProvision } from "./contract-catalog";
 // their canonical pack ownership; never synthesize a competing Person pack.
 export function loadPersonSetup(signal?: AbortSignal) {
   return loadTypePackProvision({
-    id: "mdbase.contact", version: "1.2.0", resourceCount: 5, provisionUrl,
-    digest: "sha256:067cacfa8e011d82f52a2dfb6b26ba1a86621aadeafde0340ea2a29bfe2302db",
+    id: "mdbase.contact", version: "1.2.0", resourceCount: 7, provisionUrl,
+    digest: "sha256:dbbb3a874cfc5d69a2a5793c86dab801c16438d58a270b48bc7376fc8bbdfa2d",
     provides: [
-      { id: "mdbase.person", version: "1.0.0", digest: "sha256:cda32ead27eaf70440efe3fadd8b5334df9af82f378b2af1bc786f7ab0bd0fc3" },
+      { id: "mdbase.person", version: "2.0.0", digest: "sha256:f16c462a1fd422f44ed055002f8476ec53c164107647fec782aeb74adeab2f9d" },
       { id: "mdbase.contact", version: "1.0.0", digest: "sha256:49cfe15403dfc741a693e89a2f4d2857de306f391d02cb03e67bfaf0aa1d6b0d" }
     ]
   }, { signal });

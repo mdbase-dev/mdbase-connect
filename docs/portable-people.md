@@ -3,12 +3,13 @@
 Status: implemented on coordinated `feature/portable-people` branches; not
 published or deployed. Connect provides app-consented identity/member endpoints,
 SDK discovery, and guided person creation/linking in collection settings.
-TaskNotes provides person-ID assignment editing and an Assigned to me search
+TaskNotes provides link-based assignment editing and an Assigned to me search
 filter through its repository. No existing grant acquires identity access.
 
-Companion candidates: `mdbase.person` 1.0.0 in Contact packs 1.1.0 and 1.2.0;
-`tasknotes.task` rc.4 in TaskNotes pack rc.14 (task type v2); `tasknotes-model`
-rc.12 and `tasknotes-spec` rc.4. Existing published versions are unchanged.
+Companion candidates: `mdbase.person` 2.0.0 in People pack 1.2.0 (1.0.0 remains
+in 1.1.0 and is retained by 1.2.0 for upgraded types); `tasknotes.task` rc.5 in
+TaskNotes pack rc.15 (task type v3); `tasknotes-model` rc.13 and
+`tasknotes-spec` rc.5. Existing published versions are unchanged.
 Catalog publication and coordinated server/client rollout still require review.
 
 ## Verification
@@ -30,15 +31,18 @@ coverage, not a new live hosted-provider acceptance run.
 
 ## Decisions
 
-- A person is an ordinary record implementing `mdbase.person`, with a stable
-  `id`, collection-owned `name`, and optional `identities` array.
+- A person is an ordinary record implementing `mdbase.person` 2.0.0, with a
+  collection-owned `name` and optional `identities` array. Other records refer
+  to it with ordinary mdbase links; there is no separate person ID.
 - Each identity has an issuer URL and opaque, account-wide subject. Both are
   matched exactly. Portability is preferred to collection-scoped pseudonyms.
 - The association lives in editable frontmatter, not a Connect binding table.
 - Connect supplies authenticated account identity and current membership;
   person records never authenticate a caller or grant access.
-- Task assignments reference the person ID, not the account subject, file path,
-  email, display name, or membership ID.
+- Task assignments are links to person records, declared in the task type's
+  `collection.links` and resolved by mdbase, never by comparing names, emails,
+  account subjects, or membership IDs. Person notes show assigned tasks as
+  backlinks, and rename reference updates keep assignments current.
 - Reuse `mdbase.contact` for contact semantics rather than duplicating its
   address-book fields. The new Person starter implements both contracts.
 
@@ -46,7 +50,6 @@ Example collection data:
 
 ```yaml
 type: person
-id: callum
 name: Callum
 identities:
   - issuer: https://connect.example
@@ -85,7 +88,10 @@ owner, but this feature must not imply that shared relay membership exists.
 
 Query person contract projections through their normal provider-neutral
 repository. Resolve authenticated identity against the complete set of person
-records. Use the resulting person ID for assignments and "Assigned to me".
+records. Assignments link to the resulting record; "Assigned to me" asks mdbase
+for tasks whose assignee links resolve to it (for example
+`assignees.exists(a, a.asFile() != null && a.asFile().file.path == path)`), so
+apps never reimplement link resolution.
 Linking a record to the current account is an ordinary optimistic-concurrency
 record update; unlinked contacts remain valid and useful without an account.
 
@@ -153,7 +159,7 @@ with typed outcomes, cancellation and bounded requests. A missing endpoint is
 are not empty directories. `directory()` performs the resolution below once for
 every app. It includes members only when requested and approved; a declined
 optional members permission omits them rather than returning an empty list.
-`suggestPersonId()` generates readable, unique IDs from a name. The editor uses
+The editor uses
 normal collection grants to create records or append an identity to an existing
 Person-compatible record, and asks for confirmation before linking a record that
 already carries another account from the same issuer.
@@ -191,21 +197,16 @@ Use the normalized contract projection, not concrete frontmatter field names.
 `connection.people.directory()` implements these rules; apps should not copy them.
 
 - No exact issuer/subject match: unlinked.
-- One matching record with a unique person ID: linked.
-- Multiple matching records: ambiguous, even if their IDs happen to be equal.
-- One matching record whose ID also appears on another person: ambiguous.
+- One matching record: linked.
+- Multiple matching records: ambiguous.
 - A record that fails projection but still claims this account: invalid.
 - Other invalid records are reported, not thrown; they do not block anyone else.
 - Incomplete or failed query: unavailable, not unlinked or uniquely linked.
 
-Person IDs are opaque to consumers. New records get short readable IDs (for
-example `alex-rivera`, then `alex-rivera-2`), generated once and never
-regenerated from a changed name, because references appear in hand-edited notes.
-
 Do not normalize case, trim subjects, strip issuer slashes, follow redirects,
 match by email, or choose the first result. Query all implementing types and
-all pages. The Person starter's uniqueness constraint helps but cannot replace
-consumer ambiguity handling across arbitrary implementing types.
+all pages. Several records, possibly of several local types, can claim the same
+account.
 
 Editing a person association may change "Assigned to me" just as editing a
 task assignment may. Neither changes authenticated audit attribution or
@@ -216,7 +217,7 @@ name; do not label it a verified profile.
 
 1. Add person projection reads and resolution under `TaskRepository`; UI never
    branches on hosted versus connected-computer storage.
-2. Evolve the canonical task contract/model to expose person-ID `assignees`.
+2. Evolve the canonical task contract/model to expose link-valued `assignees`.
    Do not silently mutate published task-pack bytes or stash a second durable
    assignment store in browser state. The shared TaskNotes model is another
    coordinated repository boundary.
@@ -240,8 +241,8 @@ name; do not label it a verified profile.
 - A viewer can read an explicitly authorized directory without managing shares.
 - No private email or pending invitation data appears in application responses.
 - Person notes work with custom field mappings, multiple implementing types,
-  pagination, renames, duplicate IDs, and duplicate identity associations.
-- Copy/export preserves person IDs and assignments without conferring access.
+  pagination, renames, and duplicate identity associations.
+- Copy/export preserves person records and assignment links without conferring access.
 - Account recreation does not silently claim an old person's tasks.
 - Failed identity or person queries do not masquerade as empty/unassigned state.
 - Editing an association never changes authentication or membership.
@@ -261,7 +262,7 @@ contract references together. This does not publish a public catalog entry.
 
 Fresh setup adds only the Person v2 type, implementing both contracts with
 optional contact details. Every field, including nested account identity fields,
-has usage guidance; the type body explains stable IDs, names, contact details,
+has usage guidance; the type body explains links, names, contact details,
 privacy, account associations and collection-owned customisations. These are
 documentation improvements, not validation or contract changes. Existing Contact
 and Person types/notes remain untouched; old pack artifacts retain their exact
