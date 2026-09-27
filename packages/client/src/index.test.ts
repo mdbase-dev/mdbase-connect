@@ -181,6 +181,30 @@ describe("provider-neutral collection client", () => {
     }]);
   });
 
+  it("returns selected query values keyed by output name", async () => {
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        return {
+          valid: true,
+          result: {
+            results: [{
+              path: "tasks/a.md", types: ["task"], file: { path: "tasks/a.md" },
+              values: { targets: ["people/alex.md", null] }
+            }],
+            meta: { total_count: 1 }
+          },
+          diagnostics: []
+        } as Result;
+      }
+    });
+    const result = await client.query({
+      types: ["task"],
+      projections: { targets: { expr: "assignees.map(a, a.asFile() == null ? null : a.asFile().file.path)" } },
+      select: ["projection.targets"]
+    });
+    expect(result.ok && result.value.results[0].values).toEqual({ targets: ["people/alex.md", null] });
+  });
+
   it("sends the canonical v0.3 patch shape through an injected transport", async () => {
     const calls: Array<{ operation: string; input: unknown }> = [];
     const client = new MdbaseCollectionClient({

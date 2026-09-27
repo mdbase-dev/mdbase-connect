@@ -74,6 +74,8 @@ export interface QueryRecord<Frontmatter extends JsonObject = JsonObject> {
   body?: string;
   types: string[];
   file: Partial<CollectionFileMetadata> & { path?: string };
+  /** Selected and projected values, keyed by output name, when the query used `select`. */
+  values?: JsonObject;
   contract?: DataContractViewIdentity;
 }
 
