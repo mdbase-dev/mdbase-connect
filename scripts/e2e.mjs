@@ -303,6 +303,10 @@ secret: connector scope test
       .getByRole("button", { name: "Review access", exact: true })
       .click();
   }
+  // Seeing other members is optional and higher impact, so it starts denied.
+  const membersPermission = onboardingPage.getByRole("checkbox", { name: /See collection members/ });
+  if (await membersPermission.isChecked()) throw new Error("Optional member discovery was preselected");
+  await membersPermission.check();
   await onboardingPage.getByRole("button", { name: "Allow access", exact: true }).click();
   const callback = await finishSignedWebAuthorization(initialAuthorization);
   await onboardingContext.close();
@@ -2089,7 +2093,7 @@ schema:
       redirect_uris: [`${origin}/auth/mdbase/callback`],
       requirements: {
         contracts,
-        ...(people ? { people: { version: 1, permissions: ["identity", "members"] } } : {}),
+        ...(people ? { people: { version: 1, required: ["identity"], optional: ["members"] } } : {}),
         ...(access ? { access } : {}),
         capabilities: {
           contract_version: 2,
@@ -2110,7 +2114,7 @@ schema:
     redirect_uris: [`${origin}/auth/mdbase/callback`],
     requirements: {
       contracts,
-      ...(people ? { people: { version: 1, permissions: ["identity", "members"] } } : {}),
+      ...(people ? { people: { version: 1, required: ["identity"], optional: ["members"] } } : {}),
       ...(access ? { access } : {}),
       capabilities: {
         contract_version: 2,
