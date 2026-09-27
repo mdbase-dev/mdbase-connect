@@ -58,6 +58,7 @@ import {
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { createLocalApprovalService, liveAuthorizationCollections } from "./local-collections.js";
 import { approveHostedAuthorization } from "./approval-service.js";
+import { PEOPLE_PERMISSIONS } from "@mdbase-dev/connect-protocol";
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
 import {
@@ -86,12 +87,14 @@ export function registerAuthorizationRoutes(
       collection_id: z.uuid(),
       operations: z.array(operationSchema),
       file_actions: z.array(z.enum(["list", "read", "add", "replace", "move", "delete"])).optional(),
+      people_permissions: z.array(z.enum(PEOPLE_PERMISSIONS)).max(PEOPLE_PERMISSIONS.length).optional(),
       contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
     }).parse(request.body);
     const approved = await localApprovals.connector(connector.id, {
       source: "connector", requestId, userId: connector.user_id,
       collectionId: input.collection_id, operations: input.operations,
-      fileActions: input.file_actions, contractSetups: input.contract_setups
+      fileActions: input.file_actions, peoplePermissions: input.people_permissions,
+      contractSetups: input.contract_setups
     });
     if (!approved) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
     return { ok: true };
@@ -795,6 +798,7 @@ export function registerAuthorizationRoutes(
       offer_id: z.uuid().optional(),
       operations: z.array(operationSchema),
       file_actions: z.array(z.enum(["list", "read", "add", "replace", "move", "delete"])).optional(),
+      people_permissions: z.array(z.enum(PEOPLE_PERMISSIONS)).max(PEOPLE_PERMISSIONS.length).optional(),
       contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
     }).parse(request.body);
     let approved: boolean;
@@ -807,6 +811,7 @@ export function registerAuthorizationRoutes(
         collectionId: input.collection_id,
         operations: input.operations,
         fileActions: input.file_actions,
+        peoplePermissions: input.people_permissions,
         contractSetups: input.contract_setups
       });
     } else {
@@ -837,6 +842,7 @@ export function registerAuthorizationRoutes(
         collectionId: input.collection_id,
         operations: input.operations,
         fileActions: input.file_actions,
+        peoplePermissions: input.people_permissions,
         contractSetups: input.contract_setups,
         access
       });

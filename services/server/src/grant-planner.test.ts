@@ -281,3 +281,35 @@ describe("membership ceilings with v2 capabilities", () => {
     } })).toThrow("full-collection access");
   });
 });
+
+describe("people permissions", () => {
+  const input = {
+    requestedOperations: [] as CollectionOperation[],
+    applicationOperationCeiling: [] as CollectionOperation[],
+    requirements: {
+      contracts: [], access: "full_collection" as const,
+      capabilities: { contract_version: 2 as const, required: [] },
+      files: { required: ["read"] as const, scope: { kind: "collection" as const } },
+      people: { version: 1 as const, required: ["identity" as const], optional: ["members" as const] }
+    },
+    access: owner
+  };
+
+  it("records required permissions and only the optional permissions the user chose", () => {
+    expect(planCollectionGrant(input).peoplePermissions).toEqual(["identity", "members"]);
+    expect(planCollectionGrant({ ...input, requestedPeoplePermissions: ["identity"] }).peoplePermissions).toEqual(["identity"]);
+    expect(() => planCollectionGrant({ ...input, requestedPeoplePermissions: ["members"] })).toThrow(/Required people/);
+    expect(() => planCollectionGrant({ ...input, requestedPeoplePermissions: ["identity", "email"] })).toThrow(/declared/);
+  });
+
+  it("omits people permissions when none were declared or approved", () => {
+    const { people: _people, ...requirements } = input.requirements;
+    expect(planCollectionGrant({ ...input, requirements })).not.toHaveProperty("peoplePermissions");
+    expect(() => planCollectionGrant({ ...input, requirements, requestedPeoplePermissions: ["identity"] })).toThrow(/declaration/);
+    expect(planCollectionGrant({
+      ...input,
+      requirements: { ...input.requirements, people: { version: 1, optional: ["identity", "members"] } },
+      requestedPeoplePermissions: []
+    })).not.toHaveProperty("peoplePermissions");
+  });
+});

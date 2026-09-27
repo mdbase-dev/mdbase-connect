@@ -165,3 +165,22 @@ export function selectedFileActions(
       : (files.optional ?? []).filter((action) => !HIGHER_IMPACT_FILE_ACTIONS.has(action)))
   ]);
 }
+
+type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement;
+
+/** Seeing other members' account identifiers discloses more than one's own. */
+export const HIGHER_IMPACT_PEOPLE_PERMISSIONS: ReadonlySet<string> = new Set(["members"]);
+
+/** Required permissions, plus optional ones from a saved review or the lower-impact default. */
+export function selectedPeoplePermissions(
+  people: PeopleRequirement,
+  savedPermissions?: readonly string[]
+): Set<string> {
+  const declaredOptional = new Set<string>(people.optional ?? []);
+  return new Set([
+    ...(people.required ?? []),
+    ...(savedPermissions
+      ? savedPermissions.filter((permission) => declaredOptional.has(permission))
+      : [...declaredOptional].filter((permission) => !HIGHER_IMPACT_PEOPLE_PERMISSIONS.has(permission)))
+  ]);
+}

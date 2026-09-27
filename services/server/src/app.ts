@@ -56,6 +56,7 @@ import { registerReferenceSyncRoutes } from "./features/hosted/reference-sync-ro
 import { registerMirrorPairingRoutes } from "./features/mirrors/pairing-routes.js";
 import { registerNotificationRoutes } from "./features/notifications/routes.js";
 import { registerOnboardingRoutes } from "./features/onboarding/routes.js";
+import { registerPeopleRoutes } from "./features/account/people-routes.js";
 import { registerLocalOperationRoutes } from "./features/operations/local-routes.js";
 import { registerSystemRoutes } from "./features/system/routes.js";
 import { registerLifecycleDiagnosticRoute } from "./features/system/lifecycle-diagnostics.js";
@@ -86,6 +87,8 @@ interface BuildOptions {
   hostedProvider?: HostedProviderClient;
   hostedReferenceAuthority?: boolean;
   publicUrl?: string;
+  /** Validated by runtime configuration; loopback tests default to publicUrl. */
+  identityIssuer?: string;
   portalDist?: string;
   allowInsecureManifests?: boolean;
   trustProxy?: boolean;
@@ -400,6 +403,12 @@ export async function buildApp(options: BuildOptions) {
     hostedProvider: options.hostedProvider
   });
   registerLocalOperationRoutes(app, { db: options.db, relay });
+  registerPeopleRoutes(app, {
+    db: options.db,
+    issuer: options.identityIssuer ?? new URL(publicUrl).origin,
+    publicUrl,
+    editorOrigin: options.editorOrigin
+  });
   registerLocalFileRoutes(app, { db: options.db, relay });
   registerConnectorHostedRoutes(app, {
     db: options.db,

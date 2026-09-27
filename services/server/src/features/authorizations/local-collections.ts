@@ -6,7 +6,7 @@ import type {
   CollectionContractDescriptor,
   CollectionTypeDescriptor
 } from "@mdbase-dev/connect-protocol";
-import { isConnectProblem } from "@mdbase-dev/connect-protocol";
+import { isConnectProblem, PEOPLE_PERMISSIONS } from "@mdbase-dev/connect-protocol";
 import { accessView, COLLECTION_ACTIONS, COLLECTION_OPERATIONS, CollectionAccessDeniedError, requireCollectionAction, resolveLocalCollectionAccess } from "../../collection-access.js";
 import { listLocalCollectionsVisibleToUser } from "../../collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
@@ -214,6 +214,7 @@ const consent = {
   userId: z.uuid(), requestId: z.uuid(), collectionId: z.uuid(),
   operations: z.array(z.enum(COLLECTION_OPERATIONS)),
   fileActions: z.array(z.enum(["list", "read", "add", "replace", "move", "delete"])).optional(),
+  peoplePermissions: z.array(z.enum(PEOPLE_PERMISSIONS)).max(PEOPLE_PERMISSIONS.length).optional(),
   contractSetups: z.array(contractSetupChoiceSchema).max(20)
 };
 const approvalSchema = z.discriminatedUnion("source", [
@@ -344,6 +345,10 @@ async function approveConnectorAuthorization(
   if (files && "optional" in files && files.optional?.length && input.fileActions === undefined) {
     throw new RequestValidationError("Choose optional file permissions explicitly in Connect before approving this request.");
   }
+  const people = "people" in selected.requirements ? selected.requirements.people : undefined;
+  if (people?.optional?.length && input.peoplePermissions === undefined) {
+    throw new RequestValidationError("Choose optional people permissions explicitly in Connect before approving this request.");
+  }
   const access = await resolveLocalCollectionAccess(db, input.userId, selected.authority_id);
   requireCollectionAction(access, "application.authorize");
   if (input.contractSetups.length) requireCollectionAction(access, "schema.manage");
@@ -364,6 +369,7 @@ async function approveConnectorAuthorization(
     requestedOperations: input.operations,
     applicationOperationCeiling: binding.requested_operations,
     requestedFileActions: input.fileActions,
+    requestedPeoplePermissions: input.peoplePermissions,
     requirements: selected.requirements,
     access: requireCollectionAction(access, "application.authorize")
   });

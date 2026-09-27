@@ -79,6 +79,19 @@ test("semantic capabilities and provision ownership share one canonical validato
   );
 });
 
+test("seed upgrades retain the exact reviewed baseline and reject tampering", () => {
+  const value = manifest();
+  const resource = value.provisions.type_packs[0].manifest.resources[0];
+  resource.upgrade_from = { digest, document };
+  assert.deepEqual(validateAppManifest(value), { valid: true, issues: [] });
+  assert.deepEqual(parseAppManifest(value).provisions.type_packs[0].manifest.resources[0].upgrade_from, { digest, document });
+  resource.upgrade_from.document += "changed";
+  assert.equal(validateAppManifest(value).valid, false);
+  resource.upgrade_from.document = document;
+  resource.mode = "managed";
+  assert.equal(validateAppManifest(value).valid, false);
+});
+
 test("legacy contract-scoped declarations are rejected rather than widened", () => {
   const scoped = manifest();
   scoped.requirements.access = "contract";

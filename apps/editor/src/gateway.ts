@@ -4,6 +4,7 @@ import {
   MdbaseConnectError,
   type ConnectOutcome,
   type CollectionDescription,
+  type DataContractSelector,
   type MdbaseConnection,
   type MdbaseConnectionInfo,
   type MdbaseApplicationSession,
@@ -162,6 +163,18 @@ export class ConnectCollectionGateway implements CollectionGateway {
 
   forgetConnection(collectionId: string): void {
     this.session.forget(collectionId);
+  }
+
+  async peopleDirectory(options?: { signal?: AbortSignal }) {
+    return requireOutcome(await this.requireConnection().people.directory({ members: "omit", signal: options?.signal }));
+  }
+
+  async queryContract(contract: DataContractSelector, options?: { signal?: AbortSignal }) {
+    const records: Array<{ path: string; values: JsonObject }> = [];
+    for await (const outcome of this.requireConnection().queryPages({ contract }, { signal: options?.signal, pageSize: PAGE_SIZE })) {
+      records.push(...requireOutcome(outcome).results.map((record) => ({ path: record.path, values: record.frontmatter ?? {} })));
+    }
+    return records;
   }
 
   async describe(): Promise<CollectionDescription> {

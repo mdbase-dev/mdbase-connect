@@ -42,6 +42,8 @@ export const MDBASE_TIMER_FIRED_CONTRACT = {
 } as const satisfies ContractRequirement;
 
 export interface TypePackManifestResource {
+  /** Explicit three-way upgrade; only valid for seed type resources. */
+  upgrade_from?: { digest: string; document: string };
   kind: "contract" | "type" | "schema";
   mode: "managed" | "seed";
   source: string;

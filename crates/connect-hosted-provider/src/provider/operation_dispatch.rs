@@ -922,6 +922,11 @@ fn type_pack_assessment(
 fn collection_setup_assessment(
     operation: &mdbase::runtime::CanonicalOperationOutcome,
 ) -> ApiResult<&mdbase::v03::CollectionSetupAssessment> {
+    // A rejected staged upgrade legitimately has no assessment value. Preserve
+    // its review diagnostics instead of treating it as a broken typed boundary.
+    if !operation.is_valid() {
+        return Err(type_pack_provision_error(&operation.to_v03()));
+    }
     match operation.value() {
         mdbase::runtime::CanonicalOperationValue::AssessCollectionSetup(Some(value)) => match value
             .as_ref()
@@ -970,31 +975,5 @@ pub(super) fn ensure_collection_setup_declaration_binding(
 }
 
 #[cfg(test)]
-mod database_retry_tests {
-    use super::retryable_hosted_database_mutation;
-
-    #[test]
-    fn retries_only_transactional_hosted_database_mutations() {
-        for operation in [
-            "create",
-            "update",
-            "delete",
-            "rename",
-            "create_type",
-            "update_type",
-            "apply_type_pack",
-            "apply_collection_setup",
-            "create_view_source",
-            "update_view_source",
-            "delete_view_source",
-        ] {
-            assert!(retryable_hosted_database_mutation(operation), "{operation}");
-        }
-        for operation in ["query", "read", "put_timer", "cancel_timer"] {
-            assert!(
-                !retryable_hosted_database_mutation(operation),
-                "{operation}"
-            );
-        }
-    }
-}
+#[path = "operation_dispatch_tests.rs"]
+mod tests;

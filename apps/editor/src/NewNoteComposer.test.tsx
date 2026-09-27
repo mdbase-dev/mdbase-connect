@@ -5,6 +5,22 @@ import { describe, expect, it, vi } from "vitest";
 import { NewNoteComposer } from "./NewNoteComposer";
 
 describe("new note schema fields", () => {
+  it("submits prefilled person IDs and identities without imposing HTML whole-value regex semantics", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn(async () => undefined);
+    const type: CollectionTypeDescriptor = { name: "person", extensions: {}, schema: { type: "object", required: ["id", "name"], properties: {
+      id: { type: "string", pattern: "\\S" }, name: { type: "string", minLength: 1 },
+      identities: { type: "array", items: { type: "object", required: ["issuer", "subject"], properties: { issuer: { type: "string", pattern: "\\S" }, subject: { type: "string", pattern: "\\S" } } } }
+    } } };
+    const properties = { id: "person_example", name: "Account label", identities: [{ issuer: "https://connect.example", subject: "account_subject" }] };
+    render(<NewNoteComposer types={[type]} defaultType="person" initialTitle="Account label" initialProperties={properties} onCreate={onCreate} onCancel={() => undefined} />);
+    expect(screen.getByLabelText("id value")).toBeValid();
+    expect(screen.getByLabelText("issuer")).toBeValid();
+    expect(screen.getByLabelText("subject")).toBeValid();
+    await user.click(screen.getByRole("button", { name: "Create note" }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ properties }));
+  });
   it("uses date pickers and persists valid schema values", async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn(async () => undefined);

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import pg, { type PoolConfig } from "pg";
 import type { DatabasePool } from "./database-types.js";
 
@@ -32,6 +33,12 @@ export async function openDatabase(
       args: [DataType.integer, DataType.integer],
       returns: DataType.bool,
       implementation: () => true
+    });
+    memory.public.registerFunction({
+      name: "gen_random_uuid",
+      returns: DataType.uuid,
+      impure: true,
+      implementation: () => randomUUID()
     });
     memory.public.registerFunction({
       name: "replace",

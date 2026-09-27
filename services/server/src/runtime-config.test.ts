@@ -10,6 +10,7 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
   return {
     host: "127.0.0.1",
     publicUrl: "http://127.0.0.1:8787",
+    identityIssuer: "",
     environment: "local",
     devAuth: false,
     tailscaleAuth: false,
@@ -80,6 +81,7 @@ describe("public runtime configuration", () => {
     expect(() => validateRuntimeConfig(config({
       host: "0.0.0.0",
       publicUrl: "https://connect.example",
+      identityIssuer: "https://connect.example",
       devAuth: true
     }))).toThrow(/Development authentication/);
     expect(() => validateRuntimeConfig(config({
@@ -87,6 +89,21 @@ describe("public runtime configuration", () => {
       publicUrl: "http://connect.example",
       tailscaleAuth: true
     }))).toThrow(/HTTPS/);
+  });
+
+  it("requires one exact identity issuer independent of the public URL", () => {
+    const publicOrigin = { host: "0.0.0.0", publicUrl: "https://api.connect.example", tailscaleAuth: true };
+    expect(() => validateRuntimeConfig(config(publicOrigin))).toThrow(/IDENTITY_ISSUER is required/);
+    for (const identityIssuer of ["https://connect.example/", "https://connect.example/id", "connect.example"]) {
+      expect(() => validateRuntimeConfig(config({ ...publicOrigin, identityIssuer }))).toThrow(/exact origin/);
+    }
+    expect(() => validateRuntimeConfig(config({ ...publicOrigin, identityIssuer: "http://connect.example" })))
+      .toThrow(/HTTPS/);
+    expect(validateRuntimeConfig(config({ ...publicOrigin, identityIssuer: "https://connect.example" })).identityIssuer)
+      .toBe("https://connect.example");
+    // Loopback development may derive a disposable issuer from its own origin.
+    expect(validateRuntimeConfig(config({ publicUrl: "http://localhost:8787", devAuth: true })).identityIssuer)
+      .toBe("http://localhost:8787");
   });
 
   it("refuses to start without a real authentication mode", () => {
@@ -97,6 +114,7 @@ describe("public runtime configuration", () => {
     const value = validateRuntimeConfig(config({
       host: "0.0.0.0",
       publicUrl: "https://connect.example/",
+      identityIssuer: "https://connect.example",
       githubAuth: {
         clientId: "client-id",
         clientSecret: "client-secret",
@@ -111,10 +129,12 @@ describe("public runtime configuration", () => {
   it("rejects partial GitHub configuration, invalid IDs, and conflicting authentication modes", () => {
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GITHUB_CLIENT_ID: "client-id"
     })).toThrow(/client secret/);
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GITHUB_CLIENT_ID: "client-id",
       MDBASE_CONNECT_GITHUB_CLIENT_SECRET: "client-secret",
       MDBASE_CONNECT_ALLOWED_GITHUB_USER_IDS: "not-a-number"
@@ -129,6 +149,7 @@ describe("public runtime configuration", () => {
   it("supports Google and GitHub together while keeping registration policy explicit", () => {
     const value = validateRuntimeConfig(config({
       publicUrl: "https://connect.example",
+      identityIssuer: "https://connect.example",
       githubAuth: {
         clientId: "github-client",
         clientSecret: "github-secret",
@@ -144,6 +165,7 @@ describe("public runtime configuration", () => {
 
     const open = runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
       MDBASE_CONNECT_REGISTRATION: "open"
     });
@@ -152,12 +174,14 @@ describe("public runtime configuration", () => {
 
     const closedBootstrap = runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com"
     });
     expect(closedBootstrap.registration).toBe("closed");
     expect(closedBootstrap.googleAuth?.allowedSubjects.size).toBe(0);
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
       MDBASE_CONNECT_ALLOWED_GOOGLE_SUBJECTS: "not a subject"
     })).toThrow(/subject identifiers/);
@@ -166,6 +190,7 @@ describe("public runtime configuration", () => {
   it("accepts invite-only registration without opening external providers", () => {
     const value = runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
       MDBASE_CONNECT_ALLOWED_GOOGLE_SUBJECTS: "109876543210",
       MDBASE_CONNECT_REGISTRATION: "invite"
@@ -175,6 +200,7 @@ describe("public runtime configuration", () => {
 
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
       MDBASE_CONNECT_REGISTRATION: "waitlist"
     })).toThrow(/closed, invite, or open/);
@@ -197,12 +223,14 @@ describe("public runtime configuration", () => {
   it("accepts only a canonical origin for the retired beta request response", () => {
     const value = runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
       MDBASE_CONNECT_BETA_ACCESS_ORIGIN: "https://mdbase.dev/"
     });
     expect(value.betaAccessOrigin).toBe("https://mdbase.dev");
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
       MDBASE_CONNECT_BETA_ACCESS_ORIGIN: "https://mdbase.dev/beta/"
     })).toThrow(/origin/);
@@ -229,6 +257,7 @@ describe("public runtime configuration", () => {
   it("supports password-only authentication infrastructure and validates legal document URLs", () => {
     const value = runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
       MDBASE_CONNECT_TERMS_URL: "https://mdbase.dev/terms/",
       MDBASE_CONNECT_PRIVACY_URL: "https://mdbase.dev/privacy/"
@@ -242,11 +271,13 @@ describe("public runtime configuration", () => {
 
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
       MDBASE_CONNECT_TERMS_URL: "https://mdbase.dev/terms/"
     })).toThrow(/configured together/);
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
       MDBASE_CONNECT_TERMS_URL: "http://mdbase.dev/terms/",
       MDBASE_CONNECT_PRIVACY_URL: "https://mdbase.dev/privacy/"
@@ -280,6 +311,7 @@ describe("public runtime configuration", () => {
   it("rejects public URLs containing path or credential components", () => {
     expect(() => validateRuntimeConfig(config({
       publicUrl: "https://connect.example/control",
+      identityIssuer: "https://connect.example",
       tailscaleAuth: true
     }))).toThrow(/must be an origin/);
   });
@@ -288,23 +320,27 @@ describe("public runtime configuration", () => {
     expect(() => validateRuntimeConfig(config({
       tailscaleAuth: true,
       publicUrl: "https://connect.example",
+      identityIssuer: "https://connect.example",
       hostedCollections: true
     }))).toThrow(/storage provider/);
     expect(() => validateRuntimeConfig(config({
       tailscaleAuth: true,
       publicUrl: "https://connect.example",
+      identityIssuer: "https://connect.example",
       hostedCollections: true,
       hostedProvider: { url: "http://provider.example", internalToken: "x".repeat(40) }
     }))).toThrow(/HTTPS/);
     expect(() => validateRuntimeConfig(config({
       tailscaleAuth: true,
       publicUrl: "https://connect.example",
+      identityIssuer: "https://connect.example",
       hostedCollections: true,
       hostedProvider: { url: "https://provider.example/path", internalToken: "x".repeat(40) }
     }))).toThrow(/must be an origin/);
     expect(() => validateRuntimeConfig(config({
       tailscaleAuth: true,
       publicUrl: "https://connect.example",
+      identityIssuer: "https://connect.example",
       hostedCollections: true,
       hostedProvider: { url: "https://provider.example", internalToken: "short" }
     }))).toThrow(/32 characters/);
@@ -333,6 +369,7 @@ describe("public runtime configuration", () => {
     });
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_TAILSCALE_AUTH: "1",
       MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
       MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://provider.example",
@@ -351,6 +388,7 @@ describe("public runtime configuration", () => {
     expect(value.hostedReferenceAuthority).toBe(true);
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_TAILSCALE_AUTH: "1",
       MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
       MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY: "1"

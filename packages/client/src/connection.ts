@@ -1,3 +1,4 @@
+import { MdbasePeopleClient, requestPeople } from "./people-client.js";
 import type {
   CollectionOperation,
   CollectionTypeDocument,
@@ -216,6 +217,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   readonly files: MdbaseFileClient;
   /** Editable record sessions shared by every view of this connection. */
   readonly records: MdbaseRecords<Frontmatter>;
+  readonly people: MdbasePeopleClient;
   private readonly connectionListeners = new Set<(connection: MdbaseConnectionInfo | null) => void>();
 
   constructor(
@@ -232,6 +234,14 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       internals,
       timeouts: internals.timeouts,
       onChange: () => this.emitConnection()
+    });
+    this.people = new MdbasePeopleClient({
+      request: (resource, options) => requestPeople(resource, options ?? {}, {
+        serverUrl: internals.serverUrl, collectionId, requestMs: internals.timeouts.requestMs,
+        authorizedToken: (signal) => this.transport.authorizedToken({ signal, timeoutMs: null })
+      }),
+      describe: (options) => this.describe(options),
+      queryPages: (input, options) => this.queryPages(input, options as QueryPagesOptions<Frontmatter>) as AsyncIterable<ConnectOutcome<QueryPage, CollectionQueryProblemCode>>
     });
     this.files = new MdbaseFileClient(
       () => this.fileCapability,

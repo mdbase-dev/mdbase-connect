@@ -321,7 +321,7 @@ function CollectionInvitationBanner({ busy, onAccept, onDismiss }: {
 }) {
   return <div className="connect-pending-banner connect-sharing-banner" role="status">
     <Notebook aria-hidden="true" />
-    <span><strong>A collection was shared with you</strong><small>Accept to add it to your collections. The invitation is bound to this account.</small></span>
+    <span><strong>A collection was shared with you</strong><small>Accept to add it to your collections. The invitation is bound to this account. Your account name and stable identifier can be shared with other members’ apps when they approve People access.</small></span>
     <span className="connect-banner-actions"><button disabled={busy} onClick={onDismiss}>Not now</button><button className="connect-primary-action" disabled={busy} onClick={onAccept}>{busy ? "Accepting…" : "Accept"}</button></span>
   </div>;
 }
@@ -360,6 +360,7 @@ function CollectionOverview({ collection, applications, busy, perform, navigate,
       {applications.map((application) => <div className="connect-row connect-application-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0].homepage)}</small></div><span>{permissionSummary(application.grants)}</span><RouteLink view="access" collectionId={collection.id} navigate={navigate}>Review</RouteLink></div>)}
       {applications.length === 0 && <Empty title="No connected applications" body="Applications appear after you approve access to this collection." />}
     </section>
+    <section><SectionTitle title="Your person record" /><div className="connect-row"><div><strong>Use an existing person or create a note</strong><small>Link your account to an editable record in this collection. Collection access is approved separately.</small></div><a href={`${editorSurfaceUrls(collection.id).settings}#your-person`}>Choose or create my person record</a></div></section>
     {collection.kind === "hosted" && collection.source.access.can_manage_members && <CollectionSharingPanel sharingAvailable={sharingAvailable} collection={collection.source} busy={busy} perform={perform} />}
     <section>
       <SectionTitle title="Connection" />

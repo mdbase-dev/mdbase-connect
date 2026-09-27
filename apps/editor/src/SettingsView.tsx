@@ -1,18 +1,23 @@
 import { ArrowLeftIcon as ArrowLeft, CaretRightIcon as ChevronRight, TrashIcon as Trash2 } from "./icons";
 import type { CollectionDescription } from "@mdbase-dev/connect";
-import { useEffect, useState, type ReactNode } from "react";
-import type { ConnectionSummary } from "./model";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import type { CollectionGateway, ConnectionSummary } from "./model";
 import type { EditorPreferences } from "./preferences";
 import { SelectControl } from "./SelectionControls";
 import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "./theme";
 
-export function SettingsView({ description, connection, noteCount, preferences, directAccessBusy, leadingActions, onChange, onBack, onForget, onRequestDirectAccess }: {
+// Lazy: the panel's note composer brings CodeMirror, which stays out of startup.
+const YourPersonPanel = lazy(() => import("./YourPersonPanel").then((module) => ({ default: module.YourPersonPanel })));
+
+export function SettingsView({ description, connection, noteCount, preferences, directAccessBusy, leadingActions, gateway, onRefreshDescription, onChange, onBack, onForget, onRequestDirectAccess }: {
   description: CollectionDescription;
   connection: ConnectionSummary | null;
   noteCount: number;
   preferences: EditorPreferences;
   directAccessBusy: boolean;
   leadingActions?: ReactNode;
+  gateway?: CollectionGateway;
+  onRefreshDescription?: () => Promise<CollectionDescription | undefined>;
   onChange: (value: EditorPreferences) => void;
   onBack: () => void;
   onForget: () => void;
@@ -61,6 +66,8 @@ export function SettingsView({ description, connection, noteCount, preferences, 
           <FactRow label="Runtime" value={runtime.enabled === true ? `Enabled · ${stringValue(runtime.profile_version, "0.1.0")}` : "Disabled"} />
         </details>
       </section>
+
+      {gateway?.peopleDirectory && <Suspense fallback={null}><YourPersonPanel key={description.collectionId} gateway={gateway} description={description} canInstall={connection?.operations.includes("apply_type_pack") ?? false} onRefreshDescription={onRefreshDescription} canCreate={connection?.operations.includes("create") ?? false} canEdit={connection?.operations.includes("update") ?? false} /></Suspense>}
 
       <section>
         <div className="settings-intro"><h2>Connection</h2><p>Collection-wide access through mdbase connect. Storage remains local or hosted according to the collection you chose.</p></div>

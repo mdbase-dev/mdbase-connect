@@ -7,6 +7,13 @@ and explicit about security and transaction ownership.
 This document defines the intended internal shape. The system trust model and
 runtime responsibilities remain in [Architecture](./architecture.md).
 
+The reviewed seed-upgrade protocol adds four Rust public declarations: the
+optional manifest resource member, its typed baseline struct, and the baseline's
+digest/document members. The public-declaration budget moves from 3177 to 3181;
+one extracted portal review component adds one TypeScript export (2466 → 2467).
+File-size, package-count, and cycle limits are unchanged. Upgrade semantics stay
+in the collection engine, not Connect adapters.
+
 ## Dependency direction
 
 Within a deployable, dependencies point inward:
@@ -238,6 +245,17 @@ dispatcher, `app.ts`, and those helpers. Limits: server 141 files, 1,518
 relative imports, 2,473 TypeScript exports. Tests cover every funnel, consent,
 and pairing outcome, identity-free output, window validation, and retention
 boundaries. The migration, report, and prune were also run on PostgreSQL 16.
+Portable people adds five focused modules: the protocol's account identity
+shapes, the SDK's bounded control-plane people client, server identity/directory
+authorization, editor person mapping/conversion rules, and the guided editor
+panel. Account metadata never becomes a parallel record transport or permission
+source. The signed manifest owns People consent; ordinary revision-guarded
+record writes own creation/linking. Route denial and binding tests, Rust manifest
+roundtrips, SDK failures/cancellation, component conversion tests and the real
+local SDK/daemon grant lifecycle cover these boundaries. Reviewed limits become
+690 production files, 1,508 relative imports, 3,177 Rust visibility references and
+2,466 TypeScript exports. Account consent presentation stays in the existing
+permission component module. No file-size, package-count or cycle limit changes.
 
 Email preferences and unsubscribe add no production file. `scheduled-email.ts`
 already owns email categories and eligibility, so it also owns the preferences
@@ -250,6 +268,27 @@ and to the existing token helpers. Limits: 1,534 relative imports, 2,503
 TypeScript exports. Tests cover one-click and page unsubscribe, token hashing,
 the refusal to send optional email without its link, essential email without
 controls, preference changes and origin checks, and the signup opt-in default.
+Guided person setup adds one editor helper for a digest-pinned canonical pack
+and a deliberately additive-only review policy. It reuses catalog provision
+validation and the existing digest-guarded atomic type-pack operation instead of
+creating another schema installer or requiring public catalog availability.
+The panel replaces the manual-install instruction with explicit file review and
+approval. This adds one production file, two relative imports, and two internal
+TypeScript exports: reviewed totals are 691, 1,510, and 2,469 respectively.
+No file-size, cycle, package, Rust, or SDK API limit changes. Tests cover exact
+bundle integrity, explicit consent/cancellation, conflicts, stale assessment,
+collection changes, and the post-write watch/description-refresh race.
+
+Separating identity from routing and resolving people in the SDK then adds a
+dedicated `public_subject` and configured issuer, optional People consent
+stored on the grant, `people.directory()` resolution shared by every app, and
+the declared `values` of query records. Rebased onto the integrated series
+above, these branches together hold 707 production files (editor 112, client
+72, server 142), 1,557 relative imports, 3,255 Rust visibility references and
+2,542 TypeScript exports, including the email-preferences series. People consent now renders inside the reworked
+authorization review's permission list rather than a separate component. No
+file-size, cycle or other package limit changes; `denyAuthorization` already
+lives with its only caller.
 
 Composition roots and package facades should approach these end-state shapes:
 

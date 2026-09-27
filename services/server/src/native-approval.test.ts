@@ -15,7 +15,7 @@ import { registerErrorHandler } from "./platform/error-handler.js";
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
 
-async function fixture(version: 1 | 2 = 2, files = false, optionalFiles = false) {
+async function fixture(version: 1 | 2 = 2, files = false, optionalFiles = false, people?: Record<string, unknown>) {
   const db = await createDatabase("memory");
   cleanups.push(() => db.end());
   const userId = randomUUID(), connectorId = randomUUID(), collectionId = randomUUID();
@@ -23,7 +23,7 @@ async function fixture(version: 1 | 2 = 2, files = false, optionalFiles = false)
   const token = randomUUID();
   const operations = capabilityOperationsForContractVersion(version, version === 2 ? "collection.read" : "records.read")!;
   const requestedFiles = files ? { actions: (optionalFiles ? ["list", "read", "delete"] : ["list", "read"]) as FileAction[], scope: { kind: "selected_folders" as const, folders: ["attachments"] } } : undefined;
-  const rawRequirements = { ...(files ? { files: { required: ["list", "read"], ...(optionalFiles ? { optional: ["delete"] } : {}), scope: requestedFiles!.scope } } : {}), contracts: [], access: "full_collection", capabilities: {
+  const rawRequirements = { ...(people ? { people } : {}), ...(files ? { files: { required: ["list", "read"], ...(optionalFiles ? { optional: ["delete"] } : {}), scope: requestedFiles!.scope } } : {}), contracts: [], access: "full_collection", capabilities: {
     contract_version: version, required: [version === 2 ? "collection.read" : "records.read"]
   } };
   const discovered = registerApplicationManifest({ manifest_version: 1, id: "dev.mdbase.native-test",
@@ -79,7 +79,7 @@ async function fixture(version: 1 | 2 = 2, files = false, optionalFiles = false)
   registerErrorHandler(app);
   registerAuthorizationRoutes(app, { db, relay: relay as unknown as RelayHub, publicUrl: "https://connect.example.test", drainProviderRevocations: async () => {} });
   cleanups.push(() => app.close());
-  const approve = (payload: { collection_id: string; operations: typeof operations; file_actions?: FileAction[] } = { collection_id: collectionId, operations }, credential = token, id = requestId) => app.inject({
+  const approve = (payload: { collection_id: string; operations: typeof operations; file_actions?: FileAction[]; people_permissions?: string[] } = { collection_id: collectionId, operations }, credential = token, id = requestId) => app.inject({
     method: "POST", url: `/v1/connectors/authorization-requests/${id}/approve`,
     headers: { authorization: `Bearer ${credential}` }, payload
   });
@@ -103,6 +103,30 @@ it.each<FileAction[]>([["list", "read"], ["list", "read", "delete"]])("native ap
   const grant = (await f.db.query("SELECT file_capability, application_authorization FROM grants")).rows[0];
   expect(grant.file_capability.actions).toEqual(actions);
   expect(grant.application_authorization).toEqual(f.proof);
+});
+
+it("native approval requires an explicit optional people choice and stores only what was approved", async () => {
+  const optional = await fixture(2, false, false, { version: 1, required: ["identity"], optional: ["members"] });
+  expect((await optional.approve()).statusCode).toBe(400);
+  expect((await optional.db.query("SELECT id FROM grants")).rows).toHaveLength(0);
+  const response = await optional.approve({ collection_id: optional.collectionId, operations: optional.operations, people_permissions: ["identity"] });
+  expect(response.statusCode, response.body).toBe(200);
+  expect((await optional.db.query("SELECT people_permissions FROM grants")).rows[0].people_permissions).toEqual(["identity"]);
+
+  const declined = await fixture(2, false, false, { version: 1, optional: ["identity", "members"] });
+  expect((await declined.approve({ collection_id: declined.collectionId, operations: declined.operations, people_permissions: [] })).statusCode).toBe(200);
+  expect((await declined.db.query("SELECT people_permissions FROM grants")).rows[0].people_permissions).toBeNull();
+
+  const required = await fixture(2, false, false, { version: 1, required: ["identity"] });
+  expect((await required.approve({ collection_id: required.collectionId, operations: required.operations, people_permissions: [] })).statusCode).toBe(400);
+  expect((await required.approve()).statusCode).toBe(200);
+  expect((await required.db.query("SELECT people_permissions FROM grants")).rows[0].people_permissions).toEqual(["identity"]);
+});
+
+it("native approval never stores people permissions for an application that did not declare them", async () => {
+  const f = await fixture();
+  expect((await f.approve({ collection_id: f.collectionId, operations: f.operations, people_permissions: ["identity"] })).statusCode).toBe(400);
+  expect((await f.db.query("SELECT id FROM grants")).rows).toHaveLength(0);
 });
 
 it.each([1, 2] as const)("native v%s approval activates and publishes the exact signed grant", async (version) => {

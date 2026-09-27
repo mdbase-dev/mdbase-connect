@@ -903,8 +903,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNotice(undefined);
     setSearch("");
     setNoteFilter(undefined);
-    setSurface("notes");
-    setMobilePane("notes");
+    setSurface(initialEditorSurface()); // Consume the URL after SDK authorization restoration.
+    setMobilePane(initialEditorSurface() === "settings" ? "editor" : "notes");
   }
 
   async function openSavedCollection(collectionId: string) {
@@ -2094,7 +2094,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       />}
     </>}</Suspense>}
 
-    {surface === "settings" && <SettingsView
+    {surface === "settings" && <SettingsView gateway={gateway} onRefreshDescription={refreshDescription}
       description={description}
       connection={connectionSummary}
       noteCount={allNotes.length}

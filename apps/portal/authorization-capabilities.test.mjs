@@ -3,7 +3,8 @@ import test from "node:test";
 import {
   authorizationCapabilityGroups,
   selectedFileActions,
-  selectedOperationsForCapabilityGroups
+  selectedOperationsForCapabilityGroups,
+  selectedPeoplePermissions
 } from "./src/authorization-capabilities.ts";
 
 const requirements = {
@@ -73,4 +74,14 @@ test("optional higher-impact capabilities start denied without a saved review", 
     [...selectedOperationsForCapabilityGroups(groups, [...read, "delete"])],
     [...read, "delete"]
   );
+});
+
+test("people permissions keep required ones and start higher-impact optional ones denied", () => {
+  assert.deepEqual([...selectedPeoplePermissions({ version: 1, required: ["identity"], optional: ["members"] })], ["identity"]);
+  assert.deepEqual([...selectedPeoplePermissions({ version: 1, optional: ["identity", "members"] })], ["identity"]);
+  assert.deepEqual(
+    [...selectedPeoplePermissions({ version: 1, optional: ["identity", "members"] }, ["members", "unknown"])],
+    ["members"]
+  );
+  assert.deepEqual([...selectedPeoplePermissions({ version: 1, required: ["members"] }, [])], ["members"]);
 });
