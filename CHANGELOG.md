@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Added portable people. An application can declare
+  `people: { version: 1, required?: [...], optional?: [...] }` in its manifest
+  to ask for `identity` (the signed-in account's name and a stable
+  `issuer`/`subject` pair) and `members` (the collection's members). The
+  approval screen lists these separately, `members` starts unticked, and the
+  grant records exactly what was approved. Subjects come from a new per-account
+  `public_subject` (`acct_…`), never an internal id, and the issuer is the
+  deployment's configured `MDBASE_CONNECT_IDENTITY_ISSUER`, which Connect now
+  requires outside loopback development. Existing grants carry no people
+  permissions; applications that declare them are reapproved.
+- The SDK adds `connection.people.current()`, `members()` and `directory()`.
+  `directory()` reads every record implementing `mdbase.person` 2.0.0 and
+  resolves the current account to `linked`, `unlinked`, `ambiguous` or
+  `invalid` by exact issuer and subject; other records refer to a person by
+  link. `QueryRecord.values` is now declared.
+- The Editor can link your account to a person record from Settings, choosing
+  an existing contact or creating a note, and sets up person records in a
+  collection only after you review the exact definition files.
 - Collections use mdbase-rs 0.4.0-rc.5, which implements mdbase spec
   v0.3.0-rc.4. Expressions are standard CEL: `note.` and `present.` are gone
   (use `record.` and `has()`), selecting a field of null is an error (use a
