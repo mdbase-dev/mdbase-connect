@@ -669,6 +669,40 @@ fn collection_setup_review_only_adopts_unmanaged_digest_pinned_resources() {
 }
 
 #[test]
+fn type_pack_review_errors_name_the_conflict_in_either_assessment_shape() {
+    let conflict = json!({
+        "target": "_contracts/dev.mdbase.reader.source.md",
+        "mode": "managed",
+        "action": "conflict",
+        "reason": "_contracts/dev.mdbase.reader.source.md is managed by dev.mdbase.reader."
+    });
+    let pack = OperationResult {
+        valid: true,
+        diagnostics: Vec::new(),
+        result: json!({ "resources": [conflict.clone()] }),
+    };
+    let setup = OperationResult {
+        valid: true,
+        diagnostics: Vec::new(),
+        result: json!({
+            "type_packs": [
+                { "resources": [{ "action": "unchanged" }] },
+                { "resources": [conflict] }
+            ]
+        }),
+    };
+    for result in [pack, setup] {
+        let error = type_pack_provision_error(&result);
+        assert_eq!(error.code, "type_pack_review_required");
+        assert!(
+            error.message.ends_with("is managed by dev.mdbase.reader."),
+            "{}",
+            error.message
+        );
+    }
+}
+
+#[test]
 fn authority_manifest_matches_the_node_promotion_fixture() {
     let entries = BTreeMap::from([
         (
