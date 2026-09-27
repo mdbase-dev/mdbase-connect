@@ -16,6 +16,7 @@ import {
   authorizationRequirementsError,
   toggleAuthorizationGroup,
   selectedFileActions,
+  selectedPeoplePermissions,
   selectedOperationsForCapabilityGroups,
   type AuthorizationCapabilityGroup
 } from "./authorization-capabilities";
@@ -461,6 +462,9 @@ function SupportedApprovalForm({
     }
     return selected;
   });
+  const people = "people" in request.requirements ? request.requirements.people : undefined;
+  const [peoplePermissions, setPeoplePermissions] = useState(() =>
+    people ? selectedPeoplePermissions(people, savedReview?.peoplePermissions) : new Set<string>());
   const [chosenFileActions, setFileActions] = useState(() => request.requirements.files
     ? selectedFileActions(request.requirements.files, savedReview?.fileActions)
     : new Set<string>()
@@ -530,6 +534,7 @@ function SupportedApprovalForm({
       group.higherImpact ? [group.label.toLocaleLowerCase()] : []
     ),
     ...(fileActions.has("delete") ? ["delete files"] : []),
+    ...(peoplePermissions.has("members") ? ["see collection members"] : []),
     ...(hasSetup ? ["changes to collection setup"] : [])
   ];
   const approvalBlocker = selectedPermissionCount === 0 && !request.requirements.files
@@ -562,9 +567,10 @@ function SupportedApprovalForm({
       collectionConfirmed,
       operations: [...operations],
       fileActions: [...fileActions],
+      peoplePermissions: [...peoplePermissions],
       reviewing
     });
-  }, [collectionConfirmed, collectionId, fileActions, operations, request.id, reviewing]);
+  }, [collectionConfirmed, collectionId, fileActions, operations, peoplePermissions, request.id, reviewing]);
 
   useEffect(() => {
     if (!reviewing && focusCollectionOnReturn.current) {
@@ -611,6 +617,15 @@ function SupportedApprovalForm({
     setOperations((current) => toggleAuthorizationGroup(current, group));
   }
 
+  function togglePeoplePermission(permission: string) {
+    if (!people?.optional?.some((candidate) => candidate === permission)) return;
+    setPeoplePermissions((current) => {
+      const next = new Set(current);
+      if (!next.delete(permission)) next.add(permission);
+      return next;
+    });
+  }
+
   function toggleFileAction(action: ApplicationFileAction) {
     setFileActions((current) => {
       const next = new Set(current);
@@ -641,6 +656,7 @@ function SupportedApprovalForm({
             ...(selected?.offer_id ? { offer_id: selected.offer_id } : {}),
             operations: [...operations],
             ...(request.requirements.files ? { file_actions: [...fileActions] } : {}),
+            ...(people ? { people_permissions: [...peoplePermissions] } : {}),
             contract_setups: contractSetups
           })
         } : {})
@@ -697,7 +713,7 @@ function SupportedApprovalForm({
     <div className="approval-form" aria-busy={submitting !== null}>
       {!reviewing && <section className="approval-section" aria-labelledby={`requested-${request.id}`}>
         <h2 className="approval-section-title" id={`requested-${request.id}`}>Requests</h2>
-        <RequestedAccessSummary groups={requestedPermissionGroups} files={request.requirements.files} />
+        <RequestedAccessSummary groups={requestedPermissionGroups} files={request.requirements.files} people={people} />
         {requestSetupSummary.length > 0 && <p className="approval-section-note">{requestSetupSummary.join(". ")}.</p>}
       </section>}
       <section className="approval-section" aria-labelledby={`collection-${request.id}`}>
@@ -865,9 +881,12 @@ function SupportedApprovalForm({
           files={request.requirements.files}
           selectedFiles={fileActions}
           allowedFileActions={allowedFiles}
+          people={people}
+          selectedPeople={peoplePermissions}
           disabled={submitting !== null}
           onToggleGroup={toggleCapability}
           onToggleFile={toggleFileAction}
+          onTogglePeople={togglePeoplePermission}
         />
       </section>}
       {reviewing && hasSetup && <section className="approval-section" aria-labelledby={`changes-${request.id}`}>
@@ -880,6 +899,7 @@ function SupportedApprovalForm({
                 <div>
                   <strong>{provision.manifest.name ?? provision.manifest.id} <code>{provision.manifest.version}</code></strong>
                   <small>{provision.manifest.description ?? "Install or update the application definitions declared by this version."}</small>
+                  {provision.manifest.resources.some((resource) => resource.upgrade_from) && <small>Upgrades existing starter types while keeping your customizations and notes. Conflicts, or other types still using the old contract, stop the whole upgrade.</small>}
                 </div>
               </li>
             ))}
@@ -910,11 +930,6 @@ function SupportedApprovalForm({
             })}
           </ul>}
         </div>
-      </section>}
-      {reviewing && "people" in request.requirements && request.requirements.people && <section aria-label="People access">
-        <h3>People and account identity</h3>
-        <p>This application requires access to {request.requirements.people.permissions.includes("identity") ? "your account identity and display name" : "collection member identities"}{request.requirements.people.permissions.includes("identity") && request.requirements.people.permissions.includes("members") ? ", and collection member identities, names and roles" : ""}.</p>
-        <p>Account identifiers are stable across collections, so applications can recognise the same person. Email addresses and pending invitations are not shared. This does not allow managing collection membership.</p>
       </section>}
       {reviewing && <NotificationAccess applicationName={request.application_name} notifications={request.notifications} />}
       {reviewing && error && <div className="message error compact" role="alert">{error}</div>}

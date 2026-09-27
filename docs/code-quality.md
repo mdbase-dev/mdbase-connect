@@ -279,6 +279,17 @@ No file-size, cycle, package, Rust, or SDK API limit changes. Tests cover exact
 bundle integrity, explicit consent/cancellation, conflicts, stale assessment,
 collection changes, and the post-write watch/description-refresh race.
 
+Separating identity from routing and resolving people in the SDK then adds a
+dedicated `public_subject` and configured issuer, optional People consent
+stored on the grant, `people.directory()` resolution shared by every app, and
+the declared `values` of query records. Rebased onto the integrated series
+above, these branches together hold 707 production files (editor 112, client
+72, server 142), 1,554 relative imports, 3,255 Rust visibility references and
+2,537 TypeScript exports. People consent now renders inside the reworked
+authorization review's permission list rather than a separate component. No
+file-size, cycle or other package limit changes; `denyAuthorization` already
+lives with its only caller.
+
 Composition roots and package facades should approach these end-state shapes:
 
 - server `app.ts`: registration and lifecycle wiring only;

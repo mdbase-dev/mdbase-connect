@@ -6,7 +6,7 @@
   },
   "productionFileBudgetsByPackage": {
     "apps/desktop": 43,
-    "apps/editor": 111,
+    "apps/editor": 112,
     "apps/portal": 16,
     "crates/connect-agent": 37,
     "crates/connect-cli": 8,
@@ -17,7 +17,7 @@
     "crates/connect-protocol": 17,
     "crates/connect-runtime": 3,
     "crates/connect-testbed-adapter": 1,
-    "packages/client": 71,
+    "packages/client": 72,
     "packages/devkit": 3,
     "packages/management": 1,
     "packages/pickle": 2,
@@ -28,7 +28,7 @@
     "packages/webhooks": 1,
     "services/feedback": 1,
     "services/mcp": 11,
-    "services/server": 141
+    "services/server": 142
   },
   "deadCodeReferencesByFile": {
     "crates/connect-hosted-provider/src/workspace.rs": 1,

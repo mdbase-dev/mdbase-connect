@@ -12,9 +12,15 @@ import {
 import { useMemo } from "react";
 import { initialContractSetupChoice } from "./application-setup";
 import type { ApplicationFileAction, PendingAuthorization } from "./api";
-import { HIGHER_IMPACT_FILE_ACTIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities";
+import { HIGHER_IMPACT_FILE_ACTIONS, HIGHER_IMPACT_PEOPLE_PERMISSIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities";
 
 type FileRequirements = NonNullable<PendingAuthorization["requirements"]["files"]>;
+type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement;
+
+const PEOPLE_PERMISSION_LABELS: Record<string, string> = {
+  identity: "See your account identity and display name",
+  members: "See collection members' account identities, names and roles"
+};
 
 const FILE_ACTION_LABELS: Record<ApplicationFileAction, string> = {
   list: "List file names and metadata",
@@ -37,15 +43,19 @@ function groupSelected(group: AuthorizationCapabilityGroup, selected: ReadonlySe
 
 // A compact, read-only statement of what the request asks for, shown before a
 // collection is chosen so the user can deny without choosing anything.
-export function RequestedAccessSummary({ groups, files }: {
+export function RequestedAccessSummary({ groups, files, people }: {
   groups: AuthorizationCapabilityGroup[];
   files?: FileRequirements;
+  people?: PeopleRequirement;
 }) {
   const items = groups.map((group) => ({ id: group.id, label: group.label, higherImpact: group.higherImpact }));
   if (files) {
     const actions = "actions" in files ? files.actions : [...files.required, ...(files.optional ?? [])];
     const deletes = actions.some((action) => HIGHER_IMPACT_FILE_ACTIONS.has(action));
     items.push({ id: "files", label: deletes ? "Manage and delete files" : "Work with files", higherImpact: deletes });
+  }
+  for (const permission of [...(people?.required ?? []), ...(people?.optional ?? [])]) {
+    items.push({ id: `people.${permission}`, label: PEOPLE_PERMISSION_LABELS[permission], higherImpact: HIGHER_IMPACT_PEOPLE_PERMISSIONS.has(permission) });
   }
   return (
     <ul className="requested-access" aria-label="Requested access">
@@ -97,9 +107,12 @@ export function PermissionList({
   files,
   selectedFiles,
   allowedFileActions,
+  people,
+  selectedPeople,
   disabled,
   onToggleGroup,
-  onToggleFile
+  onToggleFile,
+  onTogglePeople
 }: {
   groups: AuthorizationCapabilityGroup[];
   selected: ReadonlySet<string>;
@@ -107,9 +120,12 @@ export function PermissionList({
   files?: FileRequirements;
   selectedFiles: ReadonlySet<string>;
   allowedFileActions?: readonly ApplicationFileAction[];
+  people?: PeopleRequirement;
+  selectedPeople: ReadonlySet<string>;
   disabled: boolean;
   onToggleGroup(group: AuthorizationCapabilityGroup): void;
   onToggleFile(action: ApplicationFileAction): void;
+  onTogglePeople(permission: string): void;
 }) {
   const reauthorizing = Boolean(existingOperations && existingOperations.size > 0);
   const fileRows = files ? "actions" in files
@@ -154,6 +170,28 @@ export function PermissionList({
           disabled={disabled}
           onToggle={() => onToggleFile(action)}
         />)}
+      </ul>
+    </div>}
+    {people && <div className="permission-files">
+      <p className="permission-files-heading">
+        <strong>People</strong>
+        <small>Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership.</small>
+      </p>
+      <ul className="permission-list" aria-label="People permissions">
+        {[...(people.required ?? []).map((permission) => ({ permission, required: true })),
+          ...(people.optional ?? []).map((permission) => ({ permission, required: false }))]
+          .map(({ permission, required }) => <PermissionRow
+            key={permission}
+            id={`people.${permission}`}
+            label={PEOPLE_PERMISSION_LABELS[permission]}
+            locked={required}
+            required={required}
+            checked={selectedPeople.has(permission)}
+            higherImpact={HIGHER_IMPACT_PEOPLE_PERMISSIONS.has(permission)}
+            isNew={false}
+            disabled={disabled}
+            onToggle={() => onTogglePeople(permission)}
+          />)}
       </ul>
     </div>}
   </>;

@@ -254,9 +254,7 @@ export interface ApplicationRequirements {
   files?: ApplicationFileRequirement;
 }
 
-export type { AccountIdentity, AccountProfile, CurrentAccountResponse, CollectionMemberProfile, ApplicationPeopleRequirement, PeoplePermission } from "./people.js";
-export { PEOPLE_PERMISSIONS, approvedPeoplePermissions } from "./people.js";
-
+export { PEOPLE_PERMISSIONS, approvedPeoplePermissions, type AccountIdentity, type AccountProfile, type CurrentAccountResponse, type CollectionMemberProfile, type ApplicationPeopleRequirement, type PeoplePermission } from "./people.js";
 export type LegacyApplicationRequirements = Omit<ApplicationRequirements, "capabilities" | "files" | "access" | "people"> & {
   access: "full_collection";
   capabilities?: LegacyApplicationCapabilityRequirements;
@@ -901,7 +899,6 @@ export interface QueryRecord<Frontmatter extends JsonObject = JsonObject> {
   body?: string;
   types: string[];
   file: Partial<CollectionFileMetadata> & { path?: string };
-  /** Selected and projected values, keyed by output name, when the query used `select`. */
   values?: JsonObject;
   /** Present when the authority returned a normalized contract projection. */
   contract?: DataContractViewIdentity;
