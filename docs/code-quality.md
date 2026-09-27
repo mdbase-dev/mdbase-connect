@@ -284,8 +284,8 @@ dedicated `public_subject` and configured issuer, optional People consent
 stored on the grant, `people.directory()` resolution shared by every app, and
 the declared `values` of query records. Rebased onto the integrated series
 above, these branches together hold 707 production files (editor 112, client
-72, server 142), 1,554 relative imports, 3,255 Rust visibility references and
-2,537 TypeScript exports. People consent now renders inside the reworked
+72, server 142), 1,557 relative imports, 3,255 Rust visibility references and
+2,542 TypeScript exports, including the email-preferences series. People consent now renders inside the reworked
 authorization review's permission list rather than a separate component. No
 file-size, cycle or other package limit changes; `denyAuthorization` already
 lives with its only caller.
