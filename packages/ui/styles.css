@@ -6,8 +6,6 @@
   background: var(--paper);
   font-family: var(--sans);
   font-synthesis: none;
-  --color-text-faint: oklch(70% 0.009 255);
-  --color-warning: oklch(60% 0.09 75);
   --paper: var(--color-surface);
   --hover: var(--color-surface-subtle);
   --selected: var(--color-selected);
@@ -24,18 +22,6 @@
   --warning: var(--color-warning);
   --danger: var(--color-danger);
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-:root[data-theme="dark"] {
-  --color-text-faint: oklch(56% 0.011 255);
-  --color-warning: oklch(78% 0.09 75);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-    --color-text-faint: oklch(56% 0.011 255);
-    --color-warning: oklch(78% 0.09 75);
-  }
 }
 
 *,
