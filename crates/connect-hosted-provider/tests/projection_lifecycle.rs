@@ -182,7 +182,7 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(final_versions, (1_i64..=43).collect::<Vec<_>>());
+    assert_eq!(final_versions, (1_i64..=44).collect::<Vec<_>>());
     let runtime_columns: Vec<String> = sqlx::query_scalar(
         r#"SELECT column_name
            FROM information_schema.columns
@@ -239,7 +239,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
             .fetch_all(&fixture.pool)
             .await
             .unwrap();
-    assert_eq!(versions, (1..=43).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=44).collect::<Vec<_>>());
     let plan = fixture
         .provider
         .projection_index_plan(None, 1)
@@ -248,7 +248,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
     assert!(plan.migration_ledger_valid);
     assert!(plan.schema_valid);
     assert_eq!(plan.migration_baseline, 34);
-    assert_eq!(plan.migration_target, 43);
+    assert_eq!(plan.migration_target, 44);
 
     // Only this disposable fixture's ledger is corrupted. Save every original
     // column, including checksum bytes and timestamps; never rerun migrations
@@ -283,7 +283,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
         assert_eq!(restored, original, "exact restoration after {name}");
         let plan = result.unwrap();
         assert!(!plan.migration_ledger_valid, "accepted {name}");
-        assert_eq!(plan.migration_target, 43, "target changed for {name}");
+        assert_eq!(plan.migration_target, 44, "target changed for {name}");
         assert!(plan.schema_valid, "schema changed for {name}");
         assert!(fixture.provider.projection_index_plan(None, 1).await.unwrap().migration_ledger_valid);
     }
@@ -2405,6 +2405,126 @@ async fn view_mutations_carry_the_projection_binding_and_keep_readiness() {
             .unwrap()
             .ready
     );
+}
+
+/// A definition change retires the active projection until it is rebuilt.
+/// Canonical views, like direct queries, keep working and paging in that window.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn canonical_views_execute_while_the_projection_is_rebuilt() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    complete_generation(&fixture).await;
+    let token = format!("canonical-view-rebuild-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Canonical view during rebuild".to_string(),
+                application_setup_evidence: None,
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: [
+                    "create",
+                    "assess_type_pack",
+                    "apply_type_pack",
+                    "create_view_source",
+                    "create_type",
+                    "execute_view",
+                ]
+                .map(str::to_string)
+                .to_vec(),
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    let operation = |name: &'static str, input: serde_json::Value| {
+        let (fixture, token) = (&fixture, &token);
+        async move {
+            let result = fixture
+                .provider
+                .operation(
+                    fixture.collection_id,
+                    token,
+                    name,
+                    Uuid::new_v4(),
+                    input,
+                    None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(result["valid"], true, "{name}: {result}");
+            result
+        }
+    };
+    install_view_contract(&fixture, &token).await;
+    for path in ["notes/one.md", "notes/two.md"] {
+        operation(
+            "create",
+            json!({"path": path, "frontmatter": {"title": path}}),
+        )
+        .await;
+    }
+    operation(
+        "create_view_source",
+        json!({
+            "path": "views/notes.md",
+            "document": "---\ntype: view\nid: notes.views\nversion: 1\nname: Notes\nquery:\n  where: 'file.folder == \"notes\"'\nviews:\n  - id: all\n    name: All\n---\n"
+        }),
+    )
+    .await;
+    operation(
+        "create_type",
+        json!({"document": "---\nkind: mdbase.type\nname: project\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n"}),
+    )
+    .await;
+    let active: Option<Uuid> = sqlx::query_scalar(
+        "SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(active, None, "the definition change retires the projection");
+
+    // A paged execution persists a cursor, which must not require a pinned
+    // generation.
+    let first = operation(
+        "execute_view",
+        json!({"path": "views/notes.md", "view": "all", "limit": 1}),
+    )
+    .await;
+    let cursor = first["result"]["meta"]["cursor"].clone();
+    assert!(cursor.is_string(), "{first}");
+    let next = operation(
+        "execute_view",
+        json!({"path": "views/notes.md", "view": "all", "limit": 1, "cursor": cursor}),
+    )
+    .await;
+    let mut paths = [&first, &next].map(|page| {
+        page["result"]["results"][0]["path"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    });
+    paths.sort();
+    assert_eq!(paths, ["notes/one.md", "notes/two.md"], "{first} {next}");
 }
 
 /// The diagnostics surface must answer with real state, and must attribute an
