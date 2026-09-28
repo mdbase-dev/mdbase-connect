@@ -41,6 +41,7 @@ import { markdownReferences } from "./markdown-references";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 import type { CollectionFile, NoteSummary } from "./model";
+import { mdbasePopupTheme } from "@mdbase-dev/ui/codemirror";
 
 type EditorLanguage = "markdown" | "json" | "yaml" | "yaml-frontmatter" | "plain";
 type EditorVariant = "writer" | "source";
@@ -211,6 +212,7 @@ export function CodeEditor({
       historyMode.current.of([history()]),
       editorSetup(variant),
       syntaxHighlighting(mdbaseHighlightStyle),
+      mdbasePopupTheme,
       variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
       languageMode.current.of(language === "markdown" ? markdown() : []),
       wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),

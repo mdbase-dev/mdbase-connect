@@ -10,8 +10,9 @@ const buildId = (process.env.MDBASE_EDITOR_BUILD_ID ?? process.env.GITHUB_SHA ??
 export default defineConfig({
   base: basePath,
   plugins: [react()],
-  // hoistingLimits gives each workspace package its own React; @mdbase-dev/ui must render with the app's.
-  resolve: { dedupe: ["react", "react-dom"] },
+  // hoistingLimits gives each workspace package its own copies; @mdbase-dev/ui must use the app's
+  // React and CodeMirror (two @codemirror/state instances cannot share an editor).
+  resolve: { dedupe: ["react", "react-dom", "@codemirror/state", "@codemirror/view"] },
   build: {
     target: "es2022",
     sourcemap: true,

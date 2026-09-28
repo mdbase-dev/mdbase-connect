@@ -26,6 +26,10 @@
       "types": "./dist/brand.d.ts",
       "import": "./dist/brand.js"
     },
+    "./codemirror": {
+      "types": "./dist/codemirror.d.ts",
+      "import": "./dist/codemirror.js"
+    },
     "./popover": {
       "types": "./dist/popover.d.ts",
       "import": "./dist/popover.js"
@@ -59,14 +63,21 @@
     "@fontsource/azeret-mono": "^5.3.0"
   },
   "peerDependencies": {
+    "@codemirror/view": "^6.0.0",
     "react": "^19.2.0"
   },
   "devDependencies": {
+    "@codemirror/view": "^6.43.12",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
+  },
+  "peerDependenciesMeta": {
+    "@codemirror/view": {
+      "optional": true
+    }
   }
 }
