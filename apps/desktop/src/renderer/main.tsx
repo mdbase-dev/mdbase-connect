@@ -1,8 +1,4 @@
-import "@fontsource/atkinson-hyperlegible/latin-400.css";
-import "@fontsource/atkinson-hyperlegible/latin-700.css";
-import "@fontsource/azeret-mono/latin-400.css";
-import "@fontsource/azeret-mono/latin-500.css";
-import "@fontsource/azeret-mono/latin-600.css";
+import "@mdbase-dev/ui/fonts.css";
 import {
   groupApplicationAccess,
   type ApplicationAccessGroup
