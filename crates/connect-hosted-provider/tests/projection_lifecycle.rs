@@ -182,7 +182,7 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(final_versions, (1_i64..=43).collect::<Vec<_>>());
+    assert_eq!(final_versions, (1_i64..=44).collect::<Vec<_>>());
     let runtime_columns: Vec<String> = sqlx::query_scalar(
         r#"SELECT column_name
            FROM information_schema.columns
@@ -2432,6 +2432,8 @@ async fn canonical_views_execute_while_the_projection_is_rebuilt() {
                 full_collection: true,
                 allowed_operations: [
                     "create",
+                    "assess_type_pack",
+                    "apply_type_pack",
                     "create_view_source",
                     "create_type",
                     "execute_view",
@@ -2471,6 +2473,7 @@ async fn canonical_views_execute_while_the_projection_is_rebuilt() {
             result
         }
     };
+    install_view_contract(&fixture, &token).await;
     for path in ["notes/one.md", "notes/two.md"] {
         operation(
             "create",
