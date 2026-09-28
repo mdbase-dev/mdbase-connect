@@ -445,9 +445,26 @@ fn reads_creates_and_updates_type_resources() {
     assert!(types.iter().any(|definition| definition.name == "project"));
 }
 
+/// A minimal `mdbase.view` contract and implementing `view` type.
+pub(super) fn view_contract_resources() -> [(String, String); 2] {
+    [
+        (
+            "_contracts/mdbase.view.md",
+            "---\nkind: mdbase.contract\ncontract_type: record\nid: mdbase.view\nversion: 1.0.0\nrecord_schema: {dialect: json-schema-2020-12, value: {type: object, properties: {id: {}, version: {}, name: {}, query: {}, views: {}}}}\n---\n",
+        ),
+        (
+            "_types/view.md",
+            "---\nkind: mdbase.type\nname: view\nversion: 1\nmatch: {where: {type: view}}\nschema: {dialect: json-schema-2020-12, value: {type: object, properties: {id: {}, version: {}, name: {}, query: {}, views: {}}}}\nimplements: [{contract: mdbase.view, version: 1.0.0, fields: {id: id, version: version, name: name, query: query, views: views}}]\n---\n",
+        ),
+    ]
+    .map(|(path, document)| (path.to_string(), document.to_string()))
+}
+
 #[test]
 fn reads_creates_updates_and_deletes_saved_view_resources() {
-    let workspace = AuthorityWorkspace::materialize(resources(), []).unwrap();
+    let mut resources = resources();
+    resources.extend(view_contract_resources());
+    let workspace = AuthorityWorkspace::materialize(resources, []).unwrap();
     let document = r#"---
 type: view
 id: task.views

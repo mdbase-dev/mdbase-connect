@@ -7036,6 +7036,7 @@ views:
     assert_eq!(remaining_invocations, 0);
     Box::pin(assert_live_base_invocation_cursor(&fixture, false)).await;
 
+    install_view_contract(&fixture, &writer_token).await;
     let stable_view_document = "---\ntype: view\nid: stable.views\nversion: 1\nname: Stable\nquery:\n  where: this.id == 'stable.views'\nviews:\n  - id: all\n    name: All\n---\n";
     let stable_view = fixture
         .provider
@@ -10555,4 +10556,63 @@ async fn delete(
         SyncMutationReceipt::Applied { sequence, .. } => i64::try_from(sequence).unwrap(),
         other => panic!("delete was not applied: {other:?}"),
     }
+}
+
+/// Install the `mdbase.view` contract and a `view` type implementing it, as
+/// collection setup does before saved views exist.
+async fn install_view_contract(fixture: &FileLifecycleFixture, token: &str) {
+    let contract = "---\nkind: mdbase.contract\ncontract_type: record\nid: mdbase.view\nversion: 1.0.0\nrecord_schema: {dialect: json-schema-2020-12, value: {type: object, properties: {id: {}, version: {}, name: {}, query: {}, views: {}}}}\n---\n";
+    let view_type = "---\nkind: mdbase.type\nname: view\nversion: 1\nmatch: {where: {type: view}}\nschema: {dialect: json-schema-2020-12, value: {type: object, properties: {id: {}, version: {}, name: {}, query: {}, views: {}}}}\nimplements: [{contract: mdbase.view, version: 1.0.0, fields: {id: id, version: version, name: name, query: query, views: views}}]\n---\n";
+    let digest = |document: &str| format!("sha256:{:x}", Sha256::digest(document.as_bytes()));
+    let mut pack = json!({
+        "provision": {
+            "manifest": {
+                "kind": "mdbase.type-pack",
+                "id": "mdbase.view",
+                "version": "1.0.0",
+                "resources": [
+                    {"kind": "contract", "mode": "managed", "source": "contracts/mdbase.view.md", "target": "_contracts/mdbase.view.md", "digest": digest(contract)},
+                    {"kind": "type", "mode": "managed", "source": "types/view.md", "target": "_types/view.md", "digest": digest(view_type)}
+                ]
+            },
+            "resources": [
+                {"source": "contracts/mdbase.view.md", "document": contract},
+                {"source": "types/view.md", "document": view_type}
+            ],
+            "provides": [{"id": "mdbase.view", "version": "1.0.0", "digest": digest(contract)}]
+        },
+        "installed_by": "mdbase.view",
+        "adopt_resources": {},
+        "preserve_seed_targets": [],
+        "target_overrides": {},
+        "contract_setups": []
+    });
+    let assessment = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            token,
+            "assess_type_pack",
+            Uuid::new_v4(),
+            pack.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(assessment["valid"], true, "{assessment}");
+    pack["expected_assessment_digest"] = assessment["result"]["assessment_digest"].clone();
+    pack["allow_downgrade"] = json!(false);
+    let applied = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            token,
+            "apply_type_pack",
+            Uuid::new_v4(),
+            pack,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(applied["valid"], true, "{applied}");
 }
