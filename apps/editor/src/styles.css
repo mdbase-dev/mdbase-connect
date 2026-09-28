@@ -270,90 +270,6 @@ select:focus-visible {
   border: 0;
 }
 
-.select-control {
-  position: relative;
-  min-width: 0;
-  display: grid;
-}
-
-.select-control > select {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  appearance: none;
-  padding: 0 30px 0 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  outline: 0;
-  background: var(--white);
-  color: var(--ink);
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.select-control > svg {
-  position: absolute;
-  top: 50%;
-  right: 9px;
-  width: 12px;
-  height: 12px;
-  color: var(--faint);
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-
-.select-control > select:hover:not(:disabled) {
-  border-color: var(--muted);
-}
-
-.select-control > select:focus {
-  border-color: var(--line-strong);
-  background: var(--white);
-}
-
-.select-control > select:focus-visible {
-  outline-offset: 1px;
-}
-
-.select-control.disabled > select {
-  cursor: default;
-  opacity: 0.52;
-}
-
-.select-control.disabled > svg {
-  opacity: 0.45;
-}
-
-.select-control > select[aria-invalid="true"] {
-  border-color: var(--danger);
-  box-shadow: 0 0 0 1px var(--danger-soft);
-}
-
-.select-control.compact {
-  width: max-content;
-  max-width: 100%;
-}
-
-.select-control.compact > select {
-  width: auto;
-  max-width: 100%;
-  height: auto;
-  min-height: 20px;
-  padding: 0 15px 0 0;
-  border: 0;
-  background: transparent;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
-  text-transform: uppercase;
-}
-
-.select-control.compact > svg {
-  right: 0;
-  width: 9px;
-  height: 9px;
-}
-
 .combobox-control {
   position: relative;
   min-width: 0;
@@ -547,7 +463,6 @@ select:focus-visible {
 }
 
 .saved-collection-item .action-menu {
-  top: 40px;
   width: 196px;
 }
 
@@ -672,9 +587,9 @@ select:focus-visible {
   padding: 0 1px 0 9px;
 }
 
-.rail-header > .wordmark {
+.rail-header > .mdbase-app-switcher {
   min-width: 0;
-  flex: 1;
+  margin-right: auto;
 }
 
 @container (max-width: 190px) {
@@ -686,6 +601,10 @@ select:focus-visible {
 }
 
 @container (max-width: 140px) {
+  .rail-header .mdbase-app-switcher-chevron {
+    display: none;
+  }
+
   .rail-header .wordmark-label {
     display: none;
     opacity: 0;
@@ -1433,7 +1352,6 @@ select:focus-visible {
 }
 
 .note-view-options-menu {
-  top: 43px;
   width: 220px;
 }
 
@@ -2362,11 +2280,11 @@ kbd {
   position: relative;
 }
 
+/* Shown in the top layer by MenuPopover, which places it against its trigger. */
 .action-menu {
-  position: absolute;
-  z-index: 10;
-  top: 38px;
-  right: 0;
+  position: fixed;
+  inset: auto;
+  margin: 0;
   width: 164px;
   padding: 5px;
   border: 1px solid var(--line-strong);
@@ -3616,13 +3534,13 @@ kbd {
   box-shadow: 0 0 0 2px var(--danger-soft);
 }
 
-.property-row.invalid > .select-control > select,
-.property-row.invalid > .schema-value > .select-control > select {
+.property-row.invalid > .mdbase-select,
+.property-row.invalid > .schema-value > .mdbase-select {
   border-color: var(--danger);
 }
 
-.property-row.invalid > .select-control > select:focus,
-.property-row.invalid > .schema-value > .select-control > select:focus {
+.property-row.invalid > .mdbase-select:focus,
+.property-row.invalid > .schema-value > .mdbase-select:focus {
   box-shadow: 0 0 0 2px var(--danger-soft);
 }
 
@@ -3902,7 +3820,7 @@ label.schema-value {
   flex: 1;
 }
 
-.schema-add-value .select-control {
+.schema-add-value .mdbase-select {
   width: 100%;
 }
 
@@ -6407,7 +6325,7 @@ label.schema-value {
   font-size: 11px;
 }
 
-.contract-mapping-row.warning .contract-field-source .select-control > select {
+.contract-mapping-row.warning .contract-field-source .mdbase-select {
   border-color: var(--warning);
 }
 
@@ -7043,7 +6961,7 @@ label.schema-value {
   font-size: 11px !important;
 }
 
-.list-item-heading .select-control {
+.list-item-heading .mdbase-select {
   width: 150px;
 }
 
@@ -7333,7 +7251,7 @@ label.schema-value {
   line-height: 1.4;
 }
 
-.setting-row .select-control {
+.setting-row .mdbase-select {
   width: 126px;
 }
 
@@ -7566,7 +7484,7 @@ label.schema-value {
 }
 
 .new-note-fields .schema-value > input,
-.new-note-fields .schema-value > .select-control {
+.new-note-fields .schema-value > .mdbase-select {
   width: 100%;
 }
 
@@ -8029,7 +7947,6 @@ label.schema-value {
   }
 
   .action-menu {
-    top: 48px;
     width: 190px;
   }
 
@@ -8623,12 +8540,11 @@ label.schema-value {
 }
 
 .search-field,
-.select-control > select,
 .connect-inline-rename input,
 .connect-inline-form input,
 .connect-feedback-field input,
 .connect-feedback-field textarea,
-.connect-feedback-origin select,
+.connect-feedback-origin .mdbase-select,
 .connect-account-form input,
 .connect-account-reauthentication input {
   border-radius: 2px;

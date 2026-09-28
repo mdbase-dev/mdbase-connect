@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { CollectionDescription, TypePackAssessment, TypePackProvision } from "@mdbase-dev/connect";
@@ -6,6 +7,7 @@ import { YourPersonPanel } from "./YourPersonPanel";
 import { peopleGateway } from "./test/people-gateway";
 import { loadPersonSetup, requireAdditivePersonSetup } from "./person-setup";
 import bundled from "./person-setup.pack.json";
+import { chooseOption } from "./test/select";
 
 vi.mock("./person-setup", async (original) => ({
   ...await original<typeof import("./person-setup")>(),
@@ -111,13 +113,13 @@ it("keeps an existing contact selected after setup instead of opening duplicate 
   const combined = { ...ready, types: [...contacts.types, ...ready.types], contracts: [...contacts.contracts, ...ready.contracts] };
   f.notes.push({ path: "contact.md", types: ["contact"], frontmatter: { type: "contact", name: "Existing contact" }, effectiveFrontmatter: {}, file: {} });
   f.view.rerender(f.panel(contacts));
-  fireEvent.change(await screen.findByRole("combobox", { name: "Existing person or contact" }), { target: { value: "contact.md" } });
+  await chooseOption(userEvent.setup(), await screen.findByRole("combobox", { name: "Existing person or contact" }), "contact.md");
   // The new provision does not own or touch the collection's existing Contact type.
   expect(f.review.resources.some((r) => r.target === "_types/contact.md")).toBe(false);
   f.refresh.mockImplementationOnce(async () => { f.view.rerender(f.panel(combined)); return combined; });
   await review(); fireEvent.click(screen.getByRole("button", { name: "Add definitions and continue" }));
   await waitFor(() => expect(f.refresh).toHaveBeenCalled());
-  expect(await screen.findByRole("combobox", { name: "Existing person or contact" })).toHaveValue("contact.md");
+  expect(await screen.findByRole("combobox", { name: "Existing person or contact" })).toHaveAttribute("data-value", "contact.md");
   expect(screen.queryByRole("region", { name: "Create person form" })).toBeNull();
   expect(f.gateway.create).not.toHaveBeenCalled();
 });

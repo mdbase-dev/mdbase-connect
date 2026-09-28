@@ -3,8 +3,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { JsonObject } from "@mdbase-dev/connect";
 import { CodeEditor } from "./CodeEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
-import { SelectControl } from "./SelectionControls";
 import { schemaDateFormat, schemaDateInputType, schemaDateInputValue, schemaDateValue } from "./schema-date";
+import { Select } from "@mdbase-dev/ui/select";
 
 export function SchemaValueEditor({ name, schema, rootSchema, value, required = false, hideLabel = false, onChange, onValidityChange }: {
   name: string;
@@ -43,16 +43,16 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
     return <JsonSchemaValueEditor name={name} type={type} label={label} value={value} onChange={onChange} onValidityChange={onValidityChange} />;
   }
   const choices = Array.isArray(resolved?.enum) ? resolved.enum.filter((item) => item === null || ["string", "number", "boolean"].includes(typeof item)) : [];
-  if (choices.length) return <label className="schema-value">{label}<SelectControl
+  if (choices.length) return <label className="schema-value">{label}<Select
     aria-label={name}
     value={choiceKey(value)}
-    onChange={(event) => {
-      const choice = choices.find((item) => choiceKey(item) === event.target.value);
-      if (choice !== undefined || event.target.value === choiceKey(null)) onChange(structuredClone(choice));
+    placeholder="Choose"
+    options={choices.map((choice) => ({ value: choiceKey(choice), label: formatValue(choice) }))}
+    onChange={(next) => {
+      const choice = choices.find((item) => choiceKey(item) === next);
+      if (choice !== undefined || next === choiceKey(null)) onChange(structuredClone(choice));
     }}
-  >
-    <option value="">Choose</option>{choices.map((choice, index) => <option key={`${choiceKey(choice)}:${index}`} value={choiceKey(choice)}>{formatValue(choice)}</option>)}
-  </SelectControl></label>;
+  /></label>;
   const dateFormat = schemaDateFormat(resolved);
   if (dateFormat) return <label className="schema-value">{label}<input
     aria-label={name}
@@ -140,7 +140,7 @@ function ObjectValueEditor({ name, schema, rootSchema, value, required, hideLabe
       {!visibleFields.length && <p className="schema-empty-value">No declared values.</p>}
     </div>
     {optionalFields.length > 0 && (adding ? <div className="schema-add-value">
-      <label><span className="sr-only">Optional field</span><SelectControl value={fieldToAdd || optionalFields[0]} onChange={(event) => setFieldToAdd(event.target.value)}>{optionalFields.map((field) => <option key={field} value={field}>{humanizeName(field)}</option>)}</SelectControl></label>
+      <label><span className="sr-only">Optional field</span><Select aria-label="Optional field" value={fieldToAdd || optionalFields[0] || ""} options={optionalFields.map((field) => ({ value: field, label: humanizeName(field) }))} onChange={setFieldToAdd} /></label>
       <button type="button" onClick={addField}>Add</button>
       <button type="button" onClick={() => setAdding(false)}>Cancel</button>
     </div> : <button type="button" className="schema-add-trigger" onClick={() => { setFieldToAdd(optionalFields[0]); setAdding(true); }}><Plus aria-hidden="true" />Add optional field</button>)}

@@ -21,7 +21,8 @@ import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type R
 import { CodeEditor } from "./CodeEditor";
 import { SchemaValueEditor, schemaInitialValue } from "./SchemaValueEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
-import { ComboboxInput, SelectControl } from "./SelectionControls";
+import { ComboboxInput } from "./SelectionControls";
+import { Select, type SelectItems, type SelectOption } from "@mdbase-dev/ui/select";
 import {
   contractCatalogPackStatus,
   type ContractCatalog,
@@ -569,11 +570,12 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
 
     {contracts.length > 0 && creating && implementations.length === 0 && <div className="contract-starter">
       <div><strong>Start with app compatibility</strong><p>Create fields that already match an installed contract. You can rename and remap them later.</p></div>
-      <label><span>Contract</span><SelectControl
+      <label><span>Contract</span><Select
         aria-label="Starting contract"
         value={selected ? contractKey(selected) : ""}
-        onChange={(event) => setSelectedKey(event.target.value)}
-      >{available.map((contract) => <option key={contractKey(contract)} value={contractKey(contract)}>{contract.id} · {contract.version}</option>)}</SelectControl></label>
+        options={available.map((contract) => ({ value: contractKey(contract), label: `${contract.id} · ${contract.version}` }))}
+        onChange={setSelectedKey}
+      /></label>
       <button disabled={!selected} onClick={() => selected && onChange((current) => createTypeSourceFromContract(current, selected, typeNames))}>Use contract</button>
     </div>}
 
@@ -666,24 +668,25 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                     </div>
                     <label className="contract-field-source">
                       <span className="sr-only">{implementation.contract} {field.reference} source field</span>
-                      <SelectControl
+                      <Select
                         aria-label={`${implementation.contract} ${field.reference} type field`}
                         aria-invalid={displayed.level === "error" || undefined}
                         value={mapped}
-                        onChange={(event) => onChange((current) => setTypeContractFieldMapping(
+                        options={[
+                          { value: "", label: field.required ? "Choose a source field" : "Not exposed" },
+                          ...(mappedMissing ? [{ value: mapped, label: `Missing field: ${mapped}` }] : []),
+                          ...mappingOptionGroup("Compatible fields", compatible),
+                          ...mappingOptionGroup("Needs review", review),
+                          ...mappingOptionGroup("Incompatible fields", incompatible, true)
+                        ]}
+                        onChange={(next) => onChange((current) => setTypeContractFieldMapping(
                           current,
                           implementation.contract,
                           implementation.version,
                           field.reference,
-                          event.target.value || undefined
+                          next || undefined
                         ))}
-                      >
-                        <option value="">{field.required ? "Choose a source field" : "Not exposed"}</option>
-                        {mappedMissing && <option value={mapped}>Missing field: {mapped}</option>}
-                        <MappingOptionGroup label="Compatible fields" options={compatible} />
-                        <MappingOptionGroup label="Needs review" options={review} />
-                        <MappingOptionGroup label="Incompatible fields" options={incompatible} disabled />
-                      </SelectControl>
+                      />
                       {mappedField && <small>{kindName(mappedField.kind)} · {mappedField.required ? "always present" : "optional in this type"}</small>}
                     </label>
                     <div className={`contract-mapping-validation ${displayed.level}`} role={displayed.level === "error" ? "alert" : undefined}>
@@ -781,11 +784,12 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
     </div>}
 
     {available.length > 0 && (!creating || implementations.length > 0) && <div className="contract-add">
-      <label><span>Installed contract</span><SelectControl
+      <label><span>Installed contract</span><Select
         aria-label="Installed contract"
         value={selected ? contractKey(selected) : ""}
-        onChange={(event) => setSelectedKey(event.target.value)}
-      >{available.map((contract) => <option key={contractKey(contract)} value={contractKey(contract)}>{contract.id} · {contract.version}</option>)}</SelectControl></label>
+        options={available.map((contract) => ({ value: contractKey(contract), label: `${contract.id} · ${contract.version}` }))}
+        onChange={setSelectedKey}
+      /></label>
       <button disabled={!selected} onClick={() => selected && addContract(selected)}><Plus aria-hidden="true" />Connect application contract</button>
     </div>}
 
@@ -806,21 +810,19 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
   </TypeEditorDisclosure>;
 }
 
-function MappingOptionGroup({ label, options, disabled = false }: {
-  label: string;
-  options: Array<{
-    option: ContractTypeField;
-    assessment: ReturnType<typeof assessContractFieldMapping>;
-  }>;
-  disabled?: boolean;
-}) {
-  if (!options.length) return null;
-  return <optgroup label={label}>
-    {options.map(({ option }) =>
-      <option disabled={disabled} key={option.reference} value={option.reference}>
-        {option.label} · {kindName(option.kind)}{option.required ? " · required" : ""}
-      </option>)}
-  </optgroup>;
+function mappingOptionGroup(label: string, options: Array<{
+  option: ContractTypeField;
+  assessment: ReturnType<typeof assessContractFieldMapping>;
+}>, disabled = false): SelectItems {
+  if (!options.length) return [];
+  return [{
+    label,
+    options: options.map(({ option }) => ({
+      value: option.reference,
+      label: `${option.label} · ${kindName(option.kind)}${option.required ? " · required" : ""}`,
+      disabled
+    }))
+  }];
 }
 
 function matchingContractTypeField(
@@ -1118,17 +1120,12 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
               allowEmpty={false}
               onChange={(value) => onChange((source) => renameTypeLinkRule(source, rule.field, value))}
             />
-            <label><span>Format</span><SelectControl
+            <label><span>Format</span><Select
               aria-label={`${rule.field} link format`}
               value={rule.format ?? ""}
-              onChange={(event) => onChange((source) => setTypeLinkRule(source, rule.field, "format", (event.target.value || undefined) as TypeLinkFormat | undefined))}
-            >
-              <option value="">Any supported format</option>
-              <option value="wikilink">Wikilink</option>
-              <option value="markdown">Markdown link</option>
-              <option value="path">Path</option>
-              <option value="any">Any</option>
-            </SelectControl></label>
+              options={linkFormatOptions}
+              onChange={(next) => onChange((source) => setTypeLinkRule(source, rule.field, "format", (next || undefined) as TypeLinkFormat | undefined))}
+            /></label>
             <label className="collection-toggle"><input
               type="checkbox"
               checked={rule.validateExists}
@@ -1170,16 +1167,13 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
             allowEmpty={false}
             onChange={(value) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "field", value))}
           />
-          <label><span>Scope</span><SelectControl
+          <label><span>Scope</span><Select
             aria-label={`${rule.field} uniqueness scope`}
             value={rule.scope ?? ""}
-            onChange={(event) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "scope", (event.target.value || undefined) as TypeUniqueScope | undefined))}
-          >
-            <option value="">Choose scope</option>
-            <option value="type">This type</option>
-            <option value="collection">Entire collection</option>
-            <option value="path_glob">Path pattern</option>
-          </SelectControl></label>
+            placeholder="Choose scope"
+            options={uniqueScopeOptions}
+            onChange={(next) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "scope", next as TypeUniqueScope))}
+          /></label>
           {rule.scope === "path_glob" && <label className="collection-unique-path"><span>Path pattern</span><input
             aria-label={`${rule.field} uniqueness path pattern`}
             value={rule.pathGlob ?? ""}
@@ -1520,10 +1514,12 @@ function CollectionFieldSelect({ label, visibleLabel, value, fields, allowEmpty 
   const options = fields.some((field) => field.value === value) || !value
     ? fields
     : [{ value, label: value, node: advancedFieldNode(value) }, ...fields];
-  return <label><span>{visibleLabel ?? label}</span><SelectControl aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
-    {allowEmpty && <option value="">Not set</option>}
-    {options.map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}
-  </SelectControl></label>;
+  return <label><span>{visibleLabel ?? label}</span><Select
+    aria-label={label}
+    value={value}
+    options={[...(allowEmpty ? [{ value: "", label: "Not set" }] : []), ...options.map((field) => ({ value: field.value, label: field.label }))]}
+    onChange={onChange}
+  /></label>;
 }
 
 function DefaultValueEditor({ field, node, value, onChange }: {
@@ -1533,10 +1529,12 @@ function DefaultValueEditor({ field, node, value, onChange }: {
   onChange: (value: unknown) => void;
 }) {
   if (node?.kind === "boolean" && typeof value === "boolean") {
-    return <label><span>Default value</span><SelectControl aria-label={`Default value for ${field}`} value={String(value)} onChange={(event) => onChange(event.target.value === "true")}>
-      <option value="true">True</option>
-      <option value="false">False</option>
-    </SelectControl></label>;
+    return <label><span>Default value</span><Select
+      aria-label={`Default value for ${field}`}
+      value={String(value)}
+      options={[{ value: "true", label: "True" }, { value: "false", label: "False" }]}
+      onChange={(next) => onChange(next === "true")}
+    /></label>;
   }
   if ((node?.kind === "string" || node?.kind === "date" || node?.kind === "datetime") && typeof value === "string") {
     return <label><span>Default value</span><input aria-label={`Default value for ${field}`} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
@@ -1647,9 +1645,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
         {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </button>
       <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only">Field name</span><input type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title="Notes use this field to declare their type. Edit it in YAML if you need to change it.">Type key</small>}</label>
-      <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field kind</span><SelectControl value={field.kind} disabled={typeKey} onChange={(event) => chooseKind(event.target.value as TypeFieldKind)}>
-        <KindOptions current={field.kind} />
-      </SelectControl></label>
+      <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field kind</span><Select aria-label={`${fieldLabel} field kind`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
       <label className="visual-field-required"><input type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span>Required</span></label>
       {typeKey ? <span className="remove-type-field" aria-hidden="true" /> : <InlineRemoveButton className="remove-type-field" label={`Remove ${fieldLabel} field`} onClick={() => onChange((current) => removeTypeField(current, field.path))} />}
     </div>
@@ -1709,13 +1705,12 @@ function ListItemEditor({ item, source, depth, activeField, onActivate, onChange
   return <div className="list-item-editor">
     <div className="list-item-heading">
       <div><strong>List items</strong><span>{itemLabel}</span></div>
-      <label><span className="sr-only">{itemLabel} kind</span><SelectControl value={item.kind} onChange={(event) => {
-        const kind = event.target.value as TypeFieldKind;
+      <label><span className="sr-only">{itemLabel} kind</span><Select aria-label={`${itemLabel} kind`} value={item.kind} options={kindOptions(item.kind)} onChange={(kind) => {
         if (kind === "advanced" || kind === item.kind) return;
         const nextKind = kind as Exclude<TypeFieldKind, "advanced">;
         if (typeFieldConversionImpact(source, item.path, nextKind).length) setPendingKind(nextKind);
         else onChange((current) => setTypeListItemKind(current, item.path.slice(0, -1), nextKind));
-      }}><KindOptions current={item.kind} /></SelectControl></label>
+      }} /></label>
     </div>
     {pendingKind && <div className="field-conversion-warning" role="alert">
       <CircleAlert aria-hidden="true" />
@@ -1738,19 +1733,14 @@ function fieldBranchIsActive(activeField: string | undefined, field: string): bo
     || Boolean(activeField?.startsWith(`${field}[]`));
 }
 
-function KindOptions({ current }: { current: TypeFieldKind }) {
-  return <>
-    {current === "advanced" && <option value="advanced">Advanced</option>}
-    <option value="string">Text</option>
-    <option value="number">Number</option>
-    <option value="integer">Integer</option>
-    <option value="boolean">Checkbox</option>
-    <option value="array">List</option>
-    <option value="date">Date</option>
-    <option value="datetime">Date and time</option>
-    <option value="object">Object</option>
-  </>;
+const fieldKindOptions: SelectOption<TypeFieldKind>[] = [{ value: "string", label: "Text" }, { value: "number", label: "Number" }, { value: "integer", label: "Integer" }, { value: "boolean", label: "Checkbox" }, { value: "array", label: "List" }, { value: "date", label: "Date" }, { value: "datetime", label: "Date and time" }, { value: "object", label: "Object" }];
+
+function kindOptions(current: TypeFieldKind): SelectOption<TypeFieldKind>[] {
+  return current === "advanced" ? [{ value: "advanced", label: "Advanced" }, ...fieldKindOptions] : fieldKindOptions;
 }
+
+const linkFormatOptions = [{ value: "", label: "Any supported format" }, { value: "wikilink", label: "Wikilink" }, { value: "markdown", label: "Markdown link" }, { value: "path", label: "Path" }, { value: "any", label: "Any" }];
+const uniqueScopeOptions = [{ value: "type", label: "This type" }, { value: "collection", label: "Entire collection" }, { value: "path_glob", label: "Path pattern" }];
 
 function StringListEditor({ label, values, itemLabel, addLabel, placeholder, helper, suggestions, onChange }: {
   label: string;

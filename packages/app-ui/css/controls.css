@@ -1,0 +1,401 @@
+/*
+ * Shared controls. Text fields stay native and take Editor's field treatment;
+ * Select, menus and the app switcher are the components from ./select,
+ * ./popover and ./app-switcher, drawn in Editor's quiet treatment: fine
+ * outlines, 2px corners, no shadows. Apps set density with --control-height
+ * and --control-font-size; the radius stays the family's.
+ */
+:root {
+  --control-height: 34px;
+  --control-font-size: 12px;
+  --control-radius: 2px;
+}
+
+.mdbase-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Fields: native text inputs and textareas. */
+.mdbase-field,
+.mdbase-select {
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--control-height);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--control-radius);
+  outline: 0;
+  color: var(--color-text);
+  background: transparent;
+  font: inherit;
+  font-size: var(--control-font-size);
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.mdbase-field {
+  width: 100%;
+  padding: 0 9px;
+}
+
+textarea.mdbase-field {
+  padding: 7px 9px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.mdbase-field::placeholder {
+  color: var(--color-placeholder);
+}
+
+.mdbase-field:hover:not(:disabled),
+.mdbase-select:hover:not(:disabled) {
+  border-color: var(--color-text-soft);
+}
+
+.mdbase-field:focus-visible,
+.mdbase-select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.mdbase-field:disabled,
+.mdbase-select:disabled {
+  cursor: default;
+  opacity: 0.52;
+}
+
+.mdbase-field[aria-invalid="true"],
+.mdbase-select[aria-invalid="true"] {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 1px var(--color-danger-soft);
+}
+
+/* Select: the trigger reads as a field; its list opens in the top layer. */
+.mdbase-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mdbase-select-value {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdbase-select-value.is-empty {
+  color: var(--color-text-muted);
+}
+
+.mdbase-select-chevron {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: var(--color-text-muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 150ms ease;
+}
+
+.mdbase-select[aria-expanded="true"] .mdbase-select-chevron {
+  transform: rotate(180deg);
+}
+
+/* Quiet: reads as text until hovered, focused or open, for controls inside rows and headings. */
+.mdbase-select.is-quiet {
+  border-color: transparent;
+  background: transparent;
+}
+
+.mdbase-select.is-quiet:not(:hover, :focus-visible, [aria-expanded="true"]) .mdbase-select-chevron {
+  opacity: 0;
+}
+
+.mdbase-select.is-quiet:hover:not(:disabled),
+.mdbase-select.is-quiet[aria-expanded="true"] {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+/* Compact: a small uppercase label, for kinds and modes beside a value. */
+.mdbase-select.is-compact {
+  min-height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.mdbase-select.is-compact .mdbase-select-chevron {
+  width: 9px;
+  height: 9px;
+}
+
+.mdbase-select-list {
+  position: fixed;
+  inset: auto;
+  max-width: min(420px, calc(100vw - 16px));
+  margin: 0;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--control-radius);
+  outline: 0;
+  color: var(--color-text-soft);
+  background: var(--color-surface);
+  font-size: var(--control-font-size);
+  overscroll-behavior: contain;
+}
+
+.mdbase-select-group {
+  padding: 8px 10px 3px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mdbase-select-option {
+  position: relative;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 30px 0 9px;
+  border-radius: var(--control-radius);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mdbase-select-option.is-active {
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-select-list:focus-visible .mdbase-select-option.is-active {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 45%, transparent);
+}
+
+.mdbase-select-option[aria-selected="true"] {
+  color: var(--color-text);
+  background: var(--color-selected);
+}
+
+.mdbase-select-option[aria-selected="true"]::after {
+  position: absolute;
+  right: 10px;
+  width: 9px;
+  height: 5px;
+  margin-top: -3px;
+  border-bottom: 2px solid var(--color-accent-strong);
+  border-left: 2px solid var(--color-accent-strong);
+  content: "";
+  transform: rotate(-45deg);
+}
+
+.mdbase-select-option[aria-disabled="true"] {
+  color: var(--color-text-faint);
+  cursor: default;
+}
+
+/* Menus anchored to a trigger (useMenuPopover). */
+.mdbase-menu {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--control-radius);
+  outline: 0;
+  color: var(--color-text-soft);
+  background: var(--color-surface);
+  font-size: var(--control-font-size);
+  overscroll-behavior: contain;
+}
+
+.mdbase-menu-heading {
+  padding: 6px 8px 4px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mdbase-menu-list {
+  display: grid;
+  gap: 1px;
+}
+
+.mdbase-menu-item {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--control-radius);
+  color: var(--color-text-soft);
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.mdbase-menu-item:hover:not(:disabled, [aria-disabled="true"]),
+.mdbase-menu .mdbase-menu-item:focus-visible {
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
+}
+
+/* One focus mark inside the row, instead of an outline around it. */
+.mdbase-menu .mdbase-menu-item:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 2px color-mix(in oklch, var(--color-accent) 70%, transparent);
+}
+
+.mdbase-menu-item:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.mdbase-menu-item.is-current {
+  cursor: default;
+  background: var(--color-selected);
+}
+
+.mdbase-menu-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 1px;
+}
+
+.mdbase-menu-copy strong,
+.mdbase-menu-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdbase-menu-copy strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.mdbase-menu-copy small {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.mdbase-menu-note {
+  margin: 6px 2px 0;
+  padding: 8px 8px 2px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+/* The app switcher: the wordmark opens the app menu. */
+.mdbase-app-switcher {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: -6px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.mdbase-app-switcher:hover,
+.mdbase-app-switcher[aria-expanded="true"] {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+.mdbase-app-switcher-chevron {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: var(--color-text-muted);
+  stroke-width: 1.6;
+  transition: transform 150ms ease;
+}
+
+.mdbase-app-switcher[aria-expanded="true"] .mdbase-app-switcher-chevron {
+  transform: rotate(180deg);
+}
+
+.mdbase-app-menu-mark {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  margin-inline: 3px;
+}
+
+.mdbase-app-menu-external {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: var(--color-text-muted);
+  stroke-width: 1.6;
+}
+
+.mdbase-app-menu-current {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius);
+  color: var(--color-text-soft);
+  background: var(--color-surface);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@media (pointer: coarse) {
+  .mdbase-select-option {
+    min-height: 40px;
+  }
+
+  .mdbase-menu-item {
+    min-height: 48px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdbase-field,
+  .mdbase-select,
+  .mdbase-select-chevron,
+  .mdbase-app-switcher,
+  .mdbase-app-switcher-chevron {
+    transition: none;
+  }
+}

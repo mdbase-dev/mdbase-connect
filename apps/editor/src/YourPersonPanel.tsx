@@ -5,6 +5,7 @@ import { NewNoteComposer } from "./NewNoteComposer";
 import { claimedByAnotherAccount, contactCandidates, contactPersonPatch, identityPatch, newPersonProperties, personImplementations, writablePersonImplementation, type ContactCandidate } from "./person-records";
 
 import { loadPersonSetup, requireAdditivePersonSetup } from "./person-setup";
+import { Select } from "@mdbase-dev/ui/select";
 
 export function YourPersonPanel({ gateway, description, canCreate, canEdit, canInstall = false, onRefreshDescription }: {
   gateway: CollectionGateway;
@@ -207,10 +208,10 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
     {directory && directory.invalid.length > 0 && <details><summary>{directory.invalid.length === 1 ? "1 person record needs attention" : `${directory.invalid.length} person records need attention`}</summary><ul>{directory.invalid.map((record) => <li key={record.path}><code>{record.path}</code>: {record.reason}</li>)}</ul></details>}
     {records && directory?.me.status === "unlinked" && <>
       <p>Your account: <strong>{identity?.name}</strong>. The record's display name belongs to this collection and is not synchronised with your account.</p>
-      {(records.length > 0 || contacts.length > 0) && <div className="setting-row"><label>Existing person or contact<select aria-label="Existing person or contact" value={path} onChange={(event) => { setPath(event.target.value); setConversion(undefined); setConfirmClaimed(false); }} disabled={busy}>
-        <option value="">Choose a record…</option>{records.map((record) => <option key={record.path} value={record.path}>{record.name} · {record.path}</option>)}
-        {contacts.map((contact) => <option key={contact.path} value={contact.path}>{contact.name} · {contact.path} (Contact-only)</option>)}
-      </select></label><button type="button" disabled={!path || busy || !canEdit} onClick={() => void link()}>{contacts.some((contact) => contact.path === path) ? "Review contact conversion" : confirmClaimed ? "Link anyway" : "Link this record to me"}</button></div>}
+      {(records.length > 0 || contacts.length > 0) && <div className="setting-row"><label>Existing person or contact<Select aria-label="Existing person or contact" value={path} disabled={busy} placeholder="Choose a record…" options={[
+        ...records.map((record) => ({ value: record.path, label: `${record.name} · ${record.path}` })),
+        ...contacts.map((contact) => ({ value: contact.path, label: `${contact.name} · ${contact.path} (Contact-only)` }))
+      ]} onChange={(next) => { setPath(next); setConversion(undefined); setConfirmClaimed(false); }} /></label><button type="button" disabled={!path || busy || !canEdit} onClick={() => void link()}>{contacts.some((contact) => contact.path === path) ? "Review contact conversion" : confirmClaimed ? "Link anyway" : "Link this record to me"}</button></div>}
       {selectedIsClaimed && <p role={confirmClaimed ? "alert" : undefined}>This record is already linked to another account. Linking it to yours means you will both see its assignments as your own. Only continue if this record really represents you.</p>}
       {conversion && <div role="region" aria-label="Review contact conversion"><p>This changes only <code>{conversion.path}</code> to the <strong>{conversion.typeName}</strong> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed.</p><details><summary>Review fields to write</summary><pre>{JSON.stringify(conversion.patch, null, 2)}</pre></details><button type="button" disabled={busy || !canEdit} onClick={() => void convertContact()}>Convert and link this contact</button><button type="button" disabled={busy} onClick={() => setConversion(undefined)}>Cancel conversion</button></div>}
       {!canEdit && <p>Ask a collection editor to link your person record.</p>}
@@ -227,7 +228,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
           <button type="button" disabled={busy} onClick={() => setSetup(undefined)}>Not now</button>
         </section>}
       </>}
-      {implementations.length > 0 && (canCreate || canEdit) && !creating && <div className="setting-row">{implementations.length > 1 && <label>Person type<select aria-label="Person type" value={implementation?.typeName ?? ""} onChange={(event) => { setTypeName(event.target.value); setConversion(undefined); }}>{implementations.map((item) => <option key={item.typeName} value={item.typeName}>{item.typeName}</option>)}</select></label>}{canCreate && <button type="button" onClick={() => setCreating(true)}>Create my person record</button>}</div>}
+      {implementations.length > 0 && (canCreate || canEdit) && !creating && <div className="setting-row">{implementations.length > 1 && <label>Person type<Select aria-label="Person type" value={implementation?.typeName ?? ""} options={implementations.map((item) => ({ value: item.typeName, label: item.typeName }))} onChange={(next) => { setTypeName(next); setConversion(undefined); }} /></label>}{canCreate && <button type="button" onClick={() => setCreating(true)}>Create my person record</button>}</div>}
       {creating && implementation && identity && <NewNoteComposer key={implementation.typeName} types={description.types.filter((type) => type.name === implementation.typeName)} defaultType={implementation.typeName} initialTitle={identity.name} initialProperties={properties} recordPaths={records.map((record) => record.path)} onCreate={create} onCancel={() => setCreating(false)} />}
     </>}
   </section>;

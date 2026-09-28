@@ -12,7 +12,6 @@ import {
   schemaRequired,
   schemaValueComplete
 } from "./SchemaValueEditor";
-import { SelectControl } from "./SelectionControls";
 import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
 import {
   collectionDisplayField,
@@ -20,6 +19,7 @@ import {
   fieldReferencePath,
   writeFieldReference
 } from "./field-reference";
+import { Select } from "@mdbase-dev/ui/select";
 
 export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType, initialProperties, initialTitle = "", purpose = "note", preferences, recordPaths = [], leadingActions, onCreate, onCancel, onDraftChange }: {
   types: CollectionTypeDescriptor[];
@@ -161,10 +161,10 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
         {folderCreation
           ? <label><span>First note</span><input value={title} onChange={(event) => changeTitle(event.target.value)} placeholder="Untitled" /></label>
           : null}
-        <label><span>Type</span><SelectControl value={typeName} onChange={(event) => selectType(event.target.value)}>
-          <option value="">General note</option>
-          {types.map((candidate) => <option key={candidate.name} value={candidate.name}>{candidate.name}</option>)}
-        </SelectControl></label>
+        <label><span>Type</span><Select aria-label="Type" value={typeName} options={[
+          { value: "", label: "General note" },
+          ...types.map((candidate) => ({ value: candidate.name, label: candidate.name }))
+        ]} onChange={selectType} /></label>
         {!folderCreation && <details className="new-note-path">
           <summary aria-label="Edit file path"><span>File path</span><output aria-label="Suggested path">{!pathEdited && !title.trim() ? <>{pathFolderPrefix(path)}<span className="path-pending">‹title›</span>.md</> : path}</output><ChevronRight aria-hidden="true" /></summary>
           <label><span className="sr-only">File path</span><input aria-label="Path" value={path} onChange={(event) => { setPathEdited(true); setPath(event.target.value); }} spellCheck="false" /><small>Where this Markdown file will live in the collection.</small></label>

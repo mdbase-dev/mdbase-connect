@@ -1,6 +1,7 @@
 import "@mdbase-dev/ui/fonts.css";
 import "@mdbase-dev/ui/tokens.css";
 import "@mdbase-dev/ui/brand.css";
+import "@mdbase-dev/ui/controls.css";
 import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { AppErrorBoundary } from "./AppErrorBoundary";

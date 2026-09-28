@@ -1,5 +1,6 @@
 import { DotsThreeIcon as MoreHorizontal } from "./icons";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { moveMenuFocus, useMenuPopover } from "@mdbase-dev/ui/popover";
+import { useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 
 export interface ActionMenuItem {
   label: string;
@@ -10,56 +11,60 @@ export interface ActionMenuItem {
   onSelect: () => void;
 }
 
-export function ActionMenu({ label, items }: { label: string; items: ActionMenuItem[] }) {
+/**
+ * A menu dropped from a trigger button, lined up with its end edge. It sits in the top
+ * layer, so scrolling panels never clip it.
+ */
+export function MenuPopover({ label, className, triggerRef, onClose, children }: {
+  label: string;
+  className?: string;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+  onClose: (refocus: boolean) => void;
+  children: ReactNode;
+}) {
+  const menu = useRef<HTMLDivElement>(null);
+  useMenuPopover(menu, triggerRef, onClose, {
+    align: "end",
+    focus: '[aria-checked="true"], [role^="menuitem"]:not(:disabled)'
+  });
+  return <div
+    ref={menu}
+    className={className ? `action-menu ${className}` : "action-menu"}
+    popover="manual"
+    role="menu"
+    aria-label={label}
+    tabIndex={-1}
+    onKeyDown={(event) => moveMenuFocus(event, menu.current)}
+  >{children}</div>;
+}
+
+/** Open state for a menu trigger: closing can return focus to the trigger. */
+export function useMenuTrigger() {
   const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
-    const closeForOutsidePress = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setOpen(false);
-        trigger.current?.focus();
-        return;
-      }
+  const close = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) trigger.current?.focus();
+  };
+  const triggerProps = {
+    ref: trigger,
+    "aria-haspopup": "menu" as const,
+    "aria-expanded": open,
+    onClick: () => setOpen((value) => !value),
+    onKeyDown: (event: KeyboardEvent) => {
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-      const menuItems = [...(root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])];
-      if (menuItems.length === 0) return;
-      const current = menuItems.indexOf(document.activeElement as HTMLButtonElement);
-      const direction = event.key === "ArrowDown" ? 1 : -1;
-      const next = (current + direction + menuItems.length) % menuItems.length;
       event.preventDefault();
-      menuItems[next]?.focus();
-    };
-    document.addEventListener("pointerdown", closeForOutsidePress);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", closeForOutsidePress);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+      setOpen(true);
+    }
+  };
+  return { open, close, trigger, triggerProps };
+}
 
-  return <div className="note-actions" ref={root}>
-    <button
-      ref={trigger}
-      className="icon-button"
-      aria-label={label}
-      aria-haspopup="menu"
-      aria-expanded={open}
-      onClick={() => setOpen((value) => !value)}
-      onKeyDown={(event) => {
-        if (event.key !== "ArrowDown") return;
-        event.preventDefault();
-        setOpen(true);
-      }}
-    ><MoreHorizontal aria-hidden="true" /></button>
-    {open && <div className="action-menu" role="menu" aria-label={label}>
+export function ActionMenu({ label, items }: { label: string; items: ActionMenuItem[] }) {
+  const { open, close, trigger, triggerProps } = useMenuTrigger();
+  return <div className="note-actions">
+    <button {...triggerProps} className="icon-button" aria-label={label}><MoreHorizontal aria-hidden="true" /></button>
+    {open && <MenuPopover label={label} triggerRef={trigger} onClose={close}>
       {items.map((item) => <button
         key={item.label}
         role="menuitem"
@@ -67,11 +72,10 @@ export function ActionMenu({ label, items }: { label: string; items: ActionMenuI
         disabled={item.disabled}
         title={item.title}
         onClick={() => {
-          setOpen(false);
+          close(true);
           item.onSelect();
-          trigger.current?.focus();
         }}
       >{item.icon}{item.label}</button>)}
-    </div>}
+    </MenuPopover>}
   </div>;
 }

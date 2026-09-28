@@ -3,6 +3,7 @@ import type { AccountData, ManagementOverview } from "@mdbase/connect-management
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectApp } from "./ConnectApp";
+import { chooseOption } from "./test/select";
 
 let overview: ManagementOverview;
 
@@ -297,7 +298,7 @@ describe("ConnectApp", () => {
     expect(await screen.findByText("Shared Person")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Invite person" }));
     await user.type(screen.getByLabelText("Email address"), "new@example.com");
-    await user.selectOptions(screen.getByLabelText("Role"), "editor");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Role" }), "editor");
     await user.click(screen.getByRole("button", { name: "Create invitation" }));
 
     const link = await screen.findByLabelText("Collection invitation link");
@@ -310,7 +311,7 @@ describe("ConnectApp", () => {
       && init.body === JSON.stringify({ email: "new@example.com", role: "editor" })
     )).toBe(true);
 
-    await user.selectOptions(screen.getByLabelText("Role for Shared Person"), "editor");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Role for Shared Person" }), "editor");
     expect(vi.mocked(fetch).mock.calls.some(([input, init]) =>
       new URL(String(input)).pathname.endsWith("/members/member")
       && init?.method === "PATCH"

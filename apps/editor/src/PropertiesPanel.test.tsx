@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { NoteDocument } from "./model";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { schemaDateInputValue } from "./schema-date";
+import { chooseOption } from "./test/select";
 
 vi.mock("./CodeEditor", () => ({
   CodeEditor: ({ value, onChange, onBlur, label, readOnly }: { value: string; onChange?: (value: string) => void; onBlur?: () => void; label: string; readOnly?: boolean }) =>
@@ -60,9 +61,9 @@ describe("typed note properties", () => {
     await user.type(screen.getByLabelText("display_name"), "Ada Byron");
     const contacts = screen.getByRole("group", { name: "contacts value" });
     await user.click(within(contacts).getByRole("button", { name: "Add item" }));
-    const kinds = screen.getAllByLabelText("kind");
+    const kinds = screen.getAllByRole("combobox", { name: "kind" });
     const values = screen.getAllByLabelText("value");
-    await user.selectOptions(kinds[1], "phone");
+    await chooseOption(user, kinds[1], "phone");
     await user.type(values[1], "+44 20 0000 0000");
     await waitFor(() => expect(onSave).toHaveBeenCalledWith("People/ada.md", {
       profile: { display_name: "Ada Byron" },
