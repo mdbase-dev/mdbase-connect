@@ -30,6 +30,14 @@
       "types": "./dist/codemirror.d.ts",
       "import": "./dist/codemirror.js"
     },
+    "./command-palette": {
+      "types": "./dist/CommandPalette.d.ts",
+      "import": "./dist/CommandPalette.js"
+    },
+    "./dialog": {
+      "types": "./dist/Dialog.d.ts",
+      "import": "./dist/Dialog.js"
+    },
     "./popover": {
       "types": "./dist/popover.d.ts",
       "import": "./dist/popover.js"
@@ -37,6 +45,10 @@
     "./save-notice": {
       "types": "./dist/SaveNotice.d.ts",
       "import": "./dist/SaveNotice.js"
+    },
+    "./screens": {
+      "types": "./dist/screens.d.ts",
+      "import": "./dist/screens.js"
     },
     "./select": {
       "types": "./dist/Select.d.ts",
@@ -46,10 +58,16 @@
       "types": "./dist/theme.d.ts",
       "import": "./dist/theme.js"
     },
+    "./theme-select": {
+      "types": "./dist/ThemeSelect.d.ts",
+      "import": "./dist/ThemeSelect.js"
+    },
     "./brand.css": "./css/brand.css",
     "./controls.css": "./css/controls.css",
     "./fonts.css": "./css/fonts.css",
     "./motion.css": "./css/motion.css",
+    "./palette.css": "./css/palette.css",
+    "./screens.css": "./css/screens.css",
     "./tokens.css": "./css/tokens.css"
   },
   "files": [

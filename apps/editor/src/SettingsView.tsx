@@ -5,6 +5,7 @@ import type { CollectionGateway, ConnectionSummary } from "./model";
 import type { EditorPreferences } from "./preferences";
 import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase-dev/ui/theme";
 import { Select } from "@mdbase-dev/ui/select";
+import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
 
 // Lazy: the panel's note composer brings CodeMirror, which stays out of startup.
 const YourPersonPanel = lazy(() => import("./YourPersonPanel").then((module) => ({ default: module.YourPersonPanel })));
@@ -46,7 +47,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
           <Select aria-label="Editor text size" value={String(preferences.fontSize)} options={[{ value: "16", label: "Compact" }, { value: "17", label: "Comfortable" }, { value: "19", label: "Large" }]} onChange={(next) => onChange({ ...preferences, fontSize: Number(next) as EditorPreferences["fontSize"] })} />
         </SettingRow>
         <SettingRow title="Color theme" description="Follow the system appearance or keep a theme in this browser.">
-          <ThemeSelect />
+          <ThemePreferenceSetting />
         </SettingRow>
       </section>
 
@@ -85,9 +86,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
   </main>;
 }
 
-const themeOptions = [{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }] as const;
-
-function ThemeSelect() {
+function ThemePreferenceSetting() {
   const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
   useEffect(() => {
     applyThemePreference(preference);
@@ -97,7 +96,7 @@ function ThemeSelect() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, [preference]);
-  return <Select aria-label="Color theme" value={preference} options={themeOptions} onChange={(next) => {
+  return <ThemeSelect value={preference} onChange={(next) => {
     setPreference(next);
     saveThemePreference(next);
   }} />;
