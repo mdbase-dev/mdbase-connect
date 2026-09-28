@@ -16,9 +16,10 @@ export function normalizeThemePreference(value: unknown): ThemePreference {
     : "system";
 }
 
-export function loadThemePreference(storage: ThemeStorage = localStorage): ThemePreference {
+/** Storage may be absent (server rendering, extension pages) or blocked; both mean System. */
+export function loadThemePreference(storage?: ThemeStorage): ThemePreference {
   try {
-    return normalizeThemePreference(storage.getItem(THEME_STORAGE_KEY));
+    return normalizeThemePreference((storage ?? localStorage).getItem(THEME_STORAGE_KEY));
   } catch {
     return "system";
   }
@@ -65,11 +66,11 @@ export function applyThemePreference(
 
 export function saveThemePreference(
   preference: ThemePreference,
-  storage: ThemeStorage = localStorage,
+  storage?: ThemeStorage,
   root: ThemeRoot = document.documentElement
 ): void {
   try {
-    storage.setItem(THEME_STORAGE_KEY, preference);
+    (storage ?? localStorage).setItem(THEME_STORAGE_KEY, preference);
   } catch {
     // Theme selection still applies for this session when storage is unavailable.
   }

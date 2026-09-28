@@ -60,6 +60,14 @@ describe("theme preference", () => {
     expect(root.dataset.theme).toBe("light");
   });
 
+  it("treats missing storage as system", () => {
+    // Node has no localStorage, as when a page renders outside the browser.
+    expect(loadThemePreference(undefined)).toBe("system");
+    const root = memoryRoot();
+    saveThemePreference("dark", undefined, root);
+    expect(root.dataset.theme).toBe("dark");
+  });
+
   it("resolves the applied theme ahead of the system preference", () => {
     const root = (theme?: string) => ({ dataset: theme ? { theme } : {} }) as Pick<HTMLElement, "dataset">;
 
