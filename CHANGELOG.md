@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Applications may require and add `md` or `base` to a collection's
+  `settings.record_extensions` during collection setup (mdbase-rs `1c6290c`),
+  so an application can store Obsidian Bases as records. It is the one setup
+  target outside an `x-*` namespace, and it is shown in setup review like any
+  other change. Connectors advertise `yaml-document-records-v1`, and the server
+  asks for a connector update before activating an application that adds
+  `base` records on a connector that would read them as Markdown.
 - Mirrors materialize Obsidian Bases stored as YAML document records
   (`.base`) alongside Markdown notes, and read each record in the format its
   extension fixes. The mirror's record extensions remain fixed product policy

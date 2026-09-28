@@ -1,9 +1,10 @@
 import type {
-  CollectionOperation, ConnectProblem, EncryptedRelayEnvelope,
+  ApplicationProvisions, ApplicationRequirements, CollectionOperation, ConnectProblem, EncryptedRelayEnvelope,
   EncryptedRelayOperationResponse
 } from "@mdbase-dev/connect-protocol";
 import {
-  isMutatingOperation, normalizeConnectProblem
+  CONTRACT_SETUP_CAPABILITY, isMutatingOperation, normalizeConnectProblem,
+  RECORD_EXTENSIONS_CONFIGURATION_PATH, YAML_DOCUMENT_RECORDS_CAPABILITY
 } from "@mdbase-dev/connect-protocol";
 import type { RelayBrokerReply } from "./relay-broker.js";
 
@@ -65,12 +66,47 @@ export function requestIdFromMessage(message: unknown): string | null {
   return typeof requestId === "string" && requestId.length > 0 ? requestId : null;
 }
 
-export function isContractSetupCommand(message: unknown): boolean {
-  if (typeof message !== "object" || message === null || Array.isArray(message)) return false;
-  const candidate = message as { type?: unknown; contract_setups?: unknown };
-  return candidate.type === "authorization_activation_request"
-    && Array.isArray(candidate.contract_setups)
-    && candidate.contract_setups.length > 0;
+/**
+ * The upgrade a connector needs before it can activate this message, or
+ * `undefined` when its advertised capabilities suffice. Contract setup needs
+ * `contract-setup-v1`; an application declaration that requires or adds `base`
+ * record extensions needs an engine that reads `.base` files as YAML document
+ * records rather than Markdown.
+ */
+export function connectorUpgradeError(
+  message: unknown,
+  capabilities: readonly string[]
+): RelayBrokerReply | undefined {
+  if (typeof message !== "object" || message === null || Array.isArray(message)) return undefined;
+  const activation = message as {
+    type?: unknown;
+    contract_setups?: unknown;
+    grant?: {
+      application_declaration?: { requirements?: ApplicationRequirements; provisions?: ApplicationProvisions } | null;
+    };
+  };
+  if (activation.type !== "authorization_activation_request") return undefined;
+  const declaration = activation.grant?.application_declaration;
+  const addsBaseRecords = [
+    ...declaration?.requirements?.configuration ?? [],
+    ...declaration?.provisions?.configuration ?? []
+  ].some(({ path, value }) => path === RECORD_EXTENSIONS_CONFIGURATION_PATH && value === "base");
+  if (addsBaseRecords && !capabilities.includes(YAML_DOCUMENT_RECORDS_CAPABILITY)) {
+    return brokerError(
+      "connector",
+      "connector_upgrade_required",
+      "Update mdbase connect on the collection computer before approving an application that stores Obsidian Bases as records."
+    );
+  }
+  if (Array.isArray(activation.contract_setups) && activation.contract_setups.length > 0
+      && !capabilities.includes(CONTRACT_SETUP_CAPABILITY)) {
+    return brokerError(
+      "connector",
+      "connector_upgrade_required",
+      "Update mdbase connect on the collection computer before approving contract setup."
+    );
+  }
+  return undefined;
 }
 
 export function encryptedRequestFromMessage(

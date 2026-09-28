@@ -9,7 +9,7 @@ import type {
 import type { CollectionOperation } from "./operations.js";
 import type { ApplicationCapabilityRequirements, LegacyApplicationCapabilityRequirements } from "./capabilities.js";
 import type { ContractRequirement, ContractSetupChoice, TypePackProvision } from "./type-packs.js";
-import type { ConfigurationProvision, ConfigurationRequirement } from "./collection-setup.js";
+import { type ConfigurationProvision, type ConfigurationRequirement, YAML_DOCUMENT_RECORDS_CAPABILITY } from "./collection-setup.js";
 import type {
   ApplicationAuthorizationProof
 } from "./application-authorization.js";
@@ -49,8 +49,7 @@ export const HOSTED_PROVIDER_REQUIRED_CAPABILITIES = [
   "durable-file-lifecycle-v1",
   "contract-metadata-read-v1"
 ] as const;
-export const HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY =
-  "candidate-b-activation-v1" as const;
+export const HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY = "candidate-b-activation-v1" as const;
 export const HOSTED_PROVIDER_CAPABILITIES = [
   ...FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES,
   ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
@@ -66,7 +65,8 @@ export const RELAY_CAPABILITIES = [
   "application-authorization-v5",
   CONTRACT_SETUP_CAPABILITY,
   FILE_RELAY_CAPABILITY,
-  PROTOCOL_USAGE_REPORT_CAPABILITY
+  PROTOCOL_USAGE_REPORT_CAPABILITY,
+  YAML_DOCUMENT_RECORDS_CAPABILITY
 ] as const;
 export const AUTHORITY_PROOF_VERSION = 1 as const;
 export const AUTHORITY_PROOF_ALGORITHM = "P256-SHA256" as const;

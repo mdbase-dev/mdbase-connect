@@ -7,7 +7,7 @@ import type {
   GrantPolicy, RelayFileFrame
 } from "@mdbase-dev/connect-protocol";
 import {
-  CONNECT_CONTRACT_SUPPORT, CONTRACT_SETUP_CAPABILITY, CONTROL_PROTOCOL_VERSION,
+  CONNECT_CONTRACT_SUPPORT, CONTROL_PROTOCOL_VERSION,
   isConnectProblem, normalizeConnectProblem,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
   POLICY_FRESHNESS_LEASE_CAPABILITY,
@@ -38,7 +38,7 @@ import {
 import { grantIdFromMessage, hasPendingOperationCapacity } from "./relay-admission.js";
 import {
   brokerError, brokerProblem, encryptedRequestFromMessage, expectedResponseType,
-  isContractSetupCommand, matchesEncryptedMetadata, relayExecutionTimeoutProblem,
+  connectorUpgradeError, matchesEncryptedMetadata, relayExecutionTimeoutProblem,
   relayMessageMayMutate, requestIdFromMessage, validProtocolUsageEntries
 } from "./relay-routing.js";
 import type {
@@ -772,14 +772,8 @@ export class RelayHub {
       const value = await this.authorizationHandler({ connectorId, generation }, command.message);
       return { version: 1, ok: true, value };
     }
-    if (isContractSetupCommand(command.message)
-        && !session.capabilities.includes(CONTRACT_SETUP_CAPABILITY)) {
-      return brokerError(
-        "connector",
-        "connector_upgrade_required",
-        "Update mdbase connect on the collection computer before approving contract setup."
-      );
-    }
+    const upgradeError = connectorUpgradeError(command.message, session.capabilities);
+    if (upgradeError) return upgradeError;
     const activation = command.message as { type?: string; grant?: GrantPolicy } | null;
     if (activation?.type === "authorization_activation_request") {
       const grant = activation.grant;

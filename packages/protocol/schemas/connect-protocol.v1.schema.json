@@ -447,7 +447,7 @@
       "required": ["id", "path", "predicate", "value"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
-        "path": { "type": "string", "pattern": "^/x-[^/]+(?:/.*)?$", "maxLength": 1024 },
+        "path": { "type": "string", "pattern": "^(?:/settings/record_extensions|/x-[^/]+(?:/.*)?)$", "maxLength": 1024 },
         "predicate": { "const": "contains" },
         "value": { "oneOf": [
           { "type": "string" },
@@ -464,7 +464,7 @@
       "properties": {
         "requirement": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
         "operation": { "const": "set_add" },
-        "path": { "type": "string", "pattern": "^/x-[^/]+(?:/.*)?$", "maxLength": 1024 },
+        "path": { "type": "string", "pattern": "^(?:/settings/record_extensions|/x-[^/]+(?:/.*)?)$", "maxLength": 1024 },
         "value": { "oneOf": [
           { "type": "string" },
           { "type": "number" },
