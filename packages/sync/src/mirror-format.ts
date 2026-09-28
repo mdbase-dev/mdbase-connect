@@ -151,25 +151,34 @@ export function fastRecordDocumentMatches(document: string, record: SyncRecord):
     && offset + body.length === document.length;
 }
 
-export function parseMarkdown(document: string, _path: string): { frontmatter: JsonObject; body: string } {
+/**
+ * Parse a record document in the format its path fixes (mdbase spec Chapter
+ * 03): a `.base` file is a YAML document whose whole file is the frontmatter;
+ * every other record is Markdown with optional frontmatter.
+ */
+export function parseRecordDocument(document: string, path: string): { frontmatter: JsonObject; body: string } {
+  if (path.endsWith(".base")) {
+    return { frontmatter: yamlMapping(document.startsWith("\uFEFF") ? document.slice(1) : document) ?? {}, body: "" };
+  }
   const block = leadingFrontmatter(document);
   if (block === null) {
     return { frontmatter: {}, body: document.startsWith("\uFEFF") ? document.slice(1) : document };
   }
-  let frontmatter: unknown;
+  const frontmatter = yamlMapping(block.yaml);
+  return frontmatter === undefined ? { frontmatter: {}, body: document } : { frontmatter, body: block.body };
+}
+
+/** A YAML source's JSON mapping; empty source is `{}`, anything else invalid is undefined. */
+function yamlMapping(source: string): JsonObject | undefined {
+  let value: unknown;
   try {
-    frontmatter = parse(block.yaml, { mapAsMap: true });
+    value = parse(source, { mapAsMap: true });
   } catch {
-    return { frontmatter: {}, body: document };
+    return undefined;
   }
-  if (frontmatter === null && block.yaml.trim() === "") {
-    return { frontmatter: {}, body: block.body };
-  }
-  const projection = jsonProjection(frontmatter, new Set());
-  if (projection === INVALID_JSON_PROJECTION || !isJsonObject(projection)) {
-    return { frontmatter: {}, body: document };
-  }
-  return { frontmatter: projection, body: block.body };
+  if (value === null && source.trim() === "") return {};
+  const projection = jsonProjection(value, new Set());
+  return projection === INVALID_JSON_PROJECTION || !isJsonObject(projection) ? undefined : projection;
 }
 
 function jsonProjection(

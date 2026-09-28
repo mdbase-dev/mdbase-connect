@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Mirrors materialize Obsidian Bases stored as YAML document records
+  (`.base`) alongside Markdown notes, and read each record in the format its
+  extension fixes. The mirror's record extensions remain fixed product policy
+  that collection configuration cannot extend.
 - Saved views are records whose type implements the `mdbase.view` contract
   (mdbase-rs `0d96ad4`, spec `1e147ca`), not records named or typed `view`.
   Applications that save views provision the `mdbase.view` pack during

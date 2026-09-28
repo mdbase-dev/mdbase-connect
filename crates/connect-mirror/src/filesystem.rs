@@ -1,7 +1,10 @@
 use super::*;
 use unicode_normalization::UnicodeNormalization;
 
-const REMOTE_MIRROR_RECORD_EXTENSION: &str = "md";
+/// Record extensions a remote mirror may materialize: Markdown notes and
+/// Obsidian Bases stored as YAML document records. The list is fixed product
+/// policy; collection configuration cannot extend it.
+const REMOTE_MIRROR_RECORD_EXTENSIONS: [&str; 2] = ["md", "base"];
 
 pub(super) struct MirrorLease {
     file: File,
@@ -217,7 +220,7 @@ pub(super) fn portable_mirror_path_key(relative: &str) -> Result<String, String>
 pub(super) fn is_remote_mirror_record_path(relative: &str) -> bool {
     relative
         .rsplit_once('.')
-        .is_some_and(|(_, extension)| extension == REMOTE_MIRROR_RECORD_EXTENSION)
+        .is_some_and(|(_, extension)| REMOTE_MIRROR_RECORD_EXTENSIONS.contains(&extension))
 }
 
 pub(super) fn atomic_write(path: &Path, value: &[u8]) -> Result<(), MirrorError> {
@@ -256,9 +259,9 @@ pub(super) fn record_markdown_document(record: &SyncRecord) -> Result<String, Mi
 #[cfg(test)]
 pub(super) fn parse_markdown(
     document: &str,
-    _path: &str,
+    path: &str,
 ) -> Result<(Map<String, Value>, String), MirrorError> {
-    let parsed = parse_document(document);
+    let parsed = parse_record(RecordFormat::for_path(path), document);
     let frontmatter = match parsed.frontmatter {
         None => Map::new(),
         Some(value) if is_parse_error(&value) => return Ok((Map::new(), document.to_string())),

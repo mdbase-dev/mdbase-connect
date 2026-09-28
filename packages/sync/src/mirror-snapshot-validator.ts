@@ -5,7 +5,7 @@ import type {
   SyncSession,
   SyncSnapshotRecord
 } from "@mdbase-dev/connect-protocol";
-import { fastRecordDocumentMatches, parseMarkdown } from "./mirror-format.js";
+import { fastRecordDocumentMatches, parseRecordDocument } from "./mirror-format.js";
 import {
   validateRecordPath,
   type MirrorRecordPathPolicy
@@ -72,9 +72,9 @@ export class MirrorSnapshotValidator<
     }
     const fastDocumentMatches = fastRecordDocumentMatches(document, record);
     if (fastDocumentMatches !== true) {
-      let parsed: ReturnType<typeof parseMarkdown>;
+      let parsed: ReturnType<typeof parseRecordDocument>;
       try {
-        parsed = parseMarkdown(document, record.path);
+        parsed = parseRecordDocument(document, record.path);
       } catch {
         throw new SyncError(
           "invalid_snapshot",

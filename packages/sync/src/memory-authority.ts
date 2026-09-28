@@ -11,7 +11,7 @@ import type {
   SyncSnapshotRecord
 } from "@mdbase-dev/connect-protocol";
 import { stringify } from "yaml";
-import { documentRevision, parseMarkdown } from "./mirror-format.js";
+import { documentRevision, parseRecordDocument } from "./mirror-format.js";
 import { SyncError } from "./sync-error.js";
 import type { SyncTransport } from "./sync-types.js";
 import {
@@ -397,7 +397,7 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
     }
     const occupied = this.paths.get(mutation.path);
     if (occupied && occupied !== mutation.record_id) return this.conflict(mutation, current);
-    const parsed = parseMarkdown(mutation.document, mutation.path);
+    const parsed = parseRecordDocument(mutation.document, mutation.path);
     const next = {
       record_id: mutation.record_id,
       path: mutation.path,

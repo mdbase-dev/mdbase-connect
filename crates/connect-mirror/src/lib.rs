@@ -3,7 +3,7 @@ use chrono::Utc;
 use fs2::FileExt;
 #[cfg(test)]
 use mdbase::frontmatter::parser::{is_parse_error, yaml_mapping_to_json};
-use mdbase::frontmatter::parser::{parse_document, FrontmatterState};
+use mdbase::frontmatter::parser::{parse_record, FrontmatterState, RecordFormat};
 use mdbase_connect_protocol::{
     authority_manifest_digest, CollectionFileDescriptor, CommitFileUploadReceipt,
     CommitFileUploadReceiptKind, CommitFileUploadRequest, CommitFileUploadRequestKind,
@@ -343,7 +343,8 @@ impl LocalRecordReader for FilesystemRecordReader {
                 })
             }
         };
-        match parse_document(&document).frontmatter_state() {
+        let format = RecordFormat::for_path(&path.to_string_lossy());
+        match parse_record(format, &document).frontmatter_state() {
             FrontmatterState::Absent | FrontmatterState::Mapping(_) => {
                 Ok(LocalRecordRead::Parsed { document, revision })
             }

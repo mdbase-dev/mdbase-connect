@@ -7,7 +7,7 @@ import type {
   SyncFileSnapshotPage,
   SyncSession
 } from "@mdbase-dev/connect-protocol";
-import { portableMirrorPathKey, validatePortableMirrorPath } from "./portable-path.js";
+import { hasMirrorRecordExtension, portableMirrorPathKey, validatePortableMirrorPath } from "./portable-path.js";
 import { SyncError } from "./sync-error.js";
 import type { MirrorBlobStore, MirrorBinaryInfo } from "./mirror-file-types.js";
 import type { SyncTransport } from "./sync-types.js";
@@ -142,7 +142,7 @@ export function validateVisibleCollectionPath(path: string, folder: boolean): vo
     || WINDOWS_RESERVED.test(component)
     || RESERVED_DIRECTORIES.has(component.toLowerCase())
   );
-  if (unsafe || (!folder && /\.md$/iu.test(path))) {
+  if (unsafe || (!folder && hasMirrorRecordExtension(path, { ignoreCase: true }))) {
     throw new SyncError(
       "invalid_file_path",
       `Collection file path ${path} is hidden, reserved, or non-portable.`

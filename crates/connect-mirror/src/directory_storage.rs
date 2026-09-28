@@ -409,7 +409,7 @@ impl DirectoryMirror {
                 MirrorError::new("invalid_mirror_path", "File escaped mirror root.")
             })?;
             let relative = relative.to_string_lossy().replace('\\', "/");
-            if relative.ends_with(".md")
+            if super::filesystem::is_remote_mirror_record_path(&relative)
                 || relative.split('/').any(|part| {
                     part.starts_with('.')
                         || matches!(

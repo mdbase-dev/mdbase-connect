@@ -3075,3 +3075,20 @@ fn mirror_preflight_accepts_configuration_without_connect_identity() {
         source
     );
 }
+
+#[test]
+fn mirrors_materialize_markdown_notes_and_obsidian_bases_as_records() {
+    for path in ["notes/a.md", "views/tasks.base"] {
+        assert!(filesystem::is_remote_mirror_record_path(path), "{path}");
+    }
+    for path in ["tools/run.sh", "config.yaml", "notes/a.markdown"] {
+        assert!(!filesystem::is_remote_mirror_record_path(path), "{path}");
+    }
+    let (frontmatter, body) = parse_markdown(
+        "views:\n  - type: table\n    name: Open\n",
+        "views/open.base",
+    )
+    .unwrap();
+    assert_eq!(frontmatter["views"][0]["name"], "Open");
+    assert_eq!(body, "");
+}

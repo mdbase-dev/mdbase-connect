@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MemoryAuthority, type SyncTransport } from "./index.js";
-import { classifyLocalRecord, documentRevision, parseMarkdown } from "./mirror-format.js";
+import { classifyLocalRecord, documentRevision, parseRecordDocument } from "./mirror-format.js";
 import { SyncError } from "./sync-error.js";
 import {
   DirectoryMirror,
@@ -157,7 +157,7 @@ describe("platform-neutral directory mirror", () => {
       { document: "--- \t\r\ntitle: Present\r\n--- \t\r\nBody", frontmatter: { title: "Present" }, body: " \t\r\nBody" },
     ];
     for (const expected of cases) {
-      expect(parseMarkdown(expected.document, "record.md")).toEqual({ frontmatter: expected.frontmatter, body: expected.body });
+      expect(parseRecordDocument(expected.document, "record.md")).toEqual({ frontmatter: expected.frontmatter, body: expected.body });
       const hosted = new MemoryAuthority();
       // Supply the Rust-compatible projection explicitly, rather than deriving
       // both sides from the SDK parser under test.

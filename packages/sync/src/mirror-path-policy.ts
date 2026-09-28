@@ -1,8 +1,9 @@
 import type { SyncResourceDocument } from "@mdbase-dev/connect-protocol";
 import { parse } from "yaml";
 import { invalidMirrorState, SyncError } from "./sync-error.js";
-import { documentRevision, parseMarkdown } from "./mirror-format.js";
+import { documentRevision, parseRecordDocument } from "./mirror-format.js";
 import {
+  hasMirrorRecordExtension,
   portableMirrorPathKey,
   validatePortableMirrorPath
 } from "./portable-path.js";
@@ -150,7 +151,7 @@ export function validateRecordPath(path: string, policy: MirrorRecordPathPolicy)
     /(?:^|\/)\./u.test(path)
     || policy.resourcePaths.has(path)
     || isInReservedFolder(path, policy.reservedFolders)
-    || !path.endsWith(".md")
+    || !hasMirrorRecordExtension(path)
   ) {
     throw new SyncError(
       "invalid_record_path",
@@ -235,7 +236,7 @@ function isTypePackLock(document: string): boolean {
 
 function markdownKind(document: string, path: string): unknown {
   try {
-    return parseMarkdown(document, path).frontmatter.kind;
+    return parseRecordDocument(document, path).frontmatter.kind;
   } catch {
     return null;
   }
