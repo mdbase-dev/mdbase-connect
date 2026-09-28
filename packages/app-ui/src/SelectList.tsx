@@ -57,7 +57,8 @@ export function SelectList<Value extends string>({
     </div>
   );
   return (
-    // Rows and cards own clicks and double-clicks; choosing here must not reach them.
+    // Rows and cards own clicks and double-clicks; choosing here must not reach them. Nor may a
+    // <label> around the Select, which would pass the click on to the trigger and reopen it.
     <div
       ref={listRef}
       id={`${id}-list`}
@@ -69,7 +70,10 @@ export function SelectList<Value extends string>({
       aria-labelledby={labelledBy}
       aria-activedescendant={open && active >= 0 ? `${id}-option-${String(active)}` : undefined}
       onKeyDown={onKeyDown}
-      onClick={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        event.preventDefault();
+      }}
       onDoubleClick={(event) => event.stopPropagation()}
     >
       {items.map((item, itemIndex) => {

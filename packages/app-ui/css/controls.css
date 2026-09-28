@@ -571,6 +571,11 @@ textarea.mdbase-field {
 }
 
 @media (pointer: coarse) {
+  /* A fingertip target. An app that sets its own density keeps it. */
+  :root {
+    --control-height: 40px;
+  }
+
   .mdbase-select-option {
     min-height: 40px;
   }
