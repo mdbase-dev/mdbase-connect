@@ -7,7 +7,7 @@ is making a consequential access decision. The theme is minimal and precise in
 both ordinary daylight and a dim room. Light mode is paper-like; dark mode uses
 deep blue-black surfaces without turning the product into terminal cosplay.
 Editor, Connect workspace, portal, and desktop share visual tokens and core
-controls. The editor keeps one persistent collection rail: Notes, Types,
+controls. The editor keeps one persistent collection rail: All notes, Types,
 Settings, then Connect under a quiet Manage heading. Selecting Connect replaces
 the note list with contextual Connect navigation; it does not open a parallel
 product shell. Transactional portal pages
@@ -86,7 +86,7 @@ and interaction guidance in
 
 ## Layout
 
-- The editor's collection rail switches between Notes, Types, Settings, and
+- The editor's collection rail switches between All notes, Types, Settings, and
   Connect. The Connect sidebar separates current-collection controls (Overview,
   Storage & sync, App access) from account controls (All collections,
   Applications, Computers, Account & sessions).

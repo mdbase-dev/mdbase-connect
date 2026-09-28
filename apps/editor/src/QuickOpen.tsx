@@ -190,11 +190,12 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
   const modifier = navigator.platform.includes("Mac") ? "⌘" : "Ctrl";
   const shortcuts = [
     [`${modifier} P`, "Quick open"],
+    [`${modifier} K`, "Quick open, outside the note text"],
     [">", "Actions in quick open"],
     ["↑ / ↓", "Move through the note list"],
     [`${modifier} F`, "Find in note"],
     [`${modifier} B / I`, "Bold or italic"],
-    [`${modifier} K`, "Add a link"],
+    [`${modifier} K`, "Add a link, in the note text"],
     ["/", "Markdown commands"],
     ["Alt ← / →", "Back or forward"],
     ["Alt J / K", "Next or previous note"],

@@ -1824,8 +1824,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     action: { label: "Retry note", onAction: () => navigateToNote(noteOpenFailure.path, noteOpenFailure.options) }
   });
   const editorLeadingActions = layout.listCollapsed ? <>
-    {layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
-    <PaneControl label={`Show ${listName} sidebar`} action="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
+    {layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+    <PaneControl pane="list" label={`Show ${listName} sidebar`} action="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
   </> : undefined;
   const noteStatuses = new Map<string, NoteRowStatus>();
   for (const session of noteSessions.current.values()) {
@@ -1886,7 +1886,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         contentError={contentError}
         total={noteFilter ? undefined : collectionTotal}
         contentTotal={collectionTotal}
-        selectedPath={selectedCollectionFile ? undefined : selectedPath}
+        selectedPath={selectedCollectionFile || creationMode ? undefined : selectedPath}
         selectedFilePath={selectedCollectionFile?.path}
         pendingPath={pendingNotePath}
         pendingFilePath={pendingFilePath}
@@ -1914,8 +1914,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onDismissPreview={notePreviewController.dismiss}
         onCreate={canCreateNotes ? beginCreate : undefined}
         onCollections={() => returnToMobilePane("collections")}
-        leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
-        trailingActions={<PaneControl label="Hide notes sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
+        leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+        trailingActions={<PaneControl pane="list" label="Hide notes sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
       />}
       {selectedCollectionFile && selectedFileAsset ? <Suspense fallback={<PaneSkeleton label="Loading file viewer" leadingActions={editorLeadingActions} variant="canvas" />}><FileWorkspace
         file={selectedCollectionFile}
@@ -1963,7 +1963,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
               </form> : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
             </div>
             {noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
-            {!mobileLayout && <OutlineMenu headings={noteHeadings(draft.body)} onReveal={(line) => revealMarkdownLine(noteSessions.current.active?.editorSessionKey ?? document.path, line)} />}
             {!mobileLayout && <span className="word-count" aria-label={`${wordCount.toLocaleString()} words`}>{wordCount.toLocaleString()} {wordCount === 1 ? "word" : "words"}</span>}
             {preferences.vim && <span className="vim-label">vim</span>}
             {!canEditNotes && <span className="connect-muted">Read only</span>}
@@ -1973,6 +1972,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
               detail={noteSessions.current.active?.activityDetail}
               onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
             />
+            {!mobileLayout && <OutlineMenu headings={noteHeadings(draft.body)} onReveal={(line) => revealMarkdownLine(noteSessions.current.active?.editorSessionKey ?? document.path, line)} />}
             {!mobileLayout && <button className={`icon-button backlink-button${backlinksOpen ? " active" : ""}`} aria-label="Backlinks" aria-pressed={backlinksOpen} onClick={() => {
               setBacklinksOpen((value) => {
                 if (!value) setPropertiesOpen(false);
@@ -2040,7 +2040,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     </>}
 
     {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{missingTypeCapabilities(connectionSummary).length > 0 ? <TypeAccessPrompt
-      leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+      leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
       onAuthorize={() => void connectCollection()}
       onBack={() => returnToMobilePane("collections")}
     /> : <>
@@ -2048,8 +2048,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         types={description.types}
         selectedName={typeWorkspace === "definition" ? selectedTypeName : undefined}
         packsSelected={typeWorkspace === "packs"}
-        leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
-        trailingActions={<PaneControl label="Hide types sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
+        leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+        trailingActions={<PaneControl pane="list" label="Hide types sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
         onSelect={selectType}
         onPacks={openTypePacks}
         onCreate={canManageTypes ? beginTypeCreate : undefined}
@@ -2100,7 +2100,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       noteCount={allNotes.length}
       preferences={preferences}
       directAccessBusy={directAccessBusy}
-      leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+      leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
       onChange={setPreferences}
       onBack={() => returnToMobilePane("collections")}
       onForget={requestForgetCurrentCollection}

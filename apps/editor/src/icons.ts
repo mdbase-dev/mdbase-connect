@@ -1,5 +1,6 @@
 export { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 export { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
+export { ArrowLineLeftIcon } from "@phosphor-icons/react/ArrowLineLeft";
 export { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 export { BracketsCurlyIcon } from "@phosphor-icons/react/BracketsCurly";
 export { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
