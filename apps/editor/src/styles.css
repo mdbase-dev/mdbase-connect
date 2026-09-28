@@ -1,50 +1,15 @@
 :root {
-  color-scheme: light;
   color: var(--ink);
   background: var(--canvas);
   font-family: var(--sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --color-canvas: oklch(99.5% 0.002 255);
-  --color-surface: oklch(99.5% 0.002 255);
-  --color-surface-subtle: oklch(97.8% 0.003 255);
-  --color-text: oklch(21% 0.018 255);
-  --color-text-soft: oklch(50% 0.014 255);
-  --color-text-muted: oklch(54% 0.01 255);
-  --color-border: oklch(92% 0.006 255);
-  --color-border-strong: oklch(82% 0.008 255);
-  --color-selected: oklch(96.8% 0.004 255);
-  --color-accent: oklch(47% 0.1 238);
-  --color-accent-strong: oklch(41% 0.1 238);
-  --color-accent-soft: oklch(93.5% 0.035 238);
-  --color-on-accent: oklch(98% 0.004 245);
-  --color-success: oklch(44% 0.085 153);
-  --color-danger: oklch(50% 0.11 28);
-  --color-danger-soft: oklch(97% 0.018 28);
-  --color-warning-border: oklch(83% 0.055 82);
-  --color-warning-surface: oklch(98% 0.018 86);
-  --color-warning-text: oklch(43% 0.055 69);
-  --color-warning-strong: oklch(36% 0.052 67);
   --color-diff-local: oklch(98% 0.012 28);
   --color-diff-local-mark: oklch(91% 0.04 28);
   --color-diff-remote: oklch(98% 0.014 153);
   --color-diff-remote-mark: oklch(91% 0.045 153);
-  --color-editor-text: oklch(28% 0.014 255);
-  --color-placeholder: oklch(78% 0.007 255);
-  --color-skeleton: var(--color-border);
-  --color-shadow: oklch(20% 0.02 255 / 0.06);
-  --color-scrim: oklch(21% 0.018 255 / 0.14);
-  --scrollbar-thumb-rest: oklch(51% 0.014 255 / 0.07);
-  --scrollbar-thumb: oklch(51% 0.014 255 / 0.22);
-  --scrollbar-thumb-hover: oklch(42% 0.016 255 / 0.4);
   --scrollbar-thumb-current: var(--scrollbar-thumb-rest);
   --scrollbar-size: 2px;
-  --syntax-comment: oklch(58% 0.012 255);
-  --syntax-keyword: oklch(42% 0.09 294);
-  --syntax-string: oklch(39% 0.075 153);
-  --syntax-number: oklch(43% 0.1 45);
-  --syntax-link: oklch(43% 0.1 238);
-  --syntax-heading: var(--ink);
   --canvas: var(--color-canvas);
   --white: var(--color-surface);
   --ink: var(--color-text);
@@ -63,8 +28,6 @@
   --danger: var(--color-danger);
   --danger-soft: var(--color-danger-soft);
   --skeleton: var(--color-skeleton);
-  --sans: "Atkinson Hyperlegible", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --mono: "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 /* Collection files share the note-list rhythm without turning the editor into a file manager. */
@@ -199,88 +162,18 @@
 }
 
 :root[data-theme="dark"] {
-  color-scheme: dark;
-  --color-canvas: oklch(17.5% 0.012 255);
-  --color-surface: oklch(19.5% 0.012 255);
-  --color-surface-subtle: oklch(22.5% 0.012 255);
-  --color-text: oklch(92% 0.008 255);
-  --color-text-soft: oklch(70% 0.012 255);
-  --color-text-muted: oklch(62% 0.011 255);
-  --color-border: oklch(29% 0.012 255);
-  --color-border-strong: oklch(39% 0.012 255);
-  --color-selected: oklch(23.5% 0.012 255);
-  --color-accent: oklch(73% 0.105 238);
-  --color-accent-strong: oklch(65% 0.105 238);
-  --color-accent-soft: oklch(31% 0.045 238);
-  --color-on-accent: oklch(17% 0.012 255);
-  --color-success: oklch(72% 0.09 153);
-  --color-danger: oklch(72% 0.115 28);
-  --color-danger-soft: oklch(25% 0.03 28);
-  --color-warning-border: oklch(48% 0.06 82);
-  --color-warning-surface: oklch(25% 0.026 82);
-  --color-warning-text: oklch(78% 0.07 82);
-  --color-warning-strong: oklch(86% 0.065 82);
   --color-diff-local: oklch(24% 0.025 28);
   --color-diff-local-mark: oklch(67% 0.09 28);
   --color-diff-remote: oklch(24% 0.025 153);
   --color-diff-remote-mark: oklch(70% 0.085 153);
-  --color-editor-text: oklch(88% 0.009 255);
-  --color-placeholder: oklch(56% 0.01 255);
-  --color-skeleton: oklch(25% 0.012 255);
-  --color-shadow: oklch(5% 0.01 255 / 0.22);
-  --color-scrim: oklch(5% 0.01 255 / 0.46);
-  --scrollbar-thumb-rest: oklch(72% 0.012 255 / 0.06);
-  --scrollbar-thumb: oklch(72% 0.012 255 / 0.2);
-  --scrollbar-thumb-hover: oklch(78% 0.012 255 / 0.38);
-  --syntax-comment: oklch(62% 0.012 255);
-  --syntax-keyword: oklch(76% 0.09 294);
-  --syntax-string: oklch(75% 0.08 153);
-  --syntax-number: oklch(78% 0.1 65);
-  --syntax-link: oklch(77% 0.1 238);
-  --syntax-heading: var(--ink);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    color-scheme: dark;
-    --color-canvas: oklch(17.5% 0.012 255);
-    --color-surface: oklch(19.5% 0.012 255);
-    --color-surface-subtle: oklch(22.5% 0.012 255);
-    --color-text: oklch(92% 0.008 255);
-    --color-text-soft: oklch(70% 0.012 255);
-    --color-text-muted: oklch(62% 0.011 255);
-    --color-border: oklch(29% 0.012 255);
-    --color-border-strong: oklch(39% 0.012 255);
-    --color-selected: oklch(23.5% 0.012 255);
-    --color-accent: oklch(73% 0.105 238);
-    --color-accent-strong: oklch(65% 0.105 238);
-    --color-accent-soft: oklch(31% 0.045 238);
-    --color-on-accent: oklch(17% 0.012 255);
-    --color-success: oklch(72% 0.09 153);
-    --color-danger: oklch(72% 0.115 28);
-    --color-danger-soft: oklch(25% 0.03 28);
-    --color-warning-border: oklch(48% 0.06 82);
-    --color-warning-surface: oklch(25% 0.026 82);
-    --color-warning-text: oklch(78% 0.07 82);
-    --color-warning-strong: oklch(86% 0.065 82);
     --color-diff-local: oklch(24% 0.025 28);
     --color-diff-local-mark: oklch(67% 0.09 28);
     --color-diff-remote: oklch(24% 0.025 153);
     --color-diff-remote-mark: oklch(70% 0.085 153);
-    --color-editor-text: oklch(88% 0.009 255);
-    --color-placeholder: oklch(56% 0.01 255);
-    --color-skeleton: oklch(25% 0.012 255);
-    --color-shadow: oklch(5% 0.01 255 / 0.22);
-    --color-scrim: oklch(5% 0.01 255 / 0.46);
-    --scrollbar-thumb-rest: oklch(72% 0.012 255 / 0.06);
-    --scrollbar-thumb: oklch(72% 0.012 255 / 0.2);
-    --scrollbar-thumb-hover: oklch(78% 0.012 255 / 0.38);
-    --syntax-comment: oklch(62% 0.012 255);
-    --syntax-keyword: oklch(76% 0.09 294);
-    --syntax-string: oklch(75% 0.08 153);
-    --syntax-number: oklch(78% 0.1 65);
-    --syntax-link: oklch(77% 0.1 238);
-    --syntax-heading: var(--ink);
   }
 }
 
@@ -518,63 +411,6 @@ select:focus-visible {
   padding: 7px 9px;
   color: var(--faint);
   font-size: 11px;
-}
-
-.wordmark {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--ink);
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.02em;
-}
-
-.wordmark-mark {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 auto;
-  overflow: visible;
-}
-
-.wordmark-mark-ink {
-  fill: currentColor;
-}
-
-.wordmark-mark-accent {
-  fill: var(--accent);
-}
-
-.wordmark-label {
-  min-width: 0;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.65ch;
-  white-space: nowrap;
-  transition:
-    opacity 140ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
-    display 140ms allow-discrete;
-}
-
-.wordmark strong {
-  display: inline-block;
-  color: var(--faint);
-  font-weight: 500;
-  transition:
-    opacity 140ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
-    display 140ms allow-discrete;
-}
-
-@starting-style {
-  .wordmark-label,
-  .wordmark-label strong {
-    opacity: 0;
-    transform: translateX(-3px);
-  }
 }
 
 .connect-screen {

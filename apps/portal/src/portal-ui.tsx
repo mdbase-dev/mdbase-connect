@@ -1,18 +1,11 @@
-import {
-  MDBASE_MARK_VIEW_BOX,
-  mdbaseMarkAccentRect,
-  mdbaseMarkInkRects,
-  mdbaseMarkMotionClass,
-  type MdbaseMarkMotion,
-  type MdbaseMarkRect
-} from "@mdbase/connect-ui/brand";
+import { MdbaseMark, type MdbaseMarkMotion } from "@mdbase-dev/ui/brand";
 import {
   applyThemePreference,
   loadThemePreference,
   saveThemePreference,
   type ThemePreference
-} from "@mdbase/connect-ui/theme";
-import { type MouseEvent, useEffect, useId, useRef, useState } from "react";
+} from "@mdbase-dev/ui/theme";
+import { type MouseEvent, useEffect, useRef, useState } from "react";
 
 const themeChoices: Array<{ value: ThemePreference; label: string }> = [
   { value: "system", label: "System" },
@@ -171,43 +164,8 @@ export function ThemeMenu({ placement = "down" }: { placement?: "up" | "down" })
   </div>;
 }
 export function PageBrand({ label, markMotion }: { label: string; markMotion?: MdbaseMarkMotion }) { return <div className="page-brand-row"><div className="page-brand"><Brand markMotion={markMotion} /><span>{label}</span></div><ThemeMenu /></div>; }
-export function Brand({ productLabel = false, markMotion }: { productLabel?: boolean; markMotion?: MdbaseMarkMotion }) { return <div className="product-brand"><MdbaseMark motion={markMotion} /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
+export function Brand({ productLabel = false, markMotion }: { productLabel?: boolean; markMotion?: MdbaseMarkMotion }) { return <div className="product-brand"><MdbaseMark motion={markMotion} className="product-brand-mark" /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
 
-const conveyorXs = [-6, 22, 50, 78, 106] as const;
-
-function MarkSegment({ rect, index, accent = false }: {
-  rect: MdbaseMarkRect;
-  index: number;
-  accent?: boolean;
-}) {
-  return <rect
-    className={`mdbase-mark-segment mdbase-mark-segment-${index} ${accent ? "mdbase-mark-accent product-brand-mark-accent" : "mdbase-mark-ink"}`}
-    pathLength={1}
-    {...rect}
-  />;
-}
-
-function MdbaseMark({ motion }: { motion?: MdbaseMarkMotion }) {
-  const clipId = `mdbase-fences-${useId().replaceAll(":", "")}`;
-  return <svg className={`product-brand-mark mdbase-motion-mark${mdbaseMarkMotionClass(motion)}`} viewBox={MDBASE_MARK_VIEW_BOX} aria-hidden="true" focusable="false">
-    <defs><clipPath id={clipId}><rect x="22" y="22" width="76" height="10" rx="2" /><rect x="22" y="88" width="76" height="10" rx="2" /></clipPath></defs>
-    <g className="mdbase-mark-fence mdbase-mark-fence-top product-brand-mark-ink">
-      {mdbaseMarkInkRects.slice(0, 3).map((rect, index) => <MarkSegment key={`${rect.x}-${rect.y}`} rect={rect} index={index + 1} />)}
-    </g>
-    <g className="mdbase-mark-row mdbase-mark-row-top">
-      <MarkSegment rect={mdbaseMarkInkRects[3]} index={4} />
-      <MarkSegment rect={mdbaseMarkAccentRect} index={5} accent />
-    </g>
-    <g className="mdbase-mark-row mdbase-mark-row-bottom product-brand-mark-ink">
-      <MarkSegment rect={mdbaseMarkInkRects[4]} index={6} />
-      <MarkSegment rect={mdbaseMarkInkRects[5]} index={7} />
-    </g>
-    <g className="mdbase-mark-fence mdbase-mark-fence-bottom product-brand-mark-ink">
-      {mdbaseMarkInkRects.slice(6).map((rect, index) => <MarkSegment key={`${rect.x}-${rect.y}`} rect={rect} index={index + 8} />)}
-    </g>
-    <g clipPath={`url(#${clipId})`}><g className="mdbase-mark-conveyor-track">{conveyorXs.flatMap((x) => [22, 88].map((y) => <rect key={`${x}-${y}`} x={x} y={y} width="20" height="10" rx="2" />))}</g></g>
-  </svg>;
-}
 export function SectionHeading({ title, note, count }: { title: string; note: string; count?: number }) { return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{count}</span>}</div>; }
 export function Empty({ title, text }: { title: string; text: string }) { return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
 export function Loading({ error = "", onRetry }: { error?: string; onRetry?(): void }) { return <main className="loading" aria-busy={!error}><PageBrand label="connect" markMotion={error ? undefined : "bootstrap"} /><p role={error ? "alert" : "status"}>{error || "Opening mdbase connect…"}</p>{error && onRetry && <button className="button primary" onClick={onRetry}>Try again</button>}</main>; }

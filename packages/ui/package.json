@@ -4,18 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test access.test.ts brand.test.ts contract-setup.test.ts theme.test.ts"
+    "test": "node --test access.test.ts contract-setup.test.ts"
   },
   "exports": {
     "./access": "./access.ts",
-    "./brand": "./brand.ts",
     "./contract-setup": "./contract-setup.ts",
-    "./motion.css": "./motion.css",
     "./provider-button": "./provider-button.ts",
-    "./theme": "./theme.ts",
     "./styles.css": "./styles.css"
   },
   "dependencies": {
+    "@mdbase-dev/ui": "workspace:*",
     "yaml": "^2.9.1"
   }
 }

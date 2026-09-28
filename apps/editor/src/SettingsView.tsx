@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import type { CollectionGateway, ConnectionSummary } from "./model";
 import type { EditorPreferences } from "./preferences";
 import { SelectControl } from "./SelectionControls";
-import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "./theme";
+import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase-dev/ui/theme";
 
 // Lazy: the panel's note composer brings CodeMirror, which stays out of startup.
 const YourPersonPanel = lazy(() => import("./YourPersonPanel").then((module) => ({ default: module.YourPersonPanel })));

@@ -1,4 +1,4 @@
-import { Wordmark } from "./Brand";
+import { Wordmark } from "@mdbase-dev/ui/brand";
 
 export function TypeWorkspaceLoading() {
   return <>
@@ -13,7 +13,7 @@ export function TypeWorkspaceLoading() {
 export function OpeningScreen() {
   return <main className="opening-shell" data-loading-state="opening" aria-label="Opening collection" aria-busy="true">
     <div className="opening-message" role="status">
-      <Wordmark />
+      <Wordmark app="editor" />
       <div><p>Opening collection</p><small>Reading its notes and types</small></div>
     </div>
   </main>;

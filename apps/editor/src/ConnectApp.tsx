@@ -14,7 +14,7 @@ import {
 } from "@mdbase/connect-ui/access";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
-import { MdbaseMark } from "./Brand";
+import { MdbaseMark } from "@mdbase-dev/ui/brand";
 import {
   applyConnectServerOverride,
   connectServerUrl
@@ -775,7 +775,7 @@ function RouteLink({ view, collectionId, navigate, children, className = "", ari
 }
 
 function ConnectLoading({ error }: { error: string }) {
-  return <div className="connect-loading" aria-busy={!error}><MdbaseMark /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p></div>;
+  return <div className="connect-loading" aria-busy={!error}><MdbaseMark className="wordmark-mark" /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p></div>;
 }
 
 function DesktopRecoveryHelp({ action }: { action: string }) {

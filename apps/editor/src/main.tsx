@@ -1,13 +1,13 @@
-import "@fontsource/atkinson-hyperlegible/latin-400.css";
-import "@fontsource/atkinson-hyperlegible/latin-700.css";
-import "@fontsource/azeret-mono/latin-500.css";
+import "@mdbase-dev/ui/fonts.css";
+import "@mdbase-dev/ui/tokens.css";
+import "@mdbase-dev/ui/brand.css";
 import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { ConnectCollectionGateway } from "./gateway";
 import { EnvironmentBadge } from "./EnvironmentBadge";
-import "@mdbase/connect-ui/motion.css";
+import "@mdbase-dev/ui/motion.css";
 import "./phosphor-icons.generated.css";
 import "./styles.css";
 import "./environment-badge.css";

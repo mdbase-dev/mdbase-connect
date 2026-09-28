@@ -34,7 +34,7 @@ describe("ConnectApp", () => {
     const { container } = render(<ConnectApp />);
 
     expect(screen.getByText("Opening mdbase connect")).toBeInTheDocument();
-    expect(container.querySelector(".connect-loading .mdbase-motion-mark")).toBeInTheDocument();
+    expect(container.querySelector(".connect-loading .mdbase-mark")).toBeInTheDocument();
     expect(container.querySelector(".connect-loading .mdbase-motion-bootstrap")).not.toBeInTheDocument();
   });
 

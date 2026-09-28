@@ -1,0 +1,4 @@
+/* Latin subsets of the two mdbase families, at the weights the tokens use. */
+@import "@fontsource/atkinson-hyperlegible/latin-400.css";
+@import "@fontsource/atkinson-hyperlegible/latin-700.css";
+@import "@fontsource/azeret-mono/latin-500.css";

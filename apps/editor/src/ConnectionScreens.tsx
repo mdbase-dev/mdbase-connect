@@ -5,7 +5,7 @@ import {
   XIcon as X
 } from "./icons";
 import { ActionMenu } from "./ActionMenu";
-import { Wordmark } from "./Brand";
+import { Wordmark } from "@mdbase-dev/ui/brand";
 import { Dialog } from "./Dialog";
 import type { ConnectionSummary } from "./model";
 
@@ -22,7 +22,7 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
 }) {
   const updatingAccess = missingCapabilities.length > 0;
   return <main className="connect-screen"><section>
-    <Wordmark />
+    <Wordmark app="editor" />
     <h1>Your notes,<br />as files.</h1>
     <p className="connect-copy">{updatingAccess
       ? `Update access to ${accessSummary(missingCapabilities)} in this collection.`

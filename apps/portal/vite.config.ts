@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // hoistingLimits gives each workspace package its own React; @mdbase-dev/ui must render with the app's.
+  resolve: { dedupe: ["react", "react-dom"] },
   server: {
     port: 5178,
     proxy: {

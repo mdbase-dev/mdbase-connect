@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ConnectManagementClient } from "@mdbase/connect-management";
 import { observeProviderWidth } from "@mdbase/connect-ui/provider-button";
-import { observeTheme, resolveDarkTheme } from "@mdbase/connect-ui/theme";
+import { observeTheme, resolveDarkTheme } from "@mdbase-dev/ui/theme";
 
 interface GoogleAccountsApi {
   accounts: {

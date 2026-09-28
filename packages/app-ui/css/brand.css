@@ -1,0 +1,93 @@
+/* The platform mark. `motion.css` animates the same structure when a motion is set. */
+.mdbase-mark {
+  overflow: visible;
+}
+
+.mdbase-mark .mdbase-mark-segment,
+.mdbase-mark .mdbase-mark-row,
+.mdbase-mark .mdbase-mark-fence,
+.mdbase-mark .mdbase-mark-conveyor-track {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.mdbase-mark .mdbase-mark-ink,
+.mdbase-mark .mdbase-mark-conveyor-track {
+  fill: currentColor;
+}
+
+.mdbase-mark .mdbase-mark-accent {
+  fill: var(--color-accent);
+}
+
+.mdbase-mark .mdbase-mark-conveyor-track {
+  opacity: 0;
+  transform-box: view-box;
+  transform-origin: 0 0;
+}
+
+/* An app mark takes its app's colour for the bars; the line stays ink. */
+.mdbase-app-mark {
+  color: var(--color-text);
+  overflow: visible;
+}
+
+.mdbase-app-mark.is-editor { --app: var(--app-editor); }
+.mdbase-app-mark.is-reader { --app: var(--app-reader); }
+.mdbase-app-mark.is-writer { --app: var(--app-writer); }
+
+.mdbase-app-mark-bars {
+  fill: var(--app);
+}
+
+.mdbase-app-mark-line {
+  fill: currentColor;
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.wordmark-mark {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+.wordmark-label {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.65ch;
+  white-space: nowrap;
+  transition:
+    opacity 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    display 140ms allow-discrete;
+}
+
+.wordmark strong {
+  display: inline-block;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  transition:
+    opacity 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    display 140ms allow-discrete;
+}
+
+@starting-style {
+  .wordmark-label,
+  .wordmark-label strong {
+    opacity: 0;
+    transform: translateX(-3px);
+  }
+}

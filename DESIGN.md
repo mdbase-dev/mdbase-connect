@@ -6,8 +6,9 @@ mdbase connect is a desktop utility used at a personal computer while the user
 is making a consequential access decision. The theme is minimal and precise in
 both ordinary daylight and a dim room. Light mode is paper-like; dark mode uses
 deep blue-black surfaces without turning the product into terminal cosplay.
-Editor, Connect workspace, portal, and desktop share visual tokens and core
-controls. The editor keeps one persistent collection rail: All notes, Types,
+Editor, Connect workspace, portal, desktop, Reader and Writer share visual
+tokens through `@mdbase-dev/ui`; Editor, Connect workspace, portal, and desktop
+also share core controls. The editor keeps one persistent collection rail: All notes, Types,
 Settings, then Connect under a quiet Manage heading. Selecting Connect replaces
 the note list with contextual Connect navigation; it does not open a parallel
 product shell. Transactional portal pages
@@ -17,23 +18,9 @@ rather than tinted boxes or decoration.
 
 ## Color
 
-- Ink: `oklch(21% 0.018 255)`
-- Accent: `oklch(45% 0.105 238)`
-- Accent dark: `oklch(35% 0.09 238)`
-- Paper: `oklch(99.5% 0.002 255)`
-- Hover: `oklch(98% 0.003 255)`
-- Line: `oklch(92% 0.006 255)`
-- Strong line: `oklch(82% 0.008 255)`
-- Connected green: `oklch(43% 0.09 153)`
-- Warning amber: `oklch(60% 0.09 75)`
-- Danger red: `oklch(50% 0.11 28)`
-- Muted text: `oklch(54% 0.014 255)`
-
-Dark mode uses canvas `oklch(17.5% 0.012 255)`, surface
-`oklch(19.5% 0.012 255)`, ink `oklch(92% 0.008 255)`, muted ink
-`oklch(68% 0.012 255)`, line `oklch(29% 0.012 255)`, and accent
-`oklch(73% 0.105 238)`. Success, warning, and danger colors increase in
-lightness for equivalent contrast.
+Role values for light, dark and system themes live in
+`packages/app-ui/css/tokens.css`, published as `@mdbase-dev/ui/tokens.css`.
+Editor's quiet treatment is the canonical palette; do not restate values here.
 
 Use a restrained monochrome strategy in both themes. The canvas is the only
 major surface. Controls stay on that surface and use fine neutral outlines

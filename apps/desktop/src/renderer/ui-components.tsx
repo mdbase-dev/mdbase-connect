@@ -1,14 +1,10 @@
-import {
-  MDBASE_MARK_VIEW_BOX,
-  mdbaseMarkAccentRect,
-  mdbaseMarkInkRects
-} from "@mdbase/connect-ui/brand";
+import { MdbaseMark } from "@mdbase-dev/ui/brand";
 import {
   applyThemePreference,
   loadThemePreference,
   saveThemePreference,
   type ThemePreference
-} from "@mdbase/connect-ui/theme";
+} from "@mdbase-dev/ui/theme";
 import React, { useEffect, useRef, useState } from "react";
 import type { ConnectionDotState } from "./connection-state.mjs";
 import { markPairingCompleted } from "./onboarding-state.mjs";
@@ -154,16 +150,7 @@ export function StatusDot({ state }: { state: ConnectionDotState }) {
 }
 
 export function Brand() {
-  return <div className="product-brand"><MdbaseMark /><strong>mdbase</strong><span className="product-brand-label">connect</span></div>;
-}
-
-function MdbaseMark() {
-  return <svg className="product-brand-mark" viewBox={MDBASE_MARK_VIEW_BOX} aria-hidden="true" focusable="false">
-    <g className="product-brand-mark-ink">
-      {mdbaseMarkInkRects.map((rect) => <rect key={`${rect.x}-${rect.y}`} {...rect} />)}
-    </g>
-    <rect className="product-brand-mark-accent" {...mdbaseMarkAccentRect} />
-  </svg>;
+  return <div className="product-brand"><MdbaseMark className="product-brand-mark" /><strong>mdbase</strong><span className="product-brand-label">connect</span></div>;
 }
 
 export function SettingSwitch({ className, label, description, checked, disabled, stateLabel, onChange }: {

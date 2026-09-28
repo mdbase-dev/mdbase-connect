@@ -10,6 +10,8 @@ const buildId = (process.env.MDBASE_EDITOR_BUILD_ID ?? process.env.GITHUB_SHA ??
 export default defineConfig({
   base: basePath,
   plugins: [react()],
+  // hoistingLimits gives each workspace package its own React; @mdbase-dev/ui must render with the app's.
+  resolve: { dedupe: ["react", "react-dom"] },
   build: {
     target: "es2022",
     sourcemap: true,

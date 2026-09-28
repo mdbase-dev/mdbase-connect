@@ -1,0 +1,129 @@
+/*
+ * mdbase semantic roles. Components consume roles rather than palette values so
+ * both themes keep the same hierarchy. Short aliases (`--ink`, `--muted`, ...) are
+ * app-local and must map onto these roles.
+ */
+:root {
+  color-scheme: light;
+  --color-canvas: oklch(99.5% 0.002 255);
+  --color-surface: oklch(99.5% 0.002 255);
+  --color-surface-subtle: oklch(97.8% 0.003 255);
+  --color-text: oklch(21% 0.018 255);
+  --color-text-soft: oklch(50% 0.014 255);
+  --color-text-muted: oklch(54% 0.01 255);
+  --color-border: oklch(92% 0.006 255);
+  --color-border-strong: oklch(82% 0.008 255);
+  --color-selected: oklch(96.8% 0.004 255);
+  --color-accent: oklch(47% 0.1 238);
+  --color-accent-strong: oklch(41% 0.1 238);
+  --color-accent-soft: oklch(93.5% 0.035 238);
+  --color-on-accent: oklch(98% 0.004 245);
+  --color-success: oklch(44% 0.085 153);
+  --color-danger: oklch(50% 0.11 28);
+  --color-danger-soft: oklch(97% 0.018 28);
+  --color-warning-border: oklch(83% 0.055 82);
+  --color-warning-surface: oklch(98% 0.018 86);
+  --color-warning-text: oklch(43% 0.055 69);
+  --color-warning-strong: oklch(36% 0.052 67);
+  --color-editor-text: oklch(28% 0.014 255);
+  --color-placeholder: oklch(78% 0.007 255);
+  --color-skeleton: var(--color-border);
+  --color-shadow: oklch(20% 0.02 255 / 0.06);
+  --color-scrim: oklch(21% 0.018 255 / 0.14);
+  --scrollbar-thumb-rest: oklch(51% 0.014 255 / 0.07);
+  --scrollbar-thumb: oklch(51% 0.014 255 / 0.22);
+  --scrollbar-thumb-hover: oklch(42% 0.016 255 / 0.4);
+  --syntax-comment: oklch(58% 0.012 255);
+  --syntax-keyword: oklch(42% 0.09 294);
+  --syntax-string: oklch(39% 0.075 153);
+  --syntax-number: oklch(43% 0.1 45);
+  --syntax-link: oklch(43% 0.1 238);
+  --syntax-heading: var(--color-text);
+  --app-editor: #005c88;
+  --app-reader: #a4467f;
+  --app-writer: #d55e00;
+  --sans: "Atkinson Hyperlegible", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-canvas: oklch(17.5% 0.012 255);
+  --color-surface: oklch(19.5% 0.012 255);
+  --color-surface-subtle: oklch(22.5% 0.012 255);
+  --color-text: oklch(92% 0.008 255);
+  --color-text-soft: oklch(70% 0.012 255);
+  --color-text-muted: oklch(62% 0.011 255);
+  --color-border: oklch(29% 0.012 255);
+  --color-border-strong: oklch(39% 0.012 255);
+  --color-selected: oklch(23.5% 0.012 255);
+  --color-accent: oklch(73% 0.105 238);
+  --color-accent-strong: oklch(65% 0.105 238);
+  --color-accent-soft: oklch(31% 0.045 238);
+  --color-on-accent: oklch(17% 0.012 255);
+  --color-success: oklch(72% 0.09 153);
+  --color-danger: oklch(72% 0.115 28);
+  --color-danger-soft: oklch(25% 0.03 28);
+  --color-warning-border: oklch(48% 0.06 82);
+  --color-warning-surface: oklch(25% 0.026 82);
+  --color-warning-text: oklch(78% 0.07 82);
+  --color-warning-strong: oklch(86% 0.065 82);
+  --color-editor-text: oklch(88% 0.009 255);
+  --color-placeholder: oklch(56% 0.01 255);
+  --color-skeleton: oklch(25% 0.012 255);
+  --color-shadow: oklch(5% 0.01 255 / 0.22);
+  --color-scrim: oklch(5% 0.01 255 / 0.46);
+  --scrollbar-thumb-rest: oklch(72% 0.012 255 / 0.06);
+  --scrollbar-thumb: oklch(72% 0.012 255 / 0.2);
+  --scrollbar-thumb-hover: oklch(78% 0.012 255 / 0.38);
+  --syntax-comment: oklch(62% 0.012 255);
+  --syntax-keyword: oklch(76% 0.09 294);
+  --syntax-string: oklch(75% 0.08 153);
+  --syntax-number: oklch(78% 0.1 65);
+  --syntax-link: oklch(77% 0.1 238);
+  --app-editor: #63b1e2;
+  --app-reader: #e08cc0;
+  --app-writer: #f58d4a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --color-canvas: oklch(17.5% 0.012 255);
+    --color-surface: oklch(19.5% 0.012 255);
+    --color-surface-subtle: oklch(22.5% 0.012 255);
+    --color-text: oklch(92% 0.008 255);
+    --color-text-soft: oklch(70% 0.012 255);
+    --color-text-muted: oklch(62% 0.011 255);
+    --color-border: oklch(29% 0.012 255);
+    --color-border-strong: oklch(39% 0.012 255);
+    --color-selected: oklch(23.5% 0.012 255);
+    --color-accent: oklch(73% 0.105 238);
+    --color-accent-strong: oklch(65% 0.105 238);
+    --color-accent-soft: oklch(31% 0.045 238);
+    --color-on-accent: oklch(17% 0.012 255);
+    --color-success: oklch(72% 0.09 153);
+    --color-danger: oklch(72% 0.115 28);
+    --color-danger-soft: oklch(25% 0.03 28);
+    --color-warning-border: oklch(48% 0.06 82);
+    --color-warning-surface: oklch(25% 0.026 82);
+    --color-warning-text: oklch(78% 0.07 82);
+    --color-warning-strong: oklch(86% 0.065 82);
+    --color-editor-text: oklch(88% 0.009 255);
+    --color-placeholder: oklch(56% 0.01 255);
+    --color-skeleton: oklch(25% 0.012 255);
+    --color-shadow: oklch(5% 0.01 255 / 0.22);
+    --color-scrim: oklch(5% 0.01 255 / 0.46);
+    --scrollbar-thumb-rest: oklch(72% 0.012 255 / 0.06);
+    --scrollbar-thumb: oklch(72% 0.012 255 / 0.2);
+    --scrollbar-thumb-hover: oklch(78% 0.012 255 / 0.38);
+    --syntax-comment: oklch(62% 0.012 255);
+    --syntax-keyword: oklch(76% 0.09 294);
+    --syntax-string: oklch(75% 0.08 153);
+    --syntax-number: oklch(78% 0.1 65);
+    --syntax-link: oklch(77% 0.1 238);
+    --app-editor: #63b1e2;
+    --app-reader: #e08cc0;
+    --app-writer: #f58d4a;
+  }
+}
