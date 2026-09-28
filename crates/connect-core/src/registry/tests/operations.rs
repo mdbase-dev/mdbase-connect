@@ -837,20 +837,8 @@ fn full_collection_scope_lists_and_executes_saved_views() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("views");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Views"), "UTC").unwrap();
-    fs::write(
-        root.join("_types/view.md"),
-        r#"---
-kind: mdbase.type
-name: view
-version: 1
-schema:
-  dialect: json-schema-2020-12
-  value: { type: object }
----
-"#,
-    )
-    .unwrap();
+    // Definitions exist before the runtime opens, as after collection setup.
+    fs::create_dir_all(root.join("_types")).unwrap();
     fs::write(
         root.join("_types/task.md"),
         r#"---
@@ -864,6 +852,18 @@ schema:
 "#,
     )
     .unwrap();
+    fs::create_dir_all(root.join("_contracts")).unwrap();
+    fs::write(
+        root.join("_contracts/mdbase.view.md"),
+        "---\nkind: mdbase.contract\ncontract_type: record\nid: mdbase.view\nversion: 1.0.0\nrecord_schema: {dialect: json-schema-2020-12, value: {type: object, properties: {id: {}, version: {}, name: {}, query: {}, views: {}}}}\n---\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("_types/view.md"),
+        "---\nkind: mdbase.type\nname: view\nversion: 1\nmatch: {where: {type: view}}\nschema: {dialect: json-schema-2020-12, value: {type: object, properties: {id: {}, version: {}, name: {}, query: {}, views: {}}}}\nimplements: [{contract: mdbase.view, version: 1.0.0, fields: {id: id, version: version, name: name, query: query, views: views}}]\n---\n",
+    )
+    .unwrap();
+    let collection = registry.create(&root, Some("Views"), "UTC").unwrap();
     fs::create_dir_all(root.join("tasks")).unwrap();
     fs::create_dir_all(root.join("views")).unwrap();
     fs::write(
@@ -895,7 +895,7 @@ views:
         .operation(collection.id, "list_views", &json!({}))
         .unwrap();
     assert_eq!(listed["valid"], true, "{listed}");
-    assert_eq!(listed["result"]["meta"]["total_count"], 1);
+    assert_eq!(listed["result"]["meta"]["total_count"], 1, "{listed}");
     assert_eq!(listed["result"]["views"][0]["id"], "task.views");
 
     let executed = registry

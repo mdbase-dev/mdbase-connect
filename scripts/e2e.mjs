@@ -861,6 +861,117 @@ implements:
   }
   await cliJson(["access", "revoke", taskNotesToken.body.grant_id]);
 
+  // An application that saves views declares mdbase.view and provisions its
+  // published pack; setup installs it and views are ordinary records.
+  const viewPack = JSON.parse(await readFile(
+    join(repoRoot, "test", "fixtures", "packs", "mdbase.view-1.0.0.json"),
+    "utf8"
+  ));
+  const viewOperations = [
+    ...COLLECTION_READ_OPERATIONS,
+    ...RECORD_CREATE_OPERATIONS,
+    ...RECORD_EDIT_OPERATIONS,
+    ...RECORD_DELETE_OPERATIONS,
+    ...SETUP_OPERATIONS
+  ];
+  const viewApplication = await request("/v1/apps/register", {
+    method: "POST",
+    body: {
+      manifest: {
+        manifest_version: 1,
+        id: "dev.mdbase.saved-views-e2e",
+        name: "Saved views E2E",
+        homepage: manifest.origin,
+        redirect_uris: [manifest.redirectUri],
+        requirements: {
+          access: "full_collection",
+          contracts: viewPack.provides,
+          capabilities: {
+            contract_version: 2,
+            required: ["collection.read", "records.create", "records.edit", "records.delete"]
+          }
+        },
+        provisions: { type_packs: [viewPack] }
+      }
+    }
+  });
+  const viewVerifier = "saved-views-e2e-verifier-with-forty-three-characters";
+  const viewAuthorization = await startSignedWebAuthorization({
+    application: viewApplication.body.application,
+    redirectUri: manifest.redirectUri,
+    verifier: viewVerifier,
+    state: "saved-views-e2e",
+    operations: viewOperations,
+    cookie
+  });
+  const viewRequest = await poll(async () => {
+    const current = await request(
+      `/v1/authorization-requests/${viewAuthorization.id}`,
+      { cookie }
+    );
+    return current.body.collections?.some((candidate) => candidate.id === collection.id)
+      ? current
+      : null;
+  }, "Saved-view setup collection offer did not reach the portal");
+  const viewOffer = viewRequest.body.collections.find(
+    (candidate) => candidate.id === collection.id
+  );
+  await approvePortalAuthorization(viewAuthorization.id, cookie, {
+    collection_id: viewOffer.id,
+    offer_id: viewOffer.offer_id,
+    operations: viewOperations,
+    contract_setups: []
+  });
+  const viewCallback = await finishSignedWebAuthorization(viewAuthorization);
+  const viewToken = await request("/oauth/token", {
+    method: "POST",
+    form: {
+      grant_type: "authorization_code",
+      code: viewCallback.searchParams.get("code"),
+      client_id: viewApplication.body.application.id,
+      redirect_uri: manifest.redirectUri,
+      code_verifier: viewVerifier
+    }
+  });
+  const viewOperation = async (operation, input) => {
+    const response = await signedGrantOperation(
+      viewAuthorization, viewToken.body, collection.id, operation, input
+    );
+    const body = await response.json();
+    if (response.status !== 200 || body.result?.valid !== true) {
+      throw new Error(`Saved-view ${operation} failed: ${JSON.stringify(body)}`);
+    }
+    return body.result.result;
+  };
+  const createdView = await viewOperation("create", {
+    path: "views/e2e.md",
+    frontmatter: {
+      type: "view",
+      id: "e2e.views",
+      version: 1,
+      name: "E2E views",
+      views: [{ id: "all", name: "All records", select: ["title"] }]
+    }
+  });
+  const listedViews = await viewOperation("list_views", {});
+  if (!listedViews.views.some((view) => view.id === "e2e.views"
+      && view.source.path === "views/e2e.md")) {
+    throw new Error(`Created view record was not listed: ${JSON.stringify(listedViews)}`);
+  }
+  await viewOperation("execute_view", { path: "views/e2e.md", view: "all" });
+  await viewOperation("update", {
+    path: "views/e2e.md",
+    if_revision: createdView.revision,
+    document: "---\ntype: view\nid: e2e.views\nversion: 1\nname: Renamed views\nviews:\n  - id: all\n    name: All records\n---\n"
+  });
+  const relisted = await viewOperation("list_views", {});
+  const replaced = relisted.views.find((view) => view.id === "e2e.views");
+  if (replaced?.name !== "Renamed views") {
+    throw new Error(`Replaced view record was not relisted: ${JSON.stringify(relisted)}`);
+  }
+  await viewOperation("delete", { path: "views/e2e.md", if_revision: replaced.source.revision });
+  await cliJson(["access", "revoke", viewToken.body.grant_id]);
+
   relayContext = {
     store: applicationKeyStore,
     handle: applicationKey.handle,
