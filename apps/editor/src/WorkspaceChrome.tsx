@@ -5,7 +5,6 @@ import {
   ArrowLeftIcon as ArrowLeft,
   ArrowLineLeftIcon as ArrowLineLeft,
   BracketsCurlyIcon as Braces,
-  CheckIcon as Check,
   LinkIcon as Link2,
   ListBulletsIcon as ListBullets,
   SidebarSimpleIcon as Sidebar,
@@ -15,6 +14,7 @@ import {
 import type { NoteSummary } from "./model";
 import { noteTitle, type NoteHeading } from "./note";
 import type { NoteActivity, SaveState } from "./note-session";
+import { SaveNotice, type SaveTone } from "@mdbase-dev/ui/save-notice";
 
 export function SaveIndicator({ state, activity, detail, onCancel }: { state: SaveState; activity?: NoteActivity; detail?: string; onCancel?: () => void }) {
   const activityLabels: Record<NoteActivity, string> = {
@@ -28,8 +28,10 @@ export function SaveIndicator({ state, activity, detail, onCancel }: { state: Sa
   const label = detail ?? (activity
     ? activityLabels[activity]
     : state === "saving" ? "Saving" : state === "waiting" ? "Unsaved" : state === "recovery" ? "Recovery pending" : state === "conflict" || state === "error" ? "Needs attention" : "Saved");
-  const tone = activity ? "saving" : state === "error" ? "conflict" : state;
-  return <div className="save-indicator"><span className={`save-state ${tone}`} aria-live="polite">{!activity && state === "saved" && <Check aria-hidden="true" />}{label}</span>{onCancel && <button className="cancel-operation" onClick={onCancel}>Cancel</button>}</div>;
+  const tone: SaveTone = activity || state === "saving" ? "saving"
+    : state === "saved" ? "saved"
+      : state === "conflict" || state === "error" ? "attention" : "pending";
+  return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{onCancel && <button className="cancel-operation" onClick={onCancel}>Cancel</button>}</div>;
 }
 export function BacklinksPanel({ notes, types, loading, onClose, onOpen }: {
   notes: NoteSummary[];

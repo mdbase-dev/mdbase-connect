@@ -380,6 +380,55 @@ textarea.mdbase-field {
   text-transform: uppercase;
 }
 
+/* Popovers arrive quickly and settle into place. Apps mark their own with .mdbase-popover. */
+:is(.mdbase-select-list, .mdbase-menu, .mdbase-popover):popover-open {
+  animation: mdbase-popover-in var(--motion-quick) var(--ease-out);
+}
+
+@keyframes mdbase-popover-in {
+  from { opacity: 0; transform: translateY(-3px); }
+}
+
+/* Save notices: small, quiet, and gone once there is nothing to act on. */
+.mdbase-save-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.mdbase-save-notice svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: var(--color-success);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mdbase-save-notice.is-attention {
+  color: var(--color-danger);
+}
+
+/* A confirmation holds, then fades away; hovering or focusing its host brings it back. */
+.mdbase-settle {
+  animation: mdbase-settle var(--motion-settle) ease forwards;
+}
+
+.mdbase-settle-host:is(:hover, :focus-within) .mdbase-settle {
+  animation: none;
+  opacity: 1;
+}
+
+@keyframes mdbase-settle {
+  0%, 55% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 @media (pointer: coarse) {
   .mdbase-select-option {
     min-height: 40px;
@@ -391,6 +440,15 @@ textarea.mdbase-field {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :is(.mdbase-select-list, .mdbase-menu, .mdbase-popover):popover-open {
+    animation: none;
+  }
+
+  /* Without the fade, a confirmation still shows for the same time, then goes. */
+  .mdbase-settle {
+    animation-timing-function: steps(1, end);
+  }
+
   .mdbase-field,
   .mdbase-select,
   .mdbase-select-chevron,

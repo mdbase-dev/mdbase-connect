@@ -29,7 +29,7 @@ export function MenuPopover({ label, className, triggerRef, onClose, children }:
   });
   return <div
     ref={menu}
-    className={className ? `action-menu ${className}` : "action-menu"}
+    className={className ? `action-menu mdbase-popover ${className}` : "action-menu mdbase-popover"}
     popover="manual"
     role="menu"
     aria-label={label}

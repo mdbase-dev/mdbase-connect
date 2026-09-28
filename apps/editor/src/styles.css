@@ -2218,48 +2218,10 @@ kbd {
   gap: 6px;
 }
 
-.save-state {
+/* The notice itself is @mdbase-dev/ui's SaveNotice; the bar keeps it from shifting the layout. */
+.save-indicator .mdbase-save-notice {
   min-width: 64px;
-  display: inline-flex;
-  align-items: center;
   justify-content: flex-end;
-  gap: 4px;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-.save-state svg {
-  width: 11px;
-  height: 11px;
-  color: var(--success);
-}
-
-.save-state.conflict {
-  color: var(--danger);
-}
-
-/* A settled save confirms briefly, then gets out of the way; hovering the bar brings it back. */
-.editor-bar .save-state.saved {
-  animation: save-settle 2.4s ease forwards;
-}
-
-.editor-bar:hover .save-state.saved,
-.editor-bar:focus-within .save-state.saved {
-  animation: none;
-  opacity: 1;
-}
-
-@keyframes save-settle {
-  0%, 55% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .editor-bar .save-state.saved {
-    animation: none;
-    opacity: 0;
-  }
 }
 
 .cancel-operation {
@@ -4348,10 +4310,6 @@ label.schema-value {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.type-inspector-bar small {
-  font-size: 11px;
 }
 
 .type-heading {
@@ -7865,7 +7823,7 @@ label.schema-value {
     opacity: 1;
   }
 
-  .save-state {
+  .save-indicator .mdbase-save-notice {
     min-width: 48px;
   }
 
@@ -8371,7 +8329,6 @@ label.schema-value {
 
   .type-row small,
   .type-inspector-bar,
-  .type-inspector-bar small,
   .type-change-scope,
   .type-view-switch button,
   .visual-type-fields-heading p,

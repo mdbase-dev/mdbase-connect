@@ -22,6 +22,7 @@ import { CodeEditor } from "./CodeEditor";
 import { SchemaValueEditor, schemaInitialValue } from "./SchemaValueEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
 import { ComboboxInput } from "./SelectionControls";
+import { SaveNotice } from "@mdbase-dev/ui/save-notice";
 import { Select, type SelectItems, type SelectOption } from "@mdbase-dev/ui/select";
 import {
   contractCatalogPackStatus,
@@ -256,11 +257,11 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
   const name = creating ? "New type" : type!.name;
   const path = creating ? "A path will be created from the type name" : document?.path ?? type!.path ?? `_types/${type!.name}.md`;
   return <main className="type-inspector" aria-label={`${name} type definition`}>
-    <header className="type-inspector-bar">
+    <header className="type-inspector-bar mdbase-settle-host">
       <button className="mobile-back icon-button" aria-label="Back to types" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
       {leadingActions}
       <span>{path}</span>
-      <small>{loading ? "Loading" : saving ? "Saving" : creating ? "New" : dirty ? "Unsaved" : "Saved"}</small>
+      <SaveNotice tone={loading || saving ? "saving" : creating || dirty ? "pending" : "saved"} label={loading ? "Loading" : saving ? "Saving" : creating ? "New" : dirty ? "Unsaved" : "Saved"} />
     </header>
     <section className="type-heading">
       <p className="eyebrow">{creating ? "Create type" : "Type definition"}</p>

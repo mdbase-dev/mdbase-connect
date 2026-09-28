@@ -518,7 +518,7 @@ describe("mdbase editor", () => {
     expect(screen.getByRole("heading", { name: "Update this type?" })).toBeInTheDocument();
     expect(screen.getByText(/1 note is missing required field/)).toHaveTextContent("field");
     await user.click(screen.getByRole("button", { name: "Confirm update" }));
-    await waitFor(() => expect(screen.getByText("Saved", { selector: ".type-inspector-bar small" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Saved", { selector: ".type-inspector-bar .mdbase-save-notice" })).toBeInTheDocument());
     expect((await gateway.readType("note")).document).toContain("A durable general note.");
 
     await user.click(screen.getByRole("button", { name: "YAML" }));

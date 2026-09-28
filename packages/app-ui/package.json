@@ -34,6 +34,10 @@
       "types": "./dist/popover.d.ts",
       "import": "./dist/popover.js"
     },
+    "./save-notice": {
+      "types": "./dist/SaveNotice.d.ts",
+      "import": "./dist/SaveNotice.js"
+    },
     "./select": {
       "types": "./dist/Select.d.ts",
       "import": "./dist/Select.js"

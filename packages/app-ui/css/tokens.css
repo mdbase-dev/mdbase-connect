@@ -46,6 +46,12 @@
   --app-writer: #d55e00;
   --sans: "Atkinson Hyperlegible", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Motion: popovers and small entrances are quick and ease out; a settled
+     confirmation holds, then fades away (see controls.css). */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-quick: 150ms;
+  --motion-base: 180ms;
+  --motion-settle: 2.4s;
 }
 
 :root[data-theme="dark"] {
