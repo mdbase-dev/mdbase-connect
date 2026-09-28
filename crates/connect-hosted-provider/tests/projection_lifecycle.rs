@@ -7037,6 +7037,8 @@ views:
     Box::pin(assert_live_base_invocation_cursor(&fixture, false)).await;
 
     install_view_contract(&fixture, &writer_token).await;
+    // The definition change retires the active projection until the worker rebuilds it.
+    let view_generation = complete_generation(&fixture).await;
     let stable_view_document = "---\ntype: view\nid: stable.views\nversion: 1\nname: Stable\nquery:\n  where: this.id == 'stable.views'\nviews:\n  - id: all\n    name: All\n---\n";
     let stable_view = fixture
         .provider
@@ -7145,7 +7147,7 @@ views:
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_eq!(active_after_view, Some(second_generation));
+    assert_eq!(active_after_view, Some(view_generation));
     let query_after_view = fixture
         .provider
         .operation(
@@ -7196,7 +7198,7 @@ views:
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     let rebuilt_generation = rebuilt_generation.expect("semantic generation rebuilt");
-    assert_ne!(rebuilt_generation, second_generation);
+    assert_ne!(rebuilt_generation, view_generation);
     let query_after_rebuild = fixture
         .provider
         .operation(

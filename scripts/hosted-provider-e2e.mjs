@@ -2078,9 +2078,9 @@ schema:
     path: "Plain.md",
     ifRevision: sdkBodyOnlyUpdated.revision
   })).deleted, true);
-  // Saved views are records of a type implementing the mdbase.view contract.
+  // Saved views are records of a type implementing the installed mdbase.view contract.
   const viewContract = "---\nkind: mdbase.contract\ncontract_type: record\nid: mdbase.view\nversion: 1.0.0\nrecord_schema: {dialect: json-schema-2020-12, value: {type: object, properties: {id: {}, version: {}, name: {}, query: {}, properties: {}, views: {}}}}\n---\n";
-  const viewType = "---\nkind: mdbase.type\nname: view\nversion: 1\nmatch: {where: {type: view}}\nschema: {dialect: json-schema-2020-12, value: {type: object}}\nimplements: [{contract: mdbase.view, version: 1.0.0, fields: {id: id, version: version, name: name, query: query, properties: properties, views: views}}]\n---\n";
+  const viewType = "---\nkind: mdbase.type\nname: view\nversion: 1\nmatch: {where: {type: view}}\nschema: {dialect: json-schema-2020-12, value: {type: object, properties: {id: {}, version: {}, name: {}, query: {}, properties: {}, views: {}}}}\nimplements: [{contract: mdbase.view, version: 1.0.0, fields: {id: id, version: version, name: name, query: query, properties: properties, views: views}}]\n---\n";
   const sha256 = (document) => `sha256:${createHash("sha256").update(document).digest("hex")}`;
   const viewPack = {
     provision: {
@@ -2089,14 +2089,10 @@ schema:
         id: "mdbase.view",
         version: "1.0.0",
         resources: [
-          { kind: "contract", mode: "managed", source: "contracts/mdbase.view.md", target: "_contracts/mdbase.view.md", digest: sha256(viewContract) },
-          { kind: "type", mode: "managed", source: "types/view.md", target: "_types/view.md", digest: sha256(viewType) }
+          { kind: "contract", mode: "managed", source: "contracts/mdbase.view.md", target: "_contracts/mdbase.view.md", digest: sha256(viewContract) }
         ]
       },
-      resources: [
-        { source: "contracts/mdbase.view.md", document: viewContract },
-        { source: "types/view.md", document: viewType }
-      ],
+      resources: [{ source: "contracts/mdbase.view.md", document: viewContract }],
       provides: [{ id: "mdbase.view", version: "1.0.0", digest: sha256(viewContract) }]
     },
     installedBy: "mdbase.view"
@@ -2106,6 +2102,7 @@ schema:
     ...viewPack,
     expectedAssessmentDigest: viewPackAssessment.assessmentDigest
   }));
+  assert.equal(requireConnectSuccess(await hostedConnection.createType({ document: viewType })).name, "view");
   const viewRecord = requireConnectSuccess(await hostedConnection.create({
     path: "Views/writing.md",
     frontmatter: {
