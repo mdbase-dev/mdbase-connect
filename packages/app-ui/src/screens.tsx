@@ -28,8 +28,9 @@ export function OpeningScreen({ app, title, detail, error, onRetry }: {
 
 /**
  * The screen before a collection is open: the app's wordmark, a headline, what the app will
- * do, and the actions (children) for connecting. A status and an error that say the same
- * thing are said once; technical detail waits behind a disclosure.
+ * do, what went wrong if anything, and then the actions (children) for connecting. A status
+ * and an error that say the same thing are said once; technical detail waits behind a
+ * disclosure.
  */
 export function ConnectLayout({ app, title, lead, status, error, detail, footnote, children }: {
   readonly app: MdbaseAppId;
@@ -47,10 +48,10 @@ export function ConnectLayout({ app, title, lead, status, error, detail, footnot
       <h1>{title}</h1>
       {lead && <p className="mdbase-connect-lead">{lead}</p>}
       {status && status !== error && <p className="mdbase-connect-status" role="status">{status}</p>}
-      {children}
-      {footnote && <p className="mdbase-connect-footnote">{footnote}</p>}
       {error && <p className="mdbase-connect-error" role="alert">{error}</p>}
       {detail && <details className="mdbase-connect-detail"><summary>Details</summary><code>{detail}</code></details>}
+      {children}
+      {footnote && <p className="mdbase-connect-footnote">{footnote}</p>}
     </section>
   </main>;
 }
