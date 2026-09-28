@@ -6,6 +6,7 @@ import {
   type ButtonHTMLAttributes,
   type JSX,
   type KeyboardEvent,
+  type Ref,
   type RefObject,
 } from "react";
 
@@ -34,6 +35,8 @@ export interface SelectProps<Value extends string> extends TriggerAttributes {
   readonly onChange: (value: Value) => void;
   /** Shown while the value matches no option, like a native select's disabled first option. */
   readonly placeholder?: string;
+  /** The trigger button, for focusing the control from elsewhere. */
+  readonly ref?: Ref<HTMLButtonElement>;
 }
 
 /**
@@ -51,6 +54,7 @@ export function Select<Value extends string>({
   disabled,
   onKeyDown,
   onClick,
+  ref,
   ...trigger
 }: SelectProps<Value>): JSX.Element {
   const id = useId();
@@ -70,7 +74,11 @@ export function Select<Value extends string>({
     <>
       <button
         {...trigger}
-        ref={triggerRef}
+        ref={(node) => {
+          triggerRef.current = node;
+          if (typeof ref === "function") ref(node);
+          else if (ref) ref.current = node;
+        }}
         type="button"
         role="combobox"
         className={["mdbase-select", className].filter(Boolean).join(" ")}
