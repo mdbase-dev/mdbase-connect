@@ -37,7 +37,7 @@ test("places Connect inside the editor collection shell", async ({ page }) => {
 
   const collectionRail = page.getByRole("complementary", { name: "Collection navigation" });
   await expect(page.getByRole("heading", { name: "Garden notes" })).toBeVisible();
-  await expect(collectionRail.getByRole("link", { name: "Notes" })).toBeVisible();
+  await expect(collectionRail.getByRole("link", { name: "All notes" })).toBeVisible();
   await expect(collectionRail.getByRole("link", { name: "Types" })).toBeVisible();
   await expect(collectionRail.getByRole("link", { name: "Settings" })).toBeVisible();
   await expect(collectionRail.getByRole("link", { name: "Connect" })).toHaveAttribute("aria-current", "page");

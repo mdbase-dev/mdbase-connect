@@ -270,7 +270,7 @@ export function PropertiesPanel({
               ? "Saving changes…"
               : autoSaveState === "waiting"
                 ? "Changes save automatically"
-                : "All changes saved"}</p>}
+                : ""}</p>}
     </div>
   </aside>;
 }

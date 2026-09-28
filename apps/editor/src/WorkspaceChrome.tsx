@@ -2,12 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   ArrowLeftIcon as ArrowLeft,
+  ArrowLineLeftIcon as ArrowLineLeft,
   BracketsCurlyIcon as Braces,
   CheckIcon as Check,
   LinkIcon as Link2,
   ListBulletsIcon as ListBullets,
-  SidebarSimpleIcon as PanelLeftClose,
-  SidebarSimpleIcon as PanelLeftOpen,
+  SidebarSimpleIcon as Sidebar,
   WarningCircleIcon as CircleAlert,
   XIcon as X
 } from "./icons";
@@ -173,9 +173,10 @@ export function EmptyEditor({ leadingActions, notice, onCreate, onRetry }: {
   </div>;
 }
 
-export function PaneControl({ label, action, onClick }: { label: string; action: "show" | "hide"; onClick: () => void }) {
-  const Icon = action === "show" ? PanelLeftOpen : PanelLeftClose;
-  return <button className="icon-button desktop-pane-control" aria-label={label} title={label} onClick={onClick}><Icon aria-hidden="true" /></button>;
+// The collections rail and the list pane get different glyphs so their controls are never confused when they sit side by side.
+export function PaneControl({ pane, label, action, onClick }: { pane: "collections" | "list"; label: string; action: "show" | "hide"; onClick: () => void }) {
+  const icon = pane === "collections" ? <Sidebar aria-hidden="true" /> : <ArrowLineLeft aria-hidden="true" mirrored={action === "show"} />;
+  return <button className="icon-button desktop-pane-control" aria-label={label} title={label} onClick={onClick}>{icon}</button>;
 }
 
 export function PaneResizeHandle({ className, label, value, min, max, direction = "forward", onChange, onReset, onDragChange }: {

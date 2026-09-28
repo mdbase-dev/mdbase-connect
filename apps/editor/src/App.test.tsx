@@ -448,7 +448,7 @@ describe("mdbase editor", () => {
     expect(screen.getAllByRole("option")).toHaveLength(3);
 
     const collection = screen.getByRole("complementary", { name: "Collection navigation" });
-    await user.click(within(collection).getByRole("button", { name: /^Notes, / }));
+    await user.click(within(collection).getByRole("button", { name: /^All notes, / }));
     await user.click(screen.getByText("The shape of useful tools", { selector: ".note-title" }));
     await user.click(screen.getByRole("button", { name: "Backlinks" }));
     const backlinks = screen.getByRole("complementary", { name: "Backlinks" });

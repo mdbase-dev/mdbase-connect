@@ -851,7 +851,7 @@ button.danger:disabled {
 }
 
 .connect-feedback-field textarea { min-height: 150px; resize: vertical; line-height: 1.5; }
-.connect-feedback-count { justify-self: end; margin-top: -10px; color: var(--faint); font-family: var(--mono); font-size: 0.68rem; }
+.connect-feedback-count { justify-self: end; margin-top: -10px; color: var(--faint); font-family: var(--mono); font-size: 11px; }
 
 .connect-feedback-upload {
   min-height: 38px;

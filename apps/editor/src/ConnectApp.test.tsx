@@ -73,7 +73,7 @@ describe("ConnectApp", () => {
 
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
     const collectionNavigation = screen.getByRole("complementary", { name: "Collection navigation" });
-    expect(collectionNavigation).toHaveTextContent("Notes");
+    expect(collectionNavigation).toHaveTextContent("All notes");
     expect(collectionNavigation).toHaveTextContent("Types");
     expect(collectionNavigation).toHaveTextContent("Settings");
     expect(collectionNavigation).toHaveTextContent("Manage");
@@ -82,7 +82,7 @@ describe("ConnectApp", () => {
     expect(screen.getByRole("region", { name: "Garden notes" })).toBeInTheDocument();
     expect(screen.getByText("Account", { selector: "p" })).toBeInTheDocument();
 
-    const notes = screen.getByRole("link", { name: "Notes" });
+    const notes = screen.getByRole("link", { name: "All notes" });
     expect(new URL(notes.getAttribute("href")!).searchParams.get("collection")).toBe("collection");
 
     await user.click(screen.getByRole("link", { name: "Storage & sync" }));

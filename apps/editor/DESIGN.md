@@ -39,6 +39,7 @@ success, warning, and danger roles rather than fixed palette values.
 Atkinson Hyperlegible carries prose and controls. Azeret Mono is reserved for
 the lowercase mdbase wordmark, paths, types, and compact state labels. Note
 content is 17px with a relaxed 1.7 line height and a maximum readable measure.
+Interface text is never smaller than 11px.
 
 ## Identity
 
@@ -61,7 +62,7 @@ excerpt (the type's declared description field, else the opening prose), then
 time and folder; a declared type appears as a small badge, never in place of
 the folder. Search results are ordered by relevance without date groups.
 Types reuse the list-and-document rhythm; settings become one quiet
-document rather than a dashboard, with technical facts behind Details. In the collection rail, Notes, Types, and
+document rather than a dashboard, with technical facts behind Details. In the collection rail, All notes, Types, and
 Settings remain the primary editing group. Connect sits in a bottom-aligned
 Manage group above connection and account status, visibly secondary until a
 pending authorization count requires attention. Mobile presents each level as

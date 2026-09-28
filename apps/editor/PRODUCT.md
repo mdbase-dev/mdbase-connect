@@ -43,7 +43,7 @@ separates durable user-controlled data from the software used to work with it.
 The editor is primarily used in a desktop browser for sustained writing and
 collection maintenance. A collection may be hosted by mdbase or remain
 authoritative on a user's computer through mdbase Connect. The collection rail
-switches among Notes, Types, Settings, and the less-frequent Connect management
+switches among All notes, Types, Settings, and the less-frequent Connect management
 workspace. Mobile layouts present each navigation level as a separate screen.
 
 Users may also work with the same files through ordinary text editors, Obsidian,

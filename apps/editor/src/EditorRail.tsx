@@ -53,7 +53,7 @@ export function EditorRail({
     <nav>
       {mobileReturn && <a className="mobile-editor-return" href={mobileReturn.href} onClick={mobileReturn.onClick}><span><ArrowLeft aria-hidden="true" />{mobileReturn.label}</span></a>}
       <button className="collection-name" aria-label={`Switch collection, current collection ${collectionName}`} onClick={onSwitch}><span>{collectionName}</span><ChevronDown aria-hidden="true" /></button>
-      <RailLink destination={notes} selected={surface === "notes"} label="Notes" ariaLabel={noteCount === undefined ? "Notes" : `Notes, ${noteCount} total`} icon={<Notebook aria-hidden="true" />} count={noteCount} />
+      <RailLink destination={notes} selected={surface === "notes"} label="All notes" ariaLabel={noteCount === undefined ? "All notes" : `All notes, ${noteCount.toLocaleString()} total`} icon={<Notebook aria-hidden="true" />} count={noteCount} />
       <RailLink destination={types} selected={surface === "types"} label="Types" ariaLabel={typeCount === undefined ? "Types" : `Types (${typeCount})`} icon={<Braces aria-hidden="true" />} count={typeCount} />
       <RailLink destination={settings} selected={surface === "settings"} label="Settings" icon={<Settings aria-hidden="true" />} />
       {children}
@@ -74,7 +74,7 @@ function RailLink({ destination, selected, label, ariaLabel, icon, count }: {
   icon: ReactNode;
   count?: number;
 }) {
-  const content = <><span>{icon}{label}</span>{count !== undefined && <small>{count}</small>}</>;
+  const content = <><span>{icon}{label}</span>{count !== undefined && <small>{count.toLocaleString()}</small>}</>;
   if (destination.href) {
     return <a className={`editor-rail-link${selected ? " selected" : ""}`} href={destination.href} aria-label={ariaLabel} aria-current={selected ? "page" : undefined}>{content}</a>;
   }

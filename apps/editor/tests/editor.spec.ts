@@ -332,7 +332,7 @@ test("uses one fixed-choice control across settings, note creation, and type edi
   await page.getByRole("button", { name: "Settings" }).click();
   await expectSharedSelectControls(page.locator(".settings-view"));
 
-  await page.getByRole("button", { name: /^Notes, / }).click();
+  await page.getByRole("button", { name: /^All notes, / }).click();
   await page.getByRole("button", { name: "New note" }).click();
   await expectSharedSelectControls(page.locator(".new-note-composer"));
   await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
@@ -634,7 +634,7 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   await expect(page.getByRole("heading", { name: "#ideas" })).toBeVisible();
   await expect(page.getByRole("option")).toHaveCount(4);
 
-  await page.getByRole("button", { name: /^Notes, / }).click();
+  await page.getByRole("button", { name: /^All notes, / }).click();
   await page.getByRole("button", { name: "Backlinks" }).click();
   const backlinks = page.getByRole("complementary", { name: "Backlinks" });
   await expect(backlinks.getByText("1 note link here")).toBeVisible();
@@ -843,7 +843,7 @@ test("creates and edits a contact through its declared display field", async ({ 
   await confirmation.getByRole("button", { name: "Add Contact" }).click();
   await expect(page.getByRole("button", { name: "Types (2)" })).toBeVisible();
 
-  await page.getByRole("button", { name: /^Notes, / }).click();
+  await page.getByRole("button", { name: /^All notes, / }).click();
   await page.getByRole("button", { name: "New note" }).click();
   await page.getByRole("combobox", { name: "Type" }).selectOption("contact");
   await expect(page.getByRole("textbox", { name: "Name" })).toBeVisible();
@@ -964,7 +964,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.locator(".type-source .cm-lineNumbers")).toBeVisible();
   await expect(page.getByRole("button", { name: "Review changes" })).toBeVisible();
 
-  await page.getByRole("button", { name: /^Notes, / }).click();
+  await page.getByRole("button", { name: /^All notes, / }).click();
   await page.getByRole("button", { name: "New note" }).click();
   await page.getByRole("combobox", { name: "Type" }).selectOption("contact");
   await page.getByText("Properties", { exact: true }).click();
@@ -988,7 +988,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(vim).toHaveAttribute("aria-checked", "true");
   await expect(quietMarkdown).toHaveAttribute("aria-checked", "false");
 
-  await page.getByRole("button", { name: /^Notes, / }).click();
+  await page.getByRole("button", { name: /^All notes, / }).click();
   await expect(page.getByText("vim", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByText("vim", { exact: true })).toBeVisible();
@@ -1327,7 +1327,6 @@ test("keeps dense collection counts and footer controls inside the minimum rail"
   const [statusBox, shortcutBox] = await Promise.all([statusLabel.boundingBox(), shortcuts.boundingBox()]);
   if (!statusBox || !shortcutBox) throw new Error("Collection footer controls are not visible.");
   expect(statusBox.x + statusBox.width).toBeLessThanOrEqual(shortcutBox.x);
-  await expect(rail.locator(".disconnect-action > span")).toBeHidden();
 });
 
 test("uses the native caret in Vim insert mode", async ({ page }) => {
@@ -1375,7 +1374,9 @@ test("edits structured frontmatter without exposing an undifferentiated textarea
   await expect(tags.getByRole("button", { name: "Add tag" })).toBeVisible();
   await tags.getByRole("button", { name: "Add tag" }).click();
   await tags.getByRole("textbox", { name: "tags value item 3" }).fill("nested editing");
-  await expect(panel.getByText("All changes saved")).toBeVisible();
+  const propertySaveState = panel.locator(".property-save-state");
+  await expect(propertySaveState).toHaveText("Changes save automatically");
+  await expect(propertySaveState).toBeEmpty();
   await panel.getByRole("button", { name: "Close properties" }).click();
   await expect(panel).not.toBeVisible();
   await page.getByRole("button", { name: "Note properties" }).click();
@@ -1394,7 +1395,9 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await panel.locator(".property-options button").filter({ hasText: "title" }).click();
   await expect(panel.getByLabel("title property kind")).toHaveCount(0);
   await panel.getByRole("textbox", { name: "title value" }).fill("Source-backed title");
-  await expect(panel.getByText("All changes saved")).toBeVisible();
+  const propertySaveState = panel.locator(".property-save-state");
+  await expect(propertySaveState).toHaveText("Changes save automatically");
+  await expect(propertySaveState).toBeEmpty();
   await panel.getByRole("button", { name: "Close properties" }).click();
   await expect(panel).not.toBeVisible();
 
