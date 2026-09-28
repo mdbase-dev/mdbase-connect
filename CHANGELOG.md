@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Saved views are records whose type implements the `mdbase.view` contract
+  (mdbase-rs `0d96ad4`, spec `1e147ca`), not records named or typed `view`.
+  Applications that save views provision the `mdbase.view` pack during
+  collection setup and write views with ordinary record permissions.
+  `type: view` records with no implementing type are no longer listed or run
+  until the pack is installed. Single-record writes also work again after
+  installing a pack whose schemas live outside `_schemas/`.
+- Hosted canonical views page while the projection is being rebuilt after a
+  definition change, instead of failing with a provider error (provider
+  migration 44).
+- The Editor's interface text is at least 11px, the outline button sits with
+  the note bar's other controls, and pane controls are distinct.
 - The Editor's "Your person record" panel explains when the Editor was not
   approved to read your account identity (grants approved before portable
   people record no People permissions) and offers to review the Editor's
