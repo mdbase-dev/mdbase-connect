@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The Editor's "Your person record" panel explains when the Editor was not
+  approved to read your account identity (grants approved before portable
+  people record no People permissions) and offers to review the Editor's
+  access for the collection, instead of a retry that could not succeed.
+- When collection setup needs type-pack review, the error names the conflict
+  (for example "_types/task.md: Seed upgrade conflicts with customized
+  setting …") instead of "the type pack requires review".
+- Collections use mdbase-rs `88d4a21`: a type pack defers to another pack that
+  manages identical bytes for the same file, so mdbase Reader and mdbase
+  writer can both be set up on one collection.
 - Added portable people. An application can declare
   `people: { version: 1, required?: [...], optional?: [...] }` in its manifest
   to ask for `identity` (the signed-in account's name and a stable
