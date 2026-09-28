@@ -200,5 +200,5 @@ export function moveMenuFocus(event: KeyboardEvent, menu: HTMLElement | null): v
       : inField
         ? 0
         : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-  items[next]?.focus();
+  items[next]?.focus({ preventScroll: true });
 }
