@@ -15,7 +15,7 @@ import {
   clone,
   explicitTypes
 } from "./sync-values.js";
-import { parseMarkdown, projectionMarkdownDocument } from "./mirror-format.js";
+import { parseRecordDocument, projectionMarkdownDocument } from "./mirror-format.js";
 
 export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
   private operationGate: Promise<void> = Promise.resolve();
@@ -422,7 +422,7 @@ function applyPendingOverlay<Frontmatter extends JsonObject>(
   const records = clone(authorityRecords);
   for (const mutation of pending) {
     if (mutation.operation === "put") {
-      const parsed = parseMarkdown(mutation.document, mutation.path);
+      const parsed = parseRecordDocument(mutation.document, mutation.path);
       records[mutation.record_id] = {
         record_id: mutation.record_id,
         path: mutation.path,

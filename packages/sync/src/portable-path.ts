@@ -39,3 +39,15 @@ export function portableMirrorPathKeyForValidatedPath(path: string): string {
   }
   return path.normalize("NFC").toLowerCase().normalize("NFC");
 }
+
+/**
+ * Record extensions a remote mirror may materialize: Markdown notes and
+ * Obsidian Bases stored as YAML document records. This is fixed product
+ * policy; collection configuration cannot extend it.
+ */
+const MIRROR_RECORD_EXTENSIONS = ["md", "base"] as const;
+
+export function hasMirrorRecordExtension(path: string, options: { ignoreCase?: boolean } = {}): boolean {
+  const candidate = options.ignoreCase ? path.toLowerCase() : path;
+  return MIRROR_RECORD_EXTENSIONS.some((extension) => candidate.endsWith(`.${extension}`));
+}

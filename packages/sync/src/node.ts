@@ -20,6 +20,7 @@ import type {
 import type { SyncTransport } from "./index.js";
 import { SyncError } from "./index.js";
 import { applySyncJournalEvent, type SyncJournalEvent } from "./sync-journal.js";
+import { hasMirrorRecordExtension } from "./portable-path.js";
 import {
   DirectoryMirror as PortableDirectoryMirror,
   WritableDirectoryMirror as PortableWritableDirectoryMirror,
@@ -376,7 +377,7 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
         if (hiddenOrReservedMirrorEntry(entry.name)) continue;
         const path = join(directory, entry.name);
         if (entry.isDirectory()) await visit(path);
-        else if (entry.isFile() && entry.name.endsWith(".md")) {
+        else if (entry.isFile() && hasMirrorRecordExtension(entry.name)) {
           const pathValue = relative(root, path).split(sep).join("/");
           if (!excluded.has(pathValue)) files.push(pathValue);
         }
@@ -395,7 +396,7 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
         if (hiddenOrReservedMirrorEntry(entry.name)) continue;
         const path = join(directory, entry.name);
         if (entry.isDirectory()) await visit(path);
-        else if (entry.isFile() && !entry.name.toLowerCase().endsWith(".md")) {
+        else if (entry.isFile() && !hasMirrorRecordExtension(entry.name, { ignoreCase: true })) {
           const value = relative(root, path).split(sep).join("/");
           if (!excluded.has(value)) files.push(value);
         }
