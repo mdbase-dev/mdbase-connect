@@ -13,6 +13,7 @@ import { useMemo } from "react";
 import { initialContractSetupChoice } from "./application-setup";
 import type { ApplicationFileAction, PendingAuthorization } from "./api";
 import { HIGHER_IMPACT_FILE_ACTIONS, HIGHER_IMPACT_PEOPLE_PERMISSIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities";
+import { Select } from "@mdbase-dev/ui/select";
 
 type FileRequirements = NonNullable<PendingAuthorization["requirements"]["files"]>;
 type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement;
@@ -300,9 +301,13 @@ export function ContractSetupEditor({
       {value.mode === "existing" && canGuideExistingType && <div className="contract-mapping">
         <label className="contract-type-choice">
           <span>Existing type</span>
-          <select value={value.typeName} disabled={disabled} onChange={(event) => selectType(event.target.value)}>
-            {suggestions.map((suggestion, index) => <option value={suggestion.type.name} key={suggestion.type.name}>{suggestion.type.name}{index === 0 && suggestion.requiredMatched === suggestion.requiredTotal ? " · suggested" : ""}</option>)}
-          </select>
+          <Select
+            aria-label="Existing type"
+            value={value.typeName}
+            disabled={disabled}
+            options={suggestions.map((suggestion, index) => ({ value: suggestion.type.name, label: `${suggestion.type.name}${index === 0 && suggestion.requiredMatched === suggestion.requiredTotal ? " · suggested" : ""}` }))}
+            onChange={selectType}
+          />
         </label>
         <div className="contract-field-list">{fields.map((field) => {
           const mapped = value.fields[field.reference] ?? "";
@@ -310,15 +315,22 @@ export function ContractSetupEditor({
           const assessment = assessMapping(field, typeField);
           return <label key={field.reference}>
             <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? `The application’s ${field.label.toLocaleLowerCase()} value.`}</small></span>
-            <select value={mapped} disabled={disabled} aria-invalid={assessment.level === "error"} onChange={(event) => {
-              const next = { ...value.fields };
-              if (event.target.value) next[field.reference] = event.target.value;
-              else delete next[field.reference];
-              onChange({ ...value, fields: next });
-            }}>
-              <option value="">{field.required ? "Choose a field" : "Do not share"}</option>
-              {availableFields.map((candidate) => <option key={candidate.reference} value={candidate.reference}>{candidate.label}</option>)}
-            </select>
+            <Select
+              aria-label={field.label}
+              value={mapped}
+              disabled={disabled}
+              aria-invalid={assessment.level === "error"}
+              options={[
+                { value: "", label: field.required ? "Choose a field" : "Do not share" },
+                ...availableFields.map((candidate) => ({ value: candidate.reference, label: candidate.label }))
+              ]}
+              onChange={(chosen) => {
+                const next = { ...value.fields };
+                if (chosen) next[field.reference] = chosen;
+                else delete next[field.reference];
+                onChange({ ...value, fields: next });
+              }}
+            />
             <small className={`mapping-assessment ${assessment.level}`}>{assessment.label} · {assessment.message}</small>
           </label>;
         })}</div>
@@ -342,10 +354,14 @@ function SchemaInput({ field, required, value, disabled, onChange }: {
   const options = Array.isArray(field.schema.enum) ? field.schema.enum : undefined;
   return <label>
     <span>{field.label}{required ? " *" : ""}</span>
-    {options ? <select value={value === undefined ? "" : String(value)} disabled={disabled} onChange={(event) => onChange(options.find((option) => String(option) === event.target.value))}>
-      <option value="">Choose</option>
-      {options.map((option) => <option key={String(option)} value={String(option)}>{String(option)}</option>)}
-    </select> : field.kind === "boolean" ? <input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input
+    {options ? <Select
+      aria-label={field.label}
+      value={value === undefined ? "" : String(value)}
+      disabled={disabled}
+      placeholder="Choose"
+      options={options.map((option) => ({ value: String(option), label: String(option) }))}
+      onChange={(chosen) => onChange(options.find((option) => String(option) === chosen))}
+    /> : field.kind === "boolean" ? <input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input
       type={field.kind === "number" || field.kind === "integer" ? "number" : "text"}
       value={typeof value === "string" || typeof value === "number" ? value : ""}
       disabled={disabled}

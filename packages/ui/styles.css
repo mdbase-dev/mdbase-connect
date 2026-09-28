@@ -1,5 +1,6 @@
 @import "@mdbase-dev/ui/tokens.css";
 @import "@mdbase-dev/ui/brand.css";
+@import "@mdbase-dev/ui/controls.css";
 
 :root {
   color: var(--ink);
@@ -49,106 +50,16 @@ select {
   font: inherit;
 }
 
-.theme-menu {
-  position: relative;
-  display: inline-flex;
-  justify-self: end;
-}
 
-.theme-menu-trigger {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: var(--muted);
-  background: transparent;
-  cursor: pointer;
-  transition: color 160ms var(--ease), background-color 160ms var(--ease), border-color 160ms var(--ease);
-}
 
-.theme-menu-trigger:hover,
-.theme-menu-trigger[aria-expanded="true"] {
-  border-color: var(--line);
-  color: var(--ink);
-  background: var(--hover);
-}
 
-.theme-glyph {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.45;
-}
 
-.theme-menu-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 40;
-  width: 138px;
-  display: grid;
-  gap: 1px;
-  padding: 4px;
-  border: 1px solid var(--line-strong);
-  border-radius: 5px;
-  background: var(--paper);
-  box-shadow: 0 10px 24px color-mix(in oklch, var(--ink) 10%, transparent);
-}
 
-.theme-menu-up .theme-menu-popover {
-  top: auto;
-  bottom: calc(100% + 6px);
-}
 
-.theme-menu-option {
-  width: 100%;
-  min-height: 32px;
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 14px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 3px;
-  color: var(--ink-soft);
-  background: transparent;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
 
-.theme-menu-option:hover,
-.theme-menu-option:focus-visible {
-  color: var(--ink);
-  background: var(--hover);
-}
 
-.theme-menu-option[aria-checked="true"] {
-  color: var(--ink);
-  font-weight: 700;
-}
 
-.theme-menu-check {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  opacity: 0;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.6;
-}
 
-.theme-menu-option[aria-checked="true"] .theme-menu-check {
-  opacity: 1;
-}
 
 button:focus-visible,
 input:focus-visible,
@@ -621,3 +532,6 @@ code,
     animation-duration: 0.001ms !important;
   }
 }
+
+/* The theme control is chrome, not a form field: its border shows only when it is used. */
+.theme-select.mdbase-select:not(:hover, [aria-expanded="true"]) { border-color: transparent; }

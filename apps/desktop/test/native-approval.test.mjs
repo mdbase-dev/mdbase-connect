@@ -3,18 +3,28 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { transform } from "esbuild";
+import { createRequire } from "node:module";
+import { build, transform } from "esbuild";
 import { hasSupportedCapabilityDeclaration, requestCapabilityGroups } from "../src/renderer/application-capabilities.ts";
 
 // Render the real consent component without Electron, a browser, or network.
+// The shared Select, bundled against this app's React as Vite's dedupe does for the renderer.
+const selectBundle = await build({
+  stdin: { contents: 'export { Select } from "@mdbase-dev/ui/select";', resolveDir: new URL(".", import.meta.url).pathname },
+  bundle: true, format: "cjs", platform: "node", external: ["react", "react-dom"], write: false
+});
+const selectModule = { exports: {} };
+new Function("require", "module", "exports", selectBundle.outputFiles[0].text)(createRequire(import.meta.url), selectModule, selectModule.exports);
+const { Select } = selectModule.exports;
 const source = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
 const component = source.slice(source.indexOf("function PortalApprovalRequest("), source.indexOf("\nfunction ApplicationGrantGroup("));
 const compiled = await transform(component, { loader: "tsx", format: "cjs" });
-const Approval = new Function("React", "useState", "hasSupportedCapabilityDeclaration", "requestCapabilityGroups", "host", "relativeTime", "RequestPermissionChoices", "NotificationAccess", `${compiled.code}; return PortalApprovalRequest;`)(
+const Approval = new Function("React", "useState", "hasSupportedCapabilityDeclaration", "requestCapabilityGroups", "host", "relativeTime", "RequestPermissionChoices", "NotificationAccess", "Select", `${compiled.code}; return PortalApprovalRequest;`)(
   React, React.useState, hasSupportedCapabilityDeclaration, requestCapabilityGroups,
   () => "example.test", () => "in ten minutes",
   ({ groups }) => React.createElement("span", null, groups.map((group) => group.label).join(" · ")),
-  () => null
+  () => null,
+  Select
 );
 const collection = { id: "local", display_name: "Notes", enabled: true };
 const request = {
@@ -34,7 +44,8 @@ test("native consent names the local collection, full scope, capabilities, revoc
   assert.match(html, /Entire collection/);
   assert.match(html, /Read this collection/);
   assert.match(html, /until revoked/);
-  assert.match(html, /<option value="local" selected="">Notes/);
+  assert.match(html, /role="combobox"[^>]*data-value="local"/);
+  assert.match(html, /<span class="mdbase-select-value">Notes<\/span>/);
   assert.match(html, />Deny<\/button>/);
   assert.match(html, /<button class="button primary">Allow Reader<\/button>/);
   assert.doesNotMatch(html, /Review in Connect/);
@@ -43,7 +54,9 @@ test("native consent names the local collection, full scope, capabilities, revoc
 test("multiple collections require explicit selection", () => {
   const html = render({ compatible_collection_ids: ["local", "second"] }, [collection, { ...collection, id: "second" }]);
   assert.match(html, /<button class="button primary" disabled="">Allow Reader/);
-  assert.match(html, /<option value="" disabled="" selected="">Choose a collection/);
+  // No collection is chosen until the person picks one; the placeholder is not an option.
+  assert.match(html, /role="combobox"[^>]*data-value=""/);
+  assert.match(html, /<span class="mdbase-select-value is-empty">Choose a collection<\/span>/);
 });
 
 for (const [name, overrides, collections] of [

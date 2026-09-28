@@ -12,6 +12,7 @@ import {
   writeTransferProgress,
   type AuthorityTransferReceipt
 } from "./onboarding-state.mjs";
+import { Select } from "@mdbase-dev/ui/select";
 
 const FILE_CLASS_OPTIONS: Array<{
   value: DesktopFileMediaClass;
@@ -679,7 +680,7 @@ function HostedCollectionRow({
           ) : (
             <div className="mirror-setup">
               <label><span>Folder</span><button type="button" className="folder-picker" onClick={() => void chooseMirrorFolder()}>{path || "Choose a folder…"}</button></label>
-              <label><span>How should it sync?</span><select value={mode} onChange={(event) => setMode(event.target.value as "read_only" | "read_write")}><option value="read_write">Sync edits both ways</option><option value="read_only">Download updates only</option></select></label>
+              <label><span>How should it sync?</span><Select aria-label="How should it sync?" value={mode} options={[{ value: "read_write", label: "Sync edits both ways" }, { value: "read_only", label: "Download updates only" }] as const} onChange={setMode} /></label>
               <button className="button primary" disabled={busy || !path} onClick={() => void onAct(async () => {
                 await window.mdbaseConnect.connectMirror({ collectionId: collection.id, path, mode, selectiveSync: syncPolicy });
                 setPath("");
