@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CollectionDescription, JsonObject, PeopleDirectory, PersonResolution, TypePackAssessment, TypePackProvision } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription, type JsonObject, type PeopleDirectory, type PersonResolution, type TypePackAssessment, type TypePackProvision } from "@mdbase-dev/connect";
 import type { CollectionGateway, CreateNoteInput } from "./model";
 import { NewNoteComposer } from "./NewNoteComposer";
 import { claimedByAnotherAccount, contactCandidates, contactPersonPatch, identityPatch, newPersonProperties, personImplementations, writablePersonImplementation, type ContactCandidate } from "./person-records";
@@ -27,6 +27,8 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // The grant predates People consent or the optional identity permission was declined.
+  const [identityDenied, setIdentityDenied] = useState(false);
   const [revision, setRevision] = useState(0);
   const [setup, setSetup] = useState<{ provision: TypePackProvision; assessment: TypePackAssessment; controller: AbortController }>();
   const setupPanel = useRef<HTMLElement>(null);
@@ -51,7 +53,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   useEffect(() => {
     const controller = new AbortController();
     lifecycle.current = controller;
-    setDirectory(undefined); setContacts([]); setConversion(undefined); setSetup(undefined); setError(""); setConfirmClaimed(false);
+    setDirectory(undefined); setContacts([]); setConversion(undefined); setSetup(undefined); setError(""); setIdentityDenied(false); setConfirmClaimed(false);
     void (async () => {
       try {
         if (!gateway.peopleDirectory) throw new Error("This collection has no Connect account identity.");
@@ -60,11 +62,25 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
         if (controller.signal.aborted) return;
         setDirectory(next); setContacts(candidates);
       } catch (reason) {
-        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load people.");
+        if (controller.signal.aborted) return;
+        if (reason instanceof MdbaseConnectError && reason.code === "access_denied") setIdentityDenied(true);
+        else setError(reason instanceof Error ? reason.message : "Could not load people.");
       }
     })();
     return () => controller.abort();
   }, [gateway, description, revision]);
+
+  async function allowIdentity() {
+    setBusy(true);
+    try {
+      await gateway.authorize("selected", { presentation: "popup" });
+      setRevision((value) => value + 1);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The Editor was not approved.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function assertCurrent() {
     const snapshot = gateway.sessionSnapshot();
@@ -183,7 +199,8 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   return <section ref={panel} id="your-person" tabIndex={-1} aria-label="Your person record">
     <div className="settings-intro"><h2>Your person record</h2><p>Represent yourself using an ordinary note in this collection. This does not change access or membership.</p></div>
     {error && <p role="alert">{error}</p>}
-    {!records && !error && <p role="status">Loading your identity and person records…</p>}
+    {identityDenied && <div className="connect-row"><div><strong>Allow the Editor to see your account identity</strong><small>The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”.</small></div><button type="button" disabled={busy} onClick={() => void allowIdentity()}>{busy ? "Waiting for approval…" : "Review access"}</button></div>}
+    {!records && !error && !identityDenied && <p role="status">Loading your identity and person records…</p>}
     {error && <button type="button" onClick={() => setRevision((value) => value + 1)}>Retry</button>}
     {linked && <p>Linked to <strong>{linked.name}</strong> · <code>{linked.path}</code>. Edit this note to change its collection display name or identity associations.</p>}
     {directory && <ResolutionProblem resolution={directory.me} />}

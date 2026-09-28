@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import type { CollectionDescription } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription } from "@mdbase-dev/connect";
 import type { CollectionGateway, NoteSummary } from "./model";
 import { YourPersonPanel } from "./YourPersonPanel";
 import { peopleGateway } from "./test/people-gateway";
@@ -116,4 +116,22 @@ it("asks for confirmation before linking a record another account claims", async
   fireEvent.click(screen.getByRole("button", { name: "Link this record to me" }));
   fireEvent.click(await screen.findByRole("button", { name: "Link anyway" }));
   await waitFor(() => expect(f.gateway.updateProperties).toHaveBeenCalledOnce());
+});
+it("offers to review access when the grant does not include the account identity", async () => {
+  const f = fixture();
+  const allowed = f.gateway.peopleDirectory;
+  let approved = false;
+  const gateway = {
+    ...f.gateway,
+    peopleDirectory: vi.fn(async (options?: { signal?: AbortSignal }) => {
+      if (!approved) throw new MdbaseConnectError({ code: "access_denied", message: "This application was not approved to read this identity information.", category: "authorization", recovery: "reauthorize" } as never);
+      return allowed(options);
+    }),
+    authorize: vi.fn(async () => { approved = true; })
+  };
+  render(<YourPersonPanel gateway={gateway as unknown as CollectionGateway} description={description} canCreate canEdit />);
+  fireEvent.click(await screen.findByRole("button", { name: "Review access" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+  await waitFor(() => expect(gateway.authorize).toHaveBeenCalledWith("selected", { presentation: "popup" }));
+  await screen.findByRole("combobox", { name: "Existing person or contact" });
 });
