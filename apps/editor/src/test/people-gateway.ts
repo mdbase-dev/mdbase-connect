@@ -1,4 +1,4 @@
-import { MdbasePeopleClient, type AccountProfile, type CollectionDescription, type DataContractSelector, type JsonObject } from "@mdbase-dev/connect";
+import { MdbaseConnectError, MdbasePeopleClient, type AccountProfile, type CollectionDescription, type DataContractSelector, type JsonObject } from "@mdbase-dev/connect";
 import { connectSuccess } from "@mdbase-dev/connect/advanced";
 import { readFieldReference } from "../field-reference";
 import type { NoteSummary } from "../model";
@@ -32,7 +32,7 @@ export function peopleGateway(account: AccountProfile, description: () => Collec
     queryContract,
     peopleDirectory: async (options?: { signal?: AbortSignal }) => {
       const outcome = await people.directory({ members: "omit", signal: options?.signal });
-      if (!outcome.ok) throw new Error(outcome.problem.message);
+      if (!outcome.ok) throw new MdbaseConnectError(outcome.problem);
       return outcome.value;
     }
   };
