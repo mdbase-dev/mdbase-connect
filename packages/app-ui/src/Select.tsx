@@ -34,9 +34,9 @@ export interface SelectProps<Value extends string> extends TriggerAttributes {
   readonly options: SelectItems<Value>;
   readonly onChange: (value: Value) => void;
   /** Shown while the value matches no option, like a native select's disabled first option. */
-  readonly placeholder?: string;
+  readonly placeholder?: string | undefined;
   /** The trigger button, for focusing the control from elsewhere. */
-  readonly ref?: Ref<HTMLButtonElement>;
+  readonly ref?: Ref<HTMLButtonElement> | undefined;
 }
 
 /**

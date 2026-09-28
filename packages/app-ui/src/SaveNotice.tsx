@@ -21,8 +21,8 @@ const defaultLabels: Record<SaveTone, string> = {
  */
 export function SaveNotice({ tone, label = defaultLabels[tone], className }: {
   readonly tone: SaveTone;
-  readonly label?: string;
-  readonly className?: string;
+  readonly label?: string | undefined;
+  readonly className?: string | undefined;
 }): JSX.Element {
   return <span
     className={["mdbase-save-notice", `is-${tone}`, tone === "saved" && "mdbase-settle", className].filter(Boolean).join(" ")}

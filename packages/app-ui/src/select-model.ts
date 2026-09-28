@@ -1,7 +1,7 @@
 export interface SelectOption<Value extends string = string> {
   readonly value: Value;
   readonly label: string;
-  readonly disabled?: boolean;
+  readonly disabled?: boolean | undefined;
 }
 
 export interface SelectOptionGroup<Value extends string = string> {
@@ -15,7 +15,7 @@ export type SelectItems<Value extends string = string> = readonly (
 
 export interface FlatSelectOption<Value extends string = string> extends SelectOption<Value> {
   /** The group heading this option sits under, if any. */
-  readonly group?: string;
+  readonly group?: string | undefined;
 }
 
 export function isOptionGroup<Value extends string>(

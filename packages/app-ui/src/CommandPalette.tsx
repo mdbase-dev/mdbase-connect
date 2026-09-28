@@ -3,15 +3,15 @@ import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type Keyboard
 export interface Command {
   readonly id: string;
   readonly label: string;
-  readonly detail?: string;
+  readonly detail?: string | undefined;
   /** Commands show under their group's heading, in the order the groups first appear. */
   readonly group: string;
-  readonly keywords?: string;
+  readonly keywords?: string | undefined;
   /** For example "mod+shift+f"; see shortcutLabel. */
-  readonly shortcut?: string;
+  readonly shortcut?: string | undefined;
   readonly run: () => void;
   /** A variant run with Shift+Enter or Shift+click, such as opening beside the document. */
-  readonly alternate?: { readonly label: string; readonly run: () => void };
+  readonly alternate?: { readonly label: string; readonly run: () => void } | undefined;
 }
 
 export function isApplePlatform(): boolean {
@@ -71,9 +71,9 @@ export function CommandPalette({ open, commands, onClose, label = "Commands", pl
   readonly open: boolean;
   readonly commands: readonly Command[];
   readonly onClose: () => void;
-  readonly label?: string;
-  readonly placeholder?: string;
-  readonly showAll?: readonly string[];
+  readonly label?: string | undefined;
+  readonly placeholder?: string | undefined;
+  readonly showAll?: readonly string[] | undefined;
 }): JSX.Element | null {
   return open ? <OpenCommandPalette commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} /> : null;
 }
@@ -83,7 +83,7 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: 
   readonly onClose: () => void;
   readonly label: string;
   readonly placeholder: string;
-  readonly showAll?: readonly string[];
+  readonly showAll?: readonly string[] | undefined;
 }): JSX.Element {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);

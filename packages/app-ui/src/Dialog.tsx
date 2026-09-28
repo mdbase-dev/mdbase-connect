@@ -8,7 +8,7 @@ export function Dialog({ open, onClose, title, className, children }: {
   readonly open: boolean;
   readonly onClose: () => void;
   readonly title: string;
-  readonly className?: string;
+  readonly className?: string | undefined;
   readonly children: ReactNode;
 }): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);

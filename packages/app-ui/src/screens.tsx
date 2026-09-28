@@ -10,9 +10,9 @@ import { Wordmark } from "./brand.js";
 export function OpeningScreen({ app, title, detail, error, onRetry }: {
   readonly app: MdbaseAppId;
   readonly title: string;
-  readonly detail?: string;
-  readonly error?: string | null;
-  readonly onRetry?: () => void;
+  readonly detail?: string | undefined;
+  readonly error?: string | null | undefined;
+  readonly onRetry?: (() => void) | undefined;
 }): JSX.Element {
   return <main className="mdbase-opening" data-loading-state={error ? "failed" : "opening"} aria-label={title} aria-busy={!error}>
     <div className="mdbase-opening-message" role={error ? "alert" : "status"}>
@@ -34,12 +34,12 @@ export function OpeningScreen({ app, title, detail, error, onRetry }: {
 export function ConnectLayout({ app, title, lead, status, error, detail, footnote, children }: {
   readonly app: MdbaseAppId;
   readonly title: ReactNode;
-  readonly lead?: ReactNode;
-  readonly status?: string | null;
-  readonly error?: string | null;
-  readonly detail?: string | null;
-  readonly footnote?: ReactNode;
-  readonly children?: ReactNode;
+  readonly lead?: ReactNode | undefined;
+  readonly status?: string | null | undefined;
+  readonly error?: string | null | undefined;
+  readonly detail?: string | null | undefined;
+  readonly footnote?: ReactNode | undefined;
+  readonly children?: ReactNode | undefined;
 }): JSX.Element {
   return <main className="mdbase-connect-screen">
     <section>

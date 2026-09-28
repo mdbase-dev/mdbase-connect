@@ -12,7 +12,7 @@ export function AppSwitcher({ current, urls = {}, motion }: {
   readonly current: MdbaseAppId;
   /** Lab and local builds, for example `{ writer: import.meta.env.VITE_MDBASE_WRITER_URL }`. */
   readonly urls?: Partial<Record<MdbaseAppId, string | undefined>>;
-  readonly motion?: MdbaseMarkMotion;
+  readonly motion?: MdbaseMarkMotion | undefined;
 }): JSX.Element {
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);

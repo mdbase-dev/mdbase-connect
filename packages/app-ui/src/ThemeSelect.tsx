@@ -13,8 +13,8 @@ const themeOptions = themePreferences.map((value) => ({ value, label: themeLabel
 export function ThemeSelect({ value, onChange, className, label = "Color theme" }: {
   readonly value: ThemePreference;
   readonly onChange: (value: ThemePreference) => void;
-  readonly className?: string;
-  readonly label?: string;
+  readonly className?: string | undefined;
+  readonly label?: string | undefined;
 }): JSX.Element {
   return <Select aria-label={label} className={className} value={value} options={themeOptions} onChange={onChange} />;
 }

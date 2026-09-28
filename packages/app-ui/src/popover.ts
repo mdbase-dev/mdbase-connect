@@ -121,13 +121,13 @@ export function useSelectPopover(
 
 export interface MenuPopoverOptions {
   /** Preferred width; narrow viewports shrink it. Omit it to leave the width to CSS. */
-  readonly width?: number;
+  readonly width?: number | undefined;
   /** Which edge of the trigger the menu lines up with. */
-  readonly align?: "start" | "end";
+  readonly align?: "start" | "end" | undefined;
   /** Element focused when the menu opens; the menu itself when nothing matches. */
-  readonly focus?: string;
+  readonly focus?: string | undefined;
   /** While true, outside presses, Escape and Tab leave the menu open (an action is running). */
-  readonly busy?: boolean;
+  readonly busy?: boolean | undefined;
 }
 
 /**
