@@ -4,7 +4,6 @@ pub(super) struct RuntimeExecution {
     /// Authoritative semantic result. The v0.3 envelope is produced only by
     /// `operation_response_value` at the Connect compatibility boundary.
     pub(super) operation: mdbase::runtime::CanonicalOperationOutcome,
-    pub(super) outcome: Option<mdbase::runtime::ExecutionOutcome>,
 }
 
 pub(super) fn v03_operation_result(
@@ -16,7 +15,17 @@ pub(super) fn v03_operation_result(
 pub(super) fn operation_response_value(
     operation: &mdbase::runtime::CanonicalOperationOutcome,
 ) -> Result<Value, ConnectError> {
-    serde_json::to_value(v03_operation_result(operation)).map_err(Into::into)
+    // Move the result payload into the response instead of re-serializing it;
+    // it is the whole query page for reads.
+    let envelope = v03_operation_result(operation);
+    let mut response = serde_json::Map::new();
+    response.insert("valid".to_string(), Value::Bool(envelope.valid));
+    response.insert(
+        "diagnostics".to_string(),
+        serde_json::to_value(envelope.diagnostics)?,
+    );
+    response.insert("result".to_string(), envelope.result);
+    Ok(Value::Object(response))
 }
 
 struct ScopedRuntimePlan {
@@ -53,8 +62,7 @@ pub(super) fn execute_runtime_request(
     if !request.operation.is_mutation() {
         let outcome = runtime.execute_typed_with_context(request, context)?;
         return Ok(RuntimeExecution {
-            operation: outcome.operation.clone(),
-            outcome: Some(outcome),
+            operation: outcome.operation,
         });
     }
     // All callers hold the collection mutation gate. Reconcile only claims
@@ -85,8 +93,7 @@ fn execute_claimed_runtime_request(
     }
     match runtime.prepare_typed(request, claim, context)? {
         mdbase::runtime::PreparationOutcome::NoMutation(outcome) => Ok(RuntimeExecution {
-            operation: outcome.operation.clone(),
-            outcome: Some(outcome),
+            operation: outcome.operation,
         }),
         mdbase::runtime::PreparationOutcome::Prepared(prepared) => {
             finish_commit_attempt(runtime.commit(&prepared, context)?)
@@ -105,8 +112,7 @@ pub(super) fn execute_runtime_read(
         QueryCursorAction::Ordinary => executor.with_foreground(context, |runtime| {
             let outcome = require_runtime(runtime)?.execute_typed_with_context(request, context)?;
             Ok(RuntimeExecution {
-                operation: outcome.operation.clone(),
-                outcome: Some(outcome),
+                operation: outcome.operation,
             })
         }),
         QueryCursorAction::Open => {
@@ -120,14 +126,12 @@ pub(super) fn execute_runtime_read(
             let page = executor.open_read(&request, scope_binding, context)?;
             Ok(RuntimeExecution {
                 operation: read_page_operation(page.operation, page.next),
-                outcome: None,
             })
         }
         QueryCursorAction::Page(cursor) => {
             let page = executor.read_page(cursor, scope_binding, context)?;
             Ok(RuntimeExecution {
                 operation: read_page_operation(page.operation, page.next),
-                outcome: None,
             })
         }
         QueryCursorAction::Release(cursor) => {
@@ -136,7 +140,6 @@ pub(super) fn execute_runtime_read(
                 operation: mdbase::runtime::CanonicalOperationOutcome::cursor_release(
                     mdbase::runtime::CursorReleaseOutcome { released: true },
                 ),
-                outcome: None,
             })
         }
     }
@@ -225,14 +228,12 @@ fn resolve_runtime_execution(
             }
             mdbase::runtime::DurableCommitState::Committed { outcome } => {
                 return Ok(RuntimeExecution {
-                    operation: outcome.operation.clone(),
-                    outcome: Some(outcome),
+                    operation: outcome.operation,
                 });
             }
             mdbase::runtime::DurableCommitState::RejectedBeforeCommit { rejection } => {
                 return Ok(RuntimeExecution {
                     operation: rejection.operation,
-                    outcome: None,
                 });
             }
             mdbase::runtime::DurableCommitState::CancelledBeforeCommit => {
@@ -256,13 +257,11 @@ fn finish_commit_attempt(
 ) -> Result<RuntimeExecution, ConnectError> {
     match attempt {
         mdbase::runtime::CommitAttempt::Committed(outcome) => Ok(RuntimeExecution {
-            operation: outcome.operation.clone(),
-            outcome: Some(outcome),
+            operation: outcome.operation,
         }),
         mdbase::runtime::CommitAttempt::RejectedBeforeCommit { rejection } => {
             Ok(RuntimeExecution {
                 operation: rejection.operation,
-                outcome: None,
             })
         }
         mdbase::runtime::CommitAttempt::SettlementPending { commit_id } => Err(
@@ -395,10 +394,6 @@ impl CollectionRegistry {
                 &context,
             )?
         };
-        debug_assert!(execution
-            .outcome
-            .as_ref()
-            .is_none_or(|outcome| outcome.operation == execution.operation));
         let Some((resolved_scope, selector)) = plan.projection else {
             return operation_response_value(&execution.operation);
         };
