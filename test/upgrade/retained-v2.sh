@@ -75,7 +75,9 @@ retained_v2_run() (
       historical_provider_candidate
     elif [[ ${SKIP_CANDIDATE_BUILD:-false} != true ]]; then
       CANDIDATE_IMAGE=mdbase-connect-hosted-provider:v2-$run_id
-      docker build --file "$repo_root/deploy/docker/Dockerfile.hosted-provider" \
+      # --load keeps the candidate local when CI selects a docker-container
+      # builder for its restored Cargo cache mounts.
+      docker buildx build --load --file "$repo_root/deploy/docker/Dockerfile.hosted-provider" \
         --tag "$CANDIDATE_IMAGE" "$repo_root"
     fi
     # Ports are reserved by Docker for the DB and dynamically selected for host

@@ -10470,7 +10470,9 @@ async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {
     // and tells the caller to retry. A helper that unwraps them instead asserts
     // a stronger contract than production offers, and fails on ordinary
     // contention: the 230k fixture flaked exactly this way on a deadlock during
-    // generation start.
+    // generation start, and the write-through lifecycle test on a deadlock
+    // during resolution. Production's maintenance loop retries every phase on
+    // its next tick, so each phase here retries too.
     let generation = loop {
         match fixture
             .provider
@@ -10511,6 +10513,10 @@ async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {
                 tokio::time::sleep(Duration::from_millis(10)).await;
                 continue;
             }
+            Err(error) if error.code == "provider_database_retryable" => {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                continue;
+            }
             Err(error) => panic!("projection batch failed: {error:?}"),
         };
         if batch.generation.phase == "resolution" {
@@ -10539,6 +10545,10 @@ async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {
                     return generation.generation_id;
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
+            }
+            Err(error) if error.code == "provider_database_retryable" => {
+                tokio::time::sleep(Duration::from_millis(25)).await;
                 continue;
             }
             Err(error) => panic!("projection resolution failed: {error:?}"),

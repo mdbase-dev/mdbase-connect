@@ -24,6 +24,7 @@ on:
       - "packages/**"
       - "scripts/lib/package-headless-cli.test.mjs"
       - "scripts/package-headless-cli.mjs"
+      - "scripts/ci/smoke-headless-cli.sh"
       - "scripts/configure-windows-store-package.ps1"
       - "scripts/verify-windows-packages.ps1"
       - "pnpm-lock.yaml"
@@ -623,10 +624,8 @@ jobs:
             os: macos-15-intel
             platform: macos
             arch: x64
-          - label: Headless Windows smoke test
-            os: windows-2025
-            platform: windows
-            arch: x64
+          # Windows is exercised by windows-package-smoke, which already
+          # builds the same release CLI for the Store package.
           - label: Headless Linux smoke test
             os: ubuntu-24.04
             platform: linux
@@ -660,36 +659,20 @@ jobs:
           rustup toolchain install 1.94.0 --profile minimal
           rustup override set 1.94.0
 
+      # Restore only: rust-caches.yml saves from main.
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            mdbase-connect -> target
+          shared-key: mdbase-cli-release-${{ steps.mdbase_revision.outputs.revision }}
+          save-if: false
+
       - name: Build and exercise the standalone release
         shell: bash
         run: |
           cargo build --locked --release -p mdbase-cli
-          binary=target/release/mdbase
-          filename_mode=standard
-          executable_name=mdbase
-          if [ "${{ matrix.platform }}" = "windows" ]; then
-            binary=target/release/mdbase.exe
-            executable_name=mdbase.exe
-            filename_mode=unsigned-preview
-          elif [ "${{ matrix.platform }}" = "macos" ]; then
-            filename_mode=unsigned-preview
-          fi
-          version="$(node -p "require('./package.json').version")"
-          node scripts/package-headless-cli.mjs \
-            --platform "${{ matrix.platform }}" \
-            --arch "${{ matrix.arch }}" \
-            --version "$version" \
-            --binary "$binary" \
-            --output-directory headless-artifacts \
-            --filename-mode "$filename_mode"
-          archive="$(find headless-artifacts -type f -name '*.tar.gz' -print -quit)"
-          test -n "$archive"
-          mkdir headless-extracted
-          tar -xzf "$archive" -C headless-extracted
-          packaged_binary="$(find headless-extracted -type f -name "$executable_name" -print -quit)"
-          test -n "$packaged_binary"
-          "$packaged_binary" --help >/dev/null
-          "$packaged_binary" connect daemon run --help >/dev/null
+          scripts/ci/smoke-headless-cli.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
 
   cross-platform-release-tests:
     if: github.event_name != 'push'
@@ -775,6 +758,15 @@ jobs:
           rustup toolchain install 1.94.0 --profile minimal
           rustup override set 1.94.0
 
+      # Restore only: rust-caches.yml saves from main.
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            mdbase-connect -> target
+          shared-key: mdbase-cli-release-${{ steps.mdbase_revision.outputs.revision }}
+          save-if: false
+
       - name: Configure smoke-test Store identity
         shell: pwsh
         run: |
@@ -786,6 +778,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @mdbase/connect-desktop make
+
+      # make builds the same release CLI that headless-package-smoke builds
+      # on the other platforms.
+      - name: Exercise the standalone Windows release
+        if: github.event_name == 'workflow_dispatch' || needs.select-tests.outputs.headless == 'true'
+        shell: bash
+        run: scripts/ci/smoke-headless-cli.sh windows x64
 
       - name: Verify Windows package outputs
         shell: pwsh

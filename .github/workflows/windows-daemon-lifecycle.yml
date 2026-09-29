@@ -41,6 +41,20 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+      # Release CLIs build with 1.94.0; the lifecycle contract uses the same.
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal
+          rustup override set 1.94.0
+      # Restore only: rust-caches.yml saves from main.
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            mdbase-connect -> target
+          shared-key: connect-debug-${{ steps.engine.outputs.revision }}
+          save-if: false
       - name: Build the current CLI (not the service probe)
         shell: pwsh
         run: |

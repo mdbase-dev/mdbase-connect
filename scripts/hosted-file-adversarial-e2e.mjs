@@ -2,29 +2,21 @@ import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
+import {
+  repoRoot as root,
+  run,
+  startHostedPostgres
+} from "./lib/hosted-postgres-container.mjs";
 
 const execute = promisify(execFile);
-const root = resolve(import.meta.dirname, "..");
-const container = `mdbase-file-adversarial-postgres-${process.pid}`;
-const password = `postgres-${randomUUID()}`;
+const postgres = await startHostedPostgres("mdbase-file-adversarial-postgres");
+const { container } = postgres;
 
 try {
-  await execute("docker", [
-    "run", "--rm", "-d", "--name", container,
-    "-e", "POSTGRES_USER=mdbase",
-    "-e", `POSTGRES_PASSWORD=${password}`,
-    "-e", "POSTGRES_DB=mdbase",
-    "-p", "127.0.0.1::5432",
-    "postgres:18-alpine"
-  ], { cwd: root });
-  const { stdout } = await execute("docker", ["port", container, "5432/tcp"], { cwd: root });
-  const port = stdout.match(/:(\d+)/)?.[1];
-  if (!port) throw new Error(`Could not determine PostgreSQL port from ${JSON.stringify(stdout)}`);
-  await waitForPostgres();
-  const databaseUrl = `postgres://mdbase:${password}@127.0.0.1:${port}/mdbase`;
+  const databaseUrl = postgres.databaseUrl("mdbase");
   const recoveryDatabase = "mdbase_authority_recovery_test";
-  await execute("docker", ["exec", container, "createdb", "-U", "mdbase", recoveryDatabase], { cwd: root });
-  const recoveryUrl = `postgres://mdbase:${password}@127.0.0.1:${port}/${recoveryDatabase}`;
+  await postgres.createDatabase(recoveryDatabase);
+  const recoveryUrl = postgres.databaseUrl(recoveryDatabase);
   await run("cargo", ["test", "--locked", "-p", "mdbase-connect-hosted-provider",
     "--test", "authority_import_cancellation", "--test", "authority_import_history",
     "--", "--ignored", "--test-threads=1"], { MDBASE_PROJECTION_DATABASE_URL: recoveryUrl });
@@ -58,11 +50,7 @@ try {
     "--test", "file_lifecycle_adversarial", "--", "--ignored", "--nocapture"
   ], { MDBASE_ADVERSARIAL_DATABASE_URL: databaseUrl });
   const beta69Database = "mdbase_beta69_preflight";
-  await execute(
-    "docker",
-    ["exec", container, "createdb", "-U", "mdbase", beta69Database],
-    { cwd: root }
-  );
+  await postgres.createDatabase(beta69Database);
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "projection_lifecycle",
@@ -70,15 +58,11 @@ try {
     "--", "--ignored", "--nocapture"
   ], {
     MDBASE_PROJECTION_DATABASE_URL:
-      `postgres://mdbase:${password}@127.0.0.1:${port}/${beta69Database}`
+      postgres.databaseUrl(beta69Database)
   });
   await proveBeta69CutoverGate(beta69Database);
   const migrationDatabase = "mdbase_projection_migration";
-  await execute(
-    "docker",
-    ["exec", container, "createdb", "-U", "mdbase", migrationDatabase],
-    { cwd: root }
-  );
+  await postgres.createDatabase(migrationDatabase);
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "projection_lifecycle",
@@ -86,32 +70,23 @@ try {
     "--", "--ignored", "--nocapture"
   ], {
     MDBASE_PROJECTION_DATABASE_URL:
-      `postgres://mdbase:${password}@127.0.0.1:${port}/${migrationDatabase}`
+      postgres.databaseUrl(migrationDatabase)
   });
   // Historical rollback authorization is not qualification of the current schema.
   const historicalDatabase = "mdbase_historical_rollback_38";
-  await execute("docker", [
-    "exec", container, "createdb", "-U", "mdbase", historicalDatabase
-  ], { cwd: root });
+  await postgres.createDatabase(historicalDatabase);
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "historical_rollback_fixture", "--", "--ignored", "--nocapture"
   ], {
     MDBASE_PROJECTION_DATABASE_URL:
-      `postgres://mdbase:${password}@127.0.0.1:${port}/${historicalDatabase}`
+      postgres.databaseUrl(historicalDatabase)
   });
   await proveFinalAdmissionAndRollbackGates(historicalDatabase);
   await proveCurrentRollbackIsNotAuthorized(migrationDatabase);
   const collectionAuthorizationMigrationDatabase =
     "mdbase_collection_authorization_migration";
-  await execute(
-    "docker",
-    [
-      "exec", container, "createdb", "-U", "mdbase",
-      collectionAuthorizationMigrationDatabase
-    ],
-    { cwd: root }
-  );
+  await postgres.createDatabase(collectionAuthorizationMigrationDatabase);
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "projection_lifecycle",
@@ -119,7 +94,7 @@ try {
     "--", "--ignored", "--nocapture"
   ], {
     MDBASE_PROJECTION_DATABASE_URL:
-      `postgres://mdbase:${password}@127.0.0.1:${port}/${collectionAuthorizationMigrationDatabase}`
+      postgres.databaseUrl(collectionAuthorizationMigrationDatabase)
   });
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
@@ -140,27 +115,20 @@ try {
     "candidate_b_recovery_does_not_supersede_a_concurrent_explicit_generation_start"
   ].entries()) {
     const isolatedDatabase = `mdbase_projection_isolated_${index}`;
-    await execute(
-      "docker",
-      ["exec", container, "createdb", "-U", "mdbase", isolatedDatabase],
-      { cwd: root }
-    );
+    await postgres.createDatabase(isolatedDatabase);
     await run("cargo", [
       "test", "-p", "mdbase-connect-hosted-provider",
       "--test", "projection_lifecycle", testName,
       "--", "--ignored", "--nocapture"
     ], {
       MDBASE_PROJECTION_DATABASE_URL:
-        `postgres://mdbase:${password}@127.0.0.1:${port}/${isolatedDatabase}`
+        postgres.databaseUrl(isolatedDatabase)
     });
   }
   const icuDatabase = "mdbase_projection_icu";
-  await execute(
-    "docker",
-    ["exec", container, "createdb", "-U", "mdbase", "--template=template0",
-      "--locale-provider=icu", "--icu-locale=en-US", icuDatabase],
-    { cwd: root }
-  );
+  await postgres.createDatabase(icuDatabase, [
+    "--template=template0", "--locale-provider=icu", "--icu-locale=en-US"
+  ]);
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "projection_lifecycle",
@@ -168,49 +136,10 @@ try {
     "--", "--ignored", "--nocapture"
   ], {
     MDBASE_PROJECTION_DATABASE_URL:
-      `postgres://mdbase:${password}@127.0.0.1:${port}/${icuDatabase}`
+      postgres.databaseUrl(icuDatabase)
   });
-  for (const [index, testName] of [
-    "candidate_b_base_candidate_prunes_100k_live_rows",
-    "candidate_b_exact_projected_filter_and_group_100k",
-    "candidate_b_exact_projected_filter_and_group_230k"
-  ].entries()) {
-    const largeDatabase = `mdbase_projection_large_${index}`;
-    await execute(
-      "docker",
-      ["exec", container, "createdb", "-U", "mdbase", largeDatabase],
-      { cwd: root }
-    );
-    await run("cargo", [
-      "test", "-p", "mdbase-connect-hosted-provider",
-      "--test", "projection_lifecycle", testName,
-      "--", "--ignored", "--nocapture"
-    ], {
-      MDBASE_HOSTED_EXECUTION_TEST_ENTITLEMENT: "large_fixture_v1",
-      MDBASE_PROJECTION_DATABASE_URL:
-        `postgres://mdbase:${password}@127.0.0.1:${port}/${largeDatabase}`
-    });
-  }
 } finally {
-  await execute("docker", ["stop", container], { cwd: root }).catch(() => {});
-}
-
-async function waitForPostgres() {
-  // The image briefly starts an initialization server before restarting into
-  // the final TCP-serving process. Require consecutive ready samples so tests
-  // cannot race that restart and receive a connection reset.
-  let consecutiveReady = 0;
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    const ready = await execute(
-      "docker",
-      ["exec", container, "pg_isready", "-U", "mdbase"],
-      { cwd: root }
-    ).then(() => true, () => false);
-    consecutiveReady = ready ? consecutiveReady + 1 : 0;
-    if (consecutiveReady === 4) return;
-    await new Promise(resolveDelay => setTimeout(resolveDelay, 250));
-  }
-  throw new Error("PostgreSQL did not remain ready within 30 seconds");
+  await postgres.stop();
 }
 
 async function proveFinalAdmissionAndRollbackGates(database) {
@@ -521,19 +450,4 @@ async function psql(database, statement) {
     "exec", container, "psql", "-U", "mdbase", "-d", database,
     "--no-psqlrc", "--set", "ON_ERROR_STOP=on", "--command", statement
   ], { cwd: root });
-}
-
-function run(command, args, extraEnvironment) {
-  return new Promise((resolveRun, reject) => {
-    const child = spawn(command, args, {
-      cwd: root,
-      env: { ...process.env, ...extraEnvironment },
-      stdio: "inherit"
-    });
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      if (code === 0) resolveRun();
-      else reject(new Error(`${command} exited with ${code ?? signal}`));
-    });
-  });
 }

@@ -1,0 +1,115 @@
+name: Rust caches
+
+# Caches saved on a merge-queue or pull-request ref are invisible to every
+# other ref, and a push to main reuses the merge-queue qualification without
+# building. This workflow is therefore the only writer of the Rust dependency
+# caches that Server CI, Desktop Release and the Windows daemon lifecycle
+# restore; those jobs never save.
+#
+# rust-cache keeps dependencies only, so a cache changes when its key inputs
+# change: the lock files, crate manifests, toolchain or pinned engine. The
+# weekly run keeps unchanged entries from expiring.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/*/Cargo.toml"
+      - "rust-toolchain.toml"
+      - "deploy/docker/Cargo.lock.hosted-provider"
+      - "deploy/docker/mdbase-rs-revision"
+      - ".github/workflows/rust-caches.yml"
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-caches
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    name: ${{ matrix.cache }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      # Each entry reproduces one consumer's toolchain, lock file and builds so
+      # its shared-key and environment hash match exactly.
+      matrix:
+        include:
+          # server-ci.yml: hosted-provider-rust and hosted-provider-system.
+          - cache: hosted-provider
+            os: ubuntu-latest
+          # server-ci.yml: runtime-testbed.
+          - cache: runtime-testbed
+            os: ubuntu-latest
+          # server-ci.yml: windows-filesystem; windows-daemon-lifecycle.yml.
+          - cache: connect-debug
+            os: macos-15
+          - cache: connect-debug
+            os: windows-2025
+          # desktop-release.yml: headless-package-smoke, windows-package-smoke.
+          - cache: mdbase-cli-release
+            os: ubuntu-24.04
+          - cache: mdbase-cli-release
+            os: macos-15
+          - cache: mdbase-cli-release
+            os: macos-15-intel
+          - cache: mdbase-cli-release
+            os: windows-2025
+    defaults:
+      run:
+        shell: bash
+        working-directory: mdbase-connect
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: mdbase-connect
+          persist-credentials: false
+      - id: mdbase_revision
+        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: callumalpass/mdbase-rs
+          ref: ${{ steps.mdbase_revision.outputs.revision }}
+          path: mdbase-rs
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          if [[ ${{ matrix.cache }} == hosted-provider ]]; then
+            rustup toolchain install 1.94.0 --profile minimal --component rustfmt --component clippy
+            cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
+          else
+            rustup toolchain install 1.94.0 --profile minimal
+          fi
+          rustup override set 1.94.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            mdbase-connect -> target
+          shared-key: ${{ matrix.cache }}-${{ steps.mdbase_revision.outputs.revision }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the consumers' dependency graph
+        run: |
+          case ${{ matrix.cache }} in
+            hosted-provider)
+              cargo clippy --locked --workspace --all-targets
+              cargo test --locked --workspace --no-run
+              cargo build --locked --workspace
+              ;;
+            runtime-testbed)
+              cargo build --locked -p mdbase-connect-testbed-adapter
+              ;;
+            connect-debug)
+              cargo test --locked --no-run -p mdbase-connect-core -p mdbase-connect-daemon
+              cargo build --locked -p mdbase-cli
+              ;;
+            mdbase-cli-release)
+              cargo build --locked --release -p mdbase-cli
+              ;;
+          esac
