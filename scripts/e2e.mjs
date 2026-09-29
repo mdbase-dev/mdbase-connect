@@ -626,8 +626,8 @@ implements:
       throw new Error("The approval UI did not default to the application-provided starter type.");
     }
     await editor.getByLabel("Use an existing type").check();
-    const mappings = await editor.locator(".contract-field-list select").evaluateAll(
-      (selects) => selects.map((select) => select.value)
+    const mappings = await editor.locator(".contract-field-list [role='combobox']").evaluateAll(
+      (selects) => selects.map((select) => select.dataset.value)
     );
     if (mappings.join(",") !== "title,status") {
       throw new Error(`The approval UI did not suggest exact field mappings: ${mappings}`);

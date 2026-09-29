@@ -72,7 +72,7 @@ export async function portalLifecycleE2E({
     );
     await page.goto(verificationUri);
     await expect(page.getByRole("heading", { name: "Browser writable mirror" })).toBeVisible();
-    await expect(page.getByLabel("Hosted collection").locator("option:checked"))
+    await expect(page.getByRole("combobox", { name: "Hosted collection" }))
       .toHaveText("Browser E2E collection");
     await page.getByRole("button", { name: "Sync this collection" }).click();
     await expect(page.getByRole("heading", { name: "Return to your computer." })).toBeVisible();
