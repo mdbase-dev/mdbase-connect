@@ -22,7 +22,7 @@ export const mdbasePopupTheme = EditorView.theme({
     width: "min(440px, calc(100vw - 24px))",
     minWidth: "0",
     maxWidth: "none",
-    maxHeight: "min(320px, 45vh)",
+    maxHeight: "min(252px, 45vh)",
     fontFamily: "var(--sans)",
     whiteSpace: "normal"
   },
@@ -65,7 +65,7 @@ export const mdbasePopupTheme = EditorView.theme({
     gridColumn: "2",
     color: "var(--color-text)",
     fontSize: "13px",
-    fontWeight: "600"
+    fontWeight: "700"
   },
   ".cm-completionMatchedText": {
     textDecoration: "none",

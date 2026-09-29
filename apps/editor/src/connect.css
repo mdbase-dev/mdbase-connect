@@ -1418,6 +1418,15 @@ button.danger:disabled {
   }
 }
 
+/* On the narrowest phones the app switcher drops its chevron, as it does in a tight rail,
+   so the mark, the way back and the account still fit on one line. */
+@media (max-width: 360px) {
+  .connect-shell > .collection-rail .mdbase-app-switcher-chevron {
+    display: none;
+  }
+}
+
+
 @media (prefers-reduced-motion: reduce) {
   .connect-shell *,
   .connect-shell *::before,

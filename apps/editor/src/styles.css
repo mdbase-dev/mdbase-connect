@@ -39,6 +39,8 @@
 .file-row.selected .file-format { border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); color: var(--accent); }
 .file-row .file-folder { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
+/* Editor's completions describe notes by their path, which reads best in the mono face. */
+.code-editor .cm-editor .cm-tooltip-autocomplete .cm-completionDetail { font-family: var(--mono); }
 .code-editor-writer .cm-file-embed { position: relative; width: 100%; display: grid; margin: 18px 0 24px; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; outline: 0; background: var(--canvas); }
 .code-editor-writer .cm-file-embed.ready:hover { border-color: var(--line-strong); box-shadow: 0 8px 28px var(--color-shadow); }
 .code-editor-writer .cm-file-embed img,

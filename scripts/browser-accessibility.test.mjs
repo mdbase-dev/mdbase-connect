@@ -69,7 +69,7 @@ async function auditPortalLoading() {
       for (const width of [320, 390, 640, 1280]) {
         await page.setViewportSize({ width, height: 844 });
         const layout = await page.evaluate(() => ({
-          edges: [...document.querySelectorAll(".loading .page-brand-row, .loading .product-brand-mark, .loading .theme-menu-trigger, .loading > p")].map((element) => {
+          edges: [...document.querySelectorAll(".loading .page-brand-row, .loading .product-brand-mark, .loading .theme-select, .loading > p")].map((element) => {
             const { left, right } = element.getBoundingClientRect();
             return { left, right };
           }),
@@ -146,7 +146,7 @@ async function auditPortalLogin() {
   );
   assert.deepEqual(authFontWeights, ["400"], "portal signup: visible copy uses one font weight");
   assert.equal(await page.locator("html").getAttribute("data-theme"), null, "portal signup: theme follows the operating system");
-  assert.equal(await page.getByRole("button", { name: /Color theme/ }).count(), 1, "portal signup: System/Light/Dark remains available");
+  assert.equal(await page.getByRole("combobox", { name: "Color theme" }).count(), 1, "portal signup: System/Light/Dark remains available");
   const authAlignment = await page.locator(".page-brand-row, .minimal-auth-footer").evaluateAll(
     (elements) => elements.map((element) => element.getBoundingClientRect().left)
   );
@@ -289,8 +289,10 @@ async function auditPortalRecovery() {
     await page.getByRole("heading", { name: "Sign in" }).waitFor();
     assert.equal(await page.getByRole("alert").count(), 0, "successful config clears obsolete identification error");
     assert.equal(await page.locator("html").getAttribute("data-theme"), saved);
-    await page.getByRole("button", { name: `Color theme: ${saved === "dark" ? "Dark" : "Light"}` }).click();
-    await page.getByRole("menuitemradio", { name: "System", exact: true }).click();
+    const theme = page.getByRole("combobox", { name: "Color theme" });
+    assert.equal(await theme.getAttribute("data-value"), saved, "the theme control shows the saved choice");
+    await theme.click();
+    await page.getByRole("option", { name: "System", exact: true }).click();
     assert.equal(await page.locator("html").getAttribute("data-theme"), null);
     configFails = true;
     await page.reload();
@@ -728,7 +730,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   ).evaluateAll((elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontFamily))]);
   assert.deepEqual(
     approvalTextFamilies,
-    ["\"Atkinson Hyperlegible\", \"Segoe UI\", sans-serif"],
+    ["\"Atkinson Hyperlegible\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"],
     "portal authorization: nontechnical copy uses only Atkinson Hyperlegible"
   );
   const approvalFontWeights = await page.locator(".approval-page .authorization-panel").evaluateAll((elements) => {
@@ -824,7 +826,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     await page.reload();
     await page.getByRole("button", { name: "Allow access" }).waitFor();
     assert.equal(await page.locator("html").getAttribute("data-theme"), saved, "authorization honors explicit theme despite OS preference");
-    assert.equal(await page.getByRole("button", { name: /Color theme/ }).count(), 1);
+    assert.equal(await page.getByRole("combobox", { name: "Color theme" }).count(), 1);
   }
   authorization.distribution = "portable";
   authorization.user_code = "ABCD-EFGH";
