@@ -1,0 +1,42 @@
+{
+  "manifest": {
+    "kind": "mdbase.type-pack",
+    "id": "obsidian.base",
+    "version": "1.0.0",
+    "name": "Obsidian Bases",
+    "description": "The obsidian.base contract and an editable type that stores Obsidian Bases as records.",
+    "resources": [
+      {
+        "kind": "contract",
+        "mode": "managed",
+        "source": "contracts/obsidian.base/1.0.0.md",
+        "target": "_contracts/obsidian.base/1.0.0.md",
+        "digest": "sha256:fca77a9c845223784d4af7f5e13e2f149295621ad1b794ea9bb4d99f604467e8"
+      },
+      {
+        "kind": "type",
+        "mode": "seed",
+        "source": "types/obsidian-base/1.md",
+        "target": "_types/obsidian_base.md",
+        "digest": "sha256:bfeb3880200bc1bef7fd50b777d3f927ce931d08b4fb3c30d4cddb55feaf3f92"
+      }
+    ]
+  },
+  "resources": [
+    {
+      "source": "contracts/obsidian.base/1.0.0.md",
+      "document": "---\nkind: mdbase.contract\ncontract_type: record\nid: obsidian.base\nversion: 1.0.0\nname: Obsidian Base\ndescription: An Obsidian Bases saved-view source stored as a YAML document record.\nrecord_schema:\n  dialect: json-schema-2020-12\n  value:\n    $schema: https://json-schema.org/draft/2020-12/schema\n    type: object\n    required: [views]\n    properties:\n      filters: {}\n      formulas: { type: object }\n      properties: { type: object }\n      views:\n        type: array\n        minItems: 1\n        items: { type: object, required: [type], properties: { type: { type: string }, name: { type: string } } }\n---\n\n# Obsidian Base\n\nA record exposed through `obsidian.base` is an Obsidian Bases source: global\nfilters, formulas, property metadata, and one or more views. The schema is\ndeliberately permissive. Obsidian owns the format and adds keys over time;\nunknown keys are preserved and ignored.\n\nTools that advertise `obsidian_bases_views` discover and execute these records\nthrough this contract and evaluate them with the Obsidian Bases expression\ndialect described in the [Obsidian Bases adapter](https://mdbase.dev/spec/adapters/obsidian-bases).\n\nThis artifact is passive. Implementing it grants no authority to read, execute,\nor modify any record.\n"
+    },
+    {
+      "source": "types/obsidian-base/1.md",
+      "document": "---\nkind: mdbase.type\nname: obsidian_base\nversion: 1\ndescription: Obsidian Bases saved views stored as records\nmatch:\n  path_glob: '**/*.base'\nschema:\n  dialect: json-schema-2020-12\n  value:\n    $schema: https://json-schema.org/draft/2020-12/schema\n    title: Obsidian Base\n    description: An Obsidian Bases file. Obsidian owns the format; unknown keys are kept.\n    type: object\n    required:\n      - views\n    properties:\n      filters: {}\n      formulas:\n        type: object\n      properties:\n        type: object\n      views:\n        type: array\n        minItems: 1\n        items:\n          type: object\n          required:\n            - type\n          properties:\n            type:\n              type: string\n            name:\n              type: string\nimplements:\n  - contract: obsidian.base\n    version: 1.0.0\n    fields:\n      filters: filters\n      formulas: formulas\n      properties: properties\n      views: views\n---\n\n# Obsidian Base\n\nMakes `.base` files discoverable as saved views through the `obsidian.base`\ncontract. It takes effect when the collection lists `base` in\n`settings.record_extensions`; narrow the `path_glob` to the folders that hold\nyour Bases. Edit Bases with whole-document replacement so Obsidian's comments\nand layout survive.\n"
+    }
+  ],
+  "provides": [
+    {
+      "id": "obsidian.base",
+      "version": "1.0.0",
+      "digest": "sha256:37e8a0bfb32bb4795c1b3c5dec613c32429aaa765dc33e4adc0c627a48f5c1ff"
+    }
+  ]
+}

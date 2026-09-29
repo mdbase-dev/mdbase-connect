@@ -396,10 +396,31 @@ impl HostedProvider {
                 "The encrypted resource catalog revision does not match collection metadata.",
             ));
         }
-        let resource_documents =
+        let mut resource_documents =
             load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
                 .await?;
+        let base_types = contract_type_names(&resources, &["obsidian.base"]);
         let catalog = compile_point_catalog(resources, resource_documents.clone())?;
+        if request_kind == HostedQueryRequestKind::ObsidianBase {
+            // A Base is either a configured view resource or a record whose type
+            // implements obsidian.base.
+            let path = input.get("path").and_then(Value::as_str).unwrap_or_default();
+            if !resource_documents.iter().any(|(resource, _)| resource == path) {
+                if let Some((record, _, _)) = load_direct_record(
+                    &mut transaction,
+                    &self.crypto,
+                    &data_key,
+                    collection_id,
+                    DirectRecordIdentity::PathToken(path_token(&data_key, path)),
+                )
+                .await?
+                {
+                    if record.types.iter().any(|name| base_types.contains(name)) {
+                        resource_documents.push((record.path, record.document));
+                    }
+                }
+            }
+        }
         let transport_page_size = query_page_size(input)?;
         let mut state = if let Some(cursor) = input.get("cursor") {
             let cursor = cursor.as_str().ok_or_else(|| {

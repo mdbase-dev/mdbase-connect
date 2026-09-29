@@ -1,4 +1,5 @@
 use super::mutation_journal::HostedMutationLease;
+use super::mutations::classify_exact_sync_record;
 use super::operation_reads::compile_point_catalog;
 use super::operation_resource_mutations::{hosted_contract_descriptor, hosted_type_descriptor};
 use super::projections::invalidate_projection_catalog_binding;
@@ -233,6 +234,14 @@ impl HostedProvider {
             });
         }
 
+        let configuration_changed = changed_resources
+            .iter()
+            .any(|resource| resource.kind == mdbase::runtime::ResourceChangeKind::Configuration);
+        let deleted_paths = changed_resources
+            .iter()
+            .filter(|resource| resource.after_revision.is_none())
+            .map(|resource| resource.path.to_string())
+            .collect::<std::collections::BTreeSet<_>>();
         for resource in changed_resources {
             let target = resource.path.to_string();
             let kind = match resource.kind {
@@ -331,9 +340,7 @@ impl HostedProvider {
             }
         }
 
-        let resource_revision = format!("hosted:1:{head}:resources");
         let mut next_resources = resources;
-        next_resources.revision = resource_revision.clone();
         next_resources.types = plan
             .types
             .iter()
@@ -344,6 +351,27 @@ impl HostedProvider {
             .iter()
             .map(hosted_contract_descriptor)
             .collect();
+        if configuration_changed {
+            let mut next_documents = resource_documents
+                .into_iter()
+                .filter(|(path, _)| !deleted_paths.contains(path))
+                .collect::<BTreeMap<_, _>>();
+            next_documents.extend(documents);
+            let catalog = compile_point_catalog(
+                next_resources.clone(),
+                next_documents.into_iter().collect(),
+            )?;
+            self.convert_view_resources_to_records(
+                transaction,
+                collection_id,
+                data_key,
+                &catalog,
+                &mut head,
+            )
+            .await?;
+        }
+        let resource_revision = format!("hosted:1:{head}:resources");
+        next_resources.revision = resource_revision.clone();
         let resources_ciphertext =
             self.crypto
                 .encrypt_json(data_key, &next_resources, &resources_aad(collection_id))?;
@@ -373,5 +401,109 @@ impl HostedProvider {
             .await?;
         }
         Ok(result)
+    }
+
+    /// A Base stored as a view resource becomes a record once the collection's
+    /// configuration makes its extension a record extension, which only
+    /// reviewed collection setup changes. Local collections read the same file
+    /// as a record, so hosted storage follows.
+    async fn convert_view_resources_to_records(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        collection_id: Uuid,
+        data_key: &[u8; 32],
+        catalog: &mdbase::runtime::CompiledCatalog,
+        head: &mut u64,
+    ) -> ApiResult<()> {
+        let views = sqlx::query(
+            r#"SELECT path, revision, document_ciphertext
+               FROM hosted_provider_resources
+               WHERE collection_id = $1 AND kind = 'view'
+               ORDER BY path"#,
+        )
+        .bind(collection_id)
+        .fetch_all(&mut **transaction)
+        .await?;
+        let (mut added_records, mut added_bytes) = (0_u64, 0_u64);
+        for view in views {
+            let path: String = view.get("path");
+            let document = String::from_utf8(self.crypto.decrypt_bytes(
+                data_key,
+                view.get("document_ciphertext"),
+                &resource_document_aad(collection_id, &path),
+            )?)
+            .map_err(|_| ApiError::internal("A hosted view resource is not UTF-8."))?;
+            let record =
+                match classify_exact_sync_record(Some(catalog), Uuid::now_v7(), &path, &document) {
+                    Ok(record) => record,
+                    // Still not a record under this configuration.
+                    Err(error) if error.code == "invalid_path" => continue,
+                    Err(error) => return Err(error),
+                };
+            *head = head.checked_add(2).ok_or_else(|| {
+                ApiError::internal("The hosted collection sequence is exhausted.")
+            })?;
+            sqlx::query(
+                "DELETE FROM hosted_provider_resources WHERE collection_id = $1 AND path = $2",
+            )
+            .bind(collection_id)
+            .bind(&path)
+            .execute(&mut **transaction)
+            .await?;
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_resource_changes
+                     (collection_id, sequence, resource_kind, type_name, path, revision)
+                   VALUES ($1, $2, 'view', NULL, $3, $4)"#,
+            )
+            .bind(collection_id)
+            .bind(to_i64(*head - 1, "resource change sequence")?)
+            .bind(&path)
+            .bind(view.get::<String, _>("revision"))
+            .execute(&mut **transaction)
+            .await?;
+            persist_live_record(
+                transaction,
+                &self.crypto,
+                data_key,
+                collection_id,
+                *head,
+                &record,
+            )
+            .await?;
+            let after_ciphertext = self.crypto.encrypt_json(
+                data_key,
+                &record,
+                &change_record_aad(collection_id, *head, "after"),
+            )?;
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_changes
+                     (collection_id, sequence, record_id, before_types, after_types,
+                      before_ciphertext, after_ciphertext, revision, source_replica_id)
+                   VALUES ($1, $2, $3, '{}', $4, NULL, $5, $6, NULL)"#,
+            )
+            .bind(collection_id)
+            .bind(to_i64(*head, "change sequence")?)
+            .bind(record.record_id)
+            .bind(&record.types)
+            .bind(after_ciphertext)
+            .bind(&record.revision)
+            .execute(&mut **transaction)
+            .await?;
+            added_records += 1;
+            added_bytes += record.document.len() as u64;
+        }
+        if added_records > 0 {
+            sqlx::query(
+                r#"UPDATE hosted_provider_collections
+                   SET record_count = record_count + $2, content_bytes = content_bytes + $3
+                   WHERE id = $1"#,
+            )
+            .bind(collection_id)
+            .bind(to_i64(added_records, "record count")?)
+            .bind(to_i64(added_bytes, "content size")?)
+            .execute(&mut **transaction)
+            .await?;
+        }
+        Ok(())
     }
 }
