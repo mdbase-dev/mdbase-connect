@@ -1813,6 +1813,21 @@ async fn setup_turns_hosted_bases_into_records_that_list_run_and_edit() {
         }
     };
 
+    // Ordinary records exist before setup, as in any used collection.
+    let project = operation("create", json!({"path": "projects/alpha.md", "frontmatter": {"title": "Alpha"}})).await;
+    assert_eq!(project["valid"], true, "{project}");
+    for (path, status, tags) in [
+        ("tasks/open.md", "open", json!([])),
+        ("tasks/archived.md", "open", json!(["archived"])),
+    ] {
+        let created = operation(
+            "create",
+            json!({"path": path, "frontmatter": {"title": path, "status": status, "tags": tags, "projects": ["[[projects/alpha]]"]}}),
+        )
+        .await;
+        assert_eq!(created["valid"], true, "{created}");
+    }
+
     // A Base saved before setup is a hosted view resource.
     let existing = operation(
         "create_view_source",
@@ -1912,6 +1927,39 @@ async fn setup_turns_hosted_bases_into_records_that_list_run_and_edit() {
     .await;
     assert_eq!(created["valid"], true, "{created}");
 
+    // TaskNotes' Today Base runs over the rebuilt projections of ordinary
+    // records and Base records alike.
+    let generation = fixture
+        .provider
+        .start_projection_generation(fixture.collection_id)
+        .await
+        .unwrap();
+    for _ in 0..16 {
+        let batch = fixture
+            .provider
+            .advance_projection_generation(fixture.collection_id, generation.generation_id)
+            .await
+            .unwrap();
+        if batch.generation.status == "complete" {
+            break;
+        }
+    }
+    let today = operation(
+        "create",
+        json!({"path": "views/today.base", "frontmatter": serde_json::from_str::<Value>(TASKNOTES_TODAY_BASE).unwrap()}),
+    )
+    .await;
+    assert_eq!(today["valid"], true, "{today}");
+    let executed = operation("execute_view", json!({"path": "views/today.base", "view": "today"})).await;
+    assert_eq!(executed["valid"], true, "{executed}");
+    let paths = executed["result"]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["path"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(paths, ["tasks/open.md"]);
+
     // Both Bases are listed as writable records and run.
     let listed = operation("list_views", json!({})).await;
     assert_eq!(listed["valid"], true, "{listed}");
@@ -1931,6 +1979,7 @@ async fn setup_turns_hosted_bases_into_records_that_list_run_and_edit() {
         [
             ("views/existing.base".to_string(), "Edited".to_string()),
             ("views/new.base".to_string(), "New".to_string()),
+            ("views/today.base".to_string(), "Today".to_string()),
         ]
     );
     for (path, view) in [("views/existing.base", "edited"), ("views/new.base", "new")] {
@@ -1938,3 +1987,5 @@ async fn setup_turns_hosted_bases_into_records_that_list_run_and_edit() {
         assert_eq!(executed["valid"], true, "{path}: {executed}");
     }
 }
+
+const TASKNOTES_TODAY_BASE: &str = r#"{"formulas": {"taskDate": "if(note[\"scheduled\"].isEmpty() == false, note[\"scheduled\"], note[\"due\"])", "taskDay": "if(formula.taskDate.isEmpty(), null, date(formula.taskDate))"}, "properties": {"formula.taskDate": {"displayName": "Task date", "hidden": true}, "formula.taskDay": {"displayName": "Task day", "hidden": true}, "note.tasknotes_manual_order": {"displayName": "Manual order", "hidden": true}}, "views": [{"filters": {"and": ["note[\"status\"].isEmpty() == false", "note[\"status\"] != \"done\"", "file.hasTag(\"archived\") != true", {"or": ["formula.taskDay.isEmpty()", "formula.taskDay <= today()"]}]}, "name": "Today", "options": {"sections": "day"}, "order": ["note[\"title\"]", "note[\"status\"]", "note[\"scheduled\"]", "note[\"due\"]", "priority", "note.projects"], "sort": [{"direction": "DESC", "property": "note.tasknotes_manual_order"}, {"direction": "ASC", "property": "formula.taskDay"}, {"direction": "ASC", "property": "note[\"priority\"]"}, {"direction": "ASC", "property": "note[\"title\"]"}], "type": "tasknotesTaskList"}]}"#;
