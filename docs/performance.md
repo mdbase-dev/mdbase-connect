@@ -236,7 +236,7 @@ Findings:
   visible paths are record files (not directories, and not a prefix of known
   records) as an incremental invalidation would remove it; that is a watcher
   semantics change for mdbase-rs.
-- **Fixed on mdbase-rs branch `incremental-rename-refresh` (`f7a6028`):** renames
+- **Fixed in mdbase-rs (PR #86, `f7a6028`):** renames
   now escalate to a full refresh only when they move a directory (an existing
   directory or symlink, or a vanished path with indexed records or resources
   under it). `mdbase profile engine --scenario core`,
@@ -245,7 +245,7 @@ Findings:
   connector built against that branch, this browser profile's 1 KB update
   drops from 50 to 30 ms, 128 KB from 59 to 38 ms and 1 MB from 140 to 116 ms.
   `cargo test --workspace` here passes against it.
-- **Fixed on the same branch (`28f2886`):** strict (`validation: error`)
+- **Fixed in the same PR (`28f2886`):** strict (`validation: error`)
   create and update captured a full collection snapshot on every write for the
   unique-field and duplicate-id checks. They now capture it only when a matched
   type declares unique fields or the written frontmatter carries an id
@@ -262,9 +262,86 @@ Findings:
   the same size. Connect uses the direct API only for reads and queries, so
   this affects the `mdbase` CLI's write commands and library embedders, not the
   SDK.
-- **Fixed on the same branch (`b338eaa`), correctness:** the sparse runtime
+- **Fixed in the same PR (`b338eaa`), correctness:** the sparse runtime
   stage could not see other records, so a generated `sequence` restarted from
   its start value on every connector create (with records at 3, 5 and 7 it
   wrote 1). When a type generates sequences, the stage is now seeded with the
   authority's maxima. That costs one collection snapshot per create or update
   in collections that use sequences; others are unaffected.
+
+## Save and query paths
+
+Measured 2026-09-29 on Linux against the pinned mdbase-rs (`0d96ad4e`) and
+the `perf/save-and-query-paths` engine branch, with `mdbase profile engine`
+and `mdbase profile connect` over the 5,000-task synthetic fixture on tmpfs.
+Baseline and candidate binaries were run alternately on a shared, loaded host;
+treat the numbers as ratios, not absolutes.
+
+| Operation | Before (ms) | After (ms) |
+| --- | --- | --- |
+| Runtime save (`runtime_update_and_watch`), 5,000 records | 46 | 13–18 |
+| Runtime save, 10,000 records | 71 | 19 |
+| Canonical view, through Connect | 438–481 | 136–138 |
+| Editor two-pass index, through Connect | 254–267 | 196–244 |
+| Saved-view listing, through Connect | 64–68 | 41–46 |
+| Basic query (engine) | 206–223 | 90–94 |
+| Projection query (engine) | 495–621 | 135–139 |
+| Cache rebuild | 286–310 | 197–220 |
+| Runtime open with initial index | 546–626 | 444 |
+
+Engine changes (mdbase-rs):
+
+- **Link resolution on save.** Resolving one record's links parsed every
+  record's frontmatter, re-matched every record's types, and scanned the whole
+  `links` table. The cache now keeps a `resolution_keys` table (lowercased
+  basename, id and legacy title keys of valid records); a save reads only the
+  keys and paths its links can name, plus those candidates' indexed types.
+  `ResolutionLookup` is the single derivation of what a target reads, shared by
+  the in-memory index and the cache, and a test asserts the two agree. Types
+  come from `file_types` (matched on raw frontmatter), as queries already use.
+  The runtime generation key is now `runtime_generation_v2`, so an existing
+  cache is rebuilt once on first open after upgrade.
+- **Settlement wait.** The committing thread polled the settlement worker with
+  a 10 ms sleep, rounding every save up to the next tick; it now wakes on the
+  worker's result.
+- **Watcher snapshot.** Records are held in `Arc`, so a refresh no longer
+  deep-copies every record's body and frontmatter before touching one.
+- **Canonical schemas** compile once per process instead of on every
+  configuration, type-file and query validation.
+- **Cache statements** go through the prepared-statement cache (capacity 64);
+  indexing previously re-prepared about twenty statements per record.
+- **Staleness checks** stat each record through one directory handle per
+  folder instead of opening the directory, opening the file and statting it
+  twice.
+- **CEL evaluation** shares the standard-library environment, binds only
+  identifiers an expression references (including `file` and `this`), and
+  computes date-time field sets lazily. The query executor builds one
+  evaluation context per candidate and uses one type-matching clock per query,
+  so every record sees the same `now()` and `today()`. Projections still
+  evaluate for every candidate before `where`, as §11 requires.
+- **Correctness:** a direct update whose result equals the stored bytes
+  panicked (`a committed planned record always has locked file facts`); it now
+  reports the unchanged file. The engine profiler's runtime update scenario
+  sent the retired `fields` member and failed; it sends `patch`.
+
+Connect changes: the runtime read path no longer clones the whole operation
+outcome to carry a copy used only by a debug assertion, and the v0.3 response
+moves the result payload into the envelope instead of re-serializing it.
+
+Remaining, not changed:
+
+- **Save preparation** reopens a sparse shadow collection per write, re-parsing
+  every type file. The compiled canonical schemas are now shared, but type
+  parsing remains.
+- **Result serialization** still happens more than once per Connect read: the
+  deprecated `ExecutionOutcome::result` field is computed eagerly (its removal
+  is scheduled for 0.5.0) and `measured_json_bytes` serializes the page to
+  charge it. Serializing once and counting during that pass would roughly halve
+  what remains after query execution.
+- **Direct `Collection::typed()` writes** still stage in a full collection copy
+  (about 210 ms at 5,000 records); Connect does not use this path.
+- **Direct-API paginated queries** re-stat the collection for each page to
+  detect snapshot expiry; Connect's runtime reads rely on the cache generation
+  instead.
+- **Cold open** reads every record twice, once for the cache and once for the
+  watcher's snapshot.
