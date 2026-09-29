@@ -137,7 +137,7 @@ textarea.mdbase-field {
   background: transparent;
   color: var(--color-text-muted);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -375,7 +375,7 @@ textarea.mdbase-field {
   color: var(--color-text-soft);
   background: var(--color-surface);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -537,7 +537,7 @@ textarea.mdbase-field {
   gap: 4px;
   color: var(--color-text-muted);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   white-space: nowrap;
 }
 

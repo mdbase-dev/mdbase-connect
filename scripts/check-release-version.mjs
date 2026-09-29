@@ -4,6 +4,7 @@ const packagePaths = [
   "package.json",
   "apps/desktop/package.json",
   "apps/portal/package.json",
+  "packages/app-ui/package.json",
   "packages/client/package.json",
   "packages/devkit/package.json",
   "packages/management/package.json",
