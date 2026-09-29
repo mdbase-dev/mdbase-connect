@@ -11,6 +11,7 @@ export type {
   LegacyMdbasePortableAppManifest,
   LegacyMdbaseAppManifest
 } from "./index.js";
+import { RECORD_EXTENSIONS_CONFIGURATION_PATH } from "./collection-setup.js";
 import {
   isNativeRedirectUri,
   type ApplicationNotifications,
@@ -484,7 +485,7 @@ function validateConfigurationSetup(value: unknown): ManifestValidationIssue[] {
     const requirement = asObject(candidate);
     const id = String(requirement.id);
     const path = String(requirement.path);
-    const pathError = configurationPointerError(path);
+    const pathError = configurationPointerError(path, requirement.value);
     if (pathError) {
       issues.push(issue(
         `/requirements/configuration/${index}/path`,
@@ -508,7 +509,7 @@ function validateConfigurationSetup(value: unknown): ManifestValidationIssue[] {
     const provision = asObject(candidate);
     const requirementId = String(provision.requirement);
     const path = String(provision.path);
-    const pathError = configurationPointerError(path);
+    const pathError = configurationPointerError(path, provision.value);
     if (pathError) {
       issues.push(issue(
         `/provisions/configuration/${index}/path`,
@@ -569,7 +570,15 @@ function validateConfigurationSetup(value: unknown): ManifestValidationIssue[] {
   return issues;
 }
 
-function configurationPointerError(path: string): string | undefined {
+// Matches mdbase-rs collection setup.
+const APPLICATION_RECORD_EXTENSIONS: readonly unknown[] = ["md", "base"];
+
+function configurationPointerError(path: string, value: unknown): string | undefined {
+  if (path === RECORD_EXTENSIONS_CONFIGURATION_PATH) {
+    return APPLICATION_RECORD_EXTENSIONS.includes(value)
+      ? undefined
+      : "accepts only the record extensions md and base";
+  }
   if (!path.startsWith("/") || new TextEncoder().encode(path).byteLength > 1024) {
     return "must be a bounded RFC 6901 JSON pointer";
   }

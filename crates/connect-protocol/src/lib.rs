@@ -60,6 +60,9 @@ pub const HOSTED_PROVIDER_CAPABILITIES: &[&str] = &[
     HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY,
 ];
 pub const CONTRACT_SETUP_CAPABILITY: &str = "contract-setup-v1";
+/// The connector's engine reads `.base` files as YAML document records
+/// (mdbase spec Chapter 03).
+pub const YAML_DOCUMENT_RECORDS_CAPABILITY: &str = "yaml-document-records-v1";
 pub const FILE_RELAY_CAPABILITY: &str = "file-relay-v1";
 pub const PROTOCOL_USAGE_REPORT_CAPABILITY: &str = "protocol-usage-report-v1";
 pub const POLICY_FRESHNESS_LEASE_CAPABILITY: &str = "policy-freshness-lease-v1";
@@ -83,6 +86,7 @@ pub const RELAY_CAPABILITIES: &[&str] = &[
     CONTRACT_SETUP_CAPABILITY,
     FILE_RELAY_CAPABILITY,
     PROTOCOL_USAGE_REPORT_CAPABILITY,
+    YAML_DOCUMENT_RECORDS_CAPABILITY,
 ];
 pub const RELAY_ENCRYPTION_SUITE: &str = "P256-HKDF-SHA256-AES256GCM";
 pub const GRANT_ENCRYPTION_PROTOCOL_VERSION: u32 = 1;

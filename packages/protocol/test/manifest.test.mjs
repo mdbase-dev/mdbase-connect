@@ -240,6 +240,24 @@ test("configuration requirements are pointer-safe and exactly provisioned", () =
     && issue.keyword === "configurationPointer"
   ));
 
+  const recordExtensions = structuredClone(declaration);
+  for (const configuration of [
+    recordExtensions.requirements.configuration[0],
+    recordExtensions.provisions.configuration[0]
+  ]) {
+    configuration.path = "/settings/record_extensions";
+    configuration.value = "base";
+  }
+  assert.deepEqual(validateAppManifest(recordExtensions), { valid: true, issues: [] });
+  recordExtensions.requirements.configuration[0].value = "txt";
+  recordExtensions.provisions.configuration[0].value = "txt";
+  const extensionResult = validateAppManifest(recordExtensions);
+  assert.equal(extensionResult.valid, false);
+  assert.ok(extensionResult.issues.some((issue) =>
+    issue.path === "/requirements/configuration/0/path"
+    && issue.keyword === "configurationPointer"
+  ));
+
   const mismatched = structuredClone(declaration);
   mismatched.provisions.configuration[0].value = "other/**/*.base";
   const mismatchResult = validateAppManifest(mismatched);

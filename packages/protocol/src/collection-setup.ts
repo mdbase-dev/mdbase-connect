@@ -5,6 +5,14 @@ import type {
   TypePackReceipt
 } from "./type-packs.js";
 
+/**
+ * The one core configuration target: an application may add a record format
+ * its data is stored as. Every other target is inside an `x-*` namespace.
+ */
+export const RECORD_EXTENSIONS_CONFIGURATION_PATH = "/settings/record_extensions" as const;
+/** The connector's engine reads `.base` files as YAML document records (mdbase spec Chapter 03). */
+export const YAML_DOCUMENT_RECORDS_CAPABILITY = "yaml-document-records-v1" as const;
+
 export type ConfigurationContributionValue = string | number | boolean | null;
 
 export interface ConfigurationRequirement {
