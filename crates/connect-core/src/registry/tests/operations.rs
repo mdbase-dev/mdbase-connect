@@ -514,6 +514,62 @@ schema:
 }
 
 #[test]
+fn provision_applies_the_whole_declaration_and_repeats_without_writing() {
+    let state = tempdir().unwrap();
+    let parent = tempdir().unwrap();
+    let root = parent.path().join("notes");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry.create(&root, Some("Notes"), "UTC").unwrap();
+    let (requirements, work_items) = work_item_provision();
+    // An optional pack that provides no required contract, as TaskNotes' scratch packs.
+    let scratch = "---\nkind: mdbase.type\nname: scratch\nschema:\n  dialect: json-schema-2020-12\n  value: { type: object }\n---\n";
+    let mut optional = work_items.clone();
+    optional.manifest.id = "example.scratch".to_string();
+    optional.manifest.resources.truncate(1);
+    optional.manifest.resources[0].kind = "type".to_string();
+    optional.manifest.resources[0].source = "scratch.md".to_string();
+    optional.manifest.resources[0].target = "_types/scratch.md".to_string();
+    optional.manifest.resources[0].digest = format!("sha256:{:x}", Sha256::digest(scratch));
+    optional.resources = vec![mdbase_connect_protocol::TypePackSourceResource {
+        source: "scratch.md".to_string(),
+        document: scratch.to_string(),
+    }];
+    optional.provides = Vec::new();
+    let provisions = ApplicationProvisions {
+        type_packs: vec![work_items, optional],
+        configuration: Vec::new(),
+    };
+    let provision = || {
+        registry
+            .provision_application_setup(
+                collection.id,
+                "dev.mdbase.tests",
+                &format!("sha256:{}", "0".repeat(64)),
+                &requirements,
+                &provisions,
+                &[],
+            )
+            .unwrap()
+    };
+    provision();
+    assert!(root.join("_types/work_item.md").is_file());
+    assert!(root.join("_types/scratch.md").is_file());
+    let setup_files = || {
+        [
+            "mdbase.yaml",
+            "mdbase.lock.yaml",
+            "_types/work_item.md",
+            "_types/scratch.md",
+        ]
+        .map(|path| fs::read(root.join(path)).unwrap())
+    };
+    let installed = setup_files();
+    let repeated = provision();
+    assert_eq!(repeated.assessment["status"], "current");
+    assert_eq!(setup_files(), installed);
+}
+
+#[test]
 fn provision_maps_a_contract_to_an_existing_type_without_installing_the_starter() {
     let state = tempdir().unwrap();
     let parent = tempdir().unwrap();

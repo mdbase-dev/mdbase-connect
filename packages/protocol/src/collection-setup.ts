@@ -80,13 +80,9 @@ export interface CollectionSetupAssessment {
   application_id: string;
   declaration_digest: string;
   provision_digest: string;
+  /** Revision of the setup inputs (configuration, locks, definitions); record edits do not change it. */
   collection_revision: string;
   final_collection_revision: string;
-  baseline_diagnostic_count: number;
-  final_diagnostic_count: number;
-  resolved_diagnostic_count: number;
-  introduced_diagnostic_count: number;
-  baseline_diagnostic_digest: string;
   configuration: ConfigurationSetupAssessment[];
   type_packs: TypePackAssessment[];
   final_resource_revisions: Record<string, string>;

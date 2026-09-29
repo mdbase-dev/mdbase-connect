@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Approving an application for a large local collection no longer times out.
+  Collection setup plans from configuration, locks and definitions alone and
+  never copies or validates every record, so assessing it takes milliseconds
+  at any collection size. Approval sets up the application's complete
+  declaration (every type pack the approval screen lists), so the application
+  no longer asks for a second setup review on first open, and approving again
+  writes nothing when setup is already current. On a synthetic 30,000-note
+  TaskNotes collection, first approval fell from 17s to 3.5s, approving again
+  from 22s to under 0.1s, and each application start's setup check from 4.8s
+  to 0.03s; the 21s second review is gone. A setup review now depends only on
+  the setup inputs, so editing notes while it is open no longer makes it
+  stale. The
+  unused `baseline_diagnostic_count`, `final_diagnostic_count`,
+  `resolved_diagnostic_count`, `introduced_diagnostic_count` and
+  `baseline_diagnostic_digest` assessment fields (and their SDK
+  `CollectionSetupAssessment` counterparts) are removed.
 - Hosted collections store Obsidian Bases as records once collection setup
   adds `base` to `record_extensions`, as local collections do. Setup converts
   each existing Base view resource into a typed record with its exact

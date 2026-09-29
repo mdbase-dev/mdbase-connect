@@ -197,19 +197,12 @@ impl CollectionRegistry {
         } else {
             contract_setups.to_vec()
         };
-        let relevant_contracts = missing
-            .iter()
-            .map(|contract| (contract.id.as_str(), contract.version.as_str()))
-            .collect::<BTreeSet<_>>();
+        // The complete declaration the user approved: the application session
+        // verifies exactly this setup, so activation leaves nothing for a
+        // second review, and a stable provision digest keeps repeats current.
         let type_packs = provisions
             .type_packs
             .iter()
-            .filter(|provision| {
-                provision.provides.iter().any(|provided| {
-                    relevant_contracts
-                        .contains(&(provided.id.as_str(), provided.version.as_str()))
-                })
-            })
             .map(|provision| {
                 let provision_setups = effective_setups
                     .iter()
