@@ -1,4 +1,6 @@
-use super::operation_reads::{compile_point_catalog, load_direct_record, DirectRecordIdentity};
+use super::operation_reads::{
+    compile_point_catalog, contract_type_names, load_direct_record, DirectRecordIdentity,
+};
 use super::*;
 use crate::execution_budget::hosted_execution_budgets;
 use crate::HostedExecutionBudgetManifest;

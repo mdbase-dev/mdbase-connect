@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Hosted collections store Obsidian Bases as records once collection setup
+  adds `base` to `record_extensions`, as local collections do. Setup converts
+  each existing Base view resource into a typed record with its exact
+  document, and `list_views` and `execute_view` include Base and saved-view
+  records whose types implement `obsidian.base` or `mdbase.view`. Before this,
+  a hosted Base could not be read or edited with the record operations after
+  that setup, and a Base created as a record was not listed.
 - Applications may require and add `md` or `base` to a collection's
   `settings.record_extensions` during collection setup (mdbase-rs `1c6290c`),
   so an application can store Obsidian Bases as records. It is the one setup

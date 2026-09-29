@@ -277,6 +277,7 @@ impl HostedProvider {
         let mut resource_documents =
             load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
                 .await?;
+        let view_types = view_type_names(&resources);
         let catalog = compile_point_catalog(resources, resource_documents.clone())?;
         if matches!(operation, "list_views" | "read_view_source") {
             resource_documents.extend(
@@ -287,6 +288,7 @@ impl HostedProvider {
                     collection_id,
                     &collection,
                     &catalog,
+                    &view_types,
                     operation,
                     input,
                 )
@@ -541,6 +543,24 @@ impl HostedProvider {
     }
 }
 
+/// Saved views are records whose types implement a saved-view contract.
+fn view_type_names(resources: &SyncCollectionResources) -> Vec<String> {
+    contract_type_names(resources, &["mdbase.view", "obsidian.base"])
+}
+
+pub(super) fn contract_type_names(
+    resources: &SyncCollectionResources,
+    contracts: &[&str],
+) -> Vec<String> {
+    resources
+        .contracts
+        .iter()
+        .filter(|contract| contracts.contains(&contract.id.as_str()))
+        .flat_map(|contract| contract.implementations.iter())
+        .map(|implementation| implementation.type_name.clone())
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn load_exact_view_documents(
     transaction: &mut Transaction<'_, Postgres>,
@@ -549,6 +569,7 @@ async fn load_exact_view_documents(
     collection_id: Uuid,
     collection: &PgRow,
     catalog: &mdbase::runtime::CompiledCatalog,
+    view_types: &[String],
     operation: &str,
     input: &Value,
 ) -> ApiResult<Vec<(String, String)>> {
@@ -592,7 +613,7 @@ async fn load_exact_view_documents(
                )
                SELECT record_id, content_bytes
                FROM candidates
-               WHERE NOT projection_current OR 'view' = ANY(matched_types)
+               WHERE NOT projection_current OR matched_types && $7::text[]
                ORDER BY record_id
                LIMIT $6"#,
         )
@@ -604,6 +625,7 @@ async fn load_exact_view_documents(
         ))
         .bind(mdbase::VERSION)
         .bind((MAX_HOSTED_RESOURCE_RECORDS + 1) as i64)
+        .bind(view_types)
         .fetch_all(&mut **transaction)
         .await?
     };
@@ -685,7 +707,7 @@ async fn load_exact_view_documents(
                 .facts
                 .types
                 .iter()
-                .any(|name| name.eq_ignore_ascii_case("view"))
+                .any(|name| view_types.contains(name))
         {
             views.push((record.path, record.document));
         }

@@ -1748,3 +1748,193 @@ async fn extension_file_get_without_origin_requires_bound_one_use_proof() {
     }
     server.abort();
 }
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn setup_turns_hosted_bases_into_records_that_list_run_and_edit() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let token = format!("bases-as-records-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    let declaration_digest = format!("sha256:{}", "b".repeat(64));
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Bases as records".to_string(),
+                application_setup_evidence: None,
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: [
+                    "read",
+                    "create",
+                    "update",
+                    "list_views",
+                    "execute_view",
+                    "create_view_source",
+                    "assess_collection_setup",
+                    "apply_collection_setup",
+                ]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: vec![2],
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::new_v4()),
+                application_declaration_id: Some("dev.mdbase.bases-as-records".to_string()),
+                application_declaration_digest: Some(declaration_digest.clone()),
+                token: token.clone(),
+                token_ttl_seconds: Some(3600),
+            },
+        )
+        .await
+        .unwrap();
+    let operation = |operation: &'static str, input: Value| {
+        let (provider, token) = (&fixture.provider, token.clone());
+        async move {
+            provider
+                .operation(
+                    fixture.collection_id,
+                    &token,
+                    operation,
+                    Uuid::now_v7(),
+                    input,
+                    None,
+                )
+                .await
+                .unwrap()
+        }
+    };
+
+    // A Base saved before setup is a hosted view resource.
+    let existing = operation(
+        "create_view_source",
+        json!({
+            "path": "views/existing.base",
+            "document": "# kept\nviews:\n  - type: table\n    name: Existing\n",
+        }),
+    )
+    .await;
+    assert_eq!(existing["valid"], true, "{existing}");
+
+    let pack: Value = serde_json::from_str(include_str!(
+        "../../../test/fixtures/packs/obsidian.base-1.0.0.json"
+    ))
+    .unwrap();
+    let requirement = |id: &str, value: &str| json!({"id": id, "path": "/settings/record_extensions", "predicate": "contains", "value": value});
+    let provision = |id: &str, value: &str| json!({"requirement": id, "operation": "set_add", "path": "/settings/record_extensions", "value": value});
+    let mut setup = json!({
+        "application_id": "dev.mdbase.bases-as-records",
+        "declaration_digest": declaration_digest,
+        "requirements": {"configuration": [requirement("md", "md"), requirement("base", "base")]},
+        "provisions": {
+            "configuration": [provision("md", "md"), provision("base", "base")],
+            "type_packs": [pack],
+        },
+    });
+    let assessment = operation("assess_collection_setup", setup.clone()).await;
+    assert_eq!(assessment["valid"], true, "{assessment}");
+    for (key, result) in [
+        ("expected_assessment_digest", "assessment_digest"),
+        ("expected_collection_revision", "collection_revision"),
+        ("expected_provision_digest", "provision_digest"),
+    ] {
+        setup[key] = assessment["result"][result].clone();
+    }
+    let applied = operation("apply_collection_setup", setup).await;
+    assert_eq!(applied["valid"], true, "{applied}");
+    let remaining_views: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_resources WHERE collection_id = $1 AND kind = 'view'",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        remaining_views, 0,
+        "setup converts Base view resources into records"
+    );
+    let (records, counted, bytes, counted_bytes): (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM hosted_provider_records WHERE collection_id = c.id), \
+                c.record_count, \
+                (SELECT coalesce(sum(content_bytes), 0)::bigint FROM hosted_provider_records \
+                  WHERE collection_id = c.id), \
+                c.content_bytes \
+         FROM hosted_provider_collections c WHERE c.id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (records, bytes),
+        (counted, counted_bytes),
+        "record counters follow the conversion"
+    );
+
+    // The converted Base is a typed record that keeps its exact document.
+    let read = operation(
+        "read",
+        json!({"path": "views/existing.base", "include_document": true}),
+    )
+    .await;
+    assert_eq!(read["valid"], true, "{read}");
+    assert_eq!(read["result"]["types"], json!(["obsidian_base"]));
+    assert_eq!(
+        read["result"]["document"],
+        "# kept\nviews:\n  - type: table\n    name: Existing\n"
+    );
+    let edited_document = "# kept\nviews:\n  - type: table\n    name: Edited\n";
+    let updated = operation(
+        "update",
+        json!({
+            "path": "views/existing.base",
+            "document": edited_document,
+            "if_revision": read["result"]["revision"],
+        }),
+    )
+    .await;
+    assert_eq!(updated["valid"], true, "{updated}");
+    let created = operation(
+        "create",
+        json!({
+            "path": "views/new.base",
+            "frontmatter": {"views": [{"type": "table", "name": "New"}]},
+        }),
+    )
+    .await;
+    assert_eq!(created["valid"], true, "{created}");
+
+    // Both Bases are listed as writable records and run.
+    let listed = operation("list_views", json!({})).await;
+    assert_eq!(listed["valid"], true, "{listed}");
+    let sources = listed["result"]["views"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|view| {
+            (
+                view["source"]["path"].as_str().unwrap().to_string(),
+                view["views"][0]["name"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sources,
+        [
+            ("views/existing.base".to_string(), "Edited".to_string()),
+            ("views/new.base".to_string(), "New".to_string()),
+        ]
+    );
+    for (path, view) in [("views/existing.base", "edited"), ("views/new.base", "new")] {
+        let executed = operation("execute_view", json!({"path": path, "view": view})).await;
+        assert_eq!(executed["valid"], true, "{path}: {executed}");
+    }
+}
