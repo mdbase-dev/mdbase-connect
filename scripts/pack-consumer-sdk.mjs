@@ -11,6 +11,7 @@ const packageDirectories = new Map([
   ["sync", "packages/sync"],
   ["pickle", "packages/pickle"],
   ["testing", "packages/testing"],
+  ["ui", "packages/app-ui"],
 ]);
 const defaultPackages = ["connect", "devkit", "protocol", "sync", "testing"];
 

@@ -1,9 +1,14 @@
+/** Every mdbase surface stores an explicit System, Light or Dark choice under this key. */
 export const THEME_STORAGE_KEY = "mdbase:theme";
 
 export const themePreferences = ["system", "light", "dark"] as const;
 export type ThemePreference = (typeof themePreferences)[number];
 
-type ThemeStorage = Pick<Storage, "getItem" | "setItem">;
+/** Browser chrome colours matching the light and dark canvas tokens. */
+export const themeColors = { light: "#fcfcfd", dark: "#1b1d23" } as const;
+
+export type ThemeStorage = Pick<Storage, "getItem" | "setItem">;
+export type ThemeRoot = Pick<HTMLElement, "dataset" | "removeAttribute">;
 
 export function normalizeThemePreference(value: unknown): ThemePreference {
   return themePreferences.includes(value as ThemePreference)
@@ -11,9 +16,10 @@ export function normalizeThemePreference(value: unknown): ThemePreference {
     : "system";
 }
 
-export function loadThemePreference(storage: ThemeStorage = localStorage): ThemePreference {
+/** Storage may be absent (server rendering, extension pages) or blocked; both mean System. */
+export function loadThemePreference(storage?: ThemeStorage): ThemePreference {
   try {
-    return normalizeThemePreference(storage.getItem(THEME_STORAGE_KEY));
+    return normalizeThemePreference((storage ?? localStorage).getItem(THEME_STORAGE_KEY));
   } catch {
     return "system";
   }
@@ -24,7 +30,7 @@ function prefersDark(): boolean {
     && matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
-export function resolveDarkTheme(root: HTMLElement = document.documentElement): boolean {
+export function resolveDarkTheme(root: Pick<HTMLElement, "dataset"> = document.documentElement): boolean {
   const applied = root.dataset.theme;
   return applied === "dark" || (applied !== "light" && prefersDark());
 }
@@ -47,23 +53,24 @@ export function observeTheme(
 
 export function applyThemePreference(
   preference: ThemePreference,
-  root: HTMLElement = document.documentElement
+  root: ThemeRoot = document.documentElement
 ): void {
   if (preference === "system") root.removeAttribute("data-theme");
   else root.dataset.theme = preference;
   const dark = preference === "dark" || (preference === "system" && prefersDark());
   if (typeof document !== "undefined") {
-    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", dark ? "#1c1e24" : "#fcfcfd");
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+      ?.setAttribute("content", dark ? themeColors.dark : themeColors.light);
   }
 }
 
 export function saveThemePreference(
   preference: ThemePreference,
-  storage: ThemeStorage = localStorage,
-  root: HTMLElement = document.documentElement
+  storage?: ThemeStorage,
+  root: ThemeRoot = document.documentElement
 ): void {
   try {
-    storage.setItem(THEME_STORAGE_KEY, preference);
+    (storage ?? localStorage).setItem(THEME_STORAGE_KEY, preference);
   } catch {
     // Theme selection still applies for this session when storage is unavailable.
   }

@@ -3,8 +3,9 @@ import type { CollectionDescription } from "@mdbase-dev/connect";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import type { CollectionGateway, ConnectionSummary } from "./model";
 import type { EditorPreferences } from "./preferences";
-import { SelectControl } from "./SelectionControls";
-import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "./theme";
+import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase-dev/ui/theme";
+import { Select } from "@mdbase-dev/ui/select";
+import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
 
 // Lazy: the panel's note composer brings CodeMirror, which stays out of startup.
 const YourPersonPanel = lazy(() => import("./YourPersonPanel").then((module) => ({ default: module.YourPersonPanel })));
@@ -43,12 +44,10 @@ export function SettingsView({ description, connection, noteCount, preferences, 
           <Toggle checked={preferences.quietMarkdown} label="Quiet Markdown" onChange={(quietMarkdown) => onChange({ ...preferences, quietMarkdown })} />
         </SettingRow>
         <SettingRow title="Text size" description="Change note text without changing the surrounding interface.">
-          <SelectControl aria-label="Editor text size" value={preferences.fontSize} onChange={(event) => onChange({ ...preferences, fontSize: Number(event.target.value) as EditorPreferences["fontSize"] })}>
-            <option value="16">Compact</option><option value="17">Comfortable</option><option value="19">Large</option>
-          </SelectControl>
+          <Select aria-label="Editor text size" value={String(preferences.fontSize)} options={[{ value: "16", label: "Compact" }, { value: "17", label: "Comfortable" }, { value: "19", label: "Large" }]} onChange={(next) => onChange({ ...preferences, fontSize: Number(next) as EditorPreferences["fontSize"] })} />
         </SettingRow>
         <SettingRow title="Color theme" description="Follow the system appearance or keep a theme in this browser.">
-          <ThemeSelect />
+          <ThemePreferenceSetting />
         </SettingRow>
       </section>
 
@@ -87,7 +86,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
   </main>;
 }
 
-function ThemeSelect() {
+function ThemePreferenceSetting() {
   const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
   useEffect(() => {
     applyThemePreference(preference);
@@ -97,11 +96,10 @@ function ThemeSelect() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, [preference]);
-  return <SelectControl aria-label="Color theme" value={preference} onChange={(event) => {
-    const next = event.target.value as ThemePreference;
+  return <ThemeSelect value={preference} onChange={(next) => {
     setPreference(next);
     saveThemePreference(next);
-  }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></SelectControl>;
+  }} />;
 }
 
 function SettingRow({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {

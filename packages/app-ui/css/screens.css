@@ -1,0 +1,155 @@
+/* Opening a collection: the wordmark, held still, over one quiet line. */
+.mdbase-opening {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--color-canvas);
+}
+
+.mdbase-opening-message {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  color: var(--color-text-soft);
+  text-align: center;
+}
+
+.mdbase-opening-message p,
+.mdbase-opening-message small {
+  display: block;
+  margin: 0;
+}
+
+.mdbase-opening-message p {
+  max-width: 44ch;
+  font-size: 13px;
+}
+
+.mdbase-opening-message small {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.mdbase-opening[data-loading-state="failed"] .mdbase-opening-message p {
+  color: var(--color-danger);
+}
+
+/* Before a collection is open. */
+.mdbase-connect-screen {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: var(--color-canvas);
+}
+
+.mdbase-connect-screen section {
+  width: min(100%, 520px);
+  margin-top: -4vh;
+}
+
+.mdbase-connect-screen h1 {
+  margin: 44px 0 22px;
+  color: var(--color-text);
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+}
+
+.mdbase-connect-lead {
+  max-width: 34ch;
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+.mdbase-connect-status {
+  margin: 14px 0 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* The one strong action on the screen. */
+.mdbase-connect-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  height: 42px;
+  margin-top: 24px;
+  padding: 0 14px 0 16px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--control-radius);
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color var(--motion-quick) ease, background var(--motion-quick) ease;
+}
+
+.mdbase-connect-action:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-connect-action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.mdbase-connect-action svg {
+  width: 15px;
+  height: 15px;
+}
+
+.mdbase-connect-footnote {
+  max-width: 47ch;
+  margin: 18px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.mdbase-connect-error {
+  margin: 18px 0 0;
+  color: var(--color-danger);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.mdbase-connect-detail {
+  margin-top: 10px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.mdbase-connect-detail code {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .mdbase-connect-screen {
+    place-items: start;
+    padding: max(34px, env(safe-area-inset-top)) 24px 32px;
+  }
+
+  .mdbase-connect-screen section {
+    margin-top: 8vh;
+  }
+
+  .mdbase-connect-screen h1 {
+    margin-top: 48px;
+    font-size: 43px;
+  }
+}

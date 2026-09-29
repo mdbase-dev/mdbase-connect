@@ -107,6 +107,7 @@ jobs:
             deploy/docker/Dockerfile.server \
             deploy/docker/mdbase-rs-revision \
             package.json \
+            packages/app-ui \
             packages/client \
             packages/protocol \
             packages/sync \

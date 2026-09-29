@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { describe, expect, it, vi } from "vitest";
 import { NewNoteComposer } from "./NewNoteComposer";
+import { chooseOption } from "./test/select";
 
 describe("new note schema fields", () => {
   it("submits prefilled person IDs and identities without imposing HTML whole-value regex semantics", async () => {
@@ -26,7 +27,7 @@ describe("new note schema fields", () => {
     const onCreate = vi.fn(async () => undefined);
     render(<NewNoteComposer types={[eventType]} onCreate={onCreate} onCancel={() => undefined} />);
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "event");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Type" }), "event");
     await user.type(screen.getByRole("textbox", { name: "Title" }), "Planning session");
     await user.click(screen.getByRole("textbox", { name: "Note body" }));
     await user.paste("Decide what ships next.");
@@ -82,13 +83,13 @@ describe("new note schema fields", () => {
     const onCreate = vi.fn(async () => undefined);
     render(<NewNoteComposer types={[contactType]} onCreate={onCreate} onCancel={() => undefined} />);
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "contact");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Type" }), "contact");
     await user.type(screen.getByRole("textbox", { name: "Display Name" }), "Ada Lovelace");
     await user.click(screen.getByRole("textbox", { name: "Note body" }));
     await user.paste("Met at the analytical engine meetup.");
     expect(screen.getByRole("button", { name: "Create note" })).toBeDisabled();
 
-    await user.selectOptions(screen.getByLabelText("kind"), "email");
+    await chooseOption(user, screen.getByRole("combobox", { name: "kind" }), "email");
     await user.type(screen.getByLabelText("value"), "ada@example.com");
     await user.click(screen.getByRole("button", { name: "Create note" }));
 
@@ -137,14 +138,14 @@ describe("new note schema fields", () => {
     const onCreate = vi.fn(async () => undefined);
     render(<NewNoteComposer types={[optionalType]} onCreate={onCreate} onCancel={() => undefined} />);
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "note");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Type" }), "note");
     await user.type(screen.getByRole("textbox", { name: "Title" }), "Typed draft");
     expect(screen.getByText("1 available")).toBeInTheDocument();
 
     await user.click(screen.getByText("Properties", { selector: "summary > span" }));
     await user.click(screen.getByRole("button", { name: "Add property" }));
     await user.click(screen.getByRole("button", { name: /status/i }));
-    await user.selectOptions(screen.getByLabelText("status value"), "draft");
+    await chooseOption(user, screen.getByRole("combobox", { name: "status value" }), "draft");
     expect(screen.getByText("1 set")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Create note" }));
@@ -158,13 +159,13 @@ describe("new note schema fields", () => {
     const onCreate = vi.fn(async () => undefined);
     render(<NewNoteComposer types={[jsContactType]} onCreate={onCreate} onCancel={() => undefined} />);
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "contact");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Type" }), "contact");
     await user.type(screen.getByRole("textbox", { name: "Title" }), "Ada Lovelace");
     expect(screen.getByRole("button", { name: "Create note" })).toBeDisabled();
 
     const name = screen.getByRole("group", { name: "name value" });
     await user.click(within(name).getByRole("button", { name: "Add optional field" }));
-    await user.selectOptions(within(name).getByRole("combobox", { name: "Optional field" }), "full");
+    await chooseOption(user, within(name).getByRole("combobox", { name: "Optional field" }), "full");
     await user.click(within(name).getByRole("button", { name: "Add" }));
     await user.type(screen.getByLabelText("full"), "Ada Lovelace");
     await user.click(screen.getByRole("button", { name: "Create note" }));
@@ -187,7 +188,7 @@ describe("new note schema fields", () => {
     const onCreate = vi.fn(async () => undefined);
     render(<NewNoteComposer types={[unmappedType]} onCreate={onCreate} onCancel={() => undefined} />);
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "unmapped");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Type" }), "unmapped");
     await user.type(screen.getByRole("textbox", { name: "Title" }), "The document heading");
     await user.type(screen.getByLabelText("name value"), "A separate schema value");
     await user.click(screen.getByRole("button", { name: "Create note" }));
@@ -208,12 +209,12 @@ describe("new note schema fields", () => {
     const onCreate = vi.fn(async () => undefined);
     render(<NewNoteComposer types={[friendlyContactType]} onCreate={onCreate} onCancel={() => undefined} />);
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "contact");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Type" }), "contact");
     await user.type(screen.getByRole("textbox", { name: "Name" }), "Ada Lovelace");
     expect(screen.queryByLabelText("name value")).not.toBeInTheDocument();
 
     await user.click(screen.getByText("Properties", { selector: "summary > span" }));
-    expect(screen.getByLabelText("kind value")).toHaveDisplayValue("person");
+    expect(screen.getByRole("combobox", { name: "kind value" })).toHaveTextContent("person");
     await user.click(screen.getByRole("button", { name: "Add property" }));
     await user.click(screen.getByRole("button", { name: /email/i }));
     await user.type(screen.getByLabelText("email value"), "ada@example.com");

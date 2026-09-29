@@ -456,8 +456,8 @@ button.danger:disabled {
 }
 
 .connect-inline-form input,
-.connect-inline-form select,
-.connect-role-select select {
+.connect-inline-form .mdbase-select,
+.connect-role-select .mdbase-select {
   min-height: 36px;
   padding: 7px 10px;
   border: 1px solid var(--line-strong);
@@ -494,8 +494,7 @@ button.danger:disabled {
 .connect-sharing-link small { color: var(--muted); font-size: 0.75rem; line-height: 1.4; }
 .connect-sharing-link input { min-width: 0; min-height: 36px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--soft); color: var(--muted); }
 .connect-sharing-link button { min-height: 36px; color: var(--accent-strong); font-size: 0.75rem; }
-.connect-role-select select { min-width: 104px; }
-.connect-role-select select:disabled { opacity: 0.6; }
+.connect-role-select .mdbase-select { min-width: 104px; }
 .connect-member-row { grid-template-columns: minmax(190px, 1fr) auto auto; }
 
 .connect-inline-form > div {
@@ -838,7 +837,7 @@ button.danger:disabled {
 
 .connect-feedback-field input,
 .connect-feedback-field textarea,
-.connect-feedback-origin select {
+.connect-feedback-origin .mdbase-select {
   width: 100%;
   min-height: 38px;
   padding: 8px 10px;
@@ -1373,7 +1372,7 @@ button.danger:disabled {
   .connect-sharing-form > div { grid-column: 1; grid-row: auto; }
   .connect-sharing-link { grid-template-columns: 1fr; }
   .connect-member-row { grid-template-columns: 1fr; gap: 8px; }
-  .connect-role-select select { min-height: 44px; }
+  .connect-role-select .mdbase-select { min-height: 44px; }
   .connect-feedback-topic { grid-template-columns: 1fr; }
   .connect-feedback-actions { justify-content: flex-start; }
   .connect-feedback-upload { min-height: 44px; }
@@ -1419,6 +1418,15 @@ button.danger:disabled {
   }
 }
 
+/* On the narrowest phones the app switcher drops its chevron, as it does in a tight rail,
+   so the mark, the way back and the account still fit on one line. */
+@media (max-width: 360px) {
+  .connect-shell > .collection-rail .mdbase-app-switcher-chevron {
+    display: none;
+  }
+}
+
+
 @media (prefers-reduced-motion: reduce) {
   .connect-shell *,
   .connect-shell *::before,
@@ -1438,7 +1446,7 @@ button.danger:disabled {
 .connect-feedback-topic label,
 .connect-feedback-field input,
 .connect-feedback-field textarea,
-.connect-feedback-origin select,
+.connect-feedback-origin .mdbase-select,
 .connect-feedback-upload,
 .connect-feedback-diagnostics,
 .connect-account-form input,

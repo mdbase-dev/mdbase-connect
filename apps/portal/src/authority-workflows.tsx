@@ -6,6 +6,7 @@ import {
 } from "./api";
 import { message } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
+import { Select } from "@mdbase-dev/ui/select";
 
 export function Pairing({ pairingId }: { pairingId: string }) {
   const [pairing, setPairing] = useState<{ connector_name: string; approved_at: string | null } | null>(null);
@@ -139,11 +140,12 @@ export function MirrorPairing({ pairingId }: { pairingId: string }) {
           {request.collections.length ? <>
             <label>
               <span>Hosted collection</span>
-              <select value={collectionId} onChange={(event) => setCollectionId(event.target.value)}>
-                {request.collections.map((collection) => (
-                  <option key={collection.id} value={collection.id}>{collection.display_name}</option>
-                ))}
-              </select>
+              <Select
+                aria-label="Hosted collection"
+                value={collectionId}
+                options={request.collections.map((collection) => ({ value: collection.id, label: collection.display_name }))}
+                onChange={setCollectionId}
+              />
             </label>
             <p className="field-note">
               Existing Markdown is checked before upload. Collection paths and device credentials stay off the control plane.

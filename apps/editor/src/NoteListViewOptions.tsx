@@ -1,5 +1,5 @@
 import { CheckIcon as Check, SlidersHorizontalIcon as SlidersHorizontal } from "./icons";
-import { useEffect, useRef, useState } from "react";
+import { MenuPopover, useMenuTrigger } from "./ActionMenu";
 import { noteSortOptions, type NoteSort } from "./note-list-view";
 
 export function NoteListViewOptions({ sort, scopeLabel, onSort, onClearScope }: {
@@ -8,61 +8,21 @@ export function NoteListViewOptions({ sort, scopeLabel, onSort, onClearScope }: 
   onSort: (sort: NoteSort) => void;
   onClearScope: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    root.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]')?.focus();
-    const closeForOutsidePress = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setOpen(false);
-        trigger.current?.focus();
-        return;
-      }
-      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-      const items = [...(root.current?.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]') ?? [])];
-      const current = items.indexOf(document.activeElement as HTMLButtonElement);
-      const direction = event.key === "ArrowDown" ? 1 : -1;
-      const next = (current + direction + items.length) % items.length;
-      event.preventDefault();
-      items[next]?.focus();
-    };
-    document.addEventListener("pointerdown", closeForOutsidePress);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", closeForOutsidePress);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  const { open, close, trigger, triggerProps } = useMenuTrigger();
 
   const select = (action: () => void) => {
     action();
-    setOpen(false);
-    trigger.current?.focus();
+    close(true);
   };
 
-  return <div className="note-view-options" ref={root}>
+  return <div className="note-view-options">
     <button
-      ref={trigger}
+      {...triggerProps}
       className="icon-button note-view-options-trigger"
       aria-label="View options"
-      aria-haspopup="menu"
-      aria-expanded={open}
       title="View options"
-      onClick={() => setOpen((value) => !value)}
-      onKeyDown={(event) => {
-        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-        event.preventDefault();
-        setOpen(true);
-      }}
     ><SlidersHorizontal aria-hidden="true" /></button>
-    {open && <div className="action-menu note-view-options-menu" role="menu" aria-label="Note view options">
+    {open && <MenuPopover label="Note view options" className="note-view-options-menu" triggerRef={trigger} onClose={close}>
       <p className="view-options-heading">Sort</p>
       {noteSortOptions.map((option) => <button
         key={option.value}
@@ -83,6 +43,6 @@ export function NoteListViewOptions({ sort, scopeLabel, onSort, onClearScope }: 
         aria-checked={!scopeLabel}
         onClick={() => select(onClearScope)}
       ><span className="view-option-check">{!scopeLabel && <Check aria-hidden="true" />}</span><span>All notes</span></button>
-    </div>}
+    </MenuPopover>}
   </div>;
 }

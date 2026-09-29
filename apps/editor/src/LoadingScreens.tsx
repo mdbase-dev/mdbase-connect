@@ -1,4 +1,4 @@
-import { Wordmark } from "./Brand";
+import { OpeningScreen as SharedOpeningScreen } from "@mdbase-dev/ui/screens";
 
 export function TypeWorkspaceLoading() {
   return <>
@@ -11,10 +11,5 @@ export function TypeWorkspaceLoading() {
   </>;
 }
 export function OpeningScreen() {
-  return <main className="opening-shell" data-loading-state="opening" aria-label="Opening collection" aria-busy="true">
-    <div className="opening-message" role="status">
-      <Wordmark />
-      <div><p>Opening collection</p><small>Reading its notes and types</small></div>
-    </div>
-  </main>;
+  return <SharedOpeningScreen app="editor" title="Opening collection" detail="Reading its notes and types" />;
 }

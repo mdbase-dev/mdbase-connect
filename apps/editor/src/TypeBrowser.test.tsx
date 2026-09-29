@@ -8,6 +8,7 @@ import type { NoteSummary, TypeDocument } from "./model";
 import { TypeInspector, TypePackBrowser } from "./TypeBrowser";
 import { NEW_TYPE_SOURCE } from "./type-constants";
 import { readVisualType } from "./type-schema";
+import { chooseOption, optionsOf } from "./test/select";
 
 describe("recursive type builder", () => {
   it("summarises secondary type settings behind quiet disclosures", async () => {
@@ -79,7 +80,7 @@ describe("recursive type builder", () => {
     const user = userEvent.setup();
     render(<InspectorHarness />);
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "profile field kind" }), "string");
+    await chooseOption(user, screen.getByRole("combobox", { name: "profile field kind" }), "string");
     const warning = screen.getByRole("alert");
     expect(within(warning).getByText(/removes nested fields/)).toBeInTheDocument();
     expect(screen.getByTestId("source")).toHaveTextContent("display_name:");
@@ -174,7 +175,7 @@ describe("recursive type builder", () => {
     render(<InspectorHarness source={collectionSource} />);
 
     expect(screen.getByRole("heading", { name: "Collection behaviour" })).toBeInTheDocument();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Name field" }), "category");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Name field" }), "category");
     const icon = screen.getByRole("combobox", { name: "Display icon" });
     await user.clear(icon);
     await user.type(icon, "notebook");
@@ -184,7 +185,7 @@ describe("recursive type builder", () => {
     await user.clear(defaultValue);
     await user.type(defaultValue, "A quiet default");
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "category link format" }), "markdown");
+    await chooseOption(user, screen.getByRole("combobox", { name: "category link format" }), "markdown");
     await user.click(screen.getByRole("checkbox", { name: "Require an existing target" }));
     const targetType = screen.getByRole("combobox", { name: "category target type 1" });
     await user.clear(targetType);
@@ -192,7 +193,7 @@ describe("recursive type builder", () => {
     expect(targetSuggestions).toHaveClass("combobox-popover");
     await user.click(within(targetSuggestions).getByRole("option", { name: "any" }));
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "title uniqueness scope" }), "path_glob");
+    await chooseOption(user, screen.getByRole("combobox", { name: "title uniqueness scope" }), "path_glob");
     await user.type(screen.getByRole("textbox", { name: "title uniqueness path pattern" }), "People/**/*.md");
 
     const pathPattern = screen.getByRole("textbox", { name: /^Path pattern$/ });
@@ -226,8 +227,10 @@ describe("recursive type builder", () => {
 
     expect(screen.getByText("Mapping ready")).toBeInTheDocument();
     const nameMapping = screen.getByRole("combobox", { name: "example.person name type field" });
-    expect(nameMapping).toHaveValue("name");
-    expect(within(nameMapping).getByRole("option", { name: "age · Integer" })).toBeDisabled();
+    expect(nameMapping).toHaveAttribute("data-value", "name");
+    await user.click(nameMapping);
+    expect(within(optionsOf(nameMapping)).getByRole("option", { name: "age · Integer" })).toHaveAttribute("aria-disabled", "true");
+    await user.keyboard("{Escape}");
     expect(screen.getByText("Required fields covered")).toBeInTheDocument();
     expect(screen.getAllByText(/satisfies the declared contract field constraints/)).toHaveLength(2);
     expect(screen.getByTestId("source")).toHaveTextContent("contract: example.person");
@@ -257,7 +260,7 @@ describe("recursive type builder", () => {
     await user.type(nameField, "display_name");
     await user.tab();
 
-    expect(screen.getByRole("combobox", { name: "example.person name type field" })).toHaveValue("display_name");
+    expect(screen.getByRole("combobox", { name: "example.person name type field" })).toHaveAttribute("data-value", "display_name");
     expect(screen.getByTestId("source")).toHaveTextContent("name: display_name");
     expect(screen.getByText("Mapping ready")).toBeInTheDocument();
   });
@@ -317,7 +320,7 @@ schema:
     expect(screen.getByText("Map required contract field legal_name.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled();
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "example.legal-person legal_name type field" }), "name");
+    await chooseOption(user, screen.getByRole("combobox", { name: "example.legal-person legal_name type field" }), "name");
     expect(screen.getByText("Mapping ready")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled();
   });

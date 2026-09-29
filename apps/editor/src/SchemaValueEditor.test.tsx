@@ -4,6 +4,7 @@ import type { JsonObject } from "@mdbase-dev/connect";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { SchemaValueEditor, schemaInitialValue, schemaValueComplete } from "./SchemaValueEditor";
+import { chooseOption } from "./test/select";
 
 describe("recursive schema values", () => {
   it("builds initial nested values from required fields, defaults, constants, and list minimums", () => {
@@ -37,15 +38,15 @@ describe("recursive schema values", () => {
 
     const profile = screen.getByRole("group", { name: /profile/i });
     await user.click(within(profile).getByRole("button", { name: "Add optional field" }));
-    await user.selectOptions(within(profile).getByRole("combobox", { name: "Optional field" }), "timezone");
+    await chooseOption(user, within(profile).getByRole("combobox", { name: "Optional field" }), "timezone");
     await user.click(within(profile).getByRole("button", { name: "Add" }));
     await user.type(screen.getByLabelText("timezone"), "Australia/Melbourne");
 
     const contacts = screen.getByRole("group", { name: "Contacts" });
     await user.click(within(contacts).getByRole("button", { name: "Add item" }));
-    const kinds = screen.getAllByLabelText("kind");
+    const kinds = screen.getAllByRole("combobox", { name: "kind" });
     const values = screen.getAllByLabelText("value");
-    await user.selectOptions(kinds[1], "phone");
+    await chooseOption(user, kinds[1], "phone");
     await user.type(values[1], "+61 400 000 000");
 
     expect(JSON.parse(screen.getByTestId("value").textContent ?? "{}")).toEqual({
@@ -68,7 +69,7 @@ describe("recursive schema values", () => {
     const settings = screen.getByRole("group", { name: "Settings" });
     const existingField = within(settings).getByLabelText("required_middle");
     await user.click(within(settings).getByRole("button", { name: "Add optional field" }));
-    await user.selectOptions(within(settings).getByRole("combobox", { name: "Optional field" }), "optional_before");
+    await chooseOption(user, within(settings).getByRole("combobox", { name: "Optional field" }), "optional_before");
     await user.click(within(settings).getByRole("button", { name: "Add" }));
 
     const addedField = within(settings).getByLabelText("optional_before");

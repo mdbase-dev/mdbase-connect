@@ -1,0 +1,196 @@
+/* The command palette (./command-palette). Reader's layout in Editor's quiet frame. */
+.mdbase-command-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  margin: 0;
+  padding: min(14vh, 120px) 16px 16px;
+  border: 0;
+  background: color-mix(in oklch, var(--color-scrim) 40%, transparent);
+}
+
+.mdbase-command-dismiss {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.mdbase-command-palette {
+  position: relative;
+  z-index: 1;
+  width: min(600px, 100%);
+  max-height: calc(100dvh - min(28vh, 240px) - 32px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--control-radius);
+  background: var(--color-surface);
+  animation: mdbase-popover-in var(--motion-base) var(--ease-out);
+}
+
+.mdbase-command-search {
+  height: 52px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.mdbase-command-search svg {
+  width: 17px;
+  height: 17px;
+  color: var(--color-text-muted);
+}
+
+.mdbase-command-search input {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--color-text);
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+}
+
+.mdbase-command-search input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.mdbase-command-results {
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 6px 8px;
+  scroll-padding: 28px 0 8px;
+}
+
+.mdbase-command-group {
+  padding: 10px 10px 4px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mdbase-command-results > button {
+  width: 100%;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--control-radius);
+  color: var(--color-text-soft);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mdbase-command-results > button[aria-selected="true"],
+.mdbase-command-results > button:hover {
+  color: var(--color-text);
+  background: var(--color-selected);
+}
+
+.mdbase-command-results button > span:first-child {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.mdbase-command-results strong,
+.mdbase-command-results small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdbase-command-results strong {
+  flex: 0 1 auto;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.mdbase-command-results small {
+  flex: 1 1 auto;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.mdbase-command-results kbd,
+.mdbase-command-footer kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius);
+  color: var(--color-text-muted);
+  font: 10px/1.2 var(--mono);
+}
+
+.mdbase-command-footer kbd {
+  margin-right: 2px;
+}
+
+.mdbase-command-alternate {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.mdbase-command-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.mdbase-command-empty {
+  padding: 28px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+@media (max-width: 680px) {
+  .mdbase-command-backdrop {
+    padding: 56px 8px 8px;
+  }
+
+  .mdbase-command-palette {
+    max-height: calc(100dvh - 64px);
+  }
+
+  .mdbase-command-results button > span:first-child {
+    display: grid;
+    gap: 1px;
+  }
+
+  .mdbase-command-footer {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdbase-command-palette {
+    animation: none;
+  }
+}

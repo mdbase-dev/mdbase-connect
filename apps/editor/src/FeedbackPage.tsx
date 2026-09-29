@@ -10,6 +10,7 @@ import {
   type FeedbackSourceView,
   type FeedbackTopic
 } from "./feedback";
+import { Select } from "@mdbase-dev/ui/select";
 
 export function FeedbackPage({ endpoint, turnstileSiteKey, sourceView, collectionName, applicationOrigins, onDone }: {
   endpoint: string;
@@ -137,7 +138,7 @@ export function FeedbackPage({ endpoint, turnstileSiteKey, sourceView, collectio
         <div className="connect-feedback-options">
           {collectionName && <label><input type="checkbox" checked={includeCollection} onChange={(event) => setIncludeCollection(event.target.checked)} /><span>Include collection name: <strong>{collectionName}</strong></span></label>}
           {applicationOrigins.length > 0 && <label><input type="checkbox" checked={includeApplication} onChange={(event) => setIncludeApplication(event.target.checked)} /><span>Include application origin</span></label>}
-          {includeApplication && <label className="connect-feedback-origin"><span>Application origin</span><select value={applicationOrigin} onChange={(event) => setApplicationOrigin(event.target.value)}>{applicationOrigins.map((origin) => <option key={origin}>{origin}</option>)}</select></label>}
+          {includeApplication && <label className="connect-feedback-origin"><span>Application origin</span><Select aria-label="Application origin" value={applicationOrigin} options={applicationOrigins.map((origin) => ({ value: origin, label: origin }))} onChange={setApplicationOrigin} /></label>}
         </div>
       </section>}
 

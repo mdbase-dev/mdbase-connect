@@ -1,0 +1,105 @@
+{
+  "name": "@mdbase-dev/ui",
+  "version": "0.1.0-beta.117",
+  "private": false,
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mdbase-dev/mdbase-connect.git",
+    "directory": "packages/app-ui"
+  },
+  "homepage": "https://mdbase.dev",
+  "sideEffects": [
+    "*.css"
+  ],
+  "exports": {
+    "./app-switcher": {
+      "types": "./dist/AppSwitcher.d.ts",
+      "import": "./dist/AppSwitcher.js"
+    },
+    "./apps": {
+      "types": "./dist/apps.d.ts",
+      "import": "./dist/apps.js"
+    },
+    "./brand": {
+      "types": "./dist/brand.d.ts",
+      "import": "./dist/brand.js"
+    },
+    "./codemirror": {
+      "types": "./dist/codemirror.d.ts",
+      "import": "./dist/codemirror.js"
+    },
+    "./command-palette": {
+      "types": "./dist/CommandPalette.d.ts",
+      "import": "./dist/CommandPalette.js"
+    },
+    "./dialog": {
+      "types": "./dist/Dialog.d.ts",
+      "import": "./dist/Dialog.js"
+    },
+    "./popover": {
+      "types": "./dist/popover.d.ts",
+      "import": "./dist/popover.js"
+    },
+    "./save-notice": {
+      "types": "./dist/SaveNotice.d.ts",
+      "import": "./dist/SaveNotice.js"
+    },
+    "./screens": {
+      "types": "./dist/screens.d.ts",
+      "import": "./dist/screens.js"
+    },
+    "./select": {
+      "types": "./dist/Select.d.ts",
+      "import": "./dist/Select.js"
+    },
+    "./theme": {
+      "types": "./dist/theme.d.ts",
+      "import": "./dist/theme.js"
+    },
+    "./theme-select": {
+      "types": "./dist/ThemeSelect.d.ts",
+      "import": "./dist/ThemeSelect.js"
+    },
+    "./brand.css": "./css/brand.css",
+    "./controls.css": "./css/controls.css",
+    "./fonts.css": "./css/fonts.css",
+    "./motion.css": "./css/motion.css",
+    "./palette.css": "./css/palette.css",
+    "./screens.css": "./css/screens.css",
+    "./tokens.css": "./css/tokens.css"
+  },
+  "files": [
+    "css",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fontsource/atkinson-hyperlegible": "^5.3.0",
+    "@fontsource/azeret-mono": "^5.3.0"
+  },
+  "peerDependencies": {
+    "@codemirror/view": "^6.0.0",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@codemirror/view": "^6.43.12",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "peerDependenciesMeta": {
+    "@codemirror/view": {
+      "optional": true
+    }
+  }
+}

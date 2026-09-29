@@ -9,6 +9,7 @@ on:
       - "packages/client/**"
       - "packages/management/**"
       - "packages/protocol/**"
+      - "packages/app-ui/**"
       - "packages/ui/**"
       - "services/feedback/**"
       - "pnpm-lock.yaml"

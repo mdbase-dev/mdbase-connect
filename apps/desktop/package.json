@@ -10,7 +10,7 @@
     "build": "pnpm build:main && pnpm build:renderer",
     "build:main": "tsc -p tsconfig.main.json && node scripts/build-main.mjs",
     "build:renderer": "vite build",
-    "build:standalone": "pnpm --filter @mdbase-dev/connect-protocol build && pnpm build",
+    "build:standalone": "pnpm --filter @mdbase-dev/connect-protocol --filter @mdbase-dev/ui build && pnpm build",
     "dev:daemon": "cargo build --manifest-path ../../Cargo.toml -p mdbase-cli",
     "start": "pnpm dev:daemon && pnpm build:standalone && electron .",
     "make": "pnpm dev:daemon --release && pnpm build:standalone && electron-forge make",
@@ -19,8 +19,6 @@
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
   "dependencies": {
-    "@fontsource/atkinson-hyperlegible": "^5.3.0",
-    "@fontsource/azeret-mono": "^5.3.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "scheduler": "^0.28.0"
@@ -35,6 +33,7 @@
     "@electron-forge/maker-zip": "^7.11.2",
     "@mdbase/connect-ui": "workspace:*",
     "@mdbase-dev/connect-protocol": "workspace:*",
+    "@mdbase-dev/ui": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

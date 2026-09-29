@@ -1,29 +1,4 @@
-.mdbase-motion-mark {
-  overflow: visible;
-}
-
-.mdbase-motion-mark .mdbase-mark-segment,
-.mdbase-motion-mark .mdbase-mark-row,
-.mdbase-motion-mark .mdbase-mark-fence,
-.mdbase-motion-mark .mdbase-mark-conveyor-track {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-.mdbase-motion-mark .mdbase-mark-ink,
-.mdbase-motion-mark .mdbase-mark-conveyor-track {
-  fill: currentColor;
-}
-
-.mdbase-motion-mark .mdbase-mark-accent {
-  fill: var(--accent);
-}
-
-.mdbase-motion-mark .mdbase-mark-conveyor-track {
-  opacity: 0;
-  transform-box: view-box;
-  transform-origin: 0 0;
-}
+/* Animations for the platform mark. Base mark styling lives in brand.css. */
 
 /* Bootstrap: trace once in reading order, then continue as bounded I/O. */
 .mdbase-motion-bootstrap .mdbase-mark-segment {
@@ -37,7 +12,7 @@
 }
 
 .mdbase-motion-bootstrap .mdbase-mark-accent {
-  stroke: var(--accent);
+  stroke: var(--color-accent);
   animation-name: mdbase-trace-accent;
 }
 
@@ -100,7 +75,7 @@
   }
   72%,
   100% {
-    fill: var(--accent);
+    fill: var(--color-accent);
     opacity: 1;
     stroke-dashoffset: 0;
     stroke-opacity: 0;
@@ -206,10 +181,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mdbase-motion-mark .mdbase-mark-segment,
-  .mdbase-motion-mark .mdbase-mark-row,
-  .mdbase-motion-mark .mdbase-mark-fence,
-  .mdbase-motion-mark .mdbase-mark-conveyor-track {
+  .mdbase-mark .mdbase-mark-segment,
+  .mdbase-mark .mdbase-mark-row,
+  .mdbase-mark .mdbase-mark-fence,
+  .mdbase-mark .mdbase-mark-conveyor-track {
     animation: none !important;
     filter: none !important;
     opacity: 1;
@@ -217,7 +192,7 @@
     transform: none !important;
   }
 
-  .mdbase-motion-mark .mdbase-mark-conveyor-track {
+  .mdbase-mark .mdbase-mark-conveyor-track {
     opacity: 0;
   }
 }

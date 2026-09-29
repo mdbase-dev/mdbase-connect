@@ -9,22 +9,11 @@ editor. There are no floating cards and almost no chrome.
 
 ## Color
 
-- Canvas: `oklch(99.4% 0.003 245)`
-- Raised white: `oklch(100% 0.002 245)`
-- Ink: `oklch(21% 0.018 255)`
-- Muted ink: `oklch(51% 0.014 255)`
-- Faint ink: `oklch(52% 0.01 255)`
-- Line: `oklch(92.5% 0.006 255)`
-- Hover: `oklch(97.7% 0.006 245)`
-- Selected: `oklch(96.4% 0.016 238)`
-- Accent: `oklch(47% 0.1 238)`
-- Danger: `oklch(50% 0.11 28)`
-
-Dark mode uses canvas `oklch(17.5% 0.012 255)`, writing surface
-`oklch(19.5% 0.012 255)`, ink `oklch(92% 0.008 255)`, muted ink
-`oklch(72% 0.012 255)`, line `oklch(29% 0.012 255)`, and accent
-`oklch(73% 0.105 238)`. Syntax, diff, warning, selection, skeleton, and conflict
-colors have theme-specific semantic roles.
+Role values for light, dark and system themes live in
+`packages/app-ui/css/tokens.css`, published as `@mdbase-dev/ui/tokens.css`.
+Editor's quiet treatment is the canonical palette; do not restate values here.
+Syntax, diff, warning, selection, skeleton, and conflict colors have
+theme-specific semantic roles.
 
 ## Theme contract
 

@@ -4,6 +4,23 @@ import { afterEach, beforeEach, vi } from "vitest";
 
 configure({ asyncUtilTimeout: 5_000 });
 
+// jsdom hides [popover] elements but has no Popover API. Menus and select lists from
+// @mdbase-dev/ui open with showPopover, so stand in for it: an open popover is displayed.
+if (typeof HTMLElement.prototype.showPopover !== "function") {
+  const matches = Element.prototype.matches;
+  Element.prototype.matches = function (this: Element, selectors: string) {
+    return selectors === ":popover-open" ? this.hasAttribute("data-popover-open") : matches.call(this, selectors);
+  } as typeof matches;
+  HTMLElement.prototype.showPopover = function (this: HTMLElement) {
+    this.setAttribute("data-popover-open", "");
+    this.style.setProperty("display", "block");
+  };
+  HTMLElement.prototype.hidePopover = function (this: HTMLElement) {
+    this.removeAttribute("data-popover-open");
+    this.style.removeProperty("display");
+  };
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();

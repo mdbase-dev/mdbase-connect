@@ -1,36 +1,11 @@
-import { CaretDownIcon as CaretDown } from "./icons";
 import {
-  forwardRef,
   useEffect,
   useId,
   useMemo,
   useState,
   type InputHTMLAttributes,
-  type KeyboardEvent,
-  type SelectHTMLAttributes
+  type KeyboardEvent
 } from "react";
-
-export const SelectControl = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement> & {
-  containerClassName?: string;
-  variant?: "field" | "compact";
-}>(function SelectControl({
-  children,
-  className = "",
-  containerClassName = "",
-  disabled,
-  variant = "field",
-  ...props
-}, ref) {
-  return <span className={[
-    "select-control",
-    variant === "compact" ? "compact" : "",
-    disabled ? "disabled" : "",
-    containerClassName
-  ].filter(Boolean).join(" ")}>
-    <select {...props} ref={ref} className={className} disabled={disabled}>{children}</select>
-    <CaretDown aria-hidden="true" />
-  </span>;
-});
 
 export function ComboboxInput({
   label,

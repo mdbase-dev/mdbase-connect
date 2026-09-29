@@ -16,6 +16,7 @@ import type {
   NoteIndexResult,
   NoteSummary
 } from "./model";
+import { chooseOption } from "./test/select";
 
 vi.mock("./CodeEditor", () => ({
   CodeEditor: ({ value, onChange, label, readOnly }: { value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean }) =>
@@ -289,7 +290,7 @@ describe("mdbase editor", () => {
     const title = await screen.findByRole("textbox", { name: "Title" });
     await user.type(title, "A useful note");
     expect(screen.getByLabelText("Suggested path")).toHaveTextContent("A useful note.md");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "note");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Type" }), "note");
     expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Notes/A useful note.md");
     await user.type(screen.getByRole("textbox", { name: "Note body" }), "The opening paragraph is already here.");
     await user.click(screen.getByRole("button", { name: "Create note" }));
@@ -415,7 +416,7 @@ describe("mdbase editor", () => {
     fireEvent.keyDown(typeRow, { key: "F10", shiftKey: true });
     await user.click(within(await screen.findByRole("menu", { name: "note type actions" }))
       .getByRole("menuitem", { name: "New note of type" }));
-    expect(screen.getByRole("combobox", { name: "Type" })).toHaveValue("note");
+    expect(screen.getByRole("combobox", { name: "Type" })).toHaveAttribute("data-value", "note");
     expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Notes/‹title›.md");
   });
 
@@ -517,7 +518,7 @@ describe("mdbase editor", () => {
     expect(screen.getByRole("heading", { name: "Update this type?" })).toBeInTheDocument();
     expect(screen.getByText(/1 note is missing required field/)).toHaveTextContent("field");
     await user.click(screen.getByRole("button", { name: "Confirm update" }));
-    await waitFor(() => expect(screen.getByText("Saved", { selector: ".type-inspector-bar small" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Saved", { selector: ".type-inspector-bar .mdbase-save-notice" })).toBeInTheDocument());
     expect((await gateway.readType("note")).document).toContain("A durable general note.");
 
     await user.click(screen.getByRole("button", { name: "YAML" }));

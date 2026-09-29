@@ -8,7 +8,7 @@ import {
   NotebookIcon as Notebook,
   SidebarSimpleIcon as PanelLeftClose
 } from "./icons";
-import { Wordmark } from "./Brand";
+import { AppSwitcher } from "@mdbase-dev/ui/app-switcher";
 
 export type EditorRailSurface = "notes" | "types" | "settings" | "connect";
 
@@ -16,6 +16,12 @@ interface RailDestination {
   href?: string;
   onClick?: () => void;
 }
+
+// Local builds point the app menu at local copies of Reader and Writer.
+const appUrls = {
+  reader: import.meta.env.VITE_MDBASE_READER_URL as string | undefined,
+  writer: import.meta.env.VITE_MDBASE_WRITER_URL as string | undefined
+};
 
 export function EditorRail({
   collectionName,
@@ -49,7 +55,7 @@ export function EditorRail({
   footer: ReactNode;
 }) {
   return <aside className="collection-rail" aria-label="Collection navigation">
-    <div className="rail-header"><Wordmark />{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
+    <div className="rail-header"><AppSwitcher current="editor" urls={appUrls} />{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
     <nav>
       {mobileReturn && <a className="mobile-editor-return" href={mobileReturn.href} onClick={mobileReturn.onClick}><span><ArrowLeft aria-hidden="true" />{mobileReturn.label}</span></a>}
       <button className="collection-name" aria-label={`Switch collection, current collection ${collectionName}`} onClick={onSwitch}><span>{collectionName}</span><ChevronDown aria-hidden="true" /></button>

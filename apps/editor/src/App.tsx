@@ -1937,7 +1937,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onDraftChange={setCreationDirty}
       /></Suspense> : <main className="editor-pane" aria-label="Note editor">
         {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
-          <header className="editor-bar">
+          <header className="editor-bar mdbase-settle-host">
             <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
             {editorLeadingActions}
             <div className="note-history" role="group" aria-label="Note history">

@@ -1,8 +1,4 @@
-import "@fontsource/atkinson-hyperlegible/latin-400.css";
-import "@fontsource/atkinson-hyperlegible/latin-700.css";
-import "@fontsource/azeret-mono/latin-400.css";
-import "@fontsource/azeret-mono/latin-500.css";
-import "@fontsource/azeret-mono/latin-600.css";
+import "@mdbase-dev/ui/fonts.css";
 import {
   groupApplicationAccess,
   type ApplicationAccessGroup
@@ -54,6 +50,7 @@ import {
   type Route
 } from "./view-model";
 import "./styles.css";
+import { Select } from "@mdbase-dev/ui/select";
 
 const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }> = {
   overview: {
@@ -583,10 +580,14 @@ function PortalApprovalRequest({ request, collections, focused, busy, onAct }: {
     </div>
     {native ? <div className="request-decision">
       <label>Collection on this computer
-        <select disabled={busy} value={selected?.id ?? ""} onChange={(event) => setCollectionId(event.target.value)}>
-          <option value="" disabled>Choose a collection</option>
-          {candidates.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}</option>)}
-        </select>
+        <Select
+          aria-label="Collection on this computer"
+          disabled={busy}
+          value={selected?.id ?? ""}
+          placeholder="Choose a collection"
+          options={candidates.map((collection) => ({ value: collection.id, label: collection.display_name }))}
+          onChange={setCollectionId}
+        />
       </label>
       <p>Entire collection. Access continues until revoked under Connected applications. New installations may also require local code comparison.</p>
       <RequestPermissionChoices groups={groups} selected={operations} onChange={setOperations} />
@@ -827,7 +828,7 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
           <div className="setting-row">
             <span>Theme</span>
             <div><strong>Color theme</strong><small>System follows your operating system appearance</small></div>
-            <ThemeMenu placement="up" />
+            <ThemeMenu />
           </div>
         </div>
       </section>

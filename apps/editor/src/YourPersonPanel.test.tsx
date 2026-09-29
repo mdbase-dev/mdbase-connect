@@ -1,9 +1,11 @@
+import userEvent from "@testing-library/user-event";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MdbaseConnectError, type CollectionDescription } from "@mdbase-dev/connect";
 import type { CollectionGateway, NoteSummary } from "./model";
 import { YourPersonPanel } from "./YourPersonPanel";
 import { peopleGateway } from "./test/people-gateway";
+import { chooseOption } from "./test/select";
 
 vi.mock("./NewNoteComposer", () => ({ NewNoteComposer: (props: { initialTitle: string; initialProperties: object; defaultType: string; onCreate(input: unknown): Promise<void> }) =>
   <button type="button" onClick={() => void props.onCreate({ title: props.initialTitle, properties: props.initialProperties, type: props.defaultType, path: "contacts/new.md", body: "" })}>Create fixture person</button>
@@ -25,7 +27,7 @@ function fixture(current: () => CollectionDescription = () => description) {
 }
 it("links an existing contact with mapped fields without replacing its name or local fields", async () => {
   const f = fixture(); f.render();
-  fireEvent.change(await screen.findByRole("combobox", { name: "Existing person or contact" }), { target: { value: "contacts/existing.md" } });
+  await chooseOption(userEvent.setup(), await screen.findByRole("combobox", { name: "Existing person or contact" }), "contacts/existing.md");
   fireEvent.click(screen.getByRole("button", { name: "Link this record to me" }));
   await waitFor(() => expect(f.gateway.updateProperties).toHaveBeenCalledWith("contacts/existing.md", {
     profile: { name: "Existing contact", accounts: [{ issuer: identity.issuer, subject: identity.subject }] }
@@ -50,7 +52,7 @@ it("only shows a type choice when the collection has multiple compatible types",
   } as unknown as CollectionDescription;
   const f = fixture(() => multiple);
   render(<YourPersonPanel gateway={f.gateway as unknown as CollectionGateway} description={multiple} canCreate canEdit />);
-  fireEvent.change(await screen.findByRole("combobox", { name: "Person type" }), { target: { value: "person" } });
+  await chooseOption(userEvent.setup(), await screen.findByRole("combobox", { name: "Person type" }), "person");
   fireEvent.click(screen.getByRole("button", { name: "Create my person record" }));
   fireEvent.click(screen.getByRole("button", { name: "Create fixture person" }));
   await waitFor(() => expect(f.gateway.create).toHaveBeenCalledWith(expect.objectContaining({ type: "person" })));
@@ -71,7 +73,7 @@ it("requires explicit review before converting a Contact-only note, preserving i
   } as unknown as CollectionDescription;
   current = convertedDescription;
   render(<YourPersonPanel gateway={f.gateway as unknown as CollectionGateway} description={convertedDescription} canCreate canEdit />);
-  fireEvent.change(await screen.findByRole("combobox", { name: "Existing person or contact" }), { target: { value: "contacts/existing.md" } });
+  await chooseOption(userEvent.setup(), await screen.findByRole("combobox", { name: "Existing person or contact" }), "contacts/existing.md");
   fireEvent.click(screen.getByRole("button", { name: "Review contact conversion" }));
   expect(await screen.findByRole("region", { name: "Review contact conversion" })).toHaveTextContent("No other contacts or type definitions are changed");
   expect(f.gateway.updateProperties).not.toHaveBeenCalled();
@@ -111,7 +113,7 @@ it("asks for confirmation before linking a record another account claims", async
   const f = fixture();
   f.notes[0].frontmatter.profile = { name: "Existing contact", accounts: [{ issuer: identity.issuer, subject: "someone-else" }] };
   f.render();
-  fireEvent.change(await screen.findByRole("combobox", { name: "Existing person or contact" }), { target: { value: "contacts/existing.md" } });
+  await chooseOption(userEvent.setup(), await screen.findByRole("combobox", { name: "Existing person or contact" }), "contacts/existing.md");
   expect(screen.getByText(/already linked to another account/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Link this record to me" }));
   fireEvent.click(await screen.findByRole("button", { name: "Link anyway" }));

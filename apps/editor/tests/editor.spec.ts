@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { expect, test, type Locator } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { chooseOption } from "./select";
 
 const contactSchema = JSON.stringify({
   type: "object",
@@ -233,21 +234,16 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function expectSharedSelectControls(scope: Locator) {
-  const controls = scope.locator("select");
+  // Every fixed choice is @mdbase-dev/ui's Select; no native <select> remains.
+  const controls = scope.locator('[role="combobox"].mdbase-select');
   await expect(controls.first()).toBeVisible();
-  expect(await controls.count()).toBeGreaterThan(0);
+  await expect(scope.locator("select")).toHaveCount(0);
   const audit = await controls.evaluateAll((selects) => selects.map((select) => ({
-    wrapped: select.parentElement?.classList.contains("select-control") ?? false,
-    hasCaret: Boolean(select.parentElement?.querySelector("svg")),
-    appearance: getComputedStyle(select).appearance,
+    hasCaret: Boolean(select.querySelector(".mdbase-select-chevron")),
+    listbox: select.getAttribute("aria-haspopup") === "listbox",
     height: select.getBoundingClientRect().height
   })));
-  expect(audit.every((control) =>
-    control.wrapped
-    && control.hasCaret
-    && control.appearance === "none"
-    && control.height === 34
-  )).toBe(true);
+  expect(audit.every((control) => control.hasCaret && control.listbox && control.height === 34)).toBe(true);
 }
 
 test("shows an explicit status while a collection opens", async ({ page }) => {
@@ -693,7 +689,7 @@ for (const trigger of ["@", "[["] as const) {
     await page.goto("?demo=12");
     const editor = page.getByRole("main", { name: "Note editor" });
     const body = page.getByRole("textbox", { name: "Note body" });
-    const saveState = editor.locator(".save-state");
+    const saveState = editor.locator(".mdbase-save-notice");
     await body.click();
     await page.keyboard.press("Control+End");
     await page.keyboard.type(`\n\n${trigger}the shape`);
@@ -722,7 +718,7 @@ test("creates a note only after the creation form is complete", async ({ page })
   await expect(create).toBeDisabled();
   await page.getByRole("textbox", { name: "Title" }).fill("A useful note");
   await expect(page.getByLabel("Suggested path")).toHaveText("A useful note.md");
-  await page.getByRole("combobox", { name: "Type" }).selectOption("note");
+  await chooseOption(page.getByRole("combobox", { name: "Type" }), "note");
   await expect(page.getByLabel("Suggested path")).toHaveText("Notes/A useful note.md");
   await page.locator(".new-note-properties > summary").click();
   await page.getByRole("button", { name: "Add property" }).click();
@@ -845,12 +841,12 @@ test("creates and edits a contact through its declared display field", async ({ 
 
   await page.getByRole("button", { name: /^All notes, / }).click();
   await page.getByRole("button", { name: "New note" }).click();
-  await page.getByRole("combobox", { name: "Type" }).selectOption("contact");
+  await chooseOption(page.getByRole("combobox", { name: "Type" }), "contact");
   await expect(page.getByRole("textbox", { name: "Name" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Title" })).toHaveCount(0);
   await page.getByRole("textbox", { name: "Name" }).fill("Ada Lovelace");
   await page.getByText("Properties", { selector: "summary > span" }).click();
-  await expect(page.getByRole("combobox", { name: "kind value" })).toHaveValue('string:"individual"');
+  await expect(page.getByRole("combobox", { name: "kind value" })).toHaveAttribute("data-value", 'string:"individual"');
   await page.getByRole("button", { name: "Add property" }).click();
   await page.getByRole("button", { name: /email/i }).click();
   await page.getByRole("textbox", { name: "email value" }).fill("ada@example.com");
@@ -940,9 +936,9 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
     ".contract-settings-body > .schema-object > .schema-add-trigger"
   );
   await addSetting.click();
-  await contractSettings.locator(
-    ".contract-settings-body > .schema-object > .schema-add-value select"
-  ).selectOption("archive");
+  await chooseOption(contractSettings.locator(
+    ".contract-settings-body > .schema-object > .schema-add-value [role='combobox']"
+  ), "archive");
   await contractSettings.locator(
     ".contract-settings-body > .schema-object > .schema-add-value button"
   ).filter({ hasText: "Add" }).click();
@@ -966,7 +962,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
 
   await page.getByRole("button", { name: /^All notes, / }).click();
   await page.getByRole("button", { name: "New note" }).click();
-  await page.getByRole("combobox", { name: "Type" }).selectOption("contact");
+  await chooseOption(page.getByRole("combobox", { name: "Type" }), "contact");
   await page.getByText("Properties", { exact: true }).click();
   await page.getByRole("button", { name: "Add property" }).click();
   await page.getByRole("searchbox", { name: "Find a property" }).fill("organizations");
@@ -1090,25 +1086,25 @@ test("edits and reviews portable collection behaviour", async ({ page }) => {
   expect(Math.abs(visualScrollerGeometry.inspectorRight - visualScrollerGeometry.scrollerRight)).toBeLessThanOrEqual(1);
   expect(visualScrollerGeometry.scrollHeight).toBeGreaterThan(visualScrollerGeometry.clientHeight);
 
-  await page.getByRole("combobox", { name: "Name field" }).selectOption("title");
+  await chooseOption(page.getByRole("combobox", { name: "Name field" }), "title");
   await page.getByRole("combobox", { name: "Display icon" }).fill("note");
   await page.getByRole("listbox", { name: "Phosphor icons" }).getByRole("option", { name: "note", exact: true }).click();
 
   await page.getByRole("button", { name: "Add default" }).click();
-  await page.getByRole("combobox", { name: "Default field 1" }).selectOption("title");
+  await chooseOption(page.getByRole("combobox", { name: "Default field 1" }), "title");
   await page.getByRole("textbox", { name: "Default value for title" }).fill("Untitled note");
 
   await page.getByRole("button", { name: "Add link rule" }).click();
-  await page.getByRole("combobox", { name: "Link field 1" }).selectOption("tags[]");
-  await page.getByRole("combobox", { name: "tags[] link format" }).selectOption("wikilink");
+  await chooseOption(page.getByRole("combobox", { name: "Link field 1" }), "tags[]");
+  await chooseOption(page.getByRole("combobox", { name: "tags[] link format" }), "wikilink");
   await page.getByRole("checkbox", { name: "Require an existing target" }).check();
   await page.getByRole("button", { name: "Add target type" }).click();
   await page.getByRole("combobox", { name: "tags[] target type 1", exact: true }).fill("note");
   await page.getByRole("combobox", { name: "tags[] target type 1", exact: true }).press("Tab");
 
   await page.getByRole("button", { name: "Add unique rule" }).click();
-  await page.getByRole("combobox", { name: "Unique field 1" }).selectOption("title");
-  await page.getByRole("combobox", { name: "title uniqueness scope" }).selectOption("collection");
+  await chooseOption(page.getByRole("combobox", { name: "Unique field 1" }), "title");
+  await chooseOption(page.getByRole("combobox", { name: "title uniqueness scope" }), "collection");
   await page.getByRole("textbox", { name: "Path pattern", exact: true }).fill("Notes/{title}.md");
   const pathControlTops = await Promise.all([
     page.getByRole("textbox", { name: "Path pattern", exact: true }).evaluate((input) => input.getBoundingClientRect().top),
@@ -1156,8 +1152,8 @@ test("builds and saves a recursive list-of-objects field", async ({ page }) => {
   const fieldName = page.locator(".visual-field-name input").last();
   await fieldName.fill("contacts");
   await fieldName.press("Tab");
-  await page.getByRole("combobox", { name: "contacts field kind" }).selectOption("array");
-  await page.getByRole("combobox", { name: "contacts[] kind" }).selectOption("object");
+  await chooseOption(page.getByRole("combobox", { name: "contacts field kind" }), "array");
+  await chooseOption(page.getByRole("combobox", { name: "contacts[] kind" }), "object");
   await page.getByRole("button", { name: "Add nested field" }).last().click();
 
   const nestedName = page.locator(".visual-field-name input").last();

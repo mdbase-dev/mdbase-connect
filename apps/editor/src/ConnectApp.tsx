@@ -14,7 +14,7 @@ import {
 } from "@mdbase/connect-ui/access";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
-import { MdbaseMark } from "./Brand";
+import { MdbaseMark } from "@mdbase-dev/ui/brand";
 import {
   applyConnectServerOverride,
   connectServerUrl
@@ -39,6 +39,12 @@ import {
   WarningCircleIcon as Warning
 } from "./icons";
 import "./connect.css";
+import { Select } from "@mdbase-dev/ui/select";
+
+type MemberRole = "viewer" | "editor";
+
+// The owner row shows "Owner" instead of a role choice, so only assignable roles are listed.
+const memberRoles: ReadonlyArray<{ value: MemberRole; label: string }> = [{ value: "viewer", label: "Viewer" }, { value: "editor", label: "Editor" }];
 
 type ConnectView = FeedbackSourceView;
 type Grant = ManagementOverview["grants"][number];
@@ -462,9 +468,9 @@ function CollectionSharingPanel({ collection, busy, perform, sharingAvailable }:
     />
     {loadError && <div className="connect-notice error" role="alert">{loadError}<button onClick={() => void load()}>Try again</button></div>}
     {sharingAvailable && inviting && <form className="connect-inline-form connect-sharing-form" onSubmit={(event) => void invite(event)}>
-      <label><span>Invite using</span><select value={targetMode} onChange={(event) => { setTargetMode(event.target.value as "email" | "invitee_code"); setTarget(""); }}><option value="email">Verified email</option><option value="invitee_code">Sharing code</option></select></label>
+      <label><span>Invite using</span><Select aria-label="Invite using" value={targetMode} options={[{ value: "email", label: "Verified email" }, { value: "invitee_code", label: "Sharing code" }]} onChange={(next) => { setTargetMode(next); setTarget(""); }} /></label>
       <label><span>{targetMode === "email" ? "Email address" : "Sharing code"}</span><input autoFocus type={targetMode === "email" ? "email" : "text"} maxLength={targetMode === "email" ? 320 : 32} value={target} onChange={(event) => setTarget(event.target.value)} placeholder={targetMode === "email" ? "person@example.com" : "ABCD-EFGH"} /></label>
-      <label><span>Role</span><select value={role} onChange={(event) => setRole(event.target.value as "viewer" | "editor")}><option value="viewer">Viewer</option><option value="editor">Editor</option></select></label>
+      <label><span>Role</span><Select aria-label="Role" value={role} options={memberRoles} onChange={setRole} /></label>
       <p>{role === "viewer" ? "Can read this collection and connect read-only apps or folders." : "Can edit notes, manage types, rename this collection, and connect apps."}</p>
       <div><button type="button" onClick={() => setInviting(false)}>Cancel</button><button className="connect-primary-action" disabled={!target.trim() || busy.has(`sharing-invite-${collection.id}`)}>{busy.has(`sharing-invite-${collection.id}`) ? "Creating…" : "Create invitation"}</button></div>
     </form>}
@@ -472,7 +478,7 @@ function CollectionSharingPanel({ collection, busy, perform, sharingAvailable }:
     {members?.map((member) => <div className="connect-row connect-member-row" key={member.id ?? "owner"}>
       <div><strong>{member.name}</strong><small>{member.kind === "owner" ? "Collection owner" : member.state === "changing" ? "Updating access…" : member.state === "revoking" ? "Removing application and folder access…" : member.role === "editor" ? "Can edit notes and manage types" : "Can view and connect read-only apps"}</small></div>
       {member.kind === "owner" ? <span>Owner</span> : <>
-        <label className="connect-role-select"><span className="sr-only">Role for {member.name}</span><select value={member.role} disabled={member.state !== "active" || (!sharingAvailable && member.role === "viewer") || busy.has(`member-role-${member.id}`)} onChange={(event) => void mutate(`member-role-${member.id}`, (options) => management.changeCollectionMemberRole(collection.id, member.id!, event.target.value as "viewer" | "editor", options))}><option value="viewer">Viewer</option><option value="editor">Editor</option></select></label>
+        <label className="connect-role-select"><span className="sr-only">Role for {member.name}</span><Select aria-label={`Role for ${member.name}`} value={member.role as MemberRole} options={memberRoles} disabled={member.state !== "active" || (!sharingAvailable && member.role === "viewer") || busy.has(`member-role-${member.id}`)} onChange={(next) => void mutate(`member-role-${member.id}`, (options) => management.changeCollectionMemberRole(collection.id, member.id!, next, options))} /></label>
         <ConfirmAction className="danger" label={member.state === "revoking" ? "Removing…" : "Remove"} question={`Remove ${member.name} from ${collection.display_name}? Their application and folder access will also be revoked.`} confirmLabel="Remove access" busy={member.state === "revoking" || busy.has(`member-revoke-${member.id}`)} onConfirm={() => void mutate(`member-revoke-${member.id}`, (options) => management.revokeCollectionMember(collection.id, member.id!, options))} />
       </>}
     </div>)}
@@ -775,7 +781,7 @@ function RouteLink({ view, collectionId, navigate, children, className = "", ari
 }
 
 function ConnectLoading({ error }: { error: string }) {
-  return <div className="connect-loading" aria-busy={!error}><MdbaseMark /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p></div>;
+  return <div className="connect-loading" aria-busy={!error}><MdbaseMark className="wordmark-mark" /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p></div>;
 }
 
 function DesktopRecoveryHelp({ action }: { action: string }) {
