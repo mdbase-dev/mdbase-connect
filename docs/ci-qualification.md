@@ -8,15 +8,26 @@ trust boundary.
 
 - Ordinary pull requests run the fast Node build, typecheck, architecture, and
   unit-test lane.
+- Pull requests that change native inputs run the complete qualification
+  automatically, so failures that would otherwise first appear in the merge
+  queue surface before queueing. `scripts/ci/server-test-plan.mjs` selects
+  them from the merge-base diff: Rust crates, Cargo manifests and locks, the
+  toolchain, `deploy/docker/`, `deploy/postgres/`, `test/system/`,
+  `test/upgrade/`, Windows diagnostics, every registered system-suite command,
+  and the Server CI workflows. The list only adds pull-request coverage; a
+  missing input delays feedback but never skips a merge-queue gate.
 - Pull requests labelled `ci:full` run the complete cross-platform, Rust,
   browser, container, upgrade, and system qualification. Isolated staging
   publication requires this label and verifies the full artifact.
 - Merge-queue commits always run the complete qualification. Hosted-provider
   Rust qualification and every registered system suite run as parallel jobs
   rather than one serial critical path. `container` retains its packaged-image
-  job; `local,relay`, `sync`, `provider`, `files`, `files-adversarial`, and
-  `desktop` are explicit matrix shards. A contract test prevents new suites
-  from silently falling outside full CI.
+  job; `local,relay`, `sync`, `provider`, `files`, `files-adversarial`,
+  `projection-scale`, and `desktop` are explicit matrix shards. A contract
+  test prevents new suites from silently falling outside full CI. Windows
+  filesystem durability runs `mdbase-connect-core` and `mdbase-connect-daemon`
+  on separate runners because their test binaries are filesystem-throughput
+  bound and otherwise run one after another.
 - A push to `main` reuses a successful merge-queue qualification only when its
   head SHA is exactly the same. If GitHub has no such completed run, all full
   jobs run again.
@@ -30,10 +41,36 @@ also records the exact upstream merge-queue run.
 
 `Desktop Release` keeps cross-platform editor/release regression tests on every
 matching PR. Editor-only changes skip the standalone headless CLI build matrix;
-CSS-only editor changes also skip Windows Store packaging. Mixed changes,
+CSS-only editor changes also skip Windows Store packaging. The Windows Store
+package job builds the release CLI and also runs the Windows headless smoke
+test, so Windows builds it once. Mixed changes,
 shared inputs, unknown paths, and empty diffs retain native checks. The selector
 uses the complete base-to-head merge-base diff, with renames expanded to both
 paths. Explicit release dispatches still run all native checks.
+
+## Rust dependency caches
+
+GitHub scopes a cache to the ref that saved it; other refs can read only their
+own and the default branch's. Caches saved by merge-queue or pull-request runs
+were therefore never restored, and they evicted useful entries from the
+repository's 10 GB budget. A push to `main` reuses the merge-queue
+qualification without building, so nothing was ever saved where later runs
+could read it.
+
+`rust-caches.yml` is the only writer. It runs on `main` when a cache-key input
+changes (Cargo manifests and locks, the toolchain, or the pinned engine),
+weekly so unchanged entries do not expire, and on dispatch. Each matrix entry
+reproduces one consumer's toolchain, lock file and builds under a shared key:
+`hosted-provider` (Rust workspace job and every system shard),
+`runtime-testbed`, `connect-debug` (macOS/Windows filesystem durability and the
+Windows CLI lifecycle contract), and `mdbase-cli-release` (Desktop Release
+smoke builds). Every CI job restores with `save-if: false`; a contract test
+fails if a job restores a key the workflow does not write. rust-cache keeps
+dependencies only, so workspace crates always compile from source.
+
+The hosted-provider upgrade job restores, read-only, the Docker Cargo cache
+mounts that `publish-images.yml` saves from `main` before building the
+candidate image.
 
 ## Rust checks and binary transfer measurement
 

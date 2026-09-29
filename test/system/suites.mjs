@@ -29,6 +29,11 @@ export const systemSuites = Object.freeze({
     prepare: [],
     command: ["node", "scripts/hosted-file-adversarial-e2e.mjs"]
   },
+  "projection-scale": {
+    description: "Hosted projection 100k and 230k row fixtures",
+    prepare: [],
+    command: ["node", "scripts/hosted-projection-scale-e2e.mjs"]
+  },
   container: {
     description: "Packaged control plane with PostgreSQL and NATS",
     prepare: [],

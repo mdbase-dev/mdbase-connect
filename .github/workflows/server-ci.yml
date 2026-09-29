@@ -23,13 +23,31 @@ jobs:
       run_full: ${{ steps.depth.outputs.run_full }}
       upstream_run_id: ${{ steps.depth.outputs.upstream_run_id }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: github.event_name == 'pull_request'
+        with:
+          node-version: 24
+      - id: plan
+        name: Select native PR qualification from changed paths
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci/server-test-plan.mjs "$BASE" "$HEAD"
       - id: depth
         name: Reuse only an exact merge-queue qualification
         env:
           GH_TOKEN: ${{ github.token }}
+          NATIVE_CHANGES: ${{ steps.plan.outputs.native }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            if jq -e 'any(.pull_request.labels[]?; .name == "ci:full" or .name == "ci:benchmark-binaries")' \
+            if [[ $NATIVE_CHANGES == true ]] ||
+              jq -e 'any(.pull_request.labels[]?; .name == "ci:full" or .name == "ci:benchmark-binaries")' \
               "$GITHUB_EVENT_PATH" >/dev/null
             then
               echo 'run_full=true' >>"$GITHUB_OUTPUT"
@@ -67,7 +85,7 @@ jobs:
     uses: ./.github/workflows/windows-daemon-lifecycle.yml
 
   windows-filesystem:
-    name: Filesystem durability (${{ matrix.os }})
+    name: Filesystem durability (${{ matrix.label }})
     needs: classify
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ${{ matrix.os }}
@@ -75,7 +93,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-2025]
+        # Windows test binaries are filesystem-throughput bound and run one
+        # after another, so each package gets its own runner.
+        include:
+          - label: macos-15
+            os: macos-15
+            packages: -p mdbase-connect-core -p mdbase-connect-daemon
+          - label: windows-2025 core
+            os: windows-2025
+            packages: -p mdbase-connect-core
+          - label: windows-2025 daemon
+            os: windows-2025
+            packages: -p mdbase-connect-daemon
     defaults:
       run:
         working-directory: mdbase-connect
@@ -101,9 +130,11 @@ jobs:
         with:
           workspaces: |
             mdbase-connect -> target
-          key: filesystem-${{ matrix.os }}-${{ steps.mdbase_revision.outputs.revision }}
-          cache-on-failure: true
-      - run: cargo test --locked -p mdbase-connect-core -p mdbase-connect-daemon
+          # Restore only: rust-caches.yml saves from main, where every
+          # merge-queue and pull-request ref can read it.
+          shared-key: connect-debug-${{ steps.mdbase_revision.outputs.revision }}
+          save-if: false
+      - run: cargo test --locked ${{ matrix.packages }}
         env:
           MDBASE_CONNECT_ENV: test
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
@@ -144,8 +175,8 @@ jobs:
         with:
           workspaces: |
             mdbase-connect -> target
-          key: runtime-testbed-${{ steps.mdbase_revision.outputs.revision }}
-          cache-on-failure: true
+          shared-key: runtime-testbed-${{ steps.mdbase_revision.outputs.revision }}
+          save-if: false
       - name: Install portable testbed runner
         working-directory: mdbase-spec/packages/testbed
         run: npm ci
@@ -372,6 +403,24 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @mdbase-dev/connect-protocol build
+      # --current-upgrade builds the release hosted-provider image. Reuse the
+      # Cargo cache mounts publish-images.yml saves from main; restore only.
+      - id: buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Restore hosted-provider Cargo cache mounts
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: hosted-provider-cache-mounts
+          key: hosted-provider-cargo-${{ hashFiles('deploy/docker/Cargo.lock.hosted-provider', 'deploy/docker/mdbase-rs-revision') }}-${{ github.sha }}
+          restore-keys: |
+            hosted-provider-cargo-${{ hashFiles('deploy/docker/Cargo.lock.hosted-provider', 'deploy/docker/mdbase-rs-revision') }}-
+      - name: Inject hosted-provider Cargo cache mounts
+        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          cache-dir: hosted-provider-cache-mounts
+          dockerfile: deploy/docker/Dockerfile.hosted-provider
+          skip-extraction: true
       - name: Verify and cache the immutable beta95 regression fixture
         shell: bash
         env:
@@ -431,8 +480,8 @@ jobs:
         with:
           workspaces: |
             mdbase-connect -> target
-          key: hosted-provider-${{ steps.mdbase_revision.outputs.revision }}
-          cache-on-failure: true
+          shared-key: hosted-provider-${{ steps.mdbase_revision.outputs.revision }}
+          save-if: false
       - run: cargo fmt --all --check
       - run: scripts/check-cargo-features
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
@@ -508,6 +557,10 @@ jobs:
             suites: files-adversarial
             browser: false
             timeout: 35
+          - shard: projection-scale
+            suites: projection-scale
+            browser: false
+            timeout: 35
           - shard: desktop
             suites: desktop,linux-packages
             browser: true
@@ -546,8 +599,9 @@ jobs:
         with:
           workspaces: |
             mdbase-connect -> target
-          key: hosted-provider-system-${{ matrix.shard }}-${{ steps.mdbase_revision.outputs.revision }}
-          cache-on-failure: true
+          # Every shard builds the hosted-provider-rust configuration.
+          shared-key: hosted-provider-${{ steps.mdbase_revision.outputs.revision }}
+          save-if: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       # The hosted-provider-rust job checks this exact lockfile/SDK/toolchain

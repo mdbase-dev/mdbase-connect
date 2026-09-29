@@ -17,6 +17,7 @@ test("every system suite has an existing command and known preparation steps", a
     "provider",
     "files",
     "files-adversarial",
+    "projection-scale",
     "container",
     "linux-packages",
     "desktop"
