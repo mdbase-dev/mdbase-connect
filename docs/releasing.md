@@ -108,7 +108,8 @@ workflow identity, checksums, and Sigstore bundles. See
 
 The `Desktop Release` workflow builds, verifies, signs, and publishes the
 installers on an explicit post-production dispatch from a version tag. To enable trusted macOS output, configure these
-secrets in the `desktop-release` GitHub Actions environment:
+repository-scoped GitHub Actions secrets (the platform builders do not enter
+an environment):
 
 - `MACOS_CERTIFICATE_P12_BASE64`: base64-encoded Developer ID Application
   certificate and private key in PKCS#12 format;
@@ -118,7 +119,7 @@ secrets in the `desktop-release` GitHub Actions environment:
   notarization.
 
 Reserve `mdbase connect` in Partner Center, then copy the following non-secret
-values from **Product identity** into variables on the same GitHub environment
+values from **Product identity** into repository-scoped Actions variables
 to additionally build a Store-submission package:
 
 - `WINDOWS_STORE_IDENTITY_NAME`: the exact package Identity/Name;
@@ -133,9 +134,17 @@ whose manifest is checked against them. The workflow uses
 monotonically increasing Store package version; the fourth component remains
 zero as required by the Store. The AppX is retained as the
 `windows-store-submission` Actions artifact and is deliberately excluded from
-the GitHub release. Upload it to the matching Partner Center submission. The
-Store replaces its build-time development signature with Microsoft's
-certificate after certification.
+the GitHub release. Upload the first package to the matching Partner Center
+submission. The Store replaces its build-time development signature with
+Microsoft's certificate after certification.
+
+Follow [Windows Store distribution](windows-store.md) for the reserved product
+identity, initial listing and native-upgrade acceptance, Entra/GitHub OIDC
+setup, and package-only CI submissions. `WINDOWS_STORE_LIVE=true` separately
+enables the Store link in future signed update feeds; packaging alone never
+claims the listing is live. Leave `WINDOWS_STORE_SUBMISSION_ENABLED` unset
+until the first publication, federation and Windows lifecycle acceptance are
+complete.
 
 Before creating a release tag, require Server CI and `Publish Server Images` to
 pass for the main commit that will be tagged. That publisher builds each managed
