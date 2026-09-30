@@ -182,24 +182,14 @@ impl AgentState {
                         }
                         Ok(description)
                     };
-                    let before = validate_target()?;
-                    // Enter setup only when a declared requirement is not yet satisfied.
-                    let needs_setup = !requirements.configuration.is_empty()
-                        || requirements.contracts.iter().any(|required| {
-                            !before.contracts.iter().any(|available| {
-                                available.id == required.id
-                                    && available.version == required.version
-                                    && available.digest == required.digest
-                            })
-                        });
-                    if !needs_setup && !contract_setups.is_empty() {
-                        return Err(ConnectError::InvalidInput(
-                            "Contract setup choices were provided when no collection setup was required."
-                                .to_string(),
-                        ));
-                    }
-                    let (setup_assessment, provision_receipt) = if needs_setup {
-                        let setup = self.registry.provision_application_setup(
+                    validate_target()?;
+                    // A declared setup is always applied whole: the engine plans
+                    // it from definitions alone and writes nothing when current.
+                    let declares_setup = !requirements.configuration.is_empty()
+                        || !provisions.configuration.is_empty()
+                        || !provisions.type_packs.is_empty();
+                    let setup = if declares_setup {
+                        Some(self.registry.provision_application_setup(
                             collection_id,
                             &application_declaration_id,
                             &super::account::engine_declaration_digest(
@@ -208,10 +198,14 @@ impl AgentState {
                             &requirements,
                             &provisions,
                             &contract_setups,
-                        )?;
-                        (Some(setup.assessment), Some(setup.receipt))
+                        )?)
+                    } else if !contract_setups.is_empty() {
+                        return Err(ConnectError::InvalidInput(
+                            "Contract setup choices were provided for an application that declares no collection setup."
+                                .to_string(),
+                        ));
                     } else {
-                        (None, None)
+                        None
                     };
                     self.watcher.rescan(collection_id);
                     let final_description = validate_target()?;
@@ -227,28 +221,28 @@ impl AgentState {
                             required.id, required.version
                         )));
                     }
-                    let contracts = final_description.contracts;
                     grant.scope.contracts = Vec::new();
                     self.registry.upsert_grant(&grant)?;
-                    Ok((contracts, setup_assessment, provision_receipt))
+                    Ok((
+                        final_description.contracts,
+                        setup.map(|setup| (setup.assessment, setup.receipt)),
+                    ))
                 })();
                 Some(match result {
-                    Ok((contracts, setup_assessment, provision_receipt)) => {
-                        RelayMessage::AuthorizationActivationResponse {
-                            protocol_version: CONTROL_PROTOCOL_VERSION,
-                            request_id,
-                            ok: true,
-                            contracts,
-                            contract_setups: if setup_assessment.is_some() {
-                                contract_setups.clone()
-                            } else {
-                                Vec::new()
-                            },
-                            setup_assessment,
-                            provision_receipt,
-                            error: None,
-                        }
-                    }
+                    Ok((contracts, setup)) => RelayMessage::AuthorizationActivationResponse {
+                        protocol_version: CONTROL_PROTOCOL_VERSION,
+                        request_id,
+                        ok: true,
+                        contracts,
+                        contract_setups: if setup.is_some() {
+                            contract_setups.clone()
+                        } else {
+                            Vec::new()
+                        },
+                        setup_assessment: setup.as_ref().map(|setup| setup.0.clone()),
+                        provision_receipt: setup.map(|setup| setup.1),
+                        error: None,
+                    },
                     Err(error) => RelayMessage::AuthorizationActivationResponse {
                         protocol_version: CONTROL_PROTOCOL_VERSION,
                         request_id,

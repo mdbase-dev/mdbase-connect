@@ -3,6 +3,7 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 use tempfile::tempdir;
 
+mod application_setup_benchmark;
 mod authority;
 mod collections;
 pub(super) mod file_io;
