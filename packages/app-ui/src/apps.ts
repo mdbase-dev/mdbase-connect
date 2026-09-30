@@ -10,6 +10,8 @@ export interface MdbaseApp {
   readonly description: string;
   /** Production origin. Lab and local builds substitute their own with `withAppUrls`. */
   readonly url: string;
+  /** The main app for a collection: it carries the platform mark and leads the app menu. */
+  readonly main?: boolean | undefined;
 }
 
 export const mdbaseApps: readonly MdbaseApp[] = [
@@ -17,7 +19,8 @@ export const mdbaseApps: readonly MdbaseApp[] = [
     id: "editor",
     name: "Editor",
     description: "Browse and edit records",
-    url: "https://editor.mdbase.dev/"
+    url: "https://editor.mdbase.dev/",
+    main: true
   },
   {
     id: "reader",

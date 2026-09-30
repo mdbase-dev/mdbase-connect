@@ -1,7 +1,7 @@
 import { useId, useRef, useState, type JSX, type RefObject } from "react";
 
 import { mdbaseAppHref, withAppUrls, type MdbaseApp, type MdbaseAppId } from "./apps.js";
-import { MdbaseAppMark, Wordmark, type MdbaseMarkMotion } from "./brand.js";
+import { MdbaseAppMark, MdbaseMark, Wordmark, type MdbaseMarkMotion } from "./brand.js";
 import { moveMenuFocus, useMenuPopover } from "./popover.js";
 
 /**
@@ -58,6 +58,9 @@ function AppMenu({ id, apps, current, triggerRef, onClose }: {
   const menuRef = useRef<HTMLDivElement>(null);
   useMenuPopover(menuRef, triggerRef, onClose, { width: 320, focus: 'a[role="menuitem"]' });
   const heading = new URL(location.href).searchParams.has("collection") ? "Open this collection in" : "mdbase apps";
+  // The main app leads on its own; the apps for particular workflows follow as a group.
+  const mainApps = apps.filter((app) => app.main);
+  const workflowApps = apps.filter((app) => !app.main);
   return <div
     ref={menuRef}
     id={id}
@@ -70,8 +73,14 @@ function AppMenu({ id, apps, current, triggerRef, onClose }: {
   >
     <div className="mdbase-menu-heading" role="presentation">{heading}</div>
     <div className="mdbase-menu-list">
-      {apps.map((app) => <AppItem key={app.id} app={app} current={app.id === current} onOpen={() => onClose(false)} />)}
+      {mainApps.map((app) => <AppItem key={app.id} app={app} current={app.id === current} onOpen={() => onClose(false)} />)}
     </div>
+    {workflowApps.length > 0 && <>
+      <div className="mdbase-menu-heading mdbase-app-menu-group" role="presentation">Workflow apps</div>
+      <div className="mdbase-menu-list">
+        {workflowApps.map((app) => <AppItem key={app.id} app={app} current={app.id === current} onOpen={() => onClose(false)} />)}
+      </div>
+    </>}
     <p className="mdbase-menu-note">Opens in a new tab</p>
   </div>;
 }
@@ -82,7 +91,9 @@ function AppItem({ app, current, onOpen }: {
   readonly onOpen: () => void;
 }): JSX.Element {
   const copy = <>
-    <MdbaseAppMark app={app.id} className="mdbase-app-menu-mark" />
+    {app.main
+      ? <MdbaseMark className="mdbase-app-menu-mark" />
+      : <MdbaseAppMark app={app.id} className="mdbase-app-menu-mark" />}
     <span className="mdbase-menu-copy">
       <strong>{app.name}</strong>
       <small>{app.description}</small>
