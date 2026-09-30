@@ -371,10 +371,10 @@ fieldset legend { margin-bottom: 6px; }
 .pairing-wait { display: grid; grid-template-columns: 7px 1fr auto; align-items: center; gap: 12px; padding: 15px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .pairing-wait div { display: grid; gap: 4px; min-width: 0; }
 .pairing-wait strong { font-size: var(--type-body); font-weight: 700; }
-.modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 30px; background: var(--color-scrim); z-index: 20; }
-.modal { width: min(460px, 100%); padding: 28px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--paper); }
+.modal { width: min(460px, calc(100% - 60px)); padding: 28px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--paper); color: var(--ink); }
+.modal .mdbase-dialog-body { padding: 0; }
 .modal h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.025em; }
-.modal > p:not(.eyebrow) { margin: 8px 0 20px; color: var(--muted); font-size: var(--type-body); line-height: 1.5; }
+.modal .mdbase-dialog-body > p:not(.eyebrow) { margin: 8px 0 20px; color: var(--muted); font-size: var(--type-body); line-height: 1.5; }
 .modal label { display: grid; gap: 6px; margin-top: 14px; }
 .authority-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .authority-choice > legend { grid-column: 1 / -1; }

@@ -27,6 +27,8 @@ import { useCollectionBrowserEntries } from "./collection-browser";
 import { CollectionRail } from "./CollectionRail";
 import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
 import { ConflictResolver } from "./ConflictResolver";
+import { DraftRecovery, frontmatterPatch } from "./draft-recovery";
+import { connectServerUrl } from "./connect-endpoint";
 import { ConfirmDialog } from "./Dialog";
 import {
   loadContractCatalog,
@@ -196,7 +198,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [mutationsFrozen, setMutationsFrozen] = useState(false);
   const { canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes, canManageTypes, canInstallTypes, canAttachFiles } = editorPermissions(connectionSummary);
-  const noteReadOnly = mutationsFrozen || !canEditNotes;
   const [remoteApplyToken, setRemoteApplyToken] = useState(0);
   const [notice, setNoticeState] = useState<{ message: string; tone: ToastTone } | undefined>();
   const [propertiesOpen, setPropertiesOpen] = useState(false);
@@ -232,11 +233,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
+  const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft);
+  const [draftRecovery] = useState(() => {
+    try { return new DraftRecovery(localStorage, connectServerUrl()); }
+    catch { return undefined; }
+  });
   const noteHistory = useRef<NoteNavigationHistory>({ paths: [], index: -1 });
   const linkCreations = useRef(new Set<string>());
   const renameRequest = useRef<string | undefined>(undefined);
   const deleteRequest = useRef<string | undefined>(undefined);
   const searchIndexCache = useRef(new IncrementalNoteSearchIndex());
+  useEffect(() => () => noteSessions.current.clear(), []);
   const mobileHistoryInitialized = useRef(false);
   const ignoreNextMobileHistoryPush = useRef(false);
   const mobileLayout = viewportWidth <= 760;
@@ -448,13 +455,29 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     const session = new NoteSession(next, () => typeDescriptorsRef.current, sessionRecords(mutationScope.current.token()));
     noteSessions.current.set(next.path, session);
     let previous = session.record.snapshot;
+    const collection = mutationScope.current.token().collectionId!;
+    try { session.recoveryDraft = draftRecovery?.read(collection, next.path); }
+    catch { session.recoveryError = "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes."; }
+    if (!draftRecovery) session.recoveryError = "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.";
     session.record.subscribe(() => {
       const current = session.record.snapshot;
+      if (!session.recoveryDraft) {
+        try {
+          if (current.dirty) draftRecovery?.write(collection, current.record.path, {
+            body: current.body, baseBody: current.record.body ?? "",
+            patch: frontmatterPatch(current.record.frontmatter, current.frontmatter),
+            baseFrontmatter: current.record.frontmatter
+          });
+          else draftRecovery?.remove(collection, current.record.path);
+          if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path);
+          if (draftRecovery) session.recoveryError = undefined;
+        } catch { session.recoveryError = "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes."; }
+      }
       sessionChanged(session, previous);
       previous = current;
     });
     return session;
-  }, [sessionChanged, sessionRecords]);
+  }, [draftRecovery, sessionChanged, sessionRecords]);
 
   const activateSession = useCallback((session: NoteSession) => {
     const previous = noteSessions.current.active;
@@ -619,9 +642,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const { retrySessionStart } = useSessionLifecycle({ gateway, acceptSnapshot, setNotice });
 
   useEffect(() => {
-    if (phase !== "ready" || !structureComplete || listLoading || contentComplete || contentIndexing || contentError) return;
+    if (phase !== "ready" || (!deferredSearch.trim() && !backlinksOpen) || !structureComplete || listLoading || contentComplete || contentIndexing || contentError) return;
     void loadContentIndex();
-  }, [contentComplete, contentError, contentIndexing, listLoading, loadContentIndex, phase, structureComplete]);
+  }, [backlinksOpen, contentComplete, contentError, contentIndexing, deferredSearch, listLoading, loadContentIndex, phase, structureComplete]);
 
   useEffect(() => {
     if (phase !== "ready" || !connectionSummary) return;
@@ -647,6 +670,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   function changeActiveDraft(change: (current: Draft) => Draft) {
     if (mutationScope.current.isFrozen || !canEditNotes) return;
     const session = noteSessions.current.active;
+    if (session?.recoveryDraft) return;
     if (!session || session.deleted) return;
     const next = change(session.draft);
     session.edit(next);
@@ -1995,6 +2019,34 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
               { label: "Delete note", icon: <Trash2 aria-hidden="true" />, tone: "danger", disabled: mutationsFrozen || !canDeleteNotes, onSelect: () => void requestDelete() }
             ]} />
           </header>
+          {noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
+          {noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label="Unsaved draft found">
+            <strong>Unsaved edits from an earlier session are available.</strong>
+            <p>They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review.</p>
+            <details><summary>Review recovered text</summary><pre>{noteSessions.current.active.recoveryDraft.body}</pre>
+              {Object.keys(noteSessions.current.active.recoveryDraft.patch).length > 0 && <pre>{JSON.stringify(noteSessions.current.active.recoveryDraft.patch, null, 2)}</pre>}
+            </details>
+            <button disabled={!canEditNotes || mutationsFrozen || pendingNoteMutations.length > 0} onClick={() => {
+              const session = noteSessions.current.active!;
+              const recovered = session.recoveryDraft!;
+              session.recoveryDraft = undefined;
+              session.record.restore(recovered);
+              if (!sessionDirty(session)) {
+                try { draftRecovery?.remove(mutationScope.current.token().collectionId!, session.document.path); }
+                catch { setNotice("The recovery copy could not be removed from this browser."); }
+              }
+              session.record.autosave();
+              touchSession(session);
+            }}>Restore unsaved edits</button>
+            <button onClick={() => {
+              const session = noteSessions.current.active!;
+              try {
+                draftRecovery?.remove(mutationScope.current.token().collectionId!, session.document.path);
+                session.recoveryDraft = undefined;
+                touchSession(session);
+              } catch { setNotice("The recovery copy could not be removed from this browser."); }
+            }}>Discard recovered edits</button>
+          </section>}
           <AttachmentTransfer controller={attachments} />
           {activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
           {renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
@@ -2035,7 +2087,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         />
       </Suspense> : noteLoading ? <InspectorPanelLoading label="Note properties" /> : null)}
       {backlinksOpen && (document
-        ? <BacklinksPanel notes={backlinkNotes} types={typeDescriptors} loading={foldersLoading} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />
+        ? <BacklinksPanel notes={backlinkNotes} types={typeDescriptors} loading={foldersLoading || (!contentComplete && !contentError)} error={contentError} onRetry={() => void loadContentIndex()} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />
         : noteLoading ? <InspectorPanelLoading label="Backlinks" /> : null)}
     </>}
 

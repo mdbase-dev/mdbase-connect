@@ -303,6 +303,20 @@ interface DesktopMirrorSummary {
   error?: string;
 }
 
+interface MirrorConflictVersion {
+  path: string | null;
+  revision: string | null;
+  size: number | null;
+  document: string | null;
+}
+
+interface MirrorConflictReview {
+  review_version: 1;
+  decision_id: string;
+  local: MirrorConflictVersion;
+  remote: MirrorConflictVersion;
+}
+
 interface AuthorityConflict {
   collection_id: string;
   display_name: string;
@@ -368,6 +382,7 @@ interface Window {
       verificationUri: string;
       expiresIn: number;
     }>;
+    reopenPairing(pairingId: string): Promise<void>;
     pairingStatus(pairingId: string): Promise<{ status: "pending" | "paired"; connector?: { id: string; name: string } }>;
     accessSnapshot(): Promise<AccessSnapshot>;
     setAccessPaused(paused: boolean): Promise<{ paused: boolean }>;
@@ -388,6 +403,7 @@ interface Window {
     connectMirror(input: { collectionId: string; path: string; mode: "read_only" | "read_write"; name?: string; selectiveSync: DesktopSelectiveSyncPolicy }): Promise<DesktopMirrorSummary>;
     syncMirror(replicaId: string): Promise<DesktopMirrorSummary>;
     configureMirrorSelectiveSync(input: { replicaId: string; selectiveSync: DesktopSelectiveSyncPolicy }): Promise<DesktopMirrorSummary>;
+    reviewMirrorConflict(input: { replicaId: string; objectId: string; decisionId: string }): Promise<MirrorConflictReview>;
     resolveMirrorConflict(input: { replicaId: string; objectId: string; decisionId: string; resolution: "local" | "remote" }): Promise<DesktopMirrorSummary>;
     promoteMirrorAuthority(replicaId: string): Promise<{
       collection_id: string;

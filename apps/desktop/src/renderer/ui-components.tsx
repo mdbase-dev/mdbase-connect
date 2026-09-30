@@ -17,28 +17,42 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
     import.meta.env.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL
   ));
   const [connectorName, setConnectorName] = useState("This computer");
-  const [pairing, setPairing] = useState<{ pairingId: string; verificationUri: string } | null>(null);
+  const [pairing, setPairing] = useState<{ pairingId: string; verificationUri: string; expiresAt: number } | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [expired, setExpired] = useState(false);
   const [pairError, setPairError] = useState("");
   const [starting, setStarting] = useState(false);
   const [completing, setCompleting] = useState(false);
 
   useEffect(() => {
     if (!pairing) return;
-    const timer = window.setInterval(async () => {
+    let active = true;
+    let timer: number;
+    async function poll() {
+      if (!pairing || !active) return;
+      if (Date.now() >= pairing.expiresAt) {
+        setExpired(true);
+        setPairError("This computer setup request expired. Start again to create a new one.");
+        return;
+      }
       try {
         const result = await window.mdbaseConnect.pairingStatus(pairing.pairingId);
+        if (!active) return;
+        setPairError("");
         if (result.status === "paired") {
-          window.clearInterval(timer);
           markPairingCompleted(localStorage);
           setCompleting(true);
+          return;
         }
       } catch (error) {
-        setPairError(message(error));
-        window.clearInterval(timer);
+        if (!active) return;
+        setPairError(`${message(error)} Retrying this request automatically.`);
       }
-    }, 2_000);
-    return () => window.clearInterval(timer);
-  }, [pairing]);
+      if (active) timer = window.setTimeout(() => void poll(), 2_000);
+    }
+    void poll();
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [pairing, retry]);
 
   async function begin(event: React.FormEvent) {
     event.preventDefault();
@@ -46,7 +60,9 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
     setPairError("");
     try {
       const result = await window.mdbaseConnect.beginPairing({ serverUrl, connectorName });
-      setPairing(result);
+      setExpired(false);
+      setPairing({ ...result, expiresAt: Date.now() + result.expiresIn * 1_000 });
+      await window.mdbaseConnect.reopenPairing(result.pairingId);
     } catch (error) {
       setPairError(message(error));
     } finally {
@@ -65,15 +81,19 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
             ? "Your application request will keep waiting. Sign in so you can choose a folder on this computer, then continue the same request."
             : "Sign in so applications can discover your collections and you can manage their access. Local folders remain on this computer, and their locations stay private."}</p>
       </div>
-      {pairError && <div className="message error-message">{pairError}</div>}
+      {pairError && <div className="message error-message" role="alert">{pairError}</div>}
       {pairing ? (
         <div className="pairing-wait" role="status" aria-live="polite">
           <StatusDot state="connecting" />
           <div>
-            <strong>{completing ? "Computer approved. Connecting securely…" : "Waiting for browser approval"}</strong>
+            <strong>{completing ? "Computer approved. Connecting securely…" : expired ? "Setup request expired" : pairError ? "Connection interrupted" : "Waiting for browser approval"}</strong>
             {completing ? <small>mdbase connect is restarting with the new secure connection.</small> : <code>{pairing.verificationUri}</code>}
           </div>
-          {!completing && <button className="quiet-action" onClick={() => setPairing(null)}>Start again</button>}
+          {!completing && <div>
+            {!expired && <button className="quiet-action" onClick={() => void window.mdbaseConnect.reopenPairing(pairing.pairingId).catch((reason) => setPairError(message(reason)))}>Open browser again</button>}
+            {!expired && pairError && <button className="quiet-action" onClick={() => setRetry((value) => value + 1)}>Retry connection</button>}
+            <button className="quiet-action" onClick={() => { setPairing(null); setPairError(""); }}>Start again</button>
+          </div>}
         </div>
       ) : (
         <form className="pairing-form" onSubmit={(event) => void begin(event)}>

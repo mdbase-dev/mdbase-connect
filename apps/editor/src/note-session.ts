@@ -2,6 +2,7 @@ import { MdbaseConnectError, MdbaseRecordSession, type CollectionTypeDescriptor,
 import { connectFailure, connectProblem, connectSuccess, type MdbaseRecordSessionAdapter } from "@mdbase-dev/connect/advanced";
 import type { CollectionGateway, NoteDocument, TitleSource } from "./model";
 import { editableNote, persistedBody, titlePatch } from "./note";
+import type { RecoveryDraft } from "./draft-recovery";
 
 export type SaveState = "saved" | "waiting" | "saving" | "conflict" | "recovery" | "error";
 export type NoteActivity = "saving" | "properties" | "renaming" | "moving" | "deleting" | "validating";
@@ -30,6 +31,8 @@ export class NoteSession {
   mutationController?: AbortController;
   mutationCancellable?: boolean;
   error?: string;
+  recoveryDraft?: RecoveryDraft;
+  recoveryError?: string;
   /** Staged tombstone: set when deletion starts, cleared if it fails. */
   deleted?: boolean;
 
@@ -164,6 +167,7 @@ export class NoteSessionStore {
   }
 
   clear(): void {
+    for (const session of this.sessions.values()) session.record.dispose();
     this.active = undefined;
     this.sessions.clear();
   }

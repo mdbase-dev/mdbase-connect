@@ -20,9 +20,13 @@ it("retries the failed inventory and starts full-text indexing only after all no
   class InterruptedGateway extends DemoCollectionGateway {
     fail = true;
     async list(options: NoteIndexRequest = {}) {
-      if (!this.fail) return super.list(options);
       const result = await super.list({ signal: options.signal });
-      options.onProgress?.({ notes: result.notes.slice(0, 400), total: result.notes.length,
+      const notes = result.notes.map(({ body: _body, ...note }) => note);
+      if (!this.fail) {
+        options.onProgress?.({ notes, total: notes.length, structureComplete: true, complete: true, contentComplete: false });
+        return { ...result, notes };
+      }
+      options.onProgress?.({ notes: notes.slice(0, 400), total: notes.length,
         structureComplete: false, complete: false, contentComplete: false });
       throw new Error("Third page unavailable");
     }

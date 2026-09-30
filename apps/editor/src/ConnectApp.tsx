@@ -15,6 +15,7 @@ import {
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import { MdbaseMark } from "@mdbase-dev/ui/brand";
+import { usePermissionSelection } from "@mdbase-dev/ui/permission-selection";
 import {
   applyConnectServerOverride,
   connectServerUrl
@@ -638,6 +639,8 @@ function GrantEditor({ grant, busy, perform }: {
   busy: BusyOperations;
   perform: PerformOperation;
 }) {
+  const { selected, setSelected, needsReview, acknowledge } = usePermissionSelection(grant.id, grant.operations);
+  const operations = new Set(selected);
   if (grant.revocation_status === "revoking") {
     return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Revocation is pending. Waiting for {grant.collection_kind === "local" ? "the computer holding this collection" : "the hosted authority"} to confirm enforcement.</small></span><b>Revoking…</b></div>;
   }
@@ -645,19 +648,15 @@ function GrantEditor({ grant, busy, perform }: {
     return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</small></span><b>Reauthorization required</b></div>;
   }
   const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))];
-  const [operations, setOperations] = useState(() => new Set(grant.operations));
-  useEffect(() => setOperations(new Set(grant.operations)), [grant.operations]);
   const changed = ordered.some((operation) => operations.has(operation) !== grant.operations.includes(operation));
   return <details className="connect-grant">
     <summary><span><strong>{grant.collection_name}</strong><small>{grant.operations.length} permissions · {host(grant.homepage)}</small></span><b>Permissions</b></summary>
     <div className="connect-grant-body">
-      <div className="connect-permissions">{ordered.map((operation) => <label key={operation}><input type="checkbox" checked={operations.has(operation)} onChange={() => setOperations((current) => {
-        const next = new Set(current);
-        if (next.has(operation)) next.delete(operation); else next.add(operation);
-        return next;
-      })} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div>
+      {needsReview && <p role="status">Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></p>}
+      <div className="connect-permissions">{ordered.map((operation) => <label key={operation}><input type="checkbox" checked={operations.has(operation)} onChange={() => setSelected((current) => current.includes(operation)
+        ? current.filter((value) => value !== operation) : [...current, operation])} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div>
       <div className="connect-grant-meta"><span>Scope</span><strong>Entire collection</strong><span>Origin</span><strong>{grant.application_origin}</strong></div>
-      <div className="connect-row-actions"><button className="connect-primary-action" disabled={!changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => management.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}>Save narrower access</button><ConfirmAction className="danger" label="Revoke" question={`Revoke access to ${grant.collection_name}?`} confirmLabel="Revoke" busy={busy.has(`grant-${grant.id}`)} onConfirm={() => void perform(`grant-${grant.id}`, (options) => management.revokeGrant(grant.id, options))} /></div>
+      <div className="connect-row-actions"><button className="connect-primary-action" disabled={needsReview || !changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => management.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}>Save narrower access</button><ConfirmAction className="danger" label="Revoke" question={`Revoke access to ${grant.collection_name}?`} confirmLabel="Revoke" busy={busy.has(`grant-${grant.id}`)} onConfirm={() => void perform(`grant-${grant.id}`, (options) => management.revokeGrant(grant.id, options))} /></div>
     </div>
   </details>;
 }

@@ -14,6 +14,32 @@ one extracted portal review component adds one TypeScript export (2466 → 2467)
 File-size, package-count, and cycle limits are unchanged. Upgrade semantics stay
 in the collection engine, not Connect adapters.
 
+## Reviewed recovery and review boundaries
+
+The user-experience recovery changes add five net production modules (717 → 722):
+three desktop boundaries for main-process pairing, row-local action results, and
+on-demand exact conflict review; shared permission-review state; and browser-local
+draft recovery. The existing bounded text diff moves from editor to shared UI,
+without retaining a forwarding adapter, so editor and desktop use one algorithm.
+The desktop's pairing extraction keeps its entry point below the 1,000-line
+limit. The obsolete record-subset scope description is deleted.
+
+The new local-control conflict review is versioned (`review_version: 1`) and
+checks the same decision ID and exact bytes as conflict resolution. Its typed
+request/response and the mirror/agent boundary add 16 Rust public declarations
+(3257 → 3273); no remote protocol, authorization scope, or control-plane payload
+storage changes. Browser-local draft storage is separately versioned, isolated by
+server/collection/path, and expires after seven days; it is not an offline replica
+or a substitute for exact pending-write recovery. Restoring metadata uses the SDK
+record session's conflict boundary, not an editor-side interpretation of mdbase.
+
+Reviewed TypeScript exports become 2590 (from 2583), relative imports 1572 (from
+1564), desktop modules 46 (from 43), and shared UI modules 16 (from 14). No package
+dependencies, package-count, cycle, or file-size limits are increased. Regression
+tests cover equivalent grant refreshes, changed access, pairing request reuse and
+configuration recovery, unsent draft restore/discard and expiry, metadata conflicts,
+demand-driven indexing, and browser dialog focus and action-local failures.
+
 ## Dependency direction
 
 Within a deployable, dependencies point inward:

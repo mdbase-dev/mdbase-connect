@@ -1,0 +1,11 @@
+.mirror-conflicts > .mirror-conflict-decision { display: block; min-width: 0; }
+.mirror-version-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 12px 0; }
+.mirror-version-pair > div { display: grid; gap: 6px; }
+.mirror-version-pair code { overflow-wrap: anywhere; }
+.mirror-version-digest { font-size: 11px; color: var(--muted); }
+.mirror-document-diff { max-height: 300px; overflow: auto; margin: 10px 0; font-size: 12px; }
+.mirror-document-diff > div { display: grid; grid-template-columns: 85px minmax(0, 1fr); gap: 8px; }
+.mirror-document-diff code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.mirror-document-diff .local { color: var(--danger); }
+.mirror-document-diff .remote { color: var(--success); }
+@media (max-width: 600px) { .mirror-version-pair { grid-template-columns: 1fr; } }

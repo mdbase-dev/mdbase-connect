@@ -51,6 +51,9 @@ import {
 } from "./view-model";
 import "./styles.css";
 import { Select } from "@mdbase-dev/ui/select";
+import { Dialog } from "@mdbase-dev/ui/dialog";
+import { usePermissionSelection } from "@mdbase-dev/ui/permission-selection";
+import { useLocalAction } from "./use-local-action";
 
 const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }> = {
   overview: {
@@ -101,6 +104,7 @@ function App() {
   const [resourceFailures, setResourceFailures] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [copiedCollectionPath, setCopiedCollectionPath] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newPath, setNewPath] = useState("");
@@ -226,6 +230,7 @@ function App() {
 
   async function act(action: () => Promise<void>) {
     setBusy(true);
+    setError(null);
     setNotice(null);
     try {
       await action();
@@ -238,6 +243,7 @@ function App() {
   }
 
   async function transferAct(action: () => Promise<void>) {
+    setError(null);
     setNotice(null);
     try {
       await action();
@@ -273,15 +279,20 @@ function App() {
   }
 
   async function chooseCreateFolder() {
-    const path = await window.mdbaseConnect.chooseCreateFolder();
-    if (path) {
-      setNewPath(path);
-      if (!newName) setNewName(path.split(/[\\/]/).filter(Boolean).at(-1) ?? "");
-    }
+    setCreateError(null);
+    try {
+      const path = await window.mdbaseConnect.chooseCreateFolder();
+      if (path) {
+        setNewPath(path);
+        if (!newName) setNewName(path.split(/[\\/]/).filter(Boolean).at(-1) ?? "");
+      }
+    } catch (reason) { setCreateError(message(reason)); }
   }
 
   async function createCollection() {
+    setCreateError(null);
     await act(async () => {
+      try {
       if (newAuthority === "hosted") {
         const result = await window.mdbaseConnect.createHostedCollection({
           name: newName,
@@ -300,6 +311,7 @@ function App() {
       setNewName("");
       setNewPath("");
       setNewAuthority("local");
+      } catch (reason) { setCreateError(message(reason)); }
     });
   }
 
@@ -383,10 +395,10 @@ function App() {
           receipt={completionReceipt}
           hasPendingAuthorization={authorizationTarget !== null || combinedAccess.pending_authorizations.length > 0}
           onOpenFolder={() => {
-            if (completionReceipt.path) void window.mdbaseConnect.openPath(completionReceipt.path);
+            if (completionReceipt.path) void act(async () => { await window.mdbaseConnect.openPath(completionReceipt.path!); });
           }}
           onUseInApplication={() => setRoute("access")}
-          onOpenEditor={() => void window.mdbaseConnect.openEditor(completionReceipt.collectionId)}
+          onOpenEditor={() => void act(() => window.mdbaseConnect.openEditor(completionReceipt.collectionId))}
           onViewDetails={() => {
             setDetailTarget(completionReceipt.collectionId);
             setRoute("collections");
@@ -402,9 +414,9 @@ function App() {
           receipt={transferReceipt}
           onOpen={() => {
             if (transferReceipt.direction === "hosted_to_local") {
-              void window.mdbaseConnect.openPath(transferReceipt.newMainCopy);
+              void act(async () => { await window.mdbaseConnect.openPath(transferReceipt.newMainCopy); });
             } else {
-              void window.mdbaseConnect.openEditor(transferReceipt.collectionId);
+              void act(() => window.mdbaseConnect.openEditor(transferReceipt.collectionId));
             }
           }}
           onReconnect={() => setRoute("access")}
@@ -424,7 +436,7 @@ function App() {
             busy={busy}
             onNavigate={setRoute}
             onAdd={() => void addExisting()}
-            onCreate={() => setCreateOpen(true)}
+            onCreate={() => { setCreateError(null); setCreateOpen(true); }}
             onPause={(paused) => void act(async () => {
               await window.mdbaseConnect.setAccessPaused(paused);
               setNotice(paused ? "Remote access is paused on this computer." : "Remote access is available again.");
@@ -444,7 +456,7 @@ function App() {
             copiedCollectionPath={copiedCollectionPath}
             onAdd={() => void addExisting()}
             onCancelCopy={() => setCopiedCollectionPath(null)}
-            onCreate={() => setCreateOpen(true)}
+            onCreate={() => { setCreateError(null); setCreateOpen(true); }}
             onRegisterCopy={() => void registerCopiedCollection()}
             onMirrorTargetHandled={() => setMirrorTarget(null)}
             onDetailTargetHandled={() => setDetailTarget(null)}
@@ -479,30 +491,28 @@ function App() {
         </main>
 
         {createOpen && (
-          <div className="modal-backdrop" role="presentation" onMouseDown={() => !busy && setCreateOpen(false)}>
-            <section className="modal" role="dialog" aria-modal="true" aria-labelledby="create-title" onMouseDown={(event) => event.stopPropagation()}>
+          <Dialog open onClose={() => !busy && setCreateOpen(false)} title="Create an mdbase collection" className="modal" closeDisabled={busy}>
             <p className="eyebrow">New collection</p>
-            <h2 id="create-title">Create an mdbase collection</h2>
+            {createError && <div className="message error-message" role="alert">{createError}</div>}
             <p>Choose where the main copy should live. A collection hosted by mdbase can also keep a synced folder on this computer.</p>
             <fieldset className="authority-choice">
               <legend>Where should the main copy live?</legend>
               <label className={newAuthority === "local" ? "selected" : ""}>
-                <input type="radio" name="authority" value="local" checked={newAuthority === "local"} onChange={() => setNewAuthority("local")} />
+                <input type="radio" name="authority" value="local" checked={newAuthority === "local"} disabled={busy} onChange={() => setNewAuthority("local")} />
                 <span><strong>On this computer</strong><small>The folder you choose is the main copy.</small></span>
               </label>
               <label className={`${newAuthority === "hosted" ? "selected" : ""} ${cloud?.configured && hosted.hosted_collections_available !== false ? "" : "disabled"}`}>
-                <input type="radio" name="authority" value="hosted" checked={newAuthority === "hosted"} disabled={!cloud?.configured || hosted.hosted_collections_available === false} onChange={() => setNewAuthority("hosted")} />
+                <input type="radio" name="authority" value="hosted" checked={newAuthority === "hosted"} disabled={busy || !cloud?.configured || hosted.hosted_collections_available === false} onChange={() => setNewAuthority("hosted")} />
                 <span><strong>Hosted by mdbase</strong><small>{!cloud?.configured ? "Connect this computer to your account first." : hosted.hosted_collections_available !== false ? "Available while this computer is off; add a synced folder if you want one." : "Hosted collections are not enabled for this Connect service."}</small></span>
               </label>
             </fieldset>
-            <label><span>Collection name</span><input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Workouts" /></label>
-            {newAuthority === "local" && <label><span>Folder</span><button className="folder-picker" onClick={() => void chooseCreateFolder()}>{newPath || "Choose a folder…"}</button></label>}
+            <label><span>Collection name</span><input autoFocus disabled={busy} value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Workouts" /></label>
+            {newAuthority === "local" && <label><span>Folder</span><button className="folder-picker" disabled={busy} onClick={() => void chooseCreateFolder()}>{newPath || "Choose a folder…"}</button></label>}
             <div className="modal-actions">
               <button className="button secondary" disabled={busy} onClick={() => setCreateOpen(false)}>Cancel</button>
               <button className="button primary" disabled={busy || !newName.trim() || (newAuthority === "local" && !newPath)} onClick={() => void createCollection()}>Create collection</button>
             </div>
-            </section>
-          </div>
+          </Dialog>
         )}
       </div>
     </div>
@@ -559,13 +569,14 @@ function Access({ cloud, access, collections, focusedRequestId, resumeAuthorizat
   );
 }
 
-function PortalApprovalRequest({ request, collections, focused, busy, onAct }: {
+function PortalApprovalRequest({ request, collections, focused, busy, onAct: run }: {
   request: PendingAuthorization;
   collections: CollectionSummary[];
   focused: boolean;
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
 }) {
+  const { act: onAct, error: actionError } = useLocalAction(run);
   const candidates = collections.filter((collection) => collection.enabled
     && request.compatible_collection_ids.includes(collection.id)
     && (!request.collection_id || request.collection_id === collection.id));
@@ -593,6 +604,7 @@ function PortalApprovalRequest({ request, collections, focused, busy, onAct }: {
       <code>{identity}</code>
       <small>Expires {relativeTime(request.expires_at)}</small>
     </div>
+    {actionError && <p className="message error-message" role="alert">{actionError}</p>}
     {native ? <div className="request-decision">
       <label>Collection on this computer
         <Select
@@ -670,8 +682,9 @@ function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
   );
 }
 
-function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; busy: boolean; onAct(action: () => Promise<void>): Promise<void>; onNotice(value: string): void }) {
-  const [operations, setOperations] = useState(grant.operations);
+function GrantEditor({ grant, busy, onAct: run, onNotice }: { grant: GrantSummary; busy: boolean; onAct(action: () => Promise<void>): Promise<void>; onNotice(value: string): void }) {
+  const { act: onAct, error: actionError } = useLocalAction(run);
+  const { selected: operations, setSelected: setOperations, needsReview, acknowledge } = usePermissionSelection(grant.id, grant.operations);
   const allowedOperations = grant.operations;
   const permissionDetailsAvailable = hasSupportedCapabilityDeclaration(grant.requirements);
   const permissionGroups = useMemo(
@@ -682,7 +695,7 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
     group.operations.every((operation) => operations.includes(operation))
   ).length;
   const changed = useMemo(() => [...operations].sort().join(",") !== [...grant.operations].sort().join(","), [operations, grant.operations]);
-  useEffect(() => setOperations(grant.operations), [grant.operations]);
+
   const authority = grant.collection_kind === "hosted" ? "Hosted by mdbase" : "On this computer";
   if (grant.revocation_status === "revoking") {
     return <article className="grant-review"><div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><small>Revocation is pending. Waiting for {grant.collection_kind === "hosted" ? "the hosted authority" : "this computer"} to confirm enforcement.</small></div><strong>Revoking…</strong></article>;
@@ -692,12 +705,14 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
   }
   return (
     <article className="grant-review">
+      {actionError && <p className="message error-message" role="alert">{actionError}</p>}
       <div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small><small>{grant.scope.access === "full_collection" && grant.scope.contracts.length === 0 ? "Entire collection" : "Legacy scoped access"}</small></div>
       <div className="request-decision">
         <section className="request-section">
           <div><strong>Permissions</strong><small>{permissionDetailsAvailable
             ? "You can remove optional capability groups here. An application must request any additional access separately."
             : "Permission details unavailable. Access has not been changed. You can still revoke access."}</small></div>
+          {needsReview && <p role="status">Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></p>}
           {permissionDetailsAvailable && <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />}
         </section>
         <footer className="request-footer">
@@ -718,7 +733,7 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
                   : `${grant.application_name} revocation is pending confirmation from this computer.`);
               }
             }); }}>Revoke</button>
-            <button className="button primary" disabled={busy || !permissionDetailsAvailable || !changed || selectedPermissionCount === 0} onClick={() => void onAct(async () => {
+            <button className="button primary" disabled={busy || needsReview || !permissionDetailsAvailable || !changed || selectedPermissionCount === 0} onClick={() => void onAct(async () => {
               if (!permissionDetailsAvailable) return;
               if (grant.collection_kind === "hosted") await window.mdbaseConnect.updateHostedGrant({ grantId: grant.id, operations });
               else await window.mdbaseConnect.updateGrant({ grantId: grant.id, operations });

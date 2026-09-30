@@ -19,12 +19,13 @@ const { Select } = selectModule.exports;
 const source = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
 const component = source.slice(source.indexOf("function PortalApprovalRequest("), source.indexOf("\nfunction ApplicationGrantGroup("));
 const compiled = await transform(component, { loader: "tsx", format: "cjs" });
-const Approval = new Function("React", "useState", "hasSupportedCapabilityDeclaration", "requestCapabilityGroups", "host", "relativeTime", "RequestPermissionChoices", "NotificationAccess", "Select", `${compiled.code}; return PortalApprovalRequest;`)(
+const Approval = new Function("React", "useState", "hasSupportedCapabilityDeclaration", "requestCapabilityGroups", "host", "relativeTime", "RequestPermissionChoices", "NotificationAccess", "Select", "useLocalAction", `${compiled.code}; return PortalApprovalRequest;`)(
   React, React.useState, hasSupportedCapabilityDeclaration, requestCapabilityGroups,
   () => "example.test", () => "in ten minutes",
   ({ groups }) => React.createElement("span", null, groups.map((group) => group.label).join(" · ")),
   () => null,
-  Select
+  Select,
+  (run) => ({ act: run, error: null })
 );
 const collection = { id: "local", display_name: "Notes", enabled: true };
 const request = {

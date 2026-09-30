@@ -231,6 +231,28 @@ async fn conflicted_mutation_can_choose_remote_then_local() {
     assert_eq!(status.conflicts.len(), 1);
     assert_eq!(status.conflicts[0].entity, MirrorConflictEntity::Record);
     assert_eq!(status.conflicts[0].object_id, source.record_id);
+    let review = mirror
+        .review_conflict(source.record_id, &status.conflicts[0].decision_id)
+        .await
+        .unwrap();
+    assert_eq!(review.review_version, 1);
+    assert_eq!(review.local.document.as_deref(), Some("local first"));
+    assert!(review
+        .remote
+        .document
+        .as_ref()
+        .unwrap()
+        .contains("hosted first"));
+    assert_eq!(review.local.path.as_deref(), Some("one.md"));
+    assert_eq!(
+        mirror.status().unwrap().conflicts[0].decision_id,
+        review.decision_id
+    );
+    let error = mirror
+        .review_conflict(source.record_id, "unreviewed-decision")
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "mirror_conflict_stale");
     resolve_current_conflict(&mirror, source.record_id, MirrorResolution::Remote)
         .await
         .unwrap();
@@ -1082,6 +1104,19 @@ async fn writable_file_conflict_is_entity_aware_and_resolves_remote() {
         b"important local edit"
     );
     let stable_decision = status.conflicts[0].decision_id.clone();
+    let review = mirror
+        .review_conflict(original.file_id, &stable_decision)
+        .await
+        .unwrap();
+    assert_eq!(review.local.path.as_deref(), Some("assets/photo.png"));
+    assert_eq!(review.remote.path.as_deref(), Some("archive/photo.png"));
+    assert_eq!(
+        review.local.size,
+        Some(b"important local edit".len() as u64)
+    );
+    assert_ne!(review.local.revision, review.remote.revision);
+    assert!(review.local.document.is_none());
+    assert!(review.remote.document.is_none());
     mirror.sync().await.unwrap();
     assert_eq!(
         mirror.status().unwrap().conflicts[0].decision_id,

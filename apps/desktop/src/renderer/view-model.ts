@@ -191,11 +191,6 @@ export function provisionNames(provisions: TypePackProvision[]) {
     .join(" and ");
 }
 
-export function scopeDescription(contracts: ContractRequirement[]): string {
-  const names = contracts.map((contract) => `${contract.id} v${contract.version}`);
-  return `Records matching ${names.join(" and ")} only`;
-}
-
 export function host(value: string) { try { return new URL(value).host; } catch { return value; } }
 export function message(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);

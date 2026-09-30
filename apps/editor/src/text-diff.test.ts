@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareLines } from "./text-diff";
+import { compareLines } from "@mdbase-dev/ui/text-diff";
 
 describe("compareLines", () => {
   it("labels local and remote changes with their source line numbers", () => {
