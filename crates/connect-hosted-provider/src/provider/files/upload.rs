@@ -971,58 +971,8 @@ impl HostedProvider {
         }
         Ok(())
     }
-
-    async fn cleanup_after_failed_finalization(&self, transfer: &HostedFileTransfer) {
-        let current = sqlx::query_as::<_, (String, String)>(
-            "SELECT state, committed_object_key FROM hosted_provider_file_transfers WHERE id = $1",
-        )
-        .bind(transfer.id)
-        .fetch_optional(&self.pool)
-        .await;
-        match current {
-            Ok(Some((state, _))) if matches!(state.as_str(), "aborted" | "expired") => {
-                self.schedule_uncommitted_upload_cleanup(transfer.into())
-                    .await;
-            }
-            Ok(Some((_, current_key))) if current_key != transfer.committed_object_key => {
-                // Superseded: this key can never be published. Queue it again
-                // in case its COPY landed after the newer attempt's cleanup.
-                let queued = async {
-                    let mut transaction = self.pool.begin().await?;
-                    queue_blob_deletion(&mut transaction, &transfer.committed_object_key).await?;
-                    transaction.commit().await?;
-                    ApiResult::Ok(())
-                };
-                if let Err(error) = queued.await {
-                    tracing::warn!(transfer_id = %transfer.id, %error, "could not queue superseded upload attempt");
-                }
-            }
-            Ok(_) => {}
-            Err(error) => {
-                // Database uncertainty must favor retaining an object. The
-                // reconciliation path can remove an orphan; a deleted object
-                // referenced by committed metadata cannot be reconstructed.
-                tracing::warn!(transfer_id = %transfer.id, %error, "could not verify upload ownership after failed finalization");
-            }
-        }
-    }
 }
 
 fn initial_committed_object_key(collection_id: Uuid, transfer_id: Uuid) -> String {
     format!("v1/blobs/{collection_id}/{transfer_id}")
-}
-
-async fn queue_blob_deletion(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    key: &str,
-) -> ApiResult<()> {
-    sqlx::query(
-        r#"INSERT INTO hosted_provider_blob_deletions (object_key, byte_length, reason)
-           VALUES ($1, 0, 'file_transfer_cleanup')
-           ON CONFLICT (object_key) DO NOTHING"#,
-    )
-    .bind(key)
-    .execute(&mut **transaction)
-    .await?;
-    Ok(())
 }
