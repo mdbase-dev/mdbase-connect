@@ -524,6 +524,19 @@ describe("restored drafts", () => {
     expect(unknownBase.snapshot.state).toBe("conflict");
   });
 
+  it("restores metadata patches without overwriting newer edited fields", () => {
+    const session = new MdbaseRecordSession(original, adapter(), { autosave: false });
+    session.restore({ body: original.body, baseBody: original.body, patch: { title: "Recovered" }, baseFrontmatter: original.frontmatter });
+    expect(session.snapshot).toMatchObject({ state: "unsaved", frontmatter: { title: "Recovered" } });
+    const remote = doc(original.body, "2", { title: "Elsewhere", tags: ["b"] });
+    const conflicting = new MdbaseRecordSession(remote, adapter(), { autosave: false });
+    conflicting.restore({ body: original.body, baseBody: original.body, patch: { title: "Recovered" }, baseFrontmatter: original.frontmatter });
+    expect(conflicting.snapshot).toMatchObject({ state: "conflict", remote });
+    const unrelated = new MdbaseRecordSession(doc(original.body, "2", { ...original.frontmatter, tags: ["b"] }), adapter(), { autosave: false });
+    unrelated.restore({ body: original.body, baseBody: original.body, patch: { title: "Recovered" }, baseFrontmatter: original.frontmatter });
+    expect(unrelated.snapshot).toMatchObject({ state: "unsaved", frontmatter: { title: "Recovered", tags: ["b"] } });
+  });
+
   // Reader source: "resumes safe recovery on mount"; annotation legacy drafts are never submitted on load
   it("does not write a restored draft until autosave is requested", async () => {
     const transport = adapter();
@@ -537,6 +550,16 @@ describe("restored drafts", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(transport.write).toHaveBeenCalledExactlyOnceWith(original, { body: "Recovered" }, undefined);
   });
+});
+
+it("cancels automatic writes when the session owner is disposed", async () => {
+  const transport = adapter();
+  const session = new MdbaseRecordSession(original, transport);
+  session.setBody("Unsent");
+  session.dispose();
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(transport.write).not.toHaveBeenCalled();
+  expect(session.snapshot.body).toBe("Unsent");
 });
 
 describe("outcome-unknown recovery", () => {

@@ -593,14 +593,15 @@ describe("mdbase editor", () => {
     expect(gateway.listCalls).toBe(1);
   });
 
-  it("hydrates full text in the background and reports search progress", async () => {
+  it("defers full text until search is requested and reports search progress", async () => {
     const gateway = new DemandContentGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
     expect(await screen.findByText("3 notes · 2 files · modified newest")).toBeInTheDocument();
-    await waitFor(() => expect(gateway.hydrateCalls).toBe(1));
+    expect(gateway.hydrateCalls).toBe(0);
     await user.type(screen.getByRole("textbox", { name: "Search notes and files" }), "Record 3 remains");
+    await waitFor(() => expect(gateway.hydrateCalls).toBe(1));
 
     expect(await screen.findByText(/searching 1 of 3/)).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
@@ -608,6 +609,21 @@ describe("mdbase editor", () => {
 
     expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
     expect(screen.getByText("1 found · relevance")).toBeInTheDocument();
+  });
+
+  it("hydrates backlinks on demand and keeps a failed lookup actionable", async () => {
+    const gateway = new RetryingContentGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await screen.findByText("3 notes · 2 files · modified newest");
+    await screen.findByRole("textbox", { name: "Note body" });
+    expect(gateway.hydrateCalls).toBe(0);
+    await user.click(screen.getByRole("button", { name: "Backlinks" }));
+    const retry = await screen.findByRole("button", { name: "Retry backlinks" });
+    expect(screen.getByText("References are incomplete")).toBeInTheDocument();
+    await user.click(retry);
+    expect(await screen.findByText("1 note link here")).toBeInTheDocument();
+    expect(gateway.hydrateCalls).toBe(2);
   });
 
   it("keeps a failed full-text search actionable and retries it", async () => {

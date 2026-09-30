@@ -196,6 +196,20 @@ impl MirrorManager {
         self.summary(&entry)
     }
 
+    pub async fn review_conflict(
+        &self,
+        params: MirrorConflictParams,
+    ) -> Result<MirrorConflictReview, ConnectError> {
+        let entry = self.entry(params.replica_id)?;
+        self.require_active(&entry)?;
+        let _guard = self.begin_operation(entry.replica_id, false)?;
+        self.mirror(&entry)
+            .await?
+            .review_conflict(params.object_id, &params.decision_id)
+            .await
+            .map_err(from_mirror)
+    }
+
     pub async fn resolve(
         &self,
         params: MirrorResolveParams,

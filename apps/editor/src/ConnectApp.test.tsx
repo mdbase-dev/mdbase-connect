@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { AccountData, ManagementOverview } from "@mdbase/connect-management";
+import { ConnectManagementClient, type AccountData, type ManagementOverview } from "@mdbase/connect-management";
+import { AccountManagement } from "./AccountManagement";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectApp } from "./ConnectApp";
@@ -37,6 +38,23 @@ describe("ConnectApp", () => {
     expect(screen.getByText("Opening mdbase connect")).toBeInTheDocument();
     expect(container.querySelector(".connect-loading .mdbase-mark")).toBeInTheDocument();
     expect(container.querySelector(".connect-loading .mdbase-motion-bootstrap")).not.toBeInTheDocument();
+  });
+
+  it("clears password inputs after success even when the following overview refresh fails", async () => {
+    const user = userEvent.setup();
+    const onOverviewRefresh = vi.fn().mockRejectedValue(new Error("Overview offline"));
+    render(<AccountManagement client={new ConnectManagementClient("http://127.0.0.1:8787")} overview={overview} onOverviewRefresh={onOverviewRefresh} onDeleted={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: "Change password" }));
+    await user.type(screen.getByLabelText("Current password"), "old password");
+    await user.type(screen.getByLabelText("New password"), "a sufficiently long password");
+    await user.type(screen.getByLabelText("Confirm new password"), "a sufficiently long password");
+    await user.click(screen.getByRole("button", { name: "Change password" }));
+    expect(await screen.findByText("Password changed. Other browser sessions were signed out.")).toBeInTheDocument();
+    expect(await screen.findByText(/Your change was saved, but account details could not refresh/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Current password")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Change password" }));
+    expect(screen.getByLabelText("Current password")).toHaveValue("");
+    expect(screen.getByLabelText("New password")).toHaveValue("");
   });
 
   it("opens account management without requesting a collection grant", async () => {

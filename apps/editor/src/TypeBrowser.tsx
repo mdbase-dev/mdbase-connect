@@ -37,7 +37,7 @@ import {
   PHOSPHOR_ICON_NAMES,
   PhosphorIcon
 } from "./PhosphorIcon";
-import { compareLines } from "./text-diff";
+import { compareLines } from "@mdbase-dev/ui/text-diff";
 import {
   addTypeContractImplementation,
   assessContractFieldMapping,

@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   beginPairing: (input: { serverUrl: string; connectorName: string }) =>
     ipcRenderer.invoke("connect:pairing:begin", input),
   pairingStatus: (pairingId: string) => ipcRenderer.invoke("connect:pairing:status", pairingId),
+  reopenPairing: (pairingId: string) => ipcRenderer.invoke("connect:pairing:reopen", pairingId),
   accessSnapshot: () => ipcRenderer.invoke("connect:access:snapshot"),
   setAccessPaused: (paused: boolean) => ipcRenderer.invoke("connect:access:pause", paused),
   renameComputer: (name: string) => ipcRenderer.invoke("connect:account:rename-computer", name),
@@ -90,6 +91,8 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     replicaId: string;
     selectiveSync: DesktopSelectiveSyncPolicy;
   }) => ipcRenderer.invoke("connect:mirrors:configure-selective-sync", input),
+  reviewMirrorConflict: (input: { replicaId: string; objectId: string; decisionId: string }) =>
+    ipcRenderer.invoke("connect:mirrors:review-conflict", input),
   resolveMirrorConflict: (input: {
     replicaId: string;
     objectId: string;

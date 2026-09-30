@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Permission reviews survive background refreshes; changed access requires a new
+  review. Pairing retries the same request after network interruptions and can
+  reopen the browser without starting over. Successful account changes are no
+  longer treated as failed when the following refresh fails.
+- The editor offers browser-local recovery of unsaved note edits after a restart,
+  with explicit restore/discard choices and seven-day retention. Full-text content
+  loads on demand for search and backlinks instead of at collection startup.
+- Desktop collection creation uses the shared keyboard-accessible dialog and
+  keeps errors inside it. Collection-row failures stay beside their controls;
+  folder-opening failures are no longer ignored. Synced-folder conflicts now
+  offer exact Markdown comparisons or binary metadata before choosing a winner.
+
 - The desktop app's connection status no longer freezes behind a slow
   refresh: each source refreshes on its own, so a hosted-collection snapshot
   that takes up to 30 s cannot hold "Connecting securely…" on screen. Pairing

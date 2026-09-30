@@ -105,6 +105,7 @@ export class MdbaseRecordSession<R> {
   private inFlight: Promise<ConnectOutcome<R>> | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private lastEdit = 0;
+  private disposed = false;
   private readonly idleMs: number | undefined;
   private current: MdbaseRecordSessionSnapshot<R>;
 
@@ -148,11 +149,19 @@ export class MdbaseRecordSession<R> {
    * is never written by itself: call `autosave()` or `save()`. A draft whose
    * base is unknown or has since changed is a conflict with the current record.
    */
-  restore(draft: { body: string; baseBody?: string }): void {
+  restore(draft: { body: string; baseBody?: string; patch?: JsonObject; baseFrontmatter?: JsonObject }): void {
     const current = this.adapter.body(this.record);
-    if (draft.body === current) return;
+    const frontmatter = this.adapter.frontmatter?.(this.record) ?? {};
+    const patch = Object.fromEntries(Object.entries(draft.patch ?? {}).filter(([key, value]) =>
+      JSON.stringify(frontmatter[key] ?? null) !== JSON.stringify(value)));
+    if (draft.body === current && Object.keys(patch).length === 0) return;
     this.body = draft.body;
-    if (draft.baseBody !== current) this.remote = this.record;
+    this.patch = patch;
+    if ((draft.body !== current && draft.baseBody !== current)
+      || Object.keys(patch).some((key) => !draft.baseFrontmatter
+        || JSON.stringify(draft.baseFrontmatter[key] ?? null) !== JSON.stringify(frontmatter[key] ?? null))) {
+      this.remote = this.record;
+    }
     this.emit();
   }
 
@@ -166,6 +175,13 @@ export class MdbaseRecordSession<R> {
     this.pending = { requestId, sent: "restored" };
     this.emit();
     this.autosave();
+  }
+
+  /** Stop automatic writes and subscriptions when the owning view closes. In-flight writes still settle. */
+  dispose(): void {
+    this.disposed = true;
+    clearTimeout(this.timer);
+    this.listeners.clear();
   }
 
   /** Schedule an autosave one idle interval from now. */
@@ -310,7 +326,7 @@ export class MdbaseRecordSession<R> {
 
   private schedule(): void {
     clearTimeout(this.timer);
-    if (this.idleMs === undefined || this.remote || this.deleted) return;
+    if (this.disposed || this.idleMs === undefined || this.remote || this.deleted) return;
     const delay = Math.max(0, this.lastEdit + this.idleMs - Date.now());
     this.timer = setTimeout(() => void this.save(), delay);
   }

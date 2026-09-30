@@ -115,6 +115,8 @@ pub enum ControlCommand {
     MirrorConfigureSelectiveSync(MirrorConfigureSelectiveSyncParams),
     #[serde(rename = "mirrors.remove")]
     MirrorRemove(MirrorIdParams),
+    #[serde(rename = "mirrors.review-conflict")]
+    MirrorReviewConflict(MirrorConflictParams),
     #[serde(rename = "mirrors.resolve")]
     MirrorResolve(MirrorResolveParams),
     #[serde(rename = "mirrors.promote.begin")]
@@ -325,6 +327,13 @@ pub struct MirrorApplyParams {
 pub struct MirrorConfigureSelectiveSyncParams {
     pub replica_id: Uuid,
     pub selective_sync: SelectiveSyncPolicy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirrorConflictParams {
+    pub replica_id: Uuid,
+    pub object_id: Uuid,
+    pub decision_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

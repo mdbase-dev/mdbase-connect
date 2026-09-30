@@ -33,24 +33,27 @@ export function SaveIndicator({ state, activity, detail, onCancel }: { state: Sa
       : state === "conflict" || state === "error" ? "attention" : "pending";
   return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{onCancel && <button className="cancel-operation" onClick={onCancel}>Cancel</button>}</div>;
 }
-export function BacklinksPanel({ notes, types, loading, onClose, onOpen }: {
+export function BacklinksPanel({ notes, types, loading, error, onRetry, onClose, onOpen }: {
   notes: NoteSummary[];
   types: CollectionTypeDescriptor[];
   loading: boolean;
+  error?: string;
+  onRetry?: () => void;
   onClose: () => void;
   onOpen: (path: string) => void;
 }) {
   return <aside className="backlinks-panel" aria-label="Backlinks" aria-busy={loading}>
     <header className="panel-header">
-      <div><h2>Backlinks</h2><p>{loading ? "Finding references" : `${notes.length} ${notes.length === 1 ? "note" : "notes"} link here`}</p></div>
+      <div><h2>Backlinks</h2><p>{error ? "References are incomplete" : loading ? "Finding references" : `${notes.length} ${notes.length === 1 ? "note" : "notes"} link here`}</p></div>
       <button className="icon-button" aria-label="Close backlinks" onClick={onClose}><X aria-hidden="true" /></button>
     </header>
+    {error && <p role="alert">{error} {onRetry && <button onClick={onRetry}>Retry backlinks</button>}</p>}
     <div className="backlink-list">
       {notes.map((note) => <button key={note.path} onClick={() => onOpen(note.path)}>
         <Link2 aria-hidden="true" />
         <span><strong>{noteTitle(note, types)}</strong><small>{note.path}</small></span>
       </button>)}
-      {!notes.length && <p className="quiet-empty">{loading ? "Reading collection links…" : "No notes link here yet."}</p>}
+      {!notes.length && <p className="quiet-empty">{error ? "References could not finish loading." : loading ? "Reading collection links…" : "No notes link here yet."}</p>}
     </div>
   </aside>;
 }

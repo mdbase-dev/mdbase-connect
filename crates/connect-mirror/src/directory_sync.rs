@@ -185,6 +185,81 @@ impl DirectoryMirror {
         })
     }
 
+    /// Review the same exact decision that resolution will enforce. No writes occur.
+    pub async fn review_conflict(
+        &self,
+        object_id: Uuid,
+        decision_id: &str,
+    ) -> Result<MirrorConflictReview, MirrorError> {
+        let _lease = MirrorLease::acquire(&self.lock_file)?;
+        let state = self
+            .read_state()?
+            .ok_or_else(|| MirrorError::new("mirror_not_initialized", "Synchronize first."))?;
+        if state.batch.is_some() {
+            return Err(MirrorError::new(
+                "mirror_recovery_required",
+                "Recover prepared sync before reviewing.",
+            ));
+        }
+        let conflict = state
+            .planned_conflicts
+            .get(&object_id.to_string())
+            .ok_or_else(|| {
+                MirrorError::new("mirror_conflict_not_found", "Conflict was not found.")
+            })?;
+        if conflict.decision_id != decision_id {
+            return Err(stale_conflict());
+        }
+        self.revalidate_expected(&conflict.local)?;
+        if conflict.local.exact().is_none() {
+            if let Some(remote) = conflict.remote.exact() {
+                self.revalidate_at(&remote.path, &conflict.local)?;
+            }
+        }
+        let local_document = if conflict.entity == SyncObjectKind::Record {
+            match conflict.local.exact() {
+                Some(local) => {
+                    let document = self.read_file(&local.path)?.ok_or_else(stale_conflict)?;
+                    if format!("sha256:{}", digest(&document)) != local.payload_revision {
+                        return Err(stale_conflict());
+                    }
+                    Some(document)
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        let remote_document = match conflict.entity {
+            SyncObjectKind::Record => {
+                let current = self.current_remote_record(object_id).await?;
+                if !record_state_matches(&conflict.remote, current.as_ref()) {
+                    return Err(stale_conflict());
+                }
+                current.map(|record| record.document)
+            }
+            SyncObjectKind::File => {
+                let current = self.current_remote_file(object_id).await?;
+                if !file_state_matches(&conflict.remote, current.as_ref()) {
+                    return Err(stale_conflict());
+                }
+                None
+            }
+            SyncObjectKind::Resource => {
+                return Err(MirrorError::new(
+                    "invalid_mirror_state",
+                    "Authority resources cannot have writable conflicts.",
+                ))
+            }
+        };
+        Ok(MirrorConflictReview {
+            review_version: 1,
+            decision_id: decision_id.to_owned(),
+            local: conflict_version(&conflict.local, local_document),
+            remote: conflict_version(&conflict.remote, remote_document),
+        })
+    }
+
     pub async fn resolve_conflict(
         &self,
         object_id: Uuid,
@@ -436,6 +511,22 @@ fn file_state_matches(
                 && object.size == Some(file.size)
         }
         _ => false,
+    }
+}
+
+fn conflict_version(
+    state: &ExpectedObjectState,
+    document: Option<String>,
+) -> MirrorConflictVersion {
+    let object = state.exact();
+    MirrorConflictVersion {
+        path: object.map(|value| value.path.clone()),
+        revision: object.map(|value| value.payload_revision.clone()),
+        size: document
+            .as_ref()
+            .map(|value| value.len() as u64)
+            .or_else(|| object.and_then(|value| value.size)),
+        document,
     }
 }
 

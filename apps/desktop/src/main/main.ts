@@ -24,6 +24,7 @@ import { buildEditorUrl } from "./editor-url";
 import { ElectronUpdateBackend } from "./electron-update-backend";
 import { createHostedSnapshotLoader, type HostedControlSnapshot } from "./hosted-snapshot";
 import { guardDesktopProcessOutput } from "./process-output";
+import { ComputerPairing } from "./pairing";
 import { selectiveSyncPolicy } from "./selective-sync-input";
 import { createTrayImage } from "./tray-image";
 import { UpdateCoordinator } from "./update-coordinator";
@@ -38,7 +39,13 @@ let localHealthLabel = "Local connector starting";
 let daemonPaths: DaemonPaths | null = null;
 let updater: UpdateCoordinator | null = null;
 let quitting = false;
-const activePairings = new Map<string, { serverUrl: string; secret: string }>();
+const pairing = new ComputerPairing({
+  openBrowser: (url) => shell.openExternal(url),
+  configure: (serverUrl, token) => requestReadyAgent("account.configure", {
+    server_url: serverUrl, connector_token: token
+  }, 10_000),
+  completed: () => restartApplication(1_000)
+});
 const execFile = promisify(execFileCallback);
 
 const userDataOverride = process.env.MDBASE_CONNECT_USER_DATA_DIR;
@@ -50,6 +57,12 @@ if (!singleInstance) app.quit();
 autoUpdater.on("before-quit-for-update", () => {
   quitting = true;
 });
+
+async function openLocalPath(path: string): Promise<string> {
+  const error = await shell.openPath(path);
+  if (error) throw new Error(`The folder or file could not be opened. ${error}`);
+  return "";
+}
 
 function stateDirectory(): string {
   if (!daemonPaths) throw new Error("The connector runtime has not been initialized.");
@@ -83,7 +96,6 @@ async function resolveDaemonPaths(): Promise<void> {
 }
 
 // A pairing request that stalls must surface as an error, not wait forever.
-const PAIRING_REQUEST_TIMEOUT_MS = 10_000;
 
 async function requestReadyAgent<T>(
   method: string,
@@ -305,7 +317,7 @@ function registerIpc(): void {
       "collections.list"
     )).find((candidate) => candidate.path === path);
     if (!collection) throw new Error("That path is not a registered collection.");
-    return shell.openPath(collection.path);
+    return openLocalPath(collection.path);
   });
   ipcMain.handle("connect:collections:open-config", async (event, collectionId: unknown) => {
     trustedIpc(event);
@@ -314,7 +326,7 @@ function registerIpc(): void {
       "collections.list"
     )).find((candidate) => candidate.id === collectionId);
     if (!collection) throw new Error("That collection is not registered.");
-    return shell.openPath(join(collection.path, "mdbase.yaml"));
+    return openLocalPath(join(collection.path, "mdbase.yaml"));
   });
   ipcMain.handle("connect:editor:open", async (event, collectionId: unknown) => {
     trustedIpc(event);
@@ -401,76 +413,17 @@ function registerIpc(): void {
     const connectorName = typeof value.connectorName === "string" && value.connectorName.trim()
       ? value.connectorName.trim().slice(0, 100)
       : hostname();
-    const response = await fetch(`${serverUrl}/v1/pairing-requests`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ connector_name: connectorName }),
-      signal: AbortSignal.timeout(PAIRING_REQUEST_TIMEOUT_MS)
-    });
-    const body = await response.json() as {
-      pairing_id?: string;
-      pairing_secret?: string;
-      verification_uri?: string;
-      expires_in?: number;
-      error?: { message?: string };
-    };
-    if (
-      !response.ok
-      || !body.pairing_id
-      || !body.pairing_secret
-      || !body.verification_uri
-      || !body.pairing_secret.startsWith("pair_")
-      || body.pairing_secret.length < 24
-      || /\s/.test(body.pairing_secret)
-      || !body.expires_in
-      || body.expires_in > 86_400
-    ) {
-      throw new Error(body.error?.message ?? `Pairing failed with HTTP ${response.status}.`);
-    }
-    const verification = new URL(body.verification_uri);
-    if (
-      verification.origin !== new URL(serverUrl).origin
-      || verification.username
-      || verification.password
-    ) {
-      throw new Error("The pairing server returned an untrusted verification address.");
-    }
-    activePairings.set(body.pairing_id, { serverUrl, secret: body.pairing_secret });
-    await shell.openExternal(body.verification_uri);
-    return {
-      pairingId: body.pairing_id,
-      verificationUri: body.verification_uri,
-      expiresIn: body.expires_in ?? 600
-    };
+    return pairing.begin(serverUrl, connectorName);
+  });
+  ipcMain.handle("connect:pairing:reopen", async (event, pairingId: unknown) => {
+    trustedIpc(event);
+    if (typeof pairingId !== "string") throw new Error("Invalid pairing request.");
+    return pairing.reopen(pairingId);
   });
   ipcMain.handle("connect:pairing:status", async (event, pairingId: unknown) => {
     trustedIpc(event);
     if (typeof pairingId !== "string") throw new Error("Invalid pairing request.");
-    const pairing = activePairings.get(pairingId);
-    if (!pairing) throw new Error("That pairing request is no longer active.");
-    const response = await fetch(`${pairing.serverUrl}/v1/pairing-requests/${pairingId}/exchange`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${pairing.secret}` },
-      signal: AbortSignal.timeout(PAIRING_REQUEST_TIMEOUT_MS)
-    });
-    const body = await response.json() as {
-      status?: "pending" | "paired";
-      token?: string;
-      connector?: { id: string; name: string };
-      error?: { message?: string };
-    };
-    if (response.status === 202) return { status: "pending" };
-    if (!response.ok || body.status !== "paired" || !body.token) {
-      throw new Error(body.error?.message ?? `Pairing failed with HTTP ${response.status}.`);
-    }
-    activePairings.delete(pairingId);
-    await requestReadyAgent(
-      "account.configure",
-      { server_url: pairing.serverUrl, connector_token: body.token },
-      10_000
-    );
-    restartApplication(1_000);
-    return { status: "paired", connector: body.connector };
+    return pairing.status(pairingId);
   });
   ipcMain.handle("connect:access:snapshot", async (event) => {
     trustedIpc(event);
@@ -645,6 +598,16 @@ function registerIpc(): void {
       selective_sync: selectiveSyncPolicy(value.selectiveSync)
     }, 15 * 60 * 1_000);
   });
+  ipcMain.handle("connect:mirrors:review-conflict", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid conflict review.");
+    if (typeof value.replicaId !== "string" || typeof value.objectId !== "string" || typeof value.decisionId !== "string") {
+      throw new Error("Choose a conflict to review.");
+    }
+    return requestReadyAgent("mirrors.review-conflict", {
+      replica_id: value.replicaId, object_id: value.objectId, decision_id: value.decisionId
+    }, 2 * 60 * 1_000);
+  });
   ipcMain.handle("connect:mirrors:resolve", async (event, input: unknown) => {
     trustedIpc(event);
     const value = asObject(input, "Invalid conflict resolution.");
@@ -700,7 +663,7 @@ function registerIpc(): void {
       "mirrors.list"
     )).find((candidate) => candidate.replica_id === replicaId);
     if (!mirror) throw new Error("That mirror is not controlled by this computer.");
-    return shell.openPath(mirror.path);
+    return openLocalPath(mirror.path);
   });
 }
 

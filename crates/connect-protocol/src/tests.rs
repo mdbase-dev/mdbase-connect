@@ -616,6 +616,47 @@ fn mirror_conflicts_and_resolution_are_entity_aware_on_the_wire() {
 }
 
 #[test]
+fn local_conflict_reviews_are_versioned_without_changing_existing_resolution() {
+    let request = ControlRequest {
+        id: Uuid::nil(),
+        protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
+        command: ControlCommand::MirrorReviewConflict(MirrorConflictParams {
+            replica_id: Uuid::nil(),
+            object_id: Uuid::nil(),
+            decision_id: "exact".into(),
+        }),
+    };
+    let value = serde_json::to_value(request).unwrap();
+    assert_eq!(value["method"], "mirrors.review-conflict");
+    assert_eq!(value["protocol_version"], LOCAL_CONTROL_PROTOCOL_VERSION);
+    let decoded: ControlRequest = serde_json::from_value(value).unwrap();
+    assert!(matches!(
+        decoded.command,
+        ControlCommand::MirrorReviewConflict(_)
+    ));
+    let review = MirrorConflictReview {
+        review_version: 1,
+        decision_id: "exact".into(),
+        local: MirrorConflictVersion {
+            path: None,
+            revision: None,
+            size: None,
+            document: None,
+        },
+        remote: MirrorConflictVersion {
+            path: Some("note.md".into()),
+            revision: Some("sha256:digest".into()),
+            size: Some(4),
+            document: Some("text".into()),
+        },
+    };
+    let value = serde_json::to_value(review).unwrap();
+    assert_eq!(value["review_version"], 1);
+    assert!(value["local"]["path"].is_null());
+    assert_eq!(value["remote"]["document"], "text");
+}
+
+#[test]
 fn rust_relay_messages_match_the_canonical_wire_schema() {
     let ids = [
         Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap(),

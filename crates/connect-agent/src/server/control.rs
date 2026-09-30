@@ -346,6 +346,13 @@ impl AgentState {
                 Ok(mirrors) => mirrors.remove(params).await,
                 Err(error) => Err(error),
             },
+            ControlCommand::MirrorReviewConflict(params) => match self.mirror_manager() {
+                Ok(mirrors) => mirrors
+                    .review_conflict(params)
+                    .await
+                    .and_then(|value| serde_json::to_value(value).map_err(ConnectError::from)),
+                Err(error) => Err(error),
+            },
             ControlCommand::MirrorResolve(params) => match self.mirror_manager() {
                 Ok(mirrors) => mirrors
                     .resolve(params)

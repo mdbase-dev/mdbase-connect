@@ -183,6 +183,26 @@ Errors stay attached to the action that failed and preserve the user's work.
 - A stale or incompatible collection explains the missing capability.
 - Retry actions use the same authorization boundary as the original action.
 
+Unsent note edits have a versioned recovery copy in this browser, isolated by
+Connect server, collection, and record path. Copies expire after seven days and
+are removed after confirmed saving or explicit discard. On reopening a note,
+offer `Restore unsaved edits` and `Discard recovered edits`; do not write on load.
+A newer base or changed edited metadata requires conflict review. If browser
+storage is unavailable or full, explicitly warn that unsaved edits cannot be
+backed up. This is separate from exact recovery of an already submitted write.
+
+Synced-folder conflicts first offer `Review versions`. Show exact Markdown
+(including frontmatter) differences, or paths, byte sizes, and digests for binary
+files. Explain deletion and replacement consequences before offering a winner.
+A changed decision or changed bytes requires a fresh review; previews never
+weaken the resolution precondition. Contents travel only between the locally
+authorized mirror and desktop, never through an account-management snapshot.
+
+Opening a collection loads its structural inventory and selected note. Other
+note bodies load when search or backlinks needs them, rather than automatically
+transferring the whole collection. Search and backlinks report incomplete work
+until hydration finishes and keep failures retryable.
+
 Never expose raw relay, OAuth, encryption, or provider errors as the primary
 message. Expert detail may follow a plain-language summary.
 

@@ -13,6 +13,8 @@ import {
   type AuthorityTransferReceipt
 } from "./onboarding-state.mjs";
 import { Select } from "@mdbase-dev/ui/select";
+import { useLocalAction } from "./use-local-action";
+import { MirrorConflictDecision } from "./mirror-conflict-review";
 
 const FILE_CLASS_OPTIONS: Array<{
   value: DesktopFileMediaClass;
@@ -306,7 +308,7 @@ export function Collections({
   );
 }
 
-function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, openDetails, busy, onTargetHandled, onAct, onTransfer, onTransferComplete, onNotice }: {
+function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, openDetails, busy, onTargetHandled, onAct: run, onTransfer: transfer, onTransferComplete, onNotice }: {
   collection: CollectionSummary;
   grants: GrantSummary[];
   authorityHistory: HostedCollectionSummary[];
@@ -319,6 +321,8 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
   onTransferComplete(receipt: AuthorityTransferReceipt): void;
   onNotice(value: string): void;
 }) {
+  const { act: onAct, error: actionError } = useLocalAction(run);
+  const { act: onTransfer, error: transferError } = useLocalAction(transfer);
   const savedTransfer = readTransferProgress(localStorage);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(collection.display_name);
@@ -381,14 +385,14 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
         <div className="collection-copy">
           <div className="collection-title-row"><h3>{collection.display_name}</h3><span className="version">v{collection.spec_version}</span></div>
           {collection.description && <p>{collection.description}</p>}
-          <button className="path" title={collection.path} onClick={() => void window.mdbaseConnect.openPath(collection.path)}>{collection.path}</button>
+          <button className="path" title={collection.path} onClick={() => void onAct(() => window.mdbaseConnect.openPath(collection.path))}>{collection.path}</button>
         </div>
         <div className="collection-status"><StatusDot state={collection.enabled ? "connected" : "idle"} />{collection.enabled ? "Available" : "Disabled"}</div>
         <div className="row-actions">
           <button
             className="quiet-action"
             disabled={busy}
-            onClick={() => void window.mdbaseConnect.openEditor(collection.id)}
+            onClick={() => void onAct(() => window.mdbaseConnect.openEditor(collection.id))}
           >
             Open in editor <span aria-hidden="true">↗</span>
           </button>
@@ -396,6 +400,7 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
           <button className="quiet-action" disabled={busy || collection.authority_transfer !== undefined} onClick={() => void onAct(async () => { await window.mdbaseConnect.setCollectionEnabled(collection.id, !collection.enabled); onNotice(collection.enabled ? `${collection.display_name} is no longer available to remote applications.` : `${collection.display_name} is available again.`); })}>{collection.enabled ? "Disable" : "Enable"}</button>
         </div>
       </div>
+      {(actionError || transferError) && <div className="message error-message" role="alert">{actionError || transferError}</div>}
       {authorityHistory.length > 0 && <div className="authority-history" role="note">
         <strong>History and recovery</strong>
         <span>{authorityHistory.map((entry) => `${entry.display_name}: hosted copy retained for recovery`).join(" · ")}</span>
@@ -430,7 +435,7 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
           <section className="collection-editor-section">
             <div><strong>Configuration</strong><small>Inspect the source file or check the collection structure.</small></div>
             <div className="collection-config-actions">
-              <button type="button" className="quiet-action" disabled={busy} onClick={() => void window.mdbaseConnect.openCollectionConfig(collection.id)}>Open mdbase.yaml</button>
+              <button type="button" className="quiet-action" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openCollectionConfig(collection.id))}>Open mdbase.yaml</button>
               <button type="button" className="quiet-action" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.validateCollection(collection.id); onNotice(`${collection.display_name} passed collection validation.`); })}>Validate collection</button>
             </div>
           </section>
@@ -490,8 +495,8 @@ function HostedCollectionRow({
   busy,
   onTargetHandled,
   onDetailTargetHandled,
-  onAct,
-  onTransfer,
+  onAct: run,
+  onTransfer: transfer,
   onTransferComplete,
   onNotice
 }: {
@@ -508,6 +513,8 @@ function HostedCollectionRow({
   onTransferComplete(receipt: AuthorityTransferReceipt): void;
   onNotice(value: string): void;
 }) {
+  const { act: onAct, error: actionError } = useLocalAction(run);
+  const { act: onTransfer, error: transferError } = useLocalAction(transfer);
   const [editing, setEditing] = useState(openMirror);
   const [name, setName] = useState(collection.display_name);
   const [path, setPath] = useState("");
@@ -548,8 +555,10 @@ function HostedCollectionRow({
   }, [mirror?.promotion_pending]);
 
   async function chooseMirrorFolder() {
-    const selected = await window.mdbaseConnect.chooseMirrorFolder();
-    if (selected) setPath(selected);
+    await onAct(async () => {
+      const selected = await window.mdbaseConnect.chooseMirrorFolder();
+      if (selected) setPath(selected);
+    });
   }
 
   const state = mirrorState(mirror);
@@ -582,13 +591,14 @@ function HostedCollectionRow({
           {editorCollectionId && <button
             className="quiet-action"
             disabled={busy}
-            onClick={() => void window.mdbaseConnect.openEditor(editorCollectionId)}
+            onClick={() => void onAct(() => window.mdbaseConnect.openEditor(editorCollectionId))}
           >
             Open in editor <span aria-hidden="true">↗</span>
           </button>}
           <button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : mirror ? "Sync" : "Details"}</button>
         </div>
       </div>
+      {(actionError || transferError) && <div className="message error-message" role="alert">{actionError || transferError}</div>}
       {editing && <div className="collection-editor hosted-editor">
         <form className="collection-editor-form" onSubmit={(event) => {
           event.preventDefault();
@@ -614,26 +624,18 @@ function HostedCollectionRow({
             <div className="mirror-control">
               <div className="mirror-state-row">
                 <StatusDot state={state.dot} />
-                <div><strong>{state.label}</strong><button className="path" title={mirror.path} onClick={() => void window.mdbaseConnect.openMirror(mirror.replica_id)}>{mirror.path}</button></div>
+                <div><strong>{state.label}</strong><button className="path" title={mirror.path} onClick={() => void onAct(() => window.mdbaseConnect.openMirror(mirror.replica_id))}>{mirror.path}</button></div>
                 <code>{mirror.mode === "read_write" ? "edits sync both ways" : "downloads updates only"}</code>
               </div>
               {mirror.progress && <small>{mirror.progress.phase === "uploading" ? "Uploading" : "Applying"} {mirror.progress.completed}{mirror.progress.total === null ? "" : ` of ${mirror.progress.total}`} changes…</small>}
               {mirror.error && <div className="message error-message compact-message">{mirror.error}</div>}
               {mirror.conflicts.length > 0 && (
                 <div className="mirror-conflicts">
-                  {mirror.conflicts.map((conflict) => <div key={`${conflict.entity}:${conflict.object_id}`}>
-                    <div><strong>{conflict.path ?? conflict.object_id}</strong><small>{conflict.message}</small></div>
-                    <div className="row-actions">
-                      <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => {
-                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, objectId: conflict.object_id, decisionId: conflict.decision_id, resolution: "local" });
-                        onNotice("The local version was kept and synchronized.");
-                      })}>Keep local</button>
-                      <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => {
-                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, objectId: conflict.object_id, decisionId: conflict.decision_id, resolution: "remote" });
-                        onNotice("The hosted version was applied.");
-                      })}>Use hosted</button>
-                    </div>
-                  </div>)}
+                  {mirror.conflicts.map((conflict) => <MirrorConflictDecision
+                    key={`${conflict.entity}:${conflict.object_id}:${conflict.decision_id}`}
+                    replicaId={mirror.replica_id} conflict={conflict} disabled={busy || mirror.syncing}
+                    onResolved={() => onAct(async () => { onNotice("The reviewed conflict was resolved."); })}
+                  />)}
                 </div>
               )}
               {mirror.local_issues.length > 0 && (
@@ -667,7 +669,7 @@ function HostedCollectionRow({
                   await window.mdbaseConnect.syncMirror(mirror.replica_id);
                   onNotice(`${collection.display_name} is synchronized.`);
                 })}>{mirror.syncing ? "Synchronizing…" : "Sync now"}</button>
-                <button className="quiet-action" disabled={busy} onClick={() => void window.mdbaseConnect.openMirror(mirror.replica_id)}>Open folder</button>
+                <button className="quiet-action" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openMirror(mirror.replica_id))}>Open folder</button>
                 <button className="quiet-action danger" disabled={busy} onClick={() => {
                   if (!window.confirm(`Stop syncing ${collection.display_name} on this computer? The folder and its files will remain.`)) return;
                   void onAct(async () => {

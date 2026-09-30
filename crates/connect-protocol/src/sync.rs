@@ -34,6 +34,24 @@ pub struct MirrorConflictSummary {
     pub message: String,
 }
 
+/// On-demand local-control preview; never part of an account/control-plane snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirrorConflictReview {
+    pub review_version: u32,
+    pub decision_id: String,
+    pub local: MirrorConflictVersion,
+    pub remote: MirrorConflictVersion,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirrorConflictVersion {
+    pub path: Option<String>,
+    pub revision: Option<String>,
+    pub size: Option<u64>,
+    /// Exact Markdown including metadata. None for binary files or an absent version.
+    pub document: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MirrorLocalIssue {
     pub path: String,

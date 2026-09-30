@@ -130,7 +130,8 @@ export class DemoCollectionGateway implements CollectionGateway {
     await delay(4);
     signal?.throwIfAborted();
     const snapshot = `demo-${this.changeCursor}`;
-    const structure = this.notes.map(demoSummary).map(({ body: _body, ...note }) => note);
+    // Demo contents are already in browser memory; no body transfer is needed.
+    const structure = this.notes.map(demoSummary);
     const firstStructurePage = structure.slice(0, Math.min(200, structure.length));
     const structureComplete = firstStructurePage.length === structure.length;
     onProgress?.({
@@ -138,14 +139,14 @@ export class DemoCollectionGateway implements CollectionGateway {
       snapshot,
       structureComplete,
       complete: structureComplete,
-      contentComplete: structure.length === 0,
-      contentLoaded: 0,
+      contentComplete: structureComplete,
+      contentLoaded: firstStructurePage.length,
       total: structure.length
     });
     if (!structureComplete) {
       await delay(4);
       signal?.throwIfAborted();
-      onProgress?.({ notes: structure, snapshot, structureComplete: true, complete: true, contentComplete: false, contentLoaded: 0, total: structure.length });
+      onProgress?.({ notes: structure, snapshot, structureComplete: true, complete: true, contentComplete: true, contentLoaded: structure.length, total: structure.length });
     }
     return { notes: structure, snapshot };
   }

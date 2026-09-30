@@ -896,6 +896,34 @@ async function auditDesktopResumedAuthorization() {
   await page.getByText("Use another Connect server", { exact: true }).click();
   await serverAddress.waitFor({ state: "visible" });
   await auditPage(page, "desktop resumed authorization", { keyboard: true });
+  await page.evaluate(() => {
+    window.__pairingBegins = 0;
+    window.__pairingChecks = [];
+    window.__pairingReopens = 0;
+    window.mdbaseConnect.beginPairing = async () => {
+      window.__pairingBegins++;
+      return { pairingId: "same-request", verificationUri: "https://connect.mdbase.dev/pair/same-request", expiresIn: 600 };
+    };
+    window.mdbaseConnect.pairingStatus = async (id) => {
+      window.__pairingChecks.push(id);
+      if (window.__pairingChecks.length === 1) throw new Error("Network request failed");
+      return { status: window.__pairingApproved ? "paired" : "pending" };
+    };
+    window.mdbaseConnect.reopenPairing = async (id) => {
+      if (id !== "same-request") throw new Error("Wrong pairing request");
+      window.__pairingReopens++;
+    };
+  });
+  await page.getByRole("button", { name: "Continue in browser" }).click();
+  await page.getByText("Connection interrupted", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Open browser again" }).click();
+  await page.getByRole("button", { name: "Retry connection" }).click();
+  await page.getByText("Waiting for browser approval", { exact: true }).waitFor();
+  await page.evaluate(() => { window.__pairingApproved = true; });
+  await page.getByText("Computer approved. Connecting securely…", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.__pairingBegins), 1);
+  assert.equal(await page.evaluate(() => window.__pairingReopens), 2);
+  assert.ok((await page.evaluate(() => window.__pairingChecks)).every((id) => id === "same-request"));
   assert.deepEqual(errors, []);
   await page.close();
 }
@@ -993,9 +1021,74 @@ async function auditDesktopRoutes() {
     }
     await auditPage(page, `desktop ${route[0].toLowerCase()}`);
   }
+  await auditDesktopCreationDialog(page);
+  await auditDesktopConflictReview(page);
   await auditDesktopTransferRecovery(page);
   assert.deepEqual(errors, []);
   await page.close();
+}
+
+async function auditDesktopCreationDialog(page) {
+  await page.evaluate(() => {
+    window.mdbaseConnect.chooseCreateFolder = async () => "/home/example/new";
+    window.mdbaseConnect.createCollection = async () => { throw new Error("This folder already has a collection. Choose another folder."); };
+  });
+  await page.getByRole("button", { name: "Collections" }).click();
+  const opener = page.getByRole("button", { name: "Create collection", exact: true });
+  await opener.click();
+  const dialog = page.getByRole("dialog", { name: "Create an mdbase collection" });
+  await dialog.waitFor();
+  await dialog.getByLabel("Collection name").fill("New notes");
+  await dialog.locator(".folder-picker").click();
+  await dialog.getByRole("button", { name: "Create collection", exact: true }).click();
+  await dialog.getByRole("alert").filter({ hasText: "This folder already has a collection" }).waitFor();
+  assert.equal(await dialog.getByLabel("Collection name").inputValue(), "New notes");
+  for (let index = 0; index < 12; index++) {
+    await page.keyboard.press("Tab");
+    assert.equal(await dialog.evaluate((element) => element.matches(":modal") && (element.contains(document.activeElement) || document.activeElement === document.body)), true, "native creation dialog never focuses background controls");
+  }
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  assert.equal(await opener.evaluate((element) => document.activeElement === element), true, "closing restores focus to the opener");
+}
+
+async function auditDesktopConflictReview(page) {
+  await page.evaluate(() => {
+    const conflict = { entity: "record", object_id: "record", decision_id: "exact", path: "note.md", kind: "conflicted", message: "Local and hosted changes need a decision." };
+    const mirror = {
+      collection_id: "hosted-preview", replica_id: "mirror-preview", name: "Notes", mode: "read_write",
+      selective_sync: { file_classes: [], excluded_folders: [] }, path: "/home/example/Notes", state: "attention", pending: 0,
+      conflicts: [conflict], local_issues: [], cursor: 1, last_synced_at: null, syncing: false, promotion_pending: false
+    };
+    window.__conflictResolutions = [];
+    window.mdbaseConnect.listMirrors = async () => [mirror];
+    window.mdbaseConnect.hostedSnapshot = async () => ({
+      online: true, hosted_collections_available: true, grants: [], pending_authorizations: [],
+      hosted_collections: [{ id: "hosted-preview", display_name: "Preview notes", template: "mdbase", sync_url: "https://storage.example", spec_version: "0.3.0", contracts: [], authority_state: "active", authority_epoch: 1, transferred_collection_id: null, created_at: new Date().toISOString(), replicas: [] }]
+    });
+    window.mdbaseConnect.reviewMirrorConflict = async () => ({
+      review_version: 1, decision_id: "exact",
+      local: { path: "note.md", revision: "sha256:computer", size: 42, document: "---\ntitle: Computer\n---\n\nLocal writing" },
+      remote: { path: "renamed.md", revision: "sha256:hosted", size: 44, document: "---\ntitle: Hosted\n---\n\nHosted writing" }
+    });
+    window.mdbaseConnect.resolveMirrorConflict = async (input) => {
+      window.__conflictResolutions.push(input);
+      mirror.conflicts = [];
+      mirror.state = "up_to_date";
+      return mirror;
+    };
+  });
+  const row = page.locator(".hosted-collection").filter({ hasText: "Preview notes" });
+  await row.getByRole("button", { name: "Sync", exact: true }).click();
+  assert.equal(await row.getByRole("button", { name: "Keep computer version" }).count(), 0, "conflict decisions require a preview");
+  await row.getByRole("button", { name: "Review versions" }).click();
+  await row.getByText("Local writing", { exact: true }).waitFor();
+  await row.getByText("Hosted writing", { exact: true }).waitFor();
+  await row.getByText("title: Computer", { exact: true }).waitFor();
+  await row.getByText("renamed.md", { exact: true }).waitFor();
+  await row.getByRole("button", { name: "Use hosted version" }).click();
+  await row.getByText("Up to date", { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__conflictResolutions), [{ replicaId: "mirror-preview", objectId: "record", decisionId: "exact", resolution: "remote" }]);
 }
 
 async function auditDesktopTransferRecovery(page) {

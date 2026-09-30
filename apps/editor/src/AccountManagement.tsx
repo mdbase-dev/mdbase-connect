@@ -73,16 +73,22 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     if (!beginOperation(id)) return false;
     setError("");
     setNotice("");
+    let saved = false;
     try {
       await action();
+      saved = true;
       if (success) setNotice(success);
-      await Promise.all([refresh(), onOverviewRefresh()]);
+      await refresh();
       return true;
     } catch (reason) {
       setError(errorMessage(reason));
       return false;
     } finally {
       finishOperation(id);
+      // Refresh failure must not reinterpret an acknowledged mutation as failure.
+      if (saved) void onOverviewRefresh().catch(() => {
+        setError("Your change was saved, but account details could not refresh. Reload to check the latest details.");
+      });
     }
   }
 

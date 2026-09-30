@@ -1,6 +1,6 @@
 import { WarningCircleIcon as CircleAlert } from "./icons";
 import { useMemo } from "react";
-import { compareLines } from "./text-diff";
+import { compareLines } from "@mdbase-dev/ui/text-diff";
 
 interface ConflictVersion {
   title: string;

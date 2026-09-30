@@ -30,11 +30,13 @@ const grant = {
 const source = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
 const component = source.slice(source.indexOf("function GrantEditor("), source.indexOf("\nfunction Activity("));
 const compiled = await transform(component, { loader: "tsx", format: "cjs" });
-const GrantEditor = new Function("React", "useState", "useMemo", "useEffect", "hasSupportedCapabilityDeclaration", "requestCapabilityGroups", "host", "relativeTime", "RequestPermissionChoices", `${compiled.code}; return GrantEditor;`)(
+const GrantEditor = new Function("React", "useState", "useMemo", "useEffect", "hasSupportedCapabilityDeclaration", "requestCapabilityGroups", "host", "relativeTime", "RequestPermissionChoices", "usePermissionSelection", "useLocalAction", `${compiled.code}; return GrantEditor;`)(
   React, React.useState, React.useMemo, React.useEffect,
   hasSupportedCapabilityDeclaration, requestCapabilityGroups,
   () => "example.test", () => "recently",
-  () => { throw new Error("Unavailable declarations must not render narrowing choices"); }
+  () => { throw new Error("Unavailable declarations must not render narrowing choices"); },
+  (_id, allowed) => ({ selected: allowed, setSelected: () => {}, needsReview: false, acknowledge: () => {} }),
+  (run) => ({ act: run, error: null })
 );
 
 for (const [name, requirements] of [

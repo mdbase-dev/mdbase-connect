@@ -38,6 +38,10 @@
       "types": "./dist/Dialog.d.ts",
       "import": "./dist/Dialog.js"
     },
+    "./permission-selection": {
+      "types": "./dist/permission-selection.d.ts",
+      "import": "./dist/permission-selection.js"
+    },
     "./popover": {
       "types": "./dist/popover.d.ts",
       "import": "./dist/popover.js"
@@ -53,6 +57,10 @@
     "./select": {
       "types": "./dist/Select.d.ts",
       "import": "./dist/Select.js"
+    },
+    "./text-diff": {
+      "types": "./dist/text-diff.d.ts",
+      "import": "./dist/text-diff.js"
     },
     "./theme": {
       "types": "./dist/theme.d.ts",

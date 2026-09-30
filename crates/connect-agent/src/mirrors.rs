@@ -8,9 +8,9 @@ use mdbase_connect_mirror::{
     MirrorError, MirrorSyncPlan,
 };
 use mdbase_connect_protocol::{
-    MirrorAddParams, MirrorApplyParams, MirrorConfigureSelectiveSyncParams, MirrorIdParams,
-    MirrorPromotionSummary, MirrorResolveParams, MirrorState, MirrorSummary, SelectiveSyncPolicy,
-    SyncReplicaMode,
+    MirrorAddParams, MirrorApplyParams, MirrorConfigureSelectiveSyncParams, MirrorConflictParams,
+    MirrorConflictReview, MirrorIdParams, MirrorPromotionSummary, MirrorResolveParams, MirrorState,
+    MirrorSummary, SelectiveSyncPolicy, SyncReplicaMode,
 };
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
