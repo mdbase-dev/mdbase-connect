@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Hosted Obsidian Base views work again in collections whose tasks link to
+  other notes without an extension, after TaskNotes' setup added `base` as a
+  record extension. mdbase-rs `7bd18f1` (0.4.0-rc.6) records the extension
+  lookup that actually matched such a link, so its resolution evidence
+  validates; before this, every Base view reaching a linked record failed
+  with "Obsidian Base evaluation requires a current, integrity-bound
+  projection". The engine version change rebuilds hosted projections.
 - Approving an application for a large local collection no longer times out.
   Collection setup plans from configuration, locks and definitions alone and
   never copies or validates every record, so assessing it takes milliseconds
