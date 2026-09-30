@@ -313,9 +313,9 @@ async function proveCurrentRollbackIsNotAuthorized(database) {
   const token = randomUUID();
   await psql(database, `DO $assert$ BEGIN
     IF (SELECT array_agg(version ORDER BY version) FROM _sqlx_migrations)
-         IS DISTINCT FROM ARRAY(SELECT generate_series(1, 44)::bigint)
+         IS DISTINCT FROM ARRAY(SELECT generate_series(1, 45)::bigint)
        OR EXISTS (SELECT 1 FROM _sqlx_migrations WHERE NOT success) THEN
-      RAISE EXCEPTION 'test assertion: expected genuine current ledger 1-44';
+      RAISE EXCEPTION 'test assertion: expected genuine current ledger 1-45';
     END IF;
   END $assert$`);
   await psqlFile(database, "suspend", {
