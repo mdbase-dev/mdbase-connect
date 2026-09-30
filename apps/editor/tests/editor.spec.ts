@@ -361,6 +361,25 @@ test("edits and autosaves a Markdown note", async ({ page }) => {
   expect(caretColor).not.toBe("rgba(0, 0, 0, 0)");
 });
 
+test("recovers unsent note edits after reload without silently saving them", async ({ page }) => {
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await expect(body).toBeEditable();
+  const time = new Date("2026-01-01T00:00:00Z");
+  await page.clock.install({ time });
+  await page.clock.pauseAt(new Date(time.getTime() + 1_000));
+  const draft = "Writing that never reached autosave.";
+  await body.fill(draft);
+  await page.reload();
+  await expect(page.getByRole("status", { name: "Unsaved draft found" })).toBeVisible();
+  await expect(body).not.toBeEditable();
+  await page.getByRole("button", { name: "Restore unsaved edits", exact: true }).click();
+  await expect(body).toBeEditable();
+  await expect(body).toHaveText(draft);
+  await page.clock.runFor(700);
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+});
+
 test("keeps the writing measure while placing editor scrollbars at the pane edge", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 760 });
   await page.goto("?demo=12");
@@ -369,6 +388,7 @@ test("keeps the writing measure while placing editor scrollbars at the pane edge
   const body = page.getByRole("textbox", { name: "Note body" });
   const longLine = "A long readable line ".repeat(100);
   await body.fill(Array.from({ length: 80 }, (_, index) => `${index + 1}. ${longLine}`).join("\n"));
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 5_000 });
 
   const wrapped = await page.locator(".writing-surface").evaluate((surface) => {
     const titleInput = surface.querySelector<HTMLElement>(".title-input");

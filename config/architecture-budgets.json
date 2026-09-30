@@ -45,7 +45,7 @@
   },
   "reviewBudgets": {
     "productionFiles": 722,
-    "relativeImports": 1572,
+    "relativeImports": 1571,
     "workspacePackages": 25,
     "rustPublicDeclarations": 3273,
     "typeScriptExportDeclarations": 2590,

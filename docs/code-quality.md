@@ -33,7 +33,7 @@ server/collection/path, and expires after seven days; it is not an offline repli
 or a substitute for exact pending-write recovery. Restoring metadata uses the SDK
 record session's conflict boundary, not an editor-side interpretation of mdbase.
 
-Reviewed TypeScript exports become 2590 (from 2583), relative imports 1572 (from
+Reviewed TypeScript exports become 2590 (from 2583), relative imports 1571 (from
 1564), desktop modules 46 (from 43), and shared UI modules 16 (from 14). No package
 dependencies, package-count, cycle, or file-size limits are increased. Regression
 tests cover equivalent grant refreshes, changed access, pairing request reuse and
