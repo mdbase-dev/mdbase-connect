@@ -3524,21 +3524,25 @@ async function localAuthorityImportE2E(
   assert.ok(
     Number.isInteger(recordCount) && recordCount >= 205 && recordCount <= 20_000
   );
-  const published = await rawRequest(controlUrl, "/v1/connectors/sync", {
-    method: "POST",
-    token: connector.token,
-    body: {
-      inventory_revision: 1,
-      collections: [{
-        id: collectionId,
-        display_name: "Imported local authority",
-        spec_version: "0.3.0",
-        enabled: true,
-        contracts: []
-      }]
-    }
-  });
-  assert.equal(published.status, 200, JSON.stringify(published.body));
+  let inventoryRevision = 0;
+  const publishSourceInventory = async () => {
+    const published = await rawRequest(controlUrl, "/v1/connectors/sync", {
+      method: "POST",
+      token: connector.token,
+      body: {
+        inventory_revision: ++inventoryRevision,
+        collections: [{
+          id: collectionId,
+          display_name: "Imported local authority",
+          spec_version: "0.3.0",
+          enabled: true,
+          contracts: []
+        }]
+      }
+    });
+    assert.equal(published.status, 200, JSON.stringify(published.body));
+  };
+  await publishSourceInventory();
 
   const snapshot = localAuthoritySnapshot(collectionId, recordCount);
   const begun = await rawRequest(
@@ -3551,7 +3555,34 @@ async function localAuthorityImportE2E(
   assert.equal(begun.body.transfer.authority_epoch, 2);
   assert.ok(begun.body.import);
 
-  const rejected = await absoluteRequest(begun.body.import.manifest_url, {
+  phase("preserving import authority across periodic inventory refreshes");
+  await publishSourceInventory();
+  const stagedSource = await database.query(
+    `SELECT authority_state, authority_epoch, enabled FROM collections
+     WHERE connector_id = $1 AND local_id = $2`,
+    [connector.connector.id, collectionId]
+  );
+  assert.deepEqual(
+    {
+      authority_state: stagedSource.rows[0].authority_state,
+      authority_epoch: Number(stagedSource.rows[0].authority_epoch),
+      enabled: stagedSource.rows[0].enabled
+    },
+    { authority_state: "active", authority_epoch: 1, enabled: true }
+  );
+  const resumedImport = await rawRequest(
+    controlUrl,
+    `/v1/connectors/collections/${collectionId}/authority-transfers`,
+    { method: "POST", token: connector.token, body: {} }
+  );
+  assert.equal(resumedImport.status, 200, JSON.stringify(resumedImport.body));
+  assert.equal(resumedImport.body.transfer.id, begun.body.transfer.id);
+  assert.equal(resumedImport.body.transfer.authority_epoch, 2);
+  assert.equal(resumedImport.body.transfer.state, "prepared");
+  const importCapability = resumedImport.body.import;
+  assert.ok(importCapability);
+
+  const rejected = await absoluteRequest(importCapability.manifest_url, {
     method: "PUT",
     token: `wrong-${crypto.randomUUID()}-${crypto.randomUUID()}`,
     body: snapshot.manifest
@@ -3561,48 +3592,49 @@ async function localAuthorityImportE2E(
   unsupportedManifest.resources.documents.find(
     (resource) => resource.kind === "lock"
   ).kind = "unsupported";
-  const rejectedKind = await absoluteRequest(begun.body.import.manifest_url, {
+  const rejectedKind = await absoluteRequest(importCapability.manifest_url, {
     method: "PUT",
-    token: begun.body.import.access_token,
+    token: importCapability.access_token,
     body: unsupportedManifest
   });
   assert.equal(rejectedKind.status, 400, JSON.stringify(rejectedKind.body));
   assert.equal(rejectedKind.body.error.code, "invalid_authority_import_manifest");
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const manifest = await absoluteRequest(begun.body.import.manifest_url, {
+    const manifest = await absoluteRequest(importCapability.manifest_url, {
       method: "PUT",
-      token: begun.body.import.access_token,
+      token: importCapability.access_token,
       body: snapshot.manifest
     });
     assert.equal(manifest.status, 200, JSON.stringify(manifest.body));
   }
   for (let offset = 0, page = 0; offset < snapshot.records.length; offset += 200, page += 1) {
+    await publishSourceInventory();
     const body = {
       protocol_version: 1,
       page,
       records: snapshot.records.slice(offset, offset + 200)
     };
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const uploaded = await absoluteRequest(begun.body.import.records_url, {
+      const uploaded = await absoluteRequest(importCapability.records_url, {
         method: "PUT",
-        token: begun.body.import.access_token,
+        token: importCapability.access_token,
         body
       });
       assert.equal(uploaded.status, 200, JSON.stringify(uploaded.body));
     }
   }
-  await uploadAuthorityImportFiles(begun.body.import, snapshot.files);
+  await uploadAuthorityImportFiles(importCapability, snapshot.files);
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const finalized = await absoluteRequest(begun.body.import.finalize_url, {
+    const finalized = await absoluteRequest(importCapability.finalize_url, {
       method: "POST",
-      token: begun.body.import.access_token
+      token: importCapability.access_token
     });
     assert.equal(finalized.status, 200, JSON.stringify(finalized.body));
     assert.equal(finalized.body.state, "uploaded");
   }
-  const finalizedUpload = await absoluteRequest(begun.body.import.records_url, {
+  const finalizedUpload = await absoluteRequest(importCapability.records_url, {
     method: "PUT",
-    token: begun.body.import.access_token,
+    token: importCapability.access_token,
     body: {
       protocol_version: 1,
       page: 0,
@@ -3611,6 +3643,7 @@ async function localAuthorityImportE2E(
   });
   assert.equal(finalizedUpload.status, 409);
   assert.equal(finalizedUpload.body.error.code, "authority_import_finalized");
+  await publishSourceInventory();
 
   const completed = await rawRequest(
     controlUrl,
@@ -3631,6 +3664,7 @@ async function localAuthorityImportE2E(
     collection_id: collectionId,
     authority_epoch: 2
   });
+  await publishSourceInventory();
   const repeatedCompletion = await rawRequest(
     controlUrl,
     `/v1/connectors/authority-transfers/${begun.body.transfer.id}/complete`,
@@ -3746,7 +3780,7 @@ async function localAuthorityImportE2E(
     method: "POST",
     token: connector.token,
     body: {
-      inventory_revision: 2,
+      inventory_revision: ++inventoryRevision,
       collections: [{
         id: cancelledCollectionId,
         display_name: "Cancelled local import",

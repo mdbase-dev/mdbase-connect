@@ -311,8 +311,34 @@ conditional mutation path during its first sync. A future atomic bulk-import
 path will instead build an uncommitted hosted collection, validate it through
 `mdbase-rs`, and commit sequence zero only after the source manifest is still
 current. Export is already available by enrolling a receive-only directory
-mirror, which reconstructs a complete ordinary directory. Future promotion in
-either direction creates a new authority epoch.
+mirror, which reconstructs a complete ordinary directory. Authority transfer in
+either direction creates a new authority epoch only when the handoff completes.
+
+Local-to-hosted transfers stage the next epoch while keeping the exact source
+active at its previous control-plane epoch. An `importing` target is not yet a
+replacement authority. Connector inventory preserves that source binding;
+other computers with the same collection identity remain candidates. Activation
+reserves the exact fenced snapshot before contacting the provider, then retires
+the source and activates the target. Inventory and authority transitions share
+the account lock, acquired before collection or transfer locks.
+
+Retrying `transfer-authority --target remote` resumes the existing activating
+transfer or returns its completed receipt, including after a lost response and
+later inventory publication. Source conflicts return HTTP 409 with the transfer
+ID, phase, source state/epoch, and expected and staged epochs. A `preflight`
+conflict has not started provider activation and can be cancelled through
+`cancel-authority-transfer <collection-id> <transfer-id>`. Once activation starts,
+cancellation is refused: reconcile the same transfer and keep the local fence.
+The control plane still showing `importing` is not proof that the provider has
+not activated. Never clear a local fence by editing SQLite.
+
+Migration `0036_authority_import_source_repair` repairs the historical inventory
+bug only when a pending import's exact source was demoted to `candidate` at the
+staged target epoch and no other local authority exists. It restores the staged
+epoch's predecessor, not a fixed epoch of one, and does not touch the connector's
+fence. Stop old server instances before applying the migration so they cannot
+republish the broken inventory transition. Cancelled imports without a remaining
+handoff receipt are not rewound; their higher source epochs remain valid.
 
 ## Initial performance budgets
 

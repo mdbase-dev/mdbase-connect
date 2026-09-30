@@ -1,4 +1,19 @@
-export class RequestValidationError extends Error {}
+export class RequestValidationError extends Error {
+  readonly code: string;
+  readonly statusCode: 400 | 409;
+  readonly details: unknown;
+
+  constructor(message: string, options: {
+    code?: string;
+    statusCode?: 400 | 409;
+    details?: unknown;
+  } = {}) {
+    super(message);
+    this.code = options.code ?? "invalid_request";
+    this.statusCode = options.statusCode ?? 400;
+    this.details = options.details;
+  }
+}
 
 export class OriginDeniedError extends Error {}
 

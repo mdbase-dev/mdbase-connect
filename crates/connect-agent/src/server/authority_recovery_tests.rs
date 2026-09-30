@@ -140,11 +140,16 @@ impl TransferFixture {
     async fn strand(&self) {
         let response = self.transfer(&self.state()).await;
         assert!(!response.ok);
-        assert!(response
-            .error
-            .unwrap()
-            .message
-            .contains("outcome-uncertain"));
+        let message = response.error.unwrap().message;
+        assert!(message.contains("did not complete"), "{message}");
+        assert!(message.contains("local source remains fenced"), "{message}");
+        assert!(
+            message.contains(&format!(
+                "cancel-authority-transfer {} {}",
+                self.collection_id, self.transfer_id
+            )),
+            "{message}"
+        );
         assert_eq!(self.completions.load(Ordering::SeqCst), 3);
     }
 

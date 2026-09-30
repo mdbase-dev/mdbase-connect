@@ -87,7 +87,8 @@ export function registerConnectorInventoryRoutes(
           authority_epoch: string | number;
         }>(
           `SELECT id, authority_state, authority_epoch
-           FROM collections WHERE connector_id = $1 AND local_id = $2`,
+           FROM collections WHERE connector_id = $1 AND local_id = $2
+           FOR UPDATE`,
           [connector.id, collection.id]
         );
         const activeAuthority = await connection.query<{
@@ -100,14 +101,26 @@ export function registerConnectorInventoryRoutes(
           [connector.user_id, collection.id]
         );
         const hosted = await connection.query<{
-          authority_state: "active" | "transferring" | "transferred";
+          authority_state: "active" | "importing" | "transferring" | "transferred";
           authority_epoch: string | number;
           transferred_collection_id: string | null;
+          source_collection_id: string | null;
+          source_transfer_state: string | null;
         }>(
-          `SELECT authority_state, authority_epoch,
-                  transferred_collection_id
-           FROM hosted_collections WHERE id = $1`,
-          [collection.id]
+          `SELECT hosted.authority_state, hosted.authority_epoch,
+                  hosted.transferred_collection_id,
+                  transfer.local_collection_id AS source_collection_id,
+                  transfer.state AS source_transfer_state
+           FROM hosted_collections hosted
+           LEFT JOIN authority_transfers transfer
+             ON transfer.hosted_collection_id = hosted.id
+            AND transfer.user_id = hosted.user_id
+            AND transfer.direction = 'to_hosted'
+            AND transfer.local_collection_id = $2
+            AND transfer.next_authority_epoch = hosted.authority_epoch
+            AND transfer.state IN ('requested', 'prepared', 'activating', 'completed')
+           WHERE hosted.id = $1`,
+          [collection.id, existing.rows[0]?.id ?? null]
         );
         const hostedAccess = await resolveHostedCollectionAccess(
           connection,
@@ -117,25 +130,50 @@ export function registerConnectorInventoryRoutes(
         const existingCollection = existing.rows[0];
         const currentAuthority = activeAuthority.rows[0];
         const hostedCollection = hostedAccess ? hosted.rows[0] : undefined;
+        // An importing target is not an authority handoff. Keep the exact
+        // transfer source unchanged until activation retires it. Other computers
+        // registering the same identity must still become candidates.
+        const importSource = existingCollection
+          && hostedCollection?.authority_state === "importing"
+          && hostedCollection.source_collection_id === existingCollection.id
+          && ["requested", "prepared", "activating"].includes(
+            hostedCollection.source_transfer_state ?? ""
+          )
+          ? existingCollection
+          : undefined;
+        const isRetiredImportSource = Boolean(
+          existingCollection
+          && hostedCollection?.authority_state === "active"
+          && hostedCollection.source_collection_id === existingCollection.id
+          && hostedCollection.source_transfer_state === "completed"
+          && Number(existingCollection.authority_epoch)
+            === Number(hostedCollection.authority_epoch)
+        );
         const isActivatedTransfer = Boolean(
           hostedCollection?.authority_state === "transferred"
           && hostedCollection.transferred_collection_id
           && hostedCollection.transferred_collection_id
             === existingCollection?.id
         );
-        const authorityState: "active" | "candidate" = hostedCollection
-          ? (isActivatedTransfer ? "active" : "candidate")
-          : (
-              currentAuthority
-              && currentAuthority.id !== existingCollection?.id
-                ? "candidate"
-                : "active"
-            );
+        const authorityState = importSource
+          ? importSource.authority_state
+          : isRetiredImportSource
+            ? "retired"
+            : hostedCollection
+              ? (isActivatedTransfer ? "active" : "candidate")
+              : (
+                  currentAuthority
+                  && currentAuthority.id !== existingCollection?.id
+                    ? "candidate"
+                    : "active"
+                );
         const authorityEpoch = Number(
-          hostedCollection?.authority_epoch
-          ?? currentAuthority?.authority_epoch
-          ?? existingCollection?.authority_epoch
-          ?? 1
+          importSource
+            ? importSource.authority_epoch
+            : (hostedCollection?.authority_epoch
+              ?? currentAuthority?.authority_epoch
+              ?? existingCollection?.authority_epoch
+              ?? 1)
         );
         const enabled = authorityState === "active" && collection.enabled;
         const row = await connection.query<{

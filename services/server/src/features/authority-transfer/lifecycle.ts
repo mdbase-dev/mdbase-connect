@@ -149,7 +149,8 @@ export async function mirrorAuthorityTransfer(
   return access?.actions.has("authority.transfer") ? transfer : null;
 }
 
-// Caller owns the transaction and must have confirmed provider abortion first.
+// Caller owns the transaction and the user's inventory/authority lock, and
+// must have confirmed provider abortion first.
 // Save the acknowledgement before collection deletion cascades away the transfer.
 export async function finishAuthorityImportAbort(
   db: DatabaseQueryable,
@@ -246,6 +247,7 @@ export async function recoverExpiredAuthorityTransfers(
     const connection = await db.connect();
     try {
       await connection.query("BEGIN");
+      await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [transfer.user_id]);
       if (transfer.direction === "to_hosted") {
         if (!await finishAuthorityImportAbort(connection, transfer, "expired")) {
           // Activation won the state transition. Do not delete its hosted row

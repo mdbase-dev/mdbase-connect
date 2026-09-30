@@ -74,7 +74,8 @@ describe("database migrations", () => {
       "0032_local_revocation_confirmation",
       "0033_collection_created_at",
       "0034_email_announcements_and_unsubscribe",
-      "0035_portable_people"
+      "0035_portable_people",
+      "0036_authority_import_source_repair"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -715,7 +716,8 @@ describe("database migrations", () => {
       "0032_local_revocation_confirmation",
       "0033_collection_created_at",
       "0034_email_announcements_and_unsubscribe",
-      "0035_portable_people"
+      "0035_portable_people",
+      "0036_authority_import_source_repair"
     ]);
   });
 

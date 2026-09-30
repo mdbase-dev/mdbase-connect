@@ -212,7 +212,7 @@ impl AgentState {
         }
         let completed = completed.ok_or_else(|| {
             ConnectError::Cloud(format!(
-                "Authority activation is outcome-uncertain and the local source remains fenced. Retry the transfer command: {}",
+                "Authority transfer {transfer_id} for collection {collection_id} did not complete and the local source remains fenced. Retry the transfer command to resume this transfer. To cancel before activation starts, run `mdbase connect collection cancel-authority-transfer {collection_id} {transfer_id}`; cancellation is refused once activation starts. Details: {}",
                 last_error.expect("a failed activation attempt records its error")
             ))
         })?;
@@ -220,10 +220,9 @@ impl AgentState {
             || completed.collection_id != collection_id
             || completed.authority_epoch != begun.transfer.authority_epoch
         {
-            return Err(ConnectError::Cloud(
-                "Remote authority activation returned an inconsistent result; the local source remains fenced."
-                    .to_string(),
-            ));
+            return Err(ConnectError::Cloud(format!(
+                "Remote authority activation returned an inconsistent result for transfer {transfer_id} of collection {collection_id}; the local source remains fenced. Retry the transfer command to reconcile this transfer."
+            )));
         }
         self.registry
             .retire_authority(collection_id, transfer_id, completed.authority_epoch)?;
@@ -274,7 +273,7 @@ impl AgentState {
                 Err(cause)
             }
             Err(cancel_error) => Err(ConnectError::Cloud(format!(
-                "Authority import failed and cancellation could not be confirmed. The local source remains fenced: {cause}; cancellation: {cancel_error}"
+                "Authority import {transfer_id} for collection {collection_id} failed and cancellation could not be confirmed. The local source remains fenced. Retry `mdbase connect collection cancel-authority-transfer {collection_id} {transfer_id}`: {cause}; cancellation: {cancel_error}"
             ))),
         }
     }
