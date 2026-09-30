@@ -78,7 +78,7 @@ impl HostedProvider {
             base_revision: request.if_revision.clone(),
         };
         let staging_object_key = format!("v1/staging/{collection_id}/{}", request.transfer_id);
-        let committed_object_key = format!("v1/blobs/{collection_id}/{}", request.transfer_id);
+        let committed_object_key = initial_committed_object_key(collection_id, request.transfer_id);
         let use_single_put = request.size <= SINGLE_PUT_THRESHOLD_BYTES;
         let multipart_upload_id = if use_single_put {
             None
@@ -387,25 +387,82 @@ impl HostedProvider {
         {
             return Err(completion_conflict());
         }
-        self.finalize_upload_object(&transfer, &completion).await?;
-        let receipt = match self
-            .commit_verified_file(&transfer, token, request_origin)
-            .await
-        {
-            Ok(receipt) => receipt,
-            Err(error) => {
-                // A remote copy can finish after a concurrent cancellation has
-                // already cleaned both keys. Re-check durable ownership and
-                // compensate only for a terminal, uncommitted transfer. Never
-                // trade a possible orphan for deleting a committed object.
-                self.cleanup_after_failed_finalization(&transfer).await;
-                return Err(error);
-            }
-        };
-        if let Err(error) = self.blob_store.delete(&transfer.staging_object_key).await {
-            tracing::warn!(transfer_id = %transfer.id, %error, "could not remove committed file staging object");
+        if !self.start_finalization_attempt(&mut transfer).await? {
+            // Another finalizer published first, or the upload was cancelled.
+            return self
+                .load_upload_transfer(collection_id, request.transfer_id, &data_key)
+                .await?
+                .and_then(|transfer| transfer.receipt)
+                .ok_or_else(|| {
+                    ApiError::conflict(
+                        "file_transfer_not_completing",
+                        "This file upload is not ready to commit.",
+                    )
+                });
         }
-        Ok(receipt)
+        let finalized = match self.finalize_upload_object(&transfer, &completion).await {
+            Ok(()) => {
+                self.commit_verified_file(&transfer, token, request_origin)
+                    .await
+            }
+            Err(error) => Err(error),
+        };
+        if finalized.is_err() {
+            // A remote copy can finish after a concurrent cancellation or a
+            // newer attempt has already cleaned this attempt's key. Re-check
+            // durable ownership and compensate only for an unpublished key.
+            // Never trade a possible orphan for deleting a committed object.
+            self.cleanup_after_failed_finalization(&transfer).await;
+        }
+        // Staging deletion was queued with the receipt; the save never waits
+        // for it.
+        finalized
+    }
+
+    /// Points the transfer at a fresh destination key that only this attempt
+    /// writes, and queues the key it replaces. Publication requires the
+    /// transfer to still point at this attempt, so a delayed or competing
+    /// COPY can never change bytes that were verified and published.
+    /// Returns false when the transfer is no longer completing.
+    async fn start_finalization_attempt(
+        &self,
+        transfer: &mut HostedFileTransfer,
+    ) -> ApiResult<bool> {
+        let mut transaction = self.pool.begin().await?;
+        let Some(superseded) = sqlx::query_scalar::<_, String>(
+            r#"SELECT committed_object_key FROM hosted_provider_file_transfers
+               WHERE id = $1 AND state = 'completing' FOR UPDATE"#,
+        )
+        .bind(transfer.id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        else {
+            transaction.commit().await?;
+            return Ok(false);
+        };
+        let attempt = format!(
+            "v1/blobs/{}/{}.{}",
+            transfer.collection_id,
+            transfer.id,
+            Uuid::now_v7()
+        );
+        sqlx::query(
+            r#"UPDATE hosted_provider_file_transfers
+               SET committed_object_key = $2, updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(transfer.id)
+        .bind(&attempt)
+        .execute(&mut *transaction)
+        .await?;
+        // The initial key is never written by an attempt; earlier attempts
+        // may have been, possibly by a finalizer that has since died.
+        if superseded != initial_committed_object_key(transfer.collection_id, transfer.id) {
+            queue_blob_deletion(&mut transaction, &superseded).await?;
+        }
+        transaction.commit().await?;
+        transfer.committed_object_key = attempt;
+        Ok(true)
     }
 
     pub async fn abort_file_transfer(
@@ -574,28 +631,12 @@ impl HostedProvider {
         transfer: &HostedFileTransfer,
         parts: &[BlobUploadedPart],
     ) -> ApiResult<()> {
-        if self
-            .blob_store
-            .object_exists(&transfer.committed_object_key)
-            .await?
-        {
-            return self
+        if transfer.strategy == "object_multipart"
+            && !self
                 .blob_store
-                .verify_object(
-                    &transfer.committed_object_key,
-                    transfer.expected_size,
-                    &transfer.intent.content_digest,
-                )
-                .await;
-        }
-        if !self
-            .blob_store
-            .object_exists(&transfer.staging_object_key)
-            .await?
+                .object_exists(&transfer.staging_object_key)
+                .await?
         {
-            if transfer.strategy != "object_multipart" {
-                return Err(upload_incomplete());
-            }
             self.blob_store
                 .complete_multipart(
                     &transfer.staging_object_key,
@@ -607,16 +648,25 @@ impl HostedProvider {
                 )
                 .await?;
         }
-        self.blob_store
-            .verify_object(
-                &transfer.staging_object_key,
-                transfer.expected_size,
-                &transfer.intent.content_digest,
-            )
-            .await?;
-        self.blob_store
+        // Staging stays writable through outstanding presigned URLs, so only
+        // the copy this attempt owns is verified; checking staging first
+        // would not establish the identity of the copied bytes.
+        if let Err(error) = self
+            .blob_store
             .copy(&transfer.staging_object_key, &transfer.committed_object_key)
-            .await?;
+            .await
+        {
+            if transfer.strategy == "object_put"
+                && !self
+                    .blob_store
+                    .object_exists(&transfer.staging_object_key)
+                    .await
+                    .unwrap_or(true)
+            {
+                return Err(upload_incomplete());
+            }
+            return Err(error);
+        }
         self.blob_store
             .verify_object(
                 &transfer.committed_object_key,
@@ -664,7 +714,7 @@ impl HostedProvider {
             .collection_key(transfer.collection_id, collection.get("wrapped_data_key"))
             .await?;
         let locked_transfer = sqlx::query(
-            "SELECT state, receipt_ciphertext FROM hosted_provider_file_transfers WHERE id = $1 FOR UPDATE",
+            "SELECT state, receipt_ciphertext, committed_object_key FROM hosted_provider_file_transfers WHERE id = $1 FOR UPDATE",
         )
         .bind(transfer.id)
         .fetch_optional(&mut *transaction)
@@ -676,6 +726,13 @@ impl HostedProvider {
                 &ciphertext,
                 &file_transfer_receipt_aad(transfer.id),
             )?;
+            if locked_transfer.get::<String, _>("committed_object_key")
+                != transfer.committed_object_key
+            {
+                // Another attempt published; this attempt's copy may have
+                // landed after that attempt queued it for deletion.
+                queue_blob_deletion(&mut transaction, &transfer.committed_object_key).await?;
+            }
             transaction.commit().await?;
             return Ok(receipt);
         }
@@ -683,6 +740,13 @@ impl HostedProvider {
             return Err(ApiError::conflict(
                 "file_transfer_not_completing",
                 "This file upload is not ready to commit.",
+            ));
+        }
+        if locked_transfer.get::<String, _>("committed_object_key") != transfer.committed_object_key
+        {
+            return Err(ApiError::conflict(
+                "file_transfer_superseded",
+                "A newer commit of this file upload is in progress.",
             ));
         }
         let path_key = portable_file_path_key(&transfer.intent.path);
@@ -885,6 +949,9 @@ impl HostedProvider {
                 "This file upload was concurrently cancelled.",
             ));
         }
+        // Durable, unlike the former awaited delete whose failure was only
+        // logged.
+        queue_blob_deletion(&mut transaction, &transfer.staging_object_key).await?;
         transaction.commit().await?;
         Ok(receipt)
     }
@@ -904,26 +971,8 @@ impl HostedProvider {
         }
         Ok(())
     }
+}
 
-    async fn cleanup_after_failed_finalization(&self, transfer: &HostedFileTransfer) {
-        let state = sqlx::query_scalar::<_, String>(
-            "SELECT state FROM hosted_provider_file_transfers WHERE id = $1",
-        )
-        .bind(transfer.id)
-        .fetch_optional(&self.pool)
-        .await;
-        match state {
-            Ok(Some(state)) if matches!(state.as_str(), "aborted" | "expired") => {
-                self.schedule_uncommitted_upload_cleanup(transfer.into())
-                    .await;
-            }
-            Ok(_) => {}
-            Err(error) => {
-                // Database uncertainty must favor retaining an object. The
-                // reconciliation path can remove an orphan; a deleted object
-                // referenced by committed metadata cannot be reconstructed.
-                tracing::warn!(transfer_id = %transfer.id, %error, "could not verify upload ownership after failed finalization");
-            }
-        }
-    }
+fn initial_committed_object_key(collection_id: Uuid, transfer_id: Uuid) -> String {
+    format!("v1/blobs/{collection_id}/{transfer_id}")
 }

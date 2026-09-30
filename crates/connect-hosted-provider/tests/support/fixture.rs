@@ -288,4 +288,15 @@ impl FileLifecycleFixture {
     pub fn committed_key(&self, transfer_id: Uuid) -> String {
         format!("v1/blobs/{}/{transfer_id}", self.collection_id)
     }
+
+    /// The destination of the transfer's current (or published) attempt.
+    pub async fn attempt_key(&self, transfer_id: Uuid) -> String {
+        sqlx::query_scalar(
+            "SELECT committed_object_key FROM hosted_provider_file_transfers WHERE id = $1",
+        )
+        .bind(transfer_id)
+        .fetch_one(&self.pool)
+        .await
+        .expect("transfer attempt key can be read")
+    }
 }

@@ -11,6 +11,8 @@ use tokio::sync::{Mutex, Notify};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CopyCheckpoint {
+    /// Pause before the source is read.
+    BeforeRead,
     /// Pause after the destination has become visible.
     AfterPublish,
     /// Snapshot the source, then pause before the destination becomes visible.
@@ -43,6 +45,8 @@ impl CopyGate {
         let should_pause = {
             let mut state = self.state.lock().await;
             if state.armed == Some(checkpoint) {
+                // Only the first arrival pauses; competing copies proceed.
+                state.armed = None;
                 state.reached = true;
                 self.changed.notify_waiters();
                 true
@@ -88,9 +92,18 @@ pub struct ControlledBlobStore {
     copy_gate: Arc<CopyGate>,
     delete_gate: Arc<CopyGate>,
     delete_failures_remaining: Arc<Mutex<u32>>,
+    calls: Arc<Mutex<BTreeMap<&'static str, usize>>>,
 }
 
 impl ControlledBlobStore {
+    pub async fn calls(&self, operation: &'static str) -> usize {
+        self.calls.lock().await.get(operation).copied().unwrap_or(0)
+    }
+
+    async fn record(&self, operation: &'static str) {
+        *self.calls.lock().await.entry(operation).or_default() += 1;
+    }
+
     pub async fn put(&self, key: impl Into<String>, bytes: impl Into<Vec<u8>>) {
         self.objects.lock().await.insert(key.into(), bytes.into());
     }
@@ -186,10 +199,13 @@ impl BlobStore for ControlledBlobStore {
     }
 
     async fn object_exists(&self, key: &str) -> ApiResult<bool> {
+        self.record("head").await;
         Ok(self.contains(key).await)
     }
 
     async fn copy(&self, source_key: &str, destination_key: &str) -> ApiResult<()> {
+        self.record("copy").await;
+        self.copy_gate.checkpoint(CopyCheckpoint::BeforeRead).await;
         let bytes = self
             .objects
             .lock()
@@ -211,6 +227,7 @@ impl BlobStore for ControlledBlobStore {
     }
 
     async fn verify_object(&self, key: &str, size: u64, content_digest: &str) -> ApiResult<()> {
+        self.record("verify").await;
         let objects = self.objects.lock().await;
         let bytes = objects.get(key).ok_or_else(|| missing_object(key))?;
         let digest = format!("sha256:{:x}", Sha256::digest(bytes));
@@ -237,6 +254,7 @@ impl BlobStore for ControlledBlobStore {
     }
 
     async fn delete(&self, key: &str) -> ApiResult<()> {
+        self.record("delete").await;
         let mut failures = self.delete_failures_remaining.lock().await;
         if *failures > 0 {
             *failures -= 1;

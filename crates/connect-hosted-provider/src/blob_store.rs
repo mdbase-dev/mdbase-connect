@@ -485,11 +485,19 @@ impl BlobStore for R2BlobStore {
         validate_object_key(source_key)?;
         validate_object_key(destination_key)?;
         let copy_source = format!("{}/{source_key}", self.config.bucket);
+        // A timed-out COPY may still finish remotely, so a retry to the same
+        // key could change bytes after they were verified. Callers retry with
+        // a fresh destination instead.
         self.client
             .copy_object()
             .bucket(&self.config.bucket)
             .key(destination_key)
             .copy_source(copy_source)
+            .customize()
+            .config_override(
+                aws_sdk_s3::config::Builder::default()
+                    .retry_config(aws_sdk_s3::config::retry::RetryConfig::disabled()),
+            )
             .send()
             .await
             .map_err(|error| r2_unavailable("copy verified object", &error))?;
@@ -908,6 +916,57 @@ mod tests {
             };
             name.eq_ignore_ascii_case("x-amz-security-token") && value.trim() == "temporary-session"
         }));
+    }
+
+    #[tokio::test]
+    async fn copy_never_retries_an_ambiguous_destination_write() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let mut buffer = [0; 1024];
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                seen.fetch_add(1, Ordering::SeqCst);
+                let body = "<Error><Code>InternalError</Code></Error>";
+                let response = format!("HTTP/1.1 500 Internal Server Error\r\ncontent-type: application/xml\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}", body.len(), body);
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        let config = R2Config::new_insecure_http(R2InsecureHttpConfig {
+            endpoint: format!("http://{address}"),
+            bucket: "test-bucket".into(),
+            access_key_id: "test-access".into(),
+            secret_access_key: "test-secret".into(),
+            multipart_part_bytes: 8 * 1024 * 1024,
+            download_part_bytes: 8 * 1024 * 1024,
+            presign_ttl: Duration::from_secs(900),
+            insecure_http_hosts: Vec::new(),
+        })
+        .unwrap();
+        let outcome = R2BlobStore::new(config)
+            .copy("v1/staging/source", "v1/blobs/unique-attempt")
+            .await;
+        server.abort();
+        assert!(outcome.is_err());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "ambiguous COPY must not be retried against the same key"
+        );
     }
 
     #[test]
