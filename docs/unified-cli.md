@@ -4,6 +4,10 @@
 
 The ecosystem ships one native command named `mdbase`.
 
+mdbase connect is the source and distribution home of this supported CLI. Its
+native binaries follow Connect's independent beta cadence; a core, runtime, or
+adapter release candidate does not imply a new Connect beta.
+
 ```text
 mdbase <data-command>
 mdbase connect <control-command>
