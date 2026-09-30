@@ -200,7 +200,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
 
   return <section ref={panel} id="your-person" tabIndex={-1} aria-label="Your person record">
     <div className="settings-intro"><h2>Your person record</h2><p>Represent yourself using an ordinary note in this collection. This does not change access or membership.</p></div>
-    {error && <div className="setting-row"><p className="settings-alert" role="alert">{error}</p><button className="settings-secondary-action" type="button" onClick={() => setRevision((value) => value + 1)}>Retry</button></div>}
+    {error && <div className="setting-row"><strong className="settings-alert" role="alert">{error}</strong><button className="settings-secondary-action" type="button" onClick={() => setRevision((value) => value + 1)}>Retry</button></div>}
     {identityDenied && <div className="setting-row"><div><h3>Allow the Editor to see your account identity</h3><p>The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”.</p></div><button className="settings-secondary-action" type="button" disabled={busy} onClick={() => void allowIdentity()}>{busy ? "Waiting for approval…" : "Review access"}</button></div>}
     {!records && !error && !identityDenied && <p className="settings-note" role="status">Loading your identity and person records…</p>}
     {linked && <div className="setting-row"><div><h3>Linked to {linked.name}</h3><p><code>{linked.path}</code> · Edit this note to change its collection display name or identity associations.</p></div></div>}

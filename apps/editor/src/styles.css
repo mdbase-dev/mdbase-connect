@@ -7106,27 +7106,32 @@ label.schema-value {
 .settings-quiet-action {
   min-height: 34px;
   padding: 0 10px;
-  border-radius: 4px;
   color: var(--muted);
   font-size: 11px;
 }
 
 .settings-quiet-action:hover:not(:disabled) {
-  background: var(--hover);
   color: var(--ink);
 }
 
-.setting-controls {
+.setting-controls,
+.settings-review-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.settings-review-actions {
+  margin-top: 12px;
 }
 
 .person-choice .mdbase-select {
   width: 240px;
 }
 
-.settings-note {
+.settings-note,
+.settings-review > p,
+.settings-list {
   margin: 10px 0;
   color: var(--faint);
   font-size: 12px;
@@ -7138,22 +7143,11 @@ label.schema-value {
 }
 
 .settings-alert {
-  margin: 0;
   color: var(--danger);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .settings-warning {
   color: var(--warning);
-}
-
-.settings-list {
-  margin: 8px 0 12px;
-  padding-left: 18px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
 }
 
 .settings-review {
@@ -7162,40 +7156,15 @@ label.schema-value {
 }
 
 .settings-review h3 {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 13px;
 }
 
-.settings-review > p {
-  margin: 0 0 6px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.settings-review pre {
-  margin: 10px 0;
-  padding: 10px 12px;
-  overflow-x: auto;
-  border-radius: 4px;
-  background: var(--canvas);
+.settings-review pre,
+#your-person code {
   font-family: var(--mono);
   font-size: 11px;
-}
-
-.settings-review-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.setting-row p code,
-.settings-note code,
-.settings-list code,
-.settings-review code {
-  font-family: var(--mono);
-  font-size: 11px;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
