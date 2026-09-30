@@ -1,0 +1,36 @@
+.pwa-install {
+  position: fixed;
+  z-index: 1000;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  right: max(16px, env(safe-area-inset-right));
+  left: auto;
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid #c5c9d0;
+  border-radius: 10px;
+  background: #fcfcfd;
+  color: #20242b;
+  box-shadow: 0 4px 24px #0002;
+  font: 14px/1.5 system-ui, sans-serif;
+}
+.pwa-install p { margin: 0 0 10px; font: inherit; color: inherit; }
+.pwa-install button {
+  display: inline-block;
+  width: auto;
+  height: auto;
+  margin: 0 8px 0 0;
+  padding: 6px 12px;
+  border: 1px solid #8d95a3;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.pwa-install button:focus-visible { outline: 2px solid #3978e5; outline-offset: 2px; }
+.pwa-install button:disabled { opacity: .5; cursor: default; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pwa-install { background: #20242b; color: #fcfcfd; border-color: #626976; }
+}
+:root[data-theme="dark"] .pwa-install { background: #20242b; color: #fcfcfd; border-color: #626976; }

@@ -44,11 +44,11 @@
     "semanticProjectionFormatVersion": 7
   },
   "reviewBudgets": {
-    "productionFiles": 717,
-    "relativeImports": 1563,
+    "productionFiles": 718,
+    "relativeImports": 1564,
     "workspacePackages": 25,
     "rustPublicDeclarations": 3257,
-    "typeScriptExportDeclarations": 2583,
+    "typeScriptExportDeclarations": 2584,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }

@@ -91,6 +91,14 @@ stable, and versioned.
 
 ## Module and dependency budgets
 
+The optional editor PWA invitation adds one dependency-free production module,
+one exported setup function (also its test boundary), and one relative import
+from the entry point. The reviewed limits become 718 production files, 2,584
+TypeScript export declarations, and 1,564 relative imports. Its ten DOM tests
+cover delayed eligibility, one-shot native prompts, dismissal cooldown, installed
+mode, iOS guidance, blocked storage, failure, and listener cleanup. No package,
+service worker, collection cache, or request-path change is introduced.
+
 Production modules should normally remain between 100 and 600 lines. A cohesive
 module may exceed that range, but new production files may not exceed 1,000
 lines. Existing exceptions are recorded in
