@@ -2,7 +2,7 @@ mod support;
 
 use std::sync::Arc;
 
-use mdbase_connect_hosted_provider::{HostedBackupAdmin, HostedProvider};
+use mdbase_connect_hosted_provider::{BlobStore, HostedBackupAdmin, HostedProvider};
 use sqlx::Executor;
 use support::{
     assert_storage_consistent, wait_for_database_condition, wait_for_query_blocked, CopyCheckpoint,
@@ -33,6 +33,10 @@ async fn adversarial_file_lifecycle_scenarios() {
     backup_hold_fences_in_flight_and_future_deletions(&database_url).await;
     duplicate_commit_is_idempotent(&database_url).await;
     duplicate_commit_across_providers_is_idempotent(&database_url).await;
+    a_late_competing_copy_cannot_overwrite_published_bytes(&database_url).await;
+    staging_overwrite_before_copy_is_not_published(&database_url).await;
+    single_put_commit_does_not_wait_for_cleanup(&database_url).await;
+    missing_single_put_source_reports_incomplete_upload(&database_url).await;
 }
 
 async fn mutation_retention_boundaries(database_url: &str) {
@@ -255,7 +259,7 @@ async fn commit_wins_abort_loses(database_url: &str) {
     assert!(
         fixture
             .blobs
-            .contains(&fixture.committed_key(transfer_id))
+            .contains(&fixture.attempt_key(transfer_id).await)
             .await
     );
     assert_storage_consistent(&fixture.pool, &fixture.blobs, fixture.collection_id).await;
@@ -313,7 +317,7 @@ async fn commit_wins_expiry_loses(database_url: &str) {
     assert!(
         fixture
             .blobs
-            .contains(&fixture.committed_key(transfer_id))
+            .contains(&fixture.attempt_key(transfer_id).await)
             .await
     );
     assert_storage_consistent(&fixture.pool, &fixture.blobs, fixture.collection_id).await;
@@ -396,7 +400,7 @@ async fn abort_wins_after_copy_is_visible(database_url: &str) {
     assert!(
         fixture
             .blobs
-            .contains(&fixture.committed_key(transfer_id))
+            .contains(&fixture.attempt_key(transfer_id).await)
             .await
     );
 
@@ -558,18 +562,11 @@ async fn duplicate_commit_is_idempotent(database_url: &str) {
         .await;
     let first = spawn_commit(&fixture, transfer_id);
     let second = spawn_commit(&fixture, transfer_id);
-    let first = first
-        .await
-        .expect("first task joins")
-        .expect("first succeeds");
-    let second = second
-        .await
-        .expect("second task joins")
-        .expect("second succeeds");
-    assert_eq!(
-        first, second,
-        "duplicate commits return the durable receipt"
-    );
+    let results = [
+        first.await.expect("first task joins"),
+        second.await.expect("second task joins"),
+    ];
+    assert_one_durable_receipt(&fixture, transfer_id, results).await;
     assert_storage_consistent(&fixture.pool, &fixture.blobs, fixture.collection_id).await;
 }
 
@@ -589,16 +586,203 @@ async fn duplicate_commit_across_providers_is_idempotent(database_url: &str) {
         fixture.token.clone(),
         transfer_id,
     );
-    let first = first
-        .await
-        .expect("first provider task joins")
-        .expect("first provider succeeds");
-    let second = second
-        .await
-        .expect("second provider task joins")
-        .expect("second provider succeeds");
-    assert_eq!(first, second, "providers return the same durable receipt");
+    let results = [
+        first.await.expect("first provider task joins"),
+        second.await.expect("second provider task joins"),
+    ];
+    assert_one_durable_receipt(&fixture, transfer_id, results).await;
     assert_storage_consistent(&fixture.pool, &fixture.blobs, fixture.collection_id).await;
+}
+
+/// Concurrent commits of one upload publish exactly once. An older attempt may
+/// lose to a newer one; every success and a later replay return one receipt,
+/// and superseded attempts leave no object behind once cleanup runs.
+async fn assert_one_durable_receipt(
+    fixture: &FileLifecycleFixture,
+    transfer_id: Uuid,
+    results: [mdbase_connect_hosted_provider::ApiResult<mdbase_connect_protocol::CommitFileUploadReceipt>;
+        2],
+) {
+    let replay = fixture
+        .provider
+        .commit_file_upload(
+            fixture.collection_id,
+            &fixture.token,
+            FileLifecycleFixture::commit_request(transfer_id),
+            None,
+        )
+        .await
+        .expect("a committed upload replays its receipt");
+    let mut successes = 0;
+    for result in results {
+        match result {
+            Ok(receipt) => {
+                successes += 1;
+                assert_eq!(receipt, replay, "commits return the durable receipt");
+            }
+            Err(error) => assert_eq!(error.code, "file_transfer_superseded"),
+        }
+    }
+    assert!(successes >= 1, "the newest attempt publishes");
+    fixture.provider.delete_pending_blobs(1000).await.unwrap();
+}
+
+async fn a_late_competing_copy_cannot_overwrite_published_bytes(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let transfer_id = fixture
+        .stage_upload("races/late-competing-copy.bin", b"good")
+        .await;
+    fixture.blobs.arm_copy(CopyCheckpoint::BeforeRead).await;
+    let delayed = spawn_commit(&fixture, transfer_id);
+    fixture.blobs.wait_for_copy().await;
+    let other = fixture.another_provider(database_url).await;
+    let receipt = other
+        .commit_file_upload(
+            fixture.collection_id,
+            &fixture.token,
+            FileLifecycleFixture::commit_request(transfer_id),
+            None,
+        )
+        .await
+        .expect("the newer attempt publishes");
+    let published = fixture.attempt_key(transfer_id).await;
+    // A late presigned PUT changes staging before the delayed COPY reads it.
+    fixture
+        .blobs
+        .put(fixture.staging_key(transfer_id), b"evil".to_vec())
+        .await;
+    fixture.blobs.release_copy().await;
+    delayed
+        .await
+        .expect("delayed task joins")
+        .expect_err("the delayed attempt cannot publish");
+    fixture
+        .blobs
+        .verify_object(&published, 4, &receipt.file.content_digest)
+        .await
+        .expect("published bytes are unchanged");
+    fixture.provider.delete_pending_blobs(1000).await.unwrap();
+    assert_storage_consistent(&fixture.pool, &fixture.blobs, fixture.collection_id).await;
+}
+
+async fn staging_overwrite_before_copy_is_not_published(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let transfer_id = fixture
+        .stage_upload("races/staging-overwrite.bin", b"good")
+        .await;
+    fixture.blobs.arm_copy(CopyCheckpoint::BeforeRead).await;
+    let commit = spawn_commit(&fixture, transfer_id);
+    fixture.blobs.wait_for_copy().await;
+    // Equal length ensures only the digest check catches this overwrite.
+    fixture
+        .blobs
+        .put(fixture.staging_key(transfer_id), b"evil".to_vec())
+        .await;
+    fixture.blobs.release_copy().await;
+    commit
+        .await
+        .expect("commit task joins")
+        .expect_err("destination verification rejects overwritten staging");
+    let published: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM hosted_provider_files WHERE collection_id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(published, 0, "wrong bytes must not become visible files");
+    fixture
+        .provider
+        .abort_file_transfer(
+            fixture.collection_id,
+            &fixture.token,
+            FileLifecycleFixture::abort_request(transfer_id),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_terminal_objects_absent(&fixture, transfer_id).await;
+}
+
+async fn single_put_commit_does_not_wait_for_cleanup(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let transfer_id = fixture
+        .stage_upload("performance/small.bin", b"verified bytes")
+        .await;
+    let (heads, copies, verifies, deletes) = (
+        fixture.blobs.calls("head").await,
+        fixture.blobs.calls("copy").await,
+        fixture.blobs.calls("verify").await,
+        fixture.blobs.calls("delete").await,
+    );
+    let receipt = fixture
+        .provider
+        .commit_file_upload(
+            fixture.collection_id,
+            &fixture.token,
+            FileLifecycleFixture::commit_request(transfer_id),
+            None,
+        )
+        .await
+        .expect("upload commits");
+    assert_eq!(fixture.blobs.calls("head").await - heads, 1);
+    assert_eq!(fixture.blobs.calls("copy").await - copies, 1);
+    assert_eq!(fixture.blobs.calls("verify").await - verifies, 1);
+    assert_eq!(
+        fixture.blobs.calls("delete").await - deletes,
+        0,
+        "save must not wait for cleanup"
+    );
+    fixture.blobs.fail_next_delete().await;
+    fixture
+        .provider
+        .delete_pending_blobs(1000)
+        .await
+        .expect_err("storage outage is retryable background work");
+    fixture
+        .another_provider(database_url)
+        .await
+        .delete_pending_blobs(1000)
+        .await
+        .expect("durable cleanup survives worker failure and restart");
+    assert!(
+        !fixture
+            .blobs
+            .contains(&fixture.staging_key(transfer_id))
+            .await
+    );
+    let replay = fixture
+        .provider
+        .commit_file_upload(
+            fixture.collection_id,
+            &fixture.token,
+            FileLifecycleFixture::commit_request(transfer_id),
+            None,
+        )
+        .await
+        .expect("receipt replays after staging is gone");
+    assert_eq!(receipt, replay);
+    assert_storage_consistent(&fixture.pool, &fixture.blobs, fixture.collection_id).await;
+}
+
+async fn missing_single_put_source_reports_incomplete_upload(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let transfer_id = fixture
+        .stage_upload("races/staging-vanishes.bin", b"good")
+        .await;
+    fixture.blobs.arm_copy(CopyCheckpoint::BeforeRead).await;
+    let commit = spawn_commit(&fixture, transfer_id);
+    fixture.blobs.wait_for_copy().await;
+    fixture
+        .blobs
+        .delete(&fixture.staging_key(transfer_id))
+        .await
+        .unwrap();
+    fixture.blobs.release_copy().await;
+    let error = commit
+        .await
+        .expect("commit task joins")
+        .expect_err("COPY has no source");
+    assert_eq!(error.code, "file_upload_incomplete");
 }
 
 fn spawn_commit(
@@ -670,11 +854,16 @@ async fn assert_terminal_objects_absent(fixture: &FileLifecycleFixture, transfer
             .contains(&fixture.staging_key(transfer_id))
             .await
     );
+    // Covers the initial key and every attempt key of this transfer.
+    let prefix = fixture.committed_key(transfer_id);
     assert!(
         !fixture
             .blobs
-            .contains(&fixture.committed_key(transfer_id))
+            .keys()
             .await
+            .iter()
+            .any(|key| key.starts_with(&prefix)),
+        "an uncommitted upload left an object behind"
     );
     assert_storage_consistent(&fixture.pool, &fixture.blobs, fixture.collection_id).await;
 }

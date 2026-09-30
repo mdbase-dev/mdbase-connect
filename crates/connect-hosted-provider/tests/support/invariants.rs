@@ -112,9 +112,17 @@ pub async fn assert_storage_consistent(
     .await
     .expect("terminal staging keys can be audited")
     {
+        // Commit queues staging deletion rather than waiting for it.
+        let queued: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM hosted_provider_blob_deletions WHERE object_key = $1)",
+        )
+        .bind(&staging_key)
+        .fetch_one(pool)
+        .await
+        .expect("staging cleanup intent can be audited");
         assert!(
-            !blobs.contains(&staging_key).await,
-            "terminal transfer retained staging object {staging_key}"
+            queued || !blobs.contains(&staging_key).await,
+            "terminal transfer retained staging object {staging_key} without cleanup intent"
         );
     }
 }

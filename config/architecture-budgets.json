@@ -41,13 +41,13 @@
     "directCanonicalOutcomeStructs": 0,
     "privateCanonicalResultFieldCalls": 0,
     "legacyCrudFeatures": 0,
-    "semanticProjectionFormatVersion": 7
+    "semanticProjectionFormatVersion": 8
   },
   "reviewBudgets": {
     "productionFiles": 722,
     "relativeImports": 1571,
     "workspacePackages": 25,
-    "rustPublicDeclarations": 3273,
+    "rustPublicDeclarations": 3274,
     "typeScriptExportDeclarations": 2590,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1

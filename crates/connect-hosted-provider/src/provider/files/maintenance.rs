@@ -56,15 +56,7 @@ impl HostedProvider {
             return Ok(());
         }
         for key in [&cleanup.staging_object_key, &cleanup.committed_object_key] {
-            sqlx::query(
-                r#"INSERT INTO hosted_provider_blob_deletions
-                     (object_key, byte_length, reason)
-                   VALUES ($1, 0, 'file_transfer_cleanup')
-                   ON CONFLICT (object_key) DO NOTHING"#,
-            )
-            .bind(key)
-            .execute(&mut *transaction)
-            .await?;
+            queue_blob_deletion(&mut transaction, key).await?;
         }
         transaction.commit().await?;
         Ok(())

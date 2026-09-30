@@ -452,22 +452,8 @@ fn base_query_binding(
     collection: &PgRow,
     catalog: &mdbase::runtime::CompiledCatalog,
 ) -> (Option<Uuid>, String, u32, String) {
-    let generation_id = collection.get::<Option<Uuid>, _>("active_projection_generation_id");
-    let catalog_revision = collection.get::<Option<String>, _>("active_catalog_revision");
-    let projection_format_version = collection
-        .get::<Option<i32>, _>("active_projection_format_version")
-        .and_then(|value| u32::try_from(value).ok());
-    let semantic_engine_version =
-        collection.get::<Option<String>, _>("active_semantic_engine_version");
-    let collection_head = collection.get::<i64, _>("head");
-    let active_projection_head = collection.get::<Option<i64>, _>("active_projection_head");
-    let current = generation_id.is_some()
-        && catalog_revision.as_deref() == Some(catalog.resource_revision())
-        && projection_format_version == Some(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION)
-        && semantic_engine_version.as_deref() == Some(mdbase::VERSION)
-        && active_projection_head == Some(collection_head);
     (
-        current.then_some(generation_id).flatten(),
+        super::projections::current_projection_generation(collection, catalog),
         catalog.resource_revision().to_string(),
         mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
         mdbase::VERSION.to_string(),

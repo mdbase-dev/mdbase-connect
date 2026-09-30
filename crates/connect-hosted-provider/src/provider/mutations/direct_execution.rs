@@ -1,5 +1,8 @@
 const MAX_HOSTED_MUTATION_CONTEXT_RECORDS: usize = 2_000;
 const MAX_HOSTED_MUTATION_CONTEXT_BYTES: u64 = 32 * 1024 * 1024;
+// A second plan normally settles: once the conflicting records are staged the
+// write is rejected. A third allows for generated values changing between plans.
+const MAX_UNIQUENESS_PLAN_ATTEMPTS: usize = 3;
 
 #[allow(clippy::too_many_arguments)]
 async fn execute_direct_semantic(
@@ -66,15 +69,17 @@ async fn execute_direct_semantic(
                 .map(|row| row.get::<Uuid, _>("source_record_id"))
                 .collect::<Vec<_>>()
         } else {
-            load_exact_incoming_mutation_ids(
-                transaction,
-                provider,
-                data_key,
-                collection_id,
-                &catalog,
-                primary_record_id,
-            )
-            .await?
+            let target = primary_record_id.to_string();
+            load_exact_mutation_projections(transaction, provider, data_key, collection_id, &catalog)
+                .await?
+                .into_iter()
+                .filter(|(_, projection)| {
+                    projection.structure.occurrences.iter().any(|occurrence| {
+                        occurrence.target_record_id.as_deref() == Some(target.as_str())
+                    })
+                })
+                .map(|(record_id, _)| record_id)
+                .collect()
         };
         for source_record_id in incoming_ids {
             if source_record_id == primary_record_id
@@ -140,24 +145,77 @@ async fn execute_direct_semantic(
         ensure_destination_available(destination_owner, primary_record_id)?;
     }
 
-    let records = before_records
+    let mut records = before_records
         .values()
-        .map(|record| mdbase::runtime::CanonicalRecordInput {
-            stable_id: Some(record.record_id.to_string()),
-            path: record.path.clone(),
-            document: record.document.clone(),
-            file_size: record.document.len() as u64,
-            file_mtime: None,
-        })
-        .collect();
-    let plan = catalog
-        .plan_hosted_mutation_typed(&mdbase::runtime::HostedMutationRequest {
-            operation: operation.to_string(),
-            primary_stable_id: primary_record_id.to_string(),
-            input: Value::Object(input),
-            records,
-        })
-        .map_err(hosted_mutation_semantic_error)?;
+        .map(canonical_mutation_record)
+        .collect::<Vec<_>>();
+    // A plan validated uniqueness and link existence only against the records
+    // it was given. Stage every other record sharing one of its uniqueness keys
+    // or answering one of its link lookups, and plan again until none is
+    // missing; the final plan's verdict is then the collection's.
+    let mut context_ids = before_records.keys().copied().collect::<BTreeSet<_>>();
+    let mut exact_projections = None;
+    let mut plan_attempts = 0;
+    let plan = loop {
+        plan_attempts += 1;
+        let plan = catalog
+            .plan_hosted_mutation_typed(&mdbase::runtime::HostedMutationRequest {
+                operation: operation.to_string(),
+                primary_stable_id: primary_record_id.to_string(),
+                input: Value::Object(input.clone()),
+                records: records.clone(),
+            })
+            .map_err(hosted_mutation_semantic_error)?;
+        let missing = write_context_candidate_ids(
+            transaction,
+            provider,
+            data_key,
+            collection_id,
+            collection,
+            &catalog,
+            &plan.context_requirements,
+            &mut exact_projections,
+        )
+        .await?
+        .into_iter()
+        .filter(|record_id| !context_ids.contains(record_id))
+        .collect::<Vec<_>>();
+        if missing.is_empty() {
+            break plan;
+        }
+        if plan_attempts == MAX_UNIQUENESS_PLAN_ATTEMPTS {
+            return Err(ApiError::conflict(
+                "hosted_write_context_unstable",
+                "The records a write is validated against kept changing while it was planned.",
+            ));
+        }
+        for record_id in missing {
+            let (record, _, _) = load_direct_record(
+                transaction,
+                &provider.crypto,
+                data_key,
+                collection_id,
+                DirectRecordIdentity::StableId(record_id),
+            )
+            .await?
+            .ok_or_else(|| {
+                ApiError::conflict(
+                    "hosted_projection_inconsistent",
+                    "A record a write is validated against has no current exact record.",
+                )
+            })?;
+            exact_context_bytes = exact_context_bytes
+                .and_then(|total| total.checked_add(record.document.len() as u64));
+            if exact_context_bytes.is_none_or(|bytes| bytes > MAX_HOSTED_MUTATION_CONTEXT_BYTES) {
+                return Err(hosted_mutation_context_byte_budget());
+            }
+            if records.len() >= MAX_HOSTED_MUTATION_CONTEXT_RECORDS {
+                return Err(hosted_mutation_context_record_budget());
+            }
+            records.push(canonical_mutation_record(&record));
+            context_ids.insert(record_id);
+        }
+    };
     verify_hosted_record_change_set(&plan.change_set, &plan.changes)?;
     let mut changed = Vec::with_capacity(plan.changes.len());
     for change in plan.changes {
@@ -224,14 +282,123 @@ fn hosted_mutation_context_record_budget() -> ApiError {
     }))
 }
 
-async fn load_exact_incoming_mutation_ids(
+fn canonical_mutation_record(record: &SyncRecord) -> mdbase::runtime::CanonicalRecordInput {
+    mdbase::runtime::CanonicalRecordInput {
+        stable_id: Some(record.record_id.to_string()),
+        path: record.path.clone(),
+        document: record.document.clone(),
+        file_size: record.document.len() as u64,
+        file_mtime: None,
+    }
+}
+
+/// Records whose current projection shares one of the write's uniqueness keys
+/// or answers one of its link lookups.
+#[allow(clippy::too_many_arguments)]
+async fn write_context_candidate_ids(
+    transaction: &mut Transaction<'_, Postgres>,
+    provider: &HostedProvider,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    collection: &PgRow,
+    catalog: &mdbase::runtime::CompiledCatalog,
+    requirements: &mdbase::runtime::HostedWriteContext,
+    exact_projections: &mut Option<Vec<(Uuid, mdbase::runtime::SemanticProjection)>>,
+) -> ApiResult<BTreeSet<Uuid>> {
+    let mut candidates = BTreeSet::new();
+    if requirements.uniqueness_keys.is_empty() && requirements.resolution_lookups.is_empty() {
+        return Ok(candidates);
+    }
+    let limit = (MAX_HOSTED_MUTATION_CONTEXT_RECORDS + 1) as i64;
+    if let Some(generation_id) = current_projection_generation(collection, catalog) {
+        for key in &requirements.uniqueness_keys {
+            candidates.extend(
+                sqlx::query_scalar::<_, Uuid>(
+                    r#"SELECT record_id FROM hosted_provider_record_projections
+                       WHERE collection_id = $1 AND generation_id = $2
+                         AND valid_to_sequence IS NULL
+                         AND semantic_projection -> 'uniqueness_keys' @> $3
+                       LIMIT $4"#,
+                )
+                .bind(collection_id)
+                .bind(generation_id)
+                .bind(json!([key]))
+                .bind(limit)
+                .fetch_all(&mut **transaction)
+                .await?,
+            );
+        }
+        if !requirements.resolution_lookups.is_empty() {
+            candidates.extend(
+                sqlx::query_scalar::<_, Uuid>(
+                    r#"SELECT DISTINCT k.record_id
+                       FROM jsonb_to_recordset($3::jsonb) AS q(kind text, value text)
+                       JOIN hosted_provider_record_resolution_keys k
+                         ON k.collection_id = $1 AND k.generation_id = $2
+                        AND k.valid_to_sequence IS NULL
+                        AND k.key_kind = q.kind AND k.lookup_key = q.value
+                       LIMIT $4"#,
+                )
+                .bind(collection_id)
+                .bind(generation_id)
+                .bind(json!(requirements.resolution_lookups))
+                .bind(limit)
+                .fetch_all(&mut **transaction)
+                .await?,
+            );
+        }
+        return Ok(candidates);
+    }
+    if exact_projections.is_none() {
+        // Beyond the exact budget only a rebuilt projection can answer; the
+        // background rebuild that made it stale is already running.
+        *exact_projections = Some(
+            load_exact_mutation_projections(transaction, provider, data_key, collection_id, catalog)
+                .await
+                .map_err(|error| match error.code.as_str() {
+                    "hosted_mutation_context_budget_exceeded"
+                    | "hosted_mutation_context_byte_budget_exceeded" => ApiError::new(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "projection_index_incomplete",
+                        "This write cannot be validated until the collection's projection finishes rebuilding. Retry shortly.",
+                    ),
+                    _ => error,
+                })?,
+        );
+    }
+    let projections = exact_projections
+        .as_ref()
+        .expect("exact projections were loaded above");
+    candidates.extend(
+        projections
+            .iter()
+            .filter(|(_, projection)| {
+                let facts = &projection.facts;
+                facts
+                    .uniqueness_keys
+                    .iter()
+                    .any(|key| requirements.uniqueness_keys.contains(key))
+                    || facts.resolution_keys.iter().any(|key| {
+                        requirements
+                            .resolution_lookups
+                            .iter()
+                            .any(|lookup| lookup.kind == key.kind && lookup.value == key.value)
+                    })
+            })
+            .map(|(record_id, _)| *record_id),
+    );
+    Ok(candidates)
+}
+
+/// Projections of every current record, derived from exact records. Used only
+/// while no current projection generation can answer a mutation's lookups.
+async fn load_exact_mutation_projections(
     transaction: &mut Transaction<'_, Postgres>,
     provider: &HostedProvider,
     data_key: &[u8; 32],
     collection_id: Uuid,
     catalog: &mdbase::runtime::CompiledCatalog,
-    primary_record_id: Uuid,
-) -> ApiResult<Vec<Uuid>> {
+) -> ApiResult<Vec<(Uuid, mdbase::runtime::SemanticProjection)>> {
     let metadata = sqlx::query(
         r#"SELECT record_id, content_bytes
            FROM hosted_provider_records
@@ -306,22 +473,16 @@ async fn load_exact_incoming_mutation_ids(
                 .map_err(mutation_projection_semantic_error)?,
         ));
     }
-    let finalized = catalog
+    catalog
         .finalize_projection_batch(prepared)
-        .map_err(mutation_projection_semantic_error)?;
-    let target = primary_record_id.to_string();
-    Ok(finalized
+        .map_err(mutation_projection_semantic_error)?
         .into_iter()
-        .filter_map(|(source, projection)| {
-            projection
-                .structure
-                .occurrences
-                .iter()
-                .any(|occurrence| occurrence.target_record_id.as_deref() == Some(target.as_str()))
-                .then(|| Uuid::parse_str(&source).ok())
-                .flatten()
+        .map(|(source, projection)| {
+            Uuid::parse_str(&source)
+                .map(|record_id| (record_id, projection))
+                .map_err(|_| ApiError::internal("A canonical projection lost its record UUID."))
         })
-        .collect())
+        .collect()
 }
 
 fn mutation_projection_semantic_error(error: mdbase::runtime::CatalogError) -> ApiError {

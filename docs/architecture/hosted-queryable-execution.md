@@ -250,6 +250,15 @@ result. The short commit transaction rechecks grant/scope epoch, authority and
 catalog revision, record revision, destination, quota, generation fence, and
 journal state.
 
+Canonical write validation compares a written record's unique values and
+required links only with the records staged beside it. The plan reports the
+uniqueness keys and link lookups it validated, even when it rejects the write;
+the host finds every other record sharing a key through the indexed
+`uniqueness_keys` of current projections, and every record answering a lookup
+through `hosted_provider_record_resolution_keys` (or the bounded exact
+reconstruction when no binding is current), stages them, and plans again until
+none is missing. The final verdict is then the one the whole collection gives.
+
 Successful ordinary writes atomically persist ciphertext, revision, current
 projection binding, relationship changes, versions/changes, quota accounting,
 receipt, and outbox state. A CAS loss or changed semantic precondition returns a

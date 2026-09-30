@@ -27,7 +27,7 @@ limit. The obsolete record-subset scope description is deleted.
 The new local-control conflict review is versioned (`review_version: 1`) and
 checks the same decision ID and exact bytes as conflict resolution. Its typed
 request/response and the mirror/agent boundary add 16 Rust public declarations
-(3257 → 3273); no remote protocol, authorization scope, or control-plane payload
+(3258 → 3274); no remote protocol, authorization scope, or control-plane payload
 storage changes. Browser-local draft storage is separately versioned, isolated by
 server/collection/path, and expires after seven days; it is not an offline replica
 or a substitute for exact pending-write recovery. Restoring metadata uses the SDK
