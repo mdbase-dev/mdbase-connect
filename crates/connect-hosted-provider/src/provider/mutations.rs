@@ -1,6 +1,6 @@
 use super::mutation_journal::{HostedMutationClaim, HostedMutationLease};
 use super::operation_reads::{compile_point_catalog, load_direct_record, DirectRecordIdentity};
-use super::projections::ActiveProjectionChange;
+use super::projections::{current_projection_generation, ActiveProjectionChange};
 use super::*;
 
 struct MutationExecution<'a> {
@@ -166,8 +166,10 @@ impl HostedProvider {
     ) -> ApiResult<OperationResult> {
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
-            r#"SELECT resource_revision, resources_ciphertext, wrapped_data_key,
-                      active_projection_generation_id
+            r#"SELECT head, resource_revision, resources_ciphertext, wrapped_data_key,
+                      active_projection_generation_id, active_catalog_revision,
+                      active_projection_format_version, active_semantic_engine_version,
+                      active_projection_head
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active'"#,
         )
@@ -320,7 +322,9 @@ impl HostedProvider {
         let collection = sqlx::query(
             r#"SELECT head, record_count, content_bytes, max_records,
                       max_content_bytes, max_document_bytes, resource_revision,
-                      resources_ciphertext, active_projection_generation_id
+                      resources_ciphertext, active_projection_generation_id,
+                      active_catalog_revision, active_projection_format_version,
+                      active_semantic_engine_version, active_projection_head
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active' FOR UPDATE"#,
         )
@@ -348,7 +352,7 @@ impl HostedProvider {
             collection.get::<i64, _>("max_document_bytes"),
             "document byte quota",
         )?;
-        let (current, current_ciphertext_bytes) = load_direct_record(
+        let (current, current_ciphertext_bytes, current_modified_at) = load_direct_record(
             &mut transaction,
             &self.crypto,
             &data_key,
@@ -356,7 +360,9 @@ impl HostedProvider {
             DirectRecordIdentity::StableId(mutation.record_id),
         )
         .await?
-        .map_or((None, 0), |(record, bytes, _)| (Some(record), bytes));
+        .map_or((None, 0, None), |(record, bytes, modified_at)| {
+            (Some(record), bytes, Some(modified_at))
+        });
         let semantic_requested = execution.semantic.is_some();
 
         if mutation.operation == SyncMutationOperation::Put
@@ -538,9 +544,35 @@ impl HostedProvider {
             .await;
         }
         if execution.changed.is_empty() {
-            return Err(ApiError::internal(
-                "mdbase-rs accepted a mutation without producing a write set.",
-            ));
+            // A valid mutation that leaves every record as stored (an update to
+            // the values it already has) commits no version; acknowledge it at
+            // the current head with the record as stored.
+            if let (Some(operation), Some(modified_at)) =
+                (execution.operation.as_mut(), current_modified_at)
+            {
+                if let Some(record) = operation.record_mutation_value_mut() {
+                    record.file.mtime = modified_at.to_rfc3339_opts(SecondsFormat::Micros, true);
+                    execution.envelope = operation.to_v03();
+                }
+            }
+            if let Some(result) = semantic_operation {
+                *result = execution.operation.clone();
+            }
+            let receipt = SyncMutationReceipt::Applied {
+                mutation_id: mutation.mutation_id,
+                sequence: number(collection.get::<i64, _>("head"), "collection head")?,
+                record: current,
+            };
+            store_receipt(
+                &mut transaction,
+                &data_key,
+                &journal,
+                &receipt,
+                semantic_requested.then_some(&execution.envelope),
+            )
+            .await?;
+            transaction.commit().await?;
+            return Ok(receipt);
         }
         for (record_id, after, _) in &execution.changed {
             let before = before_records.get(record_id);
