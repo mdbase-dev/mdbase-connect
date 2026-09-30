@@ -365,18 +365,25 @@ test("recovers unsent note edits after reload without silently saving them", asy
   await page.goto("?demo=12");
   const body = page.getByRole("textbox", { name: "Note body" });
   await expect(body).toBeEditable();
-  const time = new Date("2026-01-01T00:00:00Z");
+  const time = new Date();
   await page.clock.install({ time });
   await page.clock.pauseAt(new Date(time.getTime() + 1_000));
   const draft = "Writing that never reached autosave.";
   await body.fill(draft);
+  // Let CodeMirror consume the DOM input, without reaching the 650ms autosave.
+  await page.clock.runFor(50);
+  await expect.poll(() => page.evaluate((text) => Object.keys(localStorage)
+    .filter((key) => key.startsWith("mdbase-editor:draft:v1:"))
+    .some((key) => JSON.parse(localStorage.getItem(key)!).body.endsWith(text)), draft)).toBe(true);
   await page.reload();
+  // The demo gateway's startup also uses timers. Resume the new document so
+  // it can open; recovered edits themselves remain blocked until restoration.
+  await page.clock.resume();
   await expect(page.getByRole("status", { name: "Unsaved draft found" })).toBeVisible();
   await expect(body).not.toBeEditable();
   await page.getByRole("button", { name: "Restore unsaved edits", exact: true }).click();
   await expect(body).toBeEditable();
   await expect(body).toHaveText(draft);
-  await page.clock.runFor(700);
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 });
 
