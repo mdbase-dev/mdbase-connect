@@ -78,7 +78,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
       ));
     }
     if (error instanceof RequestValidationError) {
-      return reply.code(400).send(apiError("invalid_request", error.message));
+      return reply.code(error.statusCode).send(apiError(error.code, error.message, error.details));
     }
     if (error instanceof GrantPlanningError) {
       return reply.code(400).send(apiError("invalid_grant", error.message));

@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { vi } from "vitest";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
+import { materializePublicSignupEntitlement } from "./entitlements.js";
 import { finishAuthorityImportAbort } from "./features/authority-transfer/lifecycle.js";
 import { buildApp } from "./app.js";
 import { audit } from "./platform/audit-events.js";
@@ -58,7 +61,7 @@ suite("authority import abort receipts on PostgreSQL", () => {
        VALUES ($1, $2, $3, $4, 'to_hosted', 'prepared', now() + interval '1 hour', 2)`,
       [transferId, userId, hostedId, localId]
     );
-    return { id: transferId, hosted_collection_id: hostedId, next_authority_epoch: 2, connectorId, userId, token };
+    return { id: transferId, hosted_collection_id: hostedId, next_authority_epoch: 2, localId, connectorId, userId, token };
   }
 
   it("commits cleanup and its acknowledgement together, surviving the cascading delete", async () => {
@@ -231,5 +234,155 @@ suite("authority import abort receipts on PostgreSQL", () => {
       activation.release();
       expiry.release();
     }
+  });
+  async function transferApp(f: Awaited<ReturnType<typeof fixture>>, duringProvider?: () => Promise<void>) {
+    const snapshot = {
+      manifest_digest: "a".repeat(64), source_revision: `sha256:${"b".repeat(64)}`, source_head: 41
+    };
+    const { app } = await buildApp({
+      db, hostedCollections: true,
+      hostedProvider: {
+        url: "https://provider.example",
+        upsertAccount: async () => ({}),
+        prepareAuthorityImport: async () => ({ expires_at: new Date(Date.now() + 30 * 60_000).toISOString() }),
+        completeAuthorityImport: async () => {
+          await duringProvider?.();
+          return {
+            id: f.id, collection_id: f.hosted_collection_id, authority_epoch: 2,
+            state: "completed", ...snapshot
+          };
+        }
+      } as unknown as HostedProviderClient
+    });
+    const headers = { authorization: `Bearer ${f.token}` };
+    let revision = 0;
+    return {
+      app,
+      sync: (enabled = true) => app.inject({
+        method: "POST", url: "/v1/connectors/sync", headers,
+        payload: { inventory_revision: ++revision, collections: [{
+          id: f.hosted_collection_id, display_name: "[test] Local", spec_version: "0.3.0", enabled, contracts: []
+        }] }
+      }),
+      complete: () => app.inject({
+        method: "POST", url: `/v1/connectors/authority-transfers/${f.id}/complete`, headers, payload: snapshot
+      }),
+      resume: () => app.inject({
+        method: "POST", url: `/v1/connectors/collections/${f.hosted_collection_id}/authority-transfers`, headers, payload: {}
+      })
+    };
+  }
+
+  it("preserves the source during provider completion and the receipt after retired inventory (issue 529)", async () => {
+    const f = await fixture();
+    const t = await transferApp(f, async () => {
+      const inventory = await t.sync();
+      expect(inventory.statusCode, inventory.body).toBe(200);
+      expect(inventory.json().collections[0]).toMatchObject({ authority_state: "active", authority_epoch: 1 });
+    });
+    try {
+      const completed = await t.complete();
+      expect(completed.statusCode, completed.body).toBe(200);
+      expect((await t.sync(false)).json().collections[0]).toMatchObject({ authority_state: "retired", authority_epoch: 2 });
+      const resumed = await t.resume();
+      expect(resumed.statusCode, resumed.body).toBe(200);
+      expect(resumed.json().transfer).toMatchObject({ id: f.id, state: "completed" });
+    } finally { await t.app.close(); }
+  });
+
+  it("stages one intent for concurrent transfer starts", async () => {
+    const f = await fixture();
+    await db.query("DELETE FROM hosted_collections WHERE id=$1", [f.hosted_collection_id]);
+    await materializePublicSignupEntitlement(db, f.userId);
+    const t = await transferApp(f);
+    try {
+      const responses = await Promise.all([t.resume(), t.resume()]);
+      expect(responses.map(response => response.statusCode).sort(), responses.map(response => response.body).join("\n"))
+        .toEqual([200, 201]);
+      const ids = responses.map(response => response.json().transfer.id);
+      expect(new Set(ids).size).toBe(1);
+      expect((await db.query("SELECT id,next_authority_epoch FROM authority_transfers WHERE local_collection_id=$1", [f.localId])).rows)
+        .toEqual([{ id: ids[0], next_authority_epoch: "2" }]);
+      expect((await db.query("SELECT authority_state,authority_epoch FROM collections WHERE id=$1", [f.localId])).rows)
+        .toEqual([{ authority_state: "active", authority_epoch: "1" }]);
+    } finally { await t.app.close(); }
+  });
+
+  it("completes concurrent activation requests against the same durable reservation", async () => {
+    const f = await fixture();
+    const t = await transferApp(f);
+    try {
+      const responses = await Promise.all([t.complete(), t.complete()]);
+      for (const response of responses) expect(response.statusCode, response.body).toBe(200);
+      expect((await t.resume()).json().transfer).toMatchObject({ id: f.id, state: "completed", authority_epoch: 2 });
+    } finally { await t.app.close(); }
+  });
+
+  it("serializes a stale inventory snapshot with activation rather than overwriting retirement", async () => {
+    const f = await fixture();
+    const t = await transferApp(f);
+    let enter!: () => void, release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    const released = new Promise<void>(resolve => { release = resolve; });
+    const connect = db.connect.bind(db);
+    const spy = vi.spyOn(db, "connect").mockImplementation(async () => {
+      const connection = await connect();
+      return {
+        release: () => connection.release(),
+        async query(text, values) {
+          const result = await connection.query(text, values);
+          if (text.includes("SELECT hosted.authority_state, hosted.authority_epoch")) {
+            enter();
+            await released;
+          }
+          return result;
+        }
+      };
+    });
+    let inventory: Promise<Awaited<ReturnType<typeof t.sync>>> | undefined;
+    let activation: Promise<Awaited<ReturnType<typeof t.complete>>> | undefined;
+    try {
+      inventory = t.sync().then(result => result);
+      await entered;
+      activation = t.complete().then(result => result);
+      // Observe the actual PostgreSQL lock wait, not a timing assumption.
+      let waiting = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const locks = await db.query(
+          "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM users%'"
+        );
+        if (locks.rows.length > 0) { waiting = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBe(true);
+      release();
+      expect((await inventory).statusCode).toBe(200);
+      const completed = await activation;
+      expect(completed.statusCode, completed.body).toBe(200);
+      expect((await db.query("SELECT authority_state,authority_epoch FROM collections WHERE id=$1", [f.localId])).rows)
+        .toEqual([{ authority_state: "retired", authority_epoch: "2" }]);
+    } finally {
+      release();
+      await Promise.allSettled([inventory, activation].filter(value => value !== undefined));
+      spy.mockRestore();
+      await t.app.close();
+    }
+  });
+
+  it.each(["prepared", "activating"])("repairs a historically demoted %s source without cancelling its handoff", async (state) => {
+    const f = await fixture();
+    await db.query("UPDATE collections SET authority_state='candidate',authority_epoch=2,enabled=false WHERE id=$1", [f.localId]);
+    await db.query(
+      "UPDATE authority_transfers SET state=$2,manifest_digest=$3,source_revision=$4,final_head=41 WHERE id=$1",
+      [f.id, state, "a".repeat(64), `sha256:${"b".repeat(64)}`]
+    );
+    await db.query(await readFile(new URL("../migrations/0036_authority_import_source_repair.sql", import.meta.url), "utf8"));
+    expect((await db.query("SELECT authority_state,authority_epoch,enabled FROM collections WHERE id=$1", [f.localId])).rows)
+      .toEqual([{ authority_state: "active", authority_epoch: "1", enabled: true }]);
+    const t = await transferApp(f);
+    try {
+      expect((await t.complete()).statusCode).toBe(200);
+      expect((await t.resume()).json().transfer).toMatchObject({ id: f.id, state: "completed" });
+    } finally { await t.app.close(); }
   });
 });

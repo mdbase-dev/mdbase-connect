@@ -3,7 +3,7 @@ import { recoverAccountImportCancellation } from "./account-cancellation.js";
 import type { FastifyInstance } from "fastify";
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
-import type { DatabasePool } from "../../database-types.js";
+import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { reconcileHostedAccount } from "../../entitlements.js";
 import type { HostedAuthorityRegistry } from "../../hosted.js";
 import {
@@ -37,6 +37,17 @@ interface LocalToHostedRoutesOptions {
   relay: RelayHub;
 }
 
+interface LocalAuthoritySource {
+  id: string;
+  local_id: string;
+  display_name: string;
+  authority_epoch: string | number;
+  contracts: CollectionContractDescriptor[];
+  authority_state: "active" | "candidate" | "retired";
+  enabled: boolean;
+  reported_enabled: boolean;
+}
+
 export function registerLocalToHostedTransferRoutes(
   app: FastifyInstance,
   options: LocalToHostedRoutesOptions
@@ -58,85 +69,79 @@ export function registerLocalToHostedTransferRoutes(
         options.hostedProvider,
         options.hostedReference
       );
-      const source = await options.db.query<{
-        id: string;
-        local_id: string;
-        display_name: string;
-        authority_epoch: string | number;
-        contracts: CollectionContractDescriptor[];
-        authority_state: "active" | "retired";
-        enabled: boolean;
-        reported_enabled: boolean;
-      }>(
-        `SELECT id, local_id, display_name, authority_epoch, contracts,
-                authority_state, enabled, reported_enabled
-         FROM collections
-         WHERE connector_id = $1 AND user_id = $2 AND local_id = $3
-           AND authority_state IN ('active', 'retired')
-           AND present = true`,
-        [connector.id, connector.user_id, collectionId]
-      );
-      const local = source.rows[0];
-      if (!local) {
-        return reply.code(404).send(apiError(
-          "authority_source_not_found",
-          "The active local collection authority was not found."
-        ));
-      }
-      const existing = await options.db.query<AuthorityImportTransferRow>(
-        `SELECT id, user_id, hosted_collection_id, local_collection_id,
-                state, final_head, next_authority_epoch, manifest_digest,
-                source_revision, expires_at
-         FROM authority_transfers
-         WHERE local_collection_id = $1 AND direction = 'to_hosted'
-           AND (
-             (
-               state IN ('requested', 'prepared', 'activating')
-               AND next_authority_epoch = $2
-             )
-             OR (
-               state = 'completed'
-               AND next_authority_epoch = $3
-             )
-           )
-         ORDER BY created_at DESC LIMIT 1`,
-        [
-          local.id,
-          Number(local.authority_epoch) + 1,
-          Number(local.authority_epoch)
-        ]
-      );
-      if (
-        existing.rows[0]?.state === "completed"
-        && local.authority_state === "retired"
-      ) {
-        return {
-          transfer: authorityImportTransferView(existing.rows[0])
-        };
-      }
-      if (existing.rows[0]?.state === "activating") {
-        return {
-          transfer: authorityImportTransferView(existing.rows[0])
-        };
-      }
-      if (
-        local.authority_state !== "active"
-        || !local.enabled
-        || !local.reported_enabled
-      ) {
-        return reply.code(409).send(apiError(
-          "authority_transfer_inactive",
-          "The local collection is no longer an active authority."
-        ));
-      }
-      let transfer = existing.rows[0];
-      if (!transfer) {
-        transfer = await createImportTransfer(
-          options,
-          options.hostedProvider,
-          connector,
-          local
+      let local: LocalAuthoritySource;
+      let transfer: AuthorityImportTransferRow;
+      let existing: AuthorityImportTransferRow | undefined;
+      const connection = await options.db.connect();
+      try {
+        await connection.query("BEGIN");
+        // Inventory, lookup and intent creation use one authority snapshot.
+        // Concurrent starts must find the same transfer, not stage twice.
+        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [connector.user_id]);
+        const source = await connection.query<LocalAuthoritySource>(
+          `SELECT id, local_id, display_name, authority_epoch, contracts,
+                  authority_state, enabled, reported_enabled
+           FROM collections
+           WHERE connector_id = $1 AND user_id = $2 AND local_id = $3
+             AND present = true FOR UPDATE`,
+          [connector.id, connector.user_id, collectionId]
         );
+        if (!source.rows[0]) {
+          await connection.query("ROLLBACK");
+          return reply.code(404).send(apiError(
+            "authority_source_not_found",
+            "The local collection authority was not found."
+          ));
+        }
+        local = source.rows[0];
+        existing = (await connection.query<AuthorityImportTransferRow>(
+          `SELECT id, user_id, hosted_collection_id, local_collection_id,
+                  state, final_head, next_authority_epoch, manifest_digest,
+                  source_revision, expires_at
+           FROM authority_transfers
+           WHERE local_collection_id = $1 AND user_id = $3 AND direction = 'to_hosted'
+             AND (
+               state IN ('requested', 'prepared', 'activating')
+               OR (state = 'completed' AND next_authority_epoch = $2)
+             )
+           ORDER BY created_at DESC LIMIT 1`,
+          [local.id, Number(local.authority_epoch), connector.user_id]
+        )).rows[0];
+        if (existing?.state === "completed") {
+          if (local.authority_state === "active") {
+            throw new Error("Completed authority transfer still has an active local source.");
+          }
+          await connection.query("COMMIT");
+          return { transfer: authorityImportTransferView(existing) };
+        }
+        if (existing?.state === "activating") {
+          await connection.query("COMMIT");
+          return { transfer: authorityImportTransferView(existing) };
+        }
+        if (existing && (
+          local.authority_state !== "active"
+          || Number(local.authority_epoch) + 1 !== Number(existing.next_authority_epoch)
+        )) {
+          throw importSourceConflict(
+            existing.id, collectionId, Number(existing.next_authority_epoch), local, "preflight"
+          );
+        }
+        if (local.authority_state !== "active" || !local.enabled || !local.reported_enabled) {
+          await connection.query("ROLLBACK");
+          return reply.code(409).send(apiError(
+            "authority_transfer_inactive",
+            "The local collection is no longer an active authority."
+          ));
+        }
+        transfer = existing ?? await createImportTransfer(
+          connection, options.hostedProvider, connector, local
+        );
+        await connection.query("COMMIT");
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally {
+        connection.release();
       }
       const transferId = transfer.id;
       const importToken = randomToken("ati");
@@ -169,7 +174,7 @@ export function registerLocalToHostedTransferRoutes(
           "Authority transfer changed state while its import capability was prepared."
         );
       }
-      return reply.code(existing.rows[0] ? 200 : 201).send({
+      return reply.code(existing ? 200 : 201).send({
         transfer: authorityImportTransferView(transfer),
         import: authorityImportCapability(
           options.hostedProvider.url,
@@ -275,6 +280,7 @@ export function registerLocalToHostedTransferRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
+        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [connector.user_id]);
         const current = await connection.query<{ state: string }>(
           "SELECT state FROM authority_transfers WHERE id = $1 FOR UPDATE",
           [transferId]
@@ -301,8 +307,12 @@ export function registerLocalToHostedTransferRoutes(
           || Number(source.rows[0].authority_epoch) + 1
             !== completed.authority_epoch
         ) {
-          throw new RequestValidationError(
-            "The local authority epoch changed while the transfer was staged."
+          throw importSourceConflict(
+            transferId,
+            transfer.hosted_collection_id,
+            completed.authority_epoch,
+            source.rows[0],
+            "activation"
           );
         }
         const retired = await connection.query(
@@ -451,6 +461,7 @@ export function registerLocalToHostedTransferRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
+        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [connector.user_id]);
         if (!await finishAuthorityImportAbort(connection, transfer, "cancelled")) {
           throw new RequestValidationError(
             "Authority transfer changed state while cancellation was committed."
@@ -478,89 +489,74 @@ export function registerLocalToHostedTransferRoutes(
   );
 }
 
+// Caller owns the account/source locks and commits the staged intent.
 async function createImportTransfer(
-  options: LocalToHostedRoutesOptions,
+  connection: DatabaseConnection,
   hostedProvider: HostedProviderClient,
   connector: ConnectorIdentity,
-  local: {
-    id: string;
-    local_id: string;
-    display_name: string;
-    authority_epoch: string | number;
-    contracts: CollectionContractDescriptor[];
-  }
+  local: LocalAuthoritySource
 ): Promise<AuthorityImportTransferRow> {
   const transferId = randomUUID();
   const authorityEpoch = Number(local.authority_epoch) + 1;
   const expiresAt = new Date(Date.now() + 30 * 60 * 1_000);
-  const connection = await options.db.connect();
-  try {
-    await connection.query("BEGIN");
-    const target = await connection.query<{ id: string }>(
-      `INSERT INTO hosted_collections
-         (id, user_id, display_name, template, provider_url, contracts,
-          authority_state, authority_epoch)
-       VALUES ($1, $2, $3, 'mdbase', $4, $5::jsonb, 'importing', $6)
-       ON CONFLICT (id) DO UPDATE SET
-         display_name = EXCLUDED.display_name,
-         provider_url = EXCLUDED.provider_url,
-         contracts = EXCLUDED.contracts,
-         authority_state = 'importing',
-         authority_epoch = EXCLUDED.authority_epoch
-       WHERE hosted_collections.user_id = EXCLUDED.user_id
-         AND hosted_collections.authority_state = 'transferred'
-       RETURNING id`,
-      [
-        local.local_id,
-        connector.user_id,
-        local.display_name,
-        hostedProvider.url,
-        JSON.stringify(local.contracts ?? []),
-        authorityEpoch
-      ]
-    );
-    if (!target.rows[0]) {
-      throw new RequestValidationError(
-        "The remote collection identity is already in use by an active authority."
-      );
-    }
-    const inserted = await connection.query<AuthorityImportTransferRow>(
-      `INSERT INTO authority_transfers
-         (id, user_id, hosted_collection_id, local_collection_id, direction,
-          state, next_authority_epoch, expires_at)
-       VALUES ($1, $2, $3, $4, 'to_hosted', 'requested', $5, $6)
-       RETURNING id, user_id, hosted_collection_id, local_collection_id,
-                 state, final_head, next_authority_epoch, manifest_digest,
-                 source_revision, expires_at`,
-      [
-        transferId,
-        connector.user_id,
-        local.local_id,
-        local.id,
-        authorityEpoch,
-        expiresAt
-      ]
-    );
-    await audit(
-      connection,
+  const target = await connection.query<{ id: string }>(
+    `INSERT INTO hosted_collections
+       (id, user_id, display_name, template, provider_url, contracts,
+        authority_state, authority_epoch)
+     VALUES ($1, $2, $3, 'mdbase', $4, $5::jsonb, 'importing', $6)
+     ON CONFLICT (id) DO UPDATE SET
+       display_name = EXCLUDED.display_name,
+       provider_url = EXCLUDED.provider_url,
+       contracts = EXCLUDED.contracts,
+       authority_state = 'importing',
+       authority_epoch = EXCLUDED.authority_epoch
+     WHERE hosted_collections.user_id = EXCLUDED.user_id
+       AND hosted_collections.authority_state = 'transferred'
+     RETURNING id`,
+    [
+      local.local_id,
       connector.user_id,
-      "authority_transfer.requested",
-      transferId,
-      {
-        collection_id: local.local_id,
-        direction: "to_hosted",
-        connector_id: connector.id,
-        authority_epoch: authorityEpoch
-      }
+      local.display_name,
+      hostedProvider.url,
+      JSON.stringify(local.contracts),
+      authorityEpoch
+    ]
+  );
+  if (!target.rows[0]) {
+    throw new RequestValidationError(
+      "The remote collection identity is already in use by an active authority."
     );
-    await connection.query("COMMIT");
-    return inserted.rows[0];
-  } catch (error) {
-    await connection.query("ROLLBACK");
-    throw error;
-  } finally {
-    connection.release();
   }
+  const inserted = await connection.query<AuthorityImportTransferRow>(
+    `INSERT INTO authority_transfers
+       (id, user_id, hosted_collection_id, local_collection_id, direction,
+        state, next_authority_epoch, expires_at)
+     VALUES ($1, $2, $3, $4, 'to_hosted', 'requested', $5, $6)
+     RETURNING id, user_id, hosted_collection_id, local_collection_id,
+               state, final_head, next_authority_epoch, manifest_digest,
+               source_revision, expires_at`,
+    [
+      transferId,
+      connector.user_id,
+      local.local_id,
+      local.id,
+      authorityEpoch,
+      expiresAt
+    ]
+  );
+  await audit(
+    connection,
+    connector.user_id,
+    "authority_transfer.requested",
+    transferId,
+    {
+      collection_id: local.local_id,
+      direction: "to_hosted",
+      connector_id: connector.id,
+      authority_epoch: authorityEpoch
+    }
+  );
+  return inserted.rows[0];
 }
 
 async function findConnectorImportTransfer(
@@ -596,6 +592,26 @@ async function reserveActivation(
   const preflight = await db.connect();
   try {
     await preflight.query("BEGIN");
+    await preflight.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [connector.user_id]);
+    const current = (await preflight.query<Pick<AuthorityImportTransferRow,
+      "state" | "manifest_digest" | "source_revision" | "final_head"
+    >>(
+      `SELECT state, manifest_digest, source_revision, final_head
+       FROM authority_transfers WHERE id = $1 FOR UPDATE`,
+      [transfer.id]
+    )).rows[0];
+    if (current?.state === "activating" || current?.state === "completed") {
+      if (!matchesSnapshot(current, input)) {
+        throw new RequestValidationError(
+          "Authority activation must resume with the same fenced source snapshot."
+        );
+      }
+      await preflight.query("COMMIT");
+      return;
+    }
+    if (current?.state !== "prepared") {
+      throw new RequestValidationError("Authority transfer is no longer prepared for activation.");
+    }
     const source = await preflight.query<{
       authority_state: string;
       authority_epoch: string | number;
@@ -609,8 +625,12 @@ async function reserveActivation(
       || Number(source.rows[0].authority_epoch) + 1
         !== Number(transfer.next_authority_epoch)
     ) {
-      throw new RequestValidationError(
-        "The local authority epoch changed while the transfer was staged."
+      throw importSourceConflict(
+        transfer.id,
+        transfer.hosted_collection_id,
+        Number(transfer.next_authority_epoch),
+        source.rows[0],
+        "preflight"
       );
     }
     const reserved = await preflight.query(
@@ -626,9 +646,7 @@ async function reserveActivation(
       ]
     );
     if (reserved.rowCount !== 1) {
-      throw new RequestValidationError(
-        "Authority transfer changed state while activation was reserved."
-      );
+      throw new Error("Authority activation reservation violated its locked transfer state.");
     }
     await preflight.query("COMMIT");
   } catch (error) {
@@ -639,8 +657,40 @@ async function reserveActivation(
   }
 }
 
+function importSourceConflict(
+  transferId: string,
+  collectionId: string,
+  stagedEpoch: number,
+  source: { authority_state: string; authority_epoch: string | number } | undefined,
+  phase: "preflight" | "activation"
+): RequestValidationError {
+  const sourceEpoch = source ? Number(source.authority_epoch) : null;
+  const action = phase === "preflight" ? "start activation" : "finish activation";
+  const recovery = phase === "preflight"
+    ? "Provider activation has not started for this transfer; cancel the transfer before starting another move."
+    : "Provider activation may have completed; keep the local source fenced and reconcile this transfer.";
+  return new RequestValidationError(
+    `Authority transfer ${transferId} for collection ${collectionId} cannot ${action}: `
+    + `the control-plane source is ${source?.authority_state ?? "missing"} at epoch ${sourceEpoch ?? "unknown"}; `
+    + `expected active at epoch ${stagedEpoch - 1} for staged epoch ${stagedEpoch}. ${recovery}`,
+    {
+      code: "authority_transfer_source_changed",
+      statusCode: 409,
+      details: {
+        transfer_id: transferId,
+        collection_id: collectionId,
+        phase,
+        source_state: source?.authority_state ?? null,
+        source_epoch: sourceEpoch,
+        expected_source_epoch: stagedEpoch - 1,
+        staged_epoch: stagedEpoch
+      }
+    }
+  );
+}
+
 function matchesSnapshot(
-  transfer: AuthorityImportTransferRow,
+  transfer: Pick<AuthorityImportTransferRow, "manifest_digest" | "source_revision" | "final_head">,
   input: {
     manifest_digest: string;
     source_revision: string;

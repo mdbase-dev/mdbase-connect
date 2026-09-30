@@ -286,6 +286,7 @@ export function registerHostedToLocalTransferRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
+        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [transfer.user_id]);
         const locked = await connection.query<AuthorityTransferRow>(
           `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
                   local_collection_id, state, final_head,
@@ -475,6 +476,7 @@ export function registerHostedToLocalTransferRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
+        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [transfer.user_id]);
         const locked = await connection.query<AuthorityTransferRow>(
           `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
                   local_collection_id, state, final_head,
@@ -612,6 +614,7 @@ export function registerHostedToLocalTransferRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
+        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [transfer.user_id]);
         const locked = await connection.query<AuthorityTransferRow>(
           `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
                   local_collection_id, state, final_head,
