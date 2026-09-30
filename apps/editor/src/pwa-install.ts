@@ -11,29 +11,50 @@ const STORAGE_KEY = "mdbase:pwa-install-dismissed";
 /** Installation is optional; no service worker or private-data cache is introduced. */
 export function setupPwaInstall(appName: string): () => void {
   const standalone = matchMedia("(display-mode: standalone)");
-  const iosStandalone = () => Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
-  const isInstalled = () => standalone.matches || iosStandalone();
-  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent)
-    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const safari = /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(navigator.userAgent);
+  const iosStandalone = (): boolean =>
+    Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+  const isInstalled = (): boolean => standalone.matches || iosStandalone();
+  const ios =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.userAgent.includes("Macintosh") && navigator.maxTouchPoints > 1);
+  const safari =
+    navigator.userAgent.includes("Safari") && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(navigator.userAgent);
   let dismissed = false;
   try {
     const timestamp = Number(localStorage.getItem(STORAGE_KEY));
     dismissed = timestamp > 0 && Date.now() - timestamp < COOLDOWN;
-  } catch { /* Installation remains optional when storage is unavailable. */ }
+  } catch {
+    /* Installation remains optional when storage is unavailable. */
+  }
   let pending: InstallEvent | null = null;
   let ready = false;
   let banner: HTMLElement | null = null;
   let disposed = false;
 
-  const remove = () => { banner?.remove(); banner = null; };
-  const dismiss = () => {
+  const remove = (): void => {
+    banner?.remove();
+    banner = null;
+  };
+  const dismiss = (): void => {
     dismissed = true;
-    try { localStorage.setItem(STORAGE_KEY, String(Date.now())); } catch { /* Best effort. */ }
+    try {
+      localStorage.setItem(STORAGE_KEY, String(Date.now()));
+    } catch {
+      /* Best effort. */
+    }
     remove();
   };
-  const show = () => {
-    if (disposed || !ready || dismissed || isInstalled() || banner || (!pending && !(ios && safari))) return;
+  const show = (): void => {
+    if (
+      disposed ||
+      !ready ||
+      dismissed ||
+      isInstalled() ||
+      banner ||
+      (!pending && !(ios && safari))
+    ) {
+      return;
+    }
     banner = document.createElement("section");
     banner.className = "pwa-install";
     banner.setAttribute("aria-label", `Install ${appName}`);
@@ -46,19 +67,27 @@ export function setupPwaInstall(appName: string): () => void {
       const install = document.createElement("button");
       install.type = "button";
       install.textContent = "Install";
-      install.addEventListener("click", async () => {
+      const installApp = async (): Promise<void> => {
         const event = pending;
-        if (!event) return;
+        if (!event) {
+          return;
+        }
         pending = null; // A native prompt event can only be used once.
         install.disabled = true;
         try {
           await event.prompt();
           const choice = await event.userChoice;
-          if (choice.outcome === "dismissed") dismiss();
-          else remove();
+          if (choice.outcome === "dismissed") {
+            dismiss();
+          } else {
+            remove();
+          }
         } catch {
           remove(); // Do not leave a broken install button on screen.
         }
+      };
+      install.addEventListener("click", () => {
+        void installApp();
       });
       banner.append(install);
     }
@@ -69,19 +98,32 @@ export function setupPwaInstall(appName: string): () => void {
     banner.append(later);
     document.body.append(banner);
   };
-  const beforeInstall = (event: Event) => {
+  const beforeInstall = (event: Event): void => {
     // Leave browser-provided installation alone when our invitation is suppressed.
-    if (dismissed || isInstalled()) return;
+    if (dismissed || isInstalled()) {
+      return;
+    }
     event.preventDefault();
     pending = event as InstallEvent;
     show();
   };
-  const installed = () => { pending = null; dismissed = true; remove(); };
-  const modeChanged = () => { if (isInstalled()) installed(); };
+  const installed = (): void => {
+    pending = null;
+    dismissed = true;
+    remove();
+  };
+  const modeChanged = (): void => {
+    if (isInstalled()) {
+      installed();
+    }
+  };
   window.addEventListener("beforeinstallprompt", beforeInstall);
   window.addEventListener("appinstalled", installed);
   standalone.addEventListener("change", modeChanged);
-  const timer = window.setTimeout(() => { ready = true; show(); }, DELAY);
+  const timer = window.setTimeout(() => {
+    ready = true;
+    show();
+  }, DELAY);
   return () => {
     disposed = true;
     window.clearTimeout(timer);

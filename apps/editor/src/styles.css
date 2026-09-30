@@ -7103,6 +7103,71 @@ label.schema-value {
   color: var(--faint);
 }
 
+.settings-quiet-action {
+  min-height: 34px;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings-quiet-action:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.setting-controls,
+.settings-review-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-review-actions {
+  margin-top: 12px;
+}
+
+.person-choice .mdbase-select {
+  width: 240px;
+}
+
+.settings-note,
+.settings-review > p,
+.settings-list {
+  margin: 10px 0;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings-note p {
+  margin: 0;
+}
+
+.settings-alert {
+  color: var(--danger);
+}
+
+.settings-warning {
+  color: var(--warning);
+}
+
+.settings-review {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-review h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.settings-review pre,
+#your-person code {
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .toggle {
   width: 34px;
   height: 20px;
@@ -8141,6 +8206,17 @@ label.schema-value {
 
   .fact-row strong {
     max-width: 58vw;
+  }
+
+  .person-choice {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .person-choice .mdbase-select {
+    width: auto;
+    flex: 1;
+    min-width: 0;
   }
 
   .new-note-composer > form {
