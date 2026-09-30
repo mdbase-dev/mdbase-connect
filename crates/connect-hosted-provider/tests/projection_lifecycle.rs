@@ -182,7 +182,7 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(final_versions, (1_i64..=44).collect::<Vec<_>>());
+    assert_eq!(final_versions, (1_i64..=45).collect::<Vec<_>>());
     let runtime_columns: Vec<String> = sqlx::query_scalar(
         r#"SELECT column_name
            FROM information_schema.columns
@@ -209,17 +209,32 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
     assert!(admission_columns.contains(&"admission_fence_token".to_string()));
     assert!(admission_columns.contains(&"admission_fence_kind".to_string()));
     assert!(admission_columns.contains(&"admission_owner_expires_at".to_string()));
-    let general_projection_indexes: i64 = sqlx::query_scalar(
-        r#"SELECT count(*)
+    // No general JSONB GIN: the only GIN index covers the uniqueness keys.
+    let projection_gin_indexes: Vec<String> = sqlx::query_scalar(
+        r#"SELECT indexname
            FROM pg_indexes
            WHERE schemaname = current_schema()
              AND tablename = 'hosted_provider_record_projections'
              AND indexdef ILIKE '% USING gin %'"#,
     )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        projection_gin_indexes,
+        ["hosted_provider_record_projections_uniqueness_keys_idx"]
+    );
+    let uniqueness_index: String = sqlx::query_scalar(
+        "SELECT indexdef FROM pg_indexes
+         WHERE indexname = 'hosted_provider_record_projections_uniqueness_keys_idx'",
+    )
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(general_projection_indexes, 0);
+    assert!(
+        uniqueness_index.contains("(semantic_projection -> 'uniqueness_keys'::text)"),
+        "{uniqueness_index}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

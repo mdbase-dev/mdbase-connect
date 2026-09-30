@@ -149,9 +149,10 @@ async fn execute_direct_semantic(
         .values()
         .map(canonical_mutation_record)
         .collect::<Vec<_>>();
-    // A plan validated uniqueness only against the records it was given. Add
-    // every other record sharing one of its keys and plan again until none is
-    // missing; with them staged, canonical validation rejects the duplicate.
+    // A plan validated uniqueness and link existence only against the records
+    // it was given. Stage every other record sharing one of its uniqueness keys
+    // or answering one of its link lookups, and plan again until none is
+    // missing; the final plan's verdict is then the collection's.
     let mut context_ids = before_records.keys().copied().collect::<BTreeSet<_>>();
     let mut exact_projections = None;
     let mut plan_attempts = 0;
@@ -165,14 +166,14 @@ async fn execute_direct_semantic(
                 records: records.clone(),
             })
             .map_err(hosted_mutation_semantic_error)?;
-        let missing = uniqueness_candidate_ids(
+        let missing = write_context_candidate_ids(
             transaction,
             provider,
             data_key,
             collection_id,
             collection,
             &catalog,
-            &plan.uniqueness_requirements,
+            &plan.context_requirements,
             &mut exact_projections,
         )
         .await?
@@ -184,8 +185,8 @@ async fn execute_direct_semantic(
         }
         if plan_attempts == MAX_UNIQUENESS_PLAN_ATTEMPTS {
             return Err(ApiError::conflict(
-                "hosted_uniqueness_context_unstable",
-                "The records a write's unique values conflict with kept changing while it was planned.",
+                "hosted_write_context_unstable",
+                "The records a write is validated against kept changing while it was planned.",
             ));
         }
         for record_id in missing {
@@ -200,7 +201,7 @@ async fn execute_direct_semantic(
             .ok_or_else(|| {
                 ApiError::conflict(
                     "hosted_projection_inconsistent",
-                    "A record sharing a unique value has no current exact record.",
+                    "A record a write is validated against has no current exact record.",
                 )
             })?;
             exact_context_bytes = exact_context_bytes
@@ -291,38 +292,60 @@ fn canonical_mutation_record(record: &SyncRecord) -> mdbase::runtime::CanonicalR
     }
 }
 
-/// Records whose current projection shares a uniqueness key with `requirements`.
+/// Records whose current projection shares one of the write's uniqueness keys
+/// or answers one of its link lookups.
 #[allow(clippy::too_many_arguments)]
-async fn uniqueness_candidate_ids(
+async fn write_context_candidate_ids(
     transaction: &mut Transaction<'_, Postgres>,
     provider: &HostedProvider,
     data_key: &[u8; 32],
     collection_id: Uuid,
     collection: &PgRow,
     catalog: &mdbase::runtime::CompiledCatalog,
-    requirements: &[mdbase::runtime::UniquenessKey],
+    requirements: &mdbase::runtime::HostedWriteContext,
     exact_projections: &mut Option<Vec<(Uuid, mdbase::runtime::SemanticProjection)>>,
 ) -> ApiResult<BTreeSet<Uuid>> {
     let mut candidates = BTreeSet::new();
-    if requirements.is_empty() {
+    if requirements.uniqueness_keys.is_empty() && requirements.resolution_lookups.is_empty() {
         return Ok(candidates);
     }
+    let limit = (MAX_HOSTED_MUTATION_CONTEXT_RECORDS + 1) as i64;
     if let Some(generation_id) = current_projection_generation(collection, catalog) {
-        for requirement in requirements {
-            let rows = sqlx::query_scalar::<_, Uuid>(
-                r#"SELECT record_id FROM hosted_provider_record_projections
-                   WHERE collection_id = $1 AND generation_id = $2
-                     AND valid_to_sequence IS NULL
-                     AND semantic_projection -> 'uniqueness_keys' @> $3
-                   LIMIT $4"#,
-            )
-            .bind(collection_id)
-            .bind(generation_id)
-            .bind(json!([requirement]))
-            .bind((MAX_HOSTED_MUTATION_CONTEXT_RECORDS + 1) as i64)
-            .fetch_all(&mut **transaction)
-            .await?;
-            candidates.extend(rows);
+        for key in &requirements.uniqueness_keys {
+            candidates.extend(
+                sqlx::query_scalar::<_, Uuid>(
+                    r#"SELECT record_id FROM hosted_provider_record_projections
+                       WHERE collection_id = $1 AND generation_id = $2
+                         AND valid_to_sequence IS NULL
+                         AND semantic_projection -> 'uniqueness_keys' @> $3
+                       LIMIT $4"#,
+                )
+                .bind(collection_id)
+                .bind(generation_id)
+                .bind(json!([key]))
+                .bind(limit)
+                .fetch_all(&mut **transaction)
+                .await?,
+            );
+        }
+        if !requirements.resolution_lookups.is_empty() {
+            candidates.extend(
+                sqlx::query_scalar::<_, Uuid>(
+                    r#"SELECT DISTINCT k.record_id
+                       FROM jsonb_to_recordset($3::jsonb) AS q(kind text, value text)
+                       JOIN hosted_provider_record_resolution_keys k
+                         ON k.collection_id = $1 AND k.generation_id = $2
+                        AND k.valid_to_sequence IS NULL
+                        AND k.key_kind = q.kind AND k.lookup_key = q.value
+                       LIMIT $4"#,
+                )
+                .bind(collection_id)
+                .bind(generation_id)
+                .bind(json!(requirements.resolution_lookups))
+                .bind(limit)
+                .fetch_all(&mut **transaction)
+                .await?,
+            );
         }
         return Ok(candidates);
     }
@@ -337,7 +360,7 @@ async fn uniqueness_candidate_ids(
                     | "hosted_mutation_context_byte_budget_exceeded" => ApiError::new(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "projection_index_incomplete",
-                        "Unique values cannot be checked until this collection's projection finishes rebuilding. Retry shortly.",
+                        "This write cannot be validated until the collection's projection finishes rebuilding. Retry shortly.",
                     ),
                     _ => error,
                 })?,
@@ -350,11 +373,17 @@ async fn uniqueness_candidate_ids(
         projections
             .iter()
             .filter(|(_, projection)| {
-                projection
-                    .facts
+                let facts = &projection.facts;
+                facts
                     .uniqueness_keys
                     .iter()
-                    .any(|key| requirements.contains(key))
+                    .any(|key| requirements.uniqueness_keys.contains(key))
+                    || facts.resolution_keys.iter().any(|key| {
+                        requirements
+                            .resolution_lookups
+                            .iter()
+                            .any(|lookup| lookup.kind == key.kind && lookup.value == key.value)
+                    })
             })
             .map(|(record_id, _)| *record_id),
     );

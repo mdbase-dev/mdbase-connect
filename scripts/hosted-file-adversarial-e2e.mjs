@@ -351,7 +351,7 @@ async function proveCurrentRollbackIsNotAuthorized(database) {
       RAISE EXCEPTION 'test assertion: matching-token fixture cleanup failed';
     END IF;
   END $assert$`);
-  console.log("Current migration 44: historical endpoint and unsupported pairs rejected; admission retained until matching-token fixture cleanup (not rollback qualified)");
+  console.log("Current migration 45: historical endpoint and unsupported pairs rejected; admission retained until matching-token fixture cleanup (not rollback qualified)");
 }
 
 async function proveBeta69CutoverGate(database) {

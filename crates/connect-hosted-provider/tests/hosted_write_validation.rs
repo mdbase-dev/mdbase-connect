@@ -25,9 +25,29 @@ schema:
     type: object
     properties:
       slug: {type: string}
+      related: {type: string}
 collection:
   unique:
     - field: slug
+      scope: collection
+  links:
+    related:
+      validate_exists: true
+---
+"#;
+
+const PAGE_TYPE: &str = r#"---
+kind: mdbase.type
+name: page
+version: 1
+match:
+  path_glob: 'pages/*.md'
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      slug: {type: string}
 ---
 "#;
 
@@ -64,25 +84,34 @@ async fn install_note_type(fixture: &FileLifecycleFixture) -> String {
         )
         .await
         .unwrap();
-    let digest = format!("sha256:{:x}", Sha256::digest(NOTE_TYPE.as_bytes()));
+    let digest = |document: &str| format!("sha256:{:x}", Sha256::digest(document.as_bytes()));
     let pack = json!({
         "provision": {
             "manifest": {
                 "kind": "mdbase.type-pack",
-                "id": "test.hosted-write-uniqueness",
+                "id": "test.hosted-write-validation",
                 "version": "1.0.0",
                 "resources": [{
                     "kind": "type",
                     "mode": "managed",
                     "source": "types/note.md",
                     "target": "_types/note.md",
-                    "digest": digest
+                    "digest": digest(NOTE_TYPE)
+                }, {
+                    "kind": "type",
+                    "mode": "managed",
+                    "source": "types/page.md",
+                    "target": "_types/page.md",
+                    "digest": digest(PAGE_TYPE)
                 }]
             },
-            "resources": [{"source": "types/note.md", "document": NOTE_TYPE}],
+            "resources": [
+                {"source": "types/note.md", "document": NOTE_TYPE},
+                {"source": "types/page.md", "document": PAGE_TYPE}
+            ],
             "provides": []
         },
-        "installed_by": "test.hosted-write-uniqueness",
+        "installed_by": "test.hosted-write-validation",
         "adopt_resources": {},
         "preserve_seed_targets": [],
         "target_overrides": {},
@@ -138,18 +167,79 @@ async fn set_slug(fixture: &FileLifecycleFixture, token: &str, path: &str, slug:
     .await
 }
 
-fn assert_duplicate(result: &Value, other_path: &str) {
+fn assert_rejected(result: &Value, code: &str, mentioning: &str) {
     assert_eq!(result["valid"], false, "{result}");
     let diagnostics = result["diagnostics"].as_array().unwrap();
     assert!(
         diagnostics.iter().any(|diagnostic| {
-            diagnostic["code"] == "duplicate_value"
+            diagnostic["code"] == code
                 && diagnostic["message"]
                     .as_str()
-                    .is_some_and(|message| message.contains(other_path))
+                    .is_some_and(|message| message.contains(mentioning))
         }),
         "{result}"
     );
+}
+
+fn assert_duplicate(result: &Value, other_path: &str) {
+    assert_rejected(result, "duplicate_value", other_path);
+}
+
+async fn head(fixture: &FileLifecycleFixture) -> i64 {
+    sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
+        .bind(fixture.collection_id)
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap()
+}
+
+/// Links, cross-type uniqueness and no-op updates, with or without a current
+/// projection answering the write's lookups.
+async fn assert_links_scopes_and_no_ops(fixture: &FileLifecycleFixture, token: &str, tag: &str) {
+    let target = format!("notes/{tag}-target.md");
+    let created = create_note(fixture, token, &target, &format!("{tag}-target")).await;
+    assert_eq!(created["valid"], true, "{created}");
+    let link = |name: &str| format!("[[notes/{tag}-{name}]]");
+    let source = |related: String| {
+        json!({
+            "path": format!("notes/{tag}-source.md"),
+            "type": "note",
+            "frontmatter": {"slug": format!("{tag}-source"), "related": related}
+        })
+    };
+    assert_rejected(
+        &operation(fixture, token, "create", source(link("missing"))).await,
+        "link_not_found",
+        &format!("{tag}-missing"),
+    );
+    let linked = operation(fixture, token, "create", source(link("target"))).await;
+    assert_eq!(linked["valid"], true, "{linked}");
+
+    // `scope: collection` compares notes with pages, which declare no rule.
+    let page = operation(
+        fixture,
+        token,
+        "create",
+        json!({"path": format!("pages/{tag}.md"), "type": "page", "frontmatter": {"slug": format!("{tag}-page")}}),
+    )
+    .await;
+    assert_eq!(page["valid"], true, "{page}");
+    assert_duplicate(
+        &create_note(
+            fixture,
+            token,
+            &format!("notes/{tag}-copy.md"),
+            &format!("{tag}-page"),
+        )
+        .await,
+        &format!("pages/{tag}.md"),
+    );
+
+    let before = head(fixture).await;
+    let unchanged = set_slug(fixture, token, &target, &format!("{tag}-target")).await;
+    assert_eq!(unchanged["valid"], true, "{unchanged}");
+    assert_eq!(unchanged["result"]["path"], target, "{unchanged}");
+    assert_eq!(head(fixture).await, before);
 }
 
 async fn projection_is_current(fixture: &FileLifecycleFixture) -> bool {
@@ -261,4 +351,18 @@ async fn writes_with_a_current_projection_reject_duplicate_unique_values() {
     let reused = create_note(&fixture, &token, "notes/e.md", "later").await;
     assert_eq!(reused["valid"], true, "{reused}");
     assert_eq!(record_count(&fixture).await, 3);
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn writes_check_required_links_scopes_and_accept_no_op_updates() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let token = install_note_type(&fixture).await;
+    assert!(!projection_is_current(&fixture).await);
+    assert_links_scopes_and_no_ops(&fixture, &token, "exact").await;
+    complete_projection(&fixture).await;
+    assert!(projection_is_current(&fixture).await);
+    assert_links_scopes_and_no_ops(&fixture, &token, "indexed").await;
+    assert!(projection_is_current(&fixture).await);
 }
