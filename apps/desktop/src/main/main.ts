@@ -82,6 +82,9 @@ async function resolveDaemonPaths(): Promise<void> {
   daemonPaths = parseDaemonPaths(JSON.parse(stdout));
 }
 
+// A pairing request that stalls must surface as an error, not wait forever.
+const PAIRING_REQUEST_TIMEOUT_MS = 10_000;
+
 async function requestReadyAgent<T>(
   method: string,
   params?: unknown,
@@ -401,7 +404,8 @@ function registerIpc(): void {
     const response = await fetch(`${serverUrl}/v1/pairing-requests`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ connector_name: connectorName })
+      body: JSON.stringify({ connector_name: connectorName }),
+      signal: AbortSignal.timeout(PAIRING_REQUEST_TIMEOUT_MS)
     });
     const body = await response.json() as {
       pairing_id?: string;
@@ -446,7 +450,8 @@ function registerIpc(): void {
     if (!pairing) throw new Error("That pairing request is no longer active.");
     const response = await fetch(`${pairing.serverUrl}/v1/pairing-requests/${pairingId}/exchange`, {
       method: "POST",
-      headers: { authorization: `Bearer ${pairing.secret}` }
+      headers: { authorization: `Bearer ${pairing.secret}` },
+      signal: AbortSignal.timeout(PAIRING_REQUEST_TIMEOUT_MS)
     });
     const body = await response.json() as {
       status?: "pending" | "paired";

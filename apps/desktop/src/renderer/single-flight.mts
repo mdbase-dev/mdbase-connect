@@ -19,3 +19,15 @@ export function singleFlight<Arguments extends unknown[], Result>(
     return current;
   };
 }
+
+/**
+ * Coalesce each request independently. A slow request keeps its one in-flight
+ * operation without holding back the others' next refresh.
+ */
+export function singleFlightEach<Requests extends Record<string, () => Promise<unknown>>>(
+  requests: Requests
+): Requests {
+  return Object.fromEntries(
+    Object.entries(requests).map(([name, request]) => [name, singleFlight(request)])
+  ) as Requests;
+}
