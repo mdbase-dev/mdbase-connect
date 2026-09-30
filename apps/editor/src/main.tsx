@@ -14,6 +14,11 @@ import "./phosphor-icons.generated.css";
 import "./styles.css";
 import "./environment-badge.css";
 
+import { setupPwaInstall } from "./pwa-install";
+
+const stopPwaInstall = setupPwaInstall("mdbase editor");
+if (import.meta.hot) import.meta.hot.dispose(stopPwaInstall);
+
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
 const ConnectWorkspace = lazy(() => import("./ConnectApp").then((module) => ({ default: module.ConnectApp })));
 
