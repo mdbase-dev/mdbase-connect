@@ -15,7 +15,6 @@ import "./styles.css";
 import "./environment-badge.css";
 
 import { setupPwaInstall } from "./pwa-install";
-import "./pwa-install.css";
 
 const stopPwaInstall = setupPwaInstall("mdbase editor");
 if (import.meta.hot) import.meta.hot.dispose(stopPwaInstall);

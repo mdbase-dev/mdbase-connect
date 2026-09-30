@@ -55,6 +55,8 @@ export function setupPwaInstall(appName: string): () => void {
     ) {
       return;
     }
+    // This optional invitation must not add CSS to the initial editor bundle.
+    void import("./pwa-install.css").catch(remove);
     banner = document.createElement("section");
     banner.className = "pwa-install";
     banner.setAttribute("aria-label", `Install ${appName}`);
