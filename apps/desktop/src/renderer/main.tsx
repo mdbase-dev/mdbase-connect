@@ -28,7 +28,7 @@ import {
 import { NotificationAccess, RequestPermissionChoices } from "./authorization-components";
 import { hasSupportedCapabilityDeclaration, requestCapabilityGroups } from "./application-capabilities";
 import { ConnectionProgress, Overview } from "./overview-view";
-import { singleFlightEach } from "./single-flight.mjs";
+import { singleFlight } from "./single-flight.mjs";
 import { refreshResources, presentResourceFailures, retainOfflineInventory } from "./resource-health.mjs";
 import { presentReadiness } from "../shared/readiness";
 import {
@@ -114,15 +114,15 @@ function App() {
 
   // Each source coalesces on its own: a slow one (the hosted snapshot may take
   // 30 s) keeps its request in flight without delaying the connection status.
-  const requests = useMemo(() => singleFlightEach({
-    status: () => window.mdbaseConnect.status(),
-    collections: () => window.mdbaseConnect.listCollections(),
-    startup: () => window.mdbaseConnect.getLaunchAtLogin(),
-    cloud: () => window.mdbaseConnect.getCloudConfig(),
-    access: () => window.mdbaseConnect.accessSnapshot(),
-    activity: () => window.mdbaseConnect.listActivity(100),
-    hosted: () => window.mdbaseConnect.hostedSnapshot(),
-    mirrors: () => window.mdbaseConnect.listMirrors()
+  const requests = useMemo(() => ({
+    status: singleFlight(() => window.mdbaseConnect.status()),
+    collections: singleFlight(() => window.mdbaseConnect.listCollections()),
+    startup: singleFlight(() => window.mdbaseConnect.getLaunchAtLogin()),
+    cloud: singleFlight(() => window.mdbaseConnect.getCloudConfig()),
+    access: singleFlight(() => window.mdbaseConnect.accessSnapshot()),
+    activity: singleFlight(() => window.mdbaseConnect.listActivity(100)),
+    hosted: singleFlight(() => window.mdbaseConnect.hostedSnapshot()),
+    mirrors: singleFlight(() => window.mdbaseConnect.listMirrors())
   }), []);
   const latestRefresh = useRef(0);
   const refresh = useCallback(async (_quiet = false) => {
