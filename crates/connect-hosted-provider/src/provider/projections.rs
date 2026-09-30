@@ -721,6 +721,31 @@ impl HostedProvider {
     }
 }
 
+/// The active generation when every current record projection can be trusted
+/// for this catalog and engine, otherwise None. `collection` must select the
+/// head and every active projection binding column.
+pub(super) fn current_projection_generation(
+    collection: &sqlx::postgres::PgRow,
+    catalog: &mdbase::runtime::CompiledCatalog,
+) -> Option<Uuid> {
+    let generation_id = collection.get::<Option<Uuid>, _>("active_projection_generation_id");
+    let current = collection
+        .get::<Option<String>, _>("active_catalog_revision")
+        .as_deref()
+        == Some(catalog.resource_revision())
+        && collection
+            .get::<Option<i32>, _>("active_projection_format_version")
+            .and_then(|value| u32::try_from(value).ok())
+            == Some(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION)
+        && collection
+            .get::<Option<String>, _>("active_semantic_engine_version")
+            .as_deref()
+            == Some(mdbase::VERSION)
+        && collection.get::<Option<i64>, _>("active_projection_head")
+            == Some(collection.get::<i64, _>("head"));
+    generation_id.filter(|_| current)
+}
+
 fn projection_generation_from_row(
     collection_id: Uuid,
     row: &sqlx::postgres::PgRow,

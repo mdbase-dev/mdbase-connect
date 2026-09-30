@@ -1,6 +1,6 @@
 use super::mutation_journal::{HostedMutationClaim, HostedMutationLease};
 use super::operation_reads::{compile_point_catalog, load_direct_record, DirectRecordIdentity};
-use super::projections::ActiveProjectionChange;
+use super::projections::{current_projection_generation, ActiveProjectionChange};
 use super::*;
 
 struct MutationExecution<'a> {
@@ -166,8 +166,10 @@ impl HostedProvider {
     ) -> ApiResult<OperationResult> {
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
-            r#"SELECT resource_revision, resources_ciphertext, wrapped_data_key,
-                      active_projection_generation_id
+            r#"SELECT head, resource_revision, resources_ciphertext, wrapped_data_key,
+                      active_projection_generation_id, active_catalog_revision,
+                      active_projection_format_version, active_semantic_engine_version,
+                      active_projection_head
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active'"#,
         )
@@ -320,7 +322,9 @@ impl HostedProvider {
         let collection = sqlx::query(
             r#"SELECT head, record_count, content_bytes, max_records,
                       max_content_bytes, max_document_bytes, resource_revision,
-                      resources_ciphertext, active_projection_generation_id
+                      resources_ciphertext, active_projection_generation_id,
+                      active_catalog_revision, active_projection_format_version,
+                      active_semantic_engine_version, active_projection_head
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active' FOR UPDATE"#,
         )

@@ -111,9 +111,10 @@ impl HostedProvider {
                           'hosted_provider_record_resolution_keys_current_idx',
                           'hosted_provider_record_relationships_target_idx',
                           'hosted_provider_record_relationships_unresolved_idx',
-                          'hosted_provider_record_relationships_current_idx'
+                          'hosted_provider_record_relationships_current_idx',
+                          'hosted_provider_record_projections_uniqueness_keys_idx'
                         )
-                    ) = 8
+                    ) = 9
                     AND (
                       SELECT count(*)
                       FROM pg_trigger trigger
