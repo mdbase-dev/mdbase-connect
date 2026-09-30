@@ -6916,11 +6916,23 @@ label.schema-value {
   color: var(--color-on-accent, white);
 }
 
+/* The YAML sits in a centred column. Its line numbers move in with it rather
+   than staying at the pane edge; 44px is roughly the line-number and lint
+   gutters' own width. The pane background keeps long lines from showing
+   through the numbers when scrolled sideways. */
+.type-source .cm-gutters {
+  background: var(--white);
+  padding-left: max(
+    0px,
+    calc(max(var(--type-source-gutter), (100% - 836px) / 2) - 44px)
+  );
+}
+
 .type-source .cm-content {
   padding: 18px max(
     var(--type-source-gutter),
     calc((100% - 836px) / 2)
-  ) 60px;
+  ) 60px 0;
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.6;
