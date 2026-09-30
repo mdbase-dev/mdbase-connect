@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Approving an application no longer re-reads the whole local collection.
+  Activation and account-driven setup finished with a full runtime
+  synchronization that parses every record; setup is a runtime mutation, so
+  it is now finalized like any other, and an application that declares no
+  setup finalizes nothing. On a synthetic 30,000-note TaskNotes collection
+  each approval saves about 0.9 s: a first approval takes 3.4 s instead of
+  4.4 s, and a repeat approval 0.15 s instead of 1 s. The agent logs each
+  activation's phase timings (`application authorization activated`) and
+  each requested runtime reconciliation's queue, synchronization and
+  finalization time (`runtime reconciliation completed`).
 - Permission reviews survive background refreshes; changed access requires a new
   review. Pairing retries the same request after network interruptions and can
   reopen the browser without starting over. Successful account changes are no
@@ -13,7 +23,6 @@
   keeps errors inside it. Collection-row failures stay beside their controls;
   folder-opening failures are no longer ignored. Synced-folder conflicts now
   offer exact Markdown comparisons or binary metadata before choosing a winner.
-
 - The desktop app's connection status no longer freezes behind a slow
   refresh: each source refreshes on its own, so a hosted-collection snapshot
   that takes up to 30 s cannot hold "Connecting securely…" on screen. Pairing

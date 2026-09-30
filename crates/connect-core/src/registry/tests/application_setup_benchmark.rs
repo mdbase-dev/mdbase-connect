@@ -25,7 +25,8 @@ fn timed<T>(notes: usize, round: usize, phase: &str, work: impl FnOnce() -> T) -
 }
 
 /// Connector-side activation as `AuthorizationActivationRequest` performs it,
-/// excluding signature and grant bookkeeping that is independent of collection size.
+/// excluding signature and grant bookkeeping that is independent of collection size
+/// and the finalizer queue the agent's finalization waits in.
 fn activate(
     registry: &CollectionRegistry,
     id: Uuid,

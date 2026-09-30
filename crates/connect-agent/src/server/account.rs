@@ -365,7 +365,7 @@ impl AgentState {
             provisions,
             contract_setups,
         )?;
-        self.watcher.rescan(collection_id);
+        self.watcher.finalize(collection_id)?;
         let mut collection = self.registry.get(collection_id)?;
         collection.contracts = setup.contracts;
         Ok(collection.contracts)
