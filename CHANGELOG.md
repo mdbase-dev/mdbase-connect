@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The desktop app's connection status no longer freezes behind a slow
+  refresh: each source refreshes on its own, so a hosted-collection snapshot
+  that takes up to 30 s cannot hold "Connecting securely…" on screen. Pairing
+  requests to the server time out after 10 s with an error instead of waiting
+  indefinitely.
 - Hosted Obsidian Base views work again in collections whose tasks link to
   other notes without an extension, after TaskNotes' setup added `base` as a
   record extension. mdbase-rs `7bd18f1` (0.4.0-rc.6) records the extension

@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { chromium, _electron as electron } from "playwright-core";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -39,6 +39,8 @@ let environment;
 let pairingApp;
 let connectedApp;
 let portalBrowser;
+// Recent Electron output, renderer console and window per launched profile.
+const desktopDiagnostics = new Map();
 
 try {
   editor = await startEditorServer();
@@ -331,6 +333,7 @@ try {
   process.stdout.write("Docker-backed Electron end-to-end path passed\n");
 } catch (error) {
   await environment?.compose(["logs", "--no-color"]).catch(() => {});
+  await printDesktopDiagnostics();
   throw error;
 } finally {
   for (const userData of [pairingData, connectedData].filter(Boolean)) {
@@ -386,8 +389,8 @@ async function startEditorServer() {
   return { server, origin: `http://127.0.0.1:${address.port}` };
 }
 
-function launchDesktop(userData, connectorToken) {
-  return electron.launch({
+async function launchDesktop(userData, connectorToken) {
+  const application = await electron.launch({
     cwd: desktopRoot,
     args: [
       ...(process.platform === "linux" ? ["--ozone-platform=x11"] : []),
@@ -410,6 +413,52 @@ function launchDesktop(userData, connectorToken) {
         : {})
     }
   });
+  captureDesktop(userData, application);
+  return application;
+}
+
+function captureDesktop(userData, application) {
+  const lines = [];
+  const record = (line) => {
+    lines.push(line);
+    if (lines.length > 400) lines.shift();
+  };
+  const observe = (window) => window.on("console", (message) => {
+    record(`[renderer ${message.type()}] ${message.text()}`);
+  });
+  const child = application.process();
+  child.stdout?.on("data", (chunk) => record(`[main] ${String(chunk).trimEnd()}`));
+  child.stderr?.on("data", (chunk) => record(`[main stderr] ${String(chunk).trimEnd()}`));
+  application.windows().forEach(observe);
+  application.on("window", observe);
+  desktopDiagnostics.set(userData, { application, lines });
+}
+
+async function printDesktopDiagnostics() {
+  for (const [userData, { application, lines }] of desktopDiagnostics) {
+    process.stdout.write(`\n== desktop diagnostics: ${userData}\n${lines.join("\n")}\n`);
+    for (const window of application.windows()) {
+      const text = await Promise.race([
+        window.evaluate(() => document.body?.innerText.slice(0, 4_000) ?? ""),
+        new Promise((resolveText) => setTimeout(() => resolveText("(window did not respond)"), 2_000))
+      ]).catch((error) => `(window unavailable: ${error.message})`);
+      process.stdout.write(`-- window text\n${text}\n`);
+    }
+    for (const log of await findFiles(resolve(userData, "connect-home"), "daemon.log")) {
+      const content = await readFile(log, "utf8").catch(() => "");
+      process.stdout.write(`-- ${log}\n${content.split("\n").slice(-200).join("\n")}\n`);
+    }
+  }
+}
+
+async function findFiles(directory, name) {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+  const nested = await Promise.all(entries.map((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return findFiles(path, name);
+    return entry.name === name ? [path] : [];
+  }));
+  return nested.flat();
 }
 
 async function waitForDesktopHeading(window, name) {

@@ -4,7 +4,7 @@ import {
   type ApplicationAccessGroup
 } from "@mdbase/connect-ui/access";
 import "@mdbase/connect-ui/styles.css";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Collections } from "./collections-view";
 import { CollectionCompletionReceipt } from "./completion-receipt";
@@ -112,39 +112,54 @@ function App() {
   const [initialRefreshComplete, setInitialRefreshComplete] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
 
-  const runRefresh = useCallback(async (_quiet = false) => {
+  // Each source coalesces on its own: a slow one (the hosted snapshot may take
+  // 30 s) keeps its request in flight without delaying the connection status.
+  const requests = useMemo(() => ({
+    status: singleFlight(() => window.mdbaseConnect.status()),
+    collections: singleFlight(() => window.mdbaseConnect.listCollections()),
+    startup: singleFlight(() => window.mdbaseConnect.getLaunchAtLogin()),
+    cloud: singleFlight(() => window.mdbaseConnect.getCloudConfig()),
+    access: singleFlight(() => window.mdbaseConnect.accessSnapshot()),
+    activity: singleFlight(() => window.mdbaseConnect.listActivity(100)),
+    hosted: singleFlight(() => window.mdbaseConnect.hostedSnapshot()),
+    mirrors: singleFlight(() => window.mdbaseConnect.listMirrors())
+  }), []);
+  const latestRefresh = useRef(0);
+  const refresh = useCallback(async (_quiet = false) => {
+    const generation = ++latestRefresh.current;
     let configured: boolean | undefined;
     const failures = await refreshResources({
-      connector: () => window.mdbaseConnect.status().then((next) => {
+      connector: () => requests.status().then((next) => {
         setStatus(next);
         const health = presentReadiness(next.readiness);
         if (health.state !== "ready") throw new Error(health.label);
       }),
-      collections: () => window.mdbaseConnect.listCollections().then(setCollections),
-      startup: () => window.mdbaseConnect.getLaunchAtLogin().then(setStartup),
-      account: () => window.mdbaseConnect.getCloudConfig().then((next) => {
+      collections: () => requests.collections().then(setCollections),
+      startup: () => requests.startup().then(setStartup),
+      account: () => requests.cloud().then((next) => {
         configured = next.configured;
         setCloud(next);
       }),
-      access: () => window.mdbaseConnect.accessSnapshot().then((next) => {
+      access: () => requests.access().then((next) => {
         setAccess((current) => !next.configured ? next : retainOfflineInventory(current, next));
         if (next.configured && !next.online) throw new Error("Application access is offline.");
       }),
-      activity: () => window.mdbaseConnect.listActivity(100).then(setActivity),
-      hosted: () => window.mdbaseConnect.hostedSnapshot().then((next) => {
+      activity: () => requests.activity().then(setActivity),
+      hosted: () => requests.hosted().then((next) => {
         setHosted((current) => retainOfflineInventory(current, next));
         if (!next.online) throw new Error("Hosted collections are offline.");
       }),
-      mirrors: () => window.mdbaseConnect.listMirrors().then(setMirrors)
+      mirrors: () => requests.mirrors().then(setMirrors)
     });
+    // A newer refresh owns the summary once it has started.
+    if (generation !== latestRefresh.current) return;
     if (configured === false) {
       setHosted({ online: false, hosted_collections_available: false, hosted_collections: [], grants: [], pending_authorizations: [] });
       delete failures.hosted;
     }
     setResourceFailures(failures);
     setInitialRefreshComplete(true);
-  }, []);
-  const refresh = useMemo(() => singleFlight(runRefresh), [runRefresh]);
+  }, [requests]);
 
   useEffect(() => {
     void refresh();
