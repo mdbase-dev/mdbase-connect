@@ -1814,7 +1814,11 @@ async fn setup_turns_hosted_bases_into_records_that_list_run_and_edit() {
     };
 
     // Ordinary records exist before setup, as in any used collection.
-    let project = operation("create", json!({"path": "projects/alpha.md", "frontmatter": {"title": "Alpha"}})).await;
+    let project = operation(
+        "create",
+        json!({"path": "projects/alpha.md", "frontmatter": {"title": "Alpha"}}),
+    )
+    .await;
     assert_eq!(project["valid"], true, "{project}");
     for (path, status, tags) in [
         ("tasks/open.md", "open", json!([])),
@@ -1950,7 +1954,11 @@ async fn setup_turns_hosted_bases_into_records_that_list_run_and_edit() {
     )
     .await;
     assert_eq!(today["valid"], true, "{today}");
-    let executed = operation("execute_view", json!({"path": "views/today.base", "view": "today"})).await;
+    let executed = operation(
+        "execute_view",
+        json!({"path": "views/today.base", "view": "today"}),
+    )
+    .await;
     assert_eq!(executed["valid"], true, "{executed}");
     let paths = executed["result"]["results"]
         .as_array()
