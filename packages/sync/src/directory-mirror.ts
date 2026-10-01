@@ -465,12 +465,6 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       throw new SyncError("mirror_conflict_not_found", "Writable mirror conflict was not found.");
     }
     if ((planned.decision_id ?? "") !== decisionId) throw staleConflict();
-    const revalidator = new PlanRevalidator(this.fileSystem, this.runtime);
-    if (planned.local.state === "exact") {
-      await revalidator.validateExpected(planned.local);
-    } else if (planned.remote.state === "exact") {
-      await revalidator.validateExpectedAt(planned.remote.object.path, planned.local);
-    }
     const snapshot = await loadMirrorSnapshot(
       this.replicaId,
       this.transport,
@@ -488,6 +482,14 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       ? recordStateMatches(planned.remote, currentRecord)
       : fileStateMatches(planned.remote, currentFile);
     if (!remoteMatches) throw staleConflict();
+    // Snapshot loading can take arbitrarily long. Fence the decision's local
+    // bytes after that network wait, not before it.
+    const revalidator = new PlanRevalidator(this.fileSystem, this.runtime);
+    if (planned.local.state === "exact") {
+      await revalidator.validateExpected(planned.local);
+    } else if (planned.remote.state === "exact") {
+      await revalidator.validateExpectedAt(planned.remote.object.path, planned.local);
+    }
     if (resolution === "remote") {
       if (planned.entity === "record") {
         await this.installRemoteRecord(state, identity, currentRecord);
@@ -506,14 +508,12 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     current: SyncRecord<Frontmatter> | undefined
   ): Promise<void> {
     if (current) {
-      const conflict = state.planned_conflicts?.[identity];
-      const acceptedDocument = await this.fileSystem.read(current.path);
-      const pathBelongsToIdentity = state.records[identity]?.path === current.path
-        || (conflict?.local.state === "exact" && conflict.local.object.path === current.path);
+      // Accept only the local version named by the conflict decision. Never
+      // authorize whatever bytes happen to be present after an async reread.
+      const local = state.planned_conflicts?.[identity]?.local;
       await this.materializer.put(state, current, {
-        inspectionPreflighted: false,
-        ...(pathBelongsToIdentity && acceptedDocument !== null
-          ? { acceptedHash: this.runtime.digest(acceptedDocument) }
+        ...(local?.state === "exact" && local.object.path === current.path
+          ? { acceptedHash: local.object.payload_revision.replace(/^sha256:/u, "") }
           : {})
       });
       return;

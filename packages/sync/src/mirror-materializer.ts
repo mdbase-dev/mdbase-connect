@@ -180,7 +180,8 @@ export class MirrorMaterializer {
     if (!sameBinaryInfo(target, file)) {
       await this.fileSystem.writeBinary(
         file.path,
-        verifiedFileBytes(this.blobStore.read(file.content_digest), file)
+        verifiedFileBytes(this.blobStore.read(file.content_digest), file),
+        target
       );
     }
     if (prior && prior.file.path !== file.path) {

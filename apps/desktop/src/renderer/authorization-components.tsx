@@ -1,9 +1,10 @@
 import React from "react";
 import type { RequestCapabilityGroup } from "./application-capabilities";
 
-export function RequestPermissionChoices({ groups, selected, onChange }: {
+export function RequestPermissionChoices({ groups, selected, disabled, onChange }: {
   groups: RequestCapabilityGroup[];
   selected: string[];
+  disabled: boolean;
   onChange(value: string[]): void;
 }) {
   const selectedSet = new Set(selected);
@@ -21,19 +22,19 @@ export function RequestPermissionChoices({ groups, selected, onChange }: {
       <summary>
         <span>
           <strong>{selectedGroups.map((group) => group.label).join(" · ")}</strong>
-          <small>{selectedGroups.length} of {groups.length} capabilities enabled. Optional capabilities can only be removed as complete groups.</small>
+          <small>{selectedGroups.length} of {groups.length} capabilities enabled. Optional capabilities can only be removed as complete groups.{selectedGroups.some((group) => group.higherImpact) ? " Includes higher-impact access." : ""}</small>
         </span>
         <b>Details</b>
       </summary>
       <div className="request-permission-groups">{groups.map((group) => (
         <fieldset key={group.id}>
-          <legend>{group.label}</legend>
+          <legend>{group.label}{group.higherImpact ? " · Higher impact" : ""}</legend>
           <p>{group.description}</p>
           <div><label>
             <input
               type="checkbox"
               checked={group.operations.every((operation) => selectedSet.has(operation))}
-              disabled={group.required}
+              disabled={disabled || group.required}
               onChange={(event) => toggle(group, event.target.checked)}
             />
             <span>{group.required ? "Required by this application" : "Allow this capability"}</span>
