@@ -53,7 +53,11 @@ Application replicas resolve a stale record explicitly with
 rebases it as a new idempotent mutation; keeping the remote version discards
 only that record's queued mutations. In writable mirrors, planned conflicts for
 records keep the last common version as `ancestor_document`, so a host can
-offer a three-way merge.
+offer a three-way merge. A writable directory mirror accepts
+`resolveConflict(identity, decisionId, "local", mergedDocument)` to install the
+merged record conditionally before clearing its durable conflict. Both local
+and authority versions are revalidated; failed writes or a crash leave the
+conflict recoverable rather than authorizing an unmerged upload.
 
 The in-process reference authority remains useful for deterministic contract
 tests. Production uses `mdbase-connect-hosted-provider`: normalized encrypted

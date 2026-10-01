@@ -49,8 +49,6 @@ export async function prepareSyncBatch(
     plan.mode,
     plan.selective_sync
   );
-  state.scope_epoch = plan.scope_epoch;
-  state.selective_sync = plan.selective_sync;
   const checkpoint = plan.actions.at(-1);
   if (checkpoint?.command !== "advance_checkpoint") {
     throw new SyncError("invalid_sync_plan", "Prepared plan has no checkpoint action.");

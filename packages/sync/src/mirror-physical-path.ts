@@ -84,18 +84,25 @@ export function assertFilePhysicalPathAvailable(
   }
 }
 
-export function assertNoPhysicalPathAliases(paths: Iterable<string>): void {
-  const physicalPaths = new Map<string, string>();
-  for (const path of paths) {
-    const physicalPath = physicalMirrorPathKey(path);
-    const existing = physicalPaths.get(physicalPath);
-    if (existing !== undefined && existing !== path) {
+/** Raw names denote distinct local entries. Across replicas, two spellings
+ * of a known stable object are a rename, not a collision. */
+export function assertNoPhysicalPathAliases(
+  paths: Iterable<string | { path: string; entity: string; identity: string }>
+): void {
+  const physicalPaths = new Map<string, { path: string; entity: string; identity: string }>();
+  for (const value of paths) {
+    const object = typeof value === "string" ? { path: value, entity: "local", identity: value } : value;
+    const key = physicalMirrorPathKey(object.path);
+    const existing = physicalPaths.get(key);
+    if (existing && existing.path !== object.path
+      && (existing.entity !== object.entity || existing.identity !== object.identity)) {
+      const [first, second] = [existing.path, object.path].sort();
       throw new SyncError(
         "invalid_record_path",
-        `Mirror paths ${existing} and ${path} alias on a supported filesystem.`
+        `Mirror paths ${first} and ${second} alias on a supported filesystem.`
       );
     }
-    physicalPaths.set(physicalPath, path);
+    physicalPaths.set(key, object);
   }
 }
 

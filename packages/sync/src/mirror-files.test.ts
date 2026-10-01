@@ -17,8 +17,10 @@ import type {
   SyncSnapshotRecord
 } from "@mdbase-dev/connect-protocol";
 import { describe, expect, it } from "vitest";
+import { CrashGate } from "../test/crash-gate.js";
 import { documentRevision } from "./mirror-format.js";
 import { pathSelected } from "./mirror-files.js";
+import { physicalMirrorPathKey } from "./mirror-physical-path.js";
 import {
   DirectoryMirror,
   MemoryMirrorBlobStore,
@@ -178,6 +180,8 @@ class FileTransport implements SyncTransport {
   failAfterUploadCommit = false;
   private fileSequence = 1;
   private readonly uploadReceipts = new Map<string, CommitFileUploadReceipt>();
+  private readonly moveReceipts = new Map<string, MoveFileReceipt>();
+  private readonly deleteReceipts = new Map<string, DeleteFileReceipt>();
   private readonly snapshots = new Map<string, SnapshotContext>();
   private snapshotSequence = 0;
 
@@ -294,6 +298,8 @@ class FileTransport implements SyncTransport {
 
   async moveFile(request: MoveFileRequest): Promise<MoveFileReceipt> {
     this.moveCalls.push(structuredClone(request));
+    const prior = this.moveReceipts.get(request.mutation_id);
+    if (prior) return structuredClone(prior);
     const current = this.files.find((candidate) => candidate.file_id === request.file_id);
     if (!current || current.path !== request.from_path || current.revision !== request.if_revision) {
       throw Object.assign(new Error("stale file revision"), { code: "stale_file_revision" });
@@ -306,11 +312,15 @@ class FileTransport implements SyncTransport {
     const value = this.bytes.get(request.file_id);
     if (value) this.revisionBytes.set(`${request.file_id}:${moved.revision}`, value);
     this.events.push({ sequence: this.nextEventSequence(), type: "file_put", file: moved });
-    return { protocol_version: 1, type: "file_moved", mutation_id: request.mutation_id, file: moved };
+    const receipt: MoveFileReceipt = { protocol_version: 1, type: "file_moved", mutation_id: request.mutation_id, file: moved };
+    this.moveReceipts.set(request.mutation_id, structuredClone(receipt));
+    return receipt;
   }
 
   async deleteFile(request: DeleteFileRequest): Promise<DeleteFileReceipt> {
     this.deleteCalls.push(structuredClone(request));
+    const prior = this.deleteReceipts.get(request.mutation_id);
+    if (prior) return structuredClone(prior);
     const current = this.files.find((candidate) => candidate.file_id === request.file_id);
     if (!current || current.path !== request.path || current.revision !== request.if_revision) {
       throw Object.assign(new Error("stale file revision"), { code: "stale_file_revision" });
@@ -325,7 +335,7 @@ class FileTransport implements SyncTransport {
       previous_path: request.path,
       revision
     });
-    return {
+    const receipt: DeleteFileReceipt = {
       protocol_version: 1,
       type: "file_deleted",
       mutation_id: request.mutation_id,
@@ -333,6 +343,8 @@ class FileTransport implements SyncTransport {
       previous_path: request.path,
       revision
     };
+    this.deleteReceipts.set(request.mutation_id, structuredClone(receipt));
+    return receipt;
   }
 
   async changes(after: number) {
@@ -438,6 +450,139 @@ function writableMirror(
 }
 
 describe("portable collection file mirror", () => {
+  it.each([true, false])("converges after every attachment await/stream boundary (initial=%s)", async (initial) => {
+    const fixture = async () => {
+      const transport = new FileTransport();
+      transport.mode = "read_write";
+      const fileSystem = new BinaryFileSystem();
+      const stateStore = new MemoryMirrorStateStore();
+      const blobStore = new MemoryMirrorBlobStore();
+      const names = ["a", "b", "c", "d", "g", "h"];
+      const expected = new Map(names.map((name) => [`images/${name}.png`, utf8.encode(`original-${name}`)]));
+      transport.files = names.map((name, index) => file(
+        `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
+        `images/${name}.png`, expected.get(`images/${name}.png`)!
+      ));
+      for (const descriptor of transport.files) transport.bytes.set(descriptor.file_id, expected.get(descriptor.path)!);
+      const create = (gate?: CrashGate) => new WritableDirectoryMirror(transport.replicaId,
+        gate ? gate.wrap("transport", transport) : transport, {
+          fileSystem: gate ? gate.wrap("filesystem", fileSystem) : fileSystem,
+          stateStore: gate ? gate.wrap("state", stateStore) : stateStore,
+          blobStore: gate ? gate.wrap("blob", blobStore) : blobStore,
+          selectiveSync: { file_classes: ["image"], excluded_folders: [] }
+        });
+      if (!initial) {
+        await create().sync();
+        const a = { ...transport.files[0]!, ...file(transport.files[0]!.file_id, "images/a.png", utf8.encode("remote-a"), "file:remote-a") };
+        const c = { ...transport.files[2]!, path: "images/c-moved.png", revision: "file:remote-c" };
+        const d = transport.files[3]!;
+        transport.files = [a, transport.files[1]!, c, transport.files[4]!, transport.files[5]!];
+        transport.bytes.set(a.file_id, utf8.encode("remote-a"));
+        transport.events = [
+          { sequence: 1, type: "file_put", file: a },
+          { sequence: 2, type: "file_put", file: c },
+          { sequence: 3, type: "file_remove", file_id: d.file_id, previous_path: d.path, revision: "file:remote-d" }
+        ];
+        await fileSystem.move("images/b.png", "images/b-moved.png");
+        fileSystem.files.set("images/g.png", utf8.encode("local-g"));
+        fileSystem.files.set("images/e.png", utf8.encode("new-local-e"));
+        fileSystem.files.delete("images/h.png");
+        expected.set("images/a.png", utf8.encode("remote-a"));
+        expected.delete("images/b.png");
+        expected.set("images/b-moved.png", utf8.encode("original-b"));
+        expected.delete("images/c.png");
+        expected.set("images/c-moved.png", utf8.encode("original-c"));
+        expected.delete("images/d.png");
+        expected.set("images/g.png", utf8.encode("local-g"));
+        expected.set("images/e.png", utf8.encode("new-local-e"));
+        expected.delete("images/h.png");
+      }
+      return { transport, fileSystem, stateStore, blobStore, create, expected };
+    };
+    const baseline = await fixture();
+    const trace = new CrashGate();
+    const baselineResult = await baseline.create(trace).sync();
+    expect(baselineResult.status).toBe("applied");
+    expect(trace.trace).toContain("blob.read.next:after");
+    expect(trace.trace).toContain("state.appendJournal:after");
+
+    for (let cut = 0; cut < trace.trace.length; cut += 1) {
+      const context = await fixture();
+      const prior = await context.stateStore.read();
+      const gate = new CrashGate(cut);
+      await context.create(gate).sync().catch(() => undefined);
+      expect(gate.crashed, `${cut}: ${trace.trace[cut]}`).toBe(true);
+      const state = await context.stateStore.read();
+      if (state?.last_completed_plan === baselineResult.plan_fingerprint) {
+        expect(context.fileSystem.files).toEqual(context.expected);
+        expect(new Map(context.transport.files.map((file) =>
+          [file.path, context.transport.bytes.get(file.file_id)]))).toEqual(context.expected);
+      } else expect(state?.cursor ?? null).toBe(prior?.cursor ?? (state ? 0 : null));
+      const restarted = context.create();
+      for (let retry = 0; retry < 3; retry += 1) expect((await restarted.sync()).status).toBe("applied");
+      expect((await restarted.inspect()).actions).toEqual([]);
+      expect(context.fileSystem.files).toEqual(context.expected);
+      expect(context.transport.files).toHaveLength(context.expected.size);
+      expect(context.transport.events).toHaveLength(baseline.transport.events.length);
+      expect(new Set(context.transport.files.map((file) => file.path)).size).toBe(context.expected.size);
+      expect(Object.keys((await context.stateStore.read())!.files!)).toHaveLength(context.expected.size);
+      for (const descriptor of context.transport.files) {
+        expect(context.transport.bytes.get(descriptor.file_id)).toEqual(context.expected.get(descriptor.path));
+      }
+    }
+  }, 30_000);
+
+  it("recovers remote file rename decisions after every await/stream boundary without source duplication", async () => {
+    const fixture = async () => {
+      const transport = new FileTransport();
+      transport.mode = "read_write";
+      const fileSystem = new BinaryFileSystem();
+      const stateStore = new MemoryMirrorStateStore();
+      const blobStore = new MemoryMirrorBlobStore();
+      const fileId = "00000000-0000-4000-8000-000000000052";
+      const initial = file(fileId, "images/original.png", utf8.encode("original image"));
+      transport.files = [initial];
+      transport.bytes.set(fileId, utf8.encode("original image"));
+      const create = (gate?: CrashGate) => new WritableDirectoryMirror(transport.replicaId,
+        gate ? gate.wrap("transport", transport) : transport, {
+          fileSystem: gate ? gate.wrap("filesystem", fileSystem) : fileSystem,
+          stateStore: gate ? gate.wrap("state", stateStore) : stateStore,
+          blobStore: gate ? gate.wrap("blob", blobStore) : blobStore,
+          selectiveSync: { file_classes: ["image"], excluded_folders: [] }
+        });
+      await create().sync();
+      fileSystem.files.set(initial.path, utf8.encode("accepted local edit"));
+      const remote = file(fileId, "images/renamed.png", utf8.encode("remote image"), "file:remote");
+      transport.files = [remote];
+      transport.bytes.set(fileId, utf8.encode("remote image"));
+      transport.events.push({ sequence: 1, type: "file_put", file: remote });
+      expect((await create().sync()).status).toBe("attention");
+      return { transport, fileSystem, stateStore, create, fileId, remote };
+    };
+    const baseline = await fixture();
+    const trace = new CrashGate();
+    await baseline.create(trace).resolveConflict(baseline.fileId,
+      (await baseline.stateStore.read())!.planned_conflicts![baseline.fileId]!.decision_id!, "remote");
+    expect(trace.trace).toContain("transport.downloadFile.next:after");
+    for (let cut = 0; cut < trace.trace.length; cut += 1) {
+      const context = await fixture();
+      const gate = new CrashGate(cut);
+      await context.create(gate).resolveConflict(context.fileId,
+        (await context.stateStore.read())!.planned_conflicts![context.fileId]!.decision_id!, "remote").catch(() => undefined);
+      expect(gate.crashed, `${cut}: ${trace.trace[cut]}`).toBe(true);
+      for (let retry = 0; retry < 3; retry += 1) {
+        await context.create().sync();
+        const conflict = (await context.stateStore.read())!.planned_conflicts?.[context.fileId];
+        if (conflict) await context.create().resolveConflict(context.fileId, conflict.decision_id!, "remote");
+      }
+      expect((await context.create().inspect()).actions).toEqual([]);
+      expect(context.fileSystem.files).toEqual(new Map([[context.remote.path, utf8.encode("remote image")]]));
+      expect(context.transport.files).toEqual([context.remote]);
+      expect(context.transport.events).toHaveLength(1);
+      expect(context.transport.uploadCalls).toEqual([]);
+    }
+  });
+
   it("keeps metadata-only as the safe default", async () => {
     const transport = new FileTransport();
     const bytes = utf8.encode("image bytes");
@@ -546,6 +691,70 @@ describe("portable collection file mirror", () => {
     expect((await target.status()).conflicts).toEqual([]);
   });
 
+  it.each(["same", "renamed", "spelling"])("fences local file edits after downloading a %s remote conflict decision", async (pathKind) => {
+    const fileSystem = new BinaryFileSystem();
+    const originalPath = "images/original.png";
+    const latest = utf8.encode("new local edit made during the remote decision download");
+    class RacingTransport extends FileTransport {
+      race = false;
+      override async *downloadFile(descriptor: CollectionFileDescriptor): AsyncGenerator<Uint8Array> {
+        for await (const chunk of super.downloadFile(descriptor)) {
+          if (this.race) fileSystem.files.set(originalPath, latest);
+          yield chunk;
+        }
+      }
+    }
+    const transport = new RacingTransport();
+    const original = utf8.encode("original image");
+    const remote = utf8.encode("remote image changed after authority rename");
+    const fileId = "00000000-0000-4000-8000-000000000051";
+    const descriptor = file(fileId, originalPath, original);
+    transport.files = [descriptor];
+    transport.bytes.set(fileId, original);
+    const { mirror: target, stateStore } = writableMirror(transport, fileSystem);
+    await target.sync();
+    fileSystem.files.set(originalPath, utf8.encode("accepted local edit"));
+    const remotePath = pathKind === "same" ? originalPath
+      : pathKind === "spelling" ? "Images/Original.png" : "images/renamed.png";
+    const changed = file(fileId, remotePath, remote, "file:remote");
+    transport.files = [changed];
+    transport.bytes.set(fileId, remote);
+    transport.events.push({ sequence: 1, type: "file_put", file: changed });
+    expect((await target.sync()).status).toBe("attention");
+    const before = (await stateStore.read())!;
+    transport.race = true;
+
+    await expect(target.resolveConflict(fileId, before.planned_conflicts![fileId]!.decision_id!, "remote"))
+      .rejects.toMatchObject({ code: "sync_plan_stale" });
+    expect(fileSystem.files.get(originalPath)).toEqual(latest);
+    expect((await stateStore.read())!.planned_conflicts).toEqual(before.planned_conflicts);
+    if (pathKind !== "same") expect(fileSystem.files.has(changed.path)).toBe(false);
+
+    transport.race = false;
+    await target.sync();
+    await target.resolveConflict(fileId, (await stateStore.read())!.planned_conflicts![fileId]!.decision_id!, "remote");
+    expect(fileSystem.files.get(changed.path)).toEqual(remote);
+    if (pathKind !== "same") expect(fileSystem.files.has(originalPath)).toBe(false);
+    expect((await target.inspect()).actions).toEqual([]);
+  });
+
+  it("refuses merged text for a binary file conflict", async () => {
+    const transport = new FileTransport();
+    const remote = utf8.encode("remote image");
+    const descriptor = file("00000000-0000-4000-8000-000000000041", "images/conflicted.png", remote);
+    transport.files = [descriptor];
+    transport.bytes.set(descriptor.file_id, remote);
+    const fileSystem = new BinaryFileSystem();
+    fileSystem.files.set(descriptor.path, utf8.encode("local image"));
+    const { mirror: target, stateStore } = writableMirror(transport, fileSystem);
+    expect((await target.sync()).status).toBe("attention");
+    const conflict = (await stateStore.read())!.planned_conflicts![descriptor.file_id]!;
+    await expect(target.resolveConflict(descriptor.file_id, conflict.decision_id!, "local", "merged text"))
+      .rejects.toMatchObject({ code: "invalid_conflict_resolution" });
+    expect((await stateStore.read())!.planned_conflicts![descriptor.file_id]).toEqual(conflict);
+    expect(text.decode(fileSystem.files.get(descriptor.path))).toBe("local image");
+  });
+
   it("matches excluded folders by portable Unicode identity", () => {
     const policy = {
       file_classes: ["image" as const],
@@ -554,6 +763,69 @@ describe("portable collection file mirror", () => {
 
     expect(pathSelected(policy, "PRIVAT\u0065\u0301/photo.png")).toBe(false);
     expect(pathSelected(policy, "Privat\u00e9 2/photo.png")).toBe(true);
+  });
+
+  it.each(["local", "remote"])("stages file spelling renames from %s on insensitive filesystems", async (direction) => {
+    class InsensitiveFileSystem extends BinaryFileSystem {
+      private actual(path: string) {
+        return [...this.files.keys()].find((candidate) => physicalMirrorPathKey(candidate) === physicalMirrorPathKey(path)) ?? path;
+      }
+      override async exists(path: string) { return this.files.has(this.actual(path)); }
+      override async read(path: string) { return super.read(this.actual(path)); }
+      override async inspectBinary(path: string) { return super.inspectBinary(this.actual(path)); }
+    }
+    const transport = new FileTransport();
+    const bytes = utf8.encode("image bytes");
+    const descriptor = file("00000000-0000-4000-8000-000000000038", "images/café.png", bytes);
+    const renamed = "Images/cafe\u0301.png";
+    transport.files = [descriptor];
+    transport.bytes.set(descriptor.file_id, bytes);
+    const { mirror: target, fileSystem, stateStore } = writableMirror(transport, new InsensitiveFileSystem());
+    await target.sync();
+    if (direction === "local") {
+      fileSystem.files.delete(descriptor.path);
+      fileSystem.files.set(renamed, utf8.encode("replacement with spelling rename"));
+    } else {
+      await transport.moveFile({
+        protocol_version: 1, type: "move_file", mutation_id: "00000000-0000-4000-8000-000000000039",
+        file_id: descriptor.file_id, from_path: descriptor.path, path: renamed,
+        if_revision: descriptor.revision, update_references: false
+      });
+    }
+    expect((await target.sync()).status).toBe("applied");
+    expect((await target.sync()).status).toBe("applied");
+    expect((await target.inspect()).actions).toEqual([]);
+    expect([...fileSystem.files.keys()]).toEqual([renamed]);
+    expect(Object.keys((await stateStore.read())!.files!)).toEqual([descriptor.file_id]);
+    expect(transport.files).toHaveLength(1);
+    expect(transport.files[0]?.path).toBe(renamed);
+  });
+
+  it.each(["NFC", "NFD"] as const)("does not upload file rename echoes from Unicode-%s enumeration", async (normalization) => {
+    class NormalizingFileSystem extends BinaryFileSystem {
+      private actual(path: string) {
+        return [...this.files.keys()].find((candidate) => physicalMirrorPathKey(candidate) === physicalMirrorPathKey(path)) ?? path;
+      }
+      override async exists(path: string) { return this.files.has(this.actual(path)); }
+      override async inspectBinary(path: string) { return super.inspectBinary(this.actual(path)); }
+      override async listBinary(excluded: ReadonlySet<string>) {
+        return (await super.listBinary(excluded)).map((path) => path.normalize(normalization));
+      }
+    }
+    const transport = new FileTransport();
+    const bytes = utf8.encode("image bytes");
+    const path = "images/café.png".normalize(normalization === "NFD" ? "NFC" : "NFD");
+    const descriptor = file("00000000-0000-4000-8000-000000000040", path, bytes);
+    transport.files = [descriptor];
+    transport.bytes.set(descriptor.file_id, bytes);
+    const { mirror: target, stateStore } = writableMirror(transport, new NormalizingFileSystem());
+    await target.sync();
+
+    expect((await target.inspect()).actions).toEqual([]);
+    expect((await target.sync()).status).toBe("applied");
+    expect(transport.moveCalls).toEqual([]);
+    expect(transport.uploadCalls).toEqual([]);
+    expect((await stateStore.read())!.files![descriptor.file_id]!.file.path).toBe(path);
   });
 
   it("reconciles policy changes without deleting authority data", async () => {
@@ -580,6 +852,51 @@ describe("portable collection file mirror", () => {
     await mirror(transport, fileSystem, stateStore).mirror.sync();
     expect(fileSystem.files.get("Archive/photo.png")).toEqual(bytes);
     expect(text.decode(fileSystem.files.get("Archive/note.md"))).toBe("archived");
+  });
+
+  it("keeps the old selection until blocked snapshot-only records can be installed", async () => {
+    const transport = new FileTransport();
+    const archived = record("archived", "Archive/new.md", "newly selected record");
+    transport.records = [record("main", "main.md", "main base"), archived];
+    class ObstructedFileSystem extends BinaryFileSystem {
+      blocked = true;
+      async pathKind(path: string): Promise<"file" | "folder" | null> {
+        if (this.blocked && path === archived.path) return "folder";
+        return this.files.has(path) ? "file" : null;
+      }
+    }
+    const fileSystem = new ObstructedFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const oldPolicy = { file_classes: ["image" as const], excluded_folders: ["Archive"] };
+    const newPolicy = { file_classes: ["image" as const], excluded_folders: [] as string[] };
+    await mirror(transport, fileSystem, stateStore, oldPolicy).mirror.sync();
+    const updated = record("main", "main.md", "independent remote edit");
+    transport.records = [updated, archived];
+    transport.events = [{ sequence: 1, type: "put", record: updated as SyncRecord }];
+    const target = mirror(transport, fileSystem, stateStore, newPolicy).mirror;
+
+    expect((await target.sync()).status).toBe("attention");
+    expect(text.decode(fileSystem.files.get("main.md"))).toBe("independent remote edit");
+    expect((await stateStore.read())?.selective_sync).toEqual(oldPolicy);
+    fileSystem.blocked = false;
+    expect((await target.sync()).status).toBe("applied");
+    expect(text.decode(fileSystem.files.get(archived.path))).toBe(archived.document);
+    expect((await stateStore.read())?.selective_sync).toEqual(newPolicy);
+    expect((await target.inspect()).actions).toEqual([]);
+  });
+
+  it("effectless selection changes are checkpointed once, not rebuilt forever", async () => {
+    const transport = new FileTransport();
+    transport.records = [record("main", "main.md", "main")];
+    const fileSystem = new BinaryFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    await mirror(transport, fileSystem, stateStore, { file_classes: [], excluded_folders: [] }).mirror.sync();
+    const policy = { file_classes: ["image" as const], excluded_folders: [] as string[] };
+    const target = mirror(transport, fileSystem, stateStore, policy).mirror;
+
+    expect((await target.sync()).status).toBe("applied");
+    expect((await stateStore.read())?.selective_sync).toEqual(policy);
+    expect((await target.inspect()).kind).toBe("incremental");
   });
 
   it("rebuilds an updated file over its last verified projection", async () => {
@@ -964,6 +1281,41 @@ describe("portable collection file mirror", () => {
     expect((await target.sync()).status).toBe("applied");
     expect(Object.keys((await stateStore.read())!.files!)).toEqual([descriptor.file_id]);
     expect(transport.events).toHaveLength(1);
+  });
+
+  it("rejects new upload receipts that steal another managed file identity", async () => {
+    const knownId = "00000000-0000-4000-8000-000000000053";
+    class AliasingTransport extends FileTransport {
+      corrupt = true;
+      override async uploadFile(request: OpenFileUploadRequest, source: AsyncIterable<Uint8Array>) {
+        const receipt = await super.uploadFile(request, source);
+        return this.corrupt ? { ...receipt, file: { ...receipt.file, file_id: knownId } } : receipt;
+      }
+    }
+    const transport = new AliasingTransport();
+    const bytes = utf8.encode("managed original");
+    const descriptor = file(knownId, "images/managed.png", bytes);
+    transport.files = [descriptor];
+    transport.bytes.set(knownId, bytes);
+    const { mirror: target, fileSystem, stateStore } = writableMirror(transport);
+    await target.sync();
+    const before = (await stateStore.read())!;
+    fileSystem.files.set("images/new.png", utf8.encode("new independent image"));
+
+    expect(await target.sync()).toMatchObject({ status: "failed", failure: { code: "invalid_sync_response" } });
+    expect((await stateStore.read())!.files).toEqual(before.files);
+    expect((await stateStore.read())!.generation).toBe(before.generation);
+    expect((await stateStore.read())!.batch?.receipts).toEqual([]);
+    transport.corrupt = false;
+    expect((await target.sync()).status).toBe("applied");
+    expect(transport.uploadCalls[1]?.transfer_id).toBe(transport.uploadCalls[0]?.transfer_id);
+    expect((await stateStore.read())!.files![knownId]!.file).toEqual(descriptor);
+    expect(Object.keys((await stateStore.read())!.files!)).toHaveLength(2);
+    expect(transport.events).toHaveLength(1);
+    // Recovery checkpoints the originally inspected head; observe the
+    // already-committed upload event in one subsequent no-effect pass.
+    expect((await target.sync()).status).toBe("applied");
+    expect((await target.inspect()).actions).toEqual([]);
   });
 
   it("journals authority-assigned identities so a new attachment can be deleted after restart", async () => {

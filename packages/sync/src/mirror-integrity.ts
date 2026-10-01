@@ -1,4 +1,4 @@
-import { MirrorDivergenceError } from "./mirror-errors.js";
+import { MirrorDivergenceError } from "./sync-error.js";
 import {
   validateRecordPath,
   type MirrorRecordPathPolicy

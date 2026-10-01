@@ -4,6 +4,7 @@ import { MemoryAuthority, type SyncTransport } from "./index.js";
 import { classifyLocalRecord, documentRevision, parseRecordDocument } from "./mirror-format.js";
 import { SyncError } from "./sync-error.js";
 import type { SyncJournalEvent } from "./sync-journal.js";
+import { physicalMirrorPathKey } from "./mirror-physical-path.js";
 import {
   DirectoryMirror,
   MemoryMirrorLease,
@@ -120,6 +121,30 @@ class ConditionalFileSystem extends TestFileSystem {
   }
 }
 
+class CaseInsensitiveFileSystem extends TestFileSystem {
+  private actualPath(path: string) {
+    return [...this.files.keys()].find((candidate) => physicalMirrorPathKey(candidate) === physicalMirrorPathKey(path));
+  }
+  override async exists(path: string) { return this.actualPath(path) !== undefined; }
+  override async read(path: string) { return this.files.get(this.actualPath(path) ?? path) ?? null; }
+  override async readText(path: string) { return this.read(path); }
+  override async write(path: string, value: string, expected?: string | null) {
+    if (expected !== undefined && await this.read(path) !== expected) throw new SyncError("sync_plan_stale", "Changed write target");
+    const existing = this.actualPath(path);
+    if (existing) this.files.delete(existing);
+    this.files.set(path, value);
+  }
+  override async move(source: string, target: string) {
+    const actual = this.actualPath(source);
+    if (!actual) throw new Error("missing case-insensitive source");
+    if (this.actualPath(target)) throw new Error("case-insensitive target already exists");
+    const document = this.files.get(actual)!;
+    this.files.delete(actual);
+    this.files.set(target, document);
+  }
+  override async remove(path: string) { this.files.delete(this.actualPath(path) ?? path); }
+}
+
 class CountingStateStore extends MemoryMirrorStateStore {
   reads = 0;
   writes = 0;
@@ -159,7 +184,128 @@ function records(count: number) {
   });
 }
 
+async function mergedConflictFixture(
+  stateStore = new MemoryMirrorStateStore(), fileSystem = new ConditionalFileSystem()
+) {
+  const hosted = new MemoryAuthority();
+  hosted.seed(records(1));
+  const replicaId = hosted.registerReplica({ name: "Merged conflict mirror", mode: "read_write" });
+  const transport = hosted.transport(replicaId);
+  const path = "notes/00000.md";
+  const local = "local edit\n";
+  const remote = records(1)[0]!.document;
+  const merged = `${remote}\n${local}`;
+  fileSystem.files.set(path, local);
+  const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+  expect((await mirror.sync()).status).toBe("attention");
+  const conflict = (await stateStore.read())!.planned_conflicts!["portable-0"]!;
+  return { hosted, replicaId, transport, path, local, remote, merged, fileSystem, stateStore, mirror, conflict };
+}
+
 describe("platform-neutral directory mirror", () => {
+  it("conditionally writes both merged versions before clearing a local conflict", async () => {
+    const context = await mergedConflictFixture();
+    await context.mirror.resolveConflict("portable-0", context.conflict.decision_id!, "local", context.merged);
+    expect(context.fileSystem.files.get(context.path)).toBe(context.merged);
+    expect(context.fileSystem.expectations.at(-1)).toBe(context.local);
+    expect((await context.stateStore.read())!.planned_conflicts).toEqual({});
+    expect((await context.mirror.sync()).status).toBe("applied");
+    expect(context.hosted.serialize().records[0]!.document).toBe(context.merged);
+  });
+
+  it.each(["failed_write", "competing_edit"])("retains the conflict after merged resolution hits a %s", async (fault) => {
+    const context = await mergedConflictFixture();
+    context.fileSystem.beforeWrite = (path) => {
+      if (fault === "failed_write") throw new Error("merge write failed");
+      context.fileSystem.files.set(path, "newer concurrent edit");
+    };
+    await expect(context.mirror.resolveConflict("portable-0", context.conflict.decision_id!, "local", context.merged))
+      .rejects.toThrow();
+    expect((await context.stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(context.conflict);
+    expect(context.fileSystem.files.get(context.path)).toBe(fault === "failed_write" ? context.local : "newer concurrent edit");
+    expect(context.hosted.serialize().records[0]!.document).toBe(context.remote);
+  });
+
+  it("recovers a merged write committed before clearing its durable conflict", async () => {
+    class InterruptedClearStore extends MemoryMirrorStateStore {
+      failClear = false;
+      override async write(state: MirrorState) {
+        if (this.failClear && !state.planned_conflicts?.["portable-0"]) throw new Error("crash before conflict clear");
+        await super.write(state);
+      }
+    }
+    const stateStore = new InterruptedClearStore();
+    const context = await mergedConflictFixture(stateStore);
+    stateStore.failClear = true;
+    await expect(context.mirror.resolveConflict("portable-0", context.conflict.decision_id!, "local", context.merged))
+      .rejects.toThrow("crash before conflict clear");
+    expect(context.fileSystem.files.get(context.path)).toBe(context.merged);
+    expect((await stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(context.conflict);
+    stateStore.failClear = false;
+    const restarted = new WritableDirectoryMirror(context.replicaId, context.transport, {
+      fileSystem: context.fileSystem, stateStore
+    });
+    expect((await restarted.sync()).status).toBe("attention");
+    expect(context.hosted.serialize().records[0]!.document).toBe(context.remote);
+    const updated = (await stateStore.read())!.planned_conflicts!["portable-0"]!;
+    expect(updated.decision_id).not.toBe(context.conflict.decision_id);
+    await restarted.resolveConflict("portable-0", updated.decision_id!, "local");
+    expect((await restarted.sync()).status).toBe("applied");
+    expect(context.hosted.serialize().records[0]!.document).toBe(context.merged);
+  });
+
+  it("revalidates a merge after loading the hosted snapshot", async () => {
+    const context = await mergedConflictFixture();
+    const racing = new WritableDirectoryMirror(context.replicaId, {
+      ...context.transport,
+      openSession: async () => {
+        const session = await context.transport.openSession();
+        context.fileSystem.files.set(context.path, "newer edit during snapshot");
+        return session;
+      }
+    }, { fileSystem: context.fileSystem, stateStore: context.stateStore });
+    await expect(racing.resolveConflict("portable-0", context.conflict.decision_id!, "local", context.merged))
+      .rejects.toMatchObject({ code: "sync_plan_stale" });
+    expect(context.fileSystem.files.get(context.path)).toBe("newer edit during snapshot");
+    expect((await context.stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(context.conflict);
+  });
+
+  it("checks the decision's exact document revision again before writing merged text", async () => {
+    class ChangedRereadFileSystem extends ConditionalFileSystem {
+      race = false;
+      override async read(path: string) {
+        if (this.race) this.files.set(path, "newer edit before merge reread");
+        return super.read(path);
+      }
+    }
+    const fileSystem = new ChangedRereadFileSystem();
+    const context = await mergedConflictFixture(new MemoryMirrorStateStore(), fileSystem);
+    fileSystem.race = true;
+    await expect(context.mirror.resolveConflict("portable-0", context.conflict.decision_id!, "local", context.merged))
+      .rejects.toMatchObject({ code: "mirror_conflict_stale" });
+    expect(fileSystem.files.get(context.path)).toBe("newer edit before merge reread");
+    expect((await context.stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(context.conflict);
+  });
+
+  it("requires an exact local record for a merged resolution", async () => {
+    const context = await mergedConflictFixture();
+    context.fileSystem.files.delete(context.path);
+    expect((await context.mirror.sync()).status).toBe("attention");
+    const updated = (await context.stateStore.read())!.planned_conflicts!["portable-0"]!;
+    expect(updated.local.state).toBe("absent");
+    await expect(context.mirror.resolveConflict("portable-0", updated.decision_id!, "local", context.merged))
+      .rejects.toMatchObject({ code: "invalid_conflict_resolution" });
+    expect(context.fileSystem.files.has(context.path)).toBe(false);
+    expect((await context.stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(updated);
+  });
+
+  it("refuses a merged document when choosing the remote version", async () => {
+    const context = await mergedConflictFixture();
+    await expect(context.mirror.resolveConflict("portable-0", context.conflict.decision_id!, "remote", context.merged))
+      .rejects.toMatchObject({ code: "invalid_conflict_resolution" });
+    expect(context.fileSystem.files.get(context.path)).toBe(context.local);
+    expect((await context.stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(context.conflict);
+  });
   it("serializes empty frontmatter as body-only Markdown without changing bytes", () => {
     for (const body of ["", "# Note", "# Note\n", "---\nNot a complete frontmatter block"]) {
       expect(recordMarkdownDocument({
@@ -349,6 +495,95 @@ describe("platform-neutral directory mirror", () => {
 
     await expect(mirror.apply(reviewed)).rejects.toMatchObject({
       code: "mirror_recovery_required"
+    });
+  });
+
+  it.each([
+    ["notes/original.md", "Notes/Original.md", "local"],
+    ["notes/original.md", "Notes/Original.md", "remote"],
+    ["notes/café.md", "notes/cafe\u0301.md", "local"],
+    ["notes/café.md", "notes/cafe\u0301.md", "remote"]
+  ])("converges a portable spelling rename %s -> %s from %s", async (source, target, direction) => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{ ...records(1)[0]!, path: source! }]);
+    const replicaId = hosted.registerReplica({ name: "Portable rename mirror", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new CaseInsensitiveFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+    await mirror.sync();
+    const prior = (await stateStore.read())!.records["portable-0"]!;
+    const edited = `${records(1)[0]!.document}\nedit with rename`;
+    if (direction === "local") {
+      fileSystem.files.delete(source!);
+      fileSystem.files.set(target!, edited);
+    } else {
+      expect((await transport.mutate({
+        operation: "move", mutation_id: "portable-rename", replica_id: replicaId, scope_epoch: 1,
+        record_id: "portable-0", base_revision: prior.revision, path: target!,
+        created_at: "2026-10-01T00:00:00.000Z"
+      })).status).toBe("applied");
+    }
+
+    expect((await mirror.sync()).status).toBe("applied");
+    expect((await mirror.sync()).status).toBe("applied");
+    expect((await mirror.inspect()).actions).toEqual([]);
+    expect([...fileSystem.files.keys()]).toEqual([target]);
+    expect(fileSystem.files.get(target!)).toBe(direction === "local" ? edited : prior.record!.document);
+    expect(hosted.serialize().records).toHaveLength(1);
+    const authorityPath = direction === "local" && source!.normalize("NFC") === target!.normalize("NFC") ? source : target;
+    expect((await stateStore.read())!.records["portable-0"]!.path).toBe(authorityPath);
+    expect(hosted.serialize().records[0]!.path).toBe(authorityPath);
+  });
+
+  it.each(["NFC", "NFD"] as const)("does not echo Unicode-%s directory enumeration back to the authority", async (normalization) => {
+    class NormalizingFileSystem extends CaseInsensitiveFileSystem {
+      override async listMarkdown(excluded: ReadonlySet<string>) {
+        return (await super.listMarkdown(excluded)).map((path) => path.normalize(normalization));
+      }
+    }
+    const hosted = new MemoryAuthority();
+    const path = "notes/café.md".normalize(normalization === "NFD" ? "NFC" : "NFD");
+    hosted.seed([{ ...records(1)[0]!, path }]);
+    const replicaId = hosted.registerReplica({ name: "Normalizing mirror", mode: "read_write" });
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem: new NormalizingFileSystem(), stateStore
+    });
+    await mirror.sync();
+
+    expect((await mirror.inspect()).actions).toEqual([]);
+    expect((await mirror.sync()).status).toBe("applied");
+    expect(hosted.serialize().changes).toEqual([]);
+    expect((await stateStore.read())!.records["portable-0"]!.path).toBe(path);
+  });
+
+  it("keeps a deleted record's conflict identity when its local spelling changes", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Conflicted spelling mirror", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new CaseInsensitiveFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+    await mirror.sync();
+    const original = (await stateStore.read())!.records["portable-0"]!;
+    fileSystem.files.set(original.path, "local conflicted edit");
+    await transport.mutate({
+      operation: "delete", mutation_id: "delete-then-spelling", replica_id: replicaId, scope_epoch: 1,
+      record_id: "portable-0", base_revision: original.revision, created_at: "2026-10-01T00:00:00.000Z"
+    });
+    expect((await mirror.sync()).status).toBe("attention");
+    const renamed = "Notes/00000.md";
+    fileSystem.files.delete(original.path);
+    fileSystem.files.set(renamed, "newer edit with spelling change");
+
+    expect((await mirror.sync()).status).toBe("attention");
+    expect(hosted.serialize().records).toEqual([]);
+    const state = (await stateStore.read())!;
+    expect(Object.keys(state.planned_conflicts!)).toEqual(["portable-0"]);
+    expect(state.planned_conflicts!["portable-0"]).toMatchObject({
+      local: { object: { path: renamed } }, ancestor_document: original.record!.document
     });
   });
 
@@ -639,6 +874,84 @@ describe("platform-neutral directory mirror", () => {
     expect(reviewed.status.state).toBe("changes_waiting");
   });
 
+  it.each([
+    ["renamed.md", false], ["Notes/00000.md", false], ["Notes/00000.md", true]
+  ] as const)("removes the accepted local source when resolving a rename conflict to %s remotely (insensitive=%s)", async (remotePath, insensitive) => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Rename resolution mirror", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = insensitive ? new CaseInsensitiveFileSystem() : new ConditionalFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+    await mirror.sync();
+    const original = (await stateStore.read())!.records["portable-0"]!;
+    fileSystem.files.set(original.path, "local edit at old path");
+    await transport.mutate({
+      operation: "move", mutation_id: "remote-rename-conflict", replica_id: replicaId, scope_epoch: 1,
+      record_id: "portable-0", base_revision: original.revision, path: remotePath,
+      created_at: "2026-10-01T00:00:00.000Z"
+    });
+    expect((await mirror.sync()).status).toBe("attention");
+    const conflict = (await stateStore.read())!.planned_conflicts!["portable-0"]!;
+    await mirror.resolveConflict("portable-0", conflict.decision_id!, "remote");
+
+    expect(fileSystem.files.has(original.path)).toBe(false);
+    expect(fileSystem.files.get(remotePath)).toBe(original.record!.document);
+    expect((await mirror.sync()).status).toBe("applied");
+    expect(hosted.serialize().records).toHaveLength(1);
+    expect((await mirror.inspect()).actions).toEqual([]);
+  });
+
+  it("does not overwrite a different local conflict at a late authority move destination", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(2));
+    const replicaId = hosted.registerReplica({ name: "Owner-fenced resolver", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new ConditionalFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    let race = false;
+    const mirror = new WritableDirectoryMirror(replicaId, {
+      ...transport,
+      mutate: async (mutation) => {
+        if (race) {
+          race = false;
+          await transport.mutate({
+            operation: "move", mutation_id: "late-move", replica_id: replicaId, scope_epoch: 1,
+            record_id: "portable-0", base_revision: mutation.operation === "put" ? mutation.base_revision! : "",
+            path: "notes/00001.md", created_at: "2026-10-01T00:00:00.000Z"
+          });
+          await transport.mutate({
+            operation: "put", mutation_id: "late-edit", replica_id: replicaId, scope_epoch: 1,
+            record_id: "portable-0", base_revision: mutation.operation === "put" ? mutation.base_revision! : "",
+            path: "notes/00001.md", document: "hosted edit at moved path", created_at: "2026-10-01T00:00:00.000Z"
+          });
+        }
+        return transport.mutate(mutation);
+      }
+    }, { fileSystem, stateStore });
+    await mirror.sync();
+    const original = (await stateStore.read())!.records;
+    fileSystem.files.set("notes/00001.md", "same local bytes, distinct record edit");
+    await transport.mutate({
+      operation: "delete", mutation_id: "delete-second", replica_id: replicaId, scope_epoch: 1,
+      record_id: "portable-1", base_revision: original["portable-1"]!.revision,
+      created_at: "2026-10-01T00:00:00.000Z"
+    });
+    expect((await mirror.sync()).status).toBe("attention");
+    fileSystem.files.set("notes/00000.md", "same local bytes, distinct record edit");
+    race = true;
+    expect((await mirror.sync()).status).toBe("attention");
+    const before = (await stateStore.read())!;
+    const conflict = before.planned_conflicts!["portable-0"]!;
+    expect(conflict.remote).toMatchObject({ object: { path: "notes/00001.md" } });
+
+    await expect(mirror.resolveConflict("portable-0", conflict.decision_id!, "remote"))
+      .rejects.toMatchObject({ code: "sync_plan_stale" });
+    expect(fileSystem.files.get("notes/00001.md")).toBe("same local bytes, distinct record edit");
+    expect((await stateStore.read())!.planned_conflicts).toEqual(before.planned_conflicts);
+  });
+
   it("keeps a record conflict's last common version as its ancestor until it is resolved", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(1));
@@ -737,6 +1050,100 @@ describe("platform-neutral directory mirror", () => {
       expect(Object.keys((await stateStore.read())!.records)).toEqual(["portable-0"]);
       expect(hosted.serialize().changes).toHaveLength(1);
     });
+
+  it.each(["record_not_found", "scope_denied", "schema_validation_failed"])(
+    "classifies rejected %s receipts without disguising permission/rule failures", async (code) => {
+      const hosted = new MemoryAuthority();
+      hosted.seed(records(1));
+      const replicaId = hosted.registerReplica({ name: "Hosted rejection mirror", mode: "read_write" });
+      const transport = hosted.transport(replicaId);
+      const fileSystem = new TestFileSystem();
+      const stateStore = new MemoryMirrorStateStore();
+      let race = true;
+      const mirror = new WritableDirectoryMirror(replicaId, {
+        ...transport,
+        mutate: async (mutation) => {
+          if (race) {
+            race = false;
+            if (code === "record_not_found") {
+              await transport.mutate({
+                operation: "delete", mutation_id: "committed-hosted-delete", replica_id: replicaId, scope_epoch: 1,
+                record_id: "portable-0", base_revision: mutation.operation === "put" ? mutation.base_revision! : "",
+                created_at: "2026-10-01T00:00:00.000Z"
+              });
+            }
+            return { mutation_id: mutation.mutation_id, status: "rejected", error: { code, message: code } };
+          }
+          return transport.mutate(mutation);
+        }
+      }, { fileSystem, stateStore });
+      await mirror.sync();
+      const ancestor = records(1)[0]!.document;
+      const local = `${ancestor}\nlocal edit beats delete`;
+      fileSystem.files.set("notes/00000.md", local);
+
+      expect((await mirror.sync()).status).toBe("attention");
+      const state = (await stateStore.read())!;
+      const conflict = state.planned_conflicts!["portable-0"]!;
+      const missing = code === "record_not_found";
+      expect(conflict).toMatchObject({
+        conflict_kind: missing ? "delete_vs_change" : "rejected",
+        remote: { state: missing ? "absent" : "exact" }, ancestor_document: ancestor
+      });
+      expect((await mirror.checkpointStatus()).conflicts[0]?.kind).toBe(missing ? "conflicted" : "rejected");
+      if (missing) {
+        expect(state.records["portable-0"]).toBeUndefined();
+        await mirror.resolveConflict("portable-0", conflict.decision_id!, "local");
+        expect((await mirror.sync()).status).toBe("applied");
+        expect(hosted.serialize().records[0]).toMatchObject({ record_id: "portable-0", document: local });
+      } else {
+        expect(state.records["portable-0"]?.record?.document).toBe(ancestor);
+        expect(hosted.serialize().records[0]!.document).toBe(ancestor);
+      }
+    });
+
+  it.each(["local", "remote"] as const)("captures an absent authority record in a late upload conflict resolved %s", async (resolution) => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Late-delete mirror", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    let race = true;
+    const mirror = new WritableDirectoryMirror(replicaId, {
+      ...transport,
+      mutate: async (mutation) => {
+        if (race) {
+          race = false;
+          await transport.mutate({
+            operation: "delete", mutation_id: "competing-delete", replica_id: replicaId, scope_epoch: 1,
+            record_id: "portable-0", base_revision: mutation.operation === "put" ? mutation.base_revision! : "",
+            created_at: "2026-10-01T00:00:00.000Z"
+          });
+        }
+        return transport.mutate(mutation);
+      }
+    }, { fileSystem, stateStore });
+    await mirror.sync();
+    const ancestor = records(1)[0]!.document;
+    const local = `${ancestor}\nlocal edit`;
+    fileSystem.files.set("notes/00000.md", local);
+    expect((await mirror.sync()).status).toBe("attention");
+    const state = (await stateStore.read())!;
+    const conflict = state.planned_conflicts!["portable-0"]!;
+    expect(conflict).toMatchObject({ remote: { state: "absent" }, ancestor_document: ancestor });
+    expect(state.records["portable-0"]).toBeUndefined();
+
+    await mirror.resolveConflict("portable-0", conflict.decision_id!, resolution);
+    expect((await mirror.sync()).status).toBe("applied");
+    if (resolution === "local") {
+      expect(hosted.serialize().records[0]).toMatchObject({ record_id: "portable-0", document: local });
+      expect(fileSystem.files.get("notes/00000.md")).toBe(local);
+    } else {
+      expect(hosted.serialize().records).toEqual([]);
+      expect(fileSystem.files.has("notes/00000.md")).toBe(false);
+    }
+  });
 
   it("keeps the ancestor when the authority reports the conflict on upload", async () => {
     // Two devices edit at once: the hosted record changes after this device
@@ -1001,6 +1408,38 @@ describe("platform-neutral directory mirror", () => {
     });
   });
 
+  it("does not publish a partially rebuilt scope and forget blocked newly visible records", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([...records(2), {
+      record_id: "newly-visible", path: "newly-visible.md", document: "---\ntype: private\n---\nprivate body",
+      frontmatter: { type: "private" }, body: "private body", types: ["private"]
+    }]);
+    const replicaId = hosted.registerReplica({ name: "Expanding scope mirror", mode: "read_write", allowedTypes: ["note"] });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new ConditionalFileSystem();
+    fileSystem.folders.add("newly-visible.md");
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+    await mirror.sync();
+    const prior = (await stateStore.read())!;
+    await transport.mutate({
+      operation: "put", mutation_id: "scope-independent-edit", replica_id: replicaId, scope_epoch: 1,
+      record_id: "portable-1", base_revision: prior.records["portable-1"]!.revision,
+      path: "notes/00001.md", document: `${records(2)[1]!.document}\nindependent edit`,
+      created_at: "2026-10-01T00:00:00.000Z"
+    });
+    hosted.updateReplicaScope(replicaId, []);
+
+    expect((await mirror.sync()).status).toBe("attention");
+    expect(fileSystem.files.get("notes/00001.md")).toContain("independent edit");
+    expect((await stateStore.read())?.scope_epoch).toBe(1);
+    fileSystem.folders.delete("newly-visible.md");
+    expect((await mirror.sync()).status).toBe("applied");
+    expect(fileSystem.files.get("newly-visible.md")).toContain("private body");
+    expect((await stateStore.read())?.scope_epoch).toBe(2);
+    expect((await mirror.inspect()).actions).toEqual([]);
+  });
+
   it("publishes a new scope epoch even when rebuilding requires no effects", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(1));
@@ -1253,11 +1692,10 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
-  it("rejects exact, cross-platform, and same-record spelling aliases", async () => {
+  it("rejects exact and cross-platform aliases between different record owners", async () => {
     for (const { path, recordId } of [
       { path: "Notes/Example.md", recordId: "second" },
-      { path: "notes/example.md", recordId: "second" },
-      { path: "notes/example.md", recordId: "first" }
+      { path: "notes/example.md", recordId: "second" }
     ]) {
       const hosted = new MemoryAuthority();
       hosted.seed([{
@@ -1317,7 +1755,7 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
-  it("rejects a same-record spelling alias during reset rebuild", async () => {
+  it("stages a same-record spelling rename during reset rebuild", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed([{
       record_id: "first",
@@ -1371,12 +1809,9 @@ describe("platform-neutral directory mirror", () => {
     });
     forceReset = true;
 
-    await expect(mirror.sync()).resolves.toMatchObject({
-      status: "attention",
-      issues: [{ code: "invalid_record_path", blocking: true }]
-    });
-    expect(fileSystem.files.get("Notes/Example.md")).toBe("Stable bytes");
-    expect(fileSystem.files.has("notes/example.md")).toBe(false);
+    await expect(mirror.sync()).resolves.toMatchObject({ status: "applied", issues: [] });
+    expect(fileSystem.files.get("notes/example.md")).toBe("Stable bytes");
+    expect(fileSystem.files.has("Notes/Example.md")).toBe(false);
   });
 
   it("preflights a complete incremental page before writing aliased records", async () => {
@@ -2384,9 +2819,9 @@ describe("platform-neutral directory mirror", () => {
     expect(await stateStore.read()).toEqual(before);
   });
 
-  it("makes a 2,000-record no-op sync a zero-write operation", async () => {
+  it.each([2_000, 50_000])("makes a %i-record no-op inspection/sync linear and zero-write", async (count) => {
     const hosted = new MemoryAuthority({ snapshotPageSize: 100 });
-    hosted.seed(records(2_000));
+    hosted.seed(records(count));
     const replicaId = hosted.registerReplica({ name: "Large mobile vault", mode: "read_only" });
     const fileSystem = new TestFileSystem();
     const stateStore = new CountingStateStore();
@@ -2405,8 +2840,8 @@ describe("platform-neutral directory mirror", () => {
     const stateAfter = await stateStore.read();
     const planAfter = await mirror.inspect();
 
-    expect(fileSystem.reads).toBe(6_000);
-    expect(fileSystem.writes).toBe(2_000);
+    expect(fileSystem.reads).toBe(count * 3);
+    expect(fileSystem.writes).toBe(count);
     expect(stateStore.writes - writesBefore).toBe(0);
     expect(stateAfter).toEqual(stateBefore);
     expect(planBefore.actions).toEqual([]);
