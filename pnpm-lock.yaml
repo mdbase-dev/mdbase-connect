@@ -14,6 +14,7 @@ overrides:
   find-my-way: 9.7.0
   hono@<4.12.34: 4.12.34
   brace-expansion@<5.0.11: 5.0.11
+  devalue@<5.9.3: 5.9.3
   browserslist@<4.28.7: 4.28.7
   fast-uri@>=3.0.0 <3.1.8: 3.1.8
   fast-uri@>=4.0.0 <4.1.5: 4.1.5
@@ -2970,8 +2971,8 @@ packages:
   detect-node@2.1.0:
     resolution: {integrity: sha512-T0NIuQpnTvFDATNuHN5roPwSBG83rFsuO+MXXH9/3N1eFbn4wcPjttvjMLEPWJ0RGUYgQE7cGgS3tNxbqCGM7g==}
 
-  devalue@5.9.0:
-    resolution: {integrity: sha512-RWrqdArjvPbsATEhOPUo6Wndc/iWnkWKlhIrdlF3zMMYo/c3CVtoaVAyLtWxz5h8nSlkHzxnzV2uLydPXmtF+A==}
+  devalue@5.9.3:
+    resolution: {integrity: sha512-xRumYOCUZN/EesqHEU3WOXanOZNvfZFZ/o1AHVFDX1yI0UAkZkOgDXt341CzKoBVIkgQba55/+DjGBKrIoKcHw==}
 
   dir-compare@4.2.0:
     resolution: {integrity: sha512-2xMCmOoMrdQIPHdsTawECdNPwlVFB9zGcz3kuhmBO6U3oU+UQjsue0i8ayLKpgBcm+hcXPMVSGUN9d+pvJ6+VQ==}
@@ -7949,7 +7950,7 @@ snapshots:
   detect-node@2.1.0:
     optional: true
 
-  devalue@5.9.0: {}
+  devalue@5.9.3: {}
 
   dir-compare@4.2.0:
     dependencies:
@@ -10013,7 +10014,7 @@ snapshots:
       aria-query: 5.3.1
       axobject-query: 4.1.0
       clsx: 2.1.1
-      devalue: 5.9.0
+      devalue: 5.9.3
       esm-env: 1.2.2
       esrap: 2.3.2
       is-reference: 3.0.3
