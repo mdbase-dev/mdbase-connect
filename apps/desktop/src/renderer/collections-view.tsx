@@ -328,7 +328,7 @@ function StandaloneMirrorRow({ mirror, busy, onAct: run, onNotice }: {
   return <article className="collection-card standalone-mirror">
     <div className="collection-summary">
       <div className="collection-copy"><h3>{mirror.name}</h3><span className="authority-label">Synced folder · main copy hosted by mdbase</span></div>
-      <div className="collection-status" role="status">{!editing && <><StatusDot state={state.dot} />{state.label}</>}</div>
+      <div className="collection-status" role={editing ? undefined : "status"}>{!editing && <><StatusDot state={state.dot} />{state.label}</>}</div>
       <div className="row-actions"><button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : "Sync"}</button></div>
     </div>
     {error && <div className="message error-message" role="alert">{error}</div>}
@@ -795,7 +795,7 @@ function MirrorControl({ mirror, collectionName, busy, onAct, onNotice }: {
   return <div className="mirror-control">
     <div className="mirror-state-row">
       <StatusDot state={state.dot} />
-      <div><strong>{state.label}</strong><button className="path" title={mirror.path} onClick={() => void onAct(() => window.mdbaseConnect.openMirror(mirror.replica_id))}>{mirror.path}</button></div>
+      <div><strong role="status">{state.label}</strong><button className="path" title={mirror.path} onClick={() => void onAct(() => window.mdbaseConnect.openMirror(mirror.replica_id))}>{mirror.path}</button></div>
       <code>{mirror.mode === "read_write" ? "edits sync both ways" : "downloads updates only"}</code>
     </div>
     {mirror.progress && <small>{mirror.progress.phase === "uploading" ? "Uploading" : "Applying"} {mirror.progress.completed}{mirror.progress.total === null ? "" : ` of ${mirror.progress.total}`} changes…</small>}

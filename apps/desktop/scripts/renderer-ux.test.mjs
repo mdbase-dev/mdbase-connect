@@ -83,6 +83,7 @@ test("sync completion reports outstanding conflicts, not a false success", async
     await row.getByRole("button", { name: "Sync now" }).click();
     await row.locator(".mirror-state-row").getByText("Conflicts need a decision", { exact: true }).waitFor();
     assert.equal(await row.getByText("Conflicts need a decision", { exact: true }).count(), 1, "expanded mirror status has one reading location");
+    assert.equal(await row.getByRole("status").filter({ hasText: "Conflicts need a decision" }).count(), 1, "expanded status changes are announced without repeating the folder path");
     await screenshot(page, "conflict-completion");
     assert.equal(await page.getByText("Notes is synchronized.", { exact: true }).count(), 0);
     assert.match(await page.locator(".notice-message").innerText(), /Conflicts need a decision/);
@@ -117,6 +118,7 @@ test("cold-start offline keeps locally controlled synced folders visible and usa
     const localRow = page.locator(".standalone-mirror");
     await localRow.getByRole("button", { name: "Sync", exact: true }).click();
     assert.equal(await localRow.getByText("Up to date", { exact: true }).count(), 1, "standalone mirror status also has one reading location");
+    assert.equal(await localRow.getByRole("status").filter({ hasText: "Up to date" }).count(), 1);
     await page.evaluate(() => {
       window.fixture.openedFolders = [];
       window.mdbaseConnect.openMirror = async (id) => { window.fixture.openedFolders.push(id); };
