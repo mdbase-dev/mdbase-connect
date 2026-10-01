@@ -49,6 +49,63 @@ async function harness() {
 }
 
 describe("note navigation ownership and recovery", () => {
+  it("reads the remembered note while the collection description is pending", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const { notes } = await gateway.list();
+    const path = notes[0]!.path;
+    const description = await gateway.describe();
+    const gate = deferred();
+    vi.spyOn(gateway, "describe").mockImplementation(async () => {
+      await gate.promise;
+      return description;
+    });
+    const record = await gateway.read(path);
+    const read = vi.spyOn(gateway, "read").mockResolvedValue({
+      ...record,
+      types: ["note"],
+      frontmatter: { title: "Frontmatter title" },
+      effectiveFrontmatter: { title: "Frontmatter title" },
+      body: "No Markdown heading\n",
+      document: "---\ntitle: Frontmatter title\n---\nNo Markdown heading\n"
+    });
+    localStorage.setItem("mdbase-editor:last-note", path);
+    render(<App gateway={gateway} />);
+
+    await waitFor(() => expect(read).toHaveBeenCalledWith(path));
+    expect(screen.getByLabelText("Opening collection")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Note title" })).not.toBeInTheDocument();
+    await act(async () => gate.resolve());
+    await screen.findByDisplayValue("Frontmatter title");
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("No Markdown heading\n");
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards a pending startup read when collection description fails", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const { notes } = await gateway.list();
+    const path = notes[0]!.path;
+    const descriptionGate = deferred();
+    const readGate = deferred();
+    vi.spyOn(gateway, "describe").mockImplementation(async () => {
+      await descriptionGate.promise;
+      return DemoCollectionGateway.prototype.describe.call(gateway);
+    });
+    const read = vi.spyOn(gateway, "read").mockImplementation(async (path) => {
+      await readGate.promise;
+      return DemoCollectionGateway.prototype.read.call(gateway, path);
+    });
+    localStorage.setItem("mdbase-editor:last-note", path);
+    render(<App gateway={gateway} />);
+    await waitFor(() => expect(read).toHaveBeenCalledWith(path));
+    localStorage.removeItem("mdbase-editor:last-note");
+
+    await act(async () => descriptionGate.reject(new Error("Metadata unavailable")));
+    await screen.findByText("Metadata unavailable");
+    await act(async () => readGate.resolve());
+    expect(localStorage.getItem("mdbase-editor:last-note")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Note title" })).not.toBeInTheDocument();
+  });
+
   it("retries the first note directly when no document has opened yet", async () => {
     const gateway = new DemoCollectionGateway(1);
     const read = vi.spyOn(gateway, "read").mockRejectedValueOnce(new Error("First read failed"));

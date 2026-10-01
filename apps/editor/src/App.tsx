@@ -530,7 +530,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     updateNoteSummary(next);
   }, [gateway, refreshCachedNote, updateNoteSummary]);
 
-  const openNote = useCallback(async (path: string, options: NoteNavigationOptions = {}): Promise<boolean> => {
+  const openNote = useCallback(async (path: string, options: NoteNavigationOptions = {}, descriptionReady?: Promise<CollectionDescription | undefined>): Promise<boolean> => {
     const epoch = collectionEpoch.current;
     const generation = ++documentGeneration.current;
     const navigation = navigationGeneration.current;
@@ -553,18 +553,20 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setRenamePlan(undefined);
     renameRequest.current = undefined;
     setMobilePane("editor");
-    if (cached && !cached.deleted) {
-      activateSession(cached);
-      if (options.historyIndex === undefined) recordNoteNavigation(path);
-      else selectNoteHistoryIndex(options.historyIndex, path);
-      return true;
-    }
-    // Keep the active session (and its editor) until the next read succeeds.
-    // pendingNotePath identifies the requested row without claiming it is open.
-    setPendingNotePath(path);
-    setNoteLoading(true);
     try {
-      const next = await gateway.read(path);
+      if (cached && !cached.deleted) {
+        if (descriptionReady) await descriptionReady;
+        if (!current()) return false;
+        activateSession(cached);
+        if (options.historyIndex === undefined) recordNoteNavigation(path);
+        else selectNoteHistoryIndex(options.historyIndex, path);
+        return true;
+      }
+      // Keep the active session (and its editor) until the next read succeeds.
+      // Startup may fetch early, but title/body projection needs the type metadata.
+      setPendingNotePath(path);
+      setNoteLoading(true);
+      const [next] = await Promise.all([gateway.read(path), descriptionReady]);
       if (!current()) return false;
       adoptDocument(next);
       if (options.historyIndex === undefined) recordNoteNavigation(next.path);
@@ -604,13 +606,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNoteLoading(true);
     let descriptionLoaded = false;
     try {
-      const nextDescription = await refreshDescription(current);
+      const descriptionLoad = refreshDescription(current);
+      const remembered = localStorage.getItem("mdbase-editor:last-note");
+      // The session already authorized this collection. Fetch the remembered
+      // note alongside its description instead of paying another relay trip.
+      const rememberedNote = remembered ? openNote(remembered, {}, descriptionLoad) : Promise.resolve(false);
+      const nextDescription = await descriptionLoad;
       if (!current() || !nextDescription) return;
       descriptionLoaded = true;
       setNotice(undefined);
       setPhase("ready");
-      const remembered = localStorage.getItem("mdbase-editor:last-note");
-      let opened = remembered ? await openNote(remembered) : false;
+      let opened = await rememberedNote;
       if (!current() || navigation !== navigationGeneration.current) return;
       if (!opened) {
         setNoteLoading(true);
@@ -629,6 +635,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       if (!current()) return;
       setNoteLoading(false);
       setNotice(gatewayError(error));
+      if (!descriptionLoaded) ++documentGeneration.current;
       setPhase(descriptionLoaded && gateway.sessionSnapshot().status === "ready" ? "ready" : "disconnected");
     }
   }, [fileController, gateway, indexController, openNote, refreshDescription]);
