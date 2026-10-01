@@ -198,12 +198,13 @@ MDBASE_CONNECT_ENV=test MDBASE_CONNECT_SECRET_BACKEND=insecure-test-file \
   -- --ignored --nocapture
 ```
 
-Run it as an unprivileged Unix user. It currently fails: a denied write followed
-by recovered permissions, a confirmed write and an external edit leaves a
-retained engine transaction requiring manual recovery at reopen. Remove the
-ignore when the pinned `mdbase-rs` recovery defect is fixed; do not bypass the
-engine's safety boundary or delete journals to make this test pass. The
-confirmed-write control without a permission fault runs in the normal fast tier.
+Run it as an unprivileged Unix user. It currently fails: a denied write leaves
+a retained engine transaction requiring manual recovery at reopen, even after
+permissions recover and the original bytes are verified unchanged. No later
+write or external edit is required. Remove the ignore when the pinned
+`mdbase-rs` recovery defect is fixed; do not bypass the engine's safety boundary
+or delete journals to make this test pass. The confirmed-write/external-edit
+control without a permission fault runs in the normal fast tier.
 
 ## Consumer repository tests
 
