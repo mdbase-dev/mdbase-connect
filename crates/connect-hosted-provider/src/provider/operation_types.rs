@@ -61,10 +61,14 @@ impl HostedProvider {
             )
             .await?;
         }
+        // Definitions change the catalog/head, never the collection's key.
+        // Keep writers serialized without blocking projection INSERTs' implicit
+        // FK KEY SHARE lock: a batch already holds its generation row, which
+        // catalog invalidation below needs before this transaction can commit.
         let collection = sqlx::query(
             r#"SELECT head, wrapped_data_key, resources_ciphertext, max_document_bytes
                FROM hosted_provider_collections
-               WHERE id = $1 AND state = 'active' FOR UPDATE"#,
+               WHERE id = $1 AND state = 'active' FOR NO KEY UPDATE"#,
         )
         .bind(collection_id)
         .fetch_optional(&mut *transaction)
