@@ -191,6 +191,8 @@ export function Collections({
     history.push(collection);
     retiredByLocalId.set(collection.transferred_collection_id, history);
   }
+  const hostedIds = new Set(hosted.hosted_collections.map((collection) => collection.id));
+  const standaloneMirrors = mirrors.filter((mirror) => !hostedIds.has(mirror.collection_id));
   const visibleHosted = hosted.hosted_collections.filter((collection) =>
     collection.authority_state !== "transferred"
       || !collection.transferred_collection_id
@@ -281,7 +283,9 @@ export function Collections({
           count={visibleHosted.length}
         />
         {visibleHosted.length === 0 ? (
-          <Empty title="No hosted collections" text="Create one to keep its main copy available without this computer, with an optional synced folder here." />
+          hosted.online || !cloudConfigured
+            ? <Empty title="No hosted collections" text="Create one to keep its main copy available without this computer, with an optional synced folder here." />
+            : <Empty title="Hosted collections unavailable" text="Your hosted collection list will return when the connection is restored. Existing synced folders remain on this computer." />
         ) : (
           <div className="collection-list">
             {visibleHosted.map((collection) => (
@@ -304,8 +308,37 @@ export function Collections({
           </div>
         )}
       </div>
+      {standaloneMirrors.length > 0 && <div className="collection-authority-group">
+        <SectionHeading title="Synced folders on this computer" note="These folders remain on this computer even when their hosted collection details are unavailable." count={standaloneMirrors.length} />
+        <div className="collection-list">{standaloneMirrors.map((mirror) => <StandaloneMirrorRow key={mirror.replica_id} mirror={mirror} busy={busy} onAct={onAct} onNotice={onNotice} />)}</div>
+      </div>}
     </section>
   );
+}
+
+function StandaloneMirrorRow({ mirror, busy, onAct: run, onNotice }: {
+  mirror: DesktopMirrorSummary;
+  busy: boolean;
+  onAct(action: () => Promise<void>): Promise<void>;
+  onNotice(value: string): void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const { act: onAct, error } = useLocalAction(run);
+  const state = mirrorState(mirror);
+  return <article className="collection-card standalone-mirror">
+    <div className="collection-summary">
+      <div className="collection-copy"><h3>{mirror.name}</h3><span className="authority-label">Synced folder · main copy hosted by mdbase</span></div>
+      <div className="collection-status" role="status"><StatusDot state={state.dot} />{state.label}</div>
+      <div className="row-actions"><button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : "Sync"}</button></div>
+    </div>
+    {error && <div className="message error-message" role="alert">{error}</div>}
+    {editing && <div className="collection-editor">
+      <section className="collection-editor-section mirror-section">
+        <div><strong>Synced folder</strong><small>Collection details will return when the connection is restored.</small></div>
+        <MirrorControl mirror={mirror} collectionName={mirror.name} busy={busy} onAct={onAct} onNotice={onNotice} />
+      </section>
+    </div>}
+  </article>;
 }
 
 function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, openDetails, busy, onTargetHandled, onAct: run, onTransfer: transfer, onTransferComplete, onNotice }: {
@@ -548,9 +581,6 @@ function HostedCollectionRow({
     if (!editing) setName(collection.display_name);
   }, [collection.display_name, editing]);
   useEffect(() => {
-    setSyncPolicy(mirror?.selective_sync ?? emptySelectiveSyncPolicy());
-  }, [mirror?.replica_id, JSON.stringify(mirror?.selective_sync)]);
-  useEffect(() => {
     if (mirror?.promotion_pending) setPromotionReviewing(true);
   }, [mirror?.promotion_pending]);
 
@@ -579,13 +609,18 @@ function HostedCollectionRow({
                 : `Main copy hosted by mdbase · ${activeReplicas.length} synced ${plural(activeReplicas.length, "folder", "folders")}`}
           </span>
         </div>
-        <div className="collection-status">
-          <StatusDot state={collection.authority_state === "active" ? "connected" : "idle"} />
-          {collection.authority_state === "active"
-            ? "Available"
-            : collection.authority_state === "transferred"
-              ? "Moved"
-              : "Moving"}
+        <div className="collection-status-stack">
+          <div className="collection-status">
+            <StatusDot state={collection.authority_state === "active" ? "connected" : "idle"} />
+            {collection.authority_state === "active"
+              ? "Available"
+              : collection.authority_state === "transferred"
+                ? "Moved"
+                : "Moving"}
+          </div>
+          {mirror && collection.authority_state !== "transferred" && <div className="collection-status" role="status">
+            <StatusDot state={state.dot} />{state.label}
+          </div>}
         </div>
         <div className="row-actions">
           {editorCollectionId && <button
@@ -621,64 +656,7 @@ function HostedCollectionRow({
             <small>Keep Markdown and selected files here while the main copy remains hosted by mdbase.</small>
           </div>
           {mirror ? (
-            <div className="mirror-control">
-              <div className="mirror-state-row">
-                <StatusDot state={state.dot} />
-                <div><strong>{state.label}</strong><button className="path" title={mirror.path} onClick={() => void onAct(() => window.mdbaseConnect.openMirror(mirror.replica_id))}>{mirror.path}</button></div>
-                <code>{mirror.mode === "read_write" ? "edits sync both ways" : "downloads updates only"}</code>
-              </div>
-              {mirror.progress && <small>{mirror.progress.phase === "uploading" ? "Uploading" : "Applying"} {mirror.progress.completed}{mirror.progress.total === null ? "" : ` of ${mirror.progress.total}`} changes…</small>}
-              {mirror.error && <div className="message error-message compact-message">{mirror.error}</div>}
-              {mirror.conflicts.length > 0 && (
-                <div className="mirror-conflicts">
-                  {mirror.conflicts.map((conflict) => <MirrorConflictDecision
-                    key={`${conflict.entity}:${conflict.object_id}:${conflict.decision_id}`}
-                    replicaId={mirror.replica_id} conflict={conflict} disabled={busy || mirror.syncing}
-                    onResolved={() => onAct(async () => { onNotice("The reviewed conflict was resolved."); })}
-                  />)}
-                </div>
-              )}
-              {mirror.local_issues.length > 0 && (
-                <div className="mirror-conflicts">
-                  {mirror.local_issues.map((issue) => <div key={issue.path}>
-                    <div>
-                      <strong>{issue.path}</strong>
-                      <small>{issue.message} Other valid Markdown continues to synchronize.</small>
-                    </div>
-                  </div>)}
-                </div>
-              )}
-              <details className="mirror-file-settings">
-                <summary><span><strong>Selective sync</strong><small>Choose which folders and non-Markdown files are downloaded.</small></span><code>{selectiveSyncSummary(mirror.selective_sync)}</code></summary>
-                <SelectiveSyncSettings value={syncPolicy} disabled={busy} onChange={setSyncPolicy} />
-                <div className="mirror-file-settings-actions">
-                  <small>Changing this may download selected files or remove online-only files from this folder. Hosted files are not deleted.</small>
-                  <button
-                    type="button"
-                    className="button secondary"
-                    disabled={busy || sameSelectiveSyncPolicy(syncPolicy, mirror.selective_sync)}
-                    onClick={() => void onAct(async () => {
-                      await window.mdbaseConnect.configureMirrorSelectiveSync({ replicaId: mirror.replica_id, selectiveSync: syncPolicy });
-                      onNotice(`Selective sync settings for ${collection.display_name} were saved.`);
-                    })}
-                  >Save selective sync</button>
-                </div>
-              </details>
-              <div className="mirror-actions">
-                <button className="quiet-action" disabled={busy || mirror.syncing} onClick={() => void onAct(async () => {
-                  await window.mdbaseConnect.syncMirror(mirror.replica_id);
-                  onNotice(`${collection.display_name} is synchronized.`);
-                })}>{mirror.syncing ? "Synchronizing…" : "Sync now"}</button>
-                <button className="quiet-action" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openMirror(mirror.replica_id))}>Open folder</button>
-                <button className="quiet-action danger" disabled={busy} onClick={() => {
-                  if (!window.confirm(`Stop syncing ${collection.display_name} on this computer? The folder and its files will remain.`)) return;
-                  void onAct(async () => {
-                    await window.mdbaseConnect.disconnectMirror(mirror.replica_id);
-                    onNotice(`The synced folder was disconnected. Files remain at ${mirror.path}.`);
-                  });
-                }}>Stop syncing</button>
-              </div>
-            </div>
+            <MirrorControl mirror={mirror} collectionName={collection.display_name} busy={busy} onAct={onAct} onNotice={onNotice} />
           ) : (
             <div className="mirror-setup">
               <label><span>Folder</span><button type="button" className="folder-picker" onClick={() => void chooseMirrorFolder()}>{path || "Choose a folder…"}</button></label>
@@ -800,6 +778,66 @@ function HostedCollectionRow({
       </div>}
     </article>
   );
+}
+
+function MirrorControl({ mirror, collectionName, busy, onAct, onNotice }: {
+  mirror: DesktopMirrorSummary;
+  collectionName: string;
+  busy: boolean;
+  onAct(action: () => Promise<unknown>): Promise<void>;
+  onNotice(value: string): void;
+}) {
+  const [syncPolicy, setSyncPolicy] = useState(mirror.selective_sync);
+  useEffect(() => {
+    setSyncPolicy(mirror.selective_sync);
+  }, [mirror.replica_id, JSON.stringify(mirror.selective_sync)]);
+  const state = mirrorState(mirror);
+  return <div className="mirror-control">
+    <div className="mirror-state-row">
+      <StatusDot state={state.dot} />
+      <div><strong>{state.label}</strong><button className="path" title={mirror.path} onClick={() => void onAct(() => window.mdbaseConnect.openMirror(mirror.replica_id))}>{mirror.path}</button></div>
+      <code>{mirror.mode === "read_write" ? "edits sync both ways" : "downloads updates only"}</code>
+    </div>
+    {mirror.progress && <small>{mirror.progress.phase === "uploading" ? "Uploading" : "Applying"} {mirror.progress.completed}{mirror.progress.total === null ? "" : ` of ${mirror.progress.total}`} changes…</small>}
+    {mirror.error && <div className="message error-message compact-message">{mirror.error}</div>}
+    {mirror.conflicts.length > 0 && <div className="mirror-conflicts">
+      {mirror.conflicts.map((conflict) => <MirrorConflictDecision
+        key={`${conflict.entity}:${conflict.object_id}:${conflict.decision_id}`}
+        replicaId={mirror.replica_id} conflict={conflict} disabled={busy || mirror.syncing}
+        onResolved={() => onAct(async () => { onNotice("The reviewed conflict was resolved."); })}
+      />)}
+    </div>}
+    {mirror.local_issues.length > 0 && <div className="mirror-conflicts">
+      {mirror.local_issues.map((issue) => <div key={issue.path}>
+        <div><strong>{issue.path}</strong><small>{issue.message} Other valid Markdown continues to synchronize.</small></div>
+      </div>)}
+    </div>}
+    <details className="mirror-file-settings">
+      <summary><span><strong>Selective sync</strong><small>Choose which folders and non-Markdown files are downloaded.</small></span><code>{selectiveSyncSummary(mirror.selective_sync)}</code></summary>
+      <SelectiveSyncSettings value={syncPolicy} disabled={busy} onChange={setSyncPolicy} />
+      <div className="mirror-file-settings-actions">
+        <small>Changing this may download selected files or remove online-only files from this folder. Hosted files are not deleted.</small>
+        <button type="button" className="button secondary" disabled={busy || sameSelectiveSyncPolicy(syncPolicy, mirror.selective_sync)} onClick={() => void onAct(async () => {
+          await window.mdbaseConnect.configureMirrorSelectiveSync({ replicaId: mirror.replica_id, selectiveSync: syncPolicy });
+          onNotice(`Selective sync settings for ${collectionName} were saved.`);
+        })}>Save selective sync</button>
+      </div>
+    </details>
+    <div className="mirror-actions">
+      <button className="quiet-action" disabled={busy || mirror.syncing} onClick={() => void onAct(async () => {
+        const result = await window.mdbaseConnect.syncMirror(mirror.replica_id);
+        onNotice(`${collectionName}: ${mirrorState(result).label}.`);
+      })}>{mirror.syncing ? "Synchronizing…" : "Sync now"}</button>
+      <button className="quiet-action" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openMirror(mirror.replica_id))}>Open folder</button>
+      <button className="quiet-action danger" disabled={busy} onClick={() => {
+        if (!window.confirm(`Stop syncing ${collectionName} on this computer? The folder and its files will remain.`)) return;
+        void onAct(async () => {
+          await window.mdbaseConnect.disconnectMirror(mirror.replica_id);
+          onNotice(`The synced folder was disconnected. Files remain at ${mirror.path}.`);
+        });
+      }}>Stop syncing</button>
+    </div>
+  </div>;
 }
 
 function AuthorityTransferPreflight({

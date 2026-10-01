@@ -357,7 +357,11 @@ function App() {
     };
   }, [access, hosted]);
   const localCollectionIds = new Set(collections.map((collection) => collection.id));
-  const collectionCount = collections.length + hosted.hosted_collections.filter((collection) =>
+  const hostedCollectionIds = new Set(hosted.hosted_collections.map((collection) => collection.id));
+  const standaloneMirrorIds = new Set(mirrors.filter((mirror) =>
+    !localCollectionIds.has(mirror.collection_id) && !hostedCollectionIds.has(mirror.collection_id)
+  ).map((mirror) => mirror.collection_id));
+  const collectionCount = collections.length + standaloneMirrorIds.size + hosted.hosted_collections.filter((collection) =>
     collection.authority_state !== "transferred"
       || !collection.transferred_collection_id
       || !localCollectionIds.has(collection.transferred_collection_id)
@@ -427,6 +431,10 @@ function App() {
           onDismiss={dismissTransferReceipt}
         />}
 
+        {cloud !== null && !cloud.configured && <div hidden={!["overview", "access", "settings"].includes(route)}>
+          <PairingPanel resumeAuthorization={authorizationTarget !== null} />
+        </div>}
+
         {cloud === null ? <ConnectionProgress /> : route === "overview" ? (
           <Overview
             status={status}
@@ -471,7 +479,6 @@ function App() {
             access={combinedAccess}
             collections={collections}
             focusedRequestId={authorizationTarget === "pending" ? null : authorizationTarget}
-            resumeAuthorization={authorizationTarget !== null}
             busy={busy}
             onAct={act}
             onNotice={setNotice}
@@ -519,12 +526,11 @@ function App() {
   );
 }
 
-function Access({ cloud, access, collections, focusedRequestId, resumeAuthorization, busy, onAct, onNotice }: {
+function Access({ cloud, access, collections, focusedRequestId, busy, onAct, onNotice }: {
   cloud: CloudSetting;
   access: AccessSnapshot;
   collections: CollectionSummary[];
   focusedRequestId: string | null;
-  resumeAuthorization: boolean;
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
@@ -533,7 +539,7 @@ function Access({ cloud, access, collections, focusedRequestId, resumeAuthorizat
   const pendingAuthorizations = useMemo(() => [...access.pending_authorizations].sort((left, right) =>
     left.id === focusedRequestId ? -1 : right.id === focusedRequestId ? 1 : 0
   ), [access.pending_authorizations, focusedRequestId]);
-  if (!cloud.configured) return <PairingPanel resumeAuthorization={resumeAuthorization} />;
+  if (!cloud.configured) return null;
   return (
     <div className="workspace-stack">
       <section>
@@ -770,7 +776,7 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
   const connection = presentConnection(status, cloud);
   return (
     <div className="workspace-stack settings-stack">
-      {!cloud.configured ? <PairingPanel /> : (
+      {cloud.configured && (
         <section>
           <SectionHeading title="Account connection" note="The account this computer uses for application requests." />
           <div className="settings-rows">
