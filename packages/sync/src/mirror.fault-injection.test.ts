@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MemoryAuthority, type SyncTransport } from "./index.js";
+import { SyncError } from "./sync-error.js";
 import {
   MemoryMirrorStateStore,
   WritableDirectoryMirror,
@@ -137,6 +138,27 @@ async function assertConverged(context: Awaited<ReturnType<typeof fixture>>) {
 }
 
 describe("directory mirror process-death boundaries", () => {
+  it("retries a lease expiring between snapshot pages without partially materializing", async () => {
+    const context = await fixture(true);
+    let pages = 0;
+    let expire = true;
+    const transport: SyncTransport = {
+      ...context.transport,
+      snapshot: async (id, page) => {
+        if (++pages === 2 && expire) throw new SyncError("snapshot_expired", "lease expired");
+        return context.transport.snapshot(id, page);
+      }
+    };
+    const replicaId = (await context.transport.openSession()).replica_id;
+    const mirror = new WritableDirectoryMirror(replicaId, transport, context);
+    await expect(mirror.sync()).rejects.toMatchObject({ code: "snapshot_expired" });
+    expect(await context.stateStore.read()).toBeNull();
+    expect(context.fileSystem.files.size).toBe(0);
+    expire = false;
+    expect((await mirror.sync()).status).toBe("applied");
+    await assertConverged(context);
+  });
+
   it.each(["initial", "incremental", "swap"])("converges after every await before/after boundary (%s)", async (scenario) => {
     const initial = scenario === "initial";
     const swap = scenario === "swap";

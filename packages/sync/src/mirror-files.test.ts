@@ -699,6 +699,85 @@ describe("portable collection file mirror", () => {
     expect(fileSystem.files.get(descriptor.path)).toEqual(bytes);
   });
 
+  it.each(["move", "delete"] as const)("replays a file %s after losing its committed response", async (operation) => {
+    const receipts = new Map<string, MoveFileReceipt | DeleteFileReceipt>();
+    let lost = false;
+    const requests: Array<MoveFileRequest | DeleteFileRequest> = [];
+    class LossyTransport extends FileTransport {
+      override async moveFile(request: MoveFileRequest): Promise<MoveFileReceipt> {
+        requests.push(structuredClone(request));
+        const prior = receipts.get(request.mutation_id) as MoveFileReceipt | undefined;
+        if (prior) return structuredClone(prior);
+        const receipt = await super.moveFile(request);
+        receipts.set(request.mutation_id, structuredClone(receipt));
+        lost = true;
+        throw new Error("response lost after file commit");
+      }
+      override async deleteFile(request: DeleteFileRequest): Promise<DeleteFileReceipt> {
+        requests.push(structuredClone(request));
+        const prior = receipts.get(request.mutation_id) as DeleteFileReceipt | undefined;
+        if (prior) return structuredClone(prior);
+        const receipt = await super.deleteFile(request);
+        receipts.set(request.mutation_id, structuredClone(receipt));
+        lost = true;
+        throw new Error("response lost after file commit");
+      }
+    }
+    const transport = new LossyTransport();
+    const bytes = utf8.encode("original image");
+    const descriptor = file("00000000-0000-4000-8000-000000000033", "images/original.png", bytes);
+    transport.files = [descriptor];
+    transport.bytes.set(descriptor.file_id, bytes);
+    const { mirror: target, fileSystem, stateStore } = writableMirror(transport);
+    await target.sync();
+    if (operation === "move") await fileSystem.move(descriptor.path, "images/renamed.png");
+    else fileSystem.files.delete(descriptor.path);
+
+    expect((await target.sync()).status).toBe("failed");
+    expect(lost).toBe(true);
+    const restarted = writableMirror(transport, fileSystem, stateStore).mirror;
+    expect((await restarted.sync()).status).toBe("applied");
+    expect((await restarted.sync()).status).toBe("applied");
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toEqual(requests[0]);
+    expect(transport.events).toHaveLength(1);
+    expect(transport.files).toHaveLength(operation === "move" ? 1 : 0);
+    expect(fileSystem.files.has(descriptor.path)).toBe(false);
+  });
+
+  it.each(["cursor", "scope", "snapshot", "duplicate", "repeat"])("rejects a %s error across file snapshot pages before downloading", async (fault) => {
+    class PagedTransport extends FileTransport {
+      corrupt = true;
+      override async fileSnapshot(snapshotId: string, page?: string): Promise<SyncFileSnapshotPage> {
+        const snapshot = await super.fileSnapshot(snapshotId);
+        if (!page) return { ...snapshot, files: snapshot.files.slice(0, 1), next_page: "second" };
+        const last = { ...snapshot, files: snapshot.files.slice(1) };
+        if (!this.corrupt) return last;
+        if (fault === "cursor") last.cursor += 1;
+        if (fault === "scope") last.scope_epoch += 1;
+        if (fault === "snapshot") last.snapshot_id = "other-snapshot";
+        if (fault === "duplicate") last.files = snapshot.files.slice(0, 1);
+        if (fault === "repeat") return { ...last, next_page: "second" };
+        return last;
+      }
+    }
+    const transport = new PagedTransport();
+    const bytes = utf8.encode("page boundary image");
+    transport.files = [
+      file("00000000-0000-4000-8000-000000000034", "images/first.png", bytes),
+      file("00000000-0000-4000-8000-000000000035", "images/second.png", bytes)
+    ];
+    for (const descriptor of transport.files) transport.bytes.set(descriptor.file_id, bytes);
+    const { mirror: target, fileSystem, stateStore } = mirror(transport);
+    await expect(target.sync()).rejects.toMatchObject({ code: "invalid_snapshot" });
+    expect(await stateStore.read()).toBeNull();
+    expect(fileSystem.files.size).toBe(0);
+    expect(transport.downloads).toBe(0);
+    transport.corrupt = false;
+    expect((await target.sync()).status).toBe("applied");
+    expect(fileSystem.files.size).toBe(2);
+  });
+
   it("atomically applies incremental file moves after staging new bytes", async () => {
     const transport = new FileTransport();
     const first = utf8.encode("first");
