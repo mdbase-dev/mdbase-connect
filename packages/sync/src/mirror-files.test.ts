@@ -939,6 +939,33 @@ describe("portable collection file mirror", () => {
     expect(converged.actions.filter((action) => action.command !== "advance_checkpoint")).toEqual([]);
   });
 
+  it("rejects replacement upload receipts that substitute a different file identity", async () => {
+    class SubstitutingTransport extends FileTransport {
+      corrupt = true;
+      override async uploadFile(request: OpenFileUploadRequest, source: AsyncIterable<Uint8Array>) {
+        const receipt = await super.uploadFile(request, source);
+        return this.corrupt ? { ...receipt, file: {
+          ...receipt.file, file_id: "00000000-0000-4000-8000-000000000099"
+        } } : receipt;
+      }
+    }
+    const transport = new SubstitutingTransport();
+    const bytes = utf8.encode("original attachment");
+    const descriptor = file("00000000-0000-4000-8000-000000000037", "images/replaced.png", bytes);
+    transport.files = [descriptor];
+    transport.bytes.set(descriptor.file_id, bytes);
+    const { mirror: target, fileSystem, stateStore } = writableMirror(transport);
+    await target.sync();
+    fileSystem.files.set(descriptor.path, utf8.encode("local replacement"));
+
+    expect(await target.sync()).toMatchObject({ status: "failed", failure: { code: "invalid_sync_response" } });
+    expect((await stateStore.read())?.batch?.next_action).toBe(0);
+    transport.corrupt = false;
+    expect((await target.sync()).status).toBe("applied");
+    expect(Object.keys((await stateStore.read())!.files!)).toEqual([descriptor.file_id]);
+    expect(transport.events).toHaveLength(1);
+  });
+
   it("journals authority-assigned identities so a new attachment can be deleted after restart", async () => {
     const transport = new FileTransport();
     const fileSystem = new BinaryFileSystem();
