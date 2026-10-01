@@ -22,7 +22,7 @@ const compiled = await transform(component, { loader: "tsx", format: "cjs" });
 const Approval = new Function("React", "useState", "hasSupportedCapabilityDeclaration", "requestCapabilityGroups", "host", "relativeTime", "RequestPermissionChoices", "NotificationAccess", "Select", "useLocalAction", `${compiled.code}; return PortalApprovalRequest;`)(
   React, React.useState, hasSupportedCapabilityDeclaration, requestCapabilityGroups,
   () => "example.test", () => "in ten minutes",
-  ({ groups }) => React.createElement("span", null, groups.map((group) => group.label).join(" · ")),
+  ({ groups, selected }) => React.createElement("span", null, groups.filter((group) => group.operations.every((operation) => selected.includes(operation))).map((group) => group.label).join(" · ")),
   () => null,
   Select,
   (run) => ({ act: run, error: null })
@@ -50,6 +50,20 @@ test("native consent names the local collection, full scope, capabilities, revoc
   assert.match(html, />Deny<\/button>/);
   assert.match(html, /<button class="button primary">Allow Reader<\/button>/);
   assert.doesNotMatch(html, /Review in Connect/);
+});
+
+test("optional higher-impact access starts denied, but required access remains selected", () => {
+  const operations = [...request.requested_operations, "create", "delete", "create_type", "update_type", "assess_type_pack", "apply_type_pack"];
+  const optional = render({ requested_operations: operations, requirements: {
+    contracts: [], capabilities: { contract_version: 2, required: ["collection.read"], optional: ["records.create", "records.delete", "definitions.manage"] }
+  } });
+  assert.match(optional, /Create records/);
+  assert.doesNotMatch(optional, /Delete records|Manage definitions/);
+  const required = render({ requested_operations: operations, requirements: {
+    contracts: [], capabilities: { contract_version: 2, required: ["collection.read", "records.delete", "definitions.manage"] }
+  } });
+  assert.match(required, /Delete records/);
+  assert.match(required, /Manage definitions/);
 });
 
 test("multiple collections require explicit selection", () => {

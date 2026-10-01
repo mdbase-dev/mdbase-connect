@@ -203,6 +203,10 @@ impl DirectoryMirror {
                 if self.matches_ref(target)? {
                     self.revalidate_expected(expected_local)?;
                     self.revalidate_at(&target.path, expected_path_owner)?;
+                } else {
+                    // A replay may already have deleted the target. Different
+                    // bytes are not evidence of completion: preserve new edits.
+                    self.revalidate_at(&target.path, &ExpectedObjectState::Absent)?;
                 }
                 match target.entity {
                     SyncObjectKind::Record => self.remove_record(

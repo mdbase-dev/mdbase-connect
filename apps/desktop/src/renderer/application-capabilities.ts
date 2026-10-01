@@ -9,6 +9,7 @@ export interface RequestCapabilityGroup {
   description: string;
   operations: string[];
   required: boolean;
+  higherImpact: boolean;
 }
 
 const CAPABILITY_COPY: Record<ApplicationCapabilityId, [string, string]> = {
@@ -40,6 +41,9 @@ export function requestCapabilityGroups(
     const groupOperations = capabilityOperations(id);
     if (!groupOperations.every((operation) => granted.has(operation))) return [];
     const [label, description] = CAPABILITY_COPY[id];
-    return [{ id, label, description, operations: groupOperations, required: required.has(id) }];
+    return [{
+      id, label, description, operations: groupOperations, required: required.has(id),
+      higherImpact: id === "records.delete" || id === "definitions.manage"
+    }];
   });
 }

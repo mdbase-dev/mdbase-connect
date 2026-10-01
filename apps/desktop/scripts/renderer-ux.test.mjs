@@ -1,0 +1,329 @@
+import assert from "node:assert/strict";
+import { after, before, test } from "node:test";
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { extname, resolve, sep } from "node:path";
+import { chromium } from "playwright-core";
+
+const root = resolve(import.meta.dirname, "../dist/renderer");
+let browser;
+let server;
+let origin;
+before(async () => {
+  server = createServer(async (request, response) => {
+    const pathname = new URL(request.url, "http://localhost").pathname;
+    const file = resolve(root, `.${pathname === "/" ? "/index.html" : pathname}`);
+    if (!file.startsWith(`${root}${sep}`)) { response.writeHead(403).end(); return; }
+    try {
+      const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".woff": "font/woff" };
+      response.setHeader("Content-Type", types[extname(file)] ?? "application/octet-stream");
+      response.end(await readFile(file));
+    } catch { response.writeHead(404).end(); }
+  });
+  await new Promise((ready, reject) => { server.once("error", reject); server.listen(42390, "127.0.0.1", ready); });
+  origin = "http://127.0.0.1:42390";
+  browser = await chromium.launch({ headless: true });
+});
+after(async () => {
+  await browser?.close();
+  if (server) await new Promise((done) => server.close(done));
+});
+
+async function desktop({ configured = true, hostedOnline = true } = {}) {
+  const page = await browser.newPage({ viewport: { width: 1060, height: 720 } });
+  await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.clock.install();
+  await page.addInitScript(({ configured, hostedOnline }) => {
+    const mirror = {
+      collection_id: "hosted-notes", replica_id: "notes-mirror", name: "Notes", mode: "read_write",
+      selective_sync: { file_classes: [], excluded_folders: [] }, path: "/disposable/Notes",
+      state: "up_to_date", pending: 0, conflicts: [], local_issues: [], cursor: 1,
+      last_synced_at: new Date().toISOString(), syncing: false, promotion_pending: false
+    };
+    const hosted = {
+      online: true, hosted_collections_available: true, grants: [], pending_authorizations: [],
+      hosted_collections: [{ id: "hosted-notes", display_name: "Notes", template: "mdbase", sync_url: "https://storage.example.test", spec_version: "0.3.0", contracts: [], authority_state: "active", authority_epoch: 1, transferred_collection_id: null, created_at: new Date().toISOString(), replicas: [] }]
+    };
+    window.fixture = { mirror, hosted, hostedOnline };
+    window.mdbaseConnect = {
+      status: async () => ({ readiness: { schema_version: 1, ready: true, binary_version: "test" }, protocol_version: 1, state: "connected", paused: false, registered_collections: 0, direct_access_available: true }),
+      updateStatus: async () => ({ phase: "unavailable", current_version: "test", channel: "beta", message: "Development build", can_check: false, can_install: false }),
+      listCollections: async () => [], getLaunchAtLogin: async () => ({ enabled: false, available: false }),
+      getCloudConfig: async () => ({ configured, serverUrl: configured ? "http://127.0.0.1:42391" : null }),
+      accessSnapshot: async () => ({ configured, online: configured, grants: [], pending_authorizations: [], authority_conflicts: [] }),
+      listActivity: async () => [],
+      hostedSnapshot: async () => window.fixture.hostedOnline ? hosted : { ...hosted, online: false, hosted_collections: [] },
+      listMirrors: async () => [mirror],
+      onNavigate: () => () => {}, onUpdateStatus: () => () => {}
+    };
+  }, { configured, hostedOnline });
+  await page.goto(origin);
+  await page.getByRole("button", { name: /^Collections/ }).click();
+  if (configured && hostedOnline) await page.getByRole("heading", { name: "Notes", exact: true }).waitFor();
+  return { page, errors, row: page.locator(".hosted-collection") };
+}
+
+async function screenshot(page, name) {
+  if (process.env.CONNECTOR_UX_SHOTS) await page.screenshot({ path: `${process.env.CONNECTOR_UX_SHOTS}/${name}.png`, fullPage: true });
+}
+
+test("sync completion reports outstanding conflicts, not a false success", async () => {
+  const { page, row, errors } = await desktop();
+  try {
+    await page.evaluate(() => {
+      window.mdbaseConnect.syncMirror = async () => {
+        window.fixture.mirror.state = "attention";
+        window.fixture.mirror.conflicts = [{ entity: "record", object_id: "note", decision_id: "decision", path: "note.md", kind: "conflicted", message: "Both copies changed." }];
+        return window.fixture.mirror;
+      };
+    });
+    await row.getByRole("button", { name: "Sync", exact: true }).click();
+    await row.getByRole("button", { name: "Sync now" }).click();
+    await row.locator(".mirror-state-row").getByText("Conflicts need a decision", { exact: true }).waitFor();
+    assert.equal(await row.getByText("Conflicts need a decision", { exact: true }).count(), 1, "expanded mirror status has one reading location");
+    await screenshot(page, "conflict-completion");
+    assert.equal(await page.getByText("Notes is synchronized.", { exact: true }).count(), 0);
+    assert.match(await page.locator(".notice-message").innerText(), /Conflicts need a decision/);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("collapsed hosted rows expose sync conflicts separately from hosted availability", async () => {
+  const { page, row, errors } = await desktop();
+  try {
+    await page.evaluate(() => {
+      window.fixture.mirror.state = "attention";
+      window.fixture.mirror.conflicts = [{ entity: "record", object_id: "note", decision_id: "decision", path: "note.md", kind: "conflicted", message: "Both copies changed." }];
+    });
+    await page.clock.runFor(5_000);
+    await screenshot(page, "collapsed-conflict");
+    assert.equal(await row.locator(".collection-summary").getByText("Available", { exact: true }).isVisible(), true);
+    assert.equal(await row.locator(".collection-summary").getByText("Conflicts need a decision", { exact: true }).isVisible(), true);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("cold-start offline keeps locally controlled synced folders visible and usable", async () => {
+  const { page, errors } = await desktop({ hostedOnline: false });
+  try {
+    await page.getByRole("status").filter({ hasText: "hosted could not refresh" }).waitFor();
+    await page.locator(".content").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await screenshot(page, "offline-folders");
+    assert.equal(await page.getByRole("heading", { name: "No hosted collections", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("heading", { name: "Notes", exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole("button", { name: /^Collections/ }).innerText(), "Collections\n1");
+    const localRow = page.locator(".standalone-mirror");
+    await localRow.getByRole("button", { name: "Sync", exact: true }).click();
+    assert.equal(await localRow.getByText("Up to date", { exact: true }).count(), 1, "standalone mirror status also has one reading location");
+    await page.evaluate(() => {
+      window.fixture.openedFolders = [];
+      window.mdbaseConnect.openMirror = async (id) => { window.fixture.openedFolders.push(id); };
+    });
+    await localRow.getByRole("button", { name: "Open folder", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixture.openedFolders), ["notes-mirror"]);
+    // Once remote metadata arrives, the same mirror is shown exactly once with
+    // its hosted collection rather than remaining in a parallel inventory.
+    await page.evaluate(() => { window.fixture.hostedOnline = true; });
+    await page.clock.runFor(5_000);
+    await page.locator(".hosted-collection").getByRole("heading", { name: "Notes", exact: true }).waitFor();
+    assert.equal(await page.locator(".standalone-mirror").count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("minimum desktop window keeps pairing and collection fields inside the canvas", async () => {
+  const { page, errors } = await desktop({ configured: false });
+  try {
+    await page.setViewportSize({ width: 820, height: 580 });
+    await page.getByRole("button", { name: "Overview", exact: true }).click();
+    await screenshot(page, "minimum-pairing");
+    const hasOverflow = () => page.locator(".content").evaluate((element) => element.scrollWidth > element.clientWidth);
+    const pairingOverflow = await hasOverflow();
+    await page.evaluate(() => {
+      window.mdbaseConnect.listCollections = async () => [{ id: "local-notes", display_name: "Local notes", path: "/disposable/Local notes", spec_version: "0.3.0", enabled: true, contracts: [] }];
+    });
+    await page.clock.runFor(5_000);
+    await page.getByRole("button", { name: /^Collections/ }).click();
+    const row = page.locator(".collection-card").filter({ hasText: "Local notes" });
+    await row.getByRole("button", { name: "Details", exact: true }).click();
+    await row.getByLabel("Description", { exact: true }).fill("My edits remain visible");
+    await screenshot(page, "minimum-metadata");
+    assert.deepEqual({ pairingOverflow, metadataOverflow: await hasOverflow() }, { pairingOverflow: false, metadataOverflow: false }, "pairing and metadata fields stay within the minimum-width canvas");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("connection status remains quiet rather than pulsing while reconnecting", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => ({ readiness: { schema_version: 1, ready: true, binary_version: "test" }, protocol_version: 1, state: "connecting", paused: false, registered_collections: 0, direct_access_available: true });
+    });
+    await page.clock.runFor(5_000);
+    await page.getByText("Connecting securely…", { exact: true }).waitFor();
+    assert.equal(await page.locator(".product-sidebar-status .status-dot").evaluate((element) => getComputedStyle(element).animationName), "none");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("native consent requires an explicit choice for optional deletion and definition access", async () => {
+  const { page, errors } = await desktop();
+  try {
+    const read = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type"];
+    await page.evaluate((read) => {
+      window.fixture.approvals = [];
+      const request = {
+        id: "native-request", application_name: "Example app", application_distribution: "web", application_homepage: "https://example.test",
+        expires_at: "2099-01-01T00:00:00Z", compatible_collection_ids: ["local-notes"], provisionable_collection_ids: [],
+        requested_operations: [...read, "create", "delete", "create_type", "update_type", "assess_type_pack", "apply_type_pack"],
+        requirements: { contracts: [], capabilities: { contract_version: 2, required: ["collection.read"], optional: ["records.create", "records.delete", "definitions.manage"] } },
+        provisions: { type_packs: [] }, notifications: { criteria: [] }
+      };
+      window.mdbaseConnect.listCollections = async () => [{ id: "local-notes", display_name: "Local notes", path: "/disposable/Local notes", spec_version: "0.3.0", enabled: true, contracts: [] }];
+      window.mdbaseConnect.accessSnapshot = async () => ({ configured: true, online: true, grants: [], pending_authorizations: [request], authority_conflicts: [] });
+      window.mdbaseConnect.approveAuthorization = async (input) => {
+        window.fixture.approvals.push(input);
+        await new Promise((resolve) => { window.fixture.finishApproval = resolve; });
+      };
+    }, read);
+    await page.clock.runFor(5_000);
+    await page.getByRole("button", { name: /^App access/ }).click();
+    const consent = page.locator(".portal-approval-row");
+    await consent.locator(".request-permission-review > summary").click();
+    const deletion = consent.getByRole("group", { name: /Delete records/ }).getByRole("checkbox");
+    const definitions = consent.getByRole("group", { name: /Manage definitions/ }).getByRole("checkbox");
+    await screenshot(page, "optional-permissions");
+    assert.equal(await deletion.isChecked(), false);
+    assert.equal(await definitions.isChecked(), false);
+    assert.equal(await consent.getByRole("group", { name: /Create records/ }).getByRole("checkbox").isChecked(), true);
+    await deletion.check();
+    await consent.getByRole("button", { name: "Allow Example app" }).click();
+    assert.equal(await deletion.isDisabled(), true, "submitted permission choices cannot change while approval is in flight");
+    await page.evaluate(() => window.fixture.finishApproval());
+    assert.deepEqual(await page.evaluate(() => window.fixture.approvals), [{ requestId: "native-request", collectionId: "local-notes", operations: [...read, "create", "delete"] }]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("metadata drafts cannot be edited during submission and survive a failed save", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.evaluate(() => {
+      window.mdbaseConnect.listCollections = async () => [{ id: "local-notes", display_name: "Local notes", path: "/disposable/Local notes", spec_version: "0.3.0", enabled: true, contracts: [] }];
+      window.mdbaseConnect.updateCollectionMetadata = async () => new Promise((_resolve, reject) => {
+        window.fixture.failMetadataSave = () => reject(new Error("The collection could not be saved. Your changes are still here."));
+      });
+    });
+    await page.clock.runFor(5_000);
+    const row = page.locator(".collection-card").filter({ hasText: "Local notes" });
+    await row.getByRole("button", { name: "Details", exact: true }).click();
+    const name = row.getByLabel("Name", { exact: true });
+    const description = row.getByRole("textbox", { name: "Description", exact: true });
+    await name.fill("Renamed notes");
+    await description.fill("Unsaved description");
+    await row.getByRole("button", { name: "Save details" }).click();
+    await screenshot(page, "metadata-submitting");
+    assert.equal(await name.isDisabled(), true);
+    assert.equal(await description.isDisabled(), true);
+    await page.evaluate(() => window.fixture.failMetadataSave());
+    await row.getByRole("alert").waitFor();
+    assert.equal(await name.inputValue(), "Renamed notes");
+    assert.equal(await description.inputValue(), "Unsaved description");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("failed daemon refresh never leaves a stale connected indicator and recovers automatically", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.getByText("Connected securely", { exact: true }).waitFor();
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => { throw new Error("The local connector stopped."); };
+    });
+    await page.clock.runFor(5_000);
+    await page.getByRole("status").filter({ hasText: "The local connector stopped." }).waitFor();
+    await screenshot(page, "daemon-failure");
+    assert.equal(await page.getByText("Connected securely", { exact: true }).count(), 0);
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => ({ readiness: { schema_version: 1, ready: false, binary_version: "test", safe_reason: "critical_worker_failed" }, protocol_version: 1, state: "connected", paused: false, registered_collections: 0, direct_access_available: false });
+    });
+    await page.clock.runFor(5_000);
+    await page.getByRole("status").filter({ hasText: "Local connector worker stopped" }).waitFor();
+    assert.equal(await page.getByText("Connected securely", { exact: true }).count(), 0);
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => ({ readiness: { schema_version: 1, ready: true, binary_version: "test" }, protocol_version: 1, state: "connected", paused: false, registered_collections: 0, direct_access_available: true });
+    });
+    await page.clock.runFor(5_000);
+    await page.getByText("Connected securely", { exact: true }).waitFor();
+    assert.equal(await page.getByText(/Local connector worker stopped/).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+async function beginPairing(page, { expiresIn = 600, firstError } = {}) {
+  await page.evaluate(({ expiresIn, firstError }) => {
+    window.fixture.pairingBegins = 0;
+    window.fixture.pairingChecks = [];
+    window.mdbaseConnect.beginPairing = async () => {
+      window.fixture.pairingBegins++;
+      return { pairingId: "same-request", verificationUri: "http://127.0.0.1:42391/pair/same-request", expiresIn };
+    };
+    window.mdbaseConnect.reopenPairing = async () => {};
+    window.mdbaseConnect.pairingStatus = async (id) => {
+      window.fixture.pairingChecks.push(id);
+      if (firstError && window.fixture.pairingChecks.length === 1) throw new Error(firstError);
+      return { status: window.fixture.approved ? "paired" : "pending" };
+    };
+  }, { expiresIn, firstError });
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page.getByRole("button", { name: "Continue in browser" }).click();
+}
+
+test("pending computer approval survives navigation without creating another request", async () => {
+  const { page, errors } = await desktop({ configured: false });
+  try {
+    await beginPairing(page);
+    await page.getByText("Waiting for browser approval", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await screenshot(page, "pairing-navigation");
+    assert.equal(await page.getByText("Waiting for browser approval", { exact: true }).isVisible(), true);
+    await page.getByRole("button", { name: /^Collections/ }).click();
+    await page.getByRole("button", { name: "App access", exact: true }).click();
+    assert.equal(await page.getByText("Waiting for browser approval", { exact: true }).isVisible(), true);
+    await page.evaluate(() => { window.fixture.approved = true; });
+    await page.clock.runFor(2_000);
+    await page.getByText("Computer approved. Connecting securely…", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.fixture.pairingBegins), 1);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("authoritatively expired pairing stops retrying and offers a fresh request", async () => {
+  const { page, errors } = await desktop({ configured: false });
+  try {
+    await beginPairing(page, { firstError: "That pairing request expired. Start again." });
+    await page.getByText("Setup request expired", { exact: true }).waitFor();
+    await page.clock.runFor(4_000);
+    assert.equal(await page.evaluate(() => window.fixture.pairingChecks.length), 1);
+    assert.equal(await page.getByRole("button", { name: "Open browser again" }).count(), 0);
+    await page.getByRole("button", { name: "Start again" }).click();
+    await page.getByRole("button", { name: "Continue in browser" }).waitFor();
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("already-approved pairing retries local configuration after the browser request expires", async () => {
+  const { page, errors } = await desktop({ configured: false });
+  try {
+    await beginPairing(page, { expiresIn: 1, firstError: "Connector still starting" });
+    await page.getByText("Connection interrupted", { exact: true }).waitFor();
+    await page.evaluate(() => { window.fixture.approved = true; });
+    await page.clock.runFor(2_000);
+    await screenshot(page, "pairing-expiry");
+    assert.equal(await page.evaluate(() => window.fixture.pairingChecks.length), 2);
+    assert.equal(await page.getByText("Computer approved. Connecting securely…", { exact: true }).isVisible(), true);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
