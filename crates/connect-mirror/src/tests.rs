@@ -70,6 +70,19 @@ impl LocalRecordReader for InjectedRecordReader {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NetworkBoundary {
+    Snapshot,
+    FileSnapshot,
+    Download,
+}
+
+struct NetworkEdit {
+    boundary: NetworkBoundary,
+    path: PathBuf,
+    bytes: Vec<u8>,
+}
+
 struct FakeAuthority {
     session: SyncSession,
     records: Mutex<BTreeMap<Uuid, SyncRecord>>,
@@ -79,6 +92,7 @@ struct FakeAuthority {
     receipts: Mutex<HashMap<Uuid, SyncMutationReceipt>>,
     next_receipt: Mutex<Option<SyncMutationReceipt>>,
     lose_next_response: Mutex<bool>,
+    network_edit: Mutex<Option<NetworkEdit>>,
 }
 
 impl FakeAuthority {
@@ -121,6 +135,23 @@ impl FakeAuthority {
             receipts: Mutex::new(HashMap::new()),
             next_receipt: Mutex::new(None),
             lose_next_response: Mutex::new(false),
+            network_edit: Mutex::new(None),
+        }
+    }
+
+    fn edit_during_network(&self, boundary: NetworkBoundary, path: PathBuf, bytes: &[u8]) {
+        *self.network_edit.lock().unwrap() = Some(NetworkEdit {
+            boundary,
+            path,
+            bytes: bytes.to_vec(),
+        });
+    }
+
+    fn apply_network_edit(&self, boundary: NetworkBoundary) {
+        let mut edit = self.network_edit.lock().unwrap();
+        if edit.as_ref().is_some_and(|edit| edit.boundary == boundary) {
+            let edit = edit.take().unwrap();
+            fs::write(edit.path, edit.bytes).unwrap();
         }
     }
 
@@ -284,6 +315,92 @@ async fn conflicted_mutation_can_choose_remote_then_local() {
 }
 
 #[tokio::test]
+async fn remote_record_deletion_resolution_preserves_edits_during_snapshot() {
+    let source = record("one.md", "One");
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, vec![source.clone()]);
+    mirror.sync().await.unwrap();
+    fs::write(mirror.root().join(&source.path), "reviewed local edit").unwrap();
+    authority.records.lock().unwrap().remove(&source.record_id);
+    authority.changes.lock().unwrap().push(SyncChange::Remove {
+        sequence: 2,
+        record_id: source.record_id,
+        previous_path: source.path.clone(),
+        revision: source.revision.clone(),
+    });
+    mirror.sync().await.unwrap();
+    let decision_id = mirror.status().unwrap().conflicts[0].decision_id.clone();
+    authority.edit_during_network(
+        NetworkBoundary::Snapshot,
+        mirror.root().join(&source.path),
+        b"new edit while resolving",
+    );
+
+    let error = mirror
+        .resolve_conflict(source.record_id, &decision_id, MirrorResolution::Remote)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.code, "sync_plan_stale");
+    assert_eq!(
+        fs::read(mirror.root().join(&source.path)).unwrap(),
+        b"new edit while resolving"
+    );
+    assert_eq!(
+        mirror.status().unwrap().conflicts[0].decision_id,
+        decision_id
+    );
+}
+
+#[tokio::test]
+async fn remote_file_resolution_preserves_edits_during_network() {
+    for (deleted, boundary) in [
+        (true, NetworkBoundary::FileSnapshot),
+        (false, NetworkBoundary::FileSnapshot),
+        (false, NetworkBoundary::Download),
+    ] {
+        let authority = FakeAuthority::new(Uuid::new_v4(), SyncReplicaMode::ReadWrite, Vec::new());
+        let original = authority.put_file("assets/photo.png", b"initial", FileMediaClass::Image);
+        let policy = SelectiveSyncPolicy {
+            file_classes: vec![FileMediaClass::Image],
+            excluded_folders: Vec::new(),
+        };
+        let (_temporary, mirror, authority) = custom_harness_with_selective_sync(authority, policy);
+        mirror.sync().await.unwrap();
+        fs::write(mirror.root().join(&original.path), b"reviewed local edit").unwrap();
+        if deleted {
+            authority.emit_file_remove(&original);
+        } else {
+            let mut updated = test_file("archive/photo.png", b"remote edit", FileMediaClass::Image);
+            updated.file_id = original.file_id;
+            authority.emit_file_put(updated, b"remote edit");
+        }
+        mirror.sync().await.unwrap();
+        let decision_id = mirror.status().unwrap().conflicts[0].decision_id.clone();
+        authority.edit_during_network(
+            boundary,
+            mirror.root().join(&original.path),
+            b"new edit while resolving",
+        );
+
+        let error = mirror
+            .resolve_conflict(original.file_id, &decision_id, MirrorResolution::Remote)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, "sync_plan_stale");
+        assert_eq!(
+            fs::read(mirror.root().join(&original.path)).unwrap(),
+            b"new edit while resolving"
+        );
+        assert!(!mirror.root().join("archive/photo.png").exists());
+        assert_eq!(
+            mirror.status().unwrap().conflicts[0].decision_id,
+            decision_id
+        );
+    }
+}
+
+#[tokio::test]
 async fn promotion_manifest_is_stable_and_refuses_unmanaged_markdown() {
     let source = record("tasks/a.md", "A");
     let replica_id = Uuid::new_v4();
@@ -324,6 +441,7 @@ impl SyncTransport for FakeAuthority {
         snapshot_id: Uuid,
         _page: Option<&str>,
     ) -> Result<SyncSnapshotPage, MirrorError> {
+        self.apply_network_edit(NetworkBoundary::Snapshot);
         Ok(SyncSnapshotPage {
             protocol_version: SYNC_PROTOCOL_VERSION,
             snapshot_id,
@@ -346,6 +464,7 @@ impl SyncTransport for FakeAuthority {
         snapshot_id: Uuid,
         _page: Option<&str>,
     ) -> Result<SyncFileSnapshotPage, MirrorError> {
+        self.apply_network_edit(NetworkBoundary::FileSnapshot);
         Ok(SyncFileSnapshotPage {
             protocol_version: SYNC_PROTOCOL_VERSION,
             message_type: SyncFileSnapshotPageKind::FileSnapshotPage,
@@ -368,6 +487,7 @@ impl SyncTransport for FakeAuthority {
         file: &CollectionFileDescriptor,
         destination: &Path,
     ) -> Result<(), MirrorError> {
+        self.apply_network_edit(NetworkBoundary::Download);
         let files = self.files.lock().unwrap();
         let (current, bytes) = files.get(&file.file_id).ok_or_else(|| {
             MirrorError::new("file_not_found", "Fake authority file is unavailable.")
