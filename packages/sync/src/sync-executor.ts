@@ -502,11 +502,14 @@ export class PlanOnlySyncExecutor {
             payload_revision: current.revision
           }
         }
-      : action.command === "move_remote"
-        ? action.expected_source_owner
-        : action.expected_remote;
+      : receipt.status === "conflicted"
+        ? { state: "absent" }
+        : action.command === "move_remote"
+          ? action.expected_source_owner
+          : action.expected_remote;
     state.planned_conflicts ??= {};
-    const conflictKind = receipt.status === "rejected" ? "rejected" : "both_changed";
+    const conflictKind = receipt.status === "rejected" ? "rejected"
+      : action.expected_local.state === "absent" || remote.state === "absent" ? "delete_vs_change" : "both_changed";
     // Captured before the base is rebased onto the authority's current record below.
     const ancestor = conflictAncestor(state, identity, "record");
     state.planned_conflicts[identity] = {
@@ -540,6 +543,8 @@ export class PlanOnlySyncExecutor {
           : this.ports.runtime.digest(current.document),
         ...(this.ports.mode === "read_write" ? { record: current } : {})
       };
+    } else if (receipt.status === "conflicted") {
+      delete state.records[identity];
     }
   }
 

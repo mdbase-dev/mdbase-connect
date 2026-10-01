@@ -852,6 +852,49 @@ describe("platform-neutral directory mirror", () => {
       expect(hosted.serialize().changes).toHaveLength(1);
     });
 
+  it.each(["local", "remote"] as const)("captures an absent authority record in a late upload conflict resolved %s", async (resolution) => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Late-delete mirror", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    let race = true;
+    const mirror = new WritableDirectoryMirror(replicaId, {
+      ...transport,
+      mutate: async (mutation) => {
+        if (race) {
+          race = false;
+          await transport.mutate({
+            operation: "delete", mutation_id: "competing-delete", replica_id: replicaId, scope_epoch: 1,
+            record_id: "portable-0", base_revision: mutation.operation === "put" ? mutation.base_revision! : "",
+            created_at: "2026-10-01T00:00:00.000Z"
+          });
+        }
+        return transport.mutate(mutation);
+      }
+    }, { fileSystem, stateStore });
+    await mirror.sync();
+    const ancestor = records(1)[0]!.document;
+    const local = `${ancestor}\nlocal edit`;
+    fileSystem.files.set("notes/00000.md", local);
+    expect((await mirror.sync()).status).toBe("attention");
+    const state = (await stateStore.read())!;
+    const conflict = state.planned_conflicts!["portable-0"]!;
+    expect(conflict).toMatchObject({ remote: { state: "absent" }, ancestor_document: ancestor });
+    expect(state.records["portable-0"]).toBeUndefined();
+
+    await mirror.resolveConflict("portable-0", conflict.decision_id!, resolution);
+    expect((await mirror.sync()).status).toBe("applied");
+    if (resolution === "local") {
+      expect(hosted.serialize().records[0]).toMatchObject({ record_id: "portable-0", document: local });
+      expect(fileSystem.files.get("notes/00000.md")).toBe(local);
+    } else {
+      expect(hosted.serialize().records).toEqual([]);
+      expect(fileSystem.files.has("notes/00000.md")).toBe(false);
+    }
+  });
+
   it("keeps the ancestor when the authority reports the conflict on upload", async () => {
     // Two devices edit at once: the hosted record changes after this device
     // planned its upload, so the conflict arrives as a mutation receipt.
