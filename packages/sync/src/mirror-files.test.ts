@@ -640,6 +640,51 @@ describe("portable collection file mirror", () => {
     expect((await target.status()).conflicts).toEqual([]);
   });
 
+  it.each(["same", "renamed"])("fences local file edits after downloading a %s remote conflict decision", async (pathKind) => {
+    const fileSystem = new BinaryFileSystem();
+    const originalPath = "images/original.png";
+    const latest = utf8.encode("new local edit made during the remote decision download");
+    class RacingTransport extends FileTransport {
+      race = false;
+      override async *downloadFile(descriptor: CollectionFileDescriptor): AsyncGenerator<Uint8Array> {
+        for await (const chunk of super.downloadFile(descriptor)) {
+          if (this.race) fileSystem.files.set(originalPath, latest);
+          yield chunk;
+        }
+      }
+    }
+    const transport = new RacingTransport();
+    const original = utf8.encode("original image");
+    const remote = utf8.encode("remote image changed after authority rename");
+    const fileId = "00000000-0000-4000-8000-000000000051";
+    const descriptor = file(fileId, originalPath, original);
+    transport.files = [descriptor];
+    transport.bytes.set(fileId, original);
+    const { mirror: target, stateStore } = writableMirror(transport, fileSystem);
+    await target.sync();
+    fileSystem.files.set(originalPath, utf8.encode("accepted local edit"));
+    const changed = file(fileId, pathKind === "same" ? originalPath : "images/renamed.png", remote, "file:remote");
+    transport.files = [changed];
+    transport.bytes.set(fileId, remote);
+    transport.events.push({ sequence: 1, type: "file_put", file: changed });
+    expect((await target.sync()).status).toBe("attention");
+    const before = (await stateStore.read())!;
+    transport.race = true;
+
+    await expect(target.resolveConflict(fileId, before.planned_conflicts![fileId]!.decision_id!, "remote"))
+      .rejects.toMatchObject({ code: "sync_plan_stale" });
+    expect(fileSystem.files.get(originalPath)).toEqual(latest);
+    expect((await stateStore.read())!.planned_conflicts).toEqual(before.planned_conflicts);
+    if (pathKind === "renamed") expect(fileSystem.files.has(changed.path)).toBe(false);
+
+    transport.race = false;
+    await target.sync();
+    await target.resolveConflict(fileId, (await stateStore.read())!.planned_conflicts![fileId]!.decision_id!, "remote");
+    expect(fileSystem.files.get(changed.path)).toEqual(remote);
+    if (pathKind === "renamed") expect(fileSystem.files.has(originalPath)).toBe(false);
+    expect((await target.inspect()).actions).toEqual([]);
+  });
+
   it("refuses merged text for a binary file conflict", async () => {
     const transport = new FileTransport();
     const remote = utf8.encode("remote image");

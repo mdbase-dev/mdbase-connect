@@ -492,8 +492,12 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       ? recordStateMatches(planned.remote, currentRecord)
       : fileStateMatches(planned.remote, currentFile);
     if (!remoteMatches) throw staleConflict();
-    // Snapshot loading can take arbitrarily long. Fence the decision's local
-    // bytes after that network wait, not before it.
+    if (resolution === "remote" && currentFile) {
+      if (!this.blobStore) throw new SyncError("file_storage_unavailable", "File resolution needs a blob store.");
+      await ensureFileBlob(this.transport, this.blobStore, currentFile);
+    }
+    // Snapshot loading and remote blob fetching can take arbitrarily long.
+    // Fence the decision's local bytes after those waits, not before them.
     const revalidator = new PlanRevalidator(this.fileSystem, this.runtime);
     if (planned.local.state === "exact") {
       await revalidator.validateExpected(planned.local);
@@ -555,8 +559,6 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   ): Promise<void> {
     if (current) {
       this.assertResolutionTargetAvailable(state, identity, current.path);
-      if (!this.blobStore) throw new SyncError("file_storage_unavailable", "File resolution needs a blob store.");
-      await ensureFileBlob(this.transport, this.blobStore, current);
       const conflict = state.planned_conflicts?.[identity];
       const acceptedLocal = conflict?.local.state === "exact"
         ? {
@@ -564,9 +566,8 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
             size: conflict.local.object.size ?? 0
           }
         : undefined;
-      const localPath = state.local_bindings?.[identity]?.path;
       await this.materializer.putFile(state, current, state, acceptedLocal);
-      if (localPath && localPath !== current.path) await this.fileSystem.remove(localPath);
+      await this.removeResolvedLocalPath(state, identity, current.path);
       return;
     }
     const conflict = state.planned_conflicts?.[identity];
