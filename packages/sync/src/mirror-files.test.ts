@@ -532,6 +532,57 @@ describe("portable collection file mirror", () => {
     }
   }, 30_000);
 
+  it("recovers remote file rename decisions after every await/stream boundary without source duplication", async () => {
+    const fixture = async () => {
+      const transport = new FileTransport();
+      transport.mode = "read_write";
+      const fileSystem = new BinaryFileSystem();
+      const stateStore = new MemoryMirrorStateStore();
+      const blobStore = new MemoryMirrorBlobStore();
+      const fileId = "00000000-0000-4000-8000-000000000052";
+      const initial = file(fileId, "images/original.png", utf8.encode("original image"));
+      transport.files = [initial];
+      transport.bytes.set(fileId, utf8.encode("original image"));
+      const create = (gate?: CrashGate) => new WritableDirectoryMirror(transport.replicaId,
+        gate ? gate.wrap("transport", transport) : transport, {
+          fileSystem: gate ? gate.wrap("filesystem", fileSystem) : fileSystem,
+          stateStore: gate ? gate.wrap("state", stateStore) : stateStore,
+          blobStore: gate ? gate.wrap("blob", blobStore) : blobStore,
+          selectiveSync: { file_classes: ["image"], excluded_folders: [] }
+        });
+      await create().sync();
+      fileSystem.files.set(initial.path, utf8.encode("accepted local edit"));
+      const remote = file(fileId, "images/renamed.png", utf8.encode("remote image"), "file:remote");
+      transport.files = [remote];
+      transport.bytes.set(fileId, utf8.encode("remote image"));
+      transport.events.push({ sequence: 1, type: "file_put", file: remote });
+      expect((await create().sync()).status).toBe("attention");
+      return { transport, fileSystem, stateStore, create, fileId, remote };
+    };
+    const baseline = await fixture();
+    const trace = new CrashGate();
+    await baseline.create(trace).resolveConflict(baseline.fileId,
+      (await baseline.stateStore.read())!.planned_conflicts![baseline.fileId]!.decision_id!, "remote");
+    expect(trace.trace).toContain("transport.downloadFile.next:after");
+    for (let cut = 0; cut < trace.trace.length; cut += 1) {
+      const context = await fixture();
+      const gate = new CrashGate(cut);
+      await context.create(gate).resolveConflict(context.fileId,
+        (await context.stateStore.read())!.planned_conflicts![context.fileId]!.decision_id!, "remote").catch(() => undefined);
+      expect(gate.crashed, `${cut}: ${trace.trace[cut]}`).toBe(true);
+      for (let retry = 0; retry < 3; retry += 1) {
+        await context.create().sync();
+        const conflict = (await context.stateStore.read())!.planned_conflicts?.[context.fileId];
+        if (conflict) await context.create().resolveConflict(context.fileId, conflict.decision_id!, "remote");
+      }
+      expect((await context.create().inspect()).actions).toEqual([]);
+      expect(context.fileSystem.files).toEqual(new Map([[context.remote.path, utf8.encode("remote image")]]));
+      expect(context.transport.files).toEqual([context.remote]);
+      expect(context.transport.events).toHaveLength(1);
+      expect(context.transport.uploadCalls).toEqual([]);
+    }
+  });
+
   it("keeps metadata-only as the safe default", async () => {
     const transport = new FileTransport();
     const bytes = utf8.encode("image bytes");

@@ -424,6 +424,28 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
         blocking: true
       });
     }
+    // A remote conflict install can survive a crash before its superseded
+    // local source is removed. Both names then carry the same stable identity.
+    // Do not silently pick one and clear/upload the other as a new record.
+    const stablePaths = new Map<string, string>();
+    const ambiguousPaths = new Set<string>();
+    for (const observed of observations) {
+      if (!observed.stable_identity || observed.object.identity === "") continue;
+      const priorPath = stablePaths.get(observed.object.identity);
+      if (priorPath !== undefined && priorPath !== observed.object.path) {
+        ambiguousPaths.add(priorPath);
+        ambiguousPaths.add(observed.object.path);
+      }
+      stablePaths.set(observed.object.identity, observed.object.path);
+    }
+    for (const path of [...ambiguousPaths].sort()) {
+      issues.push({
+        code: "local_collision",
+        message: `${path} shares a stable identity with another local path; finish its conflict resolution.`,
+        path,
+        blocking: true
+      });
+    }
     return { observations, documents, binary, issues };
   }
 

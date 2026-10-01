@@ -177,6 +177,39 @@ describe("directory mirror process-death boundaries", () => {
     }
   });
 
+  it("recovers remote rename conflict decisions after every before/after boundary without duplicating the source", async () => {
+    const conflicted = async () => {
+      const context = await fixture(true);
+      await context.create().sync();
+      context.fileSystem.files.set("a.md", "accepted local edit");
+      await context.transport.mutate({
+        operation: "move", mutation_id: "remote-decision-rename", replica_id: (await context.transport.openSession()).replica_id,
+        scope_epoch: 1, record_id: "a", base_revision: (await context.stateStore.read())!.records.a!.revision,
+        path: "renamed.md", created_at: "2026-10-01T00:00:00.000Z"
+      });
+      expect((await context.create().sync()).status).toBe("attention");
+      context.expected.delete("a.md");
+      context.expected.set("renamed.md", "base a");
+      return context;
+    };
+    const baseline = await conflicted();
+    const trace = new CrashGate();
+    await baseline.create(trace).resolveConflict("a", (await baseline.stateStore.read())!.planned_conflicts!.a!.decision_id!, "remote");
+    for (let cut = 0; cut < trace.trace.length; cut += 1) {
+      const context = await conflicted();
+      const decisionId = (await context.stateStore.read())!.planned_conflicts!.a!.decision_id!;
+      const gate = new CrashGate(cut);
+      await context.create(gate).resolveConflict("a", decisionId, "remote").catch(() => undefined);
+      expect(gate.crashed, `${cut}: ${trace.trace[cut]}`).toBe(true);
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await context.create().sync();
+        const conflict = (await context.stateStore.read())!.planned_conflicts?.a;
+        if (conflict) await context.create().resolveConflict("a", conflict.decision_id!, "remote");
+      }
+      await assertConverged(context);
+    }
+  });
+
   // Expected failures name a cross-authority protocol gap, not a fallback:
   // move/delete carry a document-only base_revision but no expected source
   // path. Remove .fails when a versioned source-path precondition is enforced
