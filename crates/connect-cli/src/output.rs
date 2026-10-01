@@ -87,6 +87,21 @@ pub(super) fn print_result(json: bool, kind: OutputKind, value: &Value) -> Resul
     Ok(())
 }
 
+fn relay_problem_message(value: &Value) -> String {
+    let Some(code) = value["relay_problem"].as_str() else {
+        return String::new();
+    };
+    let action = match code {
+        "policy_authority_mismatch" => "Run `mdbase connect logout`, then `mdbase connect login` to replace this computer's registration.",
+        "policy_state_missing" => "Local authorization state is damaged. Preserve the store and restore a verified backup.",
+        "registration_restart_required" => "Restart the connector to finish the account change.",
+        "authentication_required" => "Reconnect this computer to authorize the account connection.",
+        "incompatible_version" => "Update the connector to restore the relay connection.",
+        _ => "Check connector diagnostics.",
+    };
+    format!("\nRelay: {code}\n{action}")
+}
+
 pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
     match kind {
         OutputKind::Status => {
@@ -97,10 +112,11 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
             let collections = value["registered_collections"].as_u64().unwrap_or(0);
             let paused = value["paused"].as_bool().unwrap_or(false);
             format!(
-                "{}\nCollections: {}\nAccess: {}",
+                "{}\nCollections: {}\nAccess: {}{}",
                 sentence_case(&state),
                 collections,
-                if paused { "paused" } else { "available" }
+                if paused { "paused" } else { "available" },
+                relay_problem_message(value)
             )
         }
         OutputKind::Daemon => {
@@ -127,14 +143,15 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
                 .unwrap_or("unknown");
             let daemon = value["daemon"]["state"].as_str().unwrap_or("unknown");
             format!(
-                "{}\nState directory: {}\nDaemon: {}",
+                "{}\nState directory: {}\nDaemon: {}{}",
                 if healthy {
                     "Connect is healthy."
                 } else {
                     "Connect needs attention."
                 },
                 state,
-                daemon
+                daemon,
+                relay_problem_message(&value["daemon"]["status"])
             )
         }
         OutputKind::Collections => render_rows(
@@ -384,4 +401,26 @@ pub(super) fn render_rows(
         .chain(rows.iter().map(|values| format_row(values)))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_and_doctor_explain_policy_recovery_without_hiding_the_code() {
+        let status =
+            serde_json::json!({"state": "offline", "relay_problem": "policy_authority_mismatch"});
+        let status_text = render_human(OutputKind::Status, &status);
+        assert!(status_text.contains("policy_authority_mismatch"));
+        assert!(status_text.contains("mdbase connect logout"));
+        let doctor_text = render_human(
+            OutputKind::Doctor,
+            &serde_json::json!({
+                "healthy": false, "daemon": {"state": "ready", "status": status}
+            }),
+        );
+        assert!(doctor_text.contains("Connect needs attention"));
+        assert!(doctor_text.contains("mdbase connect login"));
+    }
 }

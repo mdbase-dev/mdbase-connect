@@ -215,7 +215,8 @@ pub(super) async fn doctor(state_dir: &Path, endpoint: &str, target: DaemonTarge
         _ => ("unavailable", None),
     };
     serde_json::json!({
-        "healthy": state_directory != "unavailable" && daemon == "ready",
+        "healthy": state_directory != "unavailable" && daemon == "ready"
+            && status.as_ref().is_some_and(|status| status["relay_problem"].is_null()),
         "state_directory": {
             "path": state_dir,
             "state": state_directory
@@ -293,6 +294,26 @@ pub(super) async fn wait_until_stopped(state_dir: &Path, endpoint: &str) -> Resu
     Err(CliError::unavailable(
         "The Connect daemon did not stop within five seconds.",
     ))
+}
+
+/// Direct configuration is allowed only while no daemon owns this profile.
+/// Hold the lease through the write, rather than racing a check with startup.
+pub(super) fn offline_registration_change(
+    state_dir: &Path,
+    change: impl FnOnce() -> Result<(), mdbase_connect_core::ConnectError>,
+) -> Result<(), CliError> {
+    create_private_state_dir(state_dir).map_err(|error| CliError::internal(error.to_string()))?;
+    let lease = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(state_dir.join("daemon.lock"))
+        .map_err(|error| CliError::internal(error.to_string()))?;
+    lease.try_lock_exclusive().map_err(|_| CliError::unavailable(
+        "The daemon owns this profile but did not accept the account change. Stop it before retrying."
+    ))?;
+    change().map_err(|error| CliError::internal(error.to_string()))
 }
 
 fn daemon_lease_released(state_dir: &Path) -> bool {
@@ -479,6 +500,69 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn doctor_distinguishes_process_readiness_from_permanently_blocked_relay() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        for problem in [
+            None,
+            Some("policy_authority_mismatch"),
+            Some("policy_state_missing"),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("control.sock");
+            let listener = tokio::net::UnixListener::bind(&path).unwrap();
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let (read, mut write) = stream.into_split();
+                let mut line = String::new();
+                tokio::io::BufReader::new(read)
+                    .read_line(&mut line)
+                    .await
+                    .unwrap();
+                let request: ControlRequest = serde_json::from_str(&line).unwrap();
+                let response = ControlResponse::success(
+                    request.id,
+                    serde_json::json!({
+                        "state": "offline", "relay_problem": problem,
+                        "readiness": {"schema_version": 1, "ready": true, "binary_version": env!("CARGO_PKG_VERSION")}
+                    }),
+                );
+                let mut encoded = serde_json::to_vec(&response).unwrap();
+                encoded.push(b'\n');
+                write.write_all(&encoded).await.unwrap();
+            });
+            let result = doctor(
+                directory.path(),
+                path.to_str().unwrap(),
+                DaemonTarget::IsolatedProfile,
+            )
+            .await;
+            assert_eq!(result["healthy"], problem.is_none());
+            assert_eq!(result["daemon"]["state"], "ready");
+            server.await.unwrap();
+        }
+    }
+
+    #[test]
+    fn direct_account_change_cannot_bypass_a_live_daemon() {
+        let directory = tempfile::tempdir().unwrap();
+        let lease = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(directory.path().join("daemon.lock"))
+            .unwrap();
+        lease.try_lock_exclusive().unwrap();
+        assert!(
+            offline_registration_change(directory.path(), || panic!("live owner bypassed"))
+                .is_err()
+        );
+        lease.unlock().unwrap();
+        offline_registration_change(directory.path(), || Ok(())).unwrap();
     }
 
     #[test]

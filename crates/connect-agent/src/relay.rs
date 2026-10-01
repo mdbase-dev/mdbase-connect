@@ -13,8 +13,8 @@ use mdbase_connect_protocol::{
 use rand_core::{OsRng, RngCore};
 use reqwest::Client;
 use retry::{
-    pacing_delay, retry_after, retry_delay, terminal_http_status, terminal_reason, RelayPacing,
-    TerminalRelayFailure,
+    pacing_delay, retry_after, retry_delay, terminal_http_status, terminal_policy_reason,
+    terminal_reason, RelayPacing, TerminalRelayFailure,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -54,6 +54,11 @@ pub async fn run(server_url: String, connector_token: String, state: Arc<AgentSt
         .expect("relay HTTP client");
     let mut failures = 0u32;
     loop {
+        if state.relay_problem().is_some() {
+            // A local account change fences this instance until controlled restart.
+            std::future::pending::<()>().await;
+            return;
+        }
         state.set_connection_state(AgentConnectionState::Connecting);
         let healthy_since = Arc::new(std::sync::Mutex::new(None));
         let result = connect_once(
@@ -66,7 +71,9 @@ pub async fn run(server_url: String, connector_token: String, state: Arc<AgentSt
         .await;
         state.set_connection_state(AgentConnectionState::Offline);
         if let Err(error) = &result {
-            if let Some(reason) = terminal_reason(error.as_ref()) {
+            if let Some(reason) = terminal_reason(error.as_ref()).or_else(|| state.relay_problem())
+            {
+                tracing::warn!(%error, "relay session blocked");
                 state.set_relay_problem(Some(reason));
                 tracing::warn!(
                     code = reason,
@@ -108,10 +115,11 @@ async fn connect_once(
     sync_collections(client, server_url, connector_token, &state).await?;
     let websocket_url = websocket_url(server_url)?;
     let mut request = websocket_url.as_str().into_client_request()?;
-    request.headers_mut().insert(
-        "authorization",
-        HeaderValue::from_str(&format!("Bearer {connector_token}"))?,
-    );
+    let mut authorization = HeaderValue::from_str(&format!("Bearer {connector_token}"))?;
+    // Protect structured request diagnostics. Serialized handshake TRACE is
+    // separately capped in initialize_tracing because it bypasses this flag.
+    authorization.set_sensitive(true);
+    request.headers_mut().insert("authorization", authorization);
     let (mut socket, _) =
         tokio::time::timeout(Duration::from_secs(15), connect_async(request)).await??;
     socket
@@ -193,6 +201,16 @@ async fn connect_once(
             match tokio::task::spawn_blocking(move || state.handle_relay_message(message)).await {
                 Ok(Some(response)) => {
                     usable = matches!(&response, RelayMessage::PolicyApplied { ok: true, .. });
+                    if let RelayMessage::PolicyApplied {
+                        ok: false,
+                        error: Some(error),
+                        ..
+                    } = &response
+                    {
+                        if let Some(reason) = terminal_policy_reason(&error.code) {
+                            policy_state.set_relay_problem(Some(reason));
+                        }
+                    }
                     let _ = policy_responses.send(response).await;
                 }
                 Ok(None) => {}
@@ -453,6 +471,9 @@ async fn connect_once(
                     return Err("relay response channel closed".into());
                 };
                 writer.send(Message::Text(serde_json::to_string(&response)?.into())).await?;
+                if let Some(reason) = state.relay_problem() {
+                    return Err(TerminalRelayFailure(reason).into());
+                }
             }
             response = operation_response_rx.recv() => {
                 let Some(response) = response else {

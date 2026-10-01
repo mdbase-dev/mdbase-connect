@@ -92,9 +92,10 @@ fn validate_policy_snapshot(
     let connector_id = connector_id.map(|value| value.to_string());
     if let (Some(expected), Some(received)) = (&current.connector_id, &connector_id) {
         if expected != received {
-            return Err(ConnectError::InvalidInput(
-                "Policy snapshot connector does not match the pinned authority.".to_string(),
-            ));
+            return Err(ConnectError::PolicyAuthorityMismatch {
+                expected: expected.clone(),
+                received: received.clone(),
+            });
         }
     }
     // Legacy beta snapshots and lease snapshots use independent sequence
@@ -111,17 +112,34 @@ fn validate_policy_snapshot(
     Ok(())
 }
 
+/// A missing singleton is an invariant failure, never an unpinned authority.
+fn policy_row<T>(result: rusqlite::Result<T>) -> Result<T, ConnectError> {
+    result.optional()?.ok_or(ConnectError::PolicyStateMissing)
+}
+
 impl CollectionRegistry {
+    /// Forget remote authorization only during an explicit local account change.
+    /// Callers with a live relay must fence its policy writes before this reset.
+    /// Replay evidence is retained for exactly-once recovery; local collection
+    /// settings, authority-transfer fences and data are not touched.
+    pub fn reset_remote_policy(&self) -> Result<(), ConnectError> {
+        self.authority.reset_remote_policy()
+    }
+
     pub fn replace_grants(&self, grants: &[GrantPolicy]) -> Result<(), ConnectError> {
         let digest = Sha256::digest(serde_json::to_vec(grants)?)
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        let sequence = self.authority.connection()?.query_row(
+        let sequence = policy_row(self.authority.connection()?.query_row(
             "SELECT sequence FROM policy_state WHERE singleton = 1",
             [],
             |row| row.get::<_, u64>(0),
-        )? + 1;
+        ))?
+        .checked_add(1)
+        .ok_or_else(|| {
+            ConnectError::InvalidInput("The local policy sequence is exhausted.".to_string())
+        })?;
         let issued_at_ms = super::authority_store::current_time_ms();
         self.replace_grants_at_revision(
             &format!("local:{digest}"),
@@ -157,11 +175,11 @@ impl CollectionRegistry {
         revision: &str,
         grants: &[GrantPolicy],
     ) -> Result<(), ConnectError> {
-        let (sequence, connector_id) = self.authority.connection()?.query_row(
+        let (sequence, connector_id) = policy_row(self.authority.connection()?.query_row(
             "SELECT sequence, connector_id FROM policy_state WHERE singleton = 1",
             [],
             |row| Ok((row.get::<_, u64>(0)?, row.get::<_, Option<String>>(1)?)),
-        )?;
+        ))?;
         if connector_id.is_some() {
             return Err(ConnectError::InvalidInput(
                 "Legacy policy is forbidden after lease authority was pinned.".to_string(),
@@ -211,7 +229,7 @@ impl CollectionRegistry {
         lease_expires_at_ms: i64,
         grants: &[GrantPolicy],
     ) -> Result<(), ConnectError> {
-        let current = self.authority.connection()?.query_row(
+        let current = policy_row(self.authority.connection()?.query_row(
             "SELECT sequence, revision, connector_id FROM policy_state WHERE singleton = 1",
             [],
             |row| {
@@ -221,7 +239,7 @@ impl CollectionRegistry {
                     connector_id: row.get(2)?,
                 })
             },
-        )?;
+        ))?;
         validate_policy_snapshot(
             Some(connector_id),
             revision,
@@ -276,7 +294,7 @@ impl CollectionRegistry {
         self.authority
             .write(AuthorityWritePriority::Control, move |connection| {
                 let transaction = connection.transaction()?;
-                let current = transaction.query_row(
+                let current = policy_row(transaction.query_row(
                     "SELECT sequence, revision, connector_id FROM policy_state WHERE singleton = 1",
                     [],
                     |row| {
@@ -286,7 +304,7 @@ impl CollectionRegistry {
                             connector_id: row.get(2)?,
                         })
                     },
-                )?;
+                ))?;
                 if reject_pinned_legacy && current.connector_id.is_some() {
                     return Err(ConnectError::InvalidInput(
                         "Legacy policy is forbidden after lease authority was pinned.".to_string(),
@@ -728,9 +746,9 @@ impl CollectionRegistry {
     /// but remains explicitly distinct from fresh lease protection.
     pub fn remote_policy_is_usable(&self) -> Result<bool, ConnectError> {
         let now_ms = super::authority_store::current_time_ms();
-        let (connector_id, expires_at_ms, observed_at_ms) =
-            self.authority.connection()?.query_row(
-                "SELECT connector_id, lease_expires_at_ms, observed_at_ms
+        let (connector_id, expires_at_ms, observed_at_ms, revision) =
+            policy_row(self.authority.connection()?.query_row(
+                "SELECT connector_id, lease_expires_at_ms, observed_at_ms, revision
              FROM policy_state WHERE singleton = 1",
                 [],
                 |row| {
@@ -738,10 +756,12 @@ impl CollectionRegistry {
                         row.get::<_, Option<String>>(0)?,
                         row.get::<_, i64>(1)?,
                         row.get::<_, i64>(2)?,
+                        row.get::<_, String>(3)?,
                     ))
                 },
-            )?;
-        Ok(connector_id.is_none() || expires_at_ms > now_ms.max(observed_at_ms))
+            ))?;
+        Ok(!revision.is_empty()
+            && (connector_id.is_none() || expires_at_ms > now_ms.max(observed_at_ms)))
     }
 
     /// Reconstruct the authority digest from exact stored columns. Every
@@ -750,21 +770,21 @@ impl CollectionRegistry {
     pub fn remote_policy_authority(&self) -> Result<RemotePolicyAuthority, ConnectError> {
         let mut connection = self.authority.connection()?;
         let transaction = connection.transaction()?;
-        let (revision, sequence, connector_id, lease_expires_at_ms, observed_at_ms) = transaction
-            .query_row(
-            "SELECT revision, sequence, connector_id, lease_expires_at_ms, observed_at_ms
+        let (revision, sequence, connector_id, lease_expires_at_ms, observed_at_ms) =
+            policy_row(transaction.query_row(
+                "SELECT revision, sequence, connector_id, lease_expires_at_ms, observed_at_ms
                  FROM policy_state WHERE singleton = 1",
-            [],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, u64>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, i64>(4)?,
-                ))
-            },
-        )?;
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, u64>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                    ))
+                },
+            ))?;
         let connector_id = connector_id
             .as_deref()
             .map(parse_registry_uuid)
@@ -860,39 +880,20 @@ impl CollectionRegistry {
 
     pub fn remote_policy_revision_if_fresh(&self) -> Result<Option<String>, ConnectError> {
         let now_ms = super::authority_store::current_time_ms();
-        let (revision, expires_at_ms, observed_at_ms) = self.authority.connection()?.query_row(
+        let (revision, expires_at_ms, observed_at_ms) = policy_row(self.authority.connection()?.query_row(
             "SELECT revision, lease_expires_at_ms, observed_at_ms FROM policy_state WHERE singleton = 1",
             [],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
-        )?;
+        ))?;
         Ok((expires_at_ms > now_ms.max(observed_at_ms)).then_some(revision))
     }
 
-    pub fn remote_policy_matches_fresh(&self, revision: &str) -> Result<bool, ConnectError> {
-        Ok(self.remote_policy_revision_if_fresh()?.as_deref() == Some(revision))
-    }
-
-    pub fn remote_policy_remaining(&self) -> Result<std::time::Duration, ConnectError> {
-        let now_ms = super::authority_store::current_time_ms();
-        if !self.remote_policy_is_fresh_at(now_ms)? {
-            return Ok(std::time::Duration::ZERO);
-        }
-        let (expires_at_ms, observed_at_ms) = self.authority.connection()?.query_row(
-            "SELECT lease_expires_at_ms, observed_at_ms FROM policy_state WHERE singleton = 1",
-            [],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-        )?;
-        Ok(std::time::Duration::from_millis(
-            expires_at_ms.saturating_sub(now_ms.max(observed_at_ms)) as u64,
-        ))
-    }
-
     pub(crate) fn remote_policy_is_fresh_at(&self, now_ms: i64) -> Result<bool, ConnectError> {
-        let (expires_at_ms, observed_at_ms) = self.authority.connection()?.query_row(
+        let (expires_at_ms, observed_at_ms) = policy_row(self.authority.connection()?.query_row(
             "SELECT lease_expires_at_ms, observed_at_ms FROM policy_state WHERE singleton = 1",
             [],
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-        )?;
+        ))?;
         let effective_now = now_ms.max(observed_at_ms);
         if effective_now > observed_at_ms {
             self.authority
@@ -987,3 +988,7 @@ pub(super) fn archive_grant_replay_material(
 #[cfg(test)]
 #[path = "grants_policy_tests.rs"]
 mod policy_tests;
+
+#[cfg(test)]
+#[path = "registration_tests.rs"]
+mod registration_tests;

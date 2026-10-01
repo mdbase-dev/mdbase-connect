@@ -103,6 +103,10 @@ fn recover_staged_cloud_configuration_with_store(
             "A staged Connect account does not match its operating-system credential.".to_string(),
         ));
     }
+    // This staged local operation is the authority replacement boundary. Reset
+    // before installing the new credential; recovery repeats it safely after a
+    // crash. Ordinary startup without a staged operation never unpins policy.
+    crate::registry::reset_remote_policy_at(state_dir)?;
     secrets.set_connector_token(&token)?;
     save_cloud_configuration(state_dir, &configuration)?;
     remove_configuration_file(&pending_configuration_path(state_dir))?;
@@ -110,11 +114,18 @@ fn recover_staged_cloud_configuration_with_store(
 }
 
 pub fn disconnect_cloud(state_dir: &Path) -> Result<(), ConnectError> {
+    disconnect_cloud_with_store(state_dir, &SystemSecretStore::new(state_dir))
+}
+
+fn disconnect_cloud_with_store(
+    state_dir: &Path,
+    secrets: &SystemSecretStore,
+) -> Result<(), ConnectError> {
     remove_configuration_file(&pending_configuration_path(state_dir))?;
-    let secrets = SystemSecretStore::new(state_dir);
     secrets.clear_pending_connector_token()?;
     clear_cloud_configuration(state_dir)?;
-    secrets.clear_connector_token()
+    secrets.clear_connector_token()?;
+    crate::registry::reset_remote_policy_at(state_dir)
 }
 
 fn load_configuration_file(path: &Path) -> Result<Option<CloudConfiguration>, ConnectError> {
@@ -268,6 +279,64 @@ mod tests {
     }
 
     #[test]
+    fn explicit_pairing_and_logout_reset_policy_but_preserve_device_identity() {
+        let temporary = tempfile::tempdir().unwrap();
+        let state_dir = temporary.path();
+        let secrets = SystemSecretStore::insecure_test(state_dir);
+        let configuration = CloudConfiguration::new("https://connect.example").unwrap();
+        let token = "con_123456789012345678901234";
+        let identity = secrets.load_or_create_relay_identity(state_dir).unwrap();
+        let registry = crate::CollectionRegistry::open(state_dir).unwrap();
+        let old_id = uuid::Uuid::new_v4();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        registry
+            .replace_remote_grants_at_revision(old_id, "old", 578, now, now + 60_000, &[])
+            .unwrap();
+        // Ordinary restarts must preserve the trust pin.
+        recover_staged_cloud_configuration_with_store(state_dir, &secrets).unwrap();
+        assert_eq!(
+            registry.remote_policy_authority().unwrap().connector_id,
+            Some(old_id)
+        );
+        configure_cloud_with_store(state_dir, &configuration, token, &secrets).unwrap();
+        assert!(registry
+            .remote_policy_authority()
+            .unwrap()
+            .connector_id
+            .is_none());
+        assert!(!registry.remote_policy_is_usable().unwrap());
+        let new_id = uuid::Uuid::new_v4();
+        registry
+            .replace_remote_grants_at_revision(new_id, "new", 1, now, now + 60_000, &[])
+            .unwrap();
+        recover_staged_cloud_configuration_with_store(state_dir, &secrets).unwrap();
+        assert_eq!(
+            registry.remote_policy_authority().unwrap().connector_id,
+            Some(new_id)
+        );
+        disconnect_cloud_with_store(state_dir, &secrets).unwrap();
+        assert!(registry
+            .remote_policy_authority()
+            .unwrap()
+            .connector_id
+            .is_none());
+        assert!(!registry.remote_policy_is_usable().unwrap());
+        assert!(load_cloud_configuration(state_dir).unwrap().is_none());
+        assert!(secrets.connector_token().unwrap().is_none());
+        assert!(secrets.pending_connector_token().unwrap().is_none());
+        assert_eq!(
+            secrets
+                .load_or_create_relay_identity(state_dir)
+                .unwrap()
+                .public_key(),
+            identity.public_key()
+        );
+    }
+
+    #[test]
     fn staged_account_configuration_recovers_after_interruption() {
         let temporary = tempfile::tempdir().unwrap();
         let state_dir = temporary.path().join("state");
@@ -286,7 +355,30 @@ mod tests {
         )
         .unwrap();
 
+        let registry = crate::CollectionRegistry::open(&state_dir).unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        registry
+            .replace_remote_grants_at_revision(
+                uuid::Uuid::new_v4(),
+                "old",
+                578,
+                now,
+                now + 60_000,
+                &[],
+            )
+            .unwrap();
+        // Simulate interruption after durable reset but before credential commit.
+        registry.reset_remote_policy().unwrap();
         recover_staged_cloud_configuration_with_store(&state_dir, &secrets).unwrap();
+        assert!(registry
+            .remote_policy_authority()
+            .unwrap()
+            .connector_id
+            .is_none());
+        assert_eq!(registry.remote_policy_authority().unwrap().sequence, 0);
 
         assert_eq!(
             load_cloud_configuration(&state_dir).unwrap(),

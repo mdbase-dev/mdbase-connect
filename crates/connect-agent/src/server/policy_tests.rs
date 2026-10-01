@@ -5,6 +5,115 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempfile::tempdir;
 
+pub(crate) struct ManualPublicationClock {
+    gate: Arc<PublicationGate>,
+}
+
+pub(crate) struct ManualPolicyClock<'a> {
+    gate: &'a PolicyRevisionGate,
+}
+
+impl ManualPublicationClock {
+    pub(crate) fn advance_to(&self, now: Instant) {
+        let mut state = self.gate.state.lock().expect("publication gate poisoned");
+        let current = state.manual_now.expect("manual publication clock missing");
+        assert!(now >= current, "manual publication clock moved backwards");
+        state.manual_now = Some(now);
+        self.gate.changed.notify_all();
+    }
+
+    pub(crate) fn wait_until_snapshot_pending(&self) {
+        let mut state = self.gate.state.lock().expect("publication gate poisoned");
+        while !state.snapshot_pending {
+            state = self
+                .gate
+                .changed
+                .wait(state)
+                .expect("publication gate poisoned");
+        }
+    }
+}
+
+impl Drop for ManualPublicationClock {
+    fn drop(&mut self) {
+        let mut state = self
+            .gate
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.manual_now = None;
+        self.gate.changed.notify_all();
+    }
+}
+
+impl ManualPolicyClock<'_> {
+    pub(crate) fn advance_to(&self, now_ms: i64) {
+        let mut state = self.gate.0.write().expect("policy gate poisoned");
+        let current = state.manual_now_ms.expect("manual policy clock missing");
+        assert!(now_ms >= current, "manual policy clock moved backwards");
+        state.manual_now_ms = Some(now_ms);
+    }
+}
+
+impl Drop for ManualPolicyClock<'_> {
+    fn drop(&mut self) {
+        self.gate
+            .0
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .manual_now_ms = None;
+    }
+}
+
+impl AgentState {
+    pub(crate) fn policy_lease_expiry_for_test(&self) -> i64 {
+        self.registry
+            .remote_policy_authority()
+            .expect("policy authority missing")
+            .lease_expires_at_ms
+    }
+
+    pub(crate) fn manual_policy_clock(&self, now_ms: i64) -> ManualPolicyClock<'_> {
+        let mut state = self
+            .policy_revision_gate
+            .0
+            .write()
+            .expect("policy gate poisoned");
+        assert!(
+            state.manual_now_ms.is_none(),
+            "manual policy clock installed twice"
+        );
+        state.manual_now_ms = Some(now_ms);
+        ManualPolicyClock {
+            gate: &self.policy_revision_gate,
+        }
+    }
+
+    pub(crate) fn manual_publication_clock(&self, now: Instant) -> ManualPublicationClock {
+        let mut state = self
+            .publication_gate
+            .state
+            .lock()
+            .expect("publication gate poisoned");
+        assert!(
+            state.active.is_empty(),
+            "publication permits already active"
+        );
+        assert!(
+            state.manual_now.is_none(),
+            "manual publication clock installed twice"
+        );
+        state.manual_now = Some(now);
+        ManualPublicationClock {
+            gate: self.publication_gate.clone(),
+        }
+    }
+}
+
+pub(super) fn publication_now(state: &PublicationState) -> Instant {
+    state.manual_now.unwrap_or_else(Instant::now)
+}
+
 fn install_revision(state: &AgentState, revision: &str, sequence: u64) {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -71,6 +180,142 @@ fn snapshot_at(connector_id: Uuid, sequence: u64, now: i64, lease_ms: i64) -> Po
         lease_expires_at_ms: expires,
         grants,
     }
+}
+
+#[test]
+fn registration_mismatch_is_typed_and_does_not_replace_authority() {
+    let (_directory, state, connector_id, _) = authenticated_state(60_000);
+    let response = apply_policy_snapshot(
+        &state,
+        CONTROL_PROTOCOL_VERSION,
+        snapshot_for(Uuid::new_v4(), 1, 60_000),
+    );
+    assert!(
+        matches!(response, RelayMessage::PolicyApplied { ok: false, error: Some(error), .. }
+        if error.code == "policy_authority_mismatch")
+    );
+    assert_eq!(
+        state
+            .registry
+            .remote_policy_authority()
+            .unwrap()
+            .connector_id,
+        Some(connector_id)
+    );
+}
+
+#[test]
+fn local_registration_change_blocks_old_workers_activation_and_permits_until_restart() {
+    let (directory, state, connector_id, _) = authenticated_state(60_000);
+    let old = state.capture_policy_revision().unwrap();
+    state
+        .change_account_registration(|| state.registry.reset_remote_policy())
+        .unwrap();
+    assert!(!state.policy_authority_ready());
+    assert!(!state.finish_policy_update(1, true));
+    assert!(state.capture_policy_revision().is_err());
+    assert!(state
+        .acquire_publication_permit(&old, tokio::time::Instant::now() + Duration::from_secs(1))
+        .is_err());
+    assert!(state
+        .with_current_registration(|| -> Result<(), ConnectError> {
+            panic!("old activation admitted")
+        })
+        .is_err());
+    for id in [connector_id, Uuid::new_v4()] {
+        let response = apply_policy_snapshot(
+            &state,
+            CONTROL_PROTOCOL_VERSION,
+            snapshot_for(id, 1, 60_000),
+        );
+        assert!(
+            matches!(response, RelayMessage::PolicyApplied { ok: false, error: Some(error), .. }
+            if error.code == "registration_restart_required")
+        );
+    }
+    assert!(state
+        .registry
+        .remote_policy_authority()
+        .unwrap()
+        .connector_id
+        .is_none());
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    let restarted = AgentState::new(registry, watcher, None);
+    let new_id = Uuid::new_v4();
+    assert!(matches!(
+        apply_policy_snapshot(
+            &restarted,
+            CONTROL_PROTOCOL_VERSION,
+            snapshot_for(new_id, 1, 60_000)
+        ),
+        RelayMessage::PolicyApplied { ok: true, .. }
+    ));
+    assert_eq!(
+        restarted
+            .registry
+            .remote_policy_authority()
+            .unwrap()
+            .connector_id,
+        Some(new_id)
+    );
+}
+
+#[test]
+fn account_reset_cannot_be_undone_by_an_old_snapshot_waiting_for_publication() {
+    let (_directory, state) = state();
+    let now = Instant::now();
+    let clock = state.manual_publication_clock(now);
+    let old = state.capture_policy_revision().unwrap();
+    let publication = state
+        .acquire_publication_permit(
+            &old,
+            tokio::time::Instant::from_std(now + Duration::from_secs(5)),
+        )
+        .unwrap();
+    let _policy_clock = state.manual_policy_clock(state.policy_lease_expiry_for_test());
+    let worker_state = state.clone();
+    let worker = std::thread::spawn(move || {
+        apply_policy_snapshot(&worker_state, CONTROL_PROTOCOL_VERSION, snapshot(2))
+    });
+    clock.wait_until_snapshot_pending();
+    let reset_state = state.clone();
+    let reset = std::thread::spawn(move || {
+        reset_state.change_account_registration(|| reset_state.registry.reset_remote_policy())
+    });
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while state.relay_problem() != Some("registration_restart_required") {
+        assert!(
+            Instant::now() < deadline,
+            "account replacement did not establish its fence"
+        );
+        std::thread::yield_now();
+    }
+    assert!(!state.publication_is_current(&publication));
+    drop(publication);
+    reset.join().unwrap().unwrap();
+    assert!(matches!(
+        worker.join().unwrap(),
+        RelayMessage::PolicyApplied { ok: false, .. }
+    ));
+    assert!(state
+        .registry
+        .remote_policy_authority()
+        .unwrap()
+        .connector_id
+        .is_none());
+    assert!(state.capture_policy_revision().is_err());
+}
+
+#[test]
+fn failed_account_change_keeps_old_instance_fenced() {
+    let (_directory, state) = state();
+    let result: Result<(), ConnectError> =
+        state.change_account_registration(|| Err(ConnectError::Settings("interrupted".into())));
+    assert!(result.is_err());
+    assert!(!state.policy_authority_ready());
+    assert_eq!(state.relay_problem(), Some("registration_restart_required"));
+    assert!(state.capture_policy_revision().is_err());
 }
 
 #[test]

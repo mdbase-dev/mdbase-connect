@@ -161,7 +161,23 @@ Account changes use a recoverable two-phase local commit: the new credential is
 staged in the operating-system store, a non-secret digest binds it to the
 staged server origin, and daemon startup completes any interrupted commit. A
 torn or mismatched stage fails closed rather than pairing a credential with the
-wrong server.
+wrong server. Before the staged credential is installed, the same commit revokes
+cached remote grants and resets the connector pin, policy sequence, and lease.
+Recovery may repeat that reset; an ordinary restart without a staged account
+change never unpins authority. A live daemon fences old-session policy writes,
+activation, and response publication until the requested restart completes.
+Direct CLI configuration is permitted only while holding the profile's daemon
+lease; a refused control request is never bypassed with an offline write.
+
+`connect logout` removes account credentials and cached remote authorization.
+It preserves collection paths and data, local access controls, mutation/replay
+recovery evidence, authority-transfer fences, and the device's cryptographic
+relay identity. Logout is not a device-key rotation or transfer cancellation.
+To recover a `policy_authority_mismatch`, run `mdbase connect logout`, then
+`mdbase connect login` (or disconnect/reconnect this computer in the desktop).
+Do not delete or hand-edit `policy_state`. A missing singleton is a local-store
+invariant failure (`policy_state_missing`); preserve the store and restore a
+verified backup rather than silently adopting a new authority.
 
 ## Hosted mirror invariants
 

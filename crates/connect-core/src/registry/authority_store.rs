@@ -263,6 +263,42 @@ impl AuthorityStore {
         })
     }
 
+    /// Explicit local registration replacement, never snapshot-driven recovery.
+    pub(super) fn reset_remote_policy(&self) -> Result<(), ConnectError> {
+        self.write(AuthorityWritePriority::Control, |connection| {
+            let transaction = connection.transaction()?;
+            transaction
+                .query_row(
+                    "SELECT singleton FROM policy_state WHERE singleton = 1",
+                    [],
+                    |row| row.get::<_, u64>(0),
+                )
+                .optional()?
+                .ok_or(ConnectError::PolicyStateMissing)?;
+            let grant_ids = {
+                let mut statement =
+                    transaction.prepare("SELECT id FROM grants WHERE encryption IS NOT NULL")?;
+                let rows = statement
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            };
+            for grant_id in grant_ids {
+                super::grants::archive_grant_replay_material(&transaction, &grant_id)?;
+            }
+            transaction.execute("DELETE FROM grants", [])?;
+            transaction.execute(
+                "UPDATE policy_state SET revision = '', sequence = 0, connector_id = NULL,
+                 lease_expires_at_ms = 0, observed_at_ms = 0, epoch = epoch + 1,
+                 applied_at_ms = CAST(unixepoch('subsec') * 1000 AS INTEGER)
+                 WHERE singleton = 1",
+                [],
+            )?;
+            transaction.commit()?;
+            Ok(())
+        })
+    }
+
     pub(super) fn connection(&self) -> Result<Connection, ConnectError> {
         open_authority_connection(&self.db_path, false)
     }

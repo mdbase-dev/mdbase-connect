@@ -17,6 +17,8 @@ struct PolicyAuthorityState {
     epoch: u64,
     digest: Option<String>,
     pending_generation: Option<u64>,
+    // A local credential replacement fences this instance until restart.
+    registration_change_pending: bool,
     #[cfg(test)]
     manual_now_ms: Option<i64>,
 }
@@ -31,6 +33,7 @@ impl PolicyRevisionGate {
             epoch: 1,
             digest,
             pending_generation: None,
+            registration_change_pending: false,
             #[cfg(test)]
             manual_now_ms: None,
         }))
@@ -67,72 +70,6 @@ pub(crate) struct PublicationPermit {
     authority_epoch: u64,
     deadline: Instant,
     gate: Arc<PublicationGate>,
-}
-
-#[cfg(test)]
-pub(crate) struct ManualPublicationClock {
-    gate: Arc<PublicationGate>,
-}
-
-#[cfg(test)]
-pub(crate) struct ManualPolicyClock<'a> {
-    gate: &'a PolicyRevisionGate,
-}
-
-#[cfg(test)]
-impl ManualPublicationClock {
-    pub(crate) fn advance_to(&self, now: Instant) {
-        let mut state = self.gate.state.lock().expect("publication gate poisoned");
-        let current = state.manual_now.expect("manual publication clock missing");
-        assert!(now >= current, "manual publication clock moved backwards");
-        state.manual_now = Some(now);
-        self.gate.changed.notify_all();
-    }
-
-    pub(crate) fn wait_until_snapshot_pending(&self) {
-        let mut state = self.gate.state.lock().expect("publication gate poisoned");
-        while !state.snapshot_pending {
-            state = self
-                .gate
-                .changed
-                .wait(state)
-                .expect("publication gate poisoned");
-        }
-    }
-}
-
-#[cfg(test)]
-impl Drop for ManualPublicationClock {
-    fn drop(&mut self) {
-        let mut state = self
-            .gate
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.manual_now = None;
-        self.gate.changed.notify_all();
-    }
-}
-
-#[cfg(test)]
-impl ManualPolicyClock<'_> {
-    pub(crate) fn advance_to(&self, now_ms: i64) {
-        let mut state = self.gate.0.write().expect("policy gate poisoned");
-        let current = state.manual_now_ms.expect("manual policy clock missing");
-        assert!(now_ms >= current, "manual policy clock moved backwards");
-        state.manual_now_ms = Some(now_ms);
-    }
-}
-
-#[cfg(test)]
-impl Drop for ManualPolicyClock<'_> {
-    fn drop(&mut self) {
-        self.gate
-            .0
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .manual_now_ms = None;
-    }
 }
 
 impl Drop for PublicationPermit {
@@ -280,13 +217,81 @@ impl AgentState {
         next_epoch.map(|_| ()).ok_or_else(policy_changed)
     }
 
-    pub(crate) fn policy_authority_ready(&self) -> bool {
-        self.policy_revision_gate
+    /// Activation can install grants and collection setup without a snapshot.
+    /// Serialize it with account replacement so an old relay cannot restore grants.
+    pub(super) fn with_current_registration<T>(
+        &self,
+        action: impl FnOnce() -> Result<T, ConnectError>,
+    ) -> Result<T, ConnectError> {
+        let _account = self
+            .account_configuration_lock
+            .lock()
+            .expect("account configuration lock poisoned");
+        if self
+            .policy_revision_gate
             .0
             .read()
             .expect("policy gate poisoned")
-            .pending_generation
-            .is_none()
+            .registration_change_pending
+        {
+            return Err(policy_changed());
+        }
+        action()
+    }
+
+    /// Serialize local account changes with policy application and publication.
+    /// Keep the fence even on failure: configuration may have been partly staged.
+    pub(super) fn change_account_registration<T>(
+        &self,
+        change: impl FnOnce() -> Result<T, ConnectError>,
+    ) -> Result<T, ConnectError> {
+        let mut publications = self
+            .publication_gate
+            .state
+            .lock()
+            .expect("publication gate poisoned");
+        let mut authority = self
+            .policy_revision_gate
+            .0
+            .write()
+            .expect("policy gate poisoned");
+        authority.registration_change_pending = true;
+        authority.epoch = authority.epoch.checked_add(1).ok_or_else(policy_changed)?;
+        publications.snapshot_pending = true;
+        self.publication_gate.changed.notify_all();
+        drop(authority);
+        self.cancel_remote_operations();
+        self.set_relay_problem(Some("registration_restart_required"));
+        self.set_connection_state(mdbase_connect_protocol::AgentConnectionState::Offline);
+        loop {
+            let now = Instant::now();
+            publications.active.retain(|_, deadline| *deadline > now);
+            let Some(next) = publications.active.values().copied().min() else {
+                break;
+            };
+            let (guard, _) = self
+                .publication_gate
+                .changed
+                .wait_timeout(publications, next.saturating_duration_since(now))
+                .expect("publication gate poisoned");
+            publications = guard;
+        }
+        // Old policy workers recheck the registration fence after waiting too.
+        let _authority = self
+            .policy_revision_gate
+            .0
+            .write()
+            .expect("policy gate poisoned");
+        change()
+    }
+
+    pub(crate) fn policy_authority_ready(&self) -> bool {
+        let authority = self
+            .policy_revision_gate
+            .0
+            .read()
+            .expect("policy gate poisoned");
+        !authority.registration_change_pending && authority.pending_generation.is_none()
     }
 
     pub(crate) fn finish_policy_update(&self, generation: u64, applied: bool) -> bool {
@@ -303,9 +308,10 @@ impl AgentState {
             .0
             .write()
             .expect("policy gate poisoned");
-        if authority
-            .pending_generation
-            .is_some_and(|pending| pending > generation)
+        if authority.registration_change_pending
+            || authority
+                .pending_generation
+                .is_some_and(|pending| pending > generation)
         {
             return false;
         }
@@ -350,7 +356,7 @@ impl AgentState {
             .0
             .write()
             .expect("policy gate poisoned");
-        if gate.pending_generation.is_some() {
+        if gate.registration_change_pending || gate.pending_generation.is_some() {
             return Err(policy_changed());
         }
         let authority = self.registry.remote_policy_authority()?;
@@ -460,57 +466,6 @@ impl AgentState {
             .expect("policy gate poisoned");
         publication_permit_matches(&self.registry, &authority, permit).unwrap_or(false)
     }
-
-    #[cfg(test)]
-    pub(crate) fn policy_lease_expiry_for_test(&self) -> i64 {
-        self.registry
-            .remote_policy_authority()
-            .expect("policy authority missing")
-            .lease_expires_at_ms
-    }
-
-    #[cfg(test)]
-    pub(crate) fn manual_policy_clock(&self, now_ms: i64) -> ManualPolicyClock<'_> {
-        let mut state = self
-            .policy_revision_gate
-            .0
-            .write()
-            .expect("policy gate poisoned");
-        assert!(
-            state.manual_now_ms.is_none(),
-            "manual policy clock installed twice"
-        );
-        state.manual_now_ms = Some(now_ms);
-        ManualPolicyClock {
-            gate: &self.policy_revision_gate,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn manual_publication_clock(&self, now: Instant) -> ManualPublicationClock {
-        let mut state = self
-            .publication_gate
-            .state
-            .lock()
-            .expect("publication gate poisoned");
-        assert!(
-            state.active.is_empty(),
-            "publication permits already active"
-        );
-        assert!(
-            state.manual_now.is_none(),
-            "manual publication clock installed twice"
-        );
-        state.manual_now = Some(now);
-        ManualPublicationClock {
-            gate: self.publication_gate.clone(),
-        }
-    }
-}
-
-#[cfg(test)]
-fn publication_now(state: &PublicationState) -> Instant {
-    state.manual_now.unwrap_or_else(Instant::now)
 }
 
 fn authority_is_fresh(
@@ -539,7 +494,8 @@ fn authority_matches(
     epoch: u64,
 ) -> Result<bool, ConnectError> {
     let authority = registry.remote_policy_authority()?;
-    Ok(state.pending_generation.is_none()
+    Ok(!state.registration_change_pending
+        && state.pending_generation.is_none()
         && authority_is_fresh(state, &authority)
         && authority.authority_digest.as_deref() == Some(digest)
         && state.digest.as_deref() == Some(digest)
@@ -667,6 +623,15 @@ pub(crate) fn apply_policy_snapshot(
         .0
         .write()
         .expect("policy gate poisoned");
+    if authority.registration_change_pending {
+        return rejected(
+            request_id,
+            revision,
+            "registration_restart_required",
+            "Account registration changed locally; restart the connector before applying policy."
+                .to_string(),
+        );
+    }
     let current = match state.registry.remote_policy_authority() {
         Ok(current) => current,
         Err(error) => {
@@ -768,7 +733,9 @@ pub(crate) fn apply_policy_snapshot(
         .write()
         .expect("policy gate poisoned");
     let next_epoch = authority.epoch.checked_add(1);
-    let result = if next_epoch.is_some() {
+    let result = if authority.registration_change_pending {
+        Err(policy_changed())
+    } else if next_epoch.is_some() {
         state.registry.replace_remote_grants_at_revision(
             connector_id,
             &revision,
@@ -787,7 +754,8 @@ pub(crate) fn apply_policy_snapshot(
         authority.digest = Some(authority_digest);
     }
     state.cancel_remote_operations();
-    publications.snapshot_pending = authority.pending_generation.is_some();
+    publications.snapshot_pending =
+        authority.registration_change_pending || authority.pending_generation.is_some();
     drop(authority);
     drop(publications);
     state.publication_gate.changed.notify_all();
@@ -882,7 +850,9 @@ pub(crate) fn apply_legacy_policy_snapshot(
         .write()
         .expect("policy gate poisoned");
     let next_epoch = authority.epoch.checked_add(1);
-    let result = if next_epoch.is_some() {
+    let result = if authority.registration_change_pending {
+        Err(policy_changed())
+    } else if next_epoch.is_some() {
         state
             .registry
             .replace_legacy_remote_grants_at_revision(&revision, &grants)
@@ -896,7 +866,8 @@ pub(crate) fn apply_legacy_policy_snapshot(
         authority.digest = Some(revision.clone());
     }
     state.cancel_remote_operations();
-    publications.snapshot_pending = authority.pending_generation.is_some();
+    publications.snapshot_pending =
+        authority.registration_change_pending || authority.pending_generation.is_some();
     drop(authority);
     drop(publications);
     state.publication_gate.changed.notify_all();
@@ -934,10 +905,7 @@ fn applied(
                 error: None,
             }
         }
-        Err(error) => {
-            tracing::error!(code = error.code(), "relay policy snapshot rejected");
-            rejected(request_id, revision, error.code(), error.to_string())
-        }
+        Err(error) => rejected(request_id, revision, error.code(), error.to_string()),
     }
 }
 
@@ -948,6 +916,7 @@ fn policy_changed() -> ConnectError {
 }
 
 fn rejected(request_id: Uuid, revision: String, code: &str, message: String) -> RelayMessage {
+    tracing::warn!(code, %message, "relay policy snapshot rejected");
     RelayMessage::PolicyApplied {
         protocol_version: CONTROL_PROTOCOL_VERSION,
         request_id,
@@ -964,3 +933,8 @@ fn rejected(request_id: Uuid, revision: String, code: &str, message: String) -> 
 #[cfg(test)]
 #[path = "policy_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+use tests::publication_now;
+#[cfg(test)]
+pub(crate) use tests::ManualPublicationClock;
