@@ -136,8 +136,16 @@ export class PlanOnlySyncExecutor {
         return this.moveRemote(state, action);
       case "delete_remote":
         return this.deleteRemote(state, action);
-      case "record_conflict":
+      case "record_conflict": {
         state.planned_conflicts ??= {};
+        // The last common version of a record, captured once before the base is
+        // rebased onto the remote. A frozen conflict recorded again by a later
+        // plan keeps its original ancestor: by then the base is already remote.
+        const ancestor = action.identity in state.planned_conflicts
+          ? state.planned_conflicts[action.identity]!.ancestor_document
+          : action.entity === "record"
+            ? state.records[action.identity]?.record?.document
+            : undefined;
         state.planned_conflicts[action.identity] = {
           decision_id: conflictDecisionId(
             action.entity,
@@ -150,7 +158,8 @@ export class PlanOnlySyncExecutor {
           entity: action.entity,
           local: action.local,
           remote: action.remote,
-          conflict_kind: action.conflict_kind
+          conflict_kind: action.conflict_kind,
+          ...(ancestor === undefined ? {} : { ancestor_document: ancestor })
         };
         state.local_bindings ??= {};
         if (action.local.state === "exact") {
@@ -163,6 +172,7 @@ export class PlanOnlySyncExecutor {
         }
         this.rebaseConflict(state, action);
         return { action_id: action.action_id, status: "conflicted" };
+      }
       case "clear_conflict":
         delete state.planned_conflicts?.[action.identity];
         delete state.local_bindings?.[action.identity];

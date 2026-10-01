@@ -100,6 +100,11 @@ export interface MirrorState {
     local: import("./sync-model.js").ExpectedObjectState;
     remote: import("./sync-model.js").ExpectedObjectState;
     conflict_kind: "both_changed" | "delete_vs_change" | "path_occupied" | "rejected";
+    /**
+     * For records in writable mirrors: the exact document both sides last
+     * agreed on, so a host can offer a three-way merge. Not part of the decision.
+     */
+    ancestor_document?: string;
   }>;
   /** Temporary stable-identity bindings when local paths differ from the base. */
   local_bindings?: Record<string, { entity: "record" | "file"; path: string }>;
@@ -355,6 +360,10 @@ export function normalizeMirrorState(
   }
   for (const [identity, conflict] of Object.entries(state.planned_conflicts)) {
     if (identity === "" || (conflict.entity !== "record" && conflict.entity !== "file")) throw new Error();
+    if (
+      conflict.ancestor_document !== undefined
+      && (conflict.entity !== "record" || typeof conflict.ancestor_document !== "string")
+    ) throw new Error();
     if (conflict.local.state === "exact") validatePortableMirrorPath(conflict.local.object.path);
     if (conflict.remote.state === "exact") validatePortableMirrorPath(conflict.remote.object.path);
   }

@@ -51,7 +51,9 @@ returns both from one inspection under one lease; calling `inspect()` and
 Application replicas resolve a stale record explicitly with
 `resolveConflict(recordId, "local" | "remote")`. Keeping the local version
 rebases it as a new idempotent mutation; keeping the remote version discards
-only that record's queued mutations.
+only that record's queued mutations. In writable mirrors, planned conflicts for
+records keep the last common version as `ancestor_document`, so a host can
+offer a three-way merge.
 
 The in-process reference authority remains useful for deterministic contract
 tests. Production uses `mdbase-connect-hosted-provider`: normalized encrypted

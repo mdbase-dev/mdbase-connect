@@ -610,6 +610,65 @@ describe("platform-neutral directory mirror", () => {
     expect(reviewed.status.state).toBe("changes_waiting");
   });
 
+  it("keeps a record conflict's last common version as its ancestor until it is resolved", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const path = "notes/00000.md";
+    const base = records(1)[0]!.document;
+    const writerId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+    const writerFiles = new TestFileSystem();
+    const writer = new WritableDirectoryMirror(writerId, hosted.transport(writerId), {
+      fileSystem: writerFiles, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+    });
+    const readerId = hosted.registerReplica({ name: "Reader", mode: "read_write" });
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const reader = new WritableDirectoryMirror(readerId, hosted.transport(readerId), {
+      fileSystem, stateStore, runtime: deterministicRuntime()
+    });
+    await writer.sync();
+    await reader.sync();
+    expect(fileSystem.files.get(path)).toBe(base);
+
+    writerFiles.files.set(path, `${base}\nHosted edit`);
+    await writer.sync();
+    fileSystem.files.set(path, `${base}\nLocal edit`);
+    await expect(reader.sync()).resolves.toMatchObject({ status: "attention", conflicts: 1 });
+    const recorded = (await stateStore.read())!.planned_conflicts![records(1)[0]!.record_id]!;
+    expect(recorded).toMatchObject({ conflict_kind: "both_changed", ancestor_document: base });
+    expect((await stateStore.read())!.records[records(1)[0]!.record_id]!.record?.document)
+      .toBe(`${base}\nHosted edit`);
+
+    // Recorded again by later plans, after the base was rebased onto the remote.
+    writerFiles.files.set(path, `${base}\nHosted edit again`);
+    await writer.sync();
+    await reader.sync();
+    const rerecorded = (await stateStore.read())!.planned_conflicts![records(1)[0]!.record_id]!;
+    expect(rerecorded.decision_id).not.toBe(recorded.decision_id);
+    expect(rerecorded.ancestor_document).toBe(base);
+
+    // Persisted state round-trips through normalization; bad values are refused.
+    const persisted = JSON.parse(JSON.stringify(await stateStore.read())) as MirrorState;
+    const restoredStore = new MemoryMirrorStateStore();
+    await restoredStore.write(persisted);
+    const restored = new WritableDirectoryMirror(readerId, hosted.transport(readerId), {
+      fileSystem, stateStore: restoredStore, runtime: deterministicRuntime()
+    });
+    const status = await restored.status();
+    expect((await restoredStore.read())!.planned_conflicts![records(1)[0]!.record_id]!.ancestor_document)
+      .toBe(base);
+    const corruptStore = new MemoryMirrorStateStore();
+    const corrupt = structuredClone(persisted);
+    (corrupt.planned_conflicts![records(1)[0]!.record_id] as { ancestor_document?: unknown }).ancestor_document = 5;
+    await corruptStore.write(corrupt);
+    await expect(new WritableDirectoryMirror(readerId, hosted.transport(readerId), {
+      fileSystem, stateStore: corruptStore, runtime: deterministicRuntime()
+    }).status()).rejects.toThrow();
+
+    await restored.resolveConflict(records(1)[0]!.record_id, status.conflicts[0]!.decision_id, "local");
+    expect((await restoredStore.read())!.planned_conflicts).toEqual({});
+  });
+
   it("persists writable initialization conflicts while applying independent downloads", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(2));
