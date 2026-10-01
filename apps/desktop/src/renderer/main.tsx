@@ -357,7 +357,11 @@ function App() {
     };
   }, [access, hosted]);
   const localCollectionIds = new Set(collections.map((collection) => collection.id));
-  const collectionCount = collections.length + hosted.hosted_collections.filter((collection) =>
+  const hostedCollectionIds = new Set(hosted.hosted_collections.map((collection) => collection.id));
+  const standaloneMirrorIds = new Set(mirrors.filter((mirror) =>
+    !localCollectionIds.has(mirror.collection_id) && !hostedCollectionIds.has(mirror.collection_id)
+  ).map((mirror) => mirror.collection_id));
+  const collectionCount = collections.length + standaloneMirrorIds.size + hosted.hosted_collections.filter((collection) =>
     collection.authority_state !== "transferred"
       || !collection.transferred_collection_id
       || !localCollectionIds.has(collection.transferred_collection_id)

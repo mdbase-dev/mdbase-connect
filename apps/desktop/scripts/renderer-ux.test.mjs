@@ -29,13 +29,13 @@ after(async () => {
   if (server) await new Promise((done) => server.close(done));
 });
 
-async function desktop({ configured = true } = {}) {
+async function desktop({ configured = true, hostedOnline = true } = {}) {
   const page = await browser.newPage({ viewport: { width: 1060, height: 720 } });
   await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.clock.install();
-  await page.addInitScript((configured) => {
+  await page.addInitScript(({ configured, hostedOnline }) => {
     const mirror = {
       collection_id: "hosted-notes", replica_id: "notes-mirror", name: "Notes", mode: "read_write",
       selective_sync: { file_classes: [], excluded_folders: [] }, path: "/disposable/Notes",
@@ -46,20 +46,22 @@ async function desktop({ configured = true } = {}) {
       online: true, hosted_collections_available: true, grants: [], pending_authorizations: [],
       hosted_collections: [{ id: "hosted-notes", display_name: "Notes", template: "mdbase", sync_url: "https://storage.example.test", spec_version: "0.3.0", contracts: [], authority_state: "active", authority_epoch: 1, transferred_collection_id: null, created_at: new Date().toISOString(), replicas: [] }]
     };
-    window.fixture = { mirror, hosted };
+    window.fixture = { mirror, hosted, hostedOnline };
     window.mdbaseConnect = {
       status: async () => ({ readiness: { schema_version: 1, ready: true, binary_version: "test" }, protocol_version: 1, state: "connected", paused: false, registered_collections: 0, direct_access_available: true }),
       updateStatus: async () => ({ phase: "unavailable", current_version: "test", channel: "beta", message: "Development build", can_check: false, can_install: false }),
       listCollections: async () => [], getLaunchAtLogin: async () => ({ enabled: false, available: false }),
       getCloudConfig: async () => ({ configured, serverUrl: configured ? "http://127.0.0.1:42391" : null }),
       accessSnapshot: async () => ({ configured, online: configured, grants: [], pending_authorizations: [], authority_conflicts: [] }),
-      listActivity: async () => [], hostedSnapshot: async () => hosted, listMirrors: async () => [mirror],
+      listActivity: async () => [],
+      hostedSnapshot: async () => window.fixture.hostedOnline ? hosted : { ...hosted, online: false, hosted_collections: [] },
+      listMirrors: async () => [mirror],
       onNavigate: () => () => {}, onUpdateStatus: () => () => {}
     };
-  }, configured);
+  }, { configured, hostedOnline });
   await page.goto(origin);
   await page.getByRole("button", { name: /^Collections/ }).click();
-  if (configured) await page.getByRole("heading", { name: "Notes", exact: true }).waitFor();
+  if (configured && hostedOnline) await page.getByRole("heading", { name: "Notes", exact: true }).waitFor();
   return { page, errors, row: page.locator(".hosted-collection") };
 }
 
@@ -98,6 +100,32 @@ test("collapsed hosted rows expose sync conflicts separately from hosted availab
     await screenshot(page, "collapsed-conflict");
     assert.equal(await row.locator(".collection-summary").getByText("Available", { exact: true }).isVisible(), true);
     assert.equal(await row.locator(".collection-summary").getByText("Conflicts need a decision", { exact: true }).isVisible(), true);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("cold-start offline keeps locally controlled synced folders visible and usable", async () => {
+  const { page, errors } = await desktop({ hostedOnline: false });
+  try {
+    await page.getByRole("status").filter({ hasText: "hosted could not refresh" }).waitFor();
+    await screenshot(page, "offline-folders");
+    assert.equal(await page.getByRole("heading", { name: "No hosted collections", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("heading", { name: "Notes", exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole("button", { name: /^Collections/ }).innerText(), "Collections\n1");
+    const localRow = page.locator(".standalone-mirror");
+    await localRow.getByRole("button", { name: "Sync", exact: true }).click();
+    await page.evaluate(() => {
+      window.fixture.openedFolders = [];
+      window.mdbaseConnect.openMirror = async (id) => { window.fixture.openedFolders.push(id); };
+    });
+    await localRow.getByRole("button", { name: "Open folder", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixture.openedFolders), ["notes-mirror"]);
+    // Once remote metadata arrives, the same mirror is shown exactly once with
+    // its hosted collection rather than remaining in a parallel inventory.
+    await page.evaluate(() => { window.fixture.hostedOnline = true; });
+    await page.clock.runFor(5_000);
+    await page.locator(".hosted-collection").getByRole("heading", { name: "Notes", exact: true }).waitFor();
+    assert.equal(await page.locator(".standalone-mirror").count(), 0);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
