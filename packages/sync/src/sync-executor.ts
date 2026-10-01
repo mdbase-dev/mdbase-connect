@@ -138,14 +138,7 @@ export class PlanOnlySyncExecutor {
         return this.deleteRemote(state, action);
       case "record_conflict": {
         state.planned_conflicts ??= {};
-        // The last common version of a record, captured once before the base is
-        // rebased onto the remote. A frozen conflict recorded again by a later
-        // plan keeps its original ancestor: by then the base is already remote.
-        const ancestor = action.identity in state.planned_conflicts
-          ? state.planned_conflicts[action.identity]!.ancestor_document
-          : action.entity === "record"
-            ? state.records[action.identity]?.record?.document
-            : undefined;
+        const ancestor = conflictAncestor(state, action.identity, action.entity);
         state.planned_conflicts[action.identity] = {
           decision_id: conflictDecisionId(
             action.entity,
@@ -487,6 +480,8 @@ export class PlanOnlySyncExecutor {
         : action.expected_remote;
     state.planned_conflicts ??= {};
     const conflictKind = receipt.status === "rejected" ? "rejected" : "both_changed";
+    // Captured before the base is rebased onto the authority's current record below.
+    const ancestor = conflictAncestor(state, identity, "record");
     state.planned_conflicts[identity] = {
       decision_id: conflictDecisionId(
         "record",
@@ -499,7 +494,8 @@ export class PlanOnlySyncExecutor {
       entity: "record",
       local: action.expected_local,
       remote,
-      conflict_kind: conflictKind
+      conflict_kind: conflictKind,
+      ...(ancestor === undefined ? {} : { ancestor_document: ancestor })
     };
     state.local_bindings ??= {};
     if (action.expected_local.state === "exact") {
@@ -664,6 +660,22 @@ function invalidReceipt(action: SyncAction): SyncError {
     "invalid_sync_response",
     `Authority receipt does not match prepared action ${action.action_id}.`
   );
+}
+
+/**
+ * The last common version of a record, captured once before a conflict rebases
+ * the base onto the remote. A conflict recorded again (a frozen conflict in a
+ * later plan) keeps its original ancestor: by then the base is already remote.
+ */
+function conflictAncestor(
+  state: MirrorState,
+  identity: string,
+  entity: "record" | "file"
+): string | undefined {
+  if (state.planned_conflicts && identity in state.planned_conflicts) {
+    return state.planned_conflicts[identity]!.ancestor_document;
+  }
+  return entity === "record" ? state.records[identity]?.record?.document : undefined;
 }
 
 function failureFrom(error: unknown, actionId: string): SyncFailure {

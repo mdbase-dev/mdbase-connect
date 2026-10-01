@@ -669,6 +669,52 @@ describe("platform-neutral directory mirror", () => {
     expect((await restoredStore.read())!.planned_conflicts).toEqual({});
   });
 
+  it("keeps the ancestor when the authority reports the conflict on upload", async () => {
+    // Two devices edit at once: the hosted record changes after this device
+    // planned its upload, so the conflict arrives as a mutation receipt.
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const path = "notes/00000.md";
+    const id = records(1)[0]!.record_id;
+    const base = records(1)[0]!.document;
+    const writerId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+    const writerFiles = new TestFileSystem();
+    const writer = new WritableDirectoryMirror(writerId, hosted.transport(writerId), {
+      fileSystem: writerFiles, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+    });
+    const readerId = hosted.registerReplica({ name: "Reader", mode: "read_write" });
+    const transport = hosted.transport(readerId);
+    let raced = false;
+    const racing: typeof transport = {
+      ...transport,
+      openSession: () => transport.openSession(),
+      snapshot: (snapshotId, page) => transport.snapshot(snapshotId, page),
+      changes: (after, limit) => transport.changes(after, limit),
+      mutate: async (mutation) => {
+        if (!raced) {
+          raced = true;
+          writerFiles.files.set(path, `${base}\nHosted edit`);
+          await writer.sync();
+        }
+        return transport.mutate(mutation);
+      }
+    };
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const reader = new WritableDirectoryMirror(readerId, racing, {
+      fileSystem, stateStore, runtime: deterministicRuntime()
+    });
+    await writer.sync();
+    await reader.sync();
+    fileSystem.files.set(path, `${base}\nLocal edit`);
+    await reader.sync();
+    expect(raced).toBe(true);
+    expect((await stateStore.read())!.planned_conflicts![id]).toMatchObject({
+      conflict_kind: "both_changed",
+      ancestor_document: base
+    });
+  });
+
   it("persists writable initialization conflicts while applying independent downloads", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(2));
