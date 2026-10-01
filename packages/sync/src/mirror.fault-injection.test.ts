@@ -177,6 +177,37 @@ describe("directory mirror process-death boundaries", () => {
     }
   });
 
+  // Expected failures name a cross-authority protocol gap, not a fallback:
+  // move/delete carry a document-only base_revision but no expected source
+  // path. Remove .fails when a versioned source-path precondition is enforced
+  // by both local/hosted Rust authorities and emitted by the mirror binder.
+  it.fails.each(["move", "delete"] as const)("preserves a concurrent authority rename before a prepared %s", async (operation) => {
+    const context = await fixture(true);
+    await context.create().sync();
+    if (operation === "move") await context.fileSystem.move("a.md", "local-renamed.md");
+    else context.fileSystem.files.delete("a.md");
+    let race = true;
+    const transport: SyncTransport = {
+      ...context.transport,
+      mutate: async (mutation) => {
+        if (race) {
+          race = false;
+          await context.transport.mutate({
+            operation: "move", mutation_id: "concurrent-authority-rename", replica_id: mutation.replica_id,
+            scope_epoch: 1, record_id: "a", base_revision: mutation.operation === "put" ? "" : mutation.base_revision,
+            path: "remote-renamed.md", created_at: "2026-10-01T00:00:00.000Z"
+          });
+        }
+        return context.transport.mutate(mutation);
+      }
+    };
+    const replicaId = (await context.transport.openSession()).replica_id;
+    const mirror = new WritableDirectoryMirror(replicaId, transport, context);
+    expect((await mirror.sync()).status).toBe("attention");
+    expect(context.authority.serialize().records.find((record) => record.record_id === "a"))
+      .toMatchObject({ path: "remote-renamed.md", document: "base a" });
+  });
+
   it.each(["put", "move", "delete"] as const)("retries a committed %s with a lost response only once", async (operation) => {
     const context = await fixture(true);
     await context.create().sync();
