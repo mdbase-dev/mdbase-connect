@@ -691,7 +691,7 @@ describe("portable collection file mirror", () => {
     expect((await target.status()).conflicts).toEqual([]);
   });
 
-  it.each(["same", "renamed"])("fences local file edits after downloading a %s remote conflict decision", async (pathKind) => {
+  it.each(["same", "renamed", "spelling"])("fences local file edits after downloading a %s remote conflict decision", async (pathKind) => {
     const fileSystem = new BinaryFileSystem();
     const originalPath = "images/original.png";
     const latest = utf8.encode("new local edit made during the remote decision download");
@@ -714,7 +714,9 @@ describe("portable collection file mirror", () => {
     const { mirror: target, stateStore } = writableMirror(transport, fileSystem);
     await target.sync();
     fileSystem.files.set(originalPath, utf8.encode("accepted local edit"));
-    const changed = file(fileId, pathKind === "same" ? originalPath : "images/renamed.png", remote, "file:remote");
+    const remotePath = pathKind === "same" ? originalPath
+      : pathKind === "spelling" ? "Images/Original.png" : "images/renamed.png";
+    const changed = file(fileId, remotePath, remote, "file:remote");
     transport.files = [changed];
     transport.bytes.set(fileId, remote);
     transport.events.push({ sequence: 1, type: "file_put", file: changed });
@@ -726,13 +728,13 @@ describe("portable collection file mirror", () => {
       .rejects.toMatchObject({ code: "sync_plan_stale" });
     expect(fileSystem.files.get(originalPath)).toEqual(latest);
     expect((await stateStore.read())!.planned_conflicts).toEqual(before.planned_conflicts);
-    if (pathKind === "renamed") expect(fileSystem.files.has(changed.path)).toBe(false);
+    if (pathKind !== "same") expect(fileSystem.files.has(changed.path)).toBe(false);
 
     transport.race = false;
     await target.sync();
     await target.resolveConflict(fileId, (await stateStore.read())!.planned_conflicts![fileId]!.decision_id!, "remote");
     expect(fileSystem.files.get(changed.path)).toEqual(remote);
-    if (pathKind === "renamed") expect(fileSystem.files.has(originalPath)).toBe(false);
+    if (pathKind !== "same") expect(fileSystem.files.has(originalPath)).toBe(false);
     expect((await target.inspect()).actions).toEqual([]);
   });
 

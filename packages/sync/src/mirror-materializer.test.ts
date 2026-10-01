@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { MirrorMaterializer } from "./mirror-materializer.js";
-import { MirrorDivergenceError } from "./mirror-errors.js";
+import { MirrorDivergenceError } from "./sync-error.js";
 import type { MirrorFileSystem, MirrorState } from "./mirror-state.js";
 import type { SyncRecord } from "@mdbase-dev/connect-protocol";
 

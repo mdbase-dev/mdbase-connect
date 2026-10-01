@@ -23,7 +23,7 @@ import {
   type WriteLocalAction
 } from "./sync-model.js";
 import { canonicalSyncJson, syncFingerprint } from "./sync-plan-codec.js";
-import { physicalMirrorPathKey } from "./mirror-physical-path.js";
+import { portableMirrorPathKeyForValidatedPath as physicalMirrorPathKey } from "./portable-path.js";
 
 export interface ReconciliationPlan {
   plan_version: 1;
