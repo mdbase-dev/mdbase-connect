@@ -4,14 +4,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import { MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
+import { createDatabase, openDatabase } from "./db.js";
+import { bootstrapLegacyBaseline } from "./legacy-baseline.js";
 import {
-  backfillExternalIdentityEmails,
-  backfillSessionProviders,
-  createDatabase,
-  bootstrapLegacyBaseline,
-  openDatabase,
-  revokeLegacyHostedBearerGrants
-} from "./db.js";
+  backfillExternalIdentityEmails, backfillSessionProviders, revokeLegacyHostedBearerGrants
+} from "./legacy-backfills.js";
 import { InstanceAdminService } from "./instance-admin.js";
 import {
   assertControlPlaneMigrationsCurrent,
@@ -74,8 +71,7 @@ describe("database migrations", () => {
       "0032_local_revocation_confirmation",
       "0033_collection_created_at",
       "0034_email_announcements_and_unsubscribe",
-      "0035_portable_people",
-      "0036_authority_import_source_repair"
+      "0035_portable_people"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -716,8 +712,7 @@ describe("database migrations", () => {
       "0032_local_revocation_confirmation",
       "0033_collection_created_at",
       "0034_email_announcements_and_unsubscribe",
-      "0035_portable_people",
-      "0036_authority_import_source_repair"
+      "0035_portable_people"
     ]);
   });
 
