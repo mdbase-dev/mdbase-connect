@@ -604,13 +604,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNoteLoading(true);
     let descriptionLoaded = false;
     try {
-      const nextDescription = await refreshDescription(current);
+      const descriptionLoad = refreshDescription(current);
+      const remembered = localStorage.getItem("mdbase-editor:last-note");
+      // The session already authorized this collection. Fetch the remembered
+      // note alongside its description instead of paying another relay trip.
+      const rememberedNote = remembered ? openNote(remembered) : Promise.resolve(false);
+      const nextDescription = await descriptionLoad;
       if (!current() || !nextDescription) return;
       descriptionLoaded = true;
       setNotice(undefined);
       setPhase("ready");
-      const remembered = localStorage.getItem("mdbase-editor:last-note");
-      let opened = remembered ? await openNote(remembered) : false;
+      let opened = await rememberedNote;
       if (!current() || navigation !== navigationGeneration.current) return;
       if (!opened) {
         setNoteLoading(true);
@@ -629,6 +633,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       if (!current()) return;
       setNoteLoading(false);
       setNotice(gatewayError(error));
+      if (!descriptionLoaded) ++documentGeneration.current;
       setPhase(descriptionLoaded && gateway.sessionSnapshot().status === "ready" ? "ready" : "disconnected");
     }
   }, [fileController, gateway, indexController, openNote, refreshDescription]);
