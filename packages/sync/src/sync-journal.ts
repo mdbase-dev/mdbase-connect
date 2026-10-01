@@ -100,7 +100,7 @@ export async function recordActionReceipt(
     type: "receipt",
     plan_fingerprint: batch.plan.fingerprint,
     receipt: structuredClone(receipt),
-    delta: captureActionDelta(state, action)
+    delta: captureActionDelta(state, action, receipt)
   };
   batch.receipts.push(structuredClone(receipt));
   batch.next_action += 1;
@@ -175,7 +175,8 @@ async function appendOrWrite(
 
 function captureActionDelta(
   state: MirrorState,
-  action: NonNullable<MirrorState["batch"]>["plan"]["actions"][number]
+  action: NonNullable<MirrorState["batch"]>["plan"]["actions"][number],
+  receipt: DurableSyncReceipt
 ): ActionStateDelta {
   const identity = "identity" in action
     ? action.identity
@@ -200,7 +201,14 @@ function captureActionDelta(
   if (entity === "record") delta.records = { [identity]: cloneEntry(state.records[identity]) };
   else if (entity === "resource") {
     delta.resources = { [identity]: cloneEntry(state.resources?.[identity]) };
-  } else delta.files = { [identity]: cloneEntry(state.files?.[identity]) };
+  } else {
+    delta.files = { [identity]: cloneEntry(state.files?.[identity]) };
+    // A new upload has a local provisional identity; the authority allocates
+    // its durable file ID. Replay must install that entry before checkpointing.
+    if (receipt.file) {
+      delta.files[receipt.file.file_id] = cloneEntry(state.files?.[receipt.file.file_id]);
+    }
+  }
   return delta;
 }
 

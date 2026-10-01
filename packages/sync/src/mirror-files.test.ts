@@ -25,7 +25,8 @@ import {
   MemoryMirrorStateStore,
   WritableDirectoryMirror,
   type MirrorBlobStore,
-  type MirrorFileSystem
+  type MirrorFileSystem,
+  type MirrorState
 } from "./mirror.js";
 import type { SyncTransport } from "./sync-types.js";
 
@@ -812,6 +813,39 @@ describe("portable collection file mirror", () => {
     expect((await stateStore.read())?.files?.[fileId]?.file).toEqual(descriptor);
     const converged = await target.inspect();
     expect(converged.actions.filter((action) => action.command !== "advance_checkpoint")).toEqual([]);
+  });
+
+  it("journals authority-assigned identities so a new attachment can be deleted after restart", async () => {
+    const transport = new FileTransport();
+    const fileSystem = new BinaryFileSystem();
+    class InterruptedCheckpointStore extends MemoryMirrorStateStore {
+      interrupt = true;
+      override async write(state: MirrorState): Promise<void> {
+        if (this.interrupt && state.last_completed_plan) {
+          this.interrupt = false;
+          throw new Error("crashed before checkpoint");
+        }
+        await super.write(state);
+      }
+    }
+    const stateStore = new InterruptedCheckpointStore();
+    const blobStore = new MemoryMirrorBlobStore();
+    const bytes = utf8.encode("new attachment");
+    fileSystem.files.set("images/new.png", bytes);
+    const target = writableMirror(transport, fileSystem, stateStore, blobStore).mirror;
+
+    await expect(target.sync()).rejects.toThrow("crashed before checkpoint");
+    const uploaded = transport.files[0]!;
+    expect((await stateStore.read())?.files?.[uploaded.file_id]?.file).toEqual(uploaded);
+
+    const restarted = writableMirror(transport, fileSystem, stateStore, blobStore).mirror;
+    expect((await restarted.sync()).status).toBe("applied");
+    fileSystem.files.delete("images/new.png");
+    expect((await restarted.sync()).status).toBe("applied");
+    expect(transport.files).toEqual([]);
+    expect(fileSystem.files.has("images/new.png")).toBe(false);
+    expect(transport.uploadCalls).toHaveLength(1);
+    expect(transport.deleteCalls[0]?.file_id).toBe(uploaded.file_id);
   });
 
   it("uploads replacements, preserves identity on moves, deletes, and adds files", async () => {
