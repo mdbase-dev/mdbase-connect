@@ -331,30 +331,17 @@ function orderRemotePathTransitions(
   if (!initial.some((draft) => draft.command === "move_remote")) return initial;
   let drafts = [...initial];
   const blocked = new Set<string>();
-  for (const cycle of remoteMoveCycles(drafts)) {
+  const initialByKey = new Map(drafts.map((draft) => [draft.key, draft]));
+  for (const cycle of moveCycles(drafts, "move_remote")) {
     for (const key of cycle) {
-      const draft = drafts.find((candidate) => candidate.key === key);
+      const draft = initialByKey.get(key);
       if (draft?.command === "move_remote") blocked.add(draft.source.identity);
     }
   }
   const vacaters = remoteVacaters(drafts);
-  const draftsByKey = new Map(drafts.map((draft) => [draft.key, draft]));
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const draft of drafts) {
-      if (draft.command !== "move_remote") continue;
-      const owner = draft.expected_target_owner;
-      if (owner.state !== "exact" || owner.object.identity === draft.source.identity) continue;
-      const vacater = draftsByKey.get(vacaters.get(ownerKey(owner.object)) ?? "");
-      const vacaterIdentity = vacater && remoteEffectIdentity(vacater);
-      if ((!vacater || (vacaterIdentity && blocked.has(vacaterIdentity)))
-        && !blocked.has(draft.source.identity)) {
-        blocked.add(draft.source.identity);
-        changed = true;
-      }
-    }
-  }
+  blockUnvacatedTargets(drafts, vacaters, blocked,
+    (draft) => draft.command === "move_remote" ? draft.expected_target_owner : undefined,
+    remoteEffectIdentity);
   if (blocked.size > 0) {
     drafts = drafts.filter((draft) => {
       const identity = remoteEffectIdentity(draft);
@@ -391,14 +378,18 @@ function orderRemotePathTransitions(
   return stableTopologicalOrder(drafts);
 }
 
-function remoteMoveCycles(drafts: readonly ActionDraft[]): string[][] {
+function moveCycles(
+  drafts: readonly ActionDraft[],
+  command: "move_local" | "move_remote"
+): string[][] {
   const moves = drafts.filter(
-    (draft): draft is Extract<ActionDraft, { command: "move_remote" }> =>
-      draft.command === "move_remote"
+    (draft): draft is Extract<ActionDraft, { command: "move_local" | "move_remote" }> =>
+      draft.command === command
   );
   const byKey = new Map(moves.map((draft) => [draft.key, draft]));
-  const vacaters = remoteVacaters(drafts);
-  const cycles = new Map<string, string[]>();
+  const vacaters = command === "move_local" ? localVacaters(drafts) : remoteVacaters(drafts);
+  const cycles: string[][] = [];
+  const visited = new Set<string>();
   for (const start of moves) {
     const path: string[] = [];
     const indices = new Map<string, number>();
@@ -406,10 +397,11 @@ function remoteMoveCycles(drafts: readonly ActionDraft[]): string[][] {
     while (cursor) {
       const prior = indices.get(cursor.key);
       if (prior !== undefined) {
-        const cycle = path.slice(prior);
-        cycles.set([...cycle].sort().join("\0"), cycle);
+        cycles.push(path.slice(prior));
         break;
       }
+      if (visited.has(cursor.key)) break;
+      visited.add(cursor.key);
       indices.set(cursor.key, path.length);
       path.push(cursor.key);
       const owner: ExpectedObjectState = cursor.expected_target_owner;
@@ -418,7 +410,7 @@ function remoteMoveCycles(drafts: readonly ActionDraft[]): string[][] {
         : undefined;
     }
   }
-  return [...cycles.values()];
+  return cycles;
 }
 
 function remoteVacaters(drafts: readonly ActionDraft[]): Map<string, string> {
@@ -460,12 +452,11 @@ function orderLocalPathTransitions(
     if (object.remote.state === "exact") occupiedPaths.add(object.remote.object.path);
   }
 
-  while (true) {
-    const cycle = localMoveCycle(drafts);
-    if (!cycle) break;
+  const stages = new Map<string, ActionDraft>();
+  const initialByKey = new Map(drafts.map((draft) => [draft.key, draft]));
+  for (const cycle of moveCycles(drafts, "move_local")) {
     const selectedKey = [...cycle].sort()[0]!;
-    const selectedIndex = drafts.findIndex((draft) => draft.key === selectedKey);
-    const selected = drafts[selectedIndex];
+    const selected = initialByKey.get(selectedKey);
     if (!selected || selected.command !== "move_local") {
       throw new Error("Planner invariant: local path cycle contains a non-move action.");
     }
@@ -485,29 +476,17 @@ function orderLocalPathTransitions(
     selected.source = stagedSource;
     selected.expected_source_owner = { state: "exact", object: stagedSource };
     selected.depends_on_keys = [stage.key];
-    drafts.splice(selectedIndex, 0, stage);
+    stages.set(selectedKey, stage);
   }
+  drafts = drafts.flatMap((draft) => {
+    const stage = stages.get(draft.key);
+    return stage ? [stage, draft] : [draft];
+  });
 
   const vacaters = localVacaters(drafts);
   const objectsByIdentity = new Map(objects.map((object) => [object.identity, object]));
   const blocked = new Set<string>();
-  const draftsByKey = new Map(drafts.map((draft) => [draft.key, draft]));
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const draft of drafts) {
-      const expected = localTargetOwner(draft);
-      const subject = localTargetIdentity(draft);
-      if (expected?.state !== "exact" || expected.object.identity === subject) continue;
-      const vacater = draftsByKey.get(vacaters.get(ownerKey(expected.object)) ?? "");
-      const vacaterIdentity = vacater && localTargetIdentity(vacater);
-      if ((!vacater || (vacaterIdentity && blocked.has(vacaterIdentity)))
-        && !blocked.has(subject)) {
-        blocked.add(subject);
-        changed = true;
-      }
-    }
-  }
+  blockUnvacatedTargets(drafts, vacaters, blocked, localTargetOwner, localTargetIdentity);
   if (blocked.size > 0) {
     drafts = drafts.filter((draft) =>
       !blocked.has(localTargetIdentity(draft))
@@ -543,31 +522,6 @@ function orderLocalPathTransitions(
   return stableTopologicalOrder(drafts);
 }
 
-function localMoveCycle(drafts: readonly ActionDraft[]): string[] | undefined {
-  const moves = drafts.filter(
-    (draft): draft is Extract<ActionDraft, { command: "move_local" }> =>
-      draft.command === "move_local"
-  );
-  const byKey = new Map(moves.map((draft) => [draft.key, draft]));
-  const vacaters = localVacaters(drafts);
-  for (const start of moves) {
-    const path: string[] = [];
-    const indices = new Map<string, number>();
-    let cursor: typeof start | undefined = start;
-    while (cursor) {
-      const prior = indices.get(cursor.key);
-      if (prior !== undefined) return path.slice(prior);
-      indices.set(cursor.key, path.length);
-      path.push(cursor.key);
-      const owner: ExpectedObjectState = cursor.expected_target_owner;
-      cursor = owner.state === "exact"
-        ? byKey.get(vacaters.get(ownerKey(owner.object)) ?? "")
-        : undefined;
-    }
-  }
-  return undefined;
-}
-
 function localVacaters(drafts: readonly ActionDraft[]): Map<string, string> {
   const result = new Map<string, string>();
   for (const draft of drafts) {
@@ -598,6 +552,39 @@ function localTargetIdentity(draft: ActionDraft): string {
   return "";
 }
 
+function blockUnvacatedTargets(
+  drafts: readonly ActionDraft[],
+  vacaters: ReadonlyMap<string, string>,
+  blocked: Set<string>,
+  targetOwner: (draft: ActionDraft) => ExpectedObjectState | undefined,
+  effectIdentity: (draft: ActionDraft) => string | undefined
+): void {
+  const byKey = new Map(drafts.map((draft) => [draft.key, draft]));
+  const dependents = new Map<string, Set<string>>();
+  for (const draft of drafts) {
+    const owner = targetOwner(draft);
+    const subject = effectIdentity(draft);
+    if (!subject || owner?.state !== "exact" || owner.object.identity === subject) continue;
+    const vacater = byKey.get(vacaters.get(ownerKey(owner.object)) ?? "");
+    if (!vacater) {
+      blocked.add(subject);
+      continue;
+    }
+    const dependency = effectIdentity(vacater);
+    if (!dependency) continue;
+    if (!dependents.has(dependency)) dependents.set(dependency, new Set());
+    dependents.get(dependency)!.add(subject);
+  }
+  const queue = [...blocked];
+  for (let index = 0; index < queue.length; index += 1) {
+    for (const identity of dependents.get(queue[index]!) ?? []) {
+      if (blocked.has(identity)) continue;
+      blocked.add(identity);
+      queue.push(identity);
+    }
+  }
+}
+
 function ownerKey(object: SyncObjectRef): string {
   return `${object.entity}\0${object.identity}\0${object.path}`;
 }
@@ -621,18 +608,55 @@ function stagingPath(
 }
 
 function stableTopologicalOrder(drafts: readonly ActionDraft[]): ActionDraft[] {
-  const pending = [...drafts];
-  const emitted = new Set<string>();
-  const ordered: ActionDraft[] = [];
-  while (pending.length > 0) {
-    const index = pending.findIndex((draft) =>
-      draft.depends_on_keys.every((dependency) => emitted.has(dependency))
-    );
-    if (index < 0) throw new Error("Planner invariant: action dependency graph contains a cycle.");
-    const [draft] = pending.splice(index, 1);
-    ordered.push(draft!);
-    emitted.add(draft!.key);
+  const indices = new Map(drafts.map((draft, index) => [draft.key, index]));
+  const remaining = drafts.map((draft) => draft.depends_on_keys.length);
+  const dependents: number[][] = drafts.map(() => []);
+  for (const [index, draft] of drafts.entries()) {
+    for (const key of draft.depends_on_keys) {
+      const dependency = indices.get(key);
+      if (dependency === undefined) throw new Error("Planner invariant: action dependency graph contains a cycle.");
+      dependents[dependency]!.push(index);
+    }
   }
+  // A min-heap of original indices preserves the old earliest-ready order
+  // without rescanning or shifting all pending actions on each emission.
+  const ready: number[] = [];
+  const enqueue = (index: number) => {
+    let child = ready.length;
+    ready.push(index);
+    while (child > 0) {
+      const parent = Math.floor((child - 1) / 2);
+      if (ready[parent]! <= index) break;
+      ready[child] = ready[parent]!;
+      child = parent;
+    }
+    ready[child] = index;
+  };
+  for (let index = 0; index < remaining.length; index += 1) {
+    if (remaining[index] === 0) enqueue(index);
+  }
+  const ordered: ActionDraft[] = [];
+  while (ready.length > 0) {
+    const index = ready[0]!;
+    const last = ready.pop()!;
+    if (ready.length > 0) {
+      let parent = 0;
+      while (parent * 2 + 1 < ready.length) {
+        let child = parent * 2 + 1;
+        if (child + 1 < ready.length && ready[child + 1]! < ready[child]!) child += 1;
+        if (last <= ready[child]!) break;
+        ready[parent] = ready[child]!;
+        parent = child;
+      }
+      ready[parent] = last;
+    }
+    ordered.push(drafts[index]!);
+    for (const dependent of dependents[index]!) {
+      remaining[dependent]! -= 1;
+      if (remaining[dependent] === 0) enqueue(dependent);
+    }
+  }
+  if (ordered.length !== drafts.length) throw new Error("Planner invariant: action dependency graph contains a cycle.");
   return ordered;
 }
 

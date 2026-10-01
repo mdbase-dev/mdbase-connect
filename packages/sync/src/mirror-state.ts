@@ -169,8 +169,13 @@ export interface MirrorFileSystem {
   remove(path: string): Promise<void>;
   listMarkdown(excluded: ReadonlySet<string>): Promise<string[]>;
   inspectBinary(path: string): Promise<MirrorBinaryInfo | null>;
-  /** Atomically install a fully-drained byte stream at path. */
-  writeBinary(path: string, source: AsyncIterable<Uint8Array>): Promise<void>;
+  /**
+   * Atomically install a fully-drained byte stream. When `expected` is provided,
+   * fence installation against that inspected binary version (`null`: absent),
+   * rejecting a changed destination with `SyncError("sync_plan_stale")`.
+   * As with text writes, adapters without a conditional boundary may ignore it.
+   */
+  writeBinary(path: string, source: AsyncIterable<Uint8Array>, expected?: MirrorBinaryInfo | null): Promise<void>;
   /** Writable-file adapters enumerate only eligible non-Markdown regular files. */
   listBinary?(excluded: ReadonlySet<string>): Promise<string[]>;
   /** Opens a fresh stream for a stable path snapshot. */

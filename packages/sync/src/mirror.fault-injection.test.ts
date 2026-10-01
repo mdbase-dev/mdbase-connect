@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MemoryAuthority, type SyncTransport } from "./index.js";
+import { SyncError } from "./sync-error.js";
 import {
   MemoryMirrorStateStore,
   WritableDirectoryMirror,
@@ -63,7 +64,7 @@ const seeds = ["a", "b", "c", "d"].map((id) => ({
   frontmatter: {}, body: `base ${id}`, types: []
 }));
 
-async function fixture(initial: boolean) {
+async function fixture(initial: boolean, swap = false) {
   const authority = new MemoryAuthority({ snapshotPageSize: 1 });
   authority.seed(seeds);
   const replicaId = authority.registerReplica({ name: "Fault injection", mode: "read_write" });
@@ -78,6 +79,19 @@ async function fixture(initial: boolean) {
   const expected = new Map(seeds.map((record) => [record.path, record.document]));
   if (!initial) {
     await create().sync();
+    if (swap) {
+      const initialRecords = (await stateStore.read())!.records;
+      for (const [id, path] of [["a", "temporary.md"], ["b", "a.md"], ["a", "b.md"]]) {
+        await transport.mutate({
+          operation: "move", mutation_id: `${id}-${path}`, replica_id: replicaId, scope_epoch: 1,
+          record_id: id!, base_revision: initialRecords[id!]!.revision, path: path!,
+          created_at: "2026-10-01T00:00:00.000Z"
+        });
+      }
+      expected.set("a.md", "base b");
+      expected.set("b.md", "base a");
+      return { authority, transport, fileSystem, stateStore, create, expected };
+    }
     const remoteId = authority.registerReplica({ name: "Other device", mode: "read_write" });
     const remote = authority.transport(remoteId);
     await remote.mutate({
@@ -124,15 +138,38 @@ async function assertConverged(context: Awaited<ReturnType<typeof fixture>>) {
 }
 
 describe("directory mirror process-death boundaries", () => {
-  it.each([true, false])("converges after every await before/after boundary (initial=%s)", async (initial) => {
-    const baseline = await fixture(initial);
+  it("retries a lease expiring between snapshot pages without partially materializing", async () => {
+    const context = await fixture(true);
+    let pages = 0;
+    let expire = true;
+    const transport: SyncTransport = {
+      ...context.transport,
+      snapshot: async (id, page) => {
+        if (++pages === 2 && expire) throw new SyncError("snapshot_expired", "lease expired");
+        return context.transport.snapshot(id, page);
+      }
+    };
+    const replicaId = (await context.transport.openSession()).replica_id;
+    const mirror = new WritableDirectoryMirror(replicaId, transport, context);
+    await expect(mirror.sync()).rejects.toMatchObject({ code: "snapshot_expired" });
+    expect(await context.stateStore.read()).toBeNull();
+    expect(context.fileSystem.files.size).toBe(0);
+    expire = false;
+    expect((await mirror.sync()).status).toBe("applied");
+    await assertConverged(context);
+  });
+
+  it.each(["initial", "incremental", "swap"])("converges after every await before/after boundary (%s)", async (scenario) => {
+    const initial = scenario === "initial";
+    const swap = scenario === "swap";
+    const baseline = await fixture(initial, swap);
     const trace = new CrashGate();
     expect((await baseline.create(trace).sync()).status).toBe("applied");
     expect(trace.trace).toContain("state.write:before");
     expect(trace.trace).toContain("state.appendJournal:after");
 
     for (let cut = 0; cut < trace.trace.length; cut += 1) {
-      const context = await fixture(initial);
+      const context = await fixture(initial, swap);
       const planned = await context.create().inspect();
       const prior: MirrorState | null = await context.stateStore.read();
       const gate = new CrashGate(cut);

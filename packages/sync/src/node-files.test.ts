@@ -82,6 +82,38 @@ describe("Node collection file adapters", () => {
     }
   });
 
+  it("honors the exact-text write expectation instead of overwriting a newer document", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-node-fence-"));
+    try {
+      const fileSystem = new NodeMirrorFileSystem(root);
+      await writeFile(join(root, "note.md"), "newer local edit");
+      await expect(fileSystem.write("note.md", "remote replacement", "inspected base"))
+        .rejects.toMatchObject({ code: "sync_plan_stale" });
+      expect(await readFile(join(root, "note.md"), "utf8")).toBe("newer local edit");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([false, true])("fences binary installation against edits made while staging (absent=%s)", async (absent) => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-node-fence-"));
+    try {
+      const fileSystem = new NodeMirrorFileSystem(root);
+      if (!absent) await writeFile(join(root, "attachment.bin"), "original binary");
+      const expected = await fileSystem.inspectBinary("attachment.bin");
+      const replacement = (async function* () {
+        yield utf8.encode("remote replacement");
+        await writeFile(join(root, "attachment.bin"), "newer local edit");
+      })();
+      await expect(fileSystem.writeBinary("attachment.bin", replacement, expected))
+        .rejects.toMatchObject({ code: "sync_plan_stale" });
+      expect(await readFile(join(root, "attachment.bin"), "utf8")).toBe("newer local edit");
+      expect((await readdir(root)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("refuses binary writes through symlinks", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-node-files-"));
     const outside = await mkdtemp(join(tmpdir(), "mdbase-node-outside-"));

@@ -256,7 +256,10 @@ export class PlanOnlySyncExecutor {
     state: MirrorState,
     action: Extract<SyncAction, { command: "move_local" }>
   ): Promise<DurableSyncReceipt> {
-    const alreadyMoved = await this.matchesRef({ ...action.source, path: action.target_path });
+    // Matching target bytes alone may be a new copy made after preparation.
+    // A completed rename must also have vacated its source.
+    const alreadyMoved = !await this.ports.fileSystem.exists(action.source.path)
+      && await this.matchesRef({ ...action.source, path: action.target_path });
     if (!alreadyMoved) {
       await this.assertLocal(action.expected_source_owner);
       await this.assertPathOwner(action.target_path, action.expected_target_owner);
@@ -289,6 +292,11 @@ export class PlanOnlySyncExecutor {
         await this.materializer.removeFile(state, action.target.identity);
       }
     } else {
+      // Only absence proves a previous attempt already deleted this path.
+      // Changed bytes are a competing edit, not an idempotent delete receipt.
+      if (await this.ports.fileSystem.exists(action.target.path)) {
+        throw stale(`${action.target.path} changed before it could be deleted.`);
+      }
       removeStateEntry(state, action.target);
     }
     this.removePathOwner(action.target);
@@ -340,6 +348,8 @@ export class PlanOnlySyncExecutor {
       || receipt.file.path !== action.target.path
       || receipt.file.content_digest !== local.content_digest
       || receipt.file.size !== local.size
+      || (action.expected_remote.state === "exact"
+        && receipt.file.file_id !== action.expected_remote.object.identity)
     ) throw invalidReceipt(action);
     state.files ??= {};
     state.files[receipt.file.file_id] = { file: receipt.file };
@@ -444,7 +454,21 @@ export class PlanOnlySyncExecutor {
   ): void {
     const ref = "target" in action ? action.target : action.source;
     const identity = ref.identity;
+    if (!receipt || receipt.mutation_id !== uuidFromAction(action.action_id)
+      || !["applied", "previously_applied", "conflicted", "rejected"].includes(receipt.status)) {
+      throw invalidReceipt(action);
+    }
     if (receipt.status === "applied" || receipt.status === "previously_applied") {
+      if (action.command === "delete_remote") {
+        if (receipt.record) throw invalidReceipt(action);
+      } else {
+        const expectedPath = action.command === "put_remote" ? action.target.path : action.target_path;
+        const expectedRevision = action.command === "put_remote" ? action.payload_revision : action.source.revision;
+        if (!receipt.record || receipt.record.record_id !== identity
+          || receipt.record.path !== expectedPath || receipt.record.revision !== expectedRevision) {
+          throw invalidReceipt(action);
+        }
+      }
       if (receipt.record) {
         assertExactDocument(receipt.record, this.ports.runtime, receipt.record.revision);
         const existing = state.records[identity];
@@ -463,7 +487,10 @@ export class PlanOnlySyncExecutor {
       return;
     }
     const current = receipt.status === "conflicted" ? receipt.conflict.current : undefined;
-    if (current) assertExactDocument(current, this.ports.runtime, current.revision);
+    if (current) {
+      if (current.record_id !== identity) throw invalidReceipt(action);
+      assertExactDocument(current, this.ports.runtime, current.revision);
+    }
     const remote: ExpectedObjectState = current
       ? {
           state: "exact",

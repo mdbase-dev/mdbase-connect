@@ -465,18 +465,6 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
           blocking: this.mode !== "read_write" || object.entity === "resource"
         });
       }
-      if (
-        object.remote.state === "exact"
-        && object.local_target_owner.state === "exact"
-        && object.remote.object.identity !== object.local_target_owner.object.identity
-      ) {
-        issues.push({
-          code: "local_collision",
-          message: `${object.remote.object.path} is owned by different local bytes.`,
-          path: object.remote.object.path,
-          blocking: true
-        });
-      }
     }
     try {
       assertNoPhysicalPathAliases([
@@ -532,6 +520,24 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
     };
     let plan = planReconciliation(summary, this.runtime.digest);
     const obstructions = await this.physicalObstructions(plan);
+    // The planner owns path transition ordering. A current owner is not an
+    // obstruction if an earlier action will vacate it (including move cycles).
+    const localTransfers = new Set(plan.actions.flatMap((action) =>
+      action.command === "write_local" ? [action.target.identity]
+        : action.command === "move_local" ? [action.source.identity] : []));
+    for (const object of objects) {
+      if (!localTransfers.has(object.identity)
+        && object.remote.state === "exact"
+        && object.local_target_owner.state === "exact"
+        && object.remote.object.identity !== object.local_target_owner.object.identity) {
+        obstructions.push({
+          code: "local_collision",
+          message: `${object.remote.object.path} is owned by different local bytes.`,
+          path: object.remote.object.path,
+          blocking: true
+        });
+      }
+    }
     if (obstructions.length) {
       summary.issues = deduplicateIssues([...summary.issues, ...obstructions]);
       plan = planReconciliation(summary, this.runtime.digest);
