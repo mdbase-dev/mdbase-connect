@@ -22,6 +22,7 @@ import {
   type MirrorStatus
 } from "./mirror-state.js";
 import { MirrorMaterializer } from "./mirror-materializer.js";
+import { physicalMirrorPathKey } from "./mirror-physical-path.js";
 import { normalizeSelectiveSyncPolicy, ensureFileBlob } from "./mirror-files.js";
 import { buildAuthorityPromotionManifest } from "./mirror-promotion.js";
 import type { MirrorRecordPathPolicy } from "./mirror-path-policy.js";
@@ -527,6 +528,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     current: SyncRecord<Frontmatter> | undefined
   ): Promise<void> {
     if (current) {
+      this.assertResolutionTargetAvailable(state, identity, current.path);
       // Accept only the local version named by the conflict decision. Never
       // authorize whatever bytes happen to be present after an async reread.
       const local = state.planned_conflicts?.[identity]?.local;
@@ -535,6 +537,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
           ? { acceptedHash: local.object.payload_revision.replace(/^sha256:/u, "") }
           : {})
       });
+      await this.removeResolvedLocalPath(state, identity, current.path);
       return;
     }
     const conflict = state.planned_conflicts?.[identity];
@@ -551,6 +554,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     current: import("@mdbase-dev/connect-protocol").CollectionFileDescriptor | undefined
   ): Promise<void> {
     if (current) {
+      this.assertResolutionTargetAvailable(state, identity, current.path);
       if (!this.blobStore) throw new SyncError("file_storage_unavailable", "File resolution needs a blob store.");
       await ensureFileBlob(this.transport, this.blobStore, current);
       const conflict = state.planned_conflicts?.[identity];
@@ -571,6 +575,25 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       : state.files?.[identity]?.file.path;
     if (path && await this.fileSystem.inspectBinary(path) !== null) await this.fileSystem.remove(path);
     delete state.files?.[identity];
+  }
+
+  private assertResolutionTargetAvailable(state: MirrorState, identity: string, path: string): void {
+    const target = physicalMirrorPathKey(path);
+    for (const [owner, binding] of Object.entries(state.local_bindings ?? {})) {
+      if (owner !== identity && physicalMirrorPathKey(binding.path) === target) {
+        throw new SyncError("sync_plan_stale", `${path} is owned by another local conflict.`);
+      }
+    }
+  }
+
+  private async removeResolvedLocalPath(state: MirrorState, identity: string, installedPath: string): Promise<void> {
+    const local = state.planned_conflicts?.[identity]?.local;
+    if (local?.state !== "exact"
+      || physicalMirrorPathKey(local.object.path) === physicalMirrorPathKey(installedPath)) return;
+    // Installing the remote may have taken time. Delete only the accepted
+    // superseded version, never a newer edit at the old local path.
+    await new PlanRevalidator(this.fileSystem, this.runtime).validateExpected(local);
+    await this.fileSystem.remove(local.object.path);
   }
 
   private async readState(): Promise<MirrorState | null> {

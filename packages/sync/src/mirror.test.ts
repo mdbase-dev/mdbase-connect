@@ -874,6 +874,82 @@ describe("platform-neutral directory mirror", () => {
     expect(reviewed.status.state).toBe("changes_waiting");
   });
 
+  it("removes the accepted local source when resolving a rename conflict remotely", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Rename resolution mirror", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new ConditionalFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+    await mirror.sync();
+    const original = (await stateStore.read())!.records["portable-0"]!;
+    fileSystem.files.set(original.path, "local edit at old path");
+    await transport.mutate({
+      operation: "move", mutation_id: "remote-rename-conflict", replica_id: replicaId, scope_epoch: 1,
+      record_id: "portable-0", base_revision: original.revision, path: "renamed.md",
+      created_at: "2026-10-01T00:00:00.000Z"
+    });
+    expect((await mirror.sync()).status).toBe("attention");
+    const conflict = (await stateStore.read())!.planned_conflicts!["portable-0"]!;
+    await mirror.resolveConflict("portable-0", conflict.decision_id!, "remote");
+
+    expect(fileSystem.files.has(original.path)).toBe(false);
+    expect(fileSystem.files.get("renamed.md")).toBe(original.record!.document);
+    expect((await mirror.sync()).status).toBe("applied");
+    expect(hosted.serialize().records).toHaveLength(1);
+    expect((await mirror.inspect()).actions).toEqual([]);
+  });
+
+  it("does not overwrite a different local conflict at a late authority move destination", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(2));
+    const replicaId = hosted.registerReplica({ name: "Owner-fenced resolver", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new ConditionalFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    let race = false;
+    const mirror = new WritableDirectoryMirror(replicaId, {
+      ...transport,
+      mutate: async (mutation) => {
+        if (race) {
+          race = false;
+          await transport.mutate({
+            operation: "move", mutation_id: "late-move", replica_id: replicaId, scope_epoch: 1,
+            record_id: "portable-0", base_revision: mutation.operation === "put" ? mutation.base_revision! : "",
+            path: "notes/00001.md", created_at: "2026-10-01T00:00:00.000Z"
+          });
+          await transport.mutate({
+            operation: "put", mutation_id: "late-edit", replica_id: replicaId, scope_epoch: 1,
+            record_id: "portable-0", base_revision: mutation.operation === "put" ? mutation.base_revision! : "",
+            path: "notes/00001.md", document: "hosted edit at moved path", created_at: "2026-10-01T00:00:00.000Z"
+          });
+        }
+        return transport.mutate(mutation);
+      }
+    }, { fileSystem, stateStore });
+    await mirror.sync();
+    const original = (await stateStore.read())!.records;
+    fileSystem.files.set("notes/00001.md", "same local bytes, distinct record edit");
+    await transport.mutate({
+      operation: "delete", mutation_id: "delete-second", replica_id: replicaId, scope_epoch: 1,
+      record_id: "portable-1", base_revision: original["portable-1"]!.revision,
+      created_at: "2026-10-01T00:00:00.000Z"
+    });
+    expect((await mirror.sync()).status).toBe("attention");
+    fileSystem.files.set("notes/00000.md", "same local bytes, distinct record edit");
+    race = true;
+    expect((await mirror.sync()).status).toBe("attention");
+    const before = (await stateStore.read())!;
+    const conflict = before.planned_conflicts!["portable-0"]!;
+    expect(conflict.remote).toMatchObject({ object: { path: "notes/00001.md" } });
+
+    await expect(mirror.resolveConflict("portable-0", conflict.decision_id!, "remote"))
+      .rejects.toMatchObject({ code: "sync_plan_stale" });
+    expect(fileSystem.files.get("notes/00001.md")).toBe("same local bytes, distinct record edit");
+    expect((await stateStore.read())!.planned_conflicts).toEqual(before.planned_conflicts);
+  });
+
   it("keeps a record conflict's last common version as its ancestor until it is resolved", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(1));
