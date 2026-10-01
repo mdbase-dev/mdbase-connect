@@ -62,6 +62,10 @@ export class PlanOnlySyncExecutor {
   private readonly materializer: MirrorMaterializer;
   private readonly ownersByPath = new Map<string, SyncObjectRef>();
   private readonly pathsByOwner = new Map<string, string>();
+  private readonly dependencyReceipts = new WeakMap<DurableSyncReceipt[], {
+    indexed: number;
+    byId: Map<string, DurableSyncReceipt>;
+  }>();
 
   constructor(private readonly ports: ExecutorPorts) {
     this.materializer = new MirrorMaterializer(
@@ -404,9 +408,20 @@ export class PlanOnlySyncExecutor {
     action: Extract<SyncAction, { command: "move_remote" }>
   ): string | undefined {
     if (!action.revision_from_dependency) return undefined;
-    const receipt = requireBatch(state).receipts.find(
-      ({ action_id }) => action_id === action.revision_from_dependency
-    );
+    // Executor receipts are append-only. Index each once; weak keys release
+    // completed batches, and a replacement recovery array gets a fresh index.
+    const receipts = requireBatch(state).receipts;
+    let index = this.dependencyReceipts.get(receipts);
+    if (!index || index.indexed > receipts.length) {
+      index = { indexed: 0, byId: new Map() };
+      this.dependencyReceipts.set(receipts, index);
+    }
+    for (; index.indexed < receipts.length; index.indexed++) {
+      const candidate = receipts[index.indexed]!;
+      const id = candidate.action_id;
+      if (!index.byId.has(id)) index.byId.set(id, candidate);
+    }
+    const receipt = index.byId.get(action.revision_from_dependency);
     if (!receipt?.file || receipt.file.file_id !== action.source.identity) {
       throw invalidMirrorState(`Move ${action.action_id} is missing its dependency file receipt.`);
     }

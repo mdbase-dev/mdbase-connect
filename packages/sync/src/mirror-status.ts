@@ -55,10 +55,7 @@ export function checkpointMirrorStatus(
   }
   const conflicts: MirrorStatus["conflicts"] = [];
   for (const [identity, conflict] of Object.entries(state.planned_conflicts ?? {})) {
-    const existing = conflicts.findIndex(({ entity, object_id }) =>
-      entity === conflict.entity && object_id === identity
-    );
-    if (existing !== -1) conflicts.splice(existing, 1);
+    // Each dictionary key appears once; earlier rows cannot share its identity.
     const path = conflict.local.state === "exact"
       ? conflict.local.object.path
       : conflict.remote.state === "exact"
