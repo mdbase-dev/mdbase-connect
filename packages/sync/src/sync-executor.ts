@@ -352,7 +352,7 @@ export class PlanOnlySyncExecutor {
       || (action.expected_remote.state === "exact"
         && receipt.file.file_id !== action.expected_remote.object.identity)
       || (action.expected_remote.state === "absent"
-        && state.files?.[receipt.file.file_id] !== undefined)
+        && (state.files?.[receipt.file.file_id] !== undefined || state.records[receipt.file.file_id] !== undefined))
     ) throw invalidReceipt(action);
     state.files ??= {};
     state.files[receipt.file.file_id] = { file: receipt.file };
