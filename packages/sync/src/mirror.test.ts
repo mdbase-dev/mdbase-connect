@@ -761,6 +761,49 @@ describe("platform-neutral directory mirror", () => {
     expect((await stateStore.read())?.planned_conflicts).toEqual({});
   });
 
+  it.each(["replacement", "deletion"])("does not erase an edit made during conflict %s resolution", async (operation) => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Resolving writer", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new ConditionalFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const path = "notes/00000.md";
+    let resolving = false;
+    const mirror = new WritableDirectoryMirror(replicaId, {
+      ...transport,
+      openSession: async () => {
+        const session = await transport.openSession();
+        if (resolving) fileSystem.files.set(path, "newer edit made while authority was loading");
+        return session;
+      }
+    }, { fileSystem, stateStore });
+    await mirror.sync();
+    const base = (await stateStore.read())!.records["portable-0"]!;
+    fileSystem.files.set(path, "local conflicted document");
+    if (operation === "replacement") {
+      await transport.mutate({
+        operation: "put", mutation_id: "remote-replacement", replica_id: replicaId, scope_epoch: 1,
+        record_id: "portable-0", base_revision: base.revision, path, document: "remote replacement",
+        created_at: "2026-10-01T00:00:00.000Z"
+      });
+    } else {
+      await transport.mutate({
+        operation: "delete", mutation_id: "remote-deletion", replica_id: replicaId, scope_epoch: 1,
+        record_id: "portable-0", base_revision: base.revision,
+        created_at: "2026-10-01T00:00:00.000Z"
+      });
+    }
+    expect((await mirror.sync()).status).toBe("attention");
+    const conflict = (await stateStore.read())!.planned_conflicts!["portable-0"]!;
+    resolving = true;
+
+    await expect(mirror.resolveConflict("portable-0", conflict.decision_id!, "remote"))
+      .rejects.toMatchObject({ code: "sync_plan_stale" });
+    expect(fileSystem.files.get(path)).toBe("newer edit made while authority was loading");
+    expect((await stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(conflict);
+  });
+
   it("does not advance durable state when a mobile adapter fails mid-apply", async () => {
     const hosted = new MemoryAuthority({ snapshotPageSize: 1 });
     hosted.seed(records(3));
