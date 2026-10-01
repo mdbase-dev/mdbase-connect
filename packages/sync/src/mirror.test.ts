@@ -1011,7 +1011,7 @@ describe("platform-neutral directory mirror", () => {
     expect((await restoredStore.read())!.planned_conflicts).toEqual({});
   });
 
-  it.each(["mutation_id", "identity", "path", "document", "missing_record"])(
+  it.each(["mutation_id", "identity", "path", "document", "projection", "missing_record"])(
     "rejects a successful record receipt with a substituted %s before checkpointing", async (fault) => {
       const hosted = new MemoryAuthority();
       hosted.seed(records(1));
@@ -1030,6 +1030,7 @@ describe("platform-neutral directory mirror", () => {
           const record = receipt.record!;
           if (fault === "identity") return { ...receipt, record: { ...record, record_id: "another-record" } };
           if (fault === "path") return { ...receipt, record: { ...record, path: "another-path.md" } };
+          if (fault === "projection") return { ...receipt, record: { ...record, body: "a different claimed body" } };
           return { ...receipt, record: {
             ...record, document: "another document", revision: documentRevision("another document"),
             frontmatter: {}, body: "another document", types: []
@@ -1050,6 +1051,49 @@ describe("platform-neutral directory mirror", () => {
       expect(Object.keys((await stateStore.read())!.records)).toEqual(["portable-0"]);
       expect(hosted.serialize().changes).toHaveLength(1);
     });
+
+  it.each(["path", "frontmatter", "body", "types", "projection"])("rejects a late conflict receipt with invalid %s before poisoning durable state", async (fault) => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Conflict receipt validation", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    let race = true;
+    let corrupt = true;
+    const mirror = new WritableDirectoryMirror(replicaId, {
+      ...transport,
+      mutate: async (mutation) => {
+        if (race && mutation.operation === "put") {
+          race = false;
+          await transport.mutate({ ...mutation, mutation_id: "valid-concurrent-edit", document: "valid remote edit" });
+        }
+        const receipt = await transport.mutate(mutation);
+        const current = receipt.conflict?.current;
+        if (!corrupt || receipt.status !== "conflicted" || !current) return receipt;
+        const bad = { ...current } as unknown as Record<string, unknown>;
+        if (fault === "path") bad.path = "../outside.md";
+        else if (fault === "projection") bad.body = "a different claimed body";
+        else if (fault === "body") delete bad.body;
+        else bad[fault] = null;
+        return { ...receipt, conflict: { ...receipt.conflict, current: bad as unknown as typeof current } };
+      }
+    }, { fileSystem, stateStore });
+    await mirror.sync();
+    const before = (await stateStore.read())!;
+    fileSystem.files.set("notes/00000.md", "local edit");
+    expect(await mirror.sync()).toMatchObject({ status: "failed", failure: { code: "invalid_sync_response" } });
+    const failed = (await stateStore.read())!;
+    expect(failed.generation).toBe(before.generation);
+    expect(failed.records).toEqual(before.records);
+    expect(failed.batch?.receipts).toEqual([]);
+    expect(failed.planned_conflicts).toEqual(before.planned_conflicts);
+    corrupt = false;
+    expect((await mirror.sync()).status).toBe("attention");
+    const conflict = (await stateStore.read())!.planned_conflicts!["portable-0"]!;
+    expect(conflict.remote).toMatchObject({ object: { path: "notes/00000.md" } });
+    expect(fileSystem.files.get("notes/00000.md")).toBe("local edit");
+  });
 
   it.each(["record_not_found", "scope_denied", "schema_validation_failed"])(
     "classifies rejected %s receipts without disguising permission/rule failures", async (code) => {

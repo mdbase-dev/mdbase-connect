@@ -6,6 +6,7 @@ import type {
   SyncRecord
 } from "@mdbase-dev/connect-protocol";
 import { asError, errorCode, invalidMirrorState, SyncError } from "./sync-error.js";
+import { MirrorSnapshotValidator } from "./mirror-snapshot-validator.js";
 import { MirrorMaterializer } from "./mirror-materializer.js";
 import { recordMarkdownDocument, runtimeDocumentRevision } from "./mirror-format.js";
 import {
@@ -666,8 +667,8 @@ function assertExactDocument(
   runtime: MirrorRuntime,
   revision: string
 ): void {
-  const document = recordMarkdownDocument(record);
-  if (record.revision !== revision || runtimeDocumentRevision(document, runtime) !== revision) {
+  MirrorSnapshotValidator.validateRecord(record, (document) => runtime.digest(document));
+  if (record.revision !== revision) {
     throw new SyncError("invalid_sync_response", "Record receipt does not match its exact document revision.");
   }
 }
