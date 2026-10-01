@@ -289,6 +289,11 @@ export class PlanOnlySyncExecutor {
         await this.materializer.removeFile(state, action.target.identity);
       }
     } else {
+      // Only absence proves a previous attempt already deleted this path.
+      // Changed bytes are a competing edit, not an idempotent delete receipt.
+      if (await this.ports.fileSystem.exists(action.target.path)) {
+        throw stale(`${action.target.path} changed before it could be deleted.`);
+      }
       removeStateEntry(state, action.target);
     }
     this.removePathOwner(action.target);

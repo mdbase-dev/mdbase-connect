@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { MemoryAuthority, type SyncTransport } from "./index.js";
 import { classifyLocalRecord, documentRevision, parseRecordDocument } from "./mirror-format.js";
 import { SyncError } from "./sync-error.js";
+import type { SyncJournalEvent } from "./sync-journal.js";
 import {
   DirectoryMirror,
   MemoryMirrorLease,
@@ -827,6 +828,44 @@ describe("platform-neutral directory mirror", () => {
     );
     expect(fileSystem.files.get("notes/00000.md")).toBe(records(2)[0]!.document);
     expect((await stateStore.read())?.planned_conflicts).toEqual({});
+  });
+
+  it("does not checkpoint a local deletion when the inspected bytes changed after preparation", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Deletion mirror", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new TestFileSystem();
+    const path = "notes/00000.md";
+    class RacingStateStore extends MemoryMirrorStateStore {
+      race = false;
+      override async appendJournal(event: SyncJournalEvent): Promise<void> {
+        await super.appendJournal(event);
+        if (this.race && event.type === "phase" && event.phase === "applying") {
+          fileSystem.files.set(path, "edit after deletion was prepared");
+        }
+      }
+    }
+    const stateStore = new RacingStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+    await mirror.sync();
+    const prior = (await stateStore.read())!;
+    await transport.mutate({
+      operation: "delete", mutation_id: "delete-before-race", replica_id: replicaId, scope_epoch: 1,
+      record_id: "portable-0", base_revision: prior.records["portable-0"]!.revision,
+      created_at: "2026-10-01T00:00:00.000Z"
+    });
+    stateStore.race = true;
+
+    expect((await mirror.sync()).status).toBe("stale");
+    expect(fileSystem.files.get(path)).toBe("edit after deletion was prepared");
+    expect((await stateStore.read())?.cursor).toBe(prior.cursor);
+    stateStore.race = false;
+    expect((await mirror.sync()).status).toBe("attention");
+    expect((await stateStore.read())?.planned_conflicts?.["portable-0"]).toMatchObject({
+      conflict_kind: "delete_vs_change", ancestor_document: records(1)[0]!.document
+    });
+    expect(hosted.serialize().records).toEqual([]);
   });
 
   it.each(["replacement", "deletion"])("does not erase an edit made during conflict %s resolution", async (operation) => {
