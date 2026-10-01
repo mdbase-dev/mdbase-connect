@@ -874,12 +874,14 @@ describe("platform-neutral directory mirror", () => {
     expect(reviewed.status.state).toBe("changes_waiting");
   });
 
-  it("removes the accepted local source when resolving a rename conflict remotely", async () => {
+  it.each([
+    ["renamed.md", false], ["Notes/00000.md", false], ["Notes/00000.md", true]
+  ] as const)("removes the accepted local source when resolving a rename conflict to %s remotely (insensitive=%s)", async (remotePath, insensitive) => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(1));
     const replicaId = hosted.registerReplica({ name: "Rename resolution mirror", mode: "read_write" });
     const transport = hosted.transport(replicaId);
-    const fileSystem = new ConditionalFileSystem();
+    const fileSystem = insensitive ? new CaseInsensitiveFileSystem() : new ConditionalFileSystem();
     const stateStore = new MemoryMirrorStateStore();
     const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
     await mirror.sync();
@@ -887,7 +889,7 @@ describe("platform-neutral directory mirror", () => {
     fileSystem.files.set(original.path, "local edit at old path");
     await transport.mutate({
       operation: "move", mutation_id: "remote-rename-conflict", replica_id: replicaId, scope_epoch: 1,
-      record_id: "portable-0", base_revision: original.revision, path: "renamed.md",
+      record_id: "portable-0", base_revision: original.revision, path: remotePath,
       created_at: "2026-10-01T00:00:00.000Z"
     });
     expect((await mirror.sync()).status).toBe("attention");
@@ -895,7 +897,7 @@ describe("platform-neutral directory mirror", () => {
     await mirror.resolveConflict("portable-0", conflict.decision_id!, "remote");
 
     expect(fileSystem.files.has(original.path)).toBe(false);
-    expect(fileSystem.files.get("renamed.md")).toBe(original.record!.document);
+    expect(fileSystem.files.get(remotePath)).toBe(original.record!.document);
     expect((await mirror.sync()).status).toBe("applied");
     expect(hosted.serialize().records).toHaveLength(1);
     expect((await mirror.inspect()).actions).toEqual([]);

@@ -589,8 +589,18 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
 
   private async removeResolvedLocalPath(state: MirrorState, identity: string, installedPath: string): Promise<void> {
     const local = state.planned_conflicts?.[identity]?.local;
-    if (local?.state !== "exact"
-      || physicalMirrorPathKey(local.object.path) === physicalMirrorPathKey(installedPath)) return;
+    if (local?.state !== "exact" || local.object.path === installedPath) return;
+    if (physicalMirrorPathKey(local.object.path) === physicalMirrorPathKey(installedPath)) {
+      if (local.object.entity === "file" && !this.fileSystem.listBinary) {
+        throw new SyncError("file_storage_unavailable", "Selected files require binary enumeration.");
+      }
+      const paths = local.object.entity === "file"
+        ? await this.fileSystem.listBinary!(new Set())
+        : await this.fileSystem.listMarkdown(new Set());
+      // Only enumeration of both physical names proves this is a distinct
+      // superseded file on a sensitive volume, not an alias of the install.
+      if (!paths.includes(local.object.path) || !paths.includes(installedPath)) return;
+    }
     // Installing the remote may have taken time. Delete only the accepted
     // superseded version, never a newer edit at the old local path.
     await new PlanRevalidator(this.fileSystem, this.runtime).validateExpected(local);
