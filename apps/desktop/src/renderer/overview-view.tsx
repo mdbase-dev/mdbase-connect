@@ -1,5 +1,5 @@
 import React from "react";
-import { AccessControl, PairingPanel, StatusDot } from "./ui-components";
+import { AccessControl, StatusDot } from "./ui-components";
 import { plural, type Route } from "./view-model";
 
 export function ConnectionProgress() {
@@ -20,7 +20,7 @@ export function Overview({ status, cloud, access, collectionCount, busy, onNavig
   onCreate(): void;
   onPause(paused: boolean): void;
 }) {
-  if (!cloud.configured) return <PairingPanel />;
+  if (!cloud.configured) return null;
   return (
     <div className="workspace-stack">
       {access.pending_authorizations.length > 0 && (

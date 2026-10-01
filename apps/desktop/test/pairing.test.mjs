@@ -59,6 +59,7 @@ test("coalesces concurrent polls and retries local configuration without re-exch
   release();
   const results = await Promise.allSettled([first, second]);
   assert.ok(results.every((result) => result.status === "rejected"));
+  t.mock.method(Date, "now", () => Number.MAX_SAFE_INTEGER);
   await pairing.status("request");
   assert.equal(exchanges, 1);
   assert.equal(attempts, 2);

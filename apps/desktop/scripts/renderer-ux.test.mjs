@@ -29,13 +29,13 @@ after(async () => {
   if (server) await new Promise((done) => server.close(done));
 });
 
-async function desktop() {
+async function desktop({ configured = true } = {}) {
   const page = await browser.newPage({ viewport: { width: 1060, height: 720 } });
   await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.clock.install();
-  await page.addInitScript(() => {
+  await page.addInitScript((configured) => {
     const mirror = {
       collection_id: "hosted-notes", replica_id: "notes-mirror", name: "Notes", mode: "read_write",
       selective_sync: { file_classes: [], excluded_folders: [] }, path: "/disposable/Notes",
@@ -51,15 +51,15 @@ async function desktop() {
       status: async () => ({ readiness: { schema_version: 1, ready: true, binary_version: "test" }, protocol_version: 1, state: "connected", paused: false, registered_collections: 0, direct_access_available: true }),
       updateStatus: async () => ({ phase: "unavailable", current_version: "test", channel: "beta", message: "Development build", can_check: false, can_install: false }),
       listCollections: async () => [], getLaunchAtLogin: async () => ({ enabled: false, available: false }),
-      getCloudConfig: async () => ({ configured: true, serverUrl: "http://127.0.0.1:42391" }),
-      accessSnapshot: async () => ({ configured: true, online: true, grants: [], pending_authorizations: [], authority_conflicts: [] }),
+      getCloudConfig: async () => ({ configured, serverUrl: configured ? "http://127.0.0.1:42391" : null }),
+      accessSnapshot: async () => ({ configured, online: configured, grants: [], pending_authorizations: [], authority_conflicts: [] }),
       listActivity: async () => [], hostedSnapshot: async () => hosted, listMirrors: async () => [mirror],
       onNavigate: () => () => {}, onUpdateStatus: () => () => {}
     };
-  });
+  }, configured);
   await page.goto(origin);
   await page.getByRole("button", { name: /^Collections/ }).click();
-  await page.getByRole("heading", { name: "Notes", exact: true }).waitFor();
+  if (configured) await page.getByRole("heading", { name: "Notes", exact: true }).waitFor();
   return { page, errors, row: page.locator(".hosted-collection") };
 }
 
@@ -98,6 +98,72 @@ test("collapsed hosted rows expose sync conflicts separately from hosted availab
     await screenshot(page, "collapsed-conflict");
     assert.equal(await row.locator(".collection-summary").getByText("Available", { exact: true }).isVisible(), true);
     assert.equal(await row.locator(".collection-summary").getByText("Conflicts need a decision", { exact: true }).isVisible(), true);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+async function beginPairing(page, { expiresIn = 600, firstError } = {}) {
+  await page.evaluate(({ expiresIn, firstError }) => {
+    window.fixture.pairingBegins = 0;
+    window.fixture.pairingChecks = [];
+    window.mdbaseConnect.beginPairing = async () => {
+      window.fixture.pairingBegins++;
+      return { pairingId: "same-request", verificationUri: "http://127.0.0.1:42391/pair/same-request", expiresIn };
+    };
+    window.mdbaseConnect.reopenPairing = async () => {};
+    window.mdbaseConnect.pairingStatus = async (id) => {
+      window.fixture.pairingChecks.push(id);
+      if (firstError && window.fixture.pairingChecks.length === 1) throw new Error(firstError);
+      return { status: window.fixture.approved ? "paired" : "pending" };
+    };
+  }, { expiresIn, firstError });
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page.getByRole("button", { name: "Continue in browser" }).click();
+}
+
+test("pending computer approval survives navigation without creating another request", async () => {
+  const { page, errors } = await desktop({ configured: false });
+  try {
+    await beginPairing(page);
+    await page.getByText("Waiting for browser approval", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await screenshot(page, "pairing-navigation");
+    assert.equal(await page.getByText("Waiting for browser approval", { exact: true }).isVisible(), true);
+    await page.getByRole("button", { name: /^Collections/ }).click();
+    await page.getByRole("button", { name: "App access", exact: true }).click();
+    assert.equal(await page.getByText("Waiting for browser approval", { exact: true }).isVisible(), true);
+    await page.evaluate(() => { window.fixture.approved = true; });
+    await page.clock.runFor(2_000);
+    await page.getByText("Computer approved. Connecting securely…", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.fixture.pairingBegins), 1);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("authoritatively expired pairing stops retrying and offers a fresh request", async () => {
+  const { page, errors } = await desktop({ configured: false });
+  try {
+    await beginPairing(page, { firstError: "That pairing request expired. Start again." });
+    await page.getByText("Setup request expired", { exact: true }).waitFor();
+    await page.clock.runFor(4_000);
+    assert.equal(await page.evaluate(() => window.fixture.pairingChecks.length), 1);
+    assert.equal(await page.getByRole("button", { name: "Open browser again" }).count(), 0);
+    await page.getByRole("button", { name: "Start again" }).click();
+    await page.getByRole("button", { name: "Continue in browser" }).waitFor();
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("already-approved pairing retries local configuration after the browser request expires", async () => {
+  const { page, errors } = await desktop({ configured: false });
+  try {
+    await beginPairing(page, { expiresIn: 1, firstError: "Connector still starting" });
+    await page.getByText("Connection interrupted", { exact: true }).waitFor();
+    await page.evaluate(() => { window.fixture.approved = true; });
+    await page.clock.runFor(2_000);
+    await screenshot(page, "pairing-expiry");
+    assert.equal(await page.evaluate(() => window.fixture.pairingChecks.length), 2);
+    assert.equal(await page.getByText("Computer approved. Connecting securely…", { exact: true }).isVisible(), true);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
