@@ -7,7 +7,7 @@ import type {
   SyncResourceDocument
 } from "@mdbase-dev/connect-protocol";
 import { asError, errorCode, SyncError } from "./sync-error.js";
-import { classifyLocalRecord, runtimeDocumentRevision } from "./mirror-format.js";
+import { classifyLocalRecord, fastRecordDocumentMatches, runtimeDocumentRevision } from "./mirror-format.js";
 import {
   fileSelected,
   normalizeSelectiveSyncPolicy,
@@ -342,13 +342,23 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
         continue;
       }
       const document = read;
-      const revision = runtimeDocumentRevision(document, this.runtime);
+      const priorAuthority = priorRecord?.[1].record;
+      // Compare the freshly read exact bytes, never an mtime/size signature.
+      // The common authority document already carries its verified digest.
+      const unchangedAuthority = priorAuthority?.document === document ? priorAuthority : undefined;
+      const revision = unchangedAuthority?.revision ?? runtimeDocumentRevision(document, this.runtime);
       observations.push({
         stable_identity: identity !== "",
         object: textRef("record", identity, path, revision)
       });
       documents.set(path, document);
-      const structural = classifyLocalRecord(document);
+      // Reuse the existing portable formatter's exact canonical-match proof.
+      // Empty frontmatter can also represent opaque malformed YAML, so it must
+      // still be classified to keep structural warnings visible.
+      const knownMapping = unchangedAuthority
+        && Object.keys(unchangedAuthority.frontmatter).length > 0
+        && fastRecordDocumentMatches(document, unchangedAuthority) === true;
+      const structural = knownMapping ? { outcome: "parsed" as const } : classifyLocalRecord(document);
       if (structural.outcome !== "parsed") {
         issues.push({
           code: "invalid_frontmatter",
