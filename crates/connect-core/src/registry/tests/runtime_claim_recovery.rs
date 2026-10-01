@@ -91,6 +91,109 @@ fn local_crash_windows_reconcile_without_acknowledging_external_claims() {
 }
 
 #[test]
+fn confirmed_local_update_can_reopen_after_a_later_external_edit() {
+    let state = tempdir().unwrap();
+    let parent = tempdir().unwrap();
+    let root = parent.path().join("external-after-confirmed");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry.create(&root, None, "UTC").unwrap();
+    fs::write(root.join("one.md"), "---\ngeneration: 0\n---\ninitial\n").unwrap();
+    let updated = registry
+        .operation(
+            collection.id,
+            "update",
+            &json!({
+                "path": "one.md", "patch": {}, "body": "confirmed update"
+            }),
+        )
+        .unwrap();
+    assert_eq!(updated["valid"], true);
+    registry
+        .finalize_runtime_changes(collection.id, &mdbase::OperationCancellation::new())
+        .unwrap();
+    fs::write(
+        root.join("one.md"),
+        "---\ngeneration: 1\n---\nnew external edit\n",
+    )
+    .unwrap();
+    registry.shutdown_runtimes();
+    drop(registry);
+    let reopened = CollectionRegistry::open(state.path()).unwrap();
+    let result = reopened
+        .operation(collection.id, "read", &json!({"path": "one.md"}))
+        .unwrap();
+    assert_eq!(result["valid"], true);
+    assert_eq!(result["result"]["body"], "new external edit\n");
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "CS-05: enable after pinned mdbase-rs clears a denied runtime write without later manual recovery"]
+fn denied_local_update_can_reopen_after_permissions_recover_and_an_external_edit() {
+    use std::os::unix::fs::PermissionsExt;
+    let state = tempdir().unwrap();
+    let parent = tempdir().unwrap();
+    let root = parent.path().join("permission-recovery");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry.create(&root, None, "UTC").unwrap();
+    let notes = root.join("notes");
+    fs::create_dir(&notes).unwrap();
+    fs::write(notes.join("one.md"), "---\ngeneration: 0\n---\ninitial\n").unwrap();
+    assert_eq!(
+        registry
+            .operation(collection.id, "read", &json!({"path": "notes/one.md"}))
+            .unwrap()["valid"],
+        true
+    );
+    fs::set_permissions(&notes, fs::Permissions::from_mode(0o555)).unwrap();
+    // Root (or equivalent capabilities) bypasses Unix permission faults.
+    if fs::write(notes.join("permission-probe"), b"").is_ok() {
+        fs::set_permissions(&notes, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let denied = registry.operation(
+        collection.id,
+        "update",
+        &json!({
+            "path": "notes/one.md", "patch": {}, "body": "denied update"
+        }),
+    );
+    fs::set_permissions(&notes, fs::Permissions::from_mode(0o755)).unwrap();
+    let denied = denied.unwrap_err();
+    assert_eq!(denied.code(), "transaction_io_failed");
+    assert_eq!(
+        fs::read(notes.join("one.md")).unwrap(),
+        b"---\ngeneration: 0\n---\ninitial\n"
+    );
+    let confirmed = registry
+        .operation(
+            collection.id,
+            "update",
+            &json!({
+                "path": "notes/one.md", "patch": {}, "body": "confirmed update"
+            }),
+        )
+        .unwrap();
+    assert_eq!(confirmed["valid"], true);
+    registry
+        .finalize_runtime_changes(collection.id, &mdbase::OperationCancellation::new())
+        .unwrap();
+    fs::write(
+        notes.join("one.md"),
+        "---\ngeneration: 1\n---\nnew external edit\n",
+    )
+    .unwrap();
+    registry.shutdown_runtimes();
+    drop(registry);
+    let reopened = CollectionRegistry::open(state.path()).unwrap();
+    let result = reopened
+        .operation(collection.id, "read", &json!({"path": "notes/one.md"}))
+        .unwrap();
+    assert_eq!(result["valid"], true);
+    assert_eq!(result["result"]["body"], "new external edit\n");
+}
+
+#[test]
 fn legacy_recovery_is_preview_first_selective_verified_and_audited() {
     let state = tempdir().unwrap();
     let parent = tempdir().unwrap();
