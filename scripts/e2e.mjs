@@ -1433,6 +1433,41 @@ implements:
       || readBody.result?.result?.frontmatter?.status !== "done") {
     throw new Error(`Unexpected relay read response: ${JSON.stringify(readBody)}`);
   }
+  // Exercise the real encrypted application boundary, not just owner IPC.
+  // A single grant deliberately exceeds its bounded admission queue; excess
+  // work must settle as typed backpressure, never lose authorization/counters
+  // or leave capacity occupied after the burst.
+  for (const [route, sendRead] of Object.entries({
+    direct: () => rawOperation(collection.id, "read", accessToken, { path: "sessions/first.md" }),
+    relay: () => signedGrantOperation(initialAuthorization, refreshed.body, collection.id, "read", { path: "sessions/first.md" })
+  })) {
+    const responses = await Promise.all(Array.from({ length: 32 }, async () => {
+      const response = await sendRead();
+      return { status: response.status, body: await response.json() };
+    }));
+    let successful = 0;
+    let backpressured = 0;
+    for (const { status, body } of responses) {
+      if (status === 200) {
+        if (body.result?.result?.frontmatter?.status !== "done") {
+          throw new Error(`${route} concurrent read returned the wrong committed record`);
+        }
+        successful++;
+      } else if ((body.error ?? body.problem)?.code === "connector_busy") {
+        backpressured++;
+      } else {
+        throw new Error(`${route} concurrent read failed with HTTP ${status}, code ${(body.error ?? body.problem)?.code ?? "missing"}`);
+      }
+    }
+    if (successful === 0) throw new Error(`${route} burst made no forward progress`);
+    const quiet = await sendRead();
+    const quietBody = await quiet.json();
+    if (quiet.status !== 200 || quietBody.result?.result?.frontmatter?.status !== "done") {
+      throw new Error(`${route} did not release admission capacity after the burst`);
+    }
+    console.log(JSON.stringify({ phase: "encrypted-application-burst", route, successful, backpressured }));
+  }
+
   const bulkQuery = await rawOperation(collection.id, "query", accessToken, { limit: 1_100 });
   const bulkQueryBody = await bulkQuery.json();
   if (bulkQuery.status !== 200 || bulkQueryBody.result?.result?.results?.length < 1_001) {

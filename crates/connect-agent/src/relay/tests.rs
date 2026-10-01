@@ -1,9 +1,140 @@
 use super::*;
 
+async fn answer_inventory_sync(listener: &tokio::net::TcpListener) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (mut http, _) = listener.accept().await.unwrap();
+    let mut request = Vec::new();
+    loop {
+        let mut bytes = [0; 4096];
+        let len = http.read(&mut bytes).await.unwrap();
+        assert_ne!(len, 0);
+        request.extend_from_slice(&bytes[..len]);
+        if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+            let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+            let length: usize = headers
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length: "))
+                .unwrap()
+                .parse()
+                .unwrap();
+            if request.len() >= end + 4 + length {
+                break;
+            }
+        }
+    }
+    http.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn flapping_transport_reconnects_and_preserves_backoff_after_brief_healthy_sessions() {
+    use mdbase_connect_core::CollectionRegistry;
+    use sha2::Digest;
+    use uuid::Uuid;
+    let directory = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let watcher = crate::watcher::CollectionWatchService::start(registry.clone());
+    let state = Arc::new(AgentState::new(registry.clone(), watcher, None));
+    let connector_id = Uuid::new_v4();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (connected, connection) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let mut attempts = Vec::new();
+        for sequence in 1..=3 {
+            answer_inventory_sync(&listener).await;
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            assert!(matches!(
+                socket.next().await.unwrap().unwrap(),
+                Message::Text(_)
+            ));
+            attempts.push(std::time::Instant::now());
+            let welcome = RelayMessage::RelayWelcome {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                session_id: format!("flap-{sequence}"),
+                capabilities: RELAY_CAPABILITIES
+                    .iter()
+                    .map(|value| value.to_string())
+                    .collect(),
+                contract_support: ConnectContractSupport::default(),
+            };
+            socket
+                .send(Message::Text(
+                    serde_json::to_string(&welcome).unwrap().into(),
+                ))
+                .await
+                .unwrap();
+            let now = chrono::Utc::now().timestamp_millis();
+            let body = serde_json::json!({
+                "connector_id": connector_id, "sequence": sequence,
+                "lease_issued_at_ms": now, "lease_expires_at_ms": now + 60_000,
+                "grants": []
+            });
+            let policy = RelayMessage::PolicySnapshot {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id: Uuid::new_v4(),
+                revision: format!(
+                    "sha256:{:x}",
+                    sha2::Sha256::digest(serde_jcs::to_vec(&body).unwrap())
+                ),
+                connector_id: Some(connector_id),
+                sequence: Some(sequence),
+                lease_issued_at_ms: Some(now),
+                lease_expires_at_ms: Some(now + 60_000),
+                grants: vec![],
+            };
+            socket
+                .send(Message::Text(
+                    serde_json::to_string(&policy).unwrap().into(),
+                ))
+                .await
+                .unwrap();
+            let Message::Text(response) = socket.next().await.unwrap().unwrap() else {
+                panic!("expected policy acknowledgement")
+            };
+            assert!(matches!(
+                serde_json::from_str::<RelayMessage>(&response).unwrap(),
+                RelayMessage::PolicyApplied { ok: true, .. }
+            ));
+            if sequence == 3 {
+                // A brief policy-authorized connection must not reset failures.
+                assert!(attempts[1].duration_since(attempts[0]) >= Duration::from_millis(500));
+                assert!(attempts[2].duration_since(attempts[1]) >= Duration::from_millis(1000));
+                connected.send(()).unwrap();
+                released.await.unwrap();
+                return;
+            }
+            // Abrupt transport loss, not an authentication/protocol close.
+            drop(socket);
+        }
+    });
+    let owner = tokio::spawn(run(
+        url,
+        "con_123456789012345678901234".into(),
+        state.clone(),
+    ));
+    tokio::time::timeout(Duration::from_secs(15), connection)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.relay_problem(), None);
+    assert_eq!(
+        registry.remote_policy_authority().unwrap().connector_id,
+        Some(connector_id)
+    );
+    assert!(!owner.is_finished());
+    owner.abort();
+    let _ = owner.await;
+    release.send(()).unwrap();
+    server.await.unwrap();
+}
+
 #[tokio::test]
 async fn authenticated_policy_mismatch_stops_reconnecting_and_preserves_pin() {
     use mdbase_connect_core::CollectionRegistry;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use uuid::Uuid;
     let directory = tempfile::tempdir().unwrap();
     let registry = CollectionRegistry::open(directory.path()).unwrap();
@@ -23,30 +154,7 @@ async fn authenticated_policy_mismatch_stops_reconnecting_and_preserves_pin() {
     let (applied_tx, applied_rx) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
         // Inventory sync precedes the WebSocket. Consume its complete body.
-        let (mut http, _) = listener.accept().await.unwrap();
-        let mut request = Vec::new();
-        loop {
-            let mut bytes = [0; 4096];
-            let len = http.read(&mut bytes).await.unwrap();
-            assert_ne!(len, 0);
-            request.extend_from_slice(&bytes[..len]);
-            if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
-                let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
-                let length: usize = headers
-                    .lines()
-                    .find_map(|line| line.strip_prefix("content-length: "))
-                    .unwrap()
-                    .parse()
-                    .unwrap();
-                if request.len() >= end + 4 + length {
-                    break;
-                }
-            }
-        }
-        http.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
-            .await
-            .unwrap();
-        drop(http);
+        answer_inventory_sync(&listener).await;
         let (stream, _) = listener.accept().await.unwrap();
         let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
         let hello = socket.next().await.unwrap().unwrap();
