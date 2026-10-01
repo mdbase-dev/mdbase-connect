@@ -625,7 +625,7 @@ function PortalApprovalRequest({ request, collections, focused, busy, onAct: run
         />
       </label>
       <p>Entire collection. Access continues until revoked under Connected applications. New installations may also require local code comparison.</p>
-      <RequestPermissionChoices groups={groups} selected={operations} onChange={setOperations} />
+      <RequestPermissionChoices groups={groups} selected={operations} disabled={busy} onChange={setOperations} />
       {files && <p>Files: {[...files.required, ...(files.optional ?? [])].join(", ")}. Scope: {files.scope.kind === "collection" ? "Entire collection" : files.scope.folders.join(", ")}.</p>}
       <NotificationAccess notifications={request.notifications} />
       <div className="modal-actions">
@@ -721,7 +721,7 @@ function GrantEditor({ grant, busy, onAct: run, onNotice }: { grant: GrantSummar
             ? "You can remove optional capability groups here. An application must request any additional access separately."
             : "Permission details unavailable. Access has not been changed. You can still revoke access."}</small></div>
           {needsReview && <p role="status">Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></p>}
-          {permissionDetailsAvailable && <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />}
+          {permissionDetailsAvailable && <RequestPermissionChoices groups={permissionGroups} selected={operations} disabled={busy} onChange={setOperations} />}
         </section>
         <footer className="request-footer">
           <p>{permissionDetailsAvailable
@@ -890,7 +890,7 @@ function ComputerNameSetting({ account, online, busy, onAct, onNotice }: {
   if (!editing) return <div className="setting-row"><span>Computer</span><div><strong>{account?.connector_name ?? "This computer"}</strong><small>{account?.user_email ?? "Account details unavailable while offline"}</small></div><button className="quiet-action" disabled={busy || !online} onClick={() => setEditing(true)}>Rename</button></div>;
   return <form className="setting-row setting-editor" onSubmit={(event) => { event.preventDefault(); void onAct(async () => { const result = await window.mdbaseConnect.renameComputer(name); setEditing(false); onNotice(`This computer is now named ${result.connector.name}.`); }); }}>
     <span>Computer</span>
-    <label><span>Computer name</span><input autoFocus value={name} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label>
+    <label><span>Computer name</span><input autoFocus disabled={busy} value={name} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label>
     <div className="row-actions"><button type="button" className="quiet-action" disabled={busy} onClick={() => setEditing(false)}>Cancel</button><button className="button primary" disabled={busy || !name.trim() || name.trim() === account?.connector_name}>Save</button></div>
   </form>;
 }

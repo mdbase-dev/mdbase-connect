@@ -181,7 +181,10 @@ test("native consent requires an explicit choice for optional deletion and defin
       };
       window.mdbaseConnect.listCollections = async () => [{ id: "local-notes", display_name: "Local notes", path: "/disposable/Local notes", spec_version: "0.3.0", enabled: true, contracts: [] }];
       window.mdbaseConnect.accessSnapshot = async () => ({ configured: true, online: true, grants: [], pending_authorizations: [request], authority_conflicts: [] });
-      window.mdbaseConnect.approveAuthorization = async (input) => { window.fixture.approvals.push(input); };
+      window.mdbaseConnect.approveAuthorization = async (input) => {
+        window.fixture.approvals.push(input);
+        await new Promise((resolve) => { window.fixture.finishApproval = resolve; });
+      };
     }, read);
     await page.clock.runFor(5_000);
     await page.getByRole("button", { name: /^App access/ }).click();
@@ -195,7 +198,37 @@ test("native consent requires an explicit choice for optional deletion and defin
     assert.equal(await consent.getByRole("group", { name: /Create records/ }).getByRole("checkbox").isChecked(), true);
     await deletion.check();
     await consent.getByRole("button", { name: "Allow Example app" }).click();
+    assert.equal(await deletion.isDisabled(), true, "submitted permission choices cannot change while approval is in flight");
+    await page.evaluate(() => window.fixture.finishApproval());
     assert.deepEqual(await page.evaluate(() => window.fixture.approvals), [{ requestId: "native-request", collectionId: "local-notes", operations: [...read, "create", "delete"] }]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("metadata drafts cannot be edited during submission and survive a failed save", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.evaluate(() => {
+      window.mdbaseConnect.listCollections = async () => [{ id: "local-notes", display_name: "Local notes", path: "/disposable/Local notes", spec_version: "0.3.0", enabled: true, contracts: [] }];
+      window.mdbaseConnect.updateCollectionMetadata = async () => new Promise((_resolve, reject) => {
+        window.fixture.failMetadataSave = () => reject(new Error("The collection could not be saved. Your changes are still here."));
+      });
+    });
+    await page.clock.runFor(5_000);
+    const row = page.locator(".collection-card").filter({ hasText: "Local notes" });
+    await row.getByRole("button", { name: "Details", exact: true }).click();
+    const name = row.getByLabel("Name", { exact: true });
+    const description = row.getByRole("textbox", { name: "Description", exact: true });
+    await name.fill("Renamed notes");
+    await description.fill("Unsaved description");
+    await row.getByRole("button", { name: "Save details" }).click();
+    await screenshot(page, "metadata-submitting");
+    assert.equal(await name.isDisabled(), true);
+    assert.equal(await description.isDisabled(), true);
+    await page.evaluate(() => window.fixture.failMetadataSave());
+    await row.getByRole("alert").waitFor();
+    assert.equal(await name.inputValue(), "Renamed notes");
+    assert.equal(await description.inputValue(), "Unsaved description");
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
