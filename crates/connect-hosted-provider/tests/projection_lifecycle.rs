@@ -20,11 +20,9 @@ use support::{wait_for_database_condition, wait_for_query_blocked, FileLifecycle
 use tokio::sync::Barrier;
 use uuid::Uuid;
 
-#[cfg(feature = "test-hooks")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn type_pack_provisioning_does_not_deadlock_a_projection_batch() {
-    use mdbase_connect_hosted_provider::{AuthorityImportHookPoint, AuthorityImportTestHook};
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL").unwrap();
     let fixture = FileLifecycleFixture::new(&database_url).await;
     let mirror = sqlx::query("SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1 AND purpose = 'mirror'")
@@ -44,11 +42,14 @@ async fn type_pack_provisioning_does_not_deadlock_a_projection_batch() {
         .start_projection_generation(fixture.collection_id)
         .await
         .unwrap();
-    let hook = AuthorityImportTestHook::install(
-        generation.generation_id,
-        AuthorityImportHookPoint::AfterProjectionGenerationLease,
-        Duration::from_secs(20),
-    );
+    // Stop the real worker at its first projection-table access, after it has
+    // leased the generation. No feature-gated hooks: this regression runs in
+    // the registered files-adversarial PostgreSQL suite's normal test scan.
+    let mut projection_guard = fixture.pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE hosted_provider_record_projections IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *projection_guard)
+        .await
+        .unwrap();
     let worker_provider = fixture.provider.clone();
     let collection_id = fixture.collection_id;
     let generation_id = generation.generation_id;
@@ -57,7 +58,7 @@ async fn type_pack_provisioning_does_not_deadlock_a_projection_batch() {
             .project_generation_batch(collection_id, generation_id, 200)
             .await
     });
-    hook.wait_until_paused().await.unwrap();
+    wait_for_query_blocked(&fixture.pool, "hosted_provider_record_projections").await;
     let provision_provider = fixture.provider.clone();
     let provision = serde_json::from_str(include_str!(
         "../../../test/fixtures/packs/mdbase.view-1.0.0.json"
@@ -93,7 +94,7 @@ async fn type_pack_provisioning_does_not_deadlock_a_projection_batch() {
         "definition writes must still serialize other writers"
     );
     second_writer.rollback().await.unwrap();
-    hook.release();
+    projection_guard.rollback().await.unwrap();
     tokio::time::timeout(Duration::from_secs(10), worker)
         .await
         .unwrap()
