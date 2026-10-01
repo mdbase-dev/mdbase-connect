@@ -59,7 +59,7 @@ enum Command {
     Refresh(Vec<CollectionSummary>, mpsc::SyncSender<()>),
     Deactivate(Uuid, mpsc::SyncSender<()>),
     Finalize(Uuid, mpsc::SyncSender<Result<(), ConnectError>>),
-    Reconcile(Uuid, mpsc::SyncSender<()>),
+    Reconcile(Uuid, std::time::Instant, mpsc::SyncSender<()>),
     Shutdown,
     #[cfg(test)]
     IsActive(Uuid, mpsc::SyncSender<bool>),
@@ -73,7 +73,23 @@ struct PendingFinalize {
 
 enum Completion {
     Finalize(mpsc::SyncSender<Result<(), ConnectError>>),
-    Reconcile(mpsc::SyncSender<()>),
+    Reconcile(mpsc::SyncSender<()>, ReconcileTiming),
+}
+
+/// Where a requested reconciliation spends its time: waiting for the
+/// finalizer, the full runtime synchronization, then queued finalization.
+struct ReconcileTiming {
+    collection_id: Uuid,
+    requested_at: std::time::Instant,
+    queued_ms: u64,
+    resident: bool,
+    jobs_ahead: usize,
+    synchronize_ms: u64,
+    synchronized_at: std::time::Instant,
+}
+
+fn elapsed_ms(since: std::time::Instant) -> u64 {
+    u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 impl Completion {
     fn finish(self, result: Result<(), ConnectError>) {
@@ -81,10 +97,20 @@ impl Completion {
             Self::Finalize(response) => {
                 let _ = response.send(result);
             }
-            Self::Reconcile(response) => {
+            Self::Reconcile(response, timing) => {
                 if let Err(error) = result {
                     tracing::warn!(code = error.code(), %error, "runtime reconciliation finalization failed");
                 }
+                tracing::info!(
+                    collection_id = %timing.collection_id,
+                    total_ms = elapsed_ms(timing.requested_at),
+                    queued_ms = timing.queued_ms,
+                    resident = timing.resident,
+                    jobs_ahead = timing.jobs_ahead,
+                    synchronize_ms = timing.synchronize_ms,
+                    finalize_ms = elapsed_ms(timing.synchronized_at),
+                    "runtime reconciliation completed"
+                );
                 let _ = response.send(());
             }
         }
@@ -199,7 +225,11 @@ impl CollectionWatchService {
         if self
             .inner
             .commands
-            .send(Command::Reconcile(collection_id, ready))
+            .send(Command::Reconcile(
+                collection_id,
+                std::time::Instant::now(),
+                ready,
+            ))
             .is_ok()
         {
             let _ = receiver.recv();
@@ -315,23 +345,41 @@ fn run_finalizer(
                                 )));
                             }
                         }
-                        Command::Reconcile(id, ready) => {
+                        Command::Reconcile(id, requested_at, ready) => {
+                            let queued_ms = elapsed_ms(requested_at);
                             if active.contains(&id) {
+                                let resident = registry
+                                    .resident_collection_ids()
+                                    .is_ok_and(|ids| ids.contains(&id));
+                                let jobs_ahead = jobs.len();
+                                let synchronize_started = std::time::Instant::now();
                                 let cancellation = mdbase::OperationCancellation::new();
-                                match registry.synchronize_runtime(id, &cancellation) {
+                                let synchronized = registry.synchronize_runtime(id, &cancellation);
+                                let timing = ReconcileTiming {
+                                    collection_id: id,
+                                    requested_at,
+                                    queued_ms,
+                                    resident,
+                                    jobs_ahead,
+                                    synchronize_ms: elapsed_ms(synchronize_started),
+                                    synchronized_at: std::time::Instant::now(),
+                                };
+                                match synchronized {
                                     Ok(()) => jobs.push_back(PendingFinalize {
                                         collection_id: id,
                                         target: None,
-                                        response: Some(Completion::Reconcile(ready)),
+                                        response: Some(Completion::Reconcile(ready, timing)),
                                     }),
-                                    Err(error) => Completion::Reconcile(ready).finish(Err(error)),
+                                    Err(error) => {
+                                        Completion::Reconcile(ready, timing).finish(Err(error))
+                                    }
                                 }
                             } else {
-                                Completion::Reconcile(ready).finish(Err(
-                                    ConnectError::AccessDenied(
-                                        "The collection is not active.".into(),
-                                    ),
-                                ));
+                                let error = ConnectError::AccessDenied(
+                                    "The collection is not active.".into(),
+                                );
+                                tracing::warn!(code = error.code(), %error, "runtime reconciliation finalization failed");
+                                let _ = ready.send(());
                             }
                         }
                         #[cfg(test)]

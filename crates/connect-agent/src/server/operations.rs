@@ -138,6 +138,7 @@ impl AgentState {
                     });
                 }
                 let result = (|| {
+                    let started = std::time::Instant::now();
                     if grant.collection_id != collection_id {
                         return Err(ConnectError::AccessDenied(
                             "The proposed grant names a different collection.".to_string(),
@@ -183,13 +184,14 @@ impl AgentState {
                         Ok(description)
                     };
                     validate_target()?;
+                    let validated_at = std::time::Instant::now();
                     // A declared setup is always applied whole: the engine plans
                     // it from definitions alone and writes nothing when current.
                     let declares_setup = !requirements.configuration.is_empty()
                         || !provisions.configuration.is_empty()
                         || !provisions.type_packs.is_empty();
                     let setup = if declares_setup {
-                        Some(self.registry.provision_application_setup(
+                        let setup = self.registry.provision_application_setup(
                             collection_id,
                             &application_declaration_id,
                             &super::account::engine_declaration_digest(
@@ -198,7 +200,11 @@ impl AgentState {
                             &requirements,
                             &provisions,
                             &contract_setups,
-                        )?)
+                        )?;
+                        // Setup is a runtime mutation: finalize its changes like any
+                        // other, without a whole-collection synchronization.
+                        self.watcher.finalize(collection_id)?;
+                        Some(setup)
                     } else if !contract_setups.is_empty() {
                         return Err(ConnectError::InvalidInput(
                             "Contract setup choices were provided for an application that declares no collection setup."
@@ -207,7 +213,7 @@ impl AgentState {
                     } else {
                         None
                     };
-                    self.watcher.rescan(collection_id);
+                    let setup_at = std::time::Instant::now();
                     let final_description = validate_target()?;
                     if let Some(required) = requirements.contracts.iter().find(|required| {
                         !final_description.contracts.iter().any(|available| {
@@ -223,6 +229,18 @@ impl AgentState {
                     }
                     grant.scope.contracts = Vec::new();
                     self.registry.upsert_grant(&grant)?;
+                    let ms = |from: std::time::Instant, to: std::time::Instant| {
+                        u64::try_from(to.duration_since(from).as_millis()).unwrap_or(u64::MAX)
+                    };
+                    tracing::info!(
+                        %collection_id,
+                        declares_setup,
+                        total_ms = ms(started, std::time::Instant::now()),
+                        validate_ms = ms(started, validated_at),
+                        setup_ms = ms(validated_at, setup_at),
+                        final_validate_ms = ms(setup_at, std::time::Instant::now()),
+                        "application authorization activated"
+                    );
                     Ok((
                         final_description.contracts,
                         setup.map(|setup| (setup.assessment, setup.receipt)),
