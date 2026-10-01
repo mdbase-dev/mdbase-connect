@@ -1281,6 +1281,41 @@ describe("portable collection file mirror", () => {
     expect(transport.events).toHaveLength(1);
   });
 
+  it("rejects new upload receipts that steal another managed file identity", async () => {
+    const knownId = "00000000-0000-4000-8000-000000000053";
+    class AliasingTransport extends FileTransport {
+      corrupt = true;
+      override async uploadFile(request: OpenFileUploadRequest, source: AsyncIterable<Uint8Array>) {
+        const receipt = await super.uploadFile(request, source);
+        return this.corrupt ? { ...receipt, file: { ...receipt.file, file_id: knownId } } : receipt;
+      }
+    }
+    const transport = new AliasingTransport();
+    const bytes = utf8.encode("managed original");
+    const descriptor = file(knownId, "images/managed.png", bytes);
+    transport.files = [descriptor];
+    transport.bytes.set(knownId, bytes);
+    const { mirror: target, fileSystem, stateStore } = writableMirror(transport);
+    await target.sync();
+    const before = (await stateStore.read())!;
+    fileSystem.files.set("images/new.png", utf8.encode("new independent image"));
+
+    expect(await target.sync()).toMatchObject({ status: "failed", failure: { code: "invalid_sync_response" } });
+    expect((await stateStore.read())!.files).toEqual(before.files);
+    expect((await stateStore.read())!.generation).toBe(before.generation);
+    expect((await stateStore.read())!.batch?.receipts).toEqual([]);
+    transport.corrupt = false;
+    expect((await target.sync()).status).toBe("applied");
+    expect(transport.uploadCalls[1]?.transfer_id).toBe(transport.uploadCalls[0]?.transfer_id);
+    expect((await stateStore.read())!.files![knownId]!.file).toEqual(descriptor);
+    expect(Object.keys((await stateStore.read())!.files!)).toHaveLength(2);
+    expect(transport.events).toHaveLength(1);
+    // Recovery checkpoints the originally inspected head; observe the
+    // already-committed upload event in one subsequent no-effect pass.
+    expect((await target.sync()).status).toBe("applied");
+    expect((await target.inspect()).actions).toEqual([]);
+  });
+
   it("journals authority-assigned identities so a new attachment can be deleted after restart", async () => {
     const transport = new FileTransport();
     const fileSystem = new BinaryFileSystem();
