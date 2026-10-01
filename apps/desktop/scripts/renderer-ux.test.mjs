@@ -155,6 +155,27 @@ test("minimum desktop window keeps pairing and collection fields inside the canv
   } finally { await page.close(); }
 });
 
+test("hosted folder setup stays inside the canvas across supported desktop widths", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.evaluate(() => { window.mdbaseConnect.listMirrors = async () => []; });
+    await page.clock.runFor(5_000);
+    const row = page.locator(".hosted-collection");
+    await row.getByRole("button", { name: "Details", exact: true }).click();
+    const overflows = [];
+    for (const width of [820, 1000, 1001, 1060, 1280]) {
+      await page.setViewportSize({ width, height: 720 });
+      overflows.push({ width, overflow: await row.locator(".mirror-setup").evaluate((element) => {
+        const right = element.closest(".collection-card").getBoundingClientRect().right;
+        return [...element.querySelectorAll(":scope > label, :scope > .button")].some((control) => control.getBoundingClientRect().right > right + 1);
+      }) });
+    }
+    await screenshot(page, "mirror-setup-widths");
+    assert.deepEqual(overflows, [820, 1000, 1001, 1060, 1280].map((width) => ({ width, overflow: false })));
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test("connection status remains quiet rather than pulsing while reconnecting", async () => {
   const { page, errors } = await desktop();
   try {
