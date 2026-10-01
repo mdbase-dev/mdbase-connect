@@ -351,6 +351,34 @@ describe("platform-neutral directory mirror", () => {
     });
   });
 
+  it("applies authority path swaps without treating vacating owners as obstructions", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(2));
+    const replicaId = hosted.registerReplica({ name: "Swapping mirror", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+    await mirror.sync();
+    const initial = (await stateStore.read())!.records;
+    for (const [id, target] of [["portable-0", "temporary.md"], ["portable-1", "notes/00000.md"], ["portable-0", "notes/00001.md"]]) {
+      expect((await transport.mutate({
+        operation: "move", mutation_id: `${id}-${target}`, replica_id: replicaId, scope_epoch: 1,
+        record_id: id!, base_revision: initial[id!]!.revision, path: target!,
+        created_at: "2026-10-01T00:00:00.000Z"
+      })).status).toBe("applied");
+    }
+
+    const plan = await mirror.inspect();
+    expect(plan.summary.blocking_issues).toBe(0);
+    expect(plan.actions.filter((action) => action.command === "move_local")).toHaveLength(3);
+    expect((await mirror.apply(plan)).status).toBe("applied");
+    expect(fileSystem.files.get("notes/00000.md")).toBe(records(2)[1]!.document);
+    expect(fileSystem.files.get("notes/00001.md")).toBe(records(2)[0]!.document);
+    expect(fileSystem.files.size).toBe(2);
+    expect((await mirror.inspect()).actions.filter((action) => action.command !== "advance_checkpoint")).toEqual([]);
+  });
+
   it("plans a byte-preserving local move as one identity-preserving move", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(1));
