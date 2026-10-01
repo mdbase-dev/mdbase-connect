@@ -83,12 +83,16 @@ export class MirrorMaterializer {
       );
     }
     const document = materialized?.document ?? recordMarkdownDocument(record);
-    const existing = inspectionPreflighted === 1
-      ? null
+    // The observed text is the expectation for the conditional write below,
+    // even when a read-only repair accepts the divergence. A repair may
+    // replace bytes that are not text at all; those have no text expectation.
+    const observed = inspectionPreflighted === 1
+      ? await this.fileSystem.readText(record.path)
       : await this.fileSystem.read(record.path);
+    const existing = typeof observed === "string" || observed === null ? observed : undefined;
     const prior = managedState?.records[record.record_id];
-    const existingHash = existing === null ? null : this.runtime.digest(existing);
-    if (existingHash !== null && existing !== document) {
+    const existingHash = existing === null || existing === undefined ? null : this.runtime.digest(existing);
+    if (inspectionPreflighted !== 1 && existingHash !== null && existing !== document) {
       const destinationBelongsToRecord = prior !== undefined
         && prior.path === record.path
         && existingHash === prior.hash;
@@ -108,7 +112,7 @@ export class MirrorMaterializer {
     // an accepted hash is authorization to replace differing local bytes, not a
     // prerequisite for leaving already-correct bytes alone.
     if (existing !== document) {
-      await this.fileSystem.write(record.path, document);
+      await this.fileSystem.write(record.path, document, existing);
     }
     state.records[record.record_id] = {
       path: record.path,
@@ -229,7 +233,7 @@ export class MirrorMaterializer {
     ) {
       throw new MirrorDivergenceError(`resource:${resource.path}`, resource.path);
     }
-    await this.fileSystem.write(resource.path, resource.document);
+    await this.fileSystem.write(resource.path, resource.document, existing);
     state.resources ??= {};
     state.resources[resource.path] = {
       path: resource.path,

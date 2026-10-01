@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Directory mirrors (`@mdbase-dev/connect-sync`) recover from routine local
+  interference without a person: a scoped blocking issue (an obstruction,
+  divergent or unreadable file) fences only its own path and connected path
+  transitions, so independent files still sync while the checkpoint waits.
+  Writes pass the inspected text to the adapter, which can reject a competing
+  edit at its atomic write boundary; the stale batch is then released so the
+  next review reports a conflict instead of replaying the old plan forever.
+  Adapters that report physical path kinds turn a folder occupying a
+  destination into an actionable blocking issue rather than an impossible
+  write. Inspection no longer downloads attachment bytes; they are fetched,
+  verified and reported through the caller's cancellable transport only while
+  applying, and an abort mid-transfer is recorded as a pause that the next sync
+  resumes. `DirectoryMirror.review()` returns the plan and its status from one
+  inspection; `status()` now uses it.
+
 - Re-registering or pairing a connector again clears obsolete cached remote
   grants and its previous connector identity, instead of leaving the relay
   permanently disconnected. Local collections, access controls, transfer fences,

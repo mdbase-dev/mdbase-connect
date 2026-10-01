@@ -9,7 +9,6 @@ import type {
 import { asError, errorCode, SyncError } from "./sync-error.js";
 import { classifyLocalRecord, runtimeDocumentRevision } from "./mirror-format.js";
 import {
-  ensureFileBlob,
   fileSelected,
   normalizeSelectiveSyncPolicy,
   pathFileSelected,
@@ -528,7 +527,12 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       objects,
       issues: deduplicateIssues(issues)
     };
-    const plan = planReconciliation(summary, this.runtime.digest);
+    let plan = planReconciliation(summary, this.runtime.digest);
+    const obstructions = await this.physicalObstructions(plan);
+    if (obstructions.length) {
+      summary.issues = deduplicateIssues([...summary.issues, ...obstructions]);
+      plan = planReconciliation(summary, this.runtime.digest);
+    }
     const durable = await this.bindPayloads(
       plan,
       local,
@@ -545,6 +549,44 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       remote_records: options.remoteRecords,
       remote_files: options.remoteFiles
     };
+  }
+
+  /**
+   * A destination occupied by a directory, or under an ancestor that is a
+   * file, cannot be written. Report it as a blocking issue so the planner
+   * isolates that transfer instead of emitting an action that always fails.
+   * Nothing is removed or renamed to clear the obstruction.
+   */
+  private async physicalObstructions(plan: ReconciliationPlan): Promise<InspectionIssue[]> {
+    const pathKind = this.fileSystem.pathKind?.bind(this.fileSystem);
+    if (!pathKind) return [];
+    const kinds = new Map<string, Promise<"file" | "folder" | null>>();
+    const kindAt = (path: string) => {
+      if (!kinds.has(path)) kinds.set(path, pathKind(path));
+      return kinds.get(path)!;
+    };
+    const issues: InspectionIssue[] = [];
+    for (const action of plan.actions) {
+      const path = action.command === "write_local"
+        ? action.target.path
+        : action.command === "move_local" ? action.target_path : null;
+      if (path === null) continue;
+      let obstruction = await kindAt(path) === "folder" ? path : null;
+      const components = path.split("/");
+      for (let end = 1; obstruction === null && end < components.length; end += 1) {
+        const parent = components.slice(0, end).join("/");
+        if (await kindAt(parent) === "file") obstruction = parent;
+      }
+      if (obstruction !== null) {
+        issues.push({
+          code: "local_collision",
+          path,
+          message: `${obstruction} blocks the hosted file ${path}. Move or rename the blocking file or folder, then review again.`,
+          blocking: true
+        });
+      }
+    }
+    return issues;
   }
 
   private async bindPayloads(
@@ -612,7 +654,6 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
           if (!file || file.revision !== action.target.revision || !this.blobStore) {
             throw missingPayload(action.action_id);
           }
-          await ensureFileBlob(this.transport, this.blobStore, file);
           payloads.files[action.action_id] = file;
         }
       } else if (action.command === "record_conflict" && action.remote.state === "exact") {

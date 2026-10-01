@@ -9,6 +9,7 @@ import { asError, errorCode, invalidMirrorState, SyncError } from "./sync-error.
 import { MirrorMaterializer } from "./mirror-materializer.js";
 import { recordMarkdownDocument, runtimeDocumentRevision } from "./mirror-format.js";
 import {
+  ensureFileBlob,
   sameBinaryInfo,
   validateCollectionFileDescriptor
 } from "./mirror-files.js";
@@ -105,10 +106,14 @@ export class PlanOnlySyncExecutor {
         completedActions.add(receipt.action_id);
         this.ports.onProgress?.(batch.next_action, batch.plan.actions.length - 1);
       } catch (error) {
-        const failure = failureFrom(error, action.action_id);
-        await markBatchInterrupted(state, "blocked", failure, this.ports.store);
+        // An abort mid-transfer is the caller pausing, not a defect to recover from.
+        const cancelled = signal?.aborted === true;
+        const failure = cancelled
+          ? { code: "sync_cancelled", message: "Sync paused during transfer.", action_id: action.action_id }
+          : failureFrom(error, action.action_id);
+        await markBatchInterrupted(state, cancelled ? "cancelled" : "blocked", failure, this.ports.store);
         return {
-          status: failure.code === "sync_plan_stale" ? "stale" : "blocked",
+          status: cancelled ? "cancelled" : failure.code === "sync_plan_stale" ? "stale" : "blocked",
           completed: batch.next_action,
           failure
         };
@@ -216,9 +221,10 @@ export class PlanOnlySyncExecutor {
       const record = payloads.records[action.action_id];
       if (!record || record.revision !== action.payload_revision) throw missingPayload(action);
       assertExactDocument(record, this.ports.runtime, action.payload_revision);
-      await this.materializer.put(state, record, {
-        inspectionPreflighted: batch.plan.summary.blocking_issues ? 1 : true
-      });
+      // Only a receive-only repair of this exact path may replace diverged bytes.
+      const repair = this.ports.mode === "read_only" && batch.plan.issues.some((issue) =>
+        issue.blocking && issue.code === "invalid_frontmatter" && issue.path === action.target.path);
+      await this.materializer.put(state, record, { inspectionPreflighted: repair ? 1 : true });
       this.installPathOwner(action.target);
       return { action_id: action.action_id, status: "completed" };
     }
@@ -234,6 +240,10 @@ export class PlanOnlySyncExecutor {
     }
     const file = payloads.files[action.action_id];
     if (!file || file.content_digest !== action.payload_revision) throw missingPayload(action);
+    // Inspection keeps descriptors only. Bytes are fetched here, inside the
+    // journaled action, through the caller's cancellable transport.
+    if (!this.ports.blobStore) throw missingPayload(action);
+    await ensureFileBlob(this.ports.transport, this.ports.blobStore, file);
     await this.materializer.putFile(state, file, state);
     this.installPathOwner(action.target);
     return { action_id: action.action_id, status: "completed" };

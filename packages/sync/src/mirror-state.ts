@@ -151,7 +151,14 @@ export interface MirrorFileSystem {
   read(path: string): Promise<string | null>;
   /** Exact UTF-8 read, preserving a leading BOM; expected I/O failures reject as `SyncError("file_read_failed")`. */
   readText(path: string): Promise<MirrorTextReadResult>;
-  write(path: string, value: string): Promise<void>;
+  /**
+   * When `expected` is provided, reject with `SyncError("sync_plan_stale")` if
+   * the current contents differ at the adapter's atomic write boundary; `null`
+   * means the path must be absent. Adapters without such a boundary may ignore it.
+   */
+  write(path: string, value: string, expected?: string | null): Promise<void>;
+  /** Physical entry kind, including directories that file enumeration omits. */
+  pathKind?(path: string): Promise<"file" | "folder" | null>;
   /** Atomically rename one managed path without changing its bytes. */
   move(source: string, target: string): Promise<void>;
   remove(path: string): Promise<void>;
