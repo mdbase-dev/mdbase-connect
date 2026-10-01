@@ -27,6 +27,7 @@ import {
   OPERATION_TRANSPORT_PROTOCOL_VERSION
 } from "../packages/protocol/dist/index.js";
 import { availableTcpPort, delay } from "./lib/test-runtime.mjs";
+import { retryProviderDatabaseRequest } from "./lib/provider-database-retry.mjs";
 import { portableHostedFileE2E } from "./system/provider/portable-hosted-file.mjs";
 import { extensionOriginRecoveryE2E } from "./system/provider/extension-origin-recovery.mjs";
 import { portalLifecycleE2E } from "./system/provider/portal-lifecycle.mjs";
@@ -4967,7 +4968,9 @@ function authoritySequence(left, right) {
 }
 
 async function internalRequest(url, path, options = {}) {
-  const response = await rawRequest(url, path, { ...options, token: internalToken });
+  const response = await retryProviderDatabaseRequest(
+    () => rawRequest(url, path, { ...options, token: internalToken })
+  );
   if (!response.ok) {
     throw new Error(`${path} returned HTTP ${response.status}: ${JSON.stringify(response.body)}`);
   }
