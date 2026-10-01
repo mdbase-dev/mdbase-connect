@@ -82,6 +82,7 @@ test("sync completion reports outstanding conflicts, not a false success", async
     await row.getByRole("button", { name: "Sync", exact: true }).click();
     await row.getByRole("button", { name: "Sync now" }).click();
     await row.locator(".mirror-state-row").getByText("Conflicts need a decision", { exact: true }).waitFor();
+    assert.equal(await row.getByText("Conflicts need a decision", { exact: true }).count(), 1, "expanded mirror status has one reading location");
     await screenshot(page, "conflict-completion");
     assert.equal(await page.getByText("Notes is synchronized.", { exact: true }).count(), 0);
     assert.match(await page.locator(".notice-message").innerText(), /Conflicts need a decision/);
@@ -108,12 +109,14 @@ test("cold-start offline keeps locally controlled synced folders visible and usa
   const { page, errors } = await desktop({ hostedOnline: false });
   try {
     await page.getByRole("status").filter({ hasText: "hosted could not refresh" }).waitFor();
+    await page.locator(".content").evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await screenshot(page, "offline-folders");
     assert.equal(await page.getByRole("heading", { name: "No hosted collections", exact: true }).count(), 0);
     assert.equal(await page.getByRole("heading", { name: "Notes", exact: true }).isVisible(), true);
     assert.equal(await page.getByRole("button", { name: /^Collections/ }).innerText(), "Collections\n1");
     const localRow = page.locator(".standalone-mirror");
     await localRow.getByRole("button", { name: "Sync", exact: true }).click();
+    assert.equal(await localRow.getByText("Up to date", { exact: true }).count(), 1, "standalone mirror status also has one reading location");
     await page.evaluate(() => {
       window.fixture.openedFolders = [];
       window.mdbaseConnect.openMirror = async (id) => { window.fixture.openedFolders.push(id); };
@@ -126,6 +129,135 @@ test("cold-start offline keeps locally controlled synced folders visible and usa
     await page.clock.runFor(5_000);
     await page.locator(".hosted-collection").getByRole("heading", { name: "Notes", exact: true }).waitFor();
     assert.equal(await page.locator(".standalone-mirror").count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("minimum desktop window keeps pairing and collection fields inside the canvas", async () => {
+  const { page, errors } = await desktop({ configured: false });
+  try {
+    await page.setViewportSize({ width: 820, height: 580 });
+    await page.getByRole("button", { name: "Overview", exact: true }).click();
+    await screenshot(page, "minimum-pairing");
+    const hasOverflow = () => page.locator(".content").evaluate((element) => element.scrollWidth > element.clientWidth);
+    const pairingOverflow = await hasOverflow();
+    await page.evaluate(() => {
+      window.mdbaseConnect.listCollections = async () => [{ id: "local-notes", display_name: "Local notes", path: "/disposable/Local notes", spec_version: "0.3.0", enabled: true, contracts: [] }];
+    });
+    await page.clock.runFor(5_000);
+    await page.getByRole("button", { name: /^Collections/ }).click();
+    const row = page.locator(".collection-card").filter({ hasText: "Local notes" });
+    await row.getByRole("button", { name: "Details", exact: true }).click();
+    await row.getByLabel("Description", { exact: true }).fill("My edits remain visible");
+    await screenshot(page, "minimum-metadata");
+    assert.deepEqual({ pairingOverflow, metadataOverflow: await hasOverflow() }, { pairingOverflow: false, metadataOverflow: false }, "pairing and metadata fields stay within the minimum-width canvas");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("connection status remains quiet rather than pulsing while reconnecting", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => ({ readiness: { schema_version: 1, ready: true, binary_version: "test" }, protocol_version: 1, state: "connecting", paused: false, registered_collections: 0, direct_access_available: true });
+    });
+    await page.clock.runFor(5_000);
+    await page.getByText("Connecting securely…", { exact: true }).waitFor();
+    assert.equal(await page.locator(".product-sidebar-status .status-dot").evaluate((element) => getComputedStyle(element).animationName), "none");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("native consent requires an explicit choice for optional deletion and definition access", async () => {
+  const { page, errors } = await desktop();
+  try {
+    const read = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type"];
+    await page.evaluate((read) => {
+      window.fixture.approvals = [];
+      const request = {
+        id: "native-request", application_name: "Example app", application_distribution: "web", application_homepage: "https://example.test",
+        expires_at: "2099-01-01T00:00:00Z", compatible_collection_ids: ["local-notes"], provisionable_collection_ids: [],
+        requested_operations: [...read, "create", "delete", "create_type", "update_type", "assess_type_pack", "apply_type_pack"],
+        requirements: { contracts: [], capabilities: { contract_version: 2, required: ["collection.read"], optional: ["records.create", "records.delete", "definitions.manage"] } },
+        provisions: { type_packs: [] }, notifications: { criteria: [] }
+      };
+      window.mdbaseConnect.listCollections = async () => [{ id: "local-notes", display_name: "Local notes", path: "/disposable/Local notes", spec_version: "0.3.0", enabled: true, contracts: [] }];
+      window.mdbaseConnect.accessSnapshot = async () => ({ configured: true, online: true, grants: [], pending_authorizations: [request], authority_conflicts: [] });
+      window.mdbaseConnect.approveAuthorization = async (input) => {
+        window.fixture.approvals.push(input);
+        await new Promise((resolve) => { window.fixture.finishApproval = resolve; });
+      };
+    }, read);
+    await page.clock.runFor(5_000);
+    await page.getByRole("button", { name: /^App access/ }).click();
+    const consent = page.locator(".portal-approval-row");
+    await consent.locator(".request-permission-review > summary").click();
+    const deletion = consent.getByRole("group", { name: /Delete records/ }).getByRole("checkbox");
+    const definitions = consent.getByRole("group", { name: /Manage definitions/ }).getByRole("checkbox");
+    await screenshot(page, "optional-permissions");
+    assert.equal(await deletion.isChecked(), false);
+    assert.equal(await definitions.isChecked(), false);
+    assert.equal(await consent.getByRole("group", { name: /Create records/ }).getByRole("checkbox").isChecked(), true);
+    await deletion.check();
+    await consent.getByRole("button", { name: "Allow Example app" }).click();
+    assert.equal(await deletion.isDisabled(), true, "submitted permission choices cannot change while approval is in flight");
+    await page.evaluate(() => window.fixture.finishApproval());
+    assert.deepEqual(await page.evaluate(() => window.fixture.approvals), [{ requestId: "native-request", collectionId: "local-notes", operations: [...read, "create", "delete"] }]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("metadata drafts cannot be edited during submission and survive a failed save", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.evaluate(() => {
+      window.mdbaseConnect.listCollections = async () => [{ id: "local-notes", display_name: "Local notes", path: "/disposable/Local notes", spec_version: "0.3.0", enabled: true, contracts: [] }];
+      window.mdbaseConnect.updateCollectionMetadata = async () => new Promise((_resolve, reject) => {
+        window.fixture.failMetadataSave = () => reject(new Error("The collection could not be saved. Your changes are still here."));
+      });
+    });
+    await page.clock.runFor(5_000);
+    const row = page.locator(".collection-card").filter({ hasText: "Local notes" });
+    await row.getByRole("button", { name: "Details", exact: true }).click();
+    const name = row.getByLabel("Name", { exact: true });
+    const description = row.getByRole("textbox", { name: "Description", exact: true });
+    await name.fill("Renamed notes");
+    await description.fill("Unsaved description");
+    await row.getByRole("button", { name: "Save details" }).click();
+    await screenshot(page, "metadata-submitting");
+    assert.equal(await name.isDisabled(), true);
+    assert.equal(await description.isDisabled(), true);
+    await page.evaluate(() => window.fixture.failMetadataSave());
+    await row.getByRole("alert").waitFor();
+    assert.equal(await name.inputValue(), "Renamed notes");
+    assert.equal(await description.inputValue(), "Unsaved description");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("failed daemon refresh never leaves a stale connected indicator and recovers automatically", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.getByText("Connected securely", { exact: true }).waitFor();
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => { throw new Error("The local connector stopped."); };
+    });
+    await page.clock.runFor(5_000);
+    await page.getByRole("status").filter({ hasText: "The local connector stopped." }).waitFor();
+    await screenshot(page, "daemon-failure");
+    assert.equal(await page.getByText("Connected securely", { exact: true }).count(), 0);
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => ({ readiness: { schema_version: 1, ready: false, binary_version: "test", safe_reason: "critical_worker_failed" }, protocol_version: 1, state: "connected", paused: false, registered_collections: 0, direct_access_available: false });
+    });
+    await page.clock.runFor(5_000);
+    await page.getByRole("status").filter({ hasText: "Local connector worker stopped" }).waitFor();
+    assert.equal(await page.getByText("Connected securely", { exact: true }).count(), 0);
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => ({ readiness: { schema_version: 1, ready: true, binary_version: "test" }, protocol_version: 1, state: "connected", paused: false, registered_collections: 0, direct_access_available: true });
+    });
+    await page.clock.runFor(5_000);
+    await page.getByText("Connected securely", { exact: true }).waitFor();
+    assert.equal(await page.getByText(/Local connector worker stopped/).count(), 0);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

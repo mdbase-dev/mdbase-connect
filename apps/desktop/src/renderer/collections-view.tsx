@@ -328,7 +328,7 @@ function StandaloneMirrorRow({ mirror, busy, onAct: run, onNotice }: {
   return <article className="collection-card standalone-mirror">
     <div className="collection-summary">
       <div className="collection-copy"><h3>{mirror.name}</h3><span className="authority-label">Synced folder · main copy hosted by mdbase</span></div>
-      <div className="collection-status" role="status"><StatusDot state={state.dot} />{state.label}</div>
+      <div className="collection-status" role="status">{!editing && <><StatusDot state={state.dot} />{state.label}</>}</div>
       <div className="row-actions"><button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : "Sync"}</button></div>
     </div>
     {error && <div className="message error-message" role="alert">{error}</div>}
@@ -461,8 +461,8 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
           <section className="collection-editor-section">
             <div><strong>Details</strong><small>Name and description are stored in mdbase.yaml.</small></div>
             <div className="collection-fields">
-              <label><span>Name</span><input value={name} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label>
-              <label><span>Description</span><textarea value={description} maxLength={500} rows={2} placeholder="Optional" onChange={(event) => setDescription(event.target.value)} /></label>
+              <label><span>Name</span><input disabled={busy} value={name} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label>
+              <label><span>Description</span><textarea disabled={busy} value={description} maxLength={500} rows={2} placeholder="Optional" onChange={(event) => setDescription(event.target.value)} /></label>
             </div>
           </section>
           <section className="collection-editor-section">
@@ -618,7 +618,7 @@ function HostedCollectionRow({
                 ? "Moved"
                 : "Moving"}
           </div>
-          {mirror && collection.authority_state !== "transferred" && <div className="collection-status" role="status">
+          {!editing && mirror && collection.authority_state !== "transferred" && <div className="collection-status" role="status">
             <StatusDot state={state.dot} />{state.label}
           </div>}
         </div>
@@ -645,7 +645,7 @@ function HostedCollectionRow({
           <section className="collection-editor-section">
             <div><strong>Details</strong><small>The name is stored with the hosted main copy.</small></div>
             <div className="collection-fields">
-              <label><span>Name</span><input value={name} maxLength={200} required onChange={(event) => setName(event.target.value)} /></label>
+              <label><span>Name</span><input disabled={busy} value={name} maxLength={200} required onChange={(event) => setName(event.target.value)} /></label>
               <button className="button secondary" disabled={busy || !name.trim() || name.trim() === collection.display_name}>Save name</button>
             </div>
           </section>
@@ -659,8 +659,8 @@ function HostedCollectionRow({
             <MirrorControl mirror={mirror} collectionName={collection.display_name} busy={busy} onAct={onAct} onNotice={onNotice} />
           ) : (
             <div className="mirror-setup">
-              <label><span>Folder</span><button type="button" className="folder-picker" onClick={() => void chooseMirrorFolder()}>{path || "Choose a folder…"}</button></label>
-              <label><span>How should it sync?</span><Select aria-label="How should it sync?" value={mode} options={[{ value: "read_write", label: "Sync edits both ways" }, { value: "read_only", label: "Download updates only" }] as const} onChange={setMode} /></label>
+              <label><span>Folder</span><button type="button" className="folder-picker" disabled={busy} onClick={() => void chooseMirrorFolder()}>{path || "Choose a folder…"}</button></label>
+              <label><span>How should it sync?</span><Select aria-label="How should it sync?" disabled={busy} value={mode} options={[{ value: "read_write", label: "Sync edits both ways" }, { value: "read_only", label: "Download updates only" }] as const} onChange={setMode} /></label>
               <button className="button primary" disabled={busy || !path} onClick={() => void onAct(async () => {
                 await window.mdbaseConnect.connectMirror({ collectionId: collection.id, path, mode, selectiveSync: syncPolicy });
                 setPath("");
