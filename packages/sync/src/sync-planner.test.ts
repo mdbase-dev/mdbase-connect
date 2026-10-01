@@ -12,7 +12,7 @@ import {
   type ExpectedObjectState,
   type SyncObjectRef
 } from "./sync-model.js";
-import { planReconciliation } from "./sync-planner.js";
+import { identifyInspectedObjects, planReconciliation } from "./sync-planner.js";
 import { PlanOnlyMirrorInspector } from "./sync-inspector.js";
 import { PlanOnlySyncExecutor } from "./sync-executor.js";
 import { prepareSyncBatch } from "./sync-journal.js";
@@ -101,6 +101,27 @@ function inspected(
 }
 
 describe("pure exact-document planner", () => {
+  it.each([1_000, 50_000])("indexes %i rename candidates without rescanning unmatched payloads", (count) => {
+    let payloadReads = 0;
+    const base = Array.from({ length: count }, (_, index) => ref(`id-${index}`, `old/${index}.md`, `body-${index}`));
+    const local = base.map((object, index) => ({
+      stable_identity: false,
+      object: {
+        ...object, identity: "", path: `new/${index}.md`,
+        get payload_revision() {
+          payloadReads += 1;
+          return object.payload_revision;
+        }
+      }
+    }));
+
+    const matched = identifyInspectedObjects({ base, local, remote: base }, "seed", digest);
+    expect(matched).toHaveLength(count);
+    expect(matched.every((object) => object.local.state === "exact"
+      && object.local.object.identity === object.identity)).toBe(true);
+    expect(payloadReads).toBeLessThanOrEqual(count * 4);
+  });
+
   it("emits a stable empty plan for an exact incremental inspection", () => {
     const idle = summary([]);
     idle.boundary.authority_cursor = idle.boundary.checkpoint.cursor!;

@@ -85,14 +85,19 @@ export function identifyInspectedObjects(
       untracked.delete(remoteObject.path);
     }
   }
+  const candidatesByPayload = new Map<string, Set<(typeof universe.local)[number]>>();
+  const payloadKey = (object: SyncObjectRef) => `${object.entity}\0${object.payload_revision}`;
+  for (const observed of untracked.values()) {
+    const key = payloadKey(observed.object);
+    if (!candidatesByPayload.has(key)) candidatesByPayload.set(key, new Set());
+    candidatesByPayload.get(key)!.add(observed);
+  }
   for (const [identity, baseObject] of base) {
     if (local.has(identity)) continue;
-    const candidates = [...untracked.values()].filter((observed) =>
-      observed.object.entity === baseObject.entity
-      && observed.object.payload_revision === baseObject.payload_revision
-    );
-    if (candidates.length !== 1) continue;
-    const candidate = candidates[0]!;
+    const candidates = candidatesByPayload.get(payloadKey(baseObject));
+    if (candidates?.size !== 1) continue;
+    const candidate = candidates.values().next().value!;
+    candidates.delete(candidate);
     local.set(identity, {
       ...candidate.object,
       identity,
