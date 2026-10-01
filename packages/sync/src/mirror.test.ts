@@ -697,6 +697,46 @@ describe("platform-neutral directory mirror", () => {
     expect((await restoredStore.read())!.planned_conflicts).toEqual({});
   });
 
+  it.each(["mutation_id", "identity", "path", "document", "missing_record"])(
+    "rejects a successful record receipt with a substituted %s before checkpointing", async (fault) => {
+      const hosted = new MemoryAuthority();
+      hosted.seed(records(1));
+      const replicaId = hosted.registerReplica({ name: "Receipt mirror", mode: "read_write" });
+      const transport = hosted.transport(replicaId);
+      const fileSystem = new TestFileSystem();
+      const stateStore = new MemoryMirrorStateStore();
+      let corrupt = true;
+      const mirror = new WritableDirectoryMirror(replicaId, {
+        ...transport,
+        mutate: async (mutation) => {
+          const receipt = await transport.mutate(mutation);
+          if (!corrupt || !(receipt.status === "applied" || receipt.status === "previously_applied")) return receipt;
+          if (fault === "mutation_id") return { ...receipt, mutation_id: "another-mutation" };
+          if (fault === "missing_record") return { ...receipt, record: undefined };
+          const record = receipt.record!;
+          if (fault === "identity") return { ...receipt, record: { ...record, record_id: "another-record" } };
+          if (fault === "path") return { ...receipt, record: { ...record, path: "another-path.md" } };
+          return { ...receipt, record: {
+            ...record, document: "another document", revision: documentRevision("another document"),
+            frontmatter: {}, body: "another document", types: []
+          } };
+        }
+      }, { fileSystem, stateStore });
+      await mirror.sync();
+      const prior = await stateStore.read();
+      const edited = `${records(1)[0]!.document}\nlocal edit`;
+      fileSystem.files.set("notes/00000.md", edited);
+
+      expect(await mirror.sync()).toMatchObject({ status: "failed", failure: { code: "invalid_sync_response" } });
+      expect(await stateStore.read()).toMatchObject({ cursor: prior!.cursor, batch: { next_action: 0 } });
+      expect(fileSystem.files.get("notes/00000.md")).toBe(edited);
+      corrupt = false;
+      expect((await mirror.sync()).status).toBe("applied");
+      expect((await mirror.sync()).status).toBe("applied");
+      expect(Object.keys((await stateStore.read())!.records)).toEqual(["portable-0"]);
+      expect(hosted.serialize().changes).toHaveLength(1);
+    });
+
   it("keeps the ancestor when the authority reports the conflict on upload", async () => {
     // Two devices edit at once: the hosted record changes after this device
     // planned its upload, so the conflict arrives as a mutation receipt.

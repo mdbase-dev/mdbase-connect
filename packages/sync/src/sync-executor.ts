@@ -444,7 +444,21 @@ export class PlanOnlySyncExecutor {
   ): void {
     const ref = "target" in action ? action.target : action.source;
     const identity = ref.identity;
+    if (!receipt || receipt.mutation_id !== uuidFromAction(action.action_id)
+      || !["applied", "previously_applied", "conflicted", "rejected"].includes(receipt.status)) {
+      throw invalidReceipt(action);
+    }
     if (receipt.status === "applied" || receipt.status === "previously_applied") {
+      if (action.command === "delete_remote") {
+        if (receipt.record) throw invalidReceipt(action);
+      } else {
+        const expectedPath = action.command === "put_remote" ? action.target.path : action.target_path;
+        const expectedRevision = action.command === "put_remote" ? action.payload_revision : action.source.revision;
+        if (!receipt.record || receipt.record.record_id !== identity
+          || receipt.record.path !== expectedPath || receipt.record.revision !== expectedRevision) {
+          throw invalidReceipt(action);
+        }
+      }
       if (receipt.record) {
         assertExactDocument(receipt.record, this.ports.runtime, receipt.record.revision);
         const existing = state.records[identity];
@@ -463,7 +477,10 @@ export class PlanOnlySyncExecutor {
       return;
     }
     const current = receipt.status === "conflicted" ? receipt.conflict.current : undefined;
-    if (current) assertExactDocument(current, this.ports.runtime, current.revision);
+    if (current) {
+      if (current.record_id !== identity) throw invalidReceipt(action);
+      assertExactDocument(current, this.ports.runtime, current.revision);
+    }
     const remote: ExpectedObjectState = current
       ? {
           state: "exact",
