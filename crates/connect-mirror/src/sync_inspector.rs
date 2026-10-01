@@ -687,15 +687,17 @@ impl DirectoryMirror {
             });
             documents.insert(path, document);
         }
-        for resource in resources {
-            if let Some(document) = self.read_file(&resource.path)? {
+        // Include previously managed resources: a fresh snapshot may remove a
+        // definition, but its local bytes still decide whether deletion is safe.
+        for path in &resource_paths {
+            if let Some(document) = self.read_file(path)? {
                 let revision = format!("sha256:{}", digest(&document));
                 observed.push(ObservedObject {
                     stable_identity: true,
                     object: text_ref(
                         SyncObjectKind::Resource,
-                        resource.path.clone(),
-                        resource.path.clone(),
+                        path.clone(),
+                        path.clone(),
                         revision,
                     ),
                 });
