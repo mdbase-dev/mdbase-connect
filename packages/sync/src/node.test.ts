@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -13,6 +13,7 @@ import {
   MemoryMirrorBlobStore,
   MemoryMirrorLease,
   MemoryMirrorStateStore,
+  NodeMirrorStateStore,
   WritableDirectoryMirror,
   type DirectoryMirrorOptions,
   type MirrorFileSystem,
@@ -297,6 +298,52 @@ describe("receive-only Markdown mirror", () => {
 });
 
 describe("writable Markdown mirror", () => {
+  it.each(["torn", "out_of_order"])("recovers torn journal tails but rejects complete invalid events (%s)", async (tail) => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-torn-journal-"));
+    const stateRoot = await mkdtemp(join(tmpdir(), "mdbase-torn-state-"));
+    try {
+      const hosted = new MemoryAuthority();
+      hosted.seed([0, 1].map((index) => ({
+        record_id: `record-${index}`, path: `note-${index}.md`,
+        document: `document é ${index}`, body: `document é ${index}`, frontmatter: {}, types: []
+      })));
+      const replicaId = hosted.registerReplica({ name: "Torn-journal mirror", mode: "read_write" });
+      const stateStore = new NodeMirrorStateStore(root, stateRoot);
+      const controller = new AbortController();
+      const initial = new WritableDirectoryMirror(root, replicaId, hosted.transport(replicaId), {
+        stateStore, lease: new MemoryMirrorLease(),
+        onProgress: () => controller.abort()
+      });
+      expect((await initial.sync({ signal: controller.signal })).status).toBe("cancelled");
+      const before = (await stateStore.read())!;
+      expect(before.batch?.next_action).toBe(1);
+      await appendFile(join(await stateStore.directory(), "mirror-journal.ndjson"), tail === "torn"
+        ? '{"type":"receipt"'
+        : JSON.stringify({
+          type: "receipt", plan_fingerprint: before.batch!.plan.fingerprint,
+          receipt: { action_id: "not-the-next-action", status: "completed" }, delta: {}
+        }));
+
+      const recoveredStore = new NodeMirrorStateStore(root, stateRoot);
+      if (tail === "out_of_order") {
+        await expect(recoveredStore.read()).rejects.toMatchObject({ code: "invalid_mirror_state" });
+        return;
+      }
+      const recovered = new WritableDirectoryMirror(root, replicaId, hosted.transport(replicaId), {
+        stateStore: recoveredStore, lease: new MemoryMirrorLease()
+      });
+      expect((await recovered.sync({ signal: AbortSignal.abort() })).status).toBe("cancelled");
+      expect((await recoveredStore.read())!.batch?.next_action).toBe(1);
+      expect((await recovered.sync()).status).toBe("applied");
+      expect(await readFile(join(root, "note-0.md"), "utf8")).toBe("document é 0");
+      expect(await readFile(join(root, "note-1.md"), "utf8")).toBe("document é 1");
+      expect((await recoveredStore.read())?.batch).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(stateRoot, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     "\uFEFF---\r\ntitle: [broken\r\n---\r\n\r\nExact body — no final newline",
     "\uFEFF---\r\ntitle: Present\r\n---\r\n\r\nExact body — no final newline",

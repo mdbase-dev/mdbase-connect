@@ -241,6 +241,71 @@ describe("hosted sync file data plane", () => {
     expect(JSON.stringify(controlBodies)).not.toContain("R2-bytes");
   });
 
+  it("resumes a partial multipart upload with non-prefix completed parts", async () => {
+    const transferId = "01940000-0000-7000-8000-000000000003";
+    const puts: Array<{ index: number; bytes: Uint8Array }> = [];
+    let committedParts: unknown;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://r2.example/upload")) {
+        const index = Number(new URL(url).searchParams.get("part"));
+        puts.push({ index, bytes: new Uint8Array(await (init?.body as Blob).arrayBuffer()) });
+        return new Response(null, { headers: { etag: `etag-${index + 1}` } });
+      }
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      if (url.endsWith("/files/uploads")) {
+        return Response.json({
+          protocol_version: 1, type: "file_transfer", transfer_id: transferId,
+          direction: "upload", protection: "transport_tls",
+          strategy: { kind: "object_multipart", part_size: 3 }, total_size: bytes.byteLength,
+          expires_at: "2026-08-01T01:00:00.000Z", received: [1]
+        });
+      }
+      if (url.endsWith(`/files/transfers/${transferId}`)) {
+        return Response.json({
+          protocol_version: 1, type: "file_transfer_status", transfer_id: transferId,
+          state: "open", received: [1], received_bytes: 3,
+          uploaded_parts: [{ part_number: 2, etag: "retained-etag" }]
+        });
+      }
+      if (url.endsWith(`/uploads/${transferId}/parts`)) {
+        const index = body.part_number - 1;
+        return Response.json({
+          protocol_version: 1, type: "file_part", transfer_id: transferId, part_index: index,
+          offset: index * 3, content_length: Math.min(3, bytes.byteLength - index * 3),
+          method: "PUT", url: `https://r2.example/upload?part=${index}`, headers: {},
+          expires_at: "2026-08-01T01:00:00.000Z"
+        });
+      }
+      if (url.endsWith(`/uploads/${transferId}/commit`)) {
+        committedParts = body.parts;
+        return Response.json({
+          protocol_version: 1, type: "file_upload_committed", transfer_id: transferId, file: descriptor
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const transport = new HttpSyncTransport(
+      `https://connect.example/v1/authorities/${authorityId}/sync`, "replica-token"
+    );
+    const source = (async function* () {
+      yield bytes.slice(0, 1);
+      yield bytes.slice(1, 7);
+      yield bytes.slice(7);
+    })();
+    expect((await transport.uploadFile({
+      protocol_version: 1, type: "open_file_upload", transfer_id: transferId,
+      path: descriptor.path, size: bytes.byteLength, content_digest: descriptor.content_digest
+    }, source)).file).toEqual(descriptor);
+    expect(puts).toEqual([
+      { index: 0, bytes: bytes.slice(0, 3) }, { index: 2, bytes: bytes.slice(6) }
+    ]);
+    expect(committedParts).toEqual([
+      { part_number: 1, etag: "etag-1" }, { part_number: 2, etag: "retained-etag" },
+      { part_number: 3, etag: "etag-3" }
+    ]);
+  });
+
   it("recovers an ambiguous committed multipart upload without reading or re-uploading bytes", async () => {
     const transferId = "01940000-0000-7000-8000-000000000002";
     let committed = false;

@@ -40,7 +40,12 @@ impl DirectoryMirror {
         }
         if prior
             .as_ref()
-            .is_none_or(|state| state.sync_policy != self.sync_policy)
+            // No completed projection means initial setup or a cancelled
+            // stale batch. Incremental reads cannot recover a partial snapshot
+            // or the resource/policy boundary of an abandoned rebuild.
+            .is_none_or(|state| {
+                state.last_completed_plan.is_none() || state.sync_policy != self.sync_policy
+            })
         {
             let kind = if prior.is_some() {
                 "rebuild"
@@ -687,15 +692,17 @@ impl DirectoryMirror {
             });
             documents.insert(path, document);
         }
-        for resource in resources {
-            if let Some(document) = self.read_file(&resource.path)? {
+        // Include previously managed resources: a fresh snapshot may remove a
+        // definition, but its local bytes still decide whether deletion is safe.
+        for path in &resource_paths {
+            if let Some(document) = self.read_file(path)? {
                 let revision = format!("sha256:{}", digest(&document));
                 observed.push(ObservedObject {
                     stable_identity: true,
                     object: text_ref(
                         SyncObjectKind::Resource,
-                        resource.path.clone(),
-                        resource.path.clone(),
+                        path.clone(),
+                        path.clone(),
                         revision,
                     ),
                 });

@@ -18,7 +18,7 @@ export class PlanRevalidator {
     if (
       (state?.generation ?? 0) !== plan.checkpoint_generation
       || (state?.cursor ?? null) !== plan.base_cursor
-      || (state?.scope_epoch ?? plan.scope_epoch) !== plan.scope_epoch
+      || (plan.kind !== "rebuild" && (state?.scope_epoch ?? plan.scope_epoch) !== plan.scope_epoch)
     ) throw stale("The durable checkpoint changed after inspection.");
     for (const action of plan.actions) {
       if (action.depends_on.length === 0) await this.validateAction(action);
