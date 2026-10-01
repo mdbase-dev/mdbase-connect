@@ -410,7 +410,31 @@ describe("platform-neutral directory mirror", () => {
     expect([...fileSystem.files.keys()]).toEqual([target]);
     expect(fileSystem.files.get(target!)).toBe(direction === "local" ? edited : prior.record!.document);
     expect(hosted.serialize().records).toHaveLength(1);
-    expect((await stateStore.read())!.records["portable-0"]!.path).toBe(target);
+    const authorityPath = direction === "local" && source!.normalize("NFC") === target!.normalize("NFC") ? source : target;
+    expect((await stateStore.read())!.records["portable-0"]!.path).toBe(authorityPath);
+    expect(hosted.serialize().records[0]!.path).toBe(authorityPath);
+  });
+
+  it.each(["NFC", "NFD"] as const)("does not echo Unicode-%s directory enumeration back to the authority", async (normalization) => {
+    class NormalizingFileSystem extends CaseInsensitiveFileSystem {
+      override async listMarkdown(excluded: ReadonlySet<string>) {
+        return (await super.listMarkdown(excluded)).map((path) => path.normalize(normalization));
+      }
+    }
+    const hosted = new MemoryAuthority();
+    const path = "notes/café.md".normalize(normalization === "NFD" ? "NFC" : "NFD");
+    hosted.seed([{ ...records(1)[0]!, path }]);
+    const replicaId = hosted.registerReplica({ name: "Normalizing mirror", mode: "read_write" });
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem: new NormalizingFileSystem(), stateStore
+    });
+    await mirror.sync();
+
+    expect((await mirror.inspect()).actions).toEqual([]);
+    expect((await mirror.sync()).status).toBe("applied");
+    expect(hosted.serialize().changes).toEqual([]);
+    expect((await stateStore.read())!.records["portable-0"]!.path).toBe(path);
   });
 
   it("keeps a deleted record's conflict identity when its local spelling changes", async () => {

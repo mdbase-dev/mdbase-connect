@@ -308,13 +308,17 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       await this.fileSystem.listMarkdown(resourcePaths),
       pathPolicy
     ).filter((path) => pathSelected(this.selectiveSync, path) || managedRecordPaths.has(physicalMirrorPathKey(path)));
-    for (const path of recordPaths) {
-      const pathKey = physicalMirrorPathKey(path);
+    for (const observedPath of recordPaths) {
+      const pathKey = physicalMirrorPathKey(observedPath);
       const conflictIdentity = recordConflictsByPath.get(pathKey);
       const boundIdentity = recordBindingsByPath.get(pathKey);
       const priorRecord = priorRecordsByPath.get(pathKey);
       const priorIdentity = priorRecord?.[0];
       const identity = conflictIdentity ?? boundIdentity ?? priorIdentity ?? "";
+      const knownLocal = state?.planned_conflicts?.[identity]?.local;
+      const knownPath = knownLocal?.state === "exact" ? knownLocal.object.path
+        : state?.local_bindings?.[identity]?.path ?? priorRecord?.[1].path;
+      const path = await this.projectedLocalPath(observedPath, knownPath);
       let read;
       try {
         read = await this.fileSystem.readText(path);
@@ -378,14 +382,18 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       );
       const paths = (await this.fileSystem.listBinary(resourcePaths))
         .filter((path) => pathFileSelected(this.selectiveSync, path) || managedFilePaths.has(physicalMirrorPathKey(path)));
-      for (const path of paths) {
-        const info = await this.fileSystem.inspectBinary(path);
-        if (!info) continue;
-        const pathKey = physicalMirrorPathKey(path);
+      for (const observedPath of paths) {
+        const pathKey = physicalMirrorPathKey(observedPath);
         const conflictIdentity = fileConflictsByPath.get(pathKey);
         const boundIdentity = fileBindingsByPath.get(pathKey);
         const prior = priorFilesByPath.get(pathKey);
         const identity = conflictIdentity ?? boundIdentity ?? prior?.[0] ?? "";
+        const knownLocal = state?.planned_conflicts?.[identity]?.local;
+        const knownPath = knownLocal?.state === "exact" ? knownLocal.object.path
+          : state?.local_bindings?.[identity]?.path ?? prior?.[1].file.path;
+        const path = await this.projectedLocalPath(observedPath, knownPath);
+        const info = await this.fileSystem.inspectBinary(path);
+        if (!info) continue;
         observations.push({
           stable_identity: identity !== "",
           object: {
@@ -417,6 +425,15 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       });
     }
     return { observations, documents, binary, issues };
+  }
+
+  /** Normalizing volumes may enumerate NFD even when the managed name is NFC.
+   * Keep that logical spelling only when it still addresses the observed file;
+   * a real rename on a normalization-sensitive volume remains a transition. */
+  private async projectedLocalPath(path: string, knownPath: string | undefined): Promise<string> {
+    return knownPath !== undefined && knownPath !== path
+      && knownPath.normalize("NFC") === path.normalize("NFC")
+      && await this.fileSystem.exists(knownPath) ? knownPath : path;
   }
 
   private async finish(options: {

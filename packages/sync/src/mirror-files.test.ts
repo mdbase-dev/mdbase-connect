@@ -593,6 +593,33 @@ describe("portable collection file mirror", () => {
     expect(transport.files[0]?.path).toBe(renamed);
   });
 
+  it.each(["NFC", "NFD"] as const)("does not upload file rename echoes from Unicode-%s enumeration", async (normalization) => {
+    class NormalizingFileSystem extends BinaryFileSystem {
+      private actual(path: string) {
+        return [...this.files.keys()].find((candidate) => physicalMirrorPathKey(candidate) === physicalMirrorPathKey(path)) ?? path;
+      }
+      override async exists(path: string) { return this.files.has(this.actual(path)); }
+      override async inspectBinary(path: string) { return super.inspectBinary(this.actual(path)); }
+      override async listBinary(excluded: ReadonlySet<string>) {
+        return (await super.listBinary(excluded)).map((path) => path.normalize(normalization));
+      }
+    }
+    const transport = new FileTransport();
+    const bytes = utf8.encode("image bytes");
+    const path = "images/café.png".normalize(normalization === "NFD" ? "NFC" : "NFD");
+    const descriptor = file("00000000-0000-4000-8000-000000000040", path, bytes);
+    transport.files = [descriptor];
+    transport.bytes.set(descriptor.file_id, bytes);
+    const { mirror: target, stateStore } = writableMirror(transport, new NormalizingFileSystem());
+    await target.sync();
+
+    expect((await target.inspect()).actions).toEqual([]);
+    expect((await target.sync()).status).toBe("applied");
+    expect(transport.moveCalls).toEqual([]);
+    expect(transport.uploadCalls).toEqual([]);
+    expect((await stateStore.read())!.files![descriptor.file_id]!.file.path).toBe(path);
+  });
+
   it("reconciles policy changes without deleting authority data", async () => {
     const transport = new FileTransport();
     const bytes = utf8.encode("photo");
