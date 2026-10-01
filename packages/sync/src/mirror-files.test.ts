@@ -596,6 +596,59 @@ describe("portable collection file mirror", () => {
     expect(fileSystem.files.get("images/versioned.png")).toEqual(second);
   });
 
+  it("inspects and reviews from descriptors, fetching bytes only while applying", async () => {
+    const transport = new FileTransport();
+    const bytes = utf8.encode("deferred attachment bytes");
+    const descriptor = file("00000000-0000-4000-8000-000000000031", "images/deferred.png", bytes);
+    transport.files = [descriptor];
+    transport.bytes.set(descriptor.file_id, bytes);
+    const { mirror: target, fileSystem } = mirror(transport);
+
+    const plan = await target.inspect();
+    const reviewed = await target.review();
+    await target.status();
+    expect(transport.downloads).toBe(0);
+    expect(reviewed.plan.fingerprint).toBe(plan.fingerprint);
+
+    await expect(target.apply(plan)).resolves.toMatchObject({ status: "applied" });
+    expect(transport.downloads).toBe(1);
+    expect(fileSystem.files.get(descriptor.path)).toEqual(bytes);
+  });
+
+  it("persists a pause, not a failure, when the caller aborts mid-transfer", async () => {
+    const controller = new AbortController();
+    class InterruptedTransport extends FileTransport {
+      interrupt = true;
+      override async *downloadFile(descriptor: CollectionFileDescriptor): AsyncGenerator<Uint8Array> {
+        for await (const chunk of super.downloadFile(descriptor)) {
+          yield chunk;
+          if (this.interrupt) {
+            controller.abort();
+            throw new DOMException("Transfer aborted.", "AbortError");
+          }
+        }
+      }
+    }
+    const transport = new InterruptedTransport();
+    const bytes = utf8.encode("a transfer long enough to interrupt");
+    const descriptor = file("00000000-0000-4000-8000-000000000032", "images/paused.png", bytes);
+    transport.files = [descriptor];
+    transport.bytes.set(descriptor.file_id, bytes);
+    const { mirror: target, fileSystem, stateStore } = mirror(transport);
+
+    const plan = await target.inspect();
+    await expect(target.apply(plan, { signal: controller.signal })).resolves.toMatchObject({
+      status: "cancelled",
+      failure: { code: "sync_cancelled" }
+    });
+    expect(fileSystem.files.has(descriptor.path)).toBe(false);
+    expect((await stateStore.read())?.batch?.phase).toBe("cancelled");
+
+    transport.interrupt = false;
+    await expect(target.sync()).resolves.toMatchObject({ status: "applied" });
+    expect(fileSystem.files.get(descriptor.path)).toEqual(bytes);
+  });
+
   it("does not install corrupt bytes or advance durable state", async () => {
     const transport = new FileTransport();
     const expected = utf8.encode("expected");
@@ -604,9 +657,14 @@ describe("portable collection file mirror", () => {
     transport.bytes.set(descriptor.file_id, utf8.encode("corrupt"));
     const { mirror: target, fileSystem, stateStore } = mirror(transport);
 
-    await expect(target.sync()).rejects.toMatchObject({ code: "file_integrity_failed" });
+    // Bytes are fetched inside the journaled action: the failure is recorded
+    // for recovery, no partial file is installed, and the checkpoint stays put.
+    const failed = await target.sync();
+    expect(failed).toMatchObject({ status: "failed", failure: { code: "file_integrity_failed" } });
     expect(fileSystem.files.has(descriptor.path)).toBe(false);
-    expect(await stateStore.read()).toBeNull();
+    const recovering = await stateStore.read();
+    expect(recovering?.batch).toBeDefined();
+    expect(recovering?.files ?? {}).toEqual({});
 
     transport.bytes.set(descriptor.file_id, expected);
     await target.sync();

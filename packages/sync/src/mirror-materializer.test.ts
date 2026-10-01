@@ -14,7 +14,7 @@ function fixture(mode: "read_only" | "read_write", local: string | null, prior =
   const fs: MirrorFileSystem = {
     exists: async path => files.has(path),
     read: vi.fn(async path => files.get(path) ?? null),
-    readText: async () => { throw new Error("unexpected readText"); },
+    readText: vi.fn(async path => files.get(path) ?? null),
     write: vi.fn(async (path, value) => { files.set(path, value); }),
     move: async () => { throw new Error("unexpected move"); },
     remove: vi.fn(async path => { files.delete(path); }),
@@ -40,7 +40,8 @@ describe.each(["read_only", "read_write"] as const)("%s materializer", mode => {
     for (const local of ["old", null]) {
       const f = fixture(mode, local);
       await f.materializer.put(f.state, f.record, { inspectionPreflighted: true });
-      expect(f.fs.write).toHaveBeenCalledExactlyOnceWith("note.md", f.record.document);
+      // The observed bytes are the conditional write's expectation.
+      expect(f.fs.write).toHaveBeenCalledExactlyOnceWith("note.md", f.record.document, local);
     }
   });
   it("still rejects divergent local bytes unless their exact hash was accepted", async () => {
@@ -50,10 +51,15 @@ describe.each(["read_only", "read_write"] as const)("%s materializer", mode => {
     await f.materializer.put(f.state, f.record, { inspectionPreflighted: true, acceptedHash: digest("local edit") });
     expect(f.fs.write).toHaveBeenCalledOnce();
   });
-  it("does not infer equality when the inspector deliberately bypasses reading", async () => {
-    const f = fixture(mode, "exact bytes\n");
+  it("repairs divergent bytes conditionally on the bytes it observed", async () => {
+    const f = fixture(mode, "local edit", "old");
     await f.materializer.put(f.state, f.record, { inspectionPreflighted: 1 });
-    expect(f.fs.read).not.toHaveBeenCalled();
-    expect(f.fs.write).toHaveBeenCalledOnce();
+    expect(f.fs.write).toHaveBeenCalledExactlyOnceWith("note.md", f.record.document, "local edit");
+  });
+  it("repairs bytes that are not text with an unconditional write", async () => {
+    const f = fixture(mode, null);
+    f.fs.readText = vi.fn(async () => ({ kind: "invalid" as const, code: "invalid_utf8" as const, reason: "bad", revision: "sha256:x" as const }));
+    await f.materializer.put(f.state, f.record, { inspectionPreflighted: 1 });
+    expect(f.fs.write).toHaveBeenCalledExactlyOnceWith("note.md", f.record.document, undefined);
   });
 });

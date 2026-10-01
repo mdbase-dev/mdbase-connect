@@ -94,6 +94,31 @@ class TestFileSystem implements MirrorFileSystem {
   }
 }
 
+/**
+ * An adapter with a real conditional-write boundary and physical directories,
+ * like an editor's serialized read/modify/write API.
+ */
+class ConditionalFileSystem extends TestFileSystem {
+  readonly folders = new Set<string>();
+  readonly expectations: Array<string | null | undefined> = [];
+  /** Runs inside the write boundary, just before the comparison. */
+  beforeWrite: ((path: string) => void) | null = null;
+
+  override async write(path: string, value: string, expected?: string | null): Promise<void> {
+    this.expectations.push(expected);
+    this.beforeWrite?.(path);
+    if (expected !== undefined && (this.files.get(path) ?? null) !== expected) {
+      throw new SyncError("sync_plan_stale", `${path} changed before it could be written.`);
+    }
+    await super.write(path, value);
+  }
+
+  async pathKind(path: string): Promise<"file" | "folder" | null> {
+    if (this.folders.has(path)) return "folder";
+    return this.files.has(path) || this.rawFiles.has(path) ? "file" : null;
+  }
+}
+
 class CountingStateStore extends MemoryMirrorStateStore {
   reads = 0;
   writes = 0;
@@ -462,7 +487,7 @@ describe("platform-neutral directory mirror", () => {
     await expect(mirror.apply(converged)).resolves.toMatchObject({ status: "applied" });
   });
 
-  it("does a complete collision preflight before writing any hosted document", async () => {
+  it("isolates a local collision while independent hosted documents still sync", async () => {
     const hosted = new MemoryAuthority({ snapshotPageSize: 1 });
     hosted.seed(records(3));
     const replicaId = hosted.registerReplica({ name: "Mobile", mode: "read_only" });
@@ -479,9 +504,215 @@ describe("platform-neutral directory mirror", () => {
       status: "attention",
       issues: [{ code: "local_collision", path: "notes/00002.md", blocking: true }]
     });
-    expect(fileSystem.writes).toBe(0);
-    expect(fileSystem.files.has("notes/00000.md")).toBe(false);
-    expect(await stateStore.read()).toBeNull();
+    expect(fileSystem.files.get("notes/00002.md")).toBe("unmanaged local bytes\n");
+    expect(fileSystem.files.has("notes/00000.md")).toBe(true);
+    expect(fileSystem.files.has("notes/00001.md")).toBe(true);
+    // The blocked transfer is still owed: status stays in attention and the
+    // next inspection reports the same obstruction rather than forgetting it.
+    expect((await mirror.status()).state).toBe("attention");
+    expect((await mirror.inspect()).issues).toMatchObject([{ path: "notes/00002.md", blocking: true }]);
+  });
+
+  it("rejects a competing edit at the write boundary, then reviews it as a conflict", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const path = "notes/00000.md";
+    const writerId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+    const writerFiles = new TestFileSystem();
+    const writer = new WritableDirectoryMirror(writerId, hosted.transport(writerId), {
+      fileSystem: writerFiles, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+    });
+    const readerId = hosted.registerReplica({ name: "Reader", mode: "read_write" });
+    const fileSystem = new ConditionalFileSystem();
+    const reader = new WritableDirectoryMirror(readerId, hosted.transport(readerId), {
+      fileSystem, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+    });
+    await writer.sync();
+    await reader.sync();
+    const synced = fileSystem.files.get(path)!;
+    expect(fileSystem.expectations).toEqual([null]);
+
+    writerFiles.files.set(path, `${synced}\nHosted edit`);
+    await expect(writer.sync()).resolves.toMatchObject({ status: "applied" });
+    const plan = await reader.inspect();
+    expect(plan.actions[0]).toMatchObject({ command: "write_local", target: { path } });
+
+    fileSystem.beforeWrite = (written) => {
+      if (written === path) fileSystem.files.set(path, "Competing local edit");
+    };
+    await expect(reader.apply(plan)).resolves.toMatchObject({ status: "stale" });
+    fileSystem.beforeWrite = null;
+    expect(fileSystem.files.get(path)).toBe("Competing local edit");
+    expect(fileSystem.expectations.at(-1)).toBe(synced);
+
+    // The stale batch is released, so review sees the competing edit instead
+    // of replaying the old plan forever.
+    const next = await reader.inspect();
+    expect(next.actions.map((action) => action.command)).toContain("record_conflict");
+    await expect(reader.apply(next)).resolves.toMatchObject({ status: "attention", conflicts: 1 });
+    expect(fileSystem.files.get(path)).toBe("Competing local edit");
+  });
+
+  it("reports a destination occupied by a folder without planning an impossible write", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([...records(2), {
+      record_id: "nested",
+      path: "blocked/child.md",
+      frontmatter: {},
+      body: "Nested",
+      types: []
+    }]);
+    const replicaId = hosted.registerReplica({ name: "Obstructed", mode: "read_only" });
+    const fileSystem = new ConditionalFileSystem();
+    fileSystem.folders.add("notes/00000.md");
+    fileSystem.files.set("blocked", "a file where a folder is needed");
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+    });
+
+    const plan = await mirror.inspect();
+    expect(plan.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "local_collision", path: "notes/00000.md", blocking: true }),
+      expect.objectContaining({ code: "local_collision", path: "blocked/child.md", blocking: true })
+    ]));
+    const targets = plan.actions.flatMap((action) => "target" in action ? [action.target.path] : []);
+    expect(targets).toEqual(["notes/00001.md"]);
+    expect((await mirror.inspect()).fingerprint).toBe(plan.fingerprint);
+
+    await expect(mirror.apply(plan)).resolves.toMatchObject({ status: "attention" });
+    expect(fileSystem.files.get("notes/00001.md")).toBeDefined();
+    expect(fileSystem.folders.has("notes/00000.md")).toBe(true);
+    expect(fileSystem.files.get("blocked")).toBe("a file where a folder is needed");
+  });
+
+  it("reviews the plan and its status from one inspection", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(2));
+    const replicaId = hosted.registerReplica({ name: "Reviewer", mode: "read_write" });
+    const fileSystem = new TestFileSystem();
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+    });
+
+    const initial = await mirror.review();
+    expect(initial.plan).toEqual(await mirror.inspect());
+    expect(initial.status).toEqual(await mirror.status());
+    expect(initial.status.state).toBe("not_initialized");
+
+    await mirror.sync();
+    fileSystem.files.set("notes/00000.md", "local edit");
+    fileSystem.files.set("added.md", "new note");
+    const lists = fileSystem.lists;
+    const reviewed = await mirror.review();
+    expect(fileSystem.lists - lists).toBe(1);
+    expect(reviewed.plan).toEqual(await mirror.inspect());
+    expect(reviewed.status).toEqual(await mirror.status());
+    expect(reviewed.status.state).toBe("changes_waiting");
+  });
+
+  it("keeps a record conflict's last common version as its ancestor until it is resolved", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const path = "notes/00000.md";
+    const base = records(1)[0]!.document;
+    const writerId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+    const writerFiles = new TestFileSystem();
+    const writer = new WritableDirectoryMirror(writerId, hosted.transport(writerId), {
+      fileSystem: writerFiles, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+    });
+    const readerId = hosted.registerReplica({ name: "Reader", mode: "read_write" });
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const reader = new WritableDirectoryMirror(readerId, hosted.transport(readerId), {
+      fileSystem, stateStore, runtime: deterministicRuntime()
+    });
+    await writer.sync();
+    await reader.sync();
+    expect(fileSystem.files.get(path)).toBe(base);
+
+    writerFiles.files.set(path, `${base}\nHosted edit`);
+    await writer.sync();
+    fileSystem.files.set(path, `${base}\nLocal edit`);
+    await expect(reader.sync()).resolves.toMatchObject({ status: "attention", conflicts: 1 });
+    const recorded = (await stateStore.read())!.planned_conflicts![records(1)[0]!.record_id]!;
+    expect(recorded).toMatchObject({ conflict_kind: "both_changed", ancestor_document: base });
+    expect((await stateStore.read())!.records[records(1)[0]!.record_id]!.record?.document)
+      .toBe(`${base}\nHosted edit`);
+
+    // Recorded again by later plans, after the base was rebased onto the remote.
+    writerFiles.files.set(path, `${base}\nHosted edit again`);
+    await writer.sync();
+    await reader.sync();
+    const rerecorded = (await stateStore.read())!.planned_conflicts![records(1)[0]!.record_id]!;
+    expect(rerecorded.decision_id).not.toBe(recorded.decision_id);
+    expect(rerecorded.ancestor_document).toBe(base);
+
+    // Persisted state round-trips through normalization; bad values are refused.
+    const persisted = JSON.parse(JSON.stringify(await stateStore.read())) as MirrorState;
+    const restoredStore = new MemoryMirrorStateStore();
+    await restoredStore.write(persisted);
+    const restored = new WritableDirectoryMirror(readerId, hosted.transport(readerId), {
+      fileSystem, stateStore: restoredStore, runtime: deterministicRuntime()
+    });
+    const status = await restored.status();
+    expect((await restoredStore.read())!.planned_conflicts![records(1)[0]!.record_id]!.ancestor_document)
+      .toBe(base);
+    const corruptStore = new MemoryMirrorStateStore();
+    const corrupt = structuredClone(persisted);
+    (corrupt.planned_conflicts![records(1)[0]!.record_id] as { ancestor_document?: unknown }).ancestor_document = 5;
+    await corruptStore.write(corrupt);
+    await expect(new WritableDirectoryMirror(readerId, hosted.transport(readerId), {
+      fileSystem, stateStore: corruptStore, runtime: deterministicRuntime()
+    }).status()).rejects.toThrow();
+
+    await restored.resolveConflict(records(1)[0]!.record_id, status.conflicts[0]!.decision_id, "local");
+    expect((await restoredStore.read())!.planned_conflicts).toEqual({});
+  });
+
+  it("keeps the ancestor when the authority reports the conflict on upload", async () => {
+    // Two devices edit at once: the hosted record changes after this device
+    // planned its upload, so the conflict arrives as a mutation receipt.
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const path = "notes/00000.md";
+    const id = records(1)[0]!.record_id;
+    const base = records(1)[0]!.document;
+    const writerId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+    const writerFiles = new TestFileSystem();
+    const writer = new WritableDirectoryMirror(writerId, hosted.transport(writerId), {
+      fileSystem: writerFiles, stateStore: new MemoryMirrorStateStore(), runtime: deterministicRuntime()
+    });
+    const readerId = hosted.registerReplica({ name: "Reader", mode: "read_write" });
+    const transport = hosted.transport(readerId);
+    let raced = false;
+    const racing: typeof transport = {
+      ...transport,
+      openSession: () => transport.openSession(),
+      snapshot: (snapshotId, page) => transport.snapshot(snapshotId, page),
+      changes: (after, limit) => transport.changes(after, limit),
+      mutate: async (mutation) => {
+        if (!raced) {
+          raced = true;
+          writerFiles.files.set(path, `${base}\nHosted edit`);
+          await writer.sync();
+        }
+        return transport.mutate(mutation);
+      }
+    };
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const reader = new WritableDirectoryMirror(readerId, racing, {
+      fileSystem, stateStore, runtime: deterministicRuntime()
+    });
+    await writer.sync();
+    await reader.sync();
+    fileSystem.files.set(path, `${base}\nLocal edit`);
+    await reader.sync();
+    expect(raced).toBe(true);
+    expect((await stateStore.read())!.planned_conflicts![id]).toMatchObject({
+      conflict_kind: "both_changed",
+      ancestor_document: base
+    });
   });
 
   it("persists writable initialization conflicts while applying independent downloads", async () => {
@@ -1410,7 +1641,14 @@ describe("platform-neutral directory mirror", () => {
         expect(plan.summary.uploads).toBe(2);
         await expect(mirror.apply(plan)).resolves.toMatchObject({ status: "applied" });
       } else {
-        expect(plan.actions).toEqual([]);
+        // Unreadable bytes fence their own path and hold the checkpoint;
+        // the independent valid note still uploads.
+        expect(plan.actions.some((action) =>
+          "target" in action && action.target.path === path)).toBe(false);
+        const checkpoint = plan.actions.find((action) => action.command === "advance_checkpoint");
+        expect(checkpoint?.command === "advance_checkpoint" && checkpoint.next).toEqual(
+          checkpoint?.command === "advance_checkpoint" ? checkpoint.expected : undefined
+        );
       }
       await expect(mirror.status()).resolves.toMatchObject({
         state: "attention",
@@ -1609,7 +1847,9 @@ describe("platform-neutral directory mirror", () => {
       );
       expect((await mirror.inspect()).fingerprint).toBe(plan.fingerprint);
       const applied = await mirror.apply(plan);
-      expect(applied.status, JSON.stringify(applied)).toBe("applied");
+      // A plan applied under a blocking issue holds its checkpoint, so it
+      // reports attention until a following sync advances it.
+      expect(applied.status, JSON.stringify(applied)).toBe("attention");
       expect(fileSystem.files.get("managed.md")).toBe("Authority");
       expect(fileSystem.rawFiles.has("managed.md")).toBe(false);
       const after = await stateStore.read();
@@ -1759,10 +1999,14 @@ describe("platform-neutral directory mirror", () => {
       runtime: deterministicRuntime()
     });
 
-    expect((await mirror.inspect()).actions).toEqual([]);
+    // The divergent file is fenced; an independent hosted record still arrives.
+    const plan = await mirror.inspect();
+    expect(plan.actions.some((action) =>
+      "target" in action && action.target.path === "broken.md")).toBe(false);
     await mirror.sync();
-    expect(fileSystem.files.get("remote.md")).toBeUndefined();
-    expect(await stateStore.read()).toBeNull();
+    expect(fileSystem.files.get("broken.md")).toBe("---\na: [broken\n---\n");
+    expect(fileSystem.files.get("remote.md")).toBe("Remote");
+    expect((await mirror.status()).state).toBe("attention");
   });
 
   it("preserves opaque documents across updates, moves and deletes on a second mirror", async () => {

@@ -146,21 +146,30 @@ export function planReconciliation(
 ): ReconciliationPlan {
   const blocked = inspection.issues.some((issue) => issue.blocking);
   let drafts: ActionDraft[] = [];
-  const repairable = blocked
-    && inspection.mode === "read_only"
-    && inspection.issues.every((issue) => !issue.blocking || issue.code === "invalid_frontmatter");
-  if (!blocked || repairable) {
-    for (const object of [...inspection.objects].sort(compareObject)) {
-      const { local, remote } = object;
-      const repair = repairable
-        && local.state === "exact"
-        && inspection.issues.some((issue) => issue.blocking && issue.path === local.object.path)
-        && remote.state === "exact"
-        && remote.object.path === local.object.path;
-      if (!blocked || repair) planObject(inspection, object, drafts, repair);
-    }
-    if (repairable && drafts.length !== inspection.issues.filter((issue) => issue.blocking).length) {
-      drafts = [];
+  const blocking = inspection.issues.filter((issue) => issue.blocking);
+  const objects = [...inspection.objects].sort(compareObject);
+  const repairs = new Set(objects.filter((object) => {
+    if (
+      inspection.mode !== "read_only"
+      || object.local.state !== "exact"
+      || object.remote.state !== "exact"
+      || object.local.object.path !== object.remote.object.path
+    ) return false;
+    const localPath = object.local.object.path;
+    const issues = blocking.filter((issue) => issue.path === localPath);
+    return issues.length > 0 && issues.every((issue) => issue.code === "invalid_frontmatter");
+  }));
+  // A scoped problem isolates its object and every object connected to it by
+  // a path transition, not independent transfers. Unscoped inspection failures
+  // still stop the whole batch.
+  const repairedPaths = new Set([...repairs].map((object) => exact(object.local).path));
+  const blockedPaths = blocking
+    .map((issue) => issue.path)
+    .filter((path): path is string => path !== undefined && !repairedPaths.has(path));
+  const skipped = isolateBlockedObjects(objects, blockedPaths);
+  if (!blocking.some((issue) => issue.path === undefined)) {
+    for (const object of objects) {
+      if (!skipped.has(object)) planObject(inspection, object, drafts, repairs.has(object));
     }
     drafts = orderLocalPathTransitions(drafts, inspection.objects, digest);
     drafts = orderRemotePathTransitions(drafts, inspection.objects);
@@ -220,7 +229,15 @@ export function planReconciliation(
     }
     return action;
   });
-  const issues = [...inspection.issues].sort(compareIssue);
+  const deferred = [...skipped]
+    .filter((object) => !blocking.some((issue) => issue.path !== undefined && objectPaths(object).includes(issue.path)))
+    .map((object): InspectionIssue => ({
+      code: "local_collision",
+      blocking: true,
+      path: objectPaths(object)[0],
+      message: "Deferred because a related path transition is blocked. Independent files can still sync."
+    }));
+  const issues = [...inspection.issues, ...deferred].sort(compareIssue);
   const summary = {
     uploads: actions.filter(isUpload).length,
     downloads: actions.filter(isDownload).length,
@@ -246,6 +263,57 @@ export function planReconciliation(
     summary
   };
   return { ...stable, fingerprint: syncFingerprint(stable, digest) };
+}
+
+function objectPaths(object: InspectedObject): string[] {
+  return [object.base, object.local, object.remote]
+    .filter((state) => state.state === "exact")
+    .map((state) => exact(state).path);
+}
+
+/**
+ * Objects whose base, local or remote path is, contains, or lies under a
+ * blocked path, closed transitively over the paths those objects touch.
+ * Ownership and ancestors are indexed once so many blocked files in a large
+ * collection do not need an all-objects by all-paths scan.
+ */
+function isolateBlockedObjects(
+  objects: readonly InspectedObject[],
+  blockedPaths: readonly string[]
+): Set<InspectedObject> {
+  const skipped = new Set<InspectedObject>();
+  if (blockedPaths.length === 0) return skipped;
+  const exactOwners = new Map<string, Set<InspectedObject>>();
+  const descendants = new Map<string, Set<InspectedObject>>();
+  const prefixes = (path: string) =>
+    path.split("/").map((_, index, parts) => parts.slice(0, index + 1).join("/"));
+  const add = (index: Map<string, Set<InspectedObject>>, path: string, object: InspectedObject) => {
+    if (!index.has(path)) index.set(path, new Set());
+    index.get(path)!.add(object);
+  };
+  for (const object of objects) {
+    for (const path of objectPaths(object)) {
+      add(exactOwners, path, object);
+      for (const prefix of prefixes(path)) add(descendants, prefix, object);
+    }
+  }
+  const queue = [...blockedPaths];
+  const visited = new Set<string>();
+  for (let index = 0; index < queue.length; index += 1) {
+    const path = queue[index]!;
+    if (visited.has(path)) continue;
+    visited.add(path);
+    const affected = new Set(descendants.get(path) ?? []);
+    for (const prefix of prefixes(path)) {
+      for (const object of exactOwners.get(prefix) ?? []) affected.add(object);
+    }
+    for (const object of affected) {
+      if (skipped.has(object)) continue;
+      skipped.add(object);
+      queue.push(...objectPaths(object));
+    }
+  }
+  return skipped;
 }
 
 /** Remote path occupancy is also policy. Acyclic moves depend on the action

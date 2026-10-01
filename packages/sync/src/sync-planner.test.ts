@@ -178,7 +178,7 @@ describe("pure exact-document planner", () => {
     }
   });
 
-  it("fences all sibling effects and checkpointing when one issue blocks", async () => {
+  it("isolates a scoped blocking issue and holds the checkpoint without fencing independent files", async () => {
     const uploadIdentity = "33333333-3333-4333-8333-333333333333";
     const uploadBase = ref(uploadIdentity, "notes/upload.md", "upload base");
     const uploadLocal = ref(uploadIdentity, "notes/upload.md", "upload local");
@@ -208,7 +208,15 @@ describe("pure exact-document planner", () => {
 
     const first = planReconciliation(inspection, digest);
     const second = planReconciliation(structuredClone(inspection), digest);
-    expect(first.actions).toEqual([]);
+    expect(first.actions.map((action) => action.command)).toEqual([
+      "put_remote",
+      "write_local",
+      "advance_checkpoint"
+    ]);
+    const checkpoint = first.actions.at(-1)!;
+    expect(checkpoint.command === "advance_checkpoint" && checkpoint.next).toEqual(
+      checkpoint.command === "advance_checkpoint" ? checkpoint.expected : undefined
+    );
     expect(first.issues).toEqual([
       { code: "notice", message: "Retained diagnostic.", blocking: false },
       {
@@ -219,13 +227,30 @@ describe("pure exact-document planner", () => {
       }
     ]);
     expect(first.summary).toEqual({
-      uploads: 0,
-      downloads: 0,
+      uploads: 1,
+      downloads: 1,
       conflicts: 0,
       blocking_issues: 1
     });
     expect(second.fingerprint).toBe(first.fingerprint);
     expect(first.fingerprint).not.toBe(control.fingerprint);
+
+    // The blocked file and anything under or connected to its path stay fenced.
+    inspection.issues = [{
+      code: "local_collision",
+      message: "Blocked.",
+      path: "notes/upload.md",
+      blocking: true
+    }];
+    expect(planReconciliation(inspection, digest).actions.map((action) => action.command)).toEqual([
+      "write_local",
+      "advance_checkpoint"
+    ]);
+
+    // An unscoped inspection failure still fences every effect.
+    inspection.issues = [{ code: "inspection_failed", message: "Unscoped.", blocking: true }];
+    const unscoped = planReconciliation(inspection, digest);
+    expect(unscoped.actions.filter((action) => action.command !== "advance_checkpoint")).toEqual([]);
   });
 
   it("keeps inspection I/O separate from the pure plan", async () => {

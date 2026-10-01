@@ -23,16 +23,37 @@ conflict, and safety checks still apply.
 
 Local frontmatter diagnostics remain visible in `local_issues` and can make
 status `attention` even after a successful sync. Consumers must use the reviewed
-plan's `issues[].blocking` / `summary.blocking_issues` to decide whether applying
-that plan is allowed, not the diagnostic code or `local_issues.length`.
-Unreadable files and invalid UTF-8 still fence writes and checkpoint advancement.
-Receive-only mirrors also fence local divergence, including readable malformed
-edits; malformed YAML is not permission to overwrite those edits from authority.
+plan's `issues[].blocking` / `summary.blocking_issues` to tell what a plan
+leaves undone, not the diagnostic code or `local_issues.length`. A blocking
+issue with a path fences that path and every object connected to it by a path
+transition, and holds the checkpoint; independent transfers in the same plan
+still apply, and the result reports `attention`. A blocking issue without a
+path fences the whole plan. Unreadable files and invalid UTF-8 fence their own
+path this way. Receive-only mirrors also fence local divergence, including
+readable malformed edits; malformed YAML is not permission to overwrite those
+edits from authority.
+
+A destination occupied by a directory, or under an ancestor that is a file, is
+reported as a blocking `local_collision` when the filesystem adapter implements
+`pathKind`; nothing is removed to clear it. Adapters that implement the optional
+`expected` argument of `write` reject a concurrent edit at their atomic write
+boundary as `sync_plan_stale`: the stale batch is released at that point, so the
+next inspection reports the competing edit as a conflict instead of replaying
+the old plan. File bytes are fetched only while applying, through the caller's
+cancellable transport; inspection, `review()` and `status()` read descriptors
+only. Aborting during a transfer records the batch as `cancelled`, and the next
+sync resumes it.
+
+Hosts that show both the plan and the status should call `review()`, which
+returns both from one inspection under one lease; calling `inspect()` and
+`status()` separately inspects the folder and authority twice.
 
 Application replicas resolve a stale record explicitly with
 `resolveConflict(recordId, "local" | "remote")`. Keeping the local version
 rebases it as a new idempotent mutation; keeping the remote version discards
-only that record's queued mutations.
+only that record's queued mutations. In writable mirrors, planned conflicts for
+records keep the last common version as `ancestor_document`, so a host can
+offer a three-way merge.
 
 The in-process reference authority remains useful for deterministic contract
 tests. Production uses `mdbase-connect-hosted-provider`: normalized encrypted

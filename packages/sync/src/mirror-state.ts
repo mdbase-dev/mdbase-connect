@@ -100,6 +100,11 @@ export interface MirrorState {
     local: import("./sync-model.js").ExpectedObjectState;
     remote: import("./sync-model.js").ExpectedObjectState;
     conflict_kind: "both_changed" | "delete_vs_change" | "path_occupied" | "rejected";
+    /**
+     * For records in writable mirrors: the exact document both sides last
+     * agreed on, so a host can offer a three-way merge. Not part of the decision.
+     */
+    ancestor_document?: string;
   }>;
   /** Temporary stable-identity bindings when local paths differ from the base. */
   local_bindings?: Record<string, { entity: "record" | "file"; path: string }>;
@@ -151,7 +156,14 @@ export interface MirrorFileSystem {
   read(path: string): Promise<string | null>;
   /** Exact UTF-8 read, preserving a leading BOM; expected I/O failures reject as `SyncError("file_read_failed")`. */
   readText(path: string): Promise<MirrorTextReadResult>;
-  write(path: string, value: string): Promise<void>;
+  /**
+   * When `expected` is provided, reject with `SyncError("sync_plan_stale")` if
+   * the current contents differ at the adapter's atomic write boundary; `null`
+   * means the path must be absent. Adapters without such a boundary may ignore it.
+   */
+  write(path: string, value: string, expected?: string | null): Promise<void>;
+  /** Physical entry kind, including directories that file enumeration omits. */
+  pathKind?(path: string): Promise<"file" | "folder" | null>;
   /** Atomically rename one managed path without changing its bytes. */
   move(source: string, target: string): Promise<void>;
   remove(path: string): Promise<void>;
@@ -348,6 +360,10 @@ export function normalizeMirrorState(
   }
   for (const [identity, conflict] of Object.entries(state.planned_conflicts)) {
     if (identity === "" || (conflict.entity !== "record" && conflict.entity !== "file")) throw new Error();
+    if (
+      conflict.ancestor_document !== undefined
+      && (conflict.entity !== "record" || typeof conflict.ancestor_document !== "string")
+    ) throw new Error();
     if (conflict.local.state === "exact") validatePortableMirrorPath(conflict.local.object.path);
     if (conflict.remote.state === "exact") validatePortableMirrorPath(conflict.remote.object.path);
   }

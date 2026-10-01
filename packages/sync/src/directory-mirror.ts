@@ -116,9 +116,10 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       }
       if (state?.last_completed_plan === plan.fingerprint) {
         const checkpoint = checkpointMirrorStatus(state, this.mode);
+        const blocked = plan.summary.blocking_issues > 0;
         return mirrorApplyResult(
-          checkpoint.state === "attention" ? "attention" : "applied",
-          { ...plan, issues: [] },
+          checkpoint.state === "attention" || blocked ? "attention" : "applied",
+          blocked ? plan : { ...plan, issues: [] },
           checkpoint,
           0
         );
@@ -231,6 +232,9 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       })
     }).execute(state, signal);
     if (result.status !== "effects_complete") {
+      // The rejected action made no effect and earlier effects have receipts,
+      // so the batch can be released; the next review then sees the competing edit.
+      if (result.status === "stale") await abandonStaleBatch(state, this.journalStore());
       const checkpoint = checkpointMirrorStatus(state, this.mode);
       return mirrorApplyResult(
         result.status === "blocked" ? "failed" : result.status,
@@ -246,7 +250,8 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     const checkpoint = checkpointMirrorStatus(state, this.mode);
     const attention = checkpoint.conflicts.length > 0
       || checkpoint.local_issues.length > 0
-      || plan.summary.conflicts > 0;
+      || plan.summary.conflicts > 0
+      || plan.summary.blocking_issues > 0;
     return mirrorApplyResult(
       attention ? "attention" : "applied",
       plan,
@@ -325,15 +330,27 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     };
   }
 
+  /**
+   * The plan and the status it implies from one exact inspection under one
+   * lease. Hosts showing both should call this rather than `status()` and
+   * `inspect()`, which would inspect the folder and authority twice.
+   */
+  async review(): Promise<{ plan: MirrorSyncPlan; status: MirrorStatus }> {
+    return this.lease.runExclusive(async () => {
+      const state = await this.readState();
+      const checkpoint = checkpointMirrorStatus(state, this.mode);
+      const plan = state?.batch?.plan ?? (await this.inspectDetailed(state)).plan;
+      const status = checkpoint.state === "not_initialized"
+        && !plan.issues.some((issue) =>
+          issue.code === "invalid_frontmatter" || issue.code === "file_read_failed")
+        ? checkpoint
+        : mirrorStatusFromPlan(checkpoint, plan);
+      return { plan, status };
+    });
+  }
+
   async status(): Promise<MirrorStatus> {
-    const checkpoint = await this.checkpointStatus();
-    const plan = await this.inspect();
-    if (
-      checkpoint.state === "not_initialized"
-      && !plan.issues.some((issue) =>
-        issue.code === "invalid_frontmatter" || issue.code === "file_read_failed")
-    ) return checkpoint;
-    return mirrorStatusFromPlan(checkpoint, plan);
+    return (await this.review()).status;
   }
 
   async checkpointStatus(): Promise<MirrorStatus> {

@@ -9,6 +9,7 @@ import { asError, errorCode, invalidMirrorState, SyncError } from "./sync-error.
 import { MirrorMaterializer } from "./mirror-materializer.js";
 import { recordMarkdownDocument, runtimeDocumentRevision } from "./mirror-format.js";
 import {
+  ensureFileBlob,
   sameBinaryInfo,
   validateCollectionFileDescriptor
 } from "./mirror-files.js";
@@ -105,10 +106,14 @@ export class PlanOnlySyncExecutor {
         completedActions.add(receipt.action_id);
         this.ports.onProgress?.(batch.next_action, batch.plan.actions.length - 1);
       } catch (error) {
-        const failure = failureFrom(error, action.action_id);
-        await markBatchInterrupted(state, "blocked", failure, this.ports.store);
+        // An abort mid-transfer is the caller pausing, not a defect to recover from.
+        const cancelled = signal?.aborted === true;
+        const failure = cancelled
+          ? { code: "sync_cancelled", message: "Sync paused during transfer.", action_id: action.action_id }
+          : failureFrom(error, action.action_id);
+        await markBatchInterrupted(state, cancelled ? "cancelled" : "blocked", failure, this.ports.store);
         return {
-          status: failure.code === "sync_plan_stale" ? "stale" : "blocked",
+          status: cancelled ? "cancelled" : failure.code === "sync_plan_stale" ? "stale" : "blocked",
           completed: batch.next_action,
           failure
         };
@@ -131,8 +136,9 @@ export class PlanOnlySyncExecutor {
         return this.moveRemote(state, action);
       case "delete_remote":
         return this.deleteRemote(state, action);
-      case "record_conflict":
+      case "record_conflict": {
         state.planned_conflicts ??= {};
+        const ancestor = conflictAncestor(state, action.identity, action.entity);
         state.planned_conflicts[action.identity] = {
           decision_id: conflictDecisionId(
             action.entity,
@@ -145,7 +151,8 @@ export class PlanOnlySyncExecutor {
           entity: action.entity,
           local: action.local,
           remote: action.remote,
-          conflict_kind: action.conflict_kind
+          conflict_kind: action.conflict_kind,
+          ...(ancestor === undefined ? {} : { ancestor_document: ancestor })
         };
         state.local_bindings ??= {};
         if (action.local.state === "exact") {
@@ -158,6 +165,7 @@ export class PlanOnlySyncExecutor {
         }
         this.rebaseConflict(state, action);
         return { action_id: action.action_id, status: "conflicted" };
+      }
       case "clear_conflict":
         delete state.planned_conflicts?.[action.identity];
         delete state.local_bindings?.[action.identity];
@@ -216,9 +224,10 @@ export class PlanOnlySyncExecutor {
       const record = payloads.records[action.action_id];
       if (!record || record.revision !== action.payload_revision) throw missingPayload(action);
       assertExactDocument(record, this.ports.runtime, action.payload_revision);
-      await this.materializer.put(state, record, {
-        inspectionPreflighted: batch.plan.summary.blocking_issues ? 1 : true
-      });
+      // Only a receive-only repair of this exact path may replace diverged bytes.
+      const repair = this.ports.mode === "read_only" && batch.plan.issues.some((issue) =>
+        issue.blocking && issue.code === "invalid_frontmatter" && issue.path === action.target.path);
+      await this.materializer.put(state, record, { inspectionPreflighted: repair ? 1 : true });
       this.installPathOwner(action.target);
       return { action_id: action.action_id, status: "completed" };
     }
@@ -234,6 +243,10 @@ export class PlanOnlySyncExecutor {
     }
     const file = payloads.files[action.action_id];
     if (!file || file.content_digest !== action.payload_revision) throw missingPayload(action);
+    // Inspection keeps descriptors only. Bytes are fetched here, inside the
+    // journaled action, through the caller's cancellable transport.
+    if (!this.ports.blobStore) throw missingPayload(action);
+    await ensureFileBlob(this.ports.transport, this.ports.blobStore, file);
     await this.materializer.putFile(state, file, state);
     this.installPathOwner(action.target);
     return { action_id: action.action_id, status: "completed" };
@@ -467,6 +480,8 @@ export class PlanOnlySyncExecutor {
         : action.expected_remote;
     state.planned_conflicts ??= {};
     const conflictKind = receipt.status === "rejected" ? "rejected" : "both_changed";
+    // Captured before the base is rebased onto the authority's current record below.
+    const ancestor = conflictAncestor(state, identity, "record");
     state.planned_conflicts[identity] = {
       decision_id: conflictDecisionId(
         "record",
@@ -479,7 +494,8 @@ export class PlanOnlySyncExecutor {
       entity: "record",
       local: action.expected_local,
       remote,
-      conflict_kind: conflictKind
+      conflict_kind: conflictKind,
+      ...(ancestor === undefined ? {} : { ancestor_document: ancestor })
     };
     state.local_bindings ??= {};
     if (action.expected_local.state === "exact") {
@@ -644,6 +660,22 @@ function invalidReceipt(action: SyncAction): SyncError {
     "invalid_sync_response",
     `Authority receipt does not match prepared action ${action.action_id}.`
   );
+}
+
+/**
+ * The last common version of a record, captured once before a conflict rebases
+ * the base onto the remote. A conflict recorded again (a frozen conflict in a
+ * later plan) keeps its original ancestor: by then the base is already remote.
+ */
+function conflictAncestor(
+  state: MirrorState,
+  identity: string,
+  entity: "record" | "file"
+): string | undefined {
+  if (state.planned_conflicts && identity in state.planned_conflicts) {
+    return state.planned_conflicts[identity]!.ancestor_document;
+  }
+  return entity === "record" ? state.records[identity]?.record?.document : undefined;
 }
 
 function failureFrom(error: unknown, actionId: string): SyncFailure {
