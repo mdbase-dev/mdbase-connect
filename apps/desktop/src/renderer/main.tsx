@@ -134,9 +134,13 @@ function App() {
     let configured: boolean | undefined;
     const failures = await refreshResources({
       connector: () => requests.status().then((next) => {
-        setStatus(next);
         const health = presentReadiness(next.readiness);
         if (health.state !== "ready") throw new Error(health.label);
+        setStatus(next);
+      }).catch((reason) => {
+        // Inventory can be last-known; a live connection indicator cannot.
+        setStatus(null);
+        throw reason;
       }),
       collections: () => requests.collections().then(setCollections),
       startup: () => requests.startup().then(setStartup),

@@ -233,6 +233,33 @@ test("metadata drafts cannot be edited during submission and survive a failed sa
   } finally { await page.close(); }
 });
 
+test("failed daemon refresh never leaves a stale connected indicator and recovers automatically", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.getByText("Connected securely", { exact: true }).waitFor();
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => { throw new Error("The local connector stopped."); };
+    });
+    await page.clock.runFor(5_000);
+    await page.getByRole("status").filter({ hasText: "The local connector stopped." }).waitFor();
+    await screenshot(page, "daemon-failure");
+    assert.equal(await page.getByText("Connected securely", { exact: true }).count(), 0);
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => ({ readiness: { schema_version: 1, ready: false, binary_version: "test", safe_reason: "critical_worker_failed" }, protocol_version: 1, state: "connected", paused: false, registered_collections: 0, direct_access_available: false });
+    });
+    await page.clock.runFor(5_000);
+    await page.getByRole("status").filter({ hasText: "Local connector worker stopped" }).waitFor();
+    assert.equal(await page.getByText("Connected securely", { exact: true }).count(), 0);
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => ({ readiness: { schema_version: 1, ready: true, binary_version: "test" }, protocol_version: 1, state: "connected", paused: false, registered_collections: 0, direct_access_available: true });
+    });
+    await page.clock.runFor(5_000);
+    await page.getByText("Connected securely", { exact: true }).waitFor();
+    assert.equal(await page.getByText(/Local connector worker stopped/).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 async function beginPairing(page, { expiresIn = 600, firstError } = {}) {
   await page.evaluate(({ expiresIn, firstError }) => {
     window.fixture.pairingBegins = 0;
