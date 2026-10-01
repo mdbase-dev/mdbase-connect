@@ -392,6 +392,9 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
       if (!mutation.base_revision || mutation.base_revision !== current.revision) {
         return this.conflict(mutation, current);
       }
+      if (mutation.path !== current.path) {
+        throw new SyncError("put_path_mismatch", "Move a record separately before replacing its document.");
+      }
     } else if (mutation.base_revision !== undefined) {
       return this.conflict(mutation);
     }

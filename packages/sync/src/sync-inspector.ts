@@ -21,7 +21,7 @@ import {
   validateSnapshotResources,
   type MirrorRecordPathPolicy
 } from "./mirror-path-policy.js";
-import { assertNoPhysicalPathAliases } from "./mirror-physical-path.js";
+import { assertNoPhysicalPathAliases, physicalMirrorPathKey } from "./mirror-physical-path.js";
 import { loadMirrorSnapshot, type LoadedMirrorSnapshot } from "./sync-snapshot-loader.js";
 import type {
   DurableSyncPayloads,
@@ -243,20 +243,20 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
     const binary = new Map<string, { size: number; content_digest: `sha256:${string}` }>();
     const issues: InspectionIssue[] = [];
     const priorRecordsByPath = new Map(
-      Object.entries(state?.records ?? {}).map(([identity, entry]) => [entry.path, [identity, entry] as const])
+      Object.entries(state?.records ?? {}).map(([identity, entry]) => [physicalMirrorPathKey(entry.path), [identity, entry] as const])
     );
     const recordConflictsByPath = new Map(
       Object.entries(state?.planned_conflicts ?? {})
         .filter(([, conflict]) => conflict.entity === "record" && conflict.local.state === "exact")
         .map(([identity, conflict]) => [
-          conflict.local.state === "exact" ? conflict.local.object.path : "",
+          conflict.local.state === "exact" ? physicalMirrorPathKey(conflict.local.object.path) : "",
           identity
         ])
     );
     const recordBindingsByPath = new Map(
       Object.entries(state?.local_bindings ?? {})
         .filter(([, binding]) => binding.entity === "record")
-        .map(([identity, binding]) => [binding.path, identity])
+        .map(([identity, binding]) => [physicalMirrorPathKey(binding.path), identity])
     );
     const resourcePaths = new Set([
       ...Object.keys(state?.resources ?? {}),
@@ -303,17 +303,22 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       }
     }
 
-    const managedRecordPaths = new Set(Object.values(state?.records ?? {}).map((entry) => entry.path));
+    const managedRecordPaths = new Set(Object.values(state?.records ?? {}).map((entry) => physicalMirrorPathKey(entry.path)));
     const recordPaths = filterRecordPaths(
       await this.fileSystem.listMarkdown(resourcePaths),
       pathPolicy
-    ).filter((path) => pathSelected(this.selectiveSync, path) || managedRecordPaths.has(path));
-    for (const path of recordPaths) {
-      const conflictIdentity = recordConflictsByPath.get(path);
-      const boundIdentity = recordBindingsByPath.get(path);
-      const priorRecord = priorRecordsByPath.get(path);
+    ).filter((path) => pathSelected(this.selectiveSync, path) || managedRecordPaths.has(physicalMirrorPathKey(path)));
+    for (const observedPath of recordPaths) {
+      const pathKey = physicalMirrorPathKey(observedPath);
+      const conflictIdentity = recordConflictsByPath.get(pathKey);
+      const boundIdentity = recordBindingsByPath.get(pathKey);
+      const priorRecord = priorRecordsByPath.get(pathKey);
       const priorIdentity = priorRecord?.[0];
       const identity = conflictIdentity ?? boundIdentity ?? priorIdentity ?? "";
+      const knownLocal = state?.planned_conflicts?.[identity]?.local;
+      const knownPath = knownLocal?.state === "exact" ? knownLocal.object.path
+        : state?.local_bindings?.[identity]?.path ?? priorRecord?.[1].path;
+      const path = await this.projectedLocalPath(observedPath, knownPath);
       let read;
       try {
         read = await this.fileSystem.readText(path);
@@ -358,32 +363,37 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       if (!this.fileSystem.listBinary) {
         throw new SyncError("file_storage_unavailable", "Selected files require binary enumeration.");
       }
-      const managedFilePaths = new Set(Object.values(state?.files ?? {}).map((entry) => entry.file.path));
+      const managedFilePaths = new Set(Object.values(state?.files ?? {}).map((entry) => physicalMirrorPathKey(entry.file.path)));
       const priorFilesByPath = new Map(
-        Object.entries(state?.files ?? {}).map(([identity, entry]) => [entry.file.path, [identity, entry] as const])
+        Object.entries(state?.files ?? {}).map(([identity, entry]) => [physicalMirrorPathKey(entry.file.path), [identity, entry] as const])
       );
       const fileConflictsByPath = new Map(
         Object.entries(state?.planned_conflicts ?? {})
           .filter(([, conflict]) => conflict.entity === "file" && conflict.local.state === "exact")
           .map(([identity, conflict]) => [
-            conflict.local.state === "exact" ? conflict.local.object.path : "",
+            conflict.local.state === "exact" ? physicalMirrorPathKey(conflict.local.object.path) : "",
             identity
           ])
       );
       const fileBindingsByPath = new Map(
         Object.entries(state?.local_bindings ?? {})
           .filter(([, binding]) => binding.entity === "file")
-          .map(([identity, binding]) => [binding.path, identity])
+          .map(([identity, binding]) => [physicalMirrorPathKey(binding.path), identity])
       );
       const paths = (await this.fileSystem.listBinary(resourcePaths))
-        .filter((path) => pathFileSelected(this.selectiveSync, path) || managedFilePaths.has(path));
-      for (const path of paths) {
+        .filter((path) => pathFileSelected(this.selectiveSync, path) || managedFilePaths.has(physicalMirrorPathKey(path)));
+      for (const observedPath of paths) {
+        const pathKey = physicalMirrorPathKey(observedPath);
+        const conflictIdentity = fileConflictsByPath.get(pathKey);
+        const boundIdentity = fileBindingsByPath.get(pathKey);
+        const prior = priorFilesByPath.get(pathKey);
+        const identity = conflictIdentity ?? boundIdentity ?? prior?.[0] ?? "";
+        const knownLocal = state?.planned_conflicts?.[identity]?.local;
+        const knownPath = knownLocal?.state === "exact" ? knownLocal.object.path
+          : state?.local_bindings?.[identity]?.path ?? prior?.[1].file.path;
+        const path = await this.projectedLocalPath(observedPath, knownPath);
         const info = await this.fileSystem.inspectBinary(path);
         if (!info) continue;
-        const conflictIdentity = fileConflictsByPath.get(path);
-        const boundIdentity = fileBindingsByPath.get(path);
-        const prior = priorFilesByPath.get(path);
-        const identity = conflictIdentity ?? boundIdentity ?? prior?.[0] ?? "";
         observations.push({
           stable_identity: identity !== "",
           object: {
@@ -414,7 +424,38 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
         blocking: true
       });
     }
+    // A remote conflict install can survive a crash before its superseded
+    // local source is removed. Both names then carry the same stable identity.
+    // Do not silently pick one and clear/upload the other as a new record.
+    const stablePaths = new Map<string, string>();
+    const ambiguousPaths = new Set<string>();
+    for (const observed of observations) {
+      if (!observed.stable_identity || observed.object.identity === "") continue;
+      const priorPath = stablePaths.get(observed.object.identity);
+      if (priorPath !== undefined && priorPath !== observed.object.path) {
+        ambiguousPaths.add(priorPath);
+        ambiguousPaths.add(observed.object.path);
+      }
+      stablePaths.set(observed.object.identity, observed.object.path);
+    }
+    for (const path of [...ambiguousPaths].sort()) {
+      issues.push({
+        code: "local_collision",
+        message: `${path} shares a stable identity with another local path; finish its conflict resolution.`,
+        path,
+        blocking: true
+      });
+    }
     return { observations, documents, binary, issues };
+  }
+
+  /** Normalizing volumes may enumerate NFD even when the managed name is NFC.
+   * Keep that logical spelling only when it still addresses the observed file;
+   * a real rename on a normalization-sensitive volume remains a transition. */
+  private async projectedLocalPath(path: string, knownPath: string | undefined): Promise<string> {
+    return knownPath !== undefined && knownPath !== path
+      && knownPath.normalize("NFC") === path.normalize("NFC")
+      && await this.fileSystem.exists(knownPath) ? knownPath : path;
   }
 
   private async finish(options: {
@@ -467,10 +508,8 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       }
     }
     try {
-      assertNoPhysicalPathAliases([
-        ...remoteRefs.map((ref) => ref.path),
-        ...local.observations.map(({ object }) => object.path)
-      ]);
+      assertNoPhysicalPathAliases(objects.flatMap((object) => [object.local, object.remote]
+        .flatMap((state) => state.state === "exact" ? [state.object] : [])));
     } catch (error) {
       const value = asError(error);
       issues.push({

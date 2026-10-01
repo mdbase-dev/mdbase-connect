@@ -44,12 +44,29 @@ test("full Server CI covers every registered system suite exactly once", async (
   );
 });
 
-test("system runner lists every suite without preparing the workspace", async () => {
-  const { stdout } = await execute(
-    process.execPath,
-    [resolve(repoRoot, "test/system/run.mjs"), "--list"]
-  );
-  for (const name of Object.keys(systemSuites)) {
-    assert.match(stdout, new RegExp(`^${name}\\s`, "m"));
+test("system runner lists suites with direct and package-manager arguments", async () => {
+  for (const arguments_ of [["--list"], ["--", "--list"]]) {
+    const { stdout } = await execute(
+      process.execPath,
+      [resolve(repoRoot, "test/system/run.mjs"), ...arguments_]
+    );
+    for (const name of Object.keys(systemSuites)) {
+      assert.match(stdout, new RegExp(`^${name}\\s`, "m"));
+    }
   }
+});
+
+test("an empty explicit suite selection cannot fall back to all suites", async () => {
+  // --list keeps even the old parser's incorrect behavior side-effect free.
+  await assert.rejects(execute(
+    process.execPath,
+    [resolve(repoRoot, "test/system/run.mjs"), "--suite", ",,,", "--list"]
+  ), error => error.code === 2 && error.stderr.includes("--suite requires a name"));
+});
+
+test("system runner only accepts a separator at the command boundary", async () => {
+  await assert.rejects(execute(
+    process.execPath,
+    [resolve(repoRoot, "test/system/run.mjs"), "--list", "--"]
+  ), error => error.code === 2 && error.stderr.includes("Unknown option: --"));
 });

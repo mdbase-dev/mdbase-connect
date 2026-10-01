@@ -350,6 +350,8 @@ export class PlanOnlySyncExecutor {
       || receipt.file.size !== local.size
       || (action.expected_remote.state === "exact"
         && receipt.file.file_id !== action.expected_remote.object.identity)
+      || (action.expected_remote.state === "absent"
+        && state.files?.[receipt.file.file_id] !== undefined)
     ) throw invalidReceipt(action);
     state.files ??= {};
     state.files[receipt.file.file_id] = { file: receipt.file };
@@ -486,6 +488,7 @@ export class PlanOnlySyncExecutor {
       delete state.local_bindings?.[identity];
       return;
     }
+    const recordMissing = receipt.status === "rejected" && receipt.error.code === "record_not_found";
     const current = receipt.status === "conflicted" ? receipt.conflict.current : undefined;
     if (current) {
       if (current.record_id !== identity) throw invalidReceipt(action);
@@ -502,11 +505,14 @@ export class PlanOnlySyncExecutor {
             payload_revision: current.revision
           }
         }
-      : action.command === "move_remote"
-        ? action.expected_source_owner
-        : action.expected_remote;
+      : receipt.status === "conflicted" || recordMissing
+        ? { state: "absent" }
+        : action.command === "move_remote"
+          ? action.expected_source_owner
+          : action.expected_remote;
     state.planned_conflicts ??= {};
-    const conflictKind = receipt.status === "rejected" ? "rejected" : "both_changed";
+    const conflictKind = receipt.status === "rejected" && !recordMissing ? "rejected"
+      : action.expected_local.state === "absent" || remote.state === "absent" ? "delete_vs_change" : "both_changed";
     // Captured before the base is rebased onto the authority's current record below.
     const ancestor = conflictAncestor(state, identity, "record");
     state.planned_conflicts[identity] = {
@@ -540,6 +546,8 @@ export class PlanOnlySyncExecutor {
           : this.ports.runtime.digest(current.document),
         ...(this.ports.mode === "read_write" ? { record: current } : {})
       };
+    } else if (receipt.status === "conflicted" || recordMissing) {
+      delete state.records[identity];
     }
   }
 

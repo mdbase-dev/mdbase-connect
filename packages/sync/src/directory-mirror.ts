@@ -21,6 +21,7 @@ import {
   type MirrorStatus
 } from "./mirror-state.js";
 import { MirrorMaterializer } from "./mirror-materializer.js";
+import { physicalMirrorPathKey } from "./mirror-physical-path.js";
 import { normalizeSelectiveSyncPolicy, ensureFileBlob } from "./mirror-files.js";
 import { buildAuthorityPromotionManifest } from "./mirror-promotion.js";
 import type { MirrorRecordPathPolicy } from "./mirror-path-policy.js";
@@ -438,20 +439,23 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     };
   }
 
+  /** An optional merged record is written conditionally before the durable conflict is cleared. */
   async resolveConflict(
     identity: string,
     decisionId: string,
-    resolution: "local" | "remote"
+    resolution: "local" | "remote",
+    mergedDocument?: string
   ): Promise<void> {
     await this.lease.runExclusive(() =>
-      this.resolveConflictUnlocked(identity, decisionId, resolution)
+      this.resolveConflictUnlocked(identity, decisionId, resolution, mergedDocument)
     );
   }
 
   private async resolveConflictUnlocked(
     identity: string,
     decisionId: string,
-    resolution: "local" | "remote"
+    resolution: "local" | "remote",
+    mergedDocument?: string
   ): Promise<void> {
     if (this.mode !== "read_write") {
       throw new SyncError("mirror_read_only", "Receive-only mirrors have no writable conflicts.");
@@ -465,6 +469,11 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       throw new SyncError("mirror_conflict_not_found", "Writable mirror conflict was not found.");
     }
     if ((planned.decision_id ?? "") !== decisionId) throw staleConflict();
+    const mergedLocal = planned.local.state === "exact" ? planned.local.object : undefined;
+    if (mergedDocument !== undefined && (resolution !== "local"
+      || planned.entity !== "record" || mergedLocal === undefined)) {
+      throw new SyncError("invalid_conflict_resolution", "A merged document requires an exact local record conflict.");
+    }
     const snapshot = await loadMirrorSnapshot(
       this.replicaId,
       this.transport,
@@ -482,8 +491,12 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       ? recordStateMatches(planned.remote, currentRecord)
       : fileStateMatches(planned.remote, currentFile);
     if (!remoteMatches) throw staleConflict();
-    // Snapshot loading can take arbitrarily long. Fence the decision's local
-    // bytes after that network wait, not before it.
+    if (resolution === "remote" && currentFile) {
+      if (!this.blobStore) throw new SyncError("file_storage_unavailable", "File resolution needs a blob store.");
+      await ensureFileBlob(this.transport, this.blobStore, currentFile);
+    }
+    // Snapshot loading and remote blob fetching can take arbitrarily long.
+    // Fence the decision's local bytes after those waits, not before them.
     const revalidator = new PlanRevalidator(this.fileSystem, this.runtime);
     if (planned.local.state === "exact") {
       await revalidator.validateExpected(planned.local);
@@ -497,6 +510,16 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         await this.installRemoteFile(state, identity, currentFile);
       }
     }
+    if (mergedDocument !== undefined) {
+      const path = mergedLocal!.path;
+      const expected = await this.fileSystem.read(path);
+      if (expected === null || `sha256:${this.runtime.digest(expected)}` !== mergedLocal!.payload_revision) {
+        throw staleConflict();
+      }
+      // Persist both halves before clearing the durable conflict. A failed
+      // write or crash must never authorize uploading the unmerged local edit.
+      await this.fileSystem.write(path, mergedDocument, expected);
+    }
     delete state.planned_conflicts?.[identity];
     if (resolution === "remote") delete state.local_bindings?.[identity];
     await this.writeState(state);
@@ -508,6 +531,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     current: SyncRecord<Frontmatter> | undefined
   ): Promise<void> {
     if (current) {
+      this.assertResolutionTargetAvailable(state, identity, current.path);
       // Accept only the local version named by the conflict decision. Never
       // authorize whatever bytes happen to be present after an async reread.
       const local = state.planned_conflicts?.[identity]?.local;
@@ -516,6 +540,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
           ? { acceptedHash: local.object.payload_revision.replace(/^sha256:/u, "") }
           : {})
       });
+      await this.removeResolvedLocalPath(state, identity, current.path);
       return;
     }
     const conflict = state.planned_conflicts?.[identity];
@@ -532,8 +557,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     current: import("@mdbase-dev/connect-protocol").CollectionFileDescriptor | undefined
   ): Promise<void> {
     if (current) {
-      if (!this.blobStore) throw new SyncError("file_storage_unavailable", "File resolution needs a blob store.");
-      await ensureFileBlob(this.transport, this.blobStore, current);
+      this.assertResolutionTargetAvailable(state, identity, current.path);
       const conflict = state.planned_conflicts?.[identity];
       const acceptedLocal = conflict?.local.state === "exact"
         ? {
@@ -541,9 +565,8 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
             size: conflict.local.object.size ?? 0
           }
         : undefined;
-      const localPath = state.local_bindings?.[identity]?.path;
       await this.materializer.putFile(state, current, state, acceptedLocal);
-      if (localPath && localPath !== current.path) await this.fileSystem.remove(localPath);
+      await this.removeResolvedLocalPath(state, identity, current.path);
       return;
     }
     const conflict = state.planned_conflicts?.[identity];
@@ -552,6 +575,35 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       : state.files?.[identity]?.file.path;
     if (path && await this.fileSystem.inspectBinary(path) !== null) await this.fileSystem.remove(path);
     delete state.files?.[identity];
+  }
+
+  private assertResolutionTargetAvailable(state: MirrorState, identity: string, path: string): void {
+    const target = physicalMirrorPathKey(path);
+    for (const [owner, binding] of Object.entries(state.local_bindings ?? {})) {
+      if (owner !== identity && physicalMirrorPathKey(binding.path) === target) {
+        throw new SyncError("sync_plan_stale", `${path} is owned by another local conflict.`);
+      }
+    }
+  }
+
+  private async removeResolvedLocalPath(state: MirrorState, identity: string, installedPath: string): Promise<void> {
+    const local = state.planned_conflicts?.[identity]?.local;
+    if (local?.state !== "exact" || local.object.path === installedPath) return;
+    if (physicalMirrorPathKey(local.object.path) === physicalMirrorPathKey(installedPath)) {
+      if (local.object.entity === "file" && !this.fileSystem.listBinary) {
+        throw new SyncError("file_storage_unavailable", "Selected files require binary enumeration.");
+      }
+      const paths = local.object.entity === "file"
+        ? await this.fileSystem.listBinary!(new Set())
+        : await this.fileSystem.listMarkdown(new Set());
+      // Only enumeration of both physical names proves this is a distinct
+      // superseded file on a sensitive volume, not an alias of the install.
+      if (!paths.includes(local.object.path) || !paths.includes(installedPath)) return;
+    }
+    // Installing the remote may have taken time. Delete only the accepted
+    // superseded version, never a newer edit at the old local path.
+    await new PlanRevalidator(this.fileSystem, this.runtime).validateExpected(local);
+    await this.fileSystem.remove(local.object.path);
   }
 
   private async readState(): Promise<MirrorState | null> {

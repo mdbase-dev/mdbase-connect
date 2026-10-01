@@ -157,6 +157,54 @@ independent provider journeys as scenario modules instead of extending the
 orchestrator. Render staging remains responsible for real external OAuth,
 HTTPS, proxy, deployment, and multi-service release acceptance.
 
+## Synthetic connector fault and scale stress
+
+The Linux-only connector harness uses a disposable profile, a test-file credential
+backend, synthetic Markdown, and two explicitly reserved loopback ports. It
+never uses an installed daemon, OS credentials, or a real collection. Build an
+optimized CLI before measuring throughput:
+
+```bash
+cargo build --release -p mdbase-cli
+MDBASE_CONNECT_STRESS_BINARY=target/release/mdbase \
+  node scripts/stress/connector-lifecycle.mjs \
+  --files 10000 --rounds 3 --concurrency 64 --port 42201
+```
+
+It checks duplicate profile ownership, atomic executable replacement and restart
+(same-version bits, not a protocol upgrade), concurrent reads, bulk edits during
+`SIGSTOP`/`SIGCONT`, and `SIGKILL` recovery before watcher settlement. Output is
+aggregate JSON: phase timings, record counts, RSS, descriptors, threads and
+process CPU clock ticks (`getconf CLK_TCK` gives ticks per second), never
+payloads or credentials. Cleanup joins only its own recorded child processes,
+including when interrupted.
+
+Use `--files 50000 --settle-seconds 1800` for a larger checkout storm and
+`--soak-seconds 9000` for repeated 100-file edits and reads on that collection.
+The settle budget detects a stalled watcher; it is not a performance target.
+Run this separately from package builds and broad suites when interpreting
+throughput observations. It is deliberately not part of the portable CI system
+matrix: signal and `/proc` scenarios are local Unix boundaries.
+
+Disk-capacity failure is covered by the Linux mirror regression
+`full_action_journal_preserves_local_bytes_and_recovers_without_a_new_plan`,
+which injects actual `ENOSPC` through `/dev/full` without filling a shared disk.
+
+Permission/restart defect CS-05 has an isolated, explicitly ignored reproducer:
+
+```bash
+MDBASE_CONNECT_ENV=test MDBASE_CONNECT_SECRET_BACKEND=insecure-test-file \
+  cargo test -p mdbase-connect-core denied_local_update_can_reopen \
+  -- --ignored --nocapture
+```
+
+Run it as an unprivileged Unix user. It currently fails: a denied write followed
+by recovered permissions, a confirmed write and an external edit leaves a
+retained engine transaction requiring manual recovery at reopen. Remove the
+ignore when the pinned `mdbase-rs` recovery defect is fixed; do not bypass the
+engine's safety boundary or delete journals to make this test pass. The
+confirmed-write control without a permission fault runs in the normal fast tier.
+
 ## Consumer repository tests
 
 Consumer tests should start Connect as an external system and keep

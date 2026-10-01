@@ -193,7 +193,8 @@ export function provisionNames(provisions: TypePackProvision[]) {
 
 export function host(value: string) { try { return new URL(value).host; } catch { return value; } }
 export function message(error: unknown): string {
-  const detail = error instanceof Error ? error.message : String(error);
+  const detail = (error instanceof Error ? error.message : String(error))
+    .replace(/^Error invoking remote method '[^']+': (?:(?:Error|AgentControlError): )?/, "");
   if (/failed to fetch|networkerror|network request failed/i.test(detail)) {
     return "mdbase connect could not reach the service. Check your connection and try again.";
   }

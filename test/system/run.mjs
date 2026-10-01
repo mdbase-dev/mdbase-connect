@@ -7,12 +7,15 @@ const requested = [];
 let prepare = true;
 let list = false;
 
-for (let index = 2; index < process.argv.length; index += 1) {
+// The documented `pnpm test:system -- --suite ...` can forward its separator.
+for (let index = process.argv[2] === "--" ? 3 : 2; index < process.argv.length; index += 1) {
   const argument = process.argv[index];
   if (argument === "--suite") {
     const value = process.argv[index + 1];
     if (!value) usage("--suite requires a name");
-    requested.push(...value.split(",").filter(Boolean));
+    const selected = value.split(",").filter(Boolean);
+    if (selected.length === 0) usage("--suite requires a name");
+    requested.push(...selected);
     index += 1;
   } else if (argument === "--no-prepare") {
     prepare = false;

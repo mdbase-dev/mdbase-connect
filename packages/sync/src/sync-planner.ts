@@ -23,6 +23,7 @@ import {
   type WriteLocalAction
 } from "./sync-model.js";
 import { canonicalSyncJson, syncFingerprint } from "./sync-plan-codec.js";
+import { portableMirrorPathKeyForValidatedPath as physicalMirrorPathKey } from "./portable-path.js";
 
 export interface ReconciliationPlan {
   plan_version: 1;
@@ -453,13 +454,7 @@ function orderLocalPathTransitions(
   }
 
   const stages = new Map<string, ActionDraft>();
-  const initialByKey = new Map(drafts.map((draft) => [draft.key, draft]));
-  for (const cycle of moveCycles(drafts, "move_local")) {
-    const selectedKey = [...cycle].sort()[0]!;
-    const selected = initialByKey.get(selectedKey);
-    if (!selected || selected.command !== "move_local") {
-      throw new Error("Planner invariant: local path cycle contains a non-move action.");
-    }
+  const stageMove = (selected: Extract<ActionDraft, { command: "move_local" }>) => {
     const temporaryPath = stagingPath(selected.source, selected.target_path, occupiedPaths, digest);
     occupiedPaths.add(temporaryPath);
     const stagedSource = { ...selected.source, path: temporaryPath };
@@ -476,7 +471,24 @@ function orderLocalPathTransitions(
     selected.source = stagedSource;
     selected.expected_source_owner = { state: "exact", object: stagedSource };
     selected.depends_on_keys = [stage.key];
-    stages.set(selectedKey, stage);
+    stages.set(selected.key, stage);
+  };
+  // Case-only and canonically equivalent Unicode renames need a distinct
+  // physical source/destination even on insensitive volumes. Reuse the same
+  // journaled staging move used to break cycles.
+  for (const draft of drafts) {
+    if (draft.command === "move_local" && draft.source.path !== draft.target_path
+      && physicalMirrorPathKey(draft.source.path) === physicalMirrorPathKey(draft.target_path)) {
+      stageMove(draft);
+    }
+  }
+  const initialByKey = new Map(drafts.map((draft) => [draft.key, draft]));
+  for (const cycle of moveCycles(drafts, "move_local")) {
+    const selected = initialByKey.get([...cycle].sort()[0]!);
+    if (!selected || selected.command !== "move_local") {
+      throw new Error("Planner invariant: local path cycle contains a non-move action.");
+    }
+    stageMove(selected);
   }
   drafts = drafts.flatMap((draft) => {
     const stage = stages.get(draft.key);

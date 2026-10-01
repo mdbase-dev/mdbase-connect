@@ -122,6 +122,27 @@ describe("hosted sync vertical slice", () => {
     });
   });
 
+  it("requires a separate move instead of letting a document put overwrite a concurrent rename", async () => {
+    const hosted = authority();
+    hosted.seed([{ record_id: ids.record, path: "original.md", document: "base", frontmatter: {}, body: "base", types: [] }]);
+    hosted.registerReplica({ id: ids.writer, name: "Path-fenced writer", mode: "read_write" });
+    const transport = hosted.transport(ids.writer);
+    const base = (await transport.snapshot((await transport.openSession()).snapshot_id)).records[0]!;
+    await transport.mutate({
+      operation: "move", mutation_id: "concurrent-rename", replica_id: ids.writer, scope_epoch: 1,
+      record_id: ids.record, base_revision: base.revision, path: "renamed.md", created_at: "2026-10-01T00:00:00.000Z"
+    });
+
+    const receipt = await transport.mutate(putMutation({
+      replicaId: ids.writer, recordId: ids.record, path: "original.md", body: "local edit", baseRevision: base.revision
+    }));
+    // Matches both Rust local_sync and hosted direct_execution: put cannot
+    // carry a path transition, even when the content revision still matches.
+    expect(receipt).toMatchObject({ status: "rejected", error: { code: "put_path_mismatch" } });
+    expect(hosted.serialize().records[0]).toMatchObject({ path: "renamed.md", document: "base" });
+    expect(hosted.serialize().changes).toHaveLength(1);
+  });
+
   it("moves one offline Worklog create exactly once to a second client", async () => {
     const hosted = authority(1);
     hosted.registerReplica({ id: ids.writer, name: "Android", mode: "read_write", allowedTypes: ["task"] });
