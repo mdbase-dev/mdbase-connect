@@ -21,7 +21,7 @@ import {
   validateSnapshotResources,
   type MirrorRecordPathPolicy
 } from "./mirror-path-policy.js";
-import { assertNoPhysicalPathAliases } from "./mirror-physical-path.js";
+import { assertNoPhysicalObjectAliases, assertNoPhysicalPathAliases, physicalMirrorPathKey } from "./mirror-physical-path.js";
 import { loadMirrorSnapshot, type LoadedMirrorSnapshot } from "./sync-snapshot-loader.js";
 import type {
   DurableSyncPayloads,
@@ -243,20 +243,20 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
     const binary = new Map<string, { size: number; content_digest: `sha256:${string}` }>();
     const issues: InspectionIssue[] = [];
     const priorRecordsByPath = new Map(
-      Object.entries(state?.records ?? {}).map(([identity, entry]) => [entry.path, [identity, entry] as const])
+      Object.entries(state?.records ?? {}).map(([identity, entry]) => [physicalMirrorPathKey(entry.path), [identity, entry] as const])
     );
     const recordConflictsByPath = new Map(
       Object.entries(state?.planned_conflicts ?? {})
         .filter(([, conflict]) => conflict.entity === "record" && conflict.local.state === "exact")
         .map(([identity, conflict]) => [
-          conflict.local.state === "exact" ? conflict.local.object.path : "",
+          conflict.local.state === "exact" ? physicalMirrorPathKey(conflict.local.object.path) : "",
           identity
         ])
     );
     const recordBindingsByPath = new Map(
       Object.entries(state?.local_bindings ?? {})
         .filter(([, binding]) => binding.entity === "record")
-        .map(([identity, binding]) => [binding.path, identity])
+        .map(([identity, binding]) => [physicalMirrorPathKey(binding.path), identity])
     );
     const resourcePaths = new Set([
       ...Object.keys(state?.resources ?? {}),
@@ -303,15 +303,16 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       }
     }
 
-    const managedRecordPaths = new Set(Object.values(state?.records ?? {}).map((entry) => entry.path));
+    const managedRecordPaths = new Set(Object.values(state?.records ?? {}).map((entry) => physicalMirrorPathKey(entry.path)));
     const recordPaths = filterRecordPaths(
       await this.fileSystem.listMarkdown(resourcePaths),
       pathPolicy
-    ).filter((path) => pathSelected(this.selectiveSync, path) || managedRecordPaths.has(path));
+    ).filter((path) => pathSelected(this.selectiveSync, path) || managedRecordPaths.has(physicalMirrorPathKey(path)));
     for (const path of recordPaths) {
-      const conflictIdentity = recordConflictsByPath.get(path);
-      const boundIdentity = recordBindingsByPath.get(path);
-      const priorRecord = priorRecordsByPath.get(path);
+      const pathKey = physicalMirrorPathKey(path);
+      const conflictIdentity = recordConflictsByPath.get(pathKey);
+      const boundIdentity = recordBindingsByPath.get(pathKey);
+      const priorRecord = priorRecordsByPath.get(pathKey);
       const priorIdentity = priorRecord?.[0];
       const identity = conflictIdentity ?? boundIdentity ?? priorIdentity ?? "";
       let read;
@@ -358,31 +359,32 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       if (!this.fileSystem.listBinary) {
         throw new SyncError("file_storage_unavailable", "Selected files require binary enumeration.");
       }
-      const managedFilePaths = new Set(Object.values(state?.files ?? {}).map((entry) => entry.file.path));
+      const managedFilePaths = new Set(Object.values(state?.files ?? {}).map((entry) => physicalMirrorPathKey(entry.file.path)));
       const priorFilesByPath = new Map(
-        Object.entries(state?.files ?? {}).map(([identity, entry]) => [entry.file.path, [identity, entry] as const])
+        Object.entries(state?.files ?? {}).map(([identity, entry]) => [physicalMirrorPathKey(entry.file.path), [identity, entry] as const])
       );
       const fileConflictsByPath = new Map(
         Object.entries(state?.planned_conflicts ?? {})
           .filter(([, conflict]) => conflict.entity === "file" && conflict.local.state === "exact")
           .map(([identity, conflict]) => [
-            conflict.local.state === "exact" ? conflict.local.object.path : "",
+            conflict.local.state === "exact" ? physicalMirrorPathKey(conflict.local.object.path) : "",
             identity
           ])
       );
       const fileBindingsByPath = new Map(
         Object.entries(state?.local_bindings ?? {})
           .filter(([, binding]) => binding.entity === "file")
-          .map(([identity, binding]) => [binding.path, identity])
+          .map(([identity, binding]) => [physicalMirrorPathKey(binding.path), identity])
       );
       const paths = (await this.fileSystem.listBinary(resourcePaths))
-        .filter((path) => pathFileSelected(this.selectiveSync, path) || managedFilePaths.has(path));
+        .filter((path) => pathFileSelected(this.selectiveSync, path) || managedFilePaths.has(physicalMirrorPathKey(path)));
       for (const path of paths) {
         const info = await this.fileSystem.inspectBinary(path);
         if (!info) continue;
-        const conflictIdentity = fileConflictsByPath.get(path);
-        const boundIdentity = fileBindingsByPath.get(path);
-        const prior = priorFilesByPath.get(path);
+        const pathKey = physicalMirrorPathKey(path);
+        const conflictIdentity = fileConflictsByPath.get(pathKey);
+        const boundIdentity = fileBindingsByPath.get(pathKey);
+        const prior = priorFilesByPath.get(pathKey);
         const identity = conflictIdentity ?? boundIdentity ?? prior?.[0] ?? "";
         observations.push({
           stable_identity: identity !== "",
@@ -467,10 +469,8 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       }
     }
     try {
-      assertNoPhysicalPathAliases([
-        ...remoteRefs.map((ref) => ref.path),
-        ...local.observations.map(({ object }) => object.path)
-      ]);
+      assertNoPhysicalObjectAliases(objects.flatMap((object) => [object.local, object.remote]
+        .flatMap((state) => state.state === "exact" ? [state.object] : [])));
     } catch (error) {
       const value = asError(error);
       issues.push({

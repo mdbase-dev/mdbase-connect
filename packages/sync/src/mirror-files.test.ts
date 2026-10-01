@@ -19,6 +19,7 @@ import type {
 import { describe, expect, it } from "vitest";
 import { documentRevision } from "./mirror-format.js";
 import { pathSelected } from "./mirror-files.js";
+import { physicalMirrorPathKey } from "./mirror-physical-path.js";
 import {
   DirectoryMirror,
   MemoryMirrorBlobStore,
@@ -554,6 +555,42 @@ describe("portable collection file mirror", () => {
 
     expect(pathSelected(policy, "PRIVAT\u0065\u0301/photo.png")).toBe(false);
     expect(pathSelected(policy, "Privat\u00e9 2/photo.png")).toBe(true);
+  });
+
+  it.each(["local", "remote"])("stages file spelling renames from %s on insensitive filesystems", async (direction) => {
+    class InsensitiveFileSystem extends BinaryFileSystem {
+      private actual(path: string) {
+        return [...this.files.keys()].find((candidate) => physicalMirrorPathKey(candidate) === physicalMirrorPathKey(path)) ?? path;
+      }
+      override async exists(path: string) { return this.files.has(this.actual(path)); }
+      override async read(path: string) { return super.read(this.actual(path)); }
+      override async inspectBinary(path: string) { return super.inspectBinary(this.actual(path)); }
+    }
+    const transport = new FileTransport();
+    const bytes = utf8.encode("image bytes");
+    const descriptor = file("00000000-0000-4000-8000-000000000038", "images/café.png", bytes);
+    const renamed = "Images/cafe\u0301.png";
+    transport.files = [descriptor];
+    transport.bytes.set(descriptor.file_id, bytes);
+    const { mirror: target, fileSystem, stateStore } = writableMirror(transport, new InsensitiveFileSystem());
+    await target.sync();
+    if (direction === "local") {
+      fileSystem.files.delete(descriptor.path);
+      fileSystem.files.set(renamed, utf8.encode("replacement with spelling rename"));
+    } else {
+      await transport.moveFile({
+        protocol_version: 1, type: "move_file", mutation_id: "00000000-0000-4000-8000-000000000039",
+        file_id: descriptor.file_id, from_path: descriptor.path, path: renamed,
+        if_revision: descriptor.revision, update_references: false
+      });
+    }
+    expect((await target.sync()).status).toBe("applied");
+    expect((await target.sync()).status).toBe("applied");
+    expect((await target.inspect()).actions).toEqual([]);
+    expect([...fileSystem.files.keys()]).toEqual([renamed]);
+    expect(Object.keys((await stateStore.read())!.files!)).toEqual([descriptor.file_id]);
+    expect(transport.files).toHaveLength(1);
+    expect(transport.files[0]?.path).toBe(renamed);
   });
 
   it("reconciles policy changes without deleting authority data", async () => {

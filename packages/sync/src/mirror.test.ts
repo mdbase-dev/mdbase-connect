@@ -4,6 +4,7 @@ import { MemoryAuthority, type SyncTransport } from "./index.js";
 import { classifyLocalRecord, documentRevision, parseRecordDocument } from "./mirror-format.js";
 import { SyncError } from "./sync-error.js";
 import type { SyncJournalEvent } from "./sync-journal.js";
+import { physicalMirrorPathKey } from "./mirror-physical-path.js";
 import {
   DirectoryMirror,
   MemoryMirrorLease,
@@ -118,6 +119,30 @@ class ConditionalFileSystem extends TestFileSystem {
     if (this.folders.has(path)) return "folder";
     return this.files.has(path) || this.rawFiles.has(path) ? "file" : null;
   }
+}
+
+class CaseInsensitiveFileSystem extends TestFileSystem {
+  private actualPath(path: string) {
+    return [...this.files.keys()].find((candidate) => physicalMirrorPathKey(candidate) === physicalMirrorPathKey(path));
+  }
+  override async exists(path: string) { return this.actualPath(path) !== undefined; }
+  override async read(path: string) { return this.files.get(this.actualPath(path) ?? path) ?? null; }
+  override async readText(path: string) { return this.read(path); }
+  override async write(path: string, value: string, expected?: string | null) {
+    if (expected !== undefined && await this.read(path) !== expected) throw new SyncError("sync_plan_stale", "Changed write target");
+    const existing = this.actualPath(path);
+    if (existing) this.files.delete(existing);
+    this.files.set(path, value);
+  }
+  override async move(source: string, target: string) {
+    const actual = this.actualPath(source);
+    if (!actual) throw new Error("missing case-insensitive source");
+    if (this.actualPath(target)) throw new Error("case-insensitive target already exists");
+    const document = this.files.get(actual)!;
+    this.files.delete(actual);
+    this.files.set(target, document);
+  }
+  override async remove(path: string) { this.files.delete(this.actualPath(path) ?? path); }
 }
 
 class CountingStateStore extends MemoryMirrorStateStore {
@@ -349,6 +374,71 @@ describe("platform-neutral directory mirror", () => {
 
     await expect(mirror.apply(reviewed)).rejects.toMatchObject({
       code: "mirror_recovery_required"
+    });
+  });
+
+  it.each([
+    ["notes/original.md", "Notes/Original.md", "local"],
+    ["notes/original.md", "Notes/Original.md", "remote"],
+    ["notes/café.md", "notes/cafe\u0301.md", "local"],
+    ["notes/café.md", "notes/cafe\u0301.md", "remote"]
+  ])("converges a portable spelling rename %s -> %s from %s", async (source, target, direction) => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{ ...records(1)[0]!, path: source! }]);
+    const replicaId = hosted.registerReplica({ name: "Portable rename mirror", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new CaseInsensitiveFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+    await mirror.sync();
+    const prior = (await stateStore.read())!.records["portable-0"]!;
+    const edited = `${records(1)[0]!.document}\nedit with rename`;
+    if (direction === "local") {
+      fileSystem.files.delete(source!);
+      fileSystem.files.set(target!, edited);
+    } else {
+      expect((await transport.mutate({
+        operation: "move", mutation_id: "portable-rename", replica_id: replicaId, scope_epoch: 1,
+        record_id: "portable-0", base_revision: prior.revision, path: target!,
+        created_at: "2026-10-01T00:00:00.000Z"
+      })).status).toBe("applied");
+    }
+
+    expect((await mirror.sync()).status).toBe("applied");
+    expect((await mirror.sync()).status).toBe("applied");
+    expect((await mirror.inspect()).actions).toEqual([]);
+    expect([...fileSystem.files.keys()]).toEqual([target]);
+    expect(fileSystem.files.get(target!)).toBe(direction === "local" ? edited : prior.record!.document);
+    expect(hosted.serialize().records).toHaveLength(1);
+    expect((await stateStore.read())!.records["portable-0"]!.path).toBe(target);
+  });
+
+  it("keeps a deleted record's conflict identity when its local spelling changes", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Conflicted spelling mirror", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new CaseInsensitiveFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+    await mirror.sync();
+    const original = (await stateStore.read())!.records["portable-0"]!;
+    fileSystem.files.set(original.path, "local conflicted edit");
+    await transport.mutate({
+      operation: "delete", mutation_id: "delete-then-spelling", replica_id: replicaId, scope_epoch: 1,
+      record_id: "portable-0", base_revision: original.revision, created_at: "2026-10-01T00:00:00.000Z"
+    });
+    expect((await mirror.sync()).status).toBe("attention");
+    const renamed = "Notes/00000.md";
+    fileSystem.files.delete(original.path);
+    fileSystem.files.set(renamed, "newer edit with spelling change");
+
+    expect((await mirror.sync()).status).toBe("attention");
+    expect(hosted.serialize().records).toEqual([]);
+    const state = (await stateStore.read())!;
+    expect(Object.keys(state.planned_conflicts!)).toEqual(["portable-0"]);
+    expect(state.planned_conflicts!["portable-0"]).toMatchObject({
+      local: { object: { path: renamed } }, ancestor_document: original.record!.document
     });
   });
 
@@ -1253,11 +1343,10 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
-  it("rejects exact, cross-platform, and same-record spelling aliases", async () => {
+  it("rejects exact and cross-platform aliases between different record owners", async () => {
     for (const { path, recordId } of [
       { path: "Notes/Example.md", recordId: "second" },
-      { path: "notes/example.md", recordId: "second" },
-      { path: "notes/example.md", recordId: "first" }
+      { path: "notes/example.md", recordId: "second" }
     ]) {
       const hosted = new MemoryAuthority();
       hosted.seed([{
@@ -1317,7 +1406,7 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
-  it("rejects a same-record spelling alias during reset rebuild", async () => {
+  it("stages a same-record spelling rename during reset rebuild", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed([{
       record_id: "first",
@@ -1371,12 +1460,9 @@ describe("platform-neutral directory mirror", () => {
     });
     forceReset = true;
 
-    await expect(mirror.sync()).resolves.toMatchObject({
-      status: "attention",
-      issues: [{ code: "invalid_record_path", blocking: true }]
-    });
-    expect(fileSystem.files.get("Notes/Example.md")).toBe("Stable bytes");
-    expect(fileSystem.files.has("notes/example.md")).toBe(false);
+    await expect(mirror.sync()).resolves.toMatchObject({ status: "applied", issues: [] });
+    expect(fileSystem.files.get("notes/example.md")).toBe("Stable bytes");
+    expect(fileSystem.files.has("Notes/Example.md")).toBe(false);
   });
 
   it("preflights a complete incremental page before writing aliased records", async () => {

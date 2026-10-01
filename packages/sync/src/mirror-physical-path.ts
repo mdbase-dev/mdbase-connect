@@ -5,6 +5,7 @@ import type {
 import { SyncError } from "./sync-error.js";
 import { assertRecordSyncChanges } from "./record-sync-change.js";
 import type { MirrorState } from "./mirror-state.js";
+import type { SyncObjectRef } from "./sync-model.js";
 import {
   portableMirrorPathKey,
   portableMirrorPathKeyForValidatedPath
@@ -90,12 +91,31 @@ export function assertNoPhysicalPathAliases(paths: Iterable<string>): void {
     const physicalPath = physicalMirrorPathKey(path);
     const existing = physicalPaths.get(physicalPath);
     if (existing !== undefined && existing !== path) {
+      const [first, second] = [existing, path].sort();
       throw new SyncError(
         "invalid_record_path",
-        `Mirror paths ${existing} and ${path} alias on a supported filesystem.`
+        `Mirror paths ${first} and ${second} alias on a supported filesystem.`
       );
     }
     physicalPaths.set(physicalPath, path);
+  }
+}
+
+/** Across replicas, two spellings of one stable object are a rename, not a collision. */
+export function assertNoPhysicalObjectAliases(objects: Iterable<SyncObjectRef>): void {
+  const physicalPaths = new Map<string, SyncObjectRef>();
+  for (const object of objects) {
+    const key = physicalMirrorPathKey(object.path);
+    const existing = physicalPaths.get(key);
+    if (existing && existing.path !== object.path
+      && (existing.entity !== object.entity || existing.identity !== object.identity)) {
+      const [first, second] = [existing.path, object.path].sort();
+      throw new SyncError(
+        "invalid_record_path",
+        `Mirror paths ${first} and ${second} alias on a supported filesystem.`
+      );
+    }
+    physicalPaths.set(key, object);
   }
 }
 

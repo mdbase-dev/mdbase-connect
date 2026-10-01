@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MemoryAuthority, type SyncTransport } from "./index.js";
 import { SyncError } from "./sync-error.js";
+import { physicalMirrorPathKey } from "./mirror-physical-path.js";
 import {
   MemoryMirrorStateStore,
   WritableDirectoryMirror,
@@ -10,17 +11,24 @@ import {
 
 class TextFileSystem implements MirrorFileSystem {
   readonly files = new Map<string, string>();
-  async exists(path: string) { return this.files.has(path); }
-  async read(path: string) { return this.files.get(path) ?? null; }
+  constructor(private readonly insensitive = false) {}
+  private actualPath(path: string) {
+    return this.insensitive ? [...this.files.keys()].find((candidate) =>
+      physicalMirrorPathKey(candidate) === physicalMirrorPathKey(path)) ?? path : path;
+  }
+  async exists(path: string) { return this.files.has(this.actualPath(path)); }
+  async read(path: string) { return this.files.get(this.actualPath(path)) ?? null; }
   async readText(path: string) { return this.read(path); }
   async write(path: string, document: string) { this.files.set(path, document); }
   async move(source: string, target: string) {
+    source = this.actualPath(source);
+    if (this.files.has(this.actualPath(target))) throw new Error("occupied move target");
     const document = this.files.get(source);
     if (document === undefined) throw new Error(`Missing source ${source}`);
     this.files.set(target, document);
     this.files.delete(source);
   }
-  async remove(path: string) { this.files.delete(path); }
+  async remove(path: string) { this.files.delete(this.actualPath(path)); }
   async inspectBinary() { return null; }
   async writeBinary(): Promise<void> { throw new Error("unused binary write"); }
   async listMarkdown(excluded: ReadonlySet<string>) {
@@ -64,12 +72,12 @@ const seeds = ["a", "b", "c", "d"].map((id) => ({
   frontmatter: {}, body: `base ${id}`, types: []
 }));
 
-async function fixture(initial: boolean, swap = false) {
+async function fixture(initial: boolean, swap = false, spelling = false) {
   const authority = new MemoryAuthority({ snapshotPageSize: 1 });
   authority.seed(seeds);
   const replicaId = authority.registerReplica({ name: "Fault injection", mode: "read_write" });
   const transport = authority.transport(replicaId);
-  const fileSystem = new TextFileSystem();
+  const fileSystem = new TextFileSystem(spelling);
   const stateStore = new MemoryMirrorStateStore();
   const create = (gate?: CrashGate) => new WritableDirectoryMirror(replicaId,
     gate ? gate.wrap("transport", transport) : transport, {
@@ -79,6 +87,16 @@ async function fixture(initial: boolean, swap = false) {
   const expected = new Map(seeds.map((record) => [record.path, record.document]));
   if (!initial) {
     await create().sync();
+    if (spelling) {
+      await transport.mutate({
+        operation: "move", mutation_id: "spelling-rename", replica_id: replicaId, scope_epoch: 1,
+        record_id: "a", base_revision: (await stateStore.read())!.records.a!.revision, path: "A.md",
+        created_at: "2026-10-01T00:00:00.000Z"
+      });
+      expected.delete("a.md");
+      expected.set("A.md", "base a");
+      return { authority, transport, fileSystem, stateStore, create, expected };
+    }
     if (swap) {
       const initialRecords = (await stateStore.read())!.records;
       for (const [id, path] of [["a", "temporary.md"], ["b", "a.md"], ["a", "b.md"]]) {
@@ -159,17 +177,18 @@ describe("directory mirror process-death boundaries", () => {
     await assertConverged(context);
   });
 
-  it.each(["initial", "incremental", "swap"])("converges after every await before/after boundary (%s)", async (scenario) => {
+  it.each(["initial", "incremental", "swap", "spelling"])("converges after every await before/after boundary (%s)", async (scenario) => {
     const initial = scenario === "initial";
     const swap = scenario === "swap";
-    const baseline = await fixture(initial, swap);
+    const spelling = scenario === "spelling";
+    const baseline = await fixture(initial, swap, spelling);
     const trace = new CrashGate();
     expect((await baseline.create(trace).sync()).status).toBe("applied");
     expect(trace.trace).toContain("state.write:before");
     expect(trace.trace).toContain("state.appendJournal:after");
 
     for (let cut = 0; cut < trace.trace.length; cut += 1) {
-      const context = await fixture(initial, swap);
+      const context = await fixture(initial, swap, spelling);
       const planned = await context.create().inspect();
       const prior: MirrorState | null = await context.stateStore.read();
       const gate = new CrashGate(cut);
