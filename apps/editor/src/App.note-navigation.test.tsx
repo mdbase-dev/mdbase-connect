@@ -59,7 +59,15 @@ describe("note navigation ownership and recovery", () => {
       await gate.promise;
       return description;
     });
-    const read = vi.spyOn(gateway, "read");
+    const record = await gateway.read(path);
+    const read = vi.spyOn(gateway, "read").mockResolvedValue({
+      ...record,
+      types: ["note"],
+      frontmatter: { title: "Frontmatter title" },
+      effectiveFrontmatter: { title: "Frontmatter title" },
+      body: "No Markdown heading\n",
+      document: "---\ntitle: Frontmatter title\n---\nNo Markdown heading\n"
+    });
     localStorage.setItem("mdbase-editor:last-note", path);
     render(<App gateway={gateway} />);
 
@@ -67,7 +75,8 @@ describe("note navigation ownership and recovery", () => {
     expect(screen.getByLabelText("Opening collection")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Note title" })).not.toBeInTheDocument();
     await act(async () => gate.resolve());
-    await screen.findByDisplayValue("The shape of useful tools");
+    await screen.findByDisplayValue("Frontmatter title");
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("No Markdown heading\n");
     expect(read).toHaveBeenCalledTimes(1);
   });
 
