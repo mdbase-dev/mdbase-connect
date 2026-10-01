@@ -29,6 +29,12 @@ export async function advanceSyncCheckpoint(
   const fingerprint = batch.plan.fingerprint;
   state.generation = action.next.generation;
   state.cursor = action.next.cursor ?? 0;
+  // A scoped obstruction holds the checkpoint. Publishing the new scope or
+  // selection then would lose snapshot-only objects that were not installed.
+  if (action.next.generation !== action.expected.generation) {
+    state.scope_epoch = batch.plan.scope_epoch;
+    state.selective_sync = batch.plan.selective_sync;
+  }
   state.last_completed_plan = fingerprint;
   state.last_synced_at = runtime.now();
   delete state.batch;

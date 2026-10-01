@@ -1158,6 +1158,38 @@ describe("platform-neutral directory mirror", () => {
     });
   });
 
+  it("does not publish a partially rebuilt scope and forget blocked newly visible records", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([...records(2), {
+      record_id: "newly-visible", path: "newly-visible.md", document: "---\ntype: private\n---\nprivate body",
+      frontmatter: { type: "private" }, body: "private body", types: ["private"]
+    }]);
+    const replicaId = hosted.registerReplica({ name: "Expanding scope mirror", mode: "read_write", allowedTypes: ["note"] });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new ConditionalFileSystem();
+    fileSystem.folders.add("newly-visible.md");
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+    await mirror.sync();
+    const prior = (await stateStore.read())!;
+    await transport.mutate({
+      operation: "put", mutation_id: "scope-independent-edit", replica_id: replicaId, scope_epoch: 1,
+      record_id: "portable-1", base_revision: prior.records["portable-1"]!.revision,
+      path: "notes/00001.md", document: `${records(2)[1]!.document}\nindependent edit`,
+      created_at: "2026-10-01T00:00:00.000Z"
+    });
+    hosted.updateReplicaScope(replicaId, []);
+
+    expect((await mirror.sync()).status).toBe("attention");
+    expect(fileSystem.files.get("notes/00001.md")).toContain("independent edit");
+    expect((await stateStore.read())?.scope_epoch).toBe(1);
+    fileSystem.folders.delete("newly-visible.md");
+    expect((await mirror.sync()).status).toBe("applied");
+    expect(fileSystem.files.get("newly-visible.md")).toContain("private body");
+    expect((await stateStore.read())?.scope_epoch).toBe(2);
+    expect((await mirror.inspect()).actions).toEqual([]);
+  });
+
   it("publishes a new scope epoch even when rebuilding requires no effects", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(1));

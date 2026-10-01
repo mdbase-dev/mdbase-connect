@@ -646,6 +646,51 @@ describe("portable collection file mirror", () => {
     expect(text.decode(fileSystem.files.get("Archive/note.md"))).toBe("archived");
   });
 
+  it("keeps the old selection until blocked snapshot-only records can be installed", async () => {
+    const transport = new FileTransport();
+    const archived = record("archived", "Archive/new.md", "newly selected record");
+    transport.records = [record("main", "main.md", "main base"), archived];
+    class ObstructedFileSystem extends BinaryFileSystem {
+      blocked = true;
+      async pathKind(path: string): Promise<"file" | "folder" | null> {
+        if (this.blocked && path === archived.path) return "folder";
+        return this.files.has(path) ? "file" : null;
+      }
+    }
+    const fileSystem = new ObstructedFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const oldPolicy = { file_classes: ["image" as const], excluded_folders: ["Archive"] };
+    const newPolicy = { file_classes: ["image" as const], excluded_folders: [] as string[] };
+    await mirror(transport, fileSystem, stateStore, oldPolicy).mirror.sync();
+    const updated = record("main", "main.md", "independent remote edit");
+    transport.records = [updated, archived];
+    transport.events = [{ sequence: 1, type: "put", record: updated as SyncRecord }];
+    const target = mirror(transport, fileSystem, stateStore, newPolicy).mirror;
+
+    expect((await target.sync()).status).toBe("attention");
+    expect(text.decode(fileSystem.files.get("main.md"))).toBe("independent remote edit");
+    expect((await stateStore.read())?.selective_sync).toEqual(oldPolicy);
+    fileSystem.blocked = false;
+    expect((await target.sync()).status).toBe("applied");
+    expect(text.decode(fileSystem.files.get(archived.path))).toBe(archived.document);
+    expect((await stateStore.read())?.selective_sync).toEqual(newPolicy);
+    expect((await target.inspect()).actions).toEqual([]);
+  });
+
+  it("effectless selection changes are checkpointed once, not rebuilt forever", async () => {
+    const transport = new FileTransport();
+    transport.records = [record("main", "main.md", "main")];
+    const fileSystem = new BinaryFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    await mirror(transport, fileSystem, stateStore, { file_classes: [], excluded_folders: [] }).mirror.sync();
+    const policy = { file_classes: ["image" as const], excluded_folders: [] as string[] };
+    const target = mirror(transport, fileSystem, stateStore, policy).mirror;
+
+    expect((await target.sync()).status).toBe("applied");
+    expect((await stateStore.read())?.selective_sync).toEqual(policy);
+    expect((await target.inspect()).kind).toBe("incremental");
+  });
+
   it("rebuilds an updated file over its last verified projection", async () => {
     const transport = new FileTransport();
     const first = utf8.encode("first version");
