@@ -121,6 +121,7 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .path { display: block; max-width: 100%; margin: 5px 0 0; padding: 0; overflow: hidden; border: 0; color: var(--muted); background: transparent; font-family: var(--mono); font-size: var(--type-action); text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .path:hover { color: var(--ink); }
 .collection-status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--type-supporting); }
+.collection-status-stack { display: grid; gap: 6px; }
 .collection-editor { border-top: 1px solid var(--line); }
 .collection-editor-form { display: grid; }
 .collection-editor-section { display: grid; grid-template-columns: minmax(170px, 0.38fr) minmax(0, 1fr); gap: 28px; padding: 16px 0; border-bottom: 1px solid var(--line); }

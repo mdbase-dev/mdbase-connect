@@ -579,13 +579,18 @@ function HostedCollectionRow({
                 : `Main copy hosted by mdbase · ${activeReplicas.length} synced ${plural(activeReplicas.length, "folder", "folders")}`}
           </span>
         </div>
-        <div className="collection-status">
-          <StatusDot state={collection.authority_state === "active" ? "connected" : "idle"} />
-          {collection.authority_state === "active"
-            ? "Available"
-            : collection.authority_state === "transferred"
-              ? "Moved"
-              : "Moving"}
+        <div className="collection-status-stack">
+          <div className="collection-status">
+            <StatusDot state={collection.authority_state === "active" ? "connected" : "idle"} />
+            {collection.authority_state === "active"
+              ? "Available"
+              : collection.authority_state === "transferred"
+                ? "Moved"
+                : "Moving"}
+          </div>
+          {mirror && collection.authority_state !== "transferred" && <div className="collection-status" role="status">
+            <StatusDot state={state.dot} />{state.label}
+          </div>}
         </div>
         <div className="row-actions">
           {editorCollectionId && <button
@@ -666,8 +671,8 @@ function HostedCollectionRow({
               </details>
               <div className="mirror-actions">
                 <button className="quiet-action" disabled={busy || mirror.syncing} onClick={() => void onAct(async () => {
-                  await window.mdbaseConnect.syncMirror(mirror.replica_id);
-                  onNotice(`${collection.display_name} is synchronized.`);
+                  const result = await window.mdbaseConnect.syncMirror(mirror.replica_id);
+                  onNotice(`${collection.display_name}: ${mirrorState(result).label}.`);
                 })}>{mirror.syncing ? "Synchronizing…" : "Sync now"}</button>
                 <button className="quiet-action" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openMirror(mirror.replica_id))}>Open folder</button>
                 <button className="quiet-action danger" disabled={busy} onClick={() => {
