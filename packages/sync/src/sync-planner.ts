@@ -339,23 +339,9 @@ function orderRemotePathTransitions(
     }
   }
   const vacaters = remoteVacaters(drafts);
-  const draftsByKey = new Map(drafts.map((draft) => [draft.key, draft]));
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const draft of drafts) {
-      if (draft.command !== "move_remote") continue;
-      const owner = draft.expected_target_owner;
-      if (owner.state !== "exact" || owner.object.identity === draft.source.identity) continue;
-      const vacater = draftsByKey.get(vacaters.get(ownerKey(owner.object)) ?? "");
-      const vacaterIdentity = vacater && remoteEffectIdentity(vacater);
-      if ((!vacater || (vacaterIdentity && blocked.has(vacaterIdentity)))
-        && !blocked.has(draft.source.identity)) {
-        blocked.add(draft.source.identity);
-        changed = true;
-      }
-    }
-  }
+  blockUnvacatedTargets(drafts, vacaters, blocked,
+    (draft) => draft.command === "move_remote" ? draft.expected_target_owner : undefined,
+    remoteEffectIdentity);
   if (blocked.size > 0) {
     drafts = drafts.filter((draft) => {
       const identity = remoteEffectIdentity(draft);
@@ -500,23 +486,7 @@ function orderLocalPathTransitions(
   const vacaters = localVacaters(drafts);
   const objectsByIdentity = new Map(objects.map((object) => [object.identity, object]));
   const blocked = new Set<string>();
-  const draftsByKey = new Map(drafts.map((draft) => [draft.key, draft]));
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const draft of drafts) {
-      const expected = localTargetOwner(draft);
-      const subject = localTargetIdentity(draft);
-      if (expected?.state !== "exact" || expected.object.identity === subject) continue;
-      const vacater = draftsByKey.get(vacaters.get(ownerKey(expected.object)) ?? "");
-      const vacaterIdentity = vacater && localTargetIdentity(vacater);
-      if ((!vacater || (vacaterIdentity && blocked.has(vacaterIdentity)))
-        && !blocked.has(subject)) {
-        blocked.add(subject);
-        changed = true;
-      }
-    }
-  }
+  blockUnvacatedTargets(drafts, vacaters, blocked, localTargetOwner, localTargetIdentity);
   if (blocked.size > 0) {
     drafts = drafts.filter((draft) =>
       !blocked.has(localTargetIdentity(draft))
@@ -580,6 +550,39 @@ function localTargetIdentity(draft: ActionDraft): string {
   if (draft.command === "write_local") return draft.target.identity;
   if (draft.command === "delete_local") return draft.target.identity;
   return "";
+}
+
+function blockUnvacatedTargets(
+  drafts: readonly ActionDraft[],
+  vacaters: ReadonlyMap<string, string>,
+  blocked: Set<string>,
+  targetOwner: (draft: ActionDraft) => ExpectedObjectState | undefined,
+  effectIdentity: (draft: ActionDraft) => string | undefined
+): void {
+  const byKey = new Map(drafts.map((draft) => [draft.key, draft]));
+  const dependents = new Map<string, Set<string>>();
+  for (const draft of drafts) {
+    const owner = targetOwner(draft);
+    const subject = effectIdentity(draft);
+    if (!subject || owner?.state !== "exact" || owner.object.identity === subject) continue;
+    const vacater = byKey.get(vacaters.get(ownerKey(owner.object)) ?? "");
+    if (!vacater) {
+      blocked.add(subject);
+      continue;
+    }
+    const dependency = effectIdentity(vacater);
+    if (!dependency) continue;
+    if (!dependents.has(dependency)) dependents.set(dependency, new Set());
+    dependents.get(dependency)!.add(subject);
+  }
+  const queue = [...blocked];
+  for (let index = 0; index < queue.length; index += 1) {
+    for (const identity of dependents.get(queue[index]!) ?? []) {
+      if (blocked.has(identity)) continue;
+      blocked.add(identity);
+      queue.push(identity);
+    }
+  }
 }
 
 function ownerKey(object: SyncObjectRef): string {

@@ -148,6 +148,30 @@ describe("pure exact-document planner", () => {
     expect(ownerReads).toBeLessThan(count * 100);
   }, 30_000);
 
+  it.each([[1_000, "local"], [50_000, "local"], [1_000, "remote"], [50_000, "remote"]] as const)(
+    "propagates an obstruction through a %i-node %s chain once", (count, direction) => {
+    let ownerReads = 0;
+    const base = Array.from({ length: count + 1 }, (_, index) => {
+      const object = ref(`id-${String(index).padStart(5, "0")}`, `old/${index}.md`, `body-${index}`);
+      return { ...object, get identity() { ownerReads += 1; return object.identity; } };
+    });
+    const objects = base.map((object, index) => {
+      if (index === count) return inspected(object.identity, exact(object), exact(object), exact(object));
+      const moved = exact({ ...object, path: `old/${index + 1}.md` });
+      return {
+        ...inspected(object.identity, exact(object), direction === "local" ? exact(object) : moved,
+          direction === "local" ? moved : exact(object)),
+        ...(direction === "local" ? { local_target_owner: exact(base[index + 1]!) }
+          : { remote_target_owner: exact(base[index + 1]!) })
+      };
+    });
+    ownerReads = 0;
+    const plan = planReconciliation(summary(objects), digest);
+    expect(plan.summary.conflicts).toBe(count);
+    expect(plan.actions.every((action) => action.command === "record_conflict" || action.command === "advance_checkpoint")).toBe(true);
+    expect(ownerReads).toBeLessThan(count * 100);
+  }, 30_000);
+
   it("emits a stable empty plan for an exact incremental inspection", () => {
     const idle = summary([]);
     idle.boundary.authority_cursor = idle.boundary.checkpoint.cursor!;
