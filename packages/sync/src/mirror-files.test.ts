@@ -25,6 +25,7 @@ import {
   MemoryMirrorStateStore,
   WritableDirectoryMirror,
   type MirrorBlobStore,
+  type MirrorBinaryInfo,
   type MirrorFileSystem,
   type MirrorState
 } from "./mirror.js";
@@ -96,7 +97,7 @@ class BinaryFileSystem implements MirrorFileSystem {
       : null;
   }
 
-  async writeBinary(path: string, source: AsyncIterable<Uint8Array>): Promise<void> {
+  async writeBinary(path: string, source: AsyncIterable<Uint8Array>, expected?: MirrorBinaryInfo | null): Promise<void> {
     const chunks: Uint8Array[] = [];
     let size = 0;
     for await (const chunk of source) {
@@ -109,6 +110,13 @@ class BinaryFileSystem implements MirrorFileSystem {
     for (const chunk of chunks) {
       staged.set(chunk, offset);
       offset += chunk.byteLength;
+    }
+    if (expected !== undefined) {
+      const current = await this.inspectBinary(path);
+      if ((current?.size ?? null) !== (expected?.size ?? null)
+        || (current?.content_digest ?? null) !== (expected?.content_digest ?? null)) {
+        throw Object.assign(new Error("destination changed while staging"), { code: "sync_plan_stale" });
+      }
     }
     this.binaryWrites += 1;
     this.files.set(path, staged);
@@ -648,6 +656,43 @@ describe("portable collection file mirror", () => {
     transport.interrupt = false;
     await expect(target.sync()).resolves.toMatchObject({ status: "applied" });
     expect(fileSystem.files.get(descriptor.path)).toEqual(bytes);
+  });
+
+  it("passes the inspected binary version to the adapter's installation fence", async () => {
+    const transport = new FileTransport();
+    const original = utf8.encode("original attachment");
+    const replacement = utf8.encode("remote replacement");
+    const newest = utf8.encode("local edit during stream staging");
+    const descriptor = file("00000000-0000-4000-8000-000000000036", "images/fenced.png", original);
+    transport.files = [descriptor];
+    transport.bytes.set(descriptor.file_id, original);
+    class RacingFileSystem extends BinaryFileSystem {
+      race = false;
+      override async writeBinary(path: string, source: AsyncIterable<Uint8Array>, expected?: MirrorBinaryInfo | null) {
+        const self = this;
+        const raced = (async function* () {
+          yield* source;
+          if (self.race) self.files.set(path, newest);
+        })();
+        await super.writeBinary(path, raced, expected);
+      }
+    }
+    const fileSystem = new RacingFileSystem();
+    const { mirror: target, stateStore } = writableMirror(transport, fileSystem);
+    await target.sync();
+    const updated = file(descriptor.file_id, descriptor.path, replacement, "file:2");
+    transport.files = [updated];
+    transport.bytes.set(descriptor.file_id, replacement);
+    transport.events = [{ sequence: 1, type: "file_put", file: updated }];
+    fileSystem.race = true;
+
+    expect((await target.sync()).status).toBe("stale");
+    expect(fileSystem.files.get(descriptor.path)).toEqual(newest);
+    expect((await stateStore.read())?.cursor).toBe(0);
+    fileSystem.race = false;
+    expect((await target.sync()).status).toBe("attention");
+    expect((await stateStore.read())?.planned_conflicts?.[descriptor.file_id]).toBeDefined();
+    expect(fileSystem.files.get(descriptor.path)).toEqual(newest);
   });
 
   it("does not install corrupt bytes or advance durable state", async () => {
