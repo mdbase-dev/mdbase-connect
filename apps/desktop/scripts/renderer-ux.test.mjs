@@ -166,6 +166,40 @@ test("connection status remains quiet rather than pulsing while reconnecting", a
   } finally { await page.close(); }
 });
 
+test("native consent requires an explicit choice for optional deletion and definition access", async () => {
+  const { page, errors } = await desktop();
+  try {
+    const read = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type"];
+    await page.evaluate((read) => {
+      window.fixture.approvals = [];
+      const request = {
+        id: "native-request", application_name: "Example app", application_distribution: "web", application_homepage: "https://example.test",
+        expires_at: "2099-01-01T00:00:00Z", compatible_collection_ids: ["local-notes"], provisionable_collection_ids: [],
+        requested_operations: [...read, "create", "delete", "create_type", "update_type", "assess_type_pack", "apply_type_pack"],
+        requirements: { contracts: [], capabilities: { contract_version: 2, required: ["collection.read"], optional: ["records.create", "records.delete", "definitions.manage"] } },
+        provisions: { type_packs: [] }, notifications: { criteria: [] }
+      };
+      window.mdbaseConnect.listCollections = async () => [{ id: "local-notes", display_name: "Local notes", path: "/disposable/Local notes", spec_version: "0.3.0", enabled: true, contracts: [] }];
+      window.mdbaseConnect.accessSnapshot = async () => ({ configured: true, online: true, grants: [], pending_authorizations: [request], authority_conflicts: [] });
+      window.mdbaseConnect.approveAuthorization = async (input) => { window.fixture.approvals.push(input); };
+    }, read);
+    await page.clock.runFor(5_000);
+    await page.getByRole("button", { name: /^App access/ }).click();
+    const consent = page.locator(".portal-approval-row");
+    await consent.locator(".request-permission-review > summary").click();
+    const deletion = consent.getByRole("group", { name: /Delete records/ }).getByRole("checkbox");
+    const definitions = consent.getByRole("group", { name: /Manage definitions/ }).getByRole("checkbox");
+    await screenshot(page, "optional-permissions");
+    assert.equal(await deletion.isChecked(), false);
+    assert.equal(await definitions.isChecked(), false);
+    assert.equal(await consent.getByRole("group", { name: /Create records/ }).getByRole("checkbox").isChecked(), true);
+    await deletion.check();
+    await consent.getByRole("button", { name: "Allow Example app" }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixture.approvals), [{ requestId: "native-request", collectionId: "local-notes", operations: [...read, "create", "delete"] }]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 async function beginPairing(page, { expiresIn = 600, firstError } = {}) {
   await page.evaluate(({ expiresIn, firstError }) => {
     window.fixture.pairingBegins = 0;

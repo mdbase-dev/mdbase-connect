@@ -587,8 +587,10 @@ function PortalApprovalRequest({ request, collections, focused, busy, onAct: run
     && request.compatible_collection_ids.includes(collection.id)
     && (!request.collection_id || request.collection_id === collection.id));
   const [collectionId, setCollectionId] = useState(candidates.length === 1 ? candidates[0].id : "");
-  const [operations, setOperations] = useState(request.requested_operations);
   const groups = requestCapabilityGroups(request.requirements, request.requested_operations);
+  const [operations, setOperations] = useState(() => groups.flatMap((group) =>
+    group.required || !group.higherImpact ? group.operations : []
+  ));
   const files = request.requirements.files;
   // Complex setup needs the existing type-mapping/configuration review. Merely
   // appearing in this snapshot never establishes fresh issuance support.
