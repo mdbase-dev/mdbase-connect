@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Re-registering or pairing a connector again clears obsolete cached remote
+  grants and its previous connector identity, instead of leaving the relay
+  permanently disconnected. Local collections, access controls, transfer fences,
+  device identity and recovery evidence are preserved. A mismatched policy now
+  reports an actionable registration error instead of retrying as a transport
+  interruption; a live account change requires a daemon restart.
+- Hosted writes enforce unique values and required links using canonical engine
+  validation. Valid no-op updates return the stored record and a replayable
+  receipt instead of failing. The engine update rebuilds hosted projections and
+  provider migration 0045 adds the targeted uniqueness-key index.
+- Concurrent upload finalizations use separate destination objects, so a delayed
+  copy cannot overwrite content another attempt verified and published. Object
+  cleanup is durably queued with publication.
+- Hosted imports preserve their exact local source authority during inventory
+  refreshes and resume durable transfers safely. Server migration 0036 narrowly
+  repairs historical source demotions without clearing local transfer fences.
+
 - Approving an application no longer re-reads the whole local collection.
   Activation and account-driven setup finished with a full runtime
   synchronization that parses every record; setup is a runtime mutation, so
