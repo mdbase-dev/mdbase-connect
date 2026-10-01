@@ -973,6 +973,57 @@ describe("platform-neutral directory mirror", () => {
       expect(hosted.serialize().changes).toHaveLength(1);
     });
 
+  it.each(["record_not_found", "scope_denied", "schema_validation_failed"])(
+    "classifies rejected %s receipts without disguising permission/rule failures", async (code) => {
+      const hosted = new MemoryAuthority();
+      hosted.seed(records(1));
+      const replicaId = hosted.registerReplica({ name: "Hosted rejection mirror", mode: "read_write" });
+      const transport = hosted.transport(replicaId);
+      const fileSystem = new TestFileSystem();
+      const stateStore = new MemoryMirrorStateStore();
+      let race = true;
+      const mirror = new WritableDirectoryMirror(replicaId, {
+        ...transport,
+        mutate: async (mutation) => {
+          if (race) {
+            race = false;
+            if (code === "record_not_found") {
+              await transport.mutate({
+                operation: "delete", mutation_id: "committed-hosted-delete", replica_id: replicaId, scope_epoch: 1,
+                record_id: "portable-0", base_revision: mutation.operation === "put" ? mutation.base_revision! : "",
+                created_at: "2026-10-01T00:00:00.000Z"
+              });
+            }
+            return { mutation_id: mutation.mutation_id, status: "rejected", error: { code, message: code } };
+          }
+          return transport.mutate(mutation);
+        }
+      }, { fileSystem, stateStore });
+      await mirror.sync();
+      const ancestor = records(1)[0]!.document;
+      const local = `${ancestor}\nlocal edit beats delete`;
+      fileSystem.files.set("notes/00000.md", local);
+
+      expect((await mirror.sync()).status).toBe("attention");
+      const state = (await stateStore.read())!;
+      const conflict = state.planned_conflicts!["portable-0"]!;
+      const missing = code === "record_not_found";
+      expect(conflict).toMatchObject({
+        conflict_kind: missing ? "delete_vs_change" : "rejected",
+        remote: { state: missing ? "absent" : "exact" }, ancestor_document: ancestor
+      });
+      expect((await mirror.checkpointStatus()).conflicts[0]?.kind).toBe(missing ? "conflicted" : "rejected");
+      if (missing) {
+        expect(state.records["portable-0"]).toBeUndefined();
+        await mirror.resolveConflict("portable-0", conflict.decision_id!, "local");
+        expect((await mirror.sync()).status).toBe("applied");
+        expect(hosted.serialize().records[0]).toMatchObject({ record_id: "portable-0", document: local });
+      } else {
+        expect(state.records["portable-0"]?.record?.document).toBe(ancestor);
+        expect(hosted.serialize().records[0]!.document).toBe(ancestor);
+      }
+    });
+
   it.each(["local", "remote"] as const)("captures an absent authority record in a late upload conflict resolved %s", async (resolution) => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(1));
