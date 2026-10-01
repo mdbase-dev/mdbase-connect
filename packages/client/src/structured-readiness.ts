@@ -4,9 +4,10 @@ import type { MdbaseConnectionInfo } from "./connection-types.js";
 /* The versioned protocol package is the sole capability-to-operation compiler. */
 import { effectiveCapabilities, type MdbaseEffectiveCapabilities, type MdbaseCapabilityEvidence } from "./capabilities.js";
 import type { MdbaseConnection } from "./connection.js";
-import type { ConnectRequestOptions } from "./operation-types.js";
+import type { CollectionSetupAssessment, ConnectRequestOptions } from "./operation-types.js";
 import { MdbaseConnectError } from "./errors.js";
 import { withRequestBudget } from "./request-budget.js";
+import { timeStartupRead } from "./startup-timing.js";
 
 type ReadinessPublication =
   | { status: "authorization_required" }
@@ -29,8 +30,8 @@ export async function verifyStructuredReadiness<Frontmatter extends JsonObject>(
   if (options?.signal?.aborted) abort();
   else options?.signal?.addEventListener("abort", abort, { once: true });
   try {
-    const outcome = await withRequestBudget({ ...options, signal: controller.signal }, requestMs,
-      request => connection.describe(request));
+    const outcome = await timeStartupRead("contracts", () => withRequestBudget({ ...options, signal: controller.signal }, requestMs,
+      request => connection.describe(request)));
     if (!isCurrent()) return false;
     if (!outcome.ok) {
       const authorizationRequired = ["access_denied", "collection_access_denied", "insufficient_access", "not_authorized", "authorization_expired", "application_declaration_mismatch"].includes(outcome.problem.code);
@@ -116,6 +117,35 @@ export function verificationValue(manifest: MdbaseApplicationManifest): string {
     requirements: manifest.requirements?.configuration ?? [],
     provisions: manifest.provisions ?? {}
   });
+}
+
+export function accessRequirementSatisfied(
+  manifest: MdbaseApplicationManifest,
+  connection: MdbaseConnectionInfo
+): boolean {
+  return manifest.requirements?.access === "full_collection"
+    && connection.scope.access === "full_collection"
+    && connection.scope.contracts.length === 0;
+}
+
+export function reviewableTypePackAdoptions(
+  assessment: CollectionSetupAssessment
+): Record<string, Record<string, string>> {
+  const adoptions: Record<string, Record<string, string>> = {};
+  for (const pack of assessment.typePacks) {
+    const resources = Object.fromEntries(
+      pack.resources
+        .filter((resource) =>
+          resource.action === "conflict"
+          && resource.mode === "managed"
+          && resource.currentDigest !== undefined
+          && resource.installedDigest === undefined
+        )
+        .map((resource) => [resource.target, resource.currentDigest!])
+    );
+    if (Object.keys(resources).length > 0) adoptions[pack.desired.id] = resources;
+  }
+  return adoptions;
 }
 
 export function collectionSetupInput(

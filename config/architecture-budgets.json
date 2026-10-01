@@ -18,7 +18,7 @@
     "crates/connect-runtime": 3,
     "crates/connect-testbed-adapter": 1,
     "packages/app-ui": 16,
-    "packages/client": 72,
+    "packages/client": 73,
     "packages/devkit": 3,
     "packages/management": 1,
     "packages/pickle": 2,
@@ -44,11 +44,11 @@
     "semanticProjectionFormatVersion": 8
   },
   "reviewBudgets": {
-    "productionFiles": 722,
-    "relativeImports": 1571,
+    "productionFiles": 723,
+    "relativeImports": 1573,
     "workspacePackages": 25,
     "rustPublicDeclarations": 3274,
-    "typeScriptExportDeclarations": 2590,
+    "typeScriptExportDeclarations": 2593,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }

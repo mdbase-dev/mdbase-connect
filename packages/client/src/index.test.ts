@@ -782,7 +782,7 @@ describe("provider-neutral collection client", () => {
     });
     expect(calls).toEqual([
       { limit: 256, offset: 0, pagination: "cursor" },
-      { cursor: "next" },
+      { cursor: "next", limit: 256 },
       { release_cursor: "next" }
     ]);
     await vi.advanceTimersByTimeAsync(2_000);

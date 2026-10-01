@@ -15,9 +15,11 @@ import {
   type MdbaseApplicationCapabilityId as ApplicationCapabilityId
 } from "./application-contract.js";
 import {
+  accessRequirementSatisfied,
   applicationReadinessContext,
   collectionSetupInput,
   publishedStructuredReadiness,
+  reviewableTypePackAdoptions,
   verifyStructuredReadiness,
   verificationKey,
   verificationValue,
@@ -53,6 +55,7 @@ import {
   withRequestBudget
 } from "./request-budget.js";
 import { defaultCallbackUrl } from "./runtime-utils.js";
+import { timeStartupRead } from "./startup-timing.js";
 import { declarationIdFromFamilyIdentity } from "./connect-authorization-helpers.js";
 import type { Application } from "./internal-types.js";
 import {
@@ -286,7 +289,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     options: ConnectRequestOptions,
     generation: number
   ): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
-    const registration = await this.connect.register(options);
+    const registration = await timeStartupRead("registration", () => this.connect.register(options));
     if (!registration.ok) return this.startFailure(registration.problem, generation);
     const manifest = await this.connect.manifest(options);
     if (!manifest.ok) return this.startFailure(manifest.problem, generation);
@@ -677,9 +680,36 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     const manifest = this.requireManifest();
     if (!connection || connection.collectionId !== context.collectionId) return;
     const initialInput = this.collectionSetupInput();
-    let outcome = options
-      ? await connection.assessCollectionSetup(initialInput, options)
-      : await connection.assessCollectionSetup(initialInput);
+    const contracts = manifest.requirements?.contracts ?? [];
+    const controller = new AbortController();
+    this.readinessController?.abort();
+    this.readinessController = controller;
+    let readinessFailure: MdbaseApplicationSessionSnapshot | null = null;
+    // Both are authorized reads. Verify live contracts alongside setup, but do
+    // not publish ready (or a contract failure) before the setup review decision.
+    const verification = context.readiness && contracts.length
+      ? verifyStructuredReadiness({
+          ...context, readiness: context.readiness, contracts, connection, controller, options,
+          requestMs: this.timeouts.requestMs,
+          isCurrent: () => generation === this.verificationGeneration && this.connection() === connection,
+          publish: result => { readinessFailure = { ...result, ...context }; }
+        })
+      : Promise.resolve(true);
+    const abortAssessment = () => controller.abort(options?.signal?.reason);
+    if (options?.signal?.aborted) abortAssessment();
+    else options?.signal?.addEventListener("abort", abortAssessment, { once: true });
+    let assessed;
+    let contractsVerified;
+    try {
+      [assessed, contractsVerified] = await Promise.all([
+        timeStartupRead("setup-assessment", () => connection.assessCollectionSetup(initialInput, { ...options, signal: controller.signal })), verification
+      ]);
+    } finally {
+      options?.signal?.removeEventListener("abort", abortAssessment);
+      controller.abort();
+      if (this.readinessController === controller) this.readinessController = undefined;
+    }
+    let outcome = assessed;
     if (generation !== this.verificationGeneration) return;
     if (!outcome.ok) {
       this.publish(outcome.problem.code === "application_declaration_mismatch"
@@ -722,12 +752,16 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       verificationValue(manifest)
     );
     if (context.readiness) context.readiness.setup = { state: "current", evidence: [{ source: "authority", fact: "Collection setup assessment is current." }] };
-    await this.publishReady(context, generation, options);
+    if (!contractsVerified) {
+      if (readinessFailure) this.publish(readinessFailure);
+      return;
+    }
+    await this.publishReady(context, generation, options, true);
   }
 
-  private async publishReady(context: ApplicationSessionContext, generation: number, options?: ConnectRequestOptions): Promise<void> {
+  private async publishReady(context: ApplicationSessionContext, generation: number, options?: ConnectRequestOptions, contractsVerified = false): Promise<void> {
     const contracts = this.requireManifest().requirements?.contracts ?? [];
-    if (context.readiness && contracts.length) {
+    if (!contractsVerified && context.readiness && contracts.length) {
       const connection = this.connection();
       if (!connection || connection.collectionId !== context.collectionId) return;
       this.publish({ status: "checking_setup", ...context });
@@ -941,35 +975,6 @@ function collectionSetupUpdate(
     canApply: assessment.applicable,
     reason
   };
-}
-
-function reviewableTypePackAdoptions(
-  assessment: CollectionSetupAssessment
-): Record<string, Record<string, string>> {
-  const adoptions: Record<string, Record<string, string>> = {};
-  for (const pack of assessment.typePacks) {
-    const resources = Object.fromEntries(
-      pack.resources
-        .filter((resource) =>
-          resource.action === "conflict"
-          && resource.mode === "managed"
-          && resource.currentDigest !== undefined
-          && resource.installedDigest === undefined
-        )
-        .map((resource) => [resource.target, resource.currentDigest!])
-    );
-    if (Object.keys(resources).length > 0) adoptions[pack.desired.id] = resources;
-  }
-  return adoptions;
-}
-
-function accessRequirementSatisfied(
-  manifest: MdbaseAppManifest,
-  connection: MdbaseConnectionInfo
-): boolean {
-  return manifest.requirements?.access === "full_collection"
-    && connection.scope.access === "full_collection"
-    && connection.scope.contracts.length === 0;
 }
 
 function lifecycleProblemMessage(code: LifecycleProblemCode): string {

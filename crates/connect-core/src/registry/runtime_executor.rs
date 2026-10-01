@@ -198,6 +198,7 @@ impl CollectionExecutor {
         &self,
         external: &str,
         scope_binding: &str,
+        limit: Option<usize>,
         context: &OperationContext,
     ) -> Result<CoordinatedReadPage, ConnectError> {
         self.touch();
@@ -218,7 +219,7 @@ impl CollectionExecutor {
             }
             current
         };
-        let page = match runtime.read_page(&current.runtime, context) {
+        let page = match runtime.read_page_with_limit(&current.runtime, limit, context) {
             Ok(page) => page,
             Err(error @ mdbase::runtime::ProviderError::GenerationExpired)
             | Err(error @ mdbase::runtime::ProviderError::InvalidReadCursor) => {

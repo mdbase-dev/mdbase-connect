@@ -129,7 +129,21 @@ pub(super) fn execute_runtime_read(
             })
         }
         QueryCursorAction::Page(cursor) => {
-            let page = executor.read_page(cursor, scope_binding, context)?;
+            let limit = input
+                .get("limit")
+                .map(|value| {
+                    value
+                        .as_u64()
+                        .filter(|value| *value > 0)
+                        .and_then(|value| usize::try_from(value).ok())
+                        .ok_or_else(|| {
+                            ConnectError::InvalidInput(
+                                "query limit must be a positive integer".into(),
+                            )
+                        })
+                })
+                .transpose()?;
+            let page = executor.read_page(cursor, scope_binding, limit, context)?;
             Ok(RuntimeExecution {
                 operation: read_page_operation(page.operation, page.next),
             })

@@ -260,6 +260,41 @@ describe("v2 structured readiness", () => {
   });
 });
 
+describe("parallel live startup verification", () => {
+  it("starts describe before assessment completes, and gates ready on both", async () => {
+    const declaration = setupManifest();
+    const contract = { id: "dev.example.startup", version: "1.0.0", digest: `sha256:${"a".repeat(64)}` };
+    declaration.requirements!.contracts = [contract];
+    const fixture = connectFixture(declaration, undefined, { ...setupAssessment(), status: "current" });
+    const assessed = fixture.value.assessCollectionSetup.getMockImplementation()!;
+    const gate = deferred<Awaited<ReturnType<typeof assessed>>>();
+    fixture.value.assessCollectionSetup.mockImplementation(() => gate.promise);
+    const describe = vi.fn(async () => connectSuccess({ collectionId, contracts: [contract] }));
+    Object.assign(fixture.value, { describe });
+    const session = new MdbaseApplicationSession(fixture.facade as never, { selection: new MdbaseMemorySelection() });
+    const started = session.start();
+    await vi.waitFor(() => expect(describe).toHaveBeenCalledOnce());
+    expect(fixture.value.assessCollectionSetup).toHaveBeenCalledOnce();
+    expect(session.getSnapshot().status).toBe("checking_setup");
+    gate.resolve(await assessed());
+    await started;
+    expect(session.getSnapshot().status).toBe("ready");
+    expect(describe).toHaveBeenCalledOnce();
+    session.destroy();
+  });
+
+  it("keeps a missing live contract blocked even when setup is current", async () => {
+    const declaration = setupManifest();
+    declaration.requirements!.contracts = [{ id: "dev.example.startup", version: "1.0.0", digest: `sha256:${"a".repeat(64)}` }];
+    const fixture = connectFixture(declaration, undefined, { ...setupAssessment(), status: "current" });
+    Object.assign(fixture.value, { describe: async () => connectSuccess({ collectionId, contracts: [] }) });
+    const session = new MdbaseApplicationSession(fixture.facade as never, { selection: new MdbaseMemorySelection() });
+    await session.start();
+    expect(session.getSnapshot()).toMatchObject({ status: "blocked", readiness: { contracts: { state: "requires_setup" } } });
+    session.destroy();
+  });
+});
+
 describe("MdbaseApplicationSession", () => {
   it("coalesces concurrent and repeated starts into one owned base session", async () => {
     const fixture = connectFixture(manifest());
