@@ -17,7 +17,7 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
     import.meta.env.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL
   ));
   const [connectorName, setConnectorName] = useState("This computer");
-  const [pairing, setPairing] = useState<{ pairingId: string; verificationUri: string; expiresAt: number } | null>(null);
+  const [pairing, setPairing] = useState<{ pairingId: string; verificationUri: string } | null>(null);
   const [retry, setRetry] = useState(0);
   const [expired, setExpired] = useState(false);
   const [pairError, setPairError] = useState("");
@@ -30,11 +30,6 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
     let timer: number;
     async function poll() {
       if (!pairing || !active) return;
-      if (Date.now() >= pairing.expiresAt) {
-        setExpired(true);
-        setPairError("This computer setup request expired. Start again to create a new one.");
-        return;
-      }
       try {
         const result = await window.mdbaseConnect.pairingStatus(pairing.pairingId);
         if (!active) return;
@@ -46,7 +41,15 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
         }
       } catch (error) {
         if (!active) return;
-        setPairError(`${message(error)} Retrying this request automatically.`);
+        const detail = message(error);
+        // The main process owns expiry: an exchanged credential can still need
+        // local configuration after the browser approval deadline has passed.
+        if (detail.startsWith("This computer setup request expired.")) {
+          setExpired(true);
+          setPairError(detail);
+          return;
+        }
+        setPairError(`${detail} Retrying this request automatically.`);
       }
       if (active) timer = window.setTimeout(() => void poll(), 2_000);
     }
@@ -61,7 +64,7 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
     try {
       const result = await window.mdbaseConnect.beginPairing({ serverUrl, connectorName });
       setExpired(false);
-      setPairing({ ...result, expiresAt: Date.now() + result.expiresIn * 1_000 });
+      setPairing({ pairingId: result.pairingId, verificationUri: result.verificationUri });
       await window.mdbaseConnect.reopenPairing(result.pairingId);
     } catch (error) {
       setPairError(message(error));

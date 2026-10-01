@@ -58,6 +58,8 @@ export async function advanceEmptySyncCheckpoint(
   }
   state.generation = action.next.generation;
   state.cursor = action.next.cursor ?? 0;
+  state.scope_epoch = plan.scope_epoch;
+  state.selective_sync = plan.selective_sync;
   state.last_completed_plan = plan.fingerprint;
   state.last_synced_at = runtime.now();
   await store.write(state);

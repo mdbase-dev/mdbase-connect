@@ -12,7 +12,7 @@ import {
   type ExpectedObjectState,
   type SyncObjectRef
 } from "./sync-model.js";
-import { planReconciliation } from "./sync-planner.js";
+import { identifyInspectedObjects, planReconciliation } from "./sync-planner.js";
 import { PlanOnlyMirrorInspector } from "./sync-inspector.js";
 import { PlanOnlySyncExecutor } from "./sync-executor.js";
 import { prepareSyncBatch } from "./sync-journal.js";
@@ -101,6 +101,77 @@ function inspected(
 }
 
 describe("pure exact-document planner", () => {
+  it.each([1_000, 50_000])("indexes %i rename candidates without rescanning unmatched payloads", (count) => {
+    let payloadReads = 0;
+    const base = Array.from({ length: count }, (_, index) => ref(`id-${index}`, `old/${index}.md`, `body-${index}`));
+    const local = base.map((object, index) => ({
+      stable_identity: false,
+      object: {
+        ...object, identity: "", path: `new/${index}.md`,
+        get payload_revision() {
+          payloadReads += 1;
+          return object.payload_revision;
+        }
+      }
+    }));
+
+    const matched = identifyInspectedObjects({ base, local, remote: base }, "seed", digest);
+    expect(matched).toHaveLength(count);
+    expect(matched.every((object) => object.local.state === "exact"
+      && object.local.object.identity === object.identity)).toBe(true);
+    expect(payloadReads).toBeLessThanOrEqual(count * 4);
+  });
+
+  it.each([[1_000, "local"], [50_000, "local"], [1_000, "remote"], [50_000, "remote"]] as const)(
+    "walks %i-node %s move chains once instead of from every node", (count, direction) => {
+    let ownerReads = 0;
+    const local = Array.from({ length: count }, (_, index) => {
+      const object = ref(`id-${String(index).padStart(5, "0")}`, `old/${index}.md`, `body-${index}`);
+      return {
+        ...object,
+        get identity() { ownerReads += 1; return object.identity; }
+      };
+    });
+    const objects = local.map((object, index) => {
+      const moved = exact({ ...object, path: index === count - 1 ? "vacant.md" : `old/${index + 1}.md` });
+      const owner: ExpectedObjectState = index === count - 1 ? { state: "absent" } : exact(local[index + 1]!);
+      return {
+        ...inspected(object.identity, exact(object), direction === "local" ? exact(object) : moved,
+          direction === "local" ? moved : exact(object)),
+        ...(direction === "local" ? { local_target_owner: owner } : { remote_target_owner: owner })
+      };
+    });
+    ownerReads = 0;
+    const plan = planReconciliation(summary(objects), digest);
+    expect(plan.actions).toHaveLength(count + 1);
+    expect(plan.actions[0]).toMatchObject({ command: `move_${direction}`, source: { identity: local[count - 1]!.identity } });
+    expect(ownerReads).toBeLessThan(count * 100);
+  }, 30_000);
+
+  it.each([[1_000, "local"], [50_000, "local"], [1_000, "remote"], [50_000, "remote"]] as const)(
+    "propagates an obstruction through a %i-node %s chain once", (count, direction) => {
+    let ownerReads = 0;
+    const base = Array.from({ length: count + 1 }, (_, index) => {
+      const object = ref(`id-${String(index).padStart(5, "0")}`, `old/${index}.md`, `body-${index}`);
+      return { ...object, get identity() { ownerReads += 1; return object.identity; } };
+    });
+    const objects = base.map((object, index) => {
+      if (index === count) return inspected(object.identity, exact(object), exact(object), exact(object));
+      const moved = exact({ ...object, path: `old/${index + 1}.md` });
+      return {
+        ...inspected(object.identity, exact(object), direction === "local" ? exact(object) : moved,
+          direction === "local" ? moved : exact(object)),
+        ...(direction === "local" ? { local_target_owner: exact(base[index + 1]!) }
+          : { remote_target_owner: exact(base[index + 1]!) })
+      };
+    });
+    ownerReads = 0;
+    const plan = planReconciliation(summary(objects), digest);
+    expect(plan.summary.conflicts).toBe(count);
+    expect(plan.actions.every((action) => action.command === "record_conflict" || action.command === "advance_checkpoint")).toBe(true);
+    expect(ownerReads).toBeLessThan(count * 100);
+  }, 30_000);
+
   it("emits a stable empty plan for an exact incremental inspection", () => {
     const idle = summary([]);
     idle.boundary.authority_cursor = idle.boundary.checkpoint.cursor!;

@@ -16,6 +16,7 @@
     "make": "pnpm dev:daemon --release && pnpm build:standalone && electron-forge make",
     "package": "pnpm dev:daemon --release && pnpm build:standalone && electron-forge package && node scripts/verify-package.mjs",
     "test": "pnpm build:main && pnpm ensure:electron && node --test test/*.test.mjs",
+    "test:renderer": "pnpm build:renderer && node --test scripts/renderer-ux.test.mjs",
     "ensure:electron": "node -e \"require('electron')\"",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },

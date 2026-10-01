@@ -27,6 +27,7 @@ import {
   type AcquiredMirrorLease,
   type DirectoryMirrorOptions as PortableDirectoryMirrorOptions,
   type MirrorFileSystem,
+  type MirrorBinaryInfo,
   type MirrorBlobStore,
   type MirrorLease,
   type MirrorProgress,
@@ -79,6 +80,7 @@ const nodeMirrorRuntime: MirrorRuntime = Object.freeze({
 
 export class NodeMirrorStateStore implements MirrorStateStore {
   private statePath: Promise<string> | null = null;
+  private tornJournalBytes: number | undefined;
 
   constructor(
     private readonly root: string,
@@ -86,6 +88,7 @@ export class NodeMirrorStateStore implements MirrorStateStore {
   ) {}
 
   async read(): Promise<MirrorState | null> {
+    this.tornJournalBytes = undefined;
     const value = await readOptional(await this.path());
     if (value === null) return null;
     try {
@@ -99,7 +102,12 @@ export class NodeMirrorStateStore implements MirrorStateStore {
           try {
             applySyncJournalEvent(state, JSON.parse(line) as SyncJournalEvent);
           } catch (error) {
-            if (index === lines.length - 1) break;
+            if (error instanceof SyntaxError && index === lines.length - 1) {
+              // Read-only inspection can ignore an interrupted final append.
+              // The next writer must remove it before appending another event.
+              this.tornJournalBytes = Buffer.byteLength(journal.slice(0, journal.lastIndexOf("\n") + 1));
+              break;
+            }
             throw error;
           }
         }
@@ -114,6 +122,7 @@ export class NodeMirrorStateStore implements MirrorStateStore {
     const path = await this.path();
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     await atomicWrite(path, `${JSON.stringify(state, null, 2)}\n`);
+    this.tornJournalBytes = undefined;
     await unlink(await this.journalPath()).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== "ENOENT") throw error;
     });
@@ -124,6 +133,11 @@ export class NodeMirrorStateStore implements MirrorStateStore {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     const output = await open(path, "a", 0o600);
     try {
+      if (this.tornJournalBytes !== undefined) {
+        await output.truncate(this.tornJournalBytes);
+        await output.sync();
+        this.tornJournalBytes = undefined;
+      }
       await output.writeFile(`${JSON.stringify(event)}\n`);
       await output.sync();
     } finally {
@@ -349,10 +363,14 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
     }
   }
 
-  async write(path: string, value: string): Promise<void> {
+  async write(path: string, value: string, expected?: string | null): Promise<void> {
     const target = await this.safePath(path);
     await mkdir(dirname(target), { recursive: true });
-    await atomicWrite(target, value);
+    await atomicWrite(target, value, expected === undefined ? undefined : async () => {
+      if (await this.readText(path) !== expected) {
+        throw new SyncError("sync_plan_stale", `${path} changed before it could be written.`);
+      }
+    });
   }
 
   async move(sourcePath: string, targetPath: string): Promise<void> {
@@ -464,7 +482,7 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
     })();
   }
 
-  async writeBinary(path: string, source: AsyncIterable<Uint8Array>): Promise<void> {
+  async writeBinary(path: string, source: AsyncIterable<Uint8Array>, expected?: MirrorBinaryInfo | null): Promise<void> {
     const target = await this.safePath(path);
     await mkdir(dirname(target), { recursive: true });
     const temporary = `${target}.mdbase-${randomUUID()}.tmp`;
@@ -473,6 +491,13 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
       for await (const chunk of source) await writeHandleAll(output, chunk);
       await output.sync();
       await output.close();
+      if (expected !== undefined) {
+        const current = await this.inspectBinary(path);
+        if ((current?.size ?? null) !== (expected?.size ?? null)
+          || (current?.content_digest ?? null) !== (expected?.content_digest ?? null)) {
+          throw new SyncError("sync_plan_stale", `${path} changed before it could be written.`);
+        }
+      }
       await rename(temporary, target);
       await syncDirectory(dirname(target));
     } catch (error) {
@@ -720,13 +745,14 @@ async function unlinkOptional(path: string): Promise<void> {
   }
 }
 
-async function atomicWrite(path: string, value: string): Promise<void> {
+async function atomicWrite(path: string, value: string, beforeCommit?: () => Promise<void>): Promise<void> {
   const temporary = `${path}.mdbase-${randomUUID()}.tmp`;
   const output = await open(temporary, "wx", 0o600);
   try {
     await output.writeFile(value, "utf8");
     await output.sync();
     await output.close();
+    await beforeCommit?.();
     await rename(temporary, path);
     await syncDirectory(dirname(path));
   } catch (error) {

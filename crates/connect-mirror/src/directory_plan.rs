@@ -155,6 +155,20 @@ impl DirectoryMirror {
         let plan = state.batch.as_ref().expect("prepared").plan.clone();
         let execution = self.execute_prepared(state).await?;
         if execution.status != "effects_complete" {
+            if execution.status == "stale" {
+                // This local effect was not applied. Compact the already
+                // receipted prefix, keeping the old checkpoint, and let the
+                // next inspection reconcile new edits instead of replaying an
+                // impossible precondition forever. Remote transport failures
+                // retain their batch and mutation IDs for receipt recovery.
+                state.batch = None;
+                // A partially applied prefix is no longer the previously
+                // completed plan's projection. Invalidate its acknowledgement
+                // and rebuild from an exact snapshot on the next inspection.
+                state.last_completed_plan = None;
+                self.write_state(state)?;
+                self.reset_journal()?;
+            }
             return Ok(result(
                 if execution.status == "blocked" {
                     "failed"

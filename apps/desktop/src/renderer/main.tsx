@@ -134,9 +134,13 @@ function App() {
     let configured: boolean | undefined;
     const failures = await refreshResources({
       connector: () => requests.status().then((next) => {
-        setStatus(next);
         const health = presentReadiness(next.readiness);
         if (health.state !== "ready") throw new Error(health.label);
+        setStatus(next);
+      }).catch((reason) => {
+        // Inventory can be last-known; a live connection indicator cannot.
+        setStatus(null);
+        throw reason;
       }),
       collections: () => requests.collections().then(setCollections),
       startup: () => requests.startup().then(setStartup),
@@ -357,7 +361,11 @@ function App() {
     };
   }, [access, hosted]);
   const localCollectionIds = new Set(collections.map((collection) => collection.id));
-  const collectionCount = collections.length + hosted.hosted_collections.filter((collection) =>
+  const hostedCollectionIds = new Set(hosted.hosted_collections.map((collection) => collection.id));
+  const standaloneMirrorIds = new Set(mirrors.filter((mirror) =>
+    !localCollectionIds.has(mirror.collection_id) && !hostedCollectionIds.has(mirror.collection_id)
+  ).map((mirror) => mirror.collection_id));
+  const collectionCount = collections.length + standaloneMirrorIds.size + hosted.hosted_collections.filter((collection) =>
     collection.authority_state !== "transferred"
       || !collection.transferred_collection_id
       || !localCollectionIds.has(collection.transferred_collection_id)
@@ -427,6 +435,10 @@ function App() {
           onDismiss={dismissTransferReceipt}
         />}
 
+        {cloud !== null && !cloud.configured && <div hidden={!["overview", "access", "settings"].includes(route)}>
+          <PairingPanel resumeAuthorization={authorizationTarget !== null} />
+        </div>}
+
         {cloud === null ? <ConnectionProgress /> : route === "overview" ? (
           <Overview
             status={status}
@@ -471,7 +483,6 @@ function App() {
             access={combinedAccess}
             collections={collections}
             focusedRequestId={authorizationTarget === "pending" ? null : authorizationTarget}
-            resumeAuthorization={authorizationTarget !== null}
             busy={busy}
             onAct={act}
             onNotice={setNotice}
@@ -519,12 +530,11 @@ function App() {
   );
 }
 
-function Access({ cloud, access, collections, focusedRequestId, resumeAuthorization, busy, onAct, onNotice }: {
+function Access({ cloud, access, collections, focusedRequestId, busy, onAct, onNotice }: {
   cloud: CloudSetting;
   access: AccessSnapshot;
   collections: CollectionSummary[];
   focusedRequestId: string | null;
-  resumeAuthorization: boolean;
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
@@ -533,7 +543,7 @@ function Access({ cloud, access, collections, focusedRequestId, resumeAuthorizat
   const pendingAuthorizations = useMemo(() => [...access.pending_authorizations].sort((left, right) =>
     left.id === focusedRequestId ? -1 : right.id === focusedRequestId ? 1 : 0
   ), [access.pending_authorizations, focusedRequestId]);
-  if (!cloud.configured) return <PairingPanel resumeAuthorization={resumeAuthorization} />;
+  if (!cloud.configured) return null;
   return (
     <div className="workspace-stack">
       <section>
@@ -581,8 +591,10 @@ function PortalApprovalRequest({ request, collections, focused, busy, onAct: run
     && request.compatible_collection_ids.includes(collection.id)
     && (!request.collection_id || request.collection_id === collection.id));
   const [collectionId, setCollectionId] = useState(candidates.length === 1 ? candidates[0].id : "");
-  const [operations, setOperations] = useState(request.requested_operations);
   const groups = requestCapabilityGroups(request.requirements, request.requested_operations);
+  const [operations, setOperations] = useState(() => groups.flatMap((group) =>
+    group.required || !group.higherImpact ? group.operations : []
+  ));
   const files = request.requirements.files;
   // Complex setup needs the existing type-mapping/configuration review. Merely
   // appearing in this snapshot never establishes fresh issuance support.
@@ -617,7 +629,7 @@ function PortalApprovalRequest({ request, collections, focused, busy, onAct: run
         />
       </label>
       <p>Entire collection. Access continues until revoked under Connected applications. New installations may also require local code comparison.</p>
-      <RequestPermissionChoices groups={groups} selected={operations} onChange={setOperations} />
+      <RequestPermissionChoices groups={groups} selected={operations} disabled={busy} onChange={setOperations} />
       {files && <p>Files: {[...files.required, ...(files.optional ?? [])].join(", ")}. Scope: {files.scope.kind === "collection" ? "Entire collection" : files.scope.folders.join(", ")}.</p>}
       <NotificationAccess notifications={request.notifications} />
       <div className="modal-actions">
@@ -713,7 +725,7 @@ function GrantEditor({ grant, busy, onAct: run, onNotice }: { grant: GrantSummar
             ? "You can remove optional capability groups here. An application must request any additional access separately."
             : "Permission details unavailable. Access has not been changed. You can still revoke access."}</small></div>
           {needsReview && <p role="status">Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></p>}
-          {permissionDetailsAvailable && <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />}
+          {permissionDetailsAvailable && <RequestPermissionChoices groups={permissionGroups} selected={operations} disabled={busy} onChange={setOperations} />}
         </section>
         <footer className="request-footer">
           <p>{permissionDetailsAvailable
@@ -770,7 +782,7 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
   const connection = presentConnection(status, cloud);
   return (
     <div className="workspace-stack settings-stack">
-      {!cloud.configured ? <PairingPanel /> : (
+      {cloud.configured && (
         <section>
           <SectionHeading title="Account connection" note="The account this computer uses for application requests." />
           <div className="settings-rows">
@@ -882,7 +894,7 @@ function ComputerNameSetting({ account, online, busy, onAct, onNotice }: {
   if (!editing) return <div className="setting-row"><span>Computer</span><div><strong>{account?.connector_name ?? "This computer"}</strong><small>{account?.user_email ?? "Account details unavailable while offline"}</small></div><button className="quiet-action" disabled={busy || !online} onClick={() => setEditing(true)}>Rename</button></div>;
   return <form className="setting-row setting-editor" onSubmit={(event) => { event.preventDefault(); void onAct(async () => { const result = await window.mdbaseConnect.renameComputer(name); setEditing(false); onNotice(`This computer is now named ${result.connector.name}.`); }); }}>
     <span>Computer</span>
-    <label><span>Computer name</span><input autoFocus value={name} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label>
+    <label><span>Computer name</span><input autoFocus disabled={busy} value={name} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label>
     <div className="row-actions"><button type="button" className="quiet-action" disabled={busy} onClick={() => setEditing(false)}>Cancel</button><button className="button primary" disabled={busy || !name.trim() || name.trim() === account?.connector_name}>Save</button></div>
   </form>;
 }

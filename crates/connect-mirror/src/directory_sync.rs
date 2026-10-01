@@ -210,12 +210,7 @@ impl DirectoryMirror {
         if conflict.decision_id != decision_id {
             return Err(stale_conflict());
         }
-        self.revalidate_expected(&conflict.local)?;
-        if conflict.local.exact().is_none() {
-            if let Some(remote) = conflict.remote.exact() {
-                self.revalidate_at(&remote.path, &conflict.local)?;
-            }
-        }
+        self.revalidate_conflict_local(conflict)?;
         let local_document = if conflict.entity == SyncObjectKind::Record {
             match conflict.local.exact() {
                 Some(local) => {
@@ -293,17 +288,16 @@ impl DirectoryMirror {
         if conflict.decision_id != decision_id {
             return Err(stale_conflict());
         }
-        if conflict.local.exact().is_some() {
-            self.revalidate_expected(&conflict.local)?;
-        } else if let Some(remote) = conflict.remote.exact() {
-            self.revalidate_at(&remote.path, &conflict.local)?;
-        }
+        self.revalidate_conflict_local(&conflict)?;
         match conflict.entity {
             SyncObjectKind::Record => {
                 let current = self.current_remote_record(object_id).await?;
                 if !record_state_matches(&conflict.remote, current.as_ref()) {
                     return Err(stale_conflict());
                 }
+                // The filesystem lease excludes other mirror processes, not
+                // editors. Recheck consent after the network wait, before effects.
+                self.revalidate_conflict_local(&conflict)?;
                 if resolution == MirrorResolution::Remote {
                     self.install_remote_record_resolution(
                         &mut state, object_id, &conflict, current,
@@ -316,8 +310,15 @@ impl DirectoryMirror {
                     return Err(stale_conflict());
                 }
                 if resolution == MirrorResolution::Remote {
-                    self.install_remote_file_resolution(&mut state, object_id, &conflict, current)
-                        .await?;
+                    if let Some(file) = &current {
+                        self.ensure_file_blob(file).await?;
+                    }
+                }
+                // Downloads can take arbitrarily longer than snapshot reads.
+                // Seal the bytes first, then revalidate before writing or deleting.
+                self.revalidate_conflict_local(&conflict)?;
+                if resolution == MirrorResolution::Remote {
+                    self.install_remote_file_resolution(&mut state, object_id, &conflict, current)?;
                 }
             }
             SyncObjectKind::Resource => {
@@ -332,6 +333,16 @@ impl DirectoryMirror {
         }
         state.planned_conflicts.remove(&identity);
         self.write_state(&state)
+    }
+
+    fn revalidate_conflict_local(&self, conflict: &DurableConflict) -> Result<(), MirrorError> {
+        if conflict.local.exact().is_some() {
+            self.revalidate_expected(&conflict.local)
+        } else if let Some(remote) = conflict.remote.exact() {
+            self.revalidate_at(&remote.path, &conflict.local)
+        } else {
+            Ok(())
+        }
     }
 
     async fn current_remote_record(
@@ -450,7 +461,7 @@ impl DirectoryMirror {
         }
     }
 
-    async fn install_remote_file_resolution(
+    fn install_remote_file_resolution(
         &self,
         state: &mut DurableMirrorState,
         file_id: Uuid,
@@ -459,7 +470,6 @@ impl DirectoryMirror {
     ) -> Result<(), MirrorError> {
         let local_path = conflict.local.exact().map(|value| value.path.as_str());
         if let Some(file) = current {
-            self.ensure_file_blob(&file).await?;
             let accepted = conflict
                 .local
                 .exact()
