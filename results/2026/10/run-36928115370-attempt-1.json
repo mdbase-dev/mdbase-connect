@@ -1,0 +1,1321 @@
+{
+  "schema_version": 1,
+  "kind": "mdbase-connect-performance-observation",
+  "informational_only": true,
+  "observation_id": "run-36928115370-attempt-1",
+  "generated_at": "2026-10-01T21:27:00.924364260+00:00",
+  "source": {
+    "repository": "mdbase-dev/mdbase-connect",
+    "connect_commit": "9746234d5f3c141d8422bd829921000b3c54db4e",
+    "mdbase_rs_commit": "8613c8d28f282feb6a85f88675e71b1403ef4056",
+    "inputs_sha256": {
+      "pnpm_lock": "5924cafa06d049a38366fa235c89eba7908677ee9dd9adf1c4ef7c434c95d33b",
+      "cargo_lock": "a0fc80cee57061fe3c4de961d115fe8800d4aeb58a9adf82ea88c381c75756ae",
+      "mdbase_rs_revision_file": "92cf94c0e11f8f2255572ee3cab30ecbd9b7074b36fa281cfa78b6073f3b6023",
+      "workflow": "444f33755f7bb060eb30217d5e7d9df77d6d19ce74bc1f5df5f9f3c1bc7a8896"
+    },
+    "event": "schedule",
+    "run_id": 36928115370,
+    "run_attempt": 1,
+    "run_url": "https://github.com/mdbase-dev/mdbase-connect/actions/runs/36928115370"
+  },
+  "inputs": {
+    "profile_size": 5000,
+    "profile_iterations": 5,
+    "profile_concurrency": 4,
+    "provider_10k_requested": true
+  },
+  "environments": {
+    "core": {
+      "schema_version": 1,
+      "runner_os": "Linux",
+      "runner_arch": "X64",
+      "runner_name": "GitHub Actions 1000040033",
+      "runner_image": "ubuntu24",
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "logical_cpus": 4,
+      "kernel": "Linux 6.17.0-1022-azure x86_64 GNU/Linux",
+      "node": "v24.21.0",
+      "pnpm": "11.15.1",
+      "rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02)"
+    },
+    "provider": {
+      "schema_version": 1,
+      "runner_os": "Linux",
+      "runner_arch": "X64",
+      "runner_name": "GitHub Actions 1000040034",
+      "runner_image": "ubuntu24",
+      "cpu_model": "Intel(R) Xeon(R) 6973P-C",
+      "logical_cpus": 4,
+      "kernel": "Linux 6.17.0-1022-azure x86_64 GNU/Linux",
+      "node": "v24.21.0",
+      "pnpm": "11.15.1",
+      "rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02)"
+    }
+  },
+  "observations": {
+    "engine": {
+      "tool": "mdbase-profile-engine",
+      "version": "0.1.0-beta.1",
+      "generated_at": "2026-10-01T21:27:00.924364260+00:00",
+      "total_runtime_ms": 27331.963394,
+      "config": {
+        "scenario": "all",
+        "files": 5000,
+        "projects": 80,
+        "rename_refs": 100,
+        "seed": 42
+      },
+      "fixture": {
+        "task_files": 5001,
+        "project_files": 80,
+        "rename_reference_files": 100
+      },
+      "percentile_method": "linear-interpolation-r7",
+      "operations": [
+        {
+          "name": "open",
+          "iterations": 5,
+          "total_ms": 17.695089000000003,
+          "latency_ms": {
+            "min": 2.0889770000000003,
+            "mean": 3.5390178000000008,
+            "p50": 2.120066,
+            "p95": 7.833750799999999,
+            "p99": 8.97543176,
+            "max": 9.260852
+          },
+          "operations_per_second": 282.5642753195533
+        },
+        {
+          "name": "read",
+          "iterations": 5,
+          "total_ms": 0.599137,
+          "latency_ms": {
+            "min": 0.098816,
+            "mean": 0.1198274,
+            "p50": 0.106851,
+            "p95": 0.1578068,
+            "p99": 0.16387416000000002,
+            "max": 0.165391
+          },
+          "operations_per_second": 8345.33670930021
+        },
+        {
+          "name": "cache_rebuild",
+          "iterations": 1,
+          "total_ms": 444.02513799999997,
+          "latency_ms": {
+            "min": 444.02513799999997,
+            "mean": 444.02513799999997,
+            "p50": 444.02513799999997,
+            "p95": 444.02513799999997,
+            "p99": 444.02513799999997,
+            "max": 444.02513799999997
+          },
+          "operations_per_second": 2.2521247434418905
+        },
+        {
+          "name": "v03_query_basic",
+          "iterations": 5,
+          "total_ms": 666.480756,
+          "latency_ms": {
+            "min": 128.362214,
+            "mean": 133.2961512,
+            "p50": 132.285621,
+            "p95": 140.65162320000002,
+            "p99": 142.28623104000002,
+            "max": 142.694883
+          },
+          "operations_per_second": 7.502092078409538,
+          "phases": {
+            "all_files": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "cache_open": {
+              "mean_ms": 0.5896,
+              "p95_ms": 0.6768000000000001,
+              "max_ms": 0.681
+            },
+            "cache_refresh": {
+              "mean_ms": 22.037599999999998,
+              "p95_ms": 22.153,
+              "max_ms": 22.177
+            },
+            "context": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "evaluate": {
+              "mean_ms": 70.8228,
+              "p95_ms": 73.1588,
+              "max_ms": 73.67
+            },
+            "groups": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "link_graph": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "preflight": {
+              "mean_ms": 0.30060000000000003,
+              "p95_ms": 0.7035999999999999,
+              "max_ms": 0.836
+            },
+            "records_load": {
+              "mean_ms": 23.491999999999997,
+              "p95_ms": 27.4716,
+              "max_ms": 28.638
+            },
+            "schema": {
+              "mean_ms": 0.11599999999999999,
+              "p95_ms": 0.3913999999999999,
+              "max_ms": 0.483
+            },
+            "serialize": {
+              "mean_ms": 0.4474,
+              "p95_ms": 0.46799999999999997,
+              "max_ms": 0.47
+            },
+            "sort": {
+              "mean_ms": 2.9452,
+              "p95_ms": 3.0931999999999995,
+              "max_ms": 3.094
+            },
+            "total": {
+              "mean_ms": 121.553,
+              "p95_ms": 128.9638,
+              "max_ms": 131.044
+            }
+          },
+          "counters": {
+            "cache_fallback": 0,
+            "candidates": 2001,
+            "context_record_loads": 0,
+            "link_graph_built": 0,
+            "record_source_loads": 1,
+            "records_loaded": 5182,
+            "results": 120,
+            "total_source_loads": 1
+          }
+        },
+        {
+          "name": "v03_query_projection",
+          "iterations": 5,
+          "total_ms": 1011.2061120000001,
+          "latency_ms": {
+            "min": 200.622927,
+            "mean": 202.24122240000003,
+            "p50": 202.52990400000002,
+            "p95": 203.78749699999997,
+            "p99": 203.93475779999997,
+            "max": 203.97157299999998
+          },
+          "operations_per_second": 4.944590366558227,
+          "phases": {
+            "all_files": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "cache_open": {
+              "mean_ms": 0.5532,
+              "p95_ms": 0.5656,
+              "max_ms": 0.566
+            },
+            "cache_refresh": {
+              "mean_ms": 22.1302,
+              "p95_ms": 22.3964,
+              "max_ms": 22.467
+            },
+            "context": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "evaluate": {
+              "mean_ms": 146.34539999999998,
+              "p95_ms": 146.984,
+              "max_ms": 147.095
+            },
+            "groups": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "link_graph": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "preflight": {
+              "mean_ms": 0.3512,
+              "p95_ms": 0.5675999999999999,
+              "max_ms": 0.639
+            },
+            "records_load": {
+              "mean_ms": 22.3836,
+              "p95_ms": 22.8816,
+              "max_ms": 23.011
+            },
+            "schema": {
+              "mean_ms": 0.07959999999999999,
+              "p95_ms": 0.23219999999999993,
+              "max_ms": 0.283
+            },
+            "serialize": {
+              "mean_ms": 0.2554,
+              "p95_ms": 0.2644,
+              "max_ms": 0.265
+            },
+            "sort": {
+              "mean_ms": 0.0502,
+              "p95_ms": 0.057999999999999996,
+              "max_ms": 0.06
+            },
+            "total": {
+              "mean_ms": 192.839,
+              "p95_ms": 193.679,
+              "max_ms": 193.75
+            }
+          },
+          "counters": {
+            "cache_fallback": 0,
+            "candidates": 1180,
+            "context_record_loads": 0,
+            "link_graph_built": 0,
+            "record_source_loads": 1,
+            "records_loaded": 5182,
+            "results": 80,
+            "total_source_loads": 1
+          }
+        },
+        {
+          "name": "editor_two_pass_index",
+          "iterations": 5,
+          "total_ms": 2502.166141,
+          "latency_ms": {
+            "min": 497.299294,
+            "mean": 500.43322820000003,
+            "p50": 502.15700699999996,
+            "p95": 502.7098106,
+            "p99": 502.75425092000006,
+            "max": 502.76536100000004
+          },
+          "operations_per_second": 1.9982685873935337,
+          "phases": {
+            "all_files": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "cache_open": {
+              "mean_ms": 15.958800000000002,
+              "p95_ms": 16.568199999999997,
+              "max_ms": 16.677
+            },
+            "cache_refresh": {
+              "mean_ms": 265.8446,
+              "p95_ms": 266.8592,
+              "max_ms": 266.913
+            },
+            "context": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "evaluate": {
+              "mean_ms": 88.768,
+              "p95_ms": 89.47319999999999,
+              "max_ms": 89.576
+            },
+            "groups": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "link_graph": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "preflight": {
+              "mean_ms": 0.04139999999999999,
+              "p95_ms": 0.048600000000000004,
+              "max_ms": 0.05
+            },
+            "records_load": {
+              "mean_ms": 82.6534,
+              "p95_ms": 83.0694,
+              "max_ms": 83.075
+            },
+            "schema": {
+              "mean_ms": 0.2142,
+              "p95_ms": 0.2202,
+              "max_ms": 0.221
+            },
+            "serialize": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "sort": {
+              "mean_ms": 0,
+              "p95_ms": 0,
+              "max_ms": 0
+            },
+            "total": {
+              "mean_ms": 455.93859999999995,
+              "p95_ms": 457.68120000000005,
+              "max_ms": 457.785
+            }
+          },
+          "counters": {
+            "cache_fallback": 0,
+            "candidates": 62184,
+            "context_record_loads": 0,
+            "link_graph_built": 0,
+            "record_source_loads": 12,
+            "records_loaded": 10364,
+            "results": 10364,
+            "total_source_loads": 12
+          }
+        },
+        {
+          "name": "view_list",
+          "iterations": 5,
+          "total_ms": 562.0106139999999,
+          "latency_ms": {
+            "min": 110.97770799999999,
+            "mean": 112.40212279999999,
+            "p50": 112.24929999999999,
+            "p95": 113.57830440000001,
+            "p99": 113.59131608000001,
+            "max": 113.594569
+          },
+          "operations_per_second": 8.896629130210698,
+          "counters": {
+            "view_documents": 2
+          }
+        },
+        {
+          "name": "view_execute_canonical",
+          "iterations": 5,
+          "total_ms": 883.4101019999999,
+          "latency_ms": {
+            "min": 174.657528,
+            "mean": 176.6820204,
+            "p50": 175.973623,
+            "p95": 179.44268060000002,
+            "p99": 179.82632492000002,
+            "max": 179.92223600000003
+          },
+          "operations_per_second": 5.659885469591336,
+          "counters": {
+            "matching_records": 3335,
+            "page_results": 200
+          }
+        },
+        {
+          "name": "view_execute_obsidian",
+          "iterations": 5,
+          "total_ms": 822.6309110000001,
+          "latency_ms": {
+            "min": 158.024157,
+            "mean": 164.52618220000002,
+            "p50": 164.658062,
+            "p95": 171.019392,
+            "p99": 171.35462320000002,
+            "max": 171.438431
+          },
+          "operations_per_second": 6.078059957559751,
+          "counters": {
+            "matching_records": 3335,
+            "page_results": 200
+          }
+        },
+        {
+          "name": "update",
+          "iterations": 5,
+          "total_ms": 2850.911612,
+          "latency_ms": {
+            "min": 557.663905,
+            "mean": 570.1823224,
+            "p50": 568.06382,
+            "p95": 591.6636048,
+            "p99": 596.3495169600001,
+            "max": 597.520995
+          },
+          "operations_per_second": 1.7538249796851297
+        },
+        {
+          "name": "rename_update_refs",
+          "iterations": 5,
+          "total_ms": 5741.231191,
+          "latency_ms": {
+            "min": 1123.321683,
+            "mean": 1148.2462381999999,
+            "p50": 1151.096995,
+            "p95": 1163.5437091999997,
+            "p99": 1165.38645864,
+            "max": 1165.8471459999998
+          },
+          "operations_per_second": 0.8708933386688975
+        },
+        {
+          "name": "create",
+          "iterations": 5,
+          "total_ms": 2790.034503,
+          "latency_ms": {
+            "min": 554.43517,
+            "mean": 558.0069006,
+            "p50": 559.1130890000001,
+            "p95": 559.8953778,
+            "p99": 560.02017876,
+            "max": 560.051379
+          },
+          "operations_per_second": 1.7920925331295088
+        },
+        {
+          "name": "delete",
+          "iterations": 5,
+          "total_ms": 2803.5755200000003,
+          "latency_ms": {
+            "min": 555.945389,
+            "mean": 560.7151040000001,
+            "p50": 562.28625,
+            "p95": 565.2735206,
+            "p99": 565.7807801199999,
+            "max": 565.907595
+          },
+          "operations_per_second": 1.7834368877639504
+        },
+        {
+          "name": "runtime_open_with_snapshot",
+          "iterations": 1,
+          "total_ms": 896.983949,
+          "latency_ms": {
+            "min": 896.983949,
+            "mean": 896.983949,
+            "p50": 896.983949,
+            "p95": 896.983949,
+            "p99": 896.983949,
+            "max": 896.983949
+          },
+          "operations_per_second": 1.1148471509605575
+        },
+        {
+          "name": "runtime_update_and_watch",
+          "iterations": 5,
+          "total_ms": 1650.9894089999998,
+          "latency_ms": {
+            "min": 267.363551,
+            "mean": 330.19788179999995,
+            "p50": 319.672929,
+            "p95": 403.34164999999996,
+            "p99": 408.19186279999997,
+            "max": 409.40441599999997
+          },
+          "operations_per_second": 3.028487022838316
+        },
+        {
+          "name": "cache_rebuild",
+          "iterations": 1,
+          "total_ms": 425.722175,
+          "latency_ms": {
+            "min": 425.722175,
+            "mean": 425.722175,
+            "p50": 425.722175,
+            "p95": 425.722175,
+            "p99": 425.722175,
+            "max": 425.722175
+          },
+          "operations_per_second": 2.348949758137452
+        }
+      ]
+    },
+    "connect": {
+      "tool": "mdbase-profile-connect",
+      "version": "0.1.0-beta.122",
+      "scenario": "all",
+      "iterations": 5,
+      "concurrency": 4,
+      "percentile_method": "linear-interpolation-r7",
+      "operations": [
+        {
+          "name": "query_page_200",
+          "iterations": 5,
+          "total_ms": 31.717253999999997,
+          "latency_ms": {
+            "min": 6.118192,
+            "mean": 6.343450799999999,
+            "p50": 6.259116000000001,
+            "p95": 6.6759433999999995,
+            "p99": null,
+            "max": 6.753876
+          },
+          "operations_per_second": 157.64290313404814
+        },
+        {
+          "name": "read",
+          "iterations": 5,
+          "total_ms": 6.8892809999999995,
+          "latency_ms": {
+            "min": 1.312267,
+            "mean": 1.3778561999999999,
+            "p50": 1.325672,
+            "p95": 1.5459948,
+            "p99": null,
+            "max": 1.5970929999999999
+          },
+          "operations_per_second": 725.765141529283
+        },
+        {
+          "name": "editor_two_pass_index",
+          "iterations": 5,
+          "total_ms": 1540.794535,
+          "latency_ms": {
+            "min": 284.23404,
+            "mean": 308.158907,
+            "p50": 290.713189,
+            "p95": 364.6443358,
+            "p99": null,
+            "max": 380.935585
+          },
+          "operations_per_second": 3.2450790072408973,
+          "requests_per_iteration": 12
+        },
+        {
+          "name": "view_list",
+          "iterations": 5,
+          "total_ms": 624.979298,
+          "latency_ms": {
+            "min": 122.589391,
+            "mean": 124.99585959999999,
+            "p50": 125.094606,
+            "p95": 126.85902659999999,
+            "p99": null,
+            "max": 127.05081700000001
+          },
+          "operations_per_second": 8.000264994377462
+        },
+        {
+          "name": "view_execute_canonical",
+          "iterations": 5,
+          "total_ms": 903.861608,
+          "latency_ms": {
+            "min": 173.730881,
+            "mean": 180.7723216,
+            "p50": 176.89015999999998,
+            "p95": 190.78948839999998,
+            "p99": null,
+            "max": 191.520887
+          },
+          "operations_per_second": 5.531820309376388
+        },
+        {
+          "name": "view_execute_obsidian",
+          "iterations": 5,
+          "total_ms": 819.528324,
+          "latency_ms": {
+            "min": 161.531553,
+            "mean": 163.9056648,
+            "p50": 162.281612,
+            "p95": 168.4985976,
+            "p99": null,
+            "max": 169.565513
+          },
+          "operations_per_second": 6.101070400588131
+        },
+        {
+          "name": "concurrent_query_batch",
+          "iterations": 5,
+          "total_ms": 89.073044,
+          "latency_ms": {
+            "min": 14.050606,
+            "mean": 17.8146088,
+            "p50": 14.1651,
+            "p95": 28.631118399999995,
+            "p99": null,
+            "max": 32.127190999999996
+          },
+          "operations_per_second": 56.133705276761404,
+          "requests_per_iteration": 4
+        }
+      ]
+    },
+    "mirror": {
+      "profile_version": 1,
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "linux-x64",
+        "gc_exposed": true
+      },
+      "parameters": {
+        "records": 10000,
+        "changes": 100,
+        "rounds": 3,
+        "snapshot_page_size": 200,
+        "body_only_percent": 50,
+        "adapters": [
+          "node",
+          "portable"
+        ]
+      },
+      "samples": [
+        {
+          "name": "node_read_only_initial",
+          "wall_ms": 1824.274,
+          "peak_heap_delta_mib": 130.335,
+          "peak_rss_delta_mib": 190.281,
+          "retained_heap_delta_mib": 10.444,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 2,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_only_noop",
+          "wall_ms": 866.167,
+          "peak_heap_delta_mib": 76.087,
+          "peak_rss_delta_mib": 9.625,
+          "retained_heap_delta_mib": 0.437,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_only_incremental",
+          "wall_ms": 879.652,
+          "peak_heap_delta_mib": 76.439,
+          "peak_rss_delta_mib": 13.832,
+          "retained_heap_delta_mib": 0.563,
+          "fs_reads": 10300,
+          "fs_writes": 100,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 2,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_write_initial",
+          "wall_ms": 1898.634,
+          "peak_heap_delta_mib": 136.043,
+          "peak_rss_delta_mib": 54.051,
+          "retained_heap_delta_mib": -8.63,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 2,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_write_noop",
+          "wall_ms": 883.285,
+          "peak_heap_delta_mib": 85.702,
+          "peak_rss_delta_mib": 6.5,
+          "retained_heap_delta_mib": 0.457,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_only_initial",
+          "wall_ms": 1930.488,
+          "peak_heap_delta_mib": 131.345,
+          "peak_rss_delta_mib": 9.867,
+          "retained_heap_delta_mib": 8.729,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_only_noop",
+          "wall_ms": 922.169,
+          "peak_heap_delta_mib": 80.338,
+          "peak_rss_delta_mib": 4.75,
+          "retained_heap_delta_mib": 0.447,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_only_incremental",
+          "wall_ms": 955.51,
+          "peak_heap_delta_mib": 90.38,
+          "peak_rss_delta_mib": 7.934,
+          "retained_heap_delta_mib": 0.359,
+          "fs_reads": 10300,
+          "fs_writes": 100,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_write_initial",
+          "wall_ms": 2008.785,
+          "peak_heap_delta_mib": 131.809,
+          "peak_rss_delta_mib": 26.43,
+          "retained_heap_delta_mib": 18.1,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_write_noop",
+          "wall_ms": 905.189,
+          "peak_heap_delta_mib": 89.034,
+          "peak_rss_delta_mib": 6.75,
+          "retained_heap_delta_mib": 0.399,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_only_initial",
+          "wall_ms": 1651.706,
+          "peak_heap_delta_mib": 124.817,
+          "peak_rss_delta_mib": 9.461,
+          "retained_heap_delta_mib": -27.14,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 2,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_only_noop",
+          "wall_ms": 821.917,
+          "peak_heap_delta_mib": 76.04,
+          "peak_rss_delta_mib": 4.75,
+          "retained_heap_delta_mib": 0.364,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_only_incremental",
+          "wall_ms": 874.097,
+          "peak_heap_delta_mib": 76.308,
+          "peak_rss_delta_mib": 8.27,
+          "retained_heap_delta_mib": 0.382,
+          "fs_reads": 10300,
+          "fs_writes": 100,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 2,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_write_initial",
+          "wall_ms": 1874.889,
+          "peak_heap_delta_mib": 131.846,
+          "peak_rss_delta_mib": 9.57,
+          "retained_heap_delta_mib": -8.446,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 2,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_write_noop",
+          "wall_ms": 827.941,
+          "peak_heap_delta_mib": 85.666,
+          "peak_rss_delta_mib": 6.125,
+          "retained_heap_delta_mib": 0.408,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_only_initial",
+          "wall_ms": 1868.346,
+          "peak_heap_delta_mib": 131.732,
+          "peak_rss_delta_mib": 9.605,
+          "retained_heap_delta_mib": 8.773,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_only_noop",
+          "wall_ms": 851.366,
+          "peak_heap_delta_mib": 80.254,
+          "peak_rss_delta_mib": 4.75,
+          "retained_heap_delta_mib": 0.404,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_only_incremental",
+          "wall_ms": 953.061,
+          "peak_heap_delta_mib": 85.936,
+          "peak_rss_delta_mib": 6.77,
+          "retained_heap_delta_mib": 0.359,
+          "fs_reads": 10300,
+          "fs_writes": 100,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_write_initial",
+          "wall_ms": 1974.503,
+          "peak_heap_delta_mib": 138.163,
+          "peak_rss_delta_mib": 9.656,
+          "retained_heap_delta_mib": 18.078,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_write_noop",
+          "wall_ms": 922.713,
+          "peak_heap_delta_mib": 89.053,
+          "peak_rss_delta_mib": 14.445,
+          "retained_heap_delta_mib": 0.449,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_only_initial",
+          "wall_ms": 1666.863,
+          "peak_heap_delta_mib": 124.191,
+          "peak_rss_delta_mib": 9.438,
+          "retained_heap_delta_mib": -28.025,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 2,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_only_noop",
+          "wall_ms": 831.302,
+          "peak_heap_delta_mib": 76.06,
+          "peak_rss_delta_mib": 4.875,
+          "retained_heap_delta_mib": 0.336,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_only_incremental",
+          "wall_ms": 876.69,
+          "peak_heap_delta_mib": 76.276,
+          "peak_rss_delta_mib": 8.094,
+          "retained_heap_delta_mib": 0.388,
+          "fs_reads": 10300,
+          "fs_writes": 100,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 2,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_write_initial",
+          "wall_ms": 1854.155,
+          "peak_heap_delta_mib": 131.882,
+          "peak_rss_delta_mib": 9.438,
+          "retained_heap_delta_mib": -8.389,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 2,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "node_read_write_noop",
+          "wall_ms": 838.518,
+          "peak_heap_delta_mib": 85.681,
+          "peak_rss_delta_mib": 6.125,
+          "retained_heap_delta_mib": 0.36,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_only_initial",
+          "wall_ms": 1896.63,
+          "peak_heap_delta_mib": 131.885,
+          "peak_rss_delta_mib": 9.668,
+          "retained_heap_delta_mib": 8.715,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_only_noop",
+          "wall_ms": 852.159,
+          "peak_heap_delta_mib": 80.327,
+          "peak_rss_delta_mib": 4.75,
+          "retained_heap_delta_mib": 0.434,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_only_incremental",
+          "wall_ms": 939.875,
+          "peak_heap_delta_mib": 86.29,
+          "peak_rss_delta_mib": 6.867,
+          "retained_heap_delta_mib": 0.39,
+          "fs_reads": 10300,
+          "fs_writes": 100,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_write_initial",
+          "wall_ms": 1960.113,
+          "peak_heap_delta_mib": 137.053,
+          "peak_rss_delta_mib": 9.813,
+          "retained_heap_delta_mib": 18.087,
+          "fs_reads": 30000,
+          "fs_writes": 10000,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 2,
+          "transport_calls": {
+            "open_session": 1,
+            "snapshot": 50,
+            "file_snapshot": 1,
+            "changes": 0,
+            "mutate": 0
+          }
+        },
+        {
+          "name": "portable_read_write_noop",
+          "wall_ms": 928.584,
+          "peak_heap_delta_mib": 88.976,
+          "peak_rss_delta_mib": 6.125,
+          "retained_heap_delta_mib": 0.388,
+          "fs_reads": 10000,
+          "fs_writes": 0,
+          "fs_removes": 0,
+          "fs_lists": 1,
+          "state_reads": 1,
+          "state_writes": 0,
+          "transport_calls": {
+            "open_session": 0,
+            "snapshot": 0,
+            "file_snapshot": 0,
+            "changes": 1,
+            "mutate": 0
+          }
+        }
+      ]
+    },
+    "provider_10k": {
+      "schema_version": 1,
+      "tool": "mdbase-provider-e2e-performance",
+      "generated_at": "2026-10-01T21:38:16.166Z",
+      "parameters": {
+        "bulk_records": 10000,
+        "records_before_bulk": 3,
+        "final_records": 10003,
+        "warm_samples": 25,
+        "percentile_method": "nearest-rank-floor"
+      },
+      "latency_ms": {
+        "mutation_p95": 17.14,
+        "snapshot": 274.0428369999863,
+        "change_page_p95": 8.15,
+        "warm_read_p95": 10.23,
+        "warm_query_p95": 30.37,
+        "cold_read": 24.227826000074856,
+        "cold_query": 64.32894899998792
+      },
+      "bytes": {
+        "rss_before": 51904512,
+        "pss_before": 49518592,
+        "rss_after_queries": 52420608,
+        "pss_after_queries": 50034688,
+        "cold_read_rss_delta": 11956224,
+        "cold_read_ciphertext": 356,
+        "cold_query_rss_delta": 14884864,
+        "cold_query_ciphertext": 0,
+        "measured_working_set_plaintext": null,
+        "measured_ciphertext": 66200,
+        "measured_cgroup_current": 0,
+        "measured_cgroup_peak": 0
+      },
+      "counts": {
+        "records": 10003,
+        "cold_read_scanned_records": null,
+        "cold_read_records_fetched": 1,
+        "cold_query_scanned_records": null,
+        "measured_scanned_records": 1
+      },
+      "invariants": {
+        "cold_read_used_authority_bulk_materialization": false
+      }
+    }
+  }
+}
