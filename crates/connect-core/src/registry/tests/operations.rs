@@ -1165,7 +1165,7 @@ fn query_cursor_honors_larger_continuations_without_reopening_the_query() {
     let registry = CollectionRegistry::open(state.path()).unwrap();
     let collection = registry
         .create(
-            &parent.path().join("adaptive-pages"),
+            parent.path().join("adaptive-pages"),
             Some("[test] pages"),
             "UTC",
         )
