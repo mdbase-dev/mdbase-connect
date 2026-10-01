@@ -328,7 +328,7 @@ function StandaloneMirrorRow({ mirror, busy, onAct: run, onNotice }: {
   return <article className="collection-card standalone-mirror">
     <div className="collection-summary">
       <div className="collection-copy"><h3>{mirror.name}</h3><span className="authority-label">Synced folder · main copy hosted by mdbase</span></div>
-      <div className="collection-status" role="status"><StatusDot state={state.dot} />{state.label}</div>
+      <div className="collection-status" role="status">{!editing && <><StatusDot state={state.dot} />{state.label}</>}</div>
       <div className="row-actions"><button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : "Sync"}</button></div>
     </div>
     {error && <div className="message error-message" role="alert">{error}</div>}
@@ -618,7 +618,7 @@ function HostedCollectionRow({
                 ? "Moved"
                 : "Moving"}
           </div>
-          {mirror && collection.authority_state !== "transferred" && <div className="collection-status" role="status">
+          {!editing && mirror && collection.authority_state !== "transferred" && <div className="collection-status" role="status">
             <StatusDot state={state.dot} />{state.label}
           </div>}
         </div>
