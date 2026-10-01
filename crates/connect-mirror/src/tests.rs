@@ -2024,6 +2024,81 @@ async fn action_journal_is_append_only_replayable_and_ignores_a_torn_tail() {
 }
 
 #[tokio::test]
+async fn prepared_resource_deletion_preserves_post_crash_edits_and_clears_ownership() {
+    let document = "---\nkind: mdbase.type\nname: scratch\nversion: 1\nschema: {dialect: json-schema-2020-12, value: {type: object}}\n---\n";
+    let path = "_types/scratch.md";
+    let mut authority = FakeAuthority::new(Uuid::new_v4(), SyncReplicaMode::ReadOnly, Vec::new());
+    authority
+        .session
+        .resources
+        .documents
+        .push(SyncResourceDocument {
+            path: path.into(),
+            kind: "type".into(),
+            revision: format!("sha256:{}", digest(document)),
+            document: document.into(),
+        });
+    let (temporary, mirror, authority) = custom_harness(authority);
+    mirror.sync().await.unwrap();
+    let before = mirror.read_state().unwrap().unwrap();
+    assert!(before.resources.contains_key(path));
+    let mut removed = FakeAuthority::new(
+        authority.session.replica_id,
+        SyncReplicaMode::ReadOnly,
+        Vec::new(),
+    );
+    removed.session = authority.session.clone();
+    removed
+        .session
+        .resources
+        .documents
+        .retain(|resource| resource.path != path);
+    // A changed selective-sync policy requests a fresh authority snapshot.
+    let restarted = DirectoryMirror::new_with_selective_sync(
+        mirror.root(),
+        temporary.path().join("state/state.json"),
+        temporary.path().join("locks/mirror.lock"),
+        authority.session.replica_id,
+        SyncReplicaMode::ReadOnly,
+        SelectiveSyncPolicy {
+            file_classes: Vec::new(),
+            excluded_folders: vec!["archive".into()],
+        },
+        Arc::new(removed),
+    )
+    .unwrap();
+    let inspection = restarted.inspect_plan().await.unwrap();
+    assert!(inspection.plan.actions.iter().any(|action| matches!(
+        action, SyncAction::DeleteLocal { target, .. } if target.path == path
+    )));
+    restarted.prepare_batch(inspection).unwrap();
+    fs::write(restarted.root().join(path), "new user edit after crash").unwrap();
+
+    let error = restarted.sync().await.unwrap_err();
+
+    assert_eq!(error.code, "sync_plan_stale");
+    assert_eq!(
+        fs::read(restarted.root().join(path)).unwrap(),
+        b"new user edit after crash"
+    );
+    assert!(restarted
+        .read_state()
+        .unwrap()
+        .unwrap()
+        .resources
+        .contains_key(path));
+    fs::write(restarted.root().join(path), document).unwrap();
+    restarted.sync().await.unwrap();
+    assert!(!restarted.root().join(path).exists());
+    assert!(!restarted
+        .read_state()
+        .unwrap()
+        .unwrap()
+        .resources
+        .contains_key(path));
+}
+
+#[tokio::test]
 async fn an_existing_folder_lease_refuses_a_second_sync() {
     let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, Vec::new());
     let _lease = MirrorLease::acquire(&mirror.lock_file).unwrap();
