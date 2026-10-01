@@ -365,7 +365,7 @@ interface Window {
     setCollectionEnabled(collectionId: string, enabled: boolean): Promise<CollectionSummary>;
     validateCollection(collectionId: string): Promise<unknown>;
     removeCollection(collectionId: string): Promise<CollectionSummary>;
-    openPath(path: string): Promise<string>;
+    openCollectionFolder(collectionId: string): Promise<string>;
     openCollectionConfig(collectionId: string): Promise<string>;
     openEditor(collectionId: string): Promise<void>;
     getLaunchAtLogin(): Promise<StartupSetting>;

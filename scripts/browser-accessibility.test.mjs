@@ -992,7 +992,7 @@ async function auditDesktopRoutes() {
       checkForUpdates: async () => updateStatus,
       installUpdate: async () => updateStatus,
       openAuthorization: async () => undefined,
-      openPath: async () => undefined,
+      openCollectionFolder: async () => undefined,
       openEditor: async () => undefined
     };
   }, desktopAuthorizationFixture("44444444-4444-4444-8444-444444444444"));
