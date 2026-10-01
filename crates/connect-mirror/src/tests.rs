@@ -2099,6 +2099,141 @@ async fn prepared_resource_deletion_preserves_post_crash_edits_and_clears_owners
 }
 
 #[tokio::test]
+async fn stale_prepared_download_replans_new_local_edits_instead_of_wedging_sync() {
+    let source = record("one.md", "Initial");
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, vec![source.clone()]);
+    mirror.sync().await.unwrap();
+    let mut updated = source.clone();
+    updated.body = "authority update".into();
+    refresh_revision(&mut updated);
+    // Keep the fake's snapshot and change feed consistent for the rebuild.
+    authority
+        .records
+        .lock()
+        .unwrap()
+        .insert(updated.record_id, updated.clone());
+    authority.emit_put(updated);
+    let inspection = mirror.inspect_plan().await.unwrap();
+    assert!(inspection
+        .plan
+        .actions
+        .iter()
+        .any(|action| matches!(action, SyncAction::WriteLocal { .. })));
+    mirror.prepare_batch(inspection).unwrap();
+    fs::write(
+        mirror.root().join(&source.path),
+        "local edit made after preparing",
+    )
+    .unwrap();
+
+    assert_eq!(mirror.sync().await.unwrap_err().code, "sync_plan_stale");
+    let current = mirror.inspect().await.unwrap();
+    assert!(current
+        .actions
+        .iter()
+        .any(|action| matches!(action, SyncAction::RecordConflict { .. })));
+    mirror.sync().await.unwrap();
+    assert_eq!(
+        fs::read(mirror.root().join(&source.path)).unwrap(),
+        b"local edit made after preparing"
+    );
+    assert_eq!(mirror.status().unwrap().conflicts.len(), 1);
+}
+
+#[tokio::test]
+async fn stale_initial_batch_keeps_completed_receipts_and_rebuilds_the_snapshot() {
+    let (_temporary, mirror, _authority) = harness(
+        SyncReplicaMode::ReadWrite,
+        vec![record("first.md", "First"), record("second.md", "Second")],
+    );
+    let inspection = mirror.inspect_plan().await.unwrap();
+    let mut state = mirror.prepare_batch(inspection).unwrap();
+    let batch = state.batch.as_ref().unwrap();
+    let action_id = batch.plan.actions[0].action_id().to_owned();
+    let completed = batch.payloads.records[&action_id].clone();
+    let SyncAction::WriteLocal { target, .. } = &batch.plan.actions[1] else {
+        panic!("second initial action must download the other record");
+    };
+    let changed_path = target.path.clone();
+    mirror
+        .put_record(&mut state, completed.clone(), None, false)
+        .unwrap();
+    mirror
+        .journal_receipt(
+            &mut state,
+            DurableReceipt {
+                action_id,
+                status: "completed".into(),
+                record: Some(completed.clone()),
+                file: None,
+            },
+        )
+        .unwrap();
+    fs::write(
+        mirror.root().join(&changed_path),
+        "local arrival after crash",
+    )
+    .unwrap();
+
+    assert_eq!(mirror.sync().await.unwrap_err().code, "sync_plan_stale");
+    mirror.sync().await.unwrap();
+
+    assert_eq!(
+        fs::read(mirror.root().join(&completed.path)).unwrap(),
+        completed.document.as_bytes()
+    );
+    assert_eq!(
+        fs::read(mirror.root().join(&changed_path)).unwrap(),
+        b"local arrival after crash"
+    );
+    assert_eq!(mirror.status().unwrap().conflicts.len(), 1);
+    assert!(mirror.root().join("mdbase.yaml").exists());
+    assert_eq!(mirror.status().unwrap().cursor, Some(1));
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn full_action_journal_preserves_local_bytes_and_recovers_without_a_new_plan() {
+    let source = record("one.md", "Initial");
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
+    mirror.sync().await.unwrap();
+    let mut updated = source.clone();
+    updated.body = "authority update".into();
+    refresh_revision(&mut updated);
+    authority.emit_put(updated.clone());
+    let inspection = mirror.inspect_plan().await.unwrap();
+    let fingerprint = inspection.plan.fingerprint.clone();
+    let mut state = mirror.prepare_batch(inspection).unwrap();
+    // /dev/full injects a real ENOSPC without filling a shared filesystem.
+    // This journal belongs only to the disposable test profile.
+    let journal = mirror.state_file.with_extension("journal.ndjson");
+    fs::remove_file(&journal).unwrap();
+    std::os::unix::fs::symlink("/dev/full", &journal).unwrap();
+
+    let error = mirror
+        .execute_prepared(&mut state)
+        .await
+        .err()
+        .expect("journal must report ENOSPC");
+
+    assert_eq!(error.code, "mirror_io_failed");
+    assert_eq!(
+        fs::read(mirror.root().join(&source.path)).unwrap(),
+        source.document.as_bytes()
+    );
+    // Repair only the simulated capacity fault; the sealed action remains.
+    fs::remove_file(&journal).unwrap();
+    fs::write(&journal, b"").unwrap();
+    assert_eq!(mirror.inspect().await.unwrap().fingerprint, fingerprint);
+    mirror.sync().await.unwrap();
+    assert_eq!(
+        fs::read(mirror.root().join(&source.path)).unwrap(),
+        updated.document.as_bytes()
+    );
+    assert_eq!(mirror.status().unwrap().cursor, Some(2));
+}
+
+#[tokio::test]
 async fn an_existing_folder_lease_refuses_a_second_sync() {
     let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, Vec::new());
     let _lease = MirrorLease::acquire(&mirror.lock_file).unwrap();

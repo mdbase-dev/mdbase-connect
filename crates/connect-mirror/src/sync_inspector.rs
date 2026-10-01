@@ -40,7 +40,12 @@ impl DirectoryMirror {
         }
         if prior
             .as_ref()
-            .is_none_or(|state| state.sync_policy != self.sync_policy)
+            // No completed projection means initial setup or a cancelled
+            // stale batch. Incremental reads cannot recover a partial snapshot
+            // or the resource/policy boundary of an abandoned rebuild.
+            .is_none_or(|state| {
+                state.last_completed_plan.is_none() || state.sync_policy != self.sync_policy
+            })
         {
             let kind = if prior.is_some() {
                 "rebuild"
