@@ -140,7 +140,7 @@ function App() {
       }).catch((reason) => {
         // Inventory can be last-known; a live connection indicator cannot.
         setStatus(null);
-        throw reason;
+        throw new Error(message(reason));
       }),
       collections: () => requests.collections().then(setCollections),
       startup: () => requests.startup().then(setStartup),

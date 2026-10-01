@@ -83,6 +83,7 @@ test("sync completion reports outstanding conflicts, not a false success", async
     await row.getByRole("button", { name: "Sync now" }).click();
     await row.locator(".mirror-state-row").getByText("Conflicts need a decision", { exact: true }).waitFor();
     assert.equal(await row.getByText("Conflicts need a decision", { exact: true }).count(), 1, "expanded mirror status has one reading location");
+    assert.equal(await row.getByRole("status").filter({ hasText: "Conflicts need a decision" }).count(), 1, "expanded status changes are announced without repeating the folder path");
     await screenshot(page, "conflict-completion");
     assert.equal(await page.getByText("Notes is synchronized.", { exact: true }).count(), 0);
     assert.match(await page.locator(".notice-message").innerText(), /Conflicts need a decision/);
@@ -117,6 +118,7 @@ test("cold-start offline keeps locally controlled synced folders visible and usa
     const localRow = page.locator(".standalone-mirror");
     await localRow.getByRole("button", { name: "Sync", exact: true }).click();
     assert.equal(await localRow.getByText("Up to date", { exact: true }).count(), 1, "standalone mirror status also has one reading location");
+    assert.equal(await localRow.getByRole("status").filter({ hasText: "Up to date" }).count(), 1);
     await page.evaluate(() => {
       window.fixture.openedFolders = [];
       window.mdbaseConnect.openMirror = async (id) => { window.fixture.openedFolders.push(id); };
@@ -151,6 +153,27 @@ test("minimum desktop window keeps pairing and collection fields inside the canv
     await row.getByLabel("Description", { exact: true }).fill("My edits remain visible");
     await screenshot(page, "minimum-metadata");
     assert.deepEqual({ pairingOverflow, metadataOverflow: await hasOverflow() }, { pairingOverflow: false, metadataOverflow: false }, "pairing and metadata fields stay within the minimum-width canvas");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("hosted folder setup stays inside the canvas across supported desktop widths", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.evaluate(() => { window.mdbaseConnect.listMirrors = async () => []; });
+    await page.clock.runFor(5_000);
+    const row = page.locator(".hosted-collection");
+    await row.getByRole("button", { name: "Details", exact: true }).click();
+    const overflows = [];
+    for (const width of [820, 1000, 1001, 1060, 1280]) {
+      await page.setViewportSize({ width, height: 720 });
+      overflows.push({ width, overflow: await row.locator(".mirror-setup").evaluate((element) => {
+        const right = element.closest(".collection-card").getBoundingClientRect().right;
+        return [...element.querySelectorAll(":scope > label, :scope > .button")].some((control) => control.getBoundingClientRect().right > right + 1);
+      }) });
+    }
+    await screenshot(page, "mirror-setup-widths");
+    assert.deepEqual(overflows, [820, 1000, 1001, 1060, 1280].map((width) => ({ width, overflow: false })));
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
@@ -240,10 +263,11 @@ test("failed daemon refresh never leaves a stale connected indicator and recover
   try {
     await page.getByText("Connected securely", { exact: true }).waitFor();
     await page.evaluate(() => {
-      window.mdbaseConnect.status = async () => { throw new Error("The local connector stopped."); };
+      window.mdbaseConnect.status = async () => { throw new Error("Error invoking remote method 'connect:status': Error: The local connector stopped."); };
     });
     await page.clock.runFor(5_000);
     await page.getByRole("status").filter({ hasText: "The local connector stopped." }).waitFor();
+    assert.equal(await page.getByRole("status").filter({ hasText: "The local connector stopped." }).innerText(), "The local connector stopped. Last-known information is shown; it may be out of date.");
     await screenshot(page, "daemon-failure");
     assert.equal(await page.getByText("Connected securely", { exact: true }).count(), 0);
     await page.evaluate(() => {
@@ -258,6 +282,20 @@ test("failed daemon refresh never leaves a stale connected indicator and recover
     await page.clock.runFor(5_000);
     await page.getByText("Connected securely", { exact: true }).waitFor();
     assert.equal(await page.getByText(/Local connector worker stopped/).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("folder errors show the repair without Electron's IPC method name", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.evaluate(() => {
+      window.mdbaseConnect.addCollection = async () => { throw new Error("Error invoking remote method 'connect:collections:add': AgentControlError: The selected folder does not contain mdbase.yaml. Choose an mdbase collection folder."); };
+    });
+    await page.getByRole("button", { name: "Add existing", exact: true }).click();
+    await page.getByRole("alert").waitFor();
+    await screenshot(page, "folder-error-copy");
+    assert.equal(await page.getByRole("alert").locator("span").innerText(), "The selected folder does not contain mdbase.yaml. Choose an mdbase collection folder.");
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
