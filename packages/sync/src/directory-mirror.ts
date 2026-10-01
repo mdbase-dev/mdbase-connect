@@ -4,6 +4,7 @@ import type {
   SyncRecord
 } from "@mdbase-dev/connect-protocol";
 import type { SyncTransport } from "./sync-types.js";
+import { runtimeDocumentRevision } from "./mirror-format.js";
 import { asError, errorCode, invalidMirrorState, SyncError } from "./sync-error.js";
 import {
   MemoryMirrorLease,
@@ -438,20 +439,23 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     };
   }
 
+  /** An optional merged record is written conditionally before the durable conflict is cleared. */
   async resolveConflict(
     identity: string,
     decisionId: string,
-    resolution: "local" | "remote"
+    resolution: "local" | "remote",
+    mergedDocument?: string
   ): Promise<void> {
     await this.lease.runExclusive(() =>
-      this.resolveConflictUnlocked(identity, decisionId, resolution)
+      this.resolveConflictUnlocked(identity, decisionId, resolution, mergedDocument)
     );
   }
 
   private async resolveConflictUnlocked(
     identity: string,
     decisionId: string,
-    resolution: "local" | "remote"
+    resolution: "local" | "remote",
+    mergedDocument?: string
   ): Promise<void> {
     if (this.mode !== "read_write") {
       throw new SyncError("mirror_read_only", "Receive-only mirrors have no writable conflicts.");
@@ -465,6 +469,11 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       throw new SyncError("mirror_conflict_not_found", "Writable mirror conflict was not found.");
     }
     if ((planned.decision_id ?? "") !== decisionId) throw staleConflict();
+    const mergedLocal = planned.local.state === "exact" ? planned.local.object : undefined;
+    if (mergedDocument !== undefined && (resolution !== "local"
+      || planned.entity !== "record" || mergedLocal === undefined)) {
+      throw new SyncError("invalid_conflict_resolution", "A merged document requires an exact local record conflict.");
+    }
     const snapshot = await loadMirrorSnapshot(
       this.replicaId,
       this.transport,
@@ -496,6 +505,16 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       } else {
         await this.installRemoteFile(state, identity, currentFile);
       }
+    }
+    if (mergedDocument !== undefined) {
+      const path = mergedLocal!.path;
+      const expected = await this.fileSystem.read(path);
+      if (expected === null || runtimeDocumentRevision(expected, this.runtime) !== mergedLocal!.payload_revision) {
+        throw staleConflict();
+      }
+      // Persist both halves before clearing the durable conflict. A failed
+      // write or crash must never authorize uploading the unmerged local edit.
+      await this.fileSystem.write(path, mergedDocument, expected);
     }
     delete state.planned_conflicts?.[identity];
     if (resolution === "remote") delete state.local_bindings?.[identity];

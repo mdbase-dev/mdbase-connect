@@ -640,6 +640,23 @@ describe("portable collection file mirror", () => {
     expect((await target.status()).conflicts).toEqual([]);
   });
 
+  it("refuses merged text for a binary file conflict", async () => {
+    const transport = new FileTransport();
+    const remote = utf8.encode("remote image");
+    const descriptor = file("00000000-0000-4000-8000-000000000041", "images/conflicted.png", remote);
+    transport.files = [descriptor];
+    transport.bytes.set(descriptor.file_id, remote);
+    const fileSystem = new BinaryFileSystem();
+    fileSystem.files.set(descriptor.path, utf8.encode("local image"));
+    const { mirror: target, stateStore } = writableMirror(transport, fileSystem);
+    expect((await target.sync()).status).toBe("attention");
+    const conflict = (await stateStore.read())!.planned_conflicts![descriptor.file_id]!;
+    await expect(target.resolveConflict(descriptor.file_id, conflict.decision_id!, "local", "merged text"))
+      .rejects.toMatchObject({ code: "invalid_conflict_resolution" });
+    expect((await stateStore.read())!.planned_conflicts![descriptor.file_id]).toEqual(conflict);
+    expect(text.decode(fileSystem.files.get(descriptor.path))).toBe("local image");
+  });
+
   it("matches excluded folders by portable Unicode identity", () => {
     const policy = {
       file_classes: ["image" as const],

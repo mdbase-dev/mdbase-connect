@@ -184,7 +184,128 @@ function records(count: number) {
   });
 }
 
+async function mergedConflictFixture(
+  stateStore = new MemoryMirrorStateStore(), fileSystem = new ConditionalFileSystem()
+) {
+  const hosted = new MemoryAuthority();
+  hosted.seed(records(1));
+  const replicaId = hosted.registerReplica({ name: "Merged conflict mirror", mode: "read_write" });
+  const transport = hosted.transport(replicaId);
+  const path = "notes/00000.md";
+  const local = "local edit\n";
+  const remote = records(1)[0]!.document;
+  const merged = `${remote}\n${local}`;
+  fileSystem.files.set(path, local);
+  const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+  expect((await mirror.sync()).status).toBe("attention");
+  const conflict = (await stateStore.read())!.planned_conflicts!["portable-0"]!;
+  return { hosted, replicaId, transport, path, local, remote, merged, fileSystem, stateStore, mirror, conflict };
+}
+
 describe("platform-neutral directory mirror", () => {
+  it("conditionally writes both merged versions before clearing a local conflict", async () => {
+    const context = await mergedConflictFixture();
+    await context.mirror.resolveConflict("portable-0", context.conflict.decision_id!, "local", context.merged);
+    expect(context.fileSystem.files.get(context.path)).toBe(context.merged);
+    expect(context.fileSystem.expectations.at(-1)).toBe(context.local);
+    expect((await context.stateStore.read())!.planned_conflicts).toEqual({});
+    expect((await context.mirror.sync()).status).toBe("applied");
+    expect(context.hosted.serialize().records[0]!.document).toBe(context.merged);
+  });
+
+  it.each(["failed_write", "competing_edit"])("retains the conflict after merged resolution hits a %s", async (fault) => {
+    const context = await mergedConflictFixture();
+    context.fileSystem.beforeWrite = (path) => {
+      if (fault === "failed_write") throw new Error("merge write failed");
+      context.fileSystem.files.set(path, "newer concurrent edit");
+    };
+    await expect(context.mirror.resolveConflict("portable-0", context.conflict.decision_id!, "local", context.merged))
+      .rejects.toThrow();
+    expect((await context.stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(context.conflict);
+    expect(context.fileSystem.files.get(context.path)).toBe(fault === "failed_write" ? context.local : "newer concurrent edit");
+    expect(context.hosted.serialize().records[0]!.document).toBe(context.remote);
+  });
+
+  it("recovers a merged write committed before clearing its durable conflict", async () => {
+    class InterruptedClearStore extends MemoryMirrorStateStore {
+      failClear = false;
+      override async write(state: MirrorState) {
+        if (this.failClear && !state.planned_conflicts?.["portable-0"]) throw new Error("crash before conflict clear");
+        await super.write(state);
+      }
+    }
+    const stateStore = new InterruptedClearStore();
+    const context = await mergedConflictFixture(stateStore);
+    stateStore.failClear = true;
+    await expect(context.mirror.resolveConflict("portable-0", context.conflict.decision_id!, "local", context.merged))
+      .rejects.toThrow("crash before conflict clear");
+    expect(context.fileSystem.files.get(context.path)).toBe(context.merged);
+    expect((await stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(context.conflict);
+    stateStore.failClear = false;
+    const restarted = new WritableDirectoryMirror(context.replicaId, context.transport, {
+      fileSystem: context.fileSystem, stateStore
+    });
+    expect((await restarted.sync()).status).toBe("attention");
+    expect(context.hosted.serialize().records[0]!.document).toBe(context.remote);
+    const updated = (await stateStore.read())!.planned_conflicts!["portable-0"]!;
+    expect(updated.decision_id).not.toBe(context.conflict.decision_id);
+    await restarted.resolveConflict("portable-0", updated.decision_id!, "local");
+    expect((await restarted.sync()).status).toBe("applied");
+    expect(context.hosted.serialize().records[0]!.document).toBe(context.merged);
+  });
+
+  it("revalidates a merge after loading the hosted snapshot", async () => {
+    const context = await mergedConflictFixture();
+    const racing = new WritableDirectoryMirror(context.replicaId, {
+      ...context.transport,
+      openSession: async () => {
+        const session = await context.transport.openSession();
+        context.fileSystem.files.set(context.path, "newer edit during snapshot");
+        return session;
+      }
+    }, { fileSystem: context.fileSystem, stateStore: context.stateStore });
+    await expect(racing.resolveConflict("portable-0", context.conflict.decision_id!, "local", context.merged))
+      .rejects.toMatchObject({ code: "sync_plan_stale" });
+    expect(context.fileSystem.files.get(context.path)).toBe("newer edit during snapshot");
+    expect((await context.stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(context.conflict);
+  });
+
+  it("checks the decision's exact document revision again before writing merged text", async () => {
+    class ChangedRereadFileSystem extends ConditionalFileSystem {
+      race = false;
+      override async read(path: string) {
+        if (this.race) this.files.set(path, "newer edit before merge reread");
+        return super.read(path);
+      }
+    }
+    const fileSystem = new ChangedRereadFileSystem();
+    const context = await mergedConflictFixture(new MemoryMirrorStateStore(), fileSystem);
+    fileSystem.race = true;
+    await expect(context.mirror.resolveConflict("portable-0", context.conflict.decision_id!, "local", context.merged))
+      .rejects.toMatchObject({ code: "mirror_conflict_stale" });
+    expect(fileSystem.files.get(context.path)).toBe("newer edit before merge reread");
+    expect((await context.stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(context.conflict);
+  });
+
+  it("requires an exact local record for a merged resolution", async () => {
+    const context = await mergedConflictFixture();
+    context.fileSystem.files.delete(context.path);
+    expect((await context.mirror.sync()).status).toBe("attention");
+    const updated = (await context.stateStore.read())!.planned_conflicts!["portable-0"]!;
+    expect(updated.local.state).toBe("absent");
+    await expect(context.mirror.resolveConflict("portable-0", updated.decision_id!, "local", context.merged))
+      .rejects.toMatchObject({ code: "invalid_conflict_resolution" });
+    expect(context.fileSystem.files.has(context.path)).toBe(false);
+    expect((await context.stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(updated);
+  });
+
+  it("refuses a merged document when choosing the remote version", async () => {
+    const context = await mergedConflictFixture();
+    await expect(context.mirror.resolveConflict("portable-0", context.conflict.decision_id!, "remote", context.merged))
+      .rejects.toMatchObject({ code: "invalid_conflict_resolution" });
+    expect(context.fileSystem.files.get(context.path)).toBe(context.local);
+    expect((await context.stateStore.read())!.planned_conflicts!["portable-0"]).toEqual(context.conflict);
+  });
   it("serializes empty frontmatter as body-only Markdown without changing bytes", () => {
     for (const body of ["", "# Note", "# Note\n", "---\nNot a complete frontmatter block"]) {
       expect(recordMarkdownDocument({
