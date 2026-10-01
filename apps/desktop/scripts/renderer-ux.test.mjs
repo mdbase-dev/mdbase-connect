@@ -263,10 +263,11 @@ test("failed daemon refresh never leaves a stale connected indicator and recover
   try {
     await page.getByText("Connected securely", { exact: true }).waitFor();
     await page.evaluate(() => {
-      window.mdbaseConnect.status = async () => { throw new Error("The local connector stopped."); };
+      window.mdbaseConnect.status = async () => { throw new Error("Error invoking remote method 'connect:status': Error: The local connector stopped."); };
     });
     await page.clock.runFor(5_000);
     await page.getByRole("status").filter({ hasText: "The local connector stopped." }).waitFor();
+    assert.equal(await page.getByRole("status").filter({ hasText: "The local connector stopped." }).innerText(), "The local connector stopped. Last-known information is shown; it may be out of date.");
     await screenshot(page, "daemon-failure");
     assert.equal(await page.getByText("Connected securely", { exact: true }).count(), 0);
     await page.evaluate(() => {
@@ -281,6 +282,20 @@ test("failed daemon refresh never leaves a stale connected indicator and recover
     await page.clock.runFor(5_000);
     await page.getByText("Connected securely", { exact: true }).waitFor();
     assert.equal(await page.getByText(/Local connector worker stopped/).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("folder errors show the repair without Electron's IPC method name", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.evaluate(() => {
+      window.mdbaseConnect.addCollection = async () => { throw new Error("Error invoking remote method 'connect:collections:add': AgentControlError: The selected folder does not contain mdbase.yaml. Choose an mdbase collection folder."); };
+    });
+    await page.getByRole("button", { name: "Add existing", exact: true }).click();
+    await page.getByRole("alert").waitFor();
+    await screenshot(page, "folder-error-copy");
+    assert.equal(await page.getByRole("alert").locator("span").innerText(), "The selected folder does not contain mdbase.yaml. Choose an mdbase collection folder.");
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
