@@ -33,7 +33,10 @@ impl AgentState {
             .expect("account configuration lock poisoned");
         let state_dir = self.state_dir()?;
         let configuration = CloudConfiguration::new(&params.server_url)?;
-        configure_cloud(&state_dir, &configuration, &params.connector_token)?;
+        mdbase_connect_core::SystemSecretStore::validate_connector_token(&params.connector_token)?;
+        self.change_account_registration(|| {
+            configure_cloud(&state_dir, &configuration, &params.connector_token)
+        })?;
         Ok(serde_json::json!({
             "configured": true,
             "server_url": configuration.server_url,
@@ -70,7 +73,7 @@ impl AgentState {
             .lock()
             .expect("account configuration lock poisoned");
         let state_dir = self.state_dir()?;
-        disconnect_cloud(&state_dir)?;
+        self.change_account_registration(|| disconnect_cloud(&state_dir))?;
         Ok(serde_json::json!({
             "configured": false,
             "restart_required": true

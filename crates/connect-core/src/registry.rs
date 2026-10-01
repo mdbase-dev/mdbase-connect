@@ -134,6 +134,12 @@ use scope::{
     validate_scoped_mutation_request,
 };
 
+/// Configuration recovery opens persisted authority only, not collection
+/// runtimes or file-transfer recovery owned by the live daemon.
+pub(crate) fn reset_remote_policy_at(state_dir: &Path) -> Result<(), ConnectError> {
+    database::open_authority_store(state_dir)?.reset_remote_policy()
+}
+
 #[derive(Debug, Error)]
 pub enum ConnectError {
     #[error("mdbase connect could not determine a per-user state directory")]
@@ -178,6 +184,10 @@ pub enum ConnectError {
     UnsupportedOperation(String),
     #[error("Invalid request: {0}")]
     InvalidInput(String),
+    #[error("Policy snapshot connector {received} does not match pinned connector {expected}. Run `mdbase connect logout`, then `mdbase connect login` to replace this computer's registration.")]
+    PolicyAuthorityMismatch { expected: String, received: String },
+    #[error("The local authorization store is missing its policy_state singleton. Preserve the store and restore a verified backup; deleting policy state is not a supported registration reset.")]
+    PolicyStateMissing,
     #[error("Application access denied: {0}")]
     AccessDenied(String),
     #[error("Application declaration mismatch: {0}")]
@@ -268,6 +278,8 @@ impl ConnectError {
             Self::NotARegisteredCollectionCopy(_) => "not_a_registered_collection_copy",
             Self::UnsupportedOperation(_) => "unsupported_operation",
             Self::InvalidInput(_) => "invalid_input",
+            Self::PolicyAuthorityMismatch { .. } => "policy_authority_mismatch",
+            Self::PolicyStateMissing => "policy_state_missing",
             Self::AccessDenied(_) => "access_denied",
             Self::ApplicationDeclarationMismatch(_) => "application_declaration_mismatch",
             Self::AccessPaused => "access_paused",

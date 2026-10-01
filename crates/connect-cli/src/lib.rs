@@ -818,9 +818,13 @@ async fn execute_connect(
         ConnectCommand::Logout => {
             let loopback_port = current_loopback_port(&endpoint).await;
             let response = send(&endpoint, ControlRequest::new(ControlCommand::AccountClear)).await;
-            if !response.is_ok_and(|response| response.ok) {
-                disconnect_cloud(&state_dir)
-                    .map_err(|error| CliError::internal(error.to_string()))?;
+            match response {
+                Ok(response) => {
+                    successful_result(response)?;
+                }
+                Err(_) => daemon::offline_registration_change(&state_dir, || {
+                    disconnect_cloud(&state_dir)
+                })?,
             }
             restart_daemon(&state_dir, &endpoint, target, loopback_port).await?;
             print_result(

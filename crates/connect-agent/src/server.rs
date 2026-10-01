@@ -352,6 +352,13 @@ impl AgentState {
         }
     }
 
+    pub(crate) fn relay_problem(&self) -> Option<&'static str> {
+        *self
+            .relay_problem
+            .read()
+            .expect("relay problem lock poisoned")
+    }
+
     pub fn set_relay_problem(&self, reason: Option<&'static str>) {
         *self
             .relay_problem

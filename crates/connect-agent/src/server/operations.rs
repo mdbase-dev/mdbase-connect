@@ -137,7 +137,7 @@ impl AgentState {
                         }),
                     });
                 }
-                let result = (|| {
+                let result = self.with_current_registration(|| {
                     let started = std::time::Instant::now();
                     if grant.collection_id != collection_id {
                         return Err(ConnectError::AccessDenied(
@@ -245,7 +245,7 @@ impl AgentState {
                         final_description.contracts,
                         setup.map(|setup| (setup.assessment, setup.receipt)),
                     ))
-                })();
+                });
                 Some(match result {
                     Ok((contracts, setup)) => RelayMessage::AuthorizationActivationResponse {
                         protocol_version: CONTROL_PROTOCOL_VERSION,

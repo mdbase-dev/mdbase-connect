@@ -32,6 +32,23 @@ test("connection presentation distinguishes startup, progress, and completion", 
   );
 });
 
+test("permanent policy failures name the local recovery rather than an update", () => {
+  for (const [relay_problem, label] of [
+    ["policy_authority_mismatch", "Computer registration changed; disconnect and reconnect this computer"],
+    ["policy_state_missing", "Local authorization state is damaged; restore a verified backup"],
+    ["registration_restart_required", "Computer registration changed; restart the connector"],
+    ["authentication_required", "Account connection needs authorization; reconnect this computer"],
+    ["incompatible_version", "Relay version incompatible; update the connector"],
+    ["future_problem", "Account connection needs attention"]
+  ]) {
+    for (const paused of [false, true]) {
+      assert.deepEqual(presentConnection({ state: "offline", paused, relay_problem }, { configured: true }), {
+        label, settingsLabel: "Needs attention", dot: "danger"
+      });
+    }
+  }
+});
+
 test("paused and offline states remain explicit", () => {
   assert.deepEqual(
     presentConnection({ state: "connected", paused: true }, { configured: true }),

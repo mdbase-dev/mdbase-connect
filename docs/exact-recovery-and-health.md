@@ -103,9 +103,20 @@ The existing relay owner uses capped equal jitter (1–30 second exponential
 ceilings), resets only after 30 seconds of policy-authorized healthy uptime, and
 honours bounded server pacing (seconds or HTTP-date, capped at 300 seconds).
 Transient transport failures retry without changing credentials or identity.
-Authentication/protocol rejection parks the owner with a stable `relay_problem`
-until a controlled restart after repair; it does not spin or mint credentials.
-Handshake and inventory HTTP/WebSocket boundaries have timeouts.
+Authentication/protocol rejection, connector-authority mismatch, and a missing
+policy singleton park the owner with a stable `relay_problem` until a controlled
+restart after repair; they do not spin or mint credentials. Policy rejection is
+logged with its actual reason at warning level, including early validation.
+`doctor.healthy` is false for a terminal relay problem even when the daemon's
+process-readiness contract remains ready. Status and desktop presentation name
+the appropriate registration, backup, or restart action rather than describing
+these failures as a version mismatch. Control-plane `whoami.online` remains
+reachability, not proof of a policy-authorized relay connection.
+Handshake and inventory HTTP/WebSocket boundaries have timeouts. The daemon's
+logging filter caps tungstenite client-handshake logging at info because its
+trace output includes serialized authorization headers. Structured authorization
+headers are also marked sensitive. Embedders providing their own tracing
+subscriber must enforce the same cap; do not share unredacted dependency traces.
 
 A running mirror whose previously usable credential store becomes unavailable
 retries through its existing bounded mirror scheduler. Immutable bootstrap

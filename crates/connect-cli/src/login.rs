@@ -154,11 +154,14 @@ pub(super) async fn login(
                         },
                     )),
                 )
-                .await
-                .is_ok_and(|response| response.ok);
-                if !configured {
-                    configure_cloud(state_dir, &configuration, &token)
-                        .map_err(|error| CliError::internal(error.to_string()))?;
+                .await;
+                match configured {
+                    Ok(response) => {
+                        super::control::successful_result(response)?;
+                    }
+                    Err(_) => super::daemon::offline_registration_change(state_dir, || {
+                        configure_cloud(state_dir, &configuration, &token)
+                    })?,
                 }
                 restart_daemon(state_dir, endpoint, target, loopback_port).await?;
                 return Ok(serde_json::json!({

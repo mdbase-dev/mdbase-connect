@@ -20,6 +20,11 @@ pub(super) fn terminal_http_status(status: u16) -> Option<&'static str> {
 pub(super) fn terminal_reason(
     error: &(dyn std::error::Error + Send + Sync + 'static),
 ) -> Option<&'static str> {
+    if let Some(error) = error.downcast_ref::<mdbase_connect_core::ConnectError>() {
+        if let Some(reason) = terminal_policy_reason(error.code()) {
+            return Some(reason);
+        }
+    }
     if let Some(error) = error.downcast_ref::<TerminalRelayFailure>() {
         return Some(error.0);
     }
@@ -29,6 +34,15 @@ pub(super) fn terminal_reason(
         return terminal_http_status(response.status().as_u16());
     }
     None
+}
+
+pub(super) fn terminal_policy_reason(code: &str) -> Option<&'static str> {
+    match code {
+        "policy_authority_mismatch" => Some("policy_authority_mismatch"),
+        "policy_state_missing" => Some("policy_state_missing"),
+        "registration_restart_required" => Some("registration_restart_required"),
+        _ => None,
+    }
 }
 
 #[derive(Debug)]

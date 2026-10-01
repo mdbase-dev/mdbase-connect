@@ -1,6 +1,149 @@
 use super::*;
 
 #[tokio::test]
+async fn authenticated_policy_mismatch_stops_reconnecting_and_preserves_pin() {
+    use mdbase_connect_core::CollectionRegistry;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use uuid::Uuid;
+    let directory = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let old_id = Uuid::new_v4();
+    let new_id = Uuid::new_v4();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    registry
+        .replace_remote_grants_at_revision(old_id, "old", 578, now, now + 60_000, &[])
+        .unwrap();
+    let watcher = crate::watcher::CollectionWatchService::start(registry.clone());
+    let state = Arc::new(AgentState::new(registry.clone(), watcher, None));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (applied_tx, applied_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        // Inventory sync precedes the WebSocket. Consume its complete body.
+        let (mut http, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        loop {
+            let mut bytes = [0; 4096];
+            let len = http.read(&mut bytes).await.unwrap();
+            assert_ne!(len, 0);
+            request.extend_from_slice(&bytes[..len]);
+            if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                let length: usize = headers
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length: "))
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                if request.len() >= end + 4 + length {
+                    break;
+                }
+            }
+        }
+        http.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+            .await
+            .unwrap();
+        drop(http);
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+        let hello = socket.next().await.unwrap().unwrap();
+        assert!(matches!(hello, Message::Text(_)));
+        let welcome = RelayMessage::RelayWelcome {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            session_id: "registration-test".into(),
+            capabilities: RELAY_CAPABILITIES
+                .iter()
+                .map(|value| value.to_string())
+                .collect(),
+            contract_support: ConnectContractSupport::default(),
+        };
+        socket
+            .send(Message::Text(
+                serde_json::to_string(&welcome).unwrap().into(),
+            ))
+            .await
+            .unwrap();
+        let body = serde_json::json!({
+            "connector_id": new_id, "sequence": 1,
+            "lease_issued_at_ms": now, "lease_expires_at_ms": now + 60_000,
+            "grants": []
+        });
+        use sha2::Digest;
+        let revision = format!(
+            "sha256:{:x}",
+            sha2::Sha256::digest(serde_jcs::to_vec(&body).unwrap())
+        );
+        let snapshot = RelayMessage::PolicySnapshot {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            request_id: Uuid::new_v4(),
+            revision,
+            connector_id: Some(new_id),
+            sequence: Some(1),
+            lease_issued_at_ms: Some(now),
+            lease_expires_at_ms: Some(now + 60_000),
+            grants: vec![],
+        };
+        socket
+            .send(Message::Text(
+                serde_json::to_string(&snapshot).unwrap().into(),
+            ))
+            .await
+            .unwrap();
+        let response = socket.next().await.unwrap().unwrap();
+        let Message::Text(text) = response else {
+            panic!("no policy rejection acknowledgement");
+        };
+        let applied: RelayMessage = serde_json::from_str(&text).unwrap();
+        applied_tx.send(applied).unwrap();
+        // A transport failure would reconnect within this window. Permanent
+        // local rejection must leave the worker alive but explicitly blocked.
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), listener.accept())
+                .await
+                .is_err()
+        );
+    });
+    let owner = tokio::spawn(run(
+        url,
+        "con_123456789012345678901234".into(),
+        state.clone(),
+    ));
+    let applied = tokio::time::timeout(Duration::from_secs(5), applied_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(applied, RelayMessage::PolicyApplied { ok: false, error: Some(error), .. }
+        if error.code == "policy_authority_mismatch")
+    );
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.relay_problem(), Some("policy_authority_mismatch"));
+    assert!(!owner.is_finished());
+    assert_eq!(
+        registry.remote_policy_authority().unwrap().connector_id,
+        Some(old_id)
+    );
+    owner.abort();
+}
+
+#[test]
+fn missing_policy_state_is_a_terminal_local_failure_not_transport_interruption() {
+    let error: Box<dyn std::error::Error + Send + Sync> =
+        mdbase_connect_core::ConnectError::PolicyStateMissing.into();
+    assert_eq!(
+        terminal_reason(error.as_ref()),
+        Some("policy_state_missing")
+    );
+    assert_eq!(terminal_policy_reason("invalid_input"), None);
+}
+
+#[tokio::test]
 async fn queued_control_rejects_replaced_policy() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let (policy, applied) = tokio::sync::watch::channel((1, true));

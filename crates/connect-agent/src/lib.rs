@@ -254,7 +254,15 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
 fn initialize_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+            // tungstenite's client-handshake TRACE prints serialized HTTP bytes,
+            // bypassing sensitive HeaderValue redaction and exposing credentials.
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info"))
+                .add_directive(
+                    "tungstenite::handshake::client=info"
+                        .parse()
+                        .expect("static log directive"),
+                ),
         )
         .compact()
         .try_init();
