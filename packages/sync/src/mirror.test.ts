@@ -2569,9 +2569,9 @@ describe("platform-neutral directory mirror", () => {
     expect(await stateStore.read()).toEqual(before);
   });
 
-  it("makes a 2,000-record no-op sync a zero-write operation", async () => {
+  it.each([2_000, 50_000])("makes a %i-record no-op inspection/sync linear and zero-write", async (count) => {
     const hosted = new MemoryAuthority({ snapshotPageSize: 100 });
-    hosted.seed(records(2_000));
+    hosted.seed(records(count));
     const replicaId = hosted.registerReplica({ name: "Large mobile vault", mode: "read_only" });
     const fileSystem = new TestFileSystem();
     const stateStore = new CountingStateStore();
@@ -2590,8 +2590,8 @@ describe("platform-neutral directory mirror", () => {
     const stateAfter = await stateStore.read();
     const planAfter = await mirror.inspect();
 
-    expect(fileSystem.reads).toBe(6_000);
-    expect(fileSystem.writes).toBe(2_000);
+    expect(fileSystem.reads).toBe(count * 3);
+    expect(fileSystem.writes).toBe(count);
     expect(stateStore.writes - writesBefore).toBe(0);
     expect(stateAfter).toEqual(stateBefore);
     expect(planBefore.actions).toEqual([]);
