@@ -256,7 +256,10 @@ export class PlanOnlySyncExecutor {
     state: MirrorState,
     action: Extract<SyncAction, { command: "move_local" }>
   ): Promise<DurableSyncReceipt> {
-    const alreadyMoved = await this.matchesRef({ ...action.source, path: action.target_path });
+    // Matching target bytes alone may be a new copy made after preparation.
+    // A completed rename must also have vacated its source.
+    const alreadyMoved = !await this.ports.fileSystem.exists(action.source.path)
+      && await this.matchesRef({ ...action.source, path: action.target_path });
     if (!alreadyMoved) {
       await this.assertLocal(action.expected_source_owner);
       await this.assertPathOwner(action.target_path, action.expected_target_owner);

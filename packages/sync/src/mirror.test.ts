@@ -830,6 +830,42 @@ describe("platform-neutral directory mirror", () => {
     expect((await stateStore.read())?.planned_conflicts).toEqual({});
   });
 
+  it("does not mistake a newly copied move destination for an already-completed rename", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Move mirror", mode: "read_write" });
+    const transport = hosted.transport(replicaId);
+    const fileSystem = new TestFileSystem();
+    const source = "notes/00000.md";
+    const target = "notes/renamed.md";
+    class RacingStateStore extends MemoryMirrorStateStore {
+      race = false;
+      override async appendJournal(event: SyncJournalEvent): Promise<void> {
+        await super.appendJournal(event);
+        if (this.race && event.type === "phase" && event.phase === "applying") {
+          fileSystem.files.set(target, fileSystem.files.get(source)!);
+        }
+      }
+    }
+    const stateStore = new RacingStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, transport, { fileSystem, stateStore });
+    await mirror.sync();
+    const prior = (await stateStore.read())!;
+    await transport.mutate({
+      operation: "move", mutation_id: "move-before-copy", replica_id: replicaId, scope_epoch: 1,
+      record_id: "portable-0", base_revision: prior.records["portable-0"]!.revision, path: target,
+      created_at: "2026-10-01T00:00:00.000Z"
+    });
+    stateStore.race = true;
+
+    expect((await mirror.sync()).status).toBe("stale");
+    expect((await stateStore.read())?.cursor).toBe(prior.cursor);
+    expect((await stateStore.read())?.records["portable-0"]?.path).toBe(source);
+    expect(fileSystem.files.get(source)).toBe(records(1)[0]!.document);
+    expect(fileSystem.files.get(target)).toBe(records(1)[0]!.document);
+    expect(hosted.serialize().records).toHaveLength(1);
+  });
+
   it("does not checkpoint a local deletion when the inspected bytes changed after preparation", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(1));
