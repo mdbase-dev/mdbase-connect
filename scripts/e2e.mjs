@@ -1433,6 +1433,78 @@ implements:
       || readBody.result?.result?.frontmatter?.status !== "done") {
     throw new Error(`Unexpected relay read response: ${JSON.stringify(readBody)}`);
   }
+  // Exercise the real encrypted application boundary, not just owner IPC.
+  // A single grant deliberately exceeds its bounded admission queue; excess
+  // work must settle as typed backpressure, never lose authorization/counters
+  // or leave capacity occupied after the burst.
+  for (const [route, send] of Object.entries({
+    direct: (operation, input) => rawOperation(collection.id, operation, accessToken, input),
+    relay: (operation, input) => signedGrantOperation(initialAuthorization, refreshed.body, collection.id, operation, input)
+  })) {
+    const sendRead = () => send("read", { path: "sessions/first.md" });
+    const responses = await Promise.all(Array.from({ length: 32 }, async () => {
+      const response = await sendRead();
+      return { status: response.status, body: await response.json() };
+    }));
+    let successful = 0;
+    let backpressured = 0;
+    for (const { status, body } of responses) {
+      if (status === 200) {
+        if (body.result?.result?.frontmatter?.status !== "done") {
+          throw new Error(`${route} concurrent read returned the wrong committed record`);
+        }
+        successful++;
+      } else if ((body.error ?? body.problem)?.code === "connector_busy") {
+        backpressured++;
+      } else {
+        throw new Error(`${route} concurrent read failed with HTTP ${status}, code ${(body.error ?? body.problem)?.code ?? "missing"}`);
+      }
+    }
+    if (successful === 0) throw new Error(`${route} burst made no forward progress`);
+    const quiet = await sendRead();
+    const quietBody = await quiet.json();
+    if (quiet.status !== 200 || quietBody.result?.result?.frontmatter?.status !== "done") {
+      throw new Error(`${route} did not release admission capacity after the burst`);
+    }
+    console.log(JSON.stringify({ phase: "encrypted-application-burst", route, successful, backpressured }));
+
+    const beforeRevision = quietBody.result.result.revision;
+    if (!beforeRevision) throw new Error(`${route} read omitted its revision`);
+    const contenders = await Promise.all(Array.from({ length: 32 }, async (_, index) => {
+      const body = `synthetic-${route}-contender-${index}`;
+      const response = await send("update", {
+        path: "sessions/first.md", patch: {}, body, if_revision: beforeRevision
+      });
+      return { body, status: response.status, reply: await response.json() };
+    }));
+    const winners = [];
+    let stale = 0;
+    let mutationBackpressure = 0;
+    for (const { body, status, reply } of contenders) {
+      if (status === 200 && reply.result?.valid === true) {
+        const revision = reply.result.result?.revision;
+        if (typeof revision !== "string" || revision === beforeRevision) {
+          throw new Error(`${route} changed a body without advancing its revision`);
+        }
+        winners.push(body);
+      } else if (status === 200 && reply.result?.valid === false
+          && reply.result.diagnostics?.some(diagnostic => diagnostic.code === "concurrent_modification")) {
+        stale++;
+      } else if ((reply.error ?? reply.problem)?.code === "connector_busy") {
+        mutationBackpressure++;
+      } else {
+        throw new Error(`${route} concurrent mutation failed with HTTP ${status}, code ${(reply.error ?? reply.problem)?.code ?? "missing"}`);
+      }
+    }
+    if (winners.length !== 1) throw new Error(`${route} CAS burst applied ${winners.length} competing edits, expected exactly one`);
+    const after = await sendRead();
+    const afterBody = await after.json();
+    if (after.status !== 200 || afterBody.result?.result?.body?.trim() !== winners[0]) {
+      throw new Error(`${route} CAS winner was lost or a rejected edit reached disk`);
+    }
+    console.log(JSON.stringify({ phase: "encrypted-mutation-burst", route, applied: winners.length, stale, backpressured: mutationBackpressure }));
+  }
+
   const bulkQuery = await rawOperation(collection.id, "query", accessToken, { limit: 1_100 });
   const bulkQueryBody = await bulkQuery.json();
   if (bulkQuery.status !== 200 || bulkQueryBody.result?.result?.results?.length < 1_001) {

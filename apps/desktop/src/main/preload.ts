@@ -34,7 +34,7 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     ipcRenderer.invoke("connect:collections:validate", collectionId),
   removeCollection: (collectionId: string) =>
     ipcRenderer.invoke("connect:collections:remove", collectionId),
-  openPath: (path: string) => ipcRenderer.invoke("connect:path:open", path),
+  openCollectionFolder: (collectionId: string) => ipcRenderer.invoke("connect:collections:open-folder", collectionId),
   openCollectionConfig: (collectionId: string) =>
     ipcRenderer.invoke("connect:collections:open-config", collectionId),
   openEditor: (collectionId: string) =>

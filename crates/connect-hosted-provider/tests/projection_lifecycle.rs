@@ -21,6 +21,107 @@ use tokio::sync::Barrier;
 use uuid::Uuid;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn type_pack_provisioning_does_not_deadlock_a_projection_batch() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL").unwrap();
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let mirror = sqlx::query("SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1 AND purpose = 'mirror'")
+        .bind(fixture.collection_id).fetch_one(&fixture.pool).await.unwrap();
+    put(
+        &fixture,
+        mirror.get("id"),
+        u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap(),
+        Uuid::now_v7(),
+        None,
+        "one.md",
+        "---\ntitle: Retained record\n---\nOriginal body.\n",
+    )
+    .await;
+    let generation = fixture
+        .provider
+        .start_projection_generation(fixture.collection_id)
+        .await
+        .unwrap();
+    // Stop the real worker at its first projection-table access, after it has
+    // leased the generation. No feature-gated hooks: this regression runs in
+    // the registered files-adversarial PostgreSQL suite's normal test scan.
+    let mut projection_guard = fixture.pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE hosted_provider_record_projections IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *projection_guard)
+        .await
+        .unwrap();
+    let worker_provider = fixture.provider.clone();
+    let collection_id = fixture.collection_id;
+    let generation_id = generation.generation_id;
+    let worker = tokio::spawn(async move {
+        worker_provider
+            .project_generation_batch(collection_id, generation_id, 200)
+            .await
+    });
+    wait_for_query_blocked(&fixture.pool, "hosted_provider_record_projections").await;
+    let provision_provider = fixture.provider.clone();
+    let provision = serde_json::from_str(include_str!(
+        "../../../test/fixtures/packs/mdbase.view-1.0.0.json"
+    ))
+    .unwrap();
+    let provisioning = tokio::spawn(async move {
+        provision_provider
+            .provision_type_packs(
+                collection_id,
+                "test.provider-lock-order",
+                vec![provision],
+                Vec::new(),
+            )
+            .await
+    });
+    // The definition writer has the collection row and is waiting to abandon
+    // the leased generation. Releasing the worker forces its real projection
+    // INSERT to check the collection FK (an implicit FOR KEY SHARE lock).
+    // FOR UPDATE here formed collection -> generation -> collection; a
+    // non-key writer lock must let that FK check finish without any retries.
+    wait_for_query_blocked(&fixture.pool, "last_error_code = 'catalog_changed'").await;
+    let mut second_writer = fixture.pool.begin().await.unwrap();
+    let blocked = sqlx::query(
+        "SELECT id FROM hosted_provider_collections WHERE id = $1 FOR NO KEY UPDATE NOWAIT",
+    )
+    .bind(collection_id)
+    .fetch_one(&mut *second_writer)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        blocked.as_database_error().unwrap().code().as_deref(),
+        Some("55P03"),
+        "definition writes must still serialize other writers"
+    );
+    second_writer.rollback().await.unwrap();
+    projection_guard.rollback().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), worker)
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("projection worker must commit without a deadlock");
+    let (contracts, _) = tokio::time::timeout(Duration::from_secs(10), provisioning)
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("provisioning must commit without a deadlock");
+    assert!(contracts
+        .iter()
+        .any(|contract| contract.id == "mdbase.view"));
+    // Scheduled recovery may already have pruned the abandoned generation.
+    let old_building: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM hosted_provider_projection_generations WHERE collection_id = $1 AND generation_id = $2 AND status = 'building')")
+        .bind(collection_id).bind(generation_id).fetch_one(&fixture.pool).await.unwrap();
+    assert!(!old_building);
+    let records: i64 =
+        sqlx::query_scalar("SELECT record_count FROM hosted_provider_collections WHERE id = $1")
+            .bind(collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(records, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires a clean MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
 async fn candidate_b_beta69_cutover_preflight_fixture() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")

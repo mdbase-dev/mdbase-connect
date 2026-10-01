@@ -58,10 +58,18 @@ autoUpdater.on("before-quit-for-update", () => {
   quitting = true;
 });
 
-async function openLocalPath(path: string): Promise<string> {
+async function openLocalPath(path: string): Promise<void> {
   const error = await shell.openPath(path);
   if (error) throw new Error(`The folder or file could not be opened. ${error}`);
-  return "";
+}
+
+async function registeredCollectionPath(collectionId: unknown): Promise<string> {
+  if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
+  const collection = (await requestReadyAgent<Array<{ id: string; path: string }>>(
+    "collections.list"
+  )).find((candidate) => candidate.id === collectionId);
+  if (!collection) throw new Error("That collection is not registered.");
+  return collection.path;
 }
 
 function stateDirectory(): string {
@@ -310,23 +318,13 @@ function registerIpc(): void {
       collection_id: collectionId
     });
   });
-  ipcMain.handle("connect:path:open", async (event, path: unknown) => {
+  ipcMain.handle("connect:collections:open-folder", async (event, collectionId: unknown) => {
     trustedIpc(event);
-    if (typeof path !== "string") throw new Error("Invalid path.");
-    const collection = (await requestReadyAgent<Array<{ path: string }>>(
-      "collections.list"
-    )).find((candidate) => candidate.path === path);
-    if (!collection) throw new Error("That path is not a registered collection.");
-    return openLocalPath(collection.path);
+    return openLocalPath(await registeredCollectionPath(collectionId));
   });
   ipcMain.handle("connect:collections:open-config", async (event, collectionId: unknown) => {
     trustedIpc(event);
-    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
-    const collection = (await requestReadyAgent<Array<{ id: string; path: string }>>(
-      "collections.list"
-    )).find((candidate) => candidate.id === collectionId);
-    if (!collection) throw new Error("That collection is not registered.");
-    return openLocalPath(join(collection.path, "mdbase.yaml"));
+    return openLocalPath(join(await registeredCollectionPath(collectionId), "mdbase.yaml"));
   });
   ipcMain.handle("connect:editor:open", async (event, collectionId: unknown) => {
     trustedIpc(event);

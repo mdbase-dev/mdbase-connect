@@ -328,7 +328,7 @@ function StandaloneMirrorRow({ mirror, busy, onAct: run, onNotice }: {
   return <article className="collection-card standalone-mirror">
     <div className="collection-summary">
       <div className="collection-copy"><h3>{mirror.name}</h3><span className="authority-label">Synced folder · main copy hosted by mdbase</span></div>
-      <div className="collection-status" role="status">{!editing && <><StatusDot state={state.dot} />{state.label}</>}</div>
+      <div className="collection-status" role={editing ? undefined : "status"}>{!editing && <><StatusDot state={state.dot} />{state.label}</>}</div>
       <div className="row-actions"><button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : "Sync"}</button></div>
     </div>
     {error && <div className="message error-message" role="alert">{error}</div>}
@@ -418,7 +418,7 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
         <div className="collection-copy">
           <div className="collection-title-row"><h3>{collection.display_name}</h3><span className="version">v{collection.spec_version}</span></div>
           {collection.description && <p>{collection.description}</p>}
-          <button className="path" title={collection.path} onClick={() => void onAct(() => window.mdbaseConnect.openPath(collection.path))}>{collection.path}</button>
+          <button className="path" title={collection.path} onClick={() => void onAct(() => window.mdbaseConnect.openCollectionFolder(collection.id))}>{collection.path}</button>
         </div>
         <div className="collection-status"><StatusDot state={collection.enabled ? "connected" : "idle"} />{collection.enabled ? "Available" : "Disabled"}</div>
         <div className="row-actions">
@@ -795,7 +795,7 @@ function MirrorControl({ mirror, collectionName, busy, onAct, onNotice }: {
   return <div className="mirror-control">
     <div className="mirror-state-row">
       <StatusDot state={state.dot} />
-      <div><strong>{state.label}</strong><button className="path" title={mirror.path} onClick={() => void onAct(() => window.mdbaseConnect.openMirror(mirror.replica_id))}>{mirror.path}</button></div>
+      <div><strong role="status">{state.label}</strong><button className="path" title={mirror.path} onClick={() => void onAct(() => window.mdbaseConnect.openMirror(mirror.replica_id))}>{mirror.path}</button></div>
       <code>{mirror.mode === "read_write" ? "edits sync both ways" : "downloads updates only"}</code>
     </div>
     {mirror.progress && <small>{mirror.progress.phase === "uploading" ? "Uploading" : "Applying"} {mirror.progress.completed}{mirror.progress.total === null ? "" : ` of ${mirror.progress.total}`} changes…</small>}
