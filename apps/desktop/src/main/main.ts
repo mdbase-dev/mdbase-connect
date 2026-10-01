@@ -58,10 +58,9 @@ autoUpdater.on("before-quit-for-update", () => {
   quitting = true;
 });
 
-async function openLocalPath(path: string): Promise<string> {
+async function openLocalPath(path: string): Promise<void> {
   const error = await shell.openPath(path);
   if (error) throw new Error(`The folder or file could not be opened. ${error}`);
-  return "";
 }
 
 async function registeredCollectionPath(collectionId: unknown): Promise<string> {

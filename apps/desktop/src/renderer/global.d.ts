@@ -365,8 +365,8 @@ interface Window {
     setCollectionEnabled(collectionId: string, enabled: boolean): Promise<CollectionSummary>;
     validateCollection(collectionId: string): Promise<unknown>;
     removeCollection(collectionId: string): Promise<CollectionSummary>;
-    openCollectionFolder(collectionId: string): Promise<string>;
-    openCollectionConfig(collectionId: string): Promise<string>;
+    openCollectionFolder(collectionId: string): Promise<void>;
+    openCollectionConfig(collectionId: string): Promise<void>;
     openEditor(collectionId: string): Promise<void>;
     getLaunchAtLogin(): Promise<StartupSetting>;
     setLaunchAtLogin(enabled: boolean): Promise<StartupSetting>;
@@ -411,7 +411,7 @@ interface Window {
       path: string;
     }>;
     disconnectMirror(replicaId: string): Promise<{ ok: true }>;
-    openMirror(replicaId: string): Promise<string>;
+    openMirror(replicaId: string): Promise<void>;
     onNavigate(listener: (route: string) => void): () => void;
     onUpdateStatus(listener: (status: DesktopUpdateStatus) => void): () => void;
   };
