@@ -1159,6 +1159,78 @@ fn cancelled_runtime_claim_is_a_safe_terminal_not_sent_outcome() {
 }
 
 #[test]
+fn query_cursor_honors_larger_continuations_without_reopening_the_query() {
+    let state = tempdir().unwrap();
+    let parent = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry
+        .create(
+            &parent.path().join("adaptive-pages"),
+            Some("[test] pages"),
+            "UTC",
+        )
+        .unwrap();
+    for i in 0..12 {
+        registry
+            .operation(
+                collection.id,
+                "create",
+                &json!({
+                    "path": format!("note-{i:04}.md"), "frontmatter": {"title": i.to_string()}
+                }),
+            )
+            .unwrap();
+    }
+    let scope = GrantScope::full_collection();
+    let first = registry
+        .scoped_operation(
+            collection.id,
+            "query",
+            &json!({"pagination": "cursor", "limit": 1}),
+            &scope,
+        )
+        .unwrap();
+    let cursor = first["result"]["meta"]["cursor"].as_str().unwrap();
+    let input = json!({"cursor": cursor, "limit": 10});
+    let second = registry
+        .scoped_operation(collection.id, "query", &input, &scope)
+        .unwrap();
+    assert_eq!(second["result"]["results"].as_array().unwrap().len(), 10);
+    assert_eq!(second["result"]["results"][0]["path"], "note-0001.md");
+    assert_eq!(
+        second,
+        registry
+            .scoped_operation(collection.id, "query", &input, &scope)
+            .unwrap()
+    );
+    let last = registry
+        .scoped_operation(
+            collection.id,
+            "query",
+            &json!({"cursor": second["result"]["meta"]["cursor"], "limit": 10}),
+            &scope,
+        )
+        .unwrap();
+    assert_eq!(last["result"]["results"].as_array().unwrap().len(), 1);
+    assert_eq!(last["result"]["results"][0]["path"], "note-0011.md");
+    registry
+        .scoped_operation(
+            collection.id,
+            "query",
+            &json!({"release_cursor": cursor}),
+            &scope,
+        )
+        .unwrap();
+    assert_eq!(
+        registry
+            .runtime_residency_diagnostics()
+            .unwrap()
+            .active_read_snapshots,
+        0
+    );
+}
+
+#[test]
 fn query_cursor_pins_one_generation_replays_and_releases_explicitly() {
     let state = tempdir().unwrap();
     let collection_parent = tempdir().unwrap();

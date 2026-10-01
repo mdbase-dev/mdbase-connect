@@ -38,6 +38,7 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
     const pageSize = positiveInteger(options.pageSize ?? requestedLimit, 1_000);
     let cursor = requestedCursor;
     let cursorMode = requestedCursor !== undefined;
+    let continuationLimits = true;
     let cursorToRelease = requestedCursor;
     let snapshot = requestedSnapshot;
     let loaded = 0;
@@ -57,8 +58,11 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
           && requestedSnapshot === undefined;
         let queried = await query({
           ...criteria,
-          // Continuations use the page size pinned when the cursor was opened.
-          ...(!cursorMode ? { limit: pageNumber === 0 ? firstPageSize : pageSize } : {}),
+          // The cursor pins data, not transport size. Older authorities can
+          // reject continuation limits; retry that exact cursor without a limit.
+          ...(!cursorMode
+            ? { limit: pageNumber === 0 ? firstPageSize : pageSize }
+            : continuationLimits ? { limit: pageSize } : {}),
           ...(cursorMode
             ? (pageCursor ? { cursor: pageCursor } : { pagination: "cursor" as const })
             : {
@@ -86,6 +90,11 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
             limit: firstPageSize,
             offset
           }, pageRequestOptions);
+        }
+        if (cursorMode && pageCursor && continuationLimits
+          && !queried.ok && queried.problem.code === "operation_invalid") {
+          continuationLimits = false;
+          queried = await query({ ...criteria, cursor: pageCursor }, pageRequestOptions);
         }
         if (!queried.ok) {
           yield queried;
