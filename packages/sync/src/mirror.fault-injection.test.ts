@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CrashGate } from "../test/crash-gate.js";
 import { MemoryAuthority, type SyncTransport } from "./index.js";
 import { SyncError } from "./sync-error.js";
 import { physicalMirrorPathKey } from "./mirror-physical-path.js";
@@ -33,37 +34,6 @@ class TextFileSystem implements MirrorFileSystem {
   async writeBinary(): Promise<void> { throw new Error("unused binary write"); }
   async listMarkdown(excluded: ReadonlySet<string>) {
     return [...this.files.keys()].filter((path) => !excluded.has(path)).sort();
-  }
-}
-
-/** A killed process cannot persist a catch block's recovery writes. */
-class CrashGate {
-  readonly trace: string[] = [];
-  crashed = false;
-  constructor(private readonly cut?: number) {}
-
-  wrap<Port extends object>(name: string, port: Port): Port {
-    return new Proxy(port, {
-      get: (target, property) => {
-        const value = Reflect.get(target, property);
-        if (typeof value !== "function") return value;
-        return async (...args: unknown[]) => {
-          this.boundary(`${name}.${String(property)}:before`);
-          const result = await value.apply(target, args);
-          this.boundary(`${name}.${String(property)}:after`);
-          return result;
-        };
-      }
-    });
-  }
-
-  private boundary(label: string) {
-    if (this.crashed) throw new Error("process killed");
-    this.trace.push(label);
-    if (this.trace.length - 1 === this.cut) {
-      this.crashed = true;
-      throw new Error("process killed");
-    }
   }
 }
 

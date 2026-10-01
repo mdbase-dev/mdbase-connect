@@ -17,6 +17,7 @@ import type {
   SyncSnapshotRecord
 } from "@mdbase-dev/connect-protocol";
 import { describe, expect, it } from "vitest";
+import { CrashGate } from "../test/crash-gate.js";
 import { documentRevision } from "./mirror-format.js";
 import { pathSelected } from "./mirror-files.js";
 import { physicalMirrorPathKey } from "./mirror-physical-path.js";
@@ -179,6 +180,8 @@ class FileTransport implements SyncTransport {
   failAfterUploadCommit = false;
   private fileSequence = 1;
   private readonly uploadReceipts = new Map<string, CommitFileUploadReceipt>();
+  private readonly moveReceipts = new Map<string, MoveFileReceipt>();
+  private readonly deleteReceipts = new Map<string, DeleteFileReceipt>();
   private readonly snapshots = new Map<string, SnapshotContext>();
   private snapshotSequence = 0;
 
@@ -295,6 +298,8 @@ class FileTransport implements SyncTransport {
 
   async moveFile(request: MoveFileRequest): Promise<MoveFileReceipt> {
     this.moveCalls.push(structuredClone(request));
+    const prior = this.moveReceipts.get(request.mutation_id);
+    if (prior) return structuredClone(prior);
     const current = this.files.find((candidate) => candidate.file_id === request.file_id);
     if (!current || current.path !== request.from_path || current.revision !== request.if_revision) {
       throw Object.assign(new Error("stale file revision"), { code: "stale_file_revision" });
@@ -307,11 +312,15 @@ class FileTransport implements SyncTransport {
     const value = this.bytes.get(request.file_id);
     if (value) this.revisionBytes.set(`${request.file_id}:${moved.revision}`, value);
     this.events.push({ sequence: this.nextEventSequence(), type: "file_put", file: moved });
-    return { protocol_version: 1, type: "file_moved", mutation_id: request.mutation_id, file: moved };
+    const receipt: MoveFileReceipt = { protocol_version: 1, type: "file_moved", mutation_id: request.mutation_id, file: moved };
+    this.moveReceipts.set(request.mutation_id, structuredClone(receipt));
+    return receipt;
   }
 
   async deleteFile(request: DeleteFileRequest): Promise<DeleteFileReceipt> {
     this.deleteCalls.push(structuredClone(request));
+    const prior = this.deleteReceipts.get(request.mutation_id);
+    if (prior) return structuredClone(prior);
     const current = this.files.find((candidate) => candidate.file_id === request.file_id);
     if (!current || current.path !== request.path || current.revision !== request.if_revision) {
       throw Object.assign(new Error("stale file revision"), { code: "stale_file_revision" });
@@ -326,7 +335,7 @@ class FileTransport implements SyncTransport {
       previous_path: request.path,
       revision
     });
-    return {
+    const receipt: DeleteFileReceipt = {
       protocol_version: 1,
       type: "file_deleted",
       mutation_id: request.mutation_id,
@@ -334,6 +343,8 @@ class FileTransport implements SyncTransport {
       previous_path: request.path,
       revision
     };
+    this.deleteReceipts.set(request.mutation_id, structuredClone(receipt));
+    return receipt;
   }
 
   async changes(after: number) {
@@ -439,6 +450,88 @@ function writableMirror(
 }
 
 describe("portable collection file mirror", () => {
+  it.each([true, false])("converges after every attachment await/stream boundary (initial=%s)", async (initial) => {
+    const fixture = async () => {
+      const transport = new FileTransport();
+      transport.mode = "read_write";
+      const fileSystem = new BinaryFileSystem();
+      const stateStore = new MemoryMirrorStateStore();
+      const blobStore = new MemoryMirrorBlobStore();
+      const names = ["a", "b", "c", "d", "g", "h"];
+      const expected = new Map(names.map((name) => [`images/${name}.png`, utf8.encode(`original-${name}`)]));
+      transport.files = names.map((name, index) => file(
+        `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
+        `images/${name}.png`, expected.get(`images/${name}.png`)!
+      ));
+      for (const descriptor of transport.files) transport.bytes.set(descriptor.file_id, expected.get(descriptor.path)!);
+      const create = (gate?: CrashGate) => new WritableDirectoryMirror(transport.replicaId,
+        gate ? gate.wrap("transport", transport) : transport, {
+          fileSystem: gate ? gate.wrap("filesystem", fileSystem) : fileSystem,
+          stateStore: gate ? gate.wrap("state", stateStore) : stateStore,
+          blobStore: gate ? gate.wrap("blob", blobStore) : blobStore,
+          selectiveSync: { file_classes: ["image"], excluded_folders: [] }
+        });
+      if (!initial) {
+        await create().sync();
+        const a = { ...transport.files[0]!, ...file(transport.files[0]!.file_id, "images/a.png", utf8.encode("remote-a"), "file:remote-a") };
+        const c = { ...transport.files[2]!, path: "images/c-moved.png", revision: "file:remote-c" };
+        const d = transport.files[3]!;
+        transport.files = [a, transport.files[1]!, c, transport.files[4]!, transport.files[5]!];
+        transport.bytes.set(a.file_id, utf8.encode("remote-a"));
+        transport.events = [
+          { sequence: 1, type: "file_put", file: a },
+          { sequence: 2, type: "file_put", file: c },
+          { sequence: 3, type: "file_remove", file_id: d.file_id, previous_path: d.path, revision: "file:remote-d" }
+        ];
+        await fileSystem.move("images/b.png", "images/b-moved.png");
+        fileSystem.files.set("images/g.png", utf8.encode("local-g"));
+        fileSystem.files.set("images/e.png", utf8.encode("new-local-e"));
+        fileSystem.files.delete("images/h.png");
+        expected.set("images/a.png", utf8.encode("remote-a"));
+        expected.delete("images/b.png");
+        expected.set("images/b-moved.png", utf8.encode("original-b"));
+        expected.delete("images/c.png");
+        expected.set("images/c-moved.png", utf8.encode("original-c"));
+        expected.delete("images/d.png");
+        expected.set("images/g.png", utf8.encode("local-g"));
+        expected.set("images/e.png", utf8.encode("new-local-e"));
+        expected.delete("images/h.png");
+      }
+      return { transport, fileSystem, stateStore, blobStore, create, expected };
+    };
+    const baseline = await fixture();
+    const trace = new CrashGate();
+    const baselineResult = await baseline.create(trace).sync();
+    expect(baselineResult.status).toBe("applied");
+    expect(trace.trace).toContain("blob.read.next:after");
+    expect(trace.trace).toContain("state.appendJournal:after");
+
+    for (let cut = 0; cut < trace.trace.length; cut += 1) {
+      const context = await fixture();
+      const prior = await context.stateStore.read();
+      const gate = new CrashGate(cut);
+      await context.create(gate).sync().catch(() => undefined);
+      expect(gate.crashed, `${cut}: ${trace.trace[cut]}`).toBe(true);
+      const state = await context.stateStore.read();
+      if (state?.last_completed_plan === baselineResult.plan_fingerprint) {
+        expect(context.fileSystem.files).toEqual(context.expected);
+        expect(new Map(context.transport.files.map((file) =>
+          [file.path, context.transport.bytes.get(file.file_id)]))).toEqual(context.expected);
+      } else expect(state?.cursor ?? null).toBe(prior?.cursor ?? (state ? 0 : null));
+      const restarted = context.create();
+      for (let retry = 0; retry < 3; retry += 1) expect((await restarted.sync()).status).toBe("applied");
+      expect((await restarted.inspect()).actions).toEqual([]);
+      expect(context.fileSystem.files).toEqual(context.expected);
+      expect(context.transport.files).toHaveLength(context.expected.size);
+      expect(context.transport.events).toHaveLength(baseline.transport.events.length);
+      expect(new Set(context.transport.files.map((file) => file.path)).size).toBe(context.expected.size);
+      expect(Object.keys((await context.stateStore.read())!.files!)).toHaveLength(context.expected.size);
+      for (const descriptor of context.transport.files) {
+        expect(context.transport.bytes.get(descriptor.file_id)).toEqual(context.expected.get(descriptor.path));
+      }
+    }
+  }, 30_000);
+
   it("keeps metadata-only as the safe default", async () => {
     const transport = new FileTransport();
     const bytes = utf8.encode("image bytes");
