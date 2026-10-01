@@ -38,6 +38,8 @@ try {
   }
   const result = await runAuthAdminCommand(process.argv.slice(2), {
     db,
+    ...(process.env.MDBASE_CONNECT_REVISION
+      ? { runtimeRevision: process.env.MDBASE_CONNECT_REVISION } : {}),
     defaultRegistrationMode: registrationMode(
       process.env.MDBASE_CONNECT_REGISTRATION
     ),

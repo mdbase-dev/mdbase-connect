@@ -336,9 +336,33 @@ Migration `0036_authority_import_source_repair` repairs the historical inventory
 bug only when a pending import's exact source was demoted to `candidate` at the
 staged target epoch and no other local authority exists. It restores the staged
 epoch's predecessor, not a fixed epoch of one, and does not touch the connector's
-fence. Stop old server instances before applying the migration so they cannot
-republish the broken inventory transition. Cancelled imports without a remaining
-handoff receipt are not rewound; their higher source epochs remain valid.
+fence. Cancelled imports without a remaining handoff receipt are not rewound;
+their higher source epochs remain valid.
+
+This is a **post-rollout data repair**, not a startup schema prerequisite. The
+published SQL and checksum remain unchanged. Startup applies every required
+schema migration but defers this one; schema readiness therefore does not prove
+repair completion. For a rolling, no-suspension rollout:
+
+1. Deploy the corrected inventory code while the predecessor still serves.
+2. Drain every predecessor inventory writer under the platform's shutdown
+   contract, with deployment/configuration mutation exclusion.
+3. Invoke `auth-admin repairs authority-import-sources` through the guarded
+   operations release phase, bound to the qualified revision, migration-module
+   executable SHA256, SQL SHA256 and operation ID.
+4. Require its bounded durable audit receipt before release qualification.
+
+The operator reruns the canonical SQL even if a legacy startup already recorded
+0036: an old writer may have undone that earlier repair. Repair, ledger insertion
+and audit receipt commit together, serialized with migrations and the same
+account locks as inventory/transfers. They never clear connector fences. A
+missing required schema migration or changed applied checksum still fails.
+
+Keep this explicit deferral while supported rolling-upgrade predecessors include
+pre-#531 inventory writers; removal requires raising that predecessor floor and
+completing the repair in managed environments. Previously published binaries
+that execute 0036 at startup are not eligible for this rolling sequence; prepare
+and qualify a revised artifact instead of changing their migration history.
 
 ## Initial performance budgets
 

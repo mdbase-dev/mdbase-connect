@@ -1,13 +1,10 @@
 import { randomUUID } from "node:crypto";
 import pg, { type PoolConfig } from "pg";
-import type { DatabasePool } from "./database-types.js";
-
-export type {
-  DatabaseConnection,
-  DatabasePool,
-  DatabaseQueryable
+import type {
+  DatabaseConnection, DatabasePool, DatabaseQueryable
 } from "./database-types.js";
-export * from "./legacy-baseline.js";
+
+export type { DatabaseConnection, DatabasePool, DatabaseQueryable };
 
 export async function openDatabase(
   databaseUrl = process.env.DATABASE_URL
@@ -16,6 +13,12 @@ export async function openDatabase(
   if (!databaseUrl || databaseUrl === "memory") {
     const { DataType, newDb } = await import("pg-mem");
     const memory = newDb({ autoCreateForeignKeyIndices: true });
+    memory.public.registerFunction({
+      name: "pg_advisory_xact_lock",
+      args: [DataType.integer],
+      returns: DataType.bool,
+      implementation: () => true
+    });
     memory.public.registerFunction({
       name: "pg_advisory_xact_lock",
       args: [DataType.integer, DataType.integer],

@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { z } from "zod";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
@@ -13,6 +14,10 @@ import type {
 import { bootstrapLegacyBaseline } from "./legacy-baseline.js";
 
 const MIGRATION_LOCK_ID = 1_291_842_019;
+// Data-only repair: the schema is usable before it runs, but pre-#531 inventory
+// writers can undo it. Keep its published SQL/checksum immutable and execute
+// after the corrected server fleet has drained every predecessor instance.
+const POST_ROLLOUT_AUTHORITY_REPAIR = "0036_authority_import_source_repair";
 const LEGACY_BASELINE_ID = "0000_legacy_baseline";
 const LEGACY_BASELINE_CHECKSUM = createHash("sha256")
   .update("mdbase-connect-control-plane-legacy-baseline-v1")
@@ -21,7 +26,7 @@ const NON_TRANSACTIONAL_DIRECTIVE = "-- mdbase:no-transaction";
 const SKIP_IF_TABLE_DIRECTIVE = "-- mdbase:skip-if-table ";
 const SKIP_IF_MISSING_TABLE_DIRECTIVE = "-- mdbase:skip-if-missing-table ";
 
-export interface MigrationOptions {
+interface MigrationOptions {
   lock?: boolean;
   directory?: string;
 }
@@ -33,6 +38,92 @@ export interface MigrationEvidence {
 interface AppliedMigration {
   id: string;
   checksum: string;
+}
+
+const repairMutationSchema = z.object({
+  operationId: z.uuid(),
+  actor: z.string().trim().min(1).max(200),
+  reason: z.string().trim().min(1).max(2_000)
+});
+
+export async function migrationExecutableSha256(): Promise<string> {
+  return createHash("sha256").update(await readFile(import.meta.filename)).digest("hex");
+}
+
+/** The release owner must exclude old inventory writers before invocation.
+ * Always rerun the canonical repair: a legacy startup may have recorded it
+ * before an old inventory writer undid it. Schema readiness is not completion.
+ */
+export async function repairAuthorityImportSources(
+  db: DatabasePool,
+  mutation: unknown,
+  sourceRevision: string,
+  expectedChecksum: string
+): Promise<{
+  operation_id: string;
+  source_revision: string;
+  migration_id: string;
+  checksum: string;
+  executable_sha256: string;
+  repaired_sources: number;
+}> {
+  const input = repairMutationSchema.parse(mutation);
+  if (!/^[0-9a-f]{40}$/.test(sourceRevision)) {
+    throw new Error("Authority repair requires an exact runtime revision.");
+  }
+  const migration = (await sqlMigrations(
+    resolve(import.meta.dirname, "../migrations")
+  )).find(({ id }) => id === POST_ROLLOUT_AUTHORITY_REPAIR);
+  if (!migration) throw new Error("Canonical authority source repair is missing.");
+  const { sql, checksum } = migration;
+  if (checksum !== expectedChecksum) {
+    throw new Error("Authority source repair SQL does not match the qualified candidate.");
+  }
+  const executableSha256 = await migrationExecutableSha256();
+  const connection = await db.connect();
+  try {
+    await connection.query("BEGIN");
+    await connection.query("SELECT pg_advisory_xact_lock($1::bigint)", [MIGRATION_LOCK_ID]);
+    await assertControlPlaneMigrationsCurrent(connection);
+    // Match inventory and authority transitions' account -> source lock order.
+    await connection.query(
+      `SELECT id FROM users
+       WHERE id IN (
+         SELECT user_id FROM authority_transfers
+         WHERE direction = 'to_hosted'
+           AND state IN ('requested', 'prepared', 'activating')
+       ) ORDER BY id FOR UPDATE`
+    );
+    const result = await connection.query(sql);
+    const repairedSources = result.rowCount;
+    if (repairedSources === null || !Number.isSafeInteger(repairedSources) || repairedSources < 0) {
+      throw new Error("Authority repair did not return an update count.");
+    }
+    await connection.query(
+      `INSERT INTO schema_migrations (id, checksum) VALUES ($1, $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [POST_ROLLOUT_AUTHORITY_REPAIR, checksum]
+    );
+    const output = {
+      operation_id: input.operationId, source_revision: sourceRevision,
+      migration_id: POST_ROLLOUT_AUTHORITY_REPAIR, checksum,
+      executable_sha256: executableSha256, repaired_sources: repairedSources
+    };
+    await connection.query(
+      `INSERT INTO audit_events
+         (id, user_id, event_type, subject_id, metadata)
+       VALUES ($1, NULL, 'authority.import_sources.repaired', $2, $3::jsonb)`,
+      [randomUUID(), input.operationId,
+        JSON.stringify({ ...output, actor: input.actor, reason: input.reason })]
+    );
+    await connection.query("COMMIT");
+    return output;
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 export async function runControlPlaneMigrations(
@@ -91,6 +182,7 @@ export async function assertControlPlaneMigrationsCurrent(
   )) {
     const existing = byId.get(migration.id);
     if (!existing) {
+      if (migration.id === POST_ROLLOUT_AUTHORITY_REPAIR) continue;
       throw new Error(
         `Control-plane migration ${migration.id} has not been applied.`
       );
@@ -158,6 +250,7 @@ async function applySqlMigrations(
       assertChecksum(existing, checksum);
       continue;
     }
+    if (id === POST_ROLLOUT_AUTHORITY_REPAIR) continue;
     const skipIfTable = migrationDirectiveValue(
       sql,
       SKIP_IF_TABLE_DIRECTIVE
