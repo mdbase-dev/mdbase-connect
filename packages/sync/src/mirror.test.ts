@@ -6,6 +6,7 @@ import { SyncError } from "./sync-error.js";
 import type { SyncJournalEvent } from "./sync-journal.js";
 import { physicalMirrorPathKey } from "./mirror-physical-path.js";
 import {
+  applySyncJournalEvent as publicApplySyncJournalEvent,
   DirectoryMirror,
   MemoryMirrorLease,
   MemoryMirrorStateStore,
@@ -157,6 +158,31 @@ class CountingStateStore extends MemoryMirrorStateStore {
   override async write(state: MirrorState): Promise<void> {
     this.writes += 1;
     await super.write(state);
+  }
+}
+
+/** A host-owned store (as in a browser database) using only the public mirror API. */
+class SerializedJournalingStore {
+  base: string | null = null;
+  events: string[] = [];
+  writes = 0;
+
+  async read(): Promise<MirrorState | null> {
+    if (this.base === null) return null;
+    const state = JSON.parse(this.base) as MirrorState;
+    for (const event of this.events) publicApplySyncJournalEvent(state, JSON.parse(event) as SyncJournalEvent);
+    return state;
+  }
+
+  async write(state: MirrorState): Promise<void> {
+    this.writes += 1;
+    this.base = JSON.stringify(state);
+    this.events = [];
+  }
+
+  async appendJournal(event: SyncJournalEvent): Promise<void> {
+    if (this.base === null) throw new Error("journal without base state");
+    this.events.push(JSON.stringify(event));
   }
 }
 
@@ -950,6 +976,24 @@ describe("platform-neutral directory mirror", () => {
       .rejects.toMatchObject({ code: "sync_plan_stale" });
     expect(fileSystem.files.get("notes/00001.md")).toBe("same local bytes, distinct record edit");
     expect((await stateStore.read())!.planned_conflicts).toEqual(before.planned_conflicts);
+  });
+
+  it("lets a host store journal receipts through the public API instead of rewriting each batch", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(120));
+    const replicaId = hosted.registerReplica({ name: "Host journal", mode: "read_write" });
+    const store = new SerializedJournalingStore();
+    const fileSystem = new TestFileSystem();
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem, stateStore: store, runtime: deterministicRuntime()
+    });
+    await expect(mirror.sync()).resolves.toMatchObject({ status: "applied" });
+    expect(fileSystem.files.size).toBe(120);
+    // Full rewrites no longer scale with the batch; receipts go to the journal.
+    expect(store.writes).toBeLessThanOrEqual(4);
+    const replayed = await store.read();
+    expect(replayed?.batch).toBeUndefined();
+    expect(Object.keys(replayed?.records ?? {})).toHaveLength(120);
   });
 
   it("keeps a record conflict's last common version as its ancestor until it is resolved", async () => {

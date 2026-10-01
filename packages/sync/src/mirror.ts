@@ -28,6 +28,9 @@ export {
   type MirrorStatus
 } from "./mirror-state.js";
 export { MemoryMirrorStateStore } from "./memory-mirror-state.js";
+// Host state stores implement appendJournal and replay their own events with
+// the engine's reducer, so receipts never rewrite the whole prepared batch.
+export { applySyncJournalEvent, type SyncJournalEvent } from "./sync-journal.js";
 export { WritableDirectoryMirror } from "./writable-directory-mirror.js";
 export {
   type MirrorApplyResult,
