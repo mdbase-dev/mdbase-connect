@@ -486,8 +486,23 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       ...[...options.remoteRecords.values()].map(recordRef),
       ...[...options.remoteFiles.values()].map(fileRef)
     ];
+    const base = prior ? baseRefs(prior) : [];
+    // The plan and durable conflict keys are global identities. Reject an
+    // unrepresentable cross-entity collision before any map can omit a record.
+    const entities = new Map<string, SyncObjectRef["entity"]>();
+    const claim = ({ identity, entity }: SyncObjectRef) => {
+      if (identity === "") return; // Untracked local names receive identity in the planner.
+      const existing = entities.get(identity);
+      if (existing !== undefined && existing !== entity) {
+        throw new SyncError("invalid_snapshot", `Mirror identity ${identity} belongs to both ${existing} and ${entity}.`);
+      }
+      entities.set(identity, entity);
+    };
+    base.forEach(claim);
+    remoteRefs.forEach(claim);
+    local.observations.forEach(({ object }) => claim(object));
     const objects = identifyInspectedObjects({
-      base: prior ? baseRefs(prior) : [],
+      base,
       local: local.observations,
       remote: remoteRefs
     }, `${this.replicaId}\0${options.scopeEpoch}\0${prior?.generation ?? 0}`, this.runtime.digest);

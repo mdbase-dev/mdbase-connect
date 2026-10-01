@@ -28,7 +28,6 @@ import {
   type MirrorRuntime,
   type MirrorState
 } from "./mirror-state.js";
-import { withoutSnapshotDocument } from "./mirror-snapshot-validator.js";
 
 export interface PutOptions {
   managedState?: MirrorState;
@@ -118,7 +117,7 @@ export class MirrorMaterializer {
       revision: record.revision,
       hash: materialized?.hash ?? authoritativeHash,
       ...(this.mode === "read_write"
-        ? { record: withoutSnapshotDocument(record) }
+        ? { record }
         : {})
     };
   }

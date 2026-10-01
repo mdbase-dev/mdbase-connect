@@ -10,7 +10,7 @@ import {
   validateRecordPath,
   type MirrorRecordPathPolicy
 } from "./mirror-path-policy.js";
-import { portableMirrorPathKeyForValidatedPath } from "./portable-path.js";
+import { portableMirrorPathKeyForValidatedPath, validatePortableMirrorPath } from "./portable-path.js";
 import { SyncError } from "./sync-error.js";
 import type { SyncTransport } from "./sync-types.js";
 
@@ -59,50 +59,54 @@ export class MirrorSnapshotValidator<
     }
     this.physicalPaths.add(physicalPath);
 
-    const hash = this.digest(document);
-    if (
-      record.revision.length !== "sha256:".length + hash.length
-      || !record.revision.startsWith("sha256:")
-      || !record.revision.endsWith(hash)
-    ) {
-      throw new SyncError(
-        "invalid_snapshot",
-        `Hosted record ${record.path} does not match its declared revision.`
-      );
+    let hash: string;
+    try {
+      hash = MirrorSnapshotValidator.validateRecord(record, this.digest);
+    } catch (error) {
+      if (error instanceof SyncError && error.code === "invalid_sync_response") {
+        throw new SyncError("invalid_snapshot", error.message);
+      }
+      throw error;
     }
-    const fastDocumentMatches = fastRecordDocumentMatches(document, record);
-    if (fastDocumentMatches !== true) {
+    return { record, document, hash };
+  }
+
+  /** The same exact authority record contract applies to snapshots and receipts.
+   * Receipts can relocate a record, so validate its unknown path before caching. */
+  static validateRecord(record: SyncRecord, digest: (document: string) => string): string {
+    if (!record || typeof record.record_id !== "string" || record.record_id === ""
+      || typeof record.path !== "string" || typeof record.revision !== "string"
+      || typeof record.document !== "string" || typeof record.body !== "string"
+      || !record.frontmatter || typeof record.frontmatter !== "object" || Array.isArray(record.frontmatter)
+      || !Array.isArray(record.types) || !record.types.every((type) => typeof type === "string")) {
+      throw new SyncError("invalid_sync_response", "Authority record omitted required exact-document fields.");
+    }
+    try {
+      validatePortableMirrorPath(record.path);
+    } catch (error) {
+      if (error instanceof SyncError && error.code === "invalid_path") {
+        throw new SyncError("invalid_sync_response", error.message);
+      }
+      throw error;
+    }
+    const document = record.document;
+    const hash = digest(document);
+    if (record.revision !== `sha256:${hash}`) {
+      throw new SyncError("invalid_sync_response", `Hosted record ${record.path} does not match its declared revision.`);
+    }
+    if (fastRecordDocumentMatches(document, record) !== true) {
       let parsed: ReturnType<typeof parseRecordDocument>;
       try {
         parsed = parseRecordDocument(document, record.path);
       } catch {
-        throw new SyncError(
-          "invalid_snapshot",
-          `Hosted record ${record.path} is not valid Markdown.`
-        );
+        throw new SyncError("invalid_sync_response", `Hosted record ${record.path} is not valid Markdown.`);
       }
-      if (
-        !sameJson(parsed.frontmatter, record.frontmatter)
-        || !bodyMatches(parsed.body, record.body)
-      ) {
-        throw new SyncError(
-          "invalid_snapshot",
-          `Hosted record ${record.path} does not match its declared document.`
-        );
+      if (!sameJson(parsed.frontmatter, record.frontmatter) || !bodyMatches(parsed.body, record.body)) {
+        throw new SyncError("invalid_sync_response", `Hosted record ${record.path} does not match its declared document.`);
       }
     }
-    return {
-      record,
-      document,
-      hash
-    };
+    return hash;
   }
-}
-
-export function withoutSnapshotDocument<
-  Frontmatter extends JsonObject = JsonObject
->(record: SyncRecord<Frontmatter>): SyncRecord<Frontmatter> {
-  return record;
 }
 
 export async function visitSnapshotPages<

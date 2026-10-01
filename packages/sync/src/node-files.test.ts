@@ -82,6 +82,45 @@ describe("Node collection file adapters", () => {
     }
   });
 
+  it("keeps active and abandoned staging files out of attachment enumeration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-node-staging-"));
+    try {
+      const fileSystem = new NodeMirrorFileSystem(root);
+      let abandoned = "";
+      await fileSystem.writeBinary("media/value.bin", (async function* () {
+        yield utf8.encode("first part");
+        const staged = await readdir(join(root, "media"));
+        expect(staged).toHaveLength(1);
+        expect(await fileSystem.listBinary(new Set())).toEqual([]);
+        abandoned = staged[0]!.replace(
+          /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/u,
+          "00000000-0000-4000-8000-000000000099"
+        );
+        await writeFile(join(root, "media", abandoned), "abandoned partial bytes");
+        yield utf8.encode(" second part");
+      })(), null);
+      // An OS death can leave the sibling behind. Its namespace must remain
+      // invisible after restart, not become a new authority attachment.
+      expect(await new NodeMirrorFileSystem(root).listBinary(new Set())).toEqual(["media/value.bin"]);
+      expect(await readFile(join(root, "media", abandoned), "utf8")).toBe("abandoned partial bytes");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["text", "binary"])("stages %s writes without exceeding a valid target component's length", async (kind) => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-node-long-name-"));
+    try {
+      const fileSystem = new NodeMirrorFileSystem(root);
+      const path = `${"n".repeat(250)}.${kind === "text" ? "md" : "bin"}`;
+      if (kind === "text") await fileSystem.write(path, "document", null);
+      else await fileSystem.writeBinary(path, (async function* () { yield utf8.encode("document"); })(), null);
+      expect(await readFile(join(root, path), "utf8")).toBe("document");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("honors the exact-text write expectation instead of overwriting a newer document", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-node-fence-"));
     try {

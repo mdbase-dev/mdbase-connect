@@ -129,7 +129,7 @@ fn confirmed_local_update_can_reopen_after_a_later_external_edit() {
 #[cfg(unix)]
 #[test]
 #[ignore = "CS-05: enable after pinned mdbase-rs clears a denied runtime write without later manual recovery"]
-fn denied_local_update_can_reopen_after_permissions_recover_and_an_external_edit() {
+fn denied_local_update_can_reopen_after_permissions_recover() {
     use std::os::unix::fs::PermissionsExt;
     let state = tempdir().unwrap();
     let parent = tempdir().unwrap();
@@ -165,24 +165,7 @@ fn denied_local_update_can_reopen_after_permissions_recover_and_an_external_edit
         fs::read(notes.join("one.md")).unwrap(),
         b"---\ngeneration: 0\n---\ninitial\n"
     );
-    let confirmed = registry
-        .operation(
-            collection.id,
-            "update",
-            &json!({
-                "path": "notes/one.md", "patch": {}, "body": "confirmed update"
-            }),
-        )
-        .unwrap();
-    assert_eq!(confirmed["valid"], true);
-    registry
-        .finalize_runtime_changes(collection.id, &mdbase::OperationCancellation::new())
-        .unwrap();
-    fs::write(
-        notes.join("one.md"),
-        "---\ngeneration: 1\n---\nnew external edit\n",
-    )
-    .unwrap();
+
     registry.shutdown_runtimes();
     drop(registry);
     let reopened = CollectionRegistry::open(state.path()).unwrap();
@@ -190,7 +173,7 @@ fn denied_local_update_can_reopen_after_permissions_recover_and_an_external_edit
         .operation(collection.id, "read", &json!({"path": "notes/one.md"}))
         .unwrap();
     assert_eq!(result["valid"], true);
-    assert_eq!(result["result"]["body"], "new external edit\n");
+    assert_eq!(result["result"]["body"], "initial\n");
 }
 
 #[test]

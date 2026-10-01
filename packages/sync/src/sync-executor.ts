@@ -6,6 +6,7 @@ import type {
   SyncRecord
 } from "@mdbase-dev/connect-protocol";
 import { asError, errorCode, invalidMirrorState, SyncError } from "./sync-error.js";
+import { MirrorSnapshotValidator } from "./mirror-snapshot-validator.js";
 import { MirrorMaterializer } from "./mirror-materializer.js";
 import { recordMarkdownDocument, runtimeDocumentRevision } from "./mirror-format.js";
 import {
@@ -355,7 +356,7 @@ export class PlanOnlySyncExecutor {
       || (action.expected_remote.state === "exact"
         && receipt.file.file_id !== action.expected_remote.object.identity)
       || (action.expected_remote.state === "absent"
-        && state.files?.[receipt.file.file_id] !== undefined)
+        && (state.files?.[receipt.file.file_id] !== undefined || state.records[receipt.file.file_id] !== undefined))
     ) throw invalidReceipt(action);
     state.files ??= {};
     state.files[receipt.file.file_id] = { file: receipt.file };
@@ -681,8 +682,8 @@ function assertExactDocument(
   runtime: MirrorRuntime,
   revision: string
 ): void {
-  const document = recordMarkdownDocument(record);
-  if (record.revision !== revision || runtimeDocumentRevision(document, runtime) !== revision) {
+  MirrorSnapshotValidator.validateRecord(record, (document) => runtime.digest(document));
+  if (record.revision !== revision) {
     throw new SyncError("invalid_sync_response", "Record receipt does not match its exact document revision.");
   }
 }

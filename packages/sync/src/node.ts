@@ -485,7 +485,7 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
   async writeBinary(path: string, source: AsyncIterable<Uint8Array>, expected?: MirrorBinaryInfo | null): Promise<void> {
     const target = await this.safePath(path);
     await mkdir(dirname(target), { recursive: true });
-    const temporary = `${target}.mdbase-${randomUUID()}.tmp`;
+    const temporary = temporarySibling(target);
     const output = await open(temporary, "wx", 0o600);
     try {
       for await (const chunk of source) await writeHandleAll(output, chunk);
@@ -588,7 +588,7 @@ export class NodeMirrorBlobStore implements MirrorBlobStore {
   ): Promise<void> {
     const target = await this.path(contentDigest);
     await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-    const temporary = `${target}.${randomUUID()}.tmp`;
+    const temporary = temporarySibling(target);
     const output = await open(temporary, "wx", 0o600);
     try {
       for await (const chunk of source) await writeHandleAll(output, chunk);
@@ -745,8 +745,14 @@ async function unlinkOptional(path: string): Promise<void> {
   }
 }
 
+function temporarySibling(path: string): string {
+  // Same directory keeps rename atomic; a bounded hidden name keeps partial
+  // writes out of discovery even after death, including long target names.
+  return join(dirname(path), `.mdbase-${randomUUID()}.tmp`);
+}
+
 async function atomicWrite(path: string, value: string, beforeCommit?: () => Promise<void>): Promise<void> {
-  const temporary = `${path}.mdbase-${randomUUID()}.tmp`;
+  const temporary = temporarySibling(path);
   const output = await open(temporary, "wx", 0o600);
   try {
     await output.writeFile(value, "utf8");

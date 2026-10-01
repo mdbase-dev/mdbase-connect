@@ -583,6 +583,20 @@ describe("portable collection file mirror", () => {
     }
   });
 
+  it("rejects record/file identity collisions before omitting a record or installing files", async () => {
+    const transport = new FileTransport();
+    const fileId = "00000000-0000-4000-8000-000000000054";
+    const bytes = utf8.encode("attachment");
+    transport.records = [record(fileId, "notes/record.md", "record document")];
+    transport.files = [file(fileId, "images/photo.png", bytes)];
+    transport.bytes.set(fileId, bytes);
+    const { mirror: target, fileSystem, stateStore } = mirror(transport);
+    await expect(target.sync()).rejects.toMatchObject({ code: "invalid_snapshot" });
+    expect(await stateStore.read()).toBeNull();
+    expect(fileSystem.files.size).toBe(0);
+    expect(transport.downloads).toBe(0);
+  });
+
   it("keeps metadata-only as the safe default", async () => {
     const transport = new FileTransport();
     const bytes = utf8.encode("image bytes");
@@ -1315,6 +1329,32 @@ describe("portable collection file mirror", () => {
     // Recovery checkpoints the originally inspected head; observe the
     // already-committed upload event in one subsequent no-effect pass.
     expect((await target.sync()).status).toBe("applied");
+    expect((await target.inspect()).actions).toEqual([]);
+  });
+
+  it("rejects new upload receipts that steal a managed record identity", async () => {
+    const knownId = "00000000-0000-4000-8000-000000000055";
+    class AliasingTransport extends FileTransport {
+      corrupt = true;
+      override async uploadFile(request: OpenFileUploadRequest, source: AsyncIterable<Uint8Array>) {
+        const receipt = await super.uploadFile(request, source);
+        return this.corrupt ? { ...receipt, file: { ...receipt.file, file_id: knownId } } : receipt;
+      }
+    }
+    const transport = new AliasingTransport();
+    transport.records = [record(knownId, "notes/managed.md", "managed record")];
+    const { mirror: target, fileSystem, stateStore } = writableMirror(transport);
+    await target.sync();
+    const before = (await stateStore.read())!;
+    fileSystem.files.set("images/new.png", utf8.encode("new attachment"));
+    expect(await target.sync()).toMatchObject({ status: "failed", failure: { code: "invalid_sync_response" } });
+    expect((await stateStore.read())!.records).toEqual(before.records);
+    expect(Object.keys((await stateStore.read())!.files ?? {})).toEqual([]);
+    expect((await stateStore.read())!.generation).toBe(before.generation);
+    transport.corrupt = false;
+    expect((await target.sync()).status).toBe("applied");
+    expect((await target.sync()).status).toBe("applied");
+    expect(transport.uploadCalls[1]?.transfer_id).toBe(transport.uploadCalls[0]?.transfer_id);
     expect((await target.inspect()).actions).toEqual([]);
   });
 
