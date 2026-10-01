@@ -21,7 +21,7 @@ import {
   validateSnapshotResources,
   type MirrorRecordPathPolicy
 } from "./mirror-path-policy.js";
-import { assertNoPhysicalObjectAliases, assertNoPhysicalPathAliases, physicalMirrorPathKey } from "./mirror-physical-path.js";
+import { assertNoPhysicalPathAliases, physicalMirrorPathKey } from "./mirror-physical-path.js";
 import { loadMirrorSnapshot, type LoadedMirrorSnapshot } from "./sync-snapshot-loader.js";
 import type {
   DurableSyncPayloads,
@@ -508,7 +508,7 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       }
     }
     try {
-      assertNoPhysicalObjectAliases(objects.flatMap((object) => [object.local, object.remote]
+      assertNoPhysicalPathAliases(objects.flatMap((object) => [object.local, object.remote]
         .flatMap((state) => state.state === "exact" ? [state.object] : [])));
     } catch (error) {
       const value = asError(error);

@@ -4,7 +4,6 @@ import type {
   SyncRecord
 } from "@mdbase-dev/connect-protocol";
 import type { SyncTransport } from "./sync-types.js";
-import { runtimeDocumentRevision } from "./mirror-format.js";
 import { asError, errorCode, invalidMirrorState, SyncError } from "./sync-error.js";
 import {
   MemoryMirrorLease,
@@ -514,7 +513,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     if (mergedDocument !== undefined) {
       const path = mergedLocal!.path;
       const expected = await this.fileSystem.read(path);
-      if (expected === null || runtimeDocumentRevision(expected, this.runtime) !== mergedLocal!.payload_revision) {
+      if (expected === null || `sha256:${this.runtime.digest(expected)}` !== mergedLocal!.payload_revision) {
         throw staleConflict();
       }
       // Persist both halves before clearing the durable conflict. A failed

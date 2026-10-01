@@ -3,8 +3,7 @@ import type {
   JsonObject,
   SyncRecord
 } from "@mdbase-dev/connect-protocol";
-import { MirrorDivergenceError } from "./mirror-errors.js";
-import { SyncError } from "./sync-error.js";
+import { MirrorDivergenceError, SyncError } from "./sync-error.js";
 import { recordMarkdownDocument } from "./mirror-format.js";
 import {
   loadMirrorRecordPathPolicy,

@@ -4,6 +4,12 @@ export class SyncError extends Error {
   }
 }
 
+export class MirrorDivergenceError extends SyncError {
+  constructor(public readonly recordId: string, public readonly path: string) {
+    super("mirror_diverged", `Local edits at ${path} must be resolved before the mirror can continue.`);
+  }
+}
+
 export function asError(error: unknown): Error {
   return error instanceof Error ? error : Error(String(error));
 }
