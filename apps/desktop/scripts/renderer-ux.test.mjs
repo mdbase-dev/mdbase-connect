@@ -29,13 +29,14 @@ after(async () => {
   if (server) await new Promise((done) => server.close(done));
 });
 
-async function desktop({ configured = true, hostedOnline = true } = {}) {
+async function desktop({ configured = true, hostedOnline = true, completionReceipt = null } = {}) {
   const page = await browser.newPage({ viewport: { width: 1060, height: 720 } });
   await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.clock.install();
-  await page.addInitScript(({ configured, hostedOnline }) => {
+  await page.addInitScript(({ configured, hostedOnline, completionReceipt }) => {
+    if (completionReceipt) localStorage.setItem("mdbase:collection-completion", JSON.stringify(completionReceipt));
     const mirror = {
       collection_id: "hosted-notes", replica_id: "notes-mirror", name: "Notes", mode: "read_write",
       selective_sync: { file_classes: [], excluded_folders: [] }, path: "/disposable/Notes",
@@ -58,7 +59,7 @@ async function desktop({ configured = true, hostedOnline = true } = {}) {
       listMirrors: async () => [mirror],
       onNavigate: () => () => {}, onUpdateStatus: () => () => {}
     };
-  }, { configured, hostedOnline });
+  }, { configured, hostedOnline, completionReceipt });
   await page.goto(origin);
   await page.getByRole("button", { name: /^Collections/ }).click();
   if (configured && hostedOnline) await page.getByRole("heading", { name: "Notes", exact: true }).waitFor();
@@ -296,6 +297,24 @@ test("folder errors show the repair without Electron's IPC method name", async (
     await page.getByRole("alert").waitFor();
     await screenshot(page, "folder-error-copy");
     assert.equal(await page.getByRole("alert").locator("span").innerText(), "The selected folder does not contain mdbase.yaml. Choose an mdbase collection folder.");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("saved completion opens the collection identity, not a folder reassigned to another collection", async () => {
+  const { page, errors } = await desktop({ completionReceipt: { collectionId: "moving-notes", collectionName: "Moving notes", authority: "local", path: "/disposable/old-folder" } });
+  try {
+    await page.evaluate(() => {
+      window.fixture.opened = [];
+      window.mdbaseConnect.listCollections = async () => [
+        { id: "moving-notes", display_name: "Moving notes", path: "/disposable/new-folder", spec_version: "0.3.0", enabled: true, contracts: [] },
+        { id: "other-notes", display_name: "Other notes", path: "/disposable/old-folder", spec_version: "0.3.0", enabled: true, contracts: [] }
+      ];
+      window.mdbaseConnect.openPath = async (path) => { window.fixture.opened.push(path); };
+      window.mdbaseConnect.openCollectionFolder = async (id) => { window.fixture.opened.push(id); };
+    });
+    await page.getByRole("button", { name: "Open folder", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixture.opened), ["moving-notes"]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

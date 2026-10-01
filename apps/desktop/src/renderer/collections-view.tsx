@@ -418,7 +418,7 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
         <div className="collection-copy">
           <div className="collection-title-row"><h3>{collection.display_name}</h3><span className="version">v{collection.spec_version}</span></div>
           {collection.description && <p>{collection.description}</p>}
-          <button className="path" title={collection.path} onClick={() => void onAct(() => window.mdbaseConnect.openPath(collection.path))}>{collection.path}</button>
+          <button className="path" title={collection.path} onClick={() => void onAct(() => window.mdbaseConnect.openCollectionFolder(collection.id))}>{collection.path}</button>
         </div>
         <div className="collection-status"><StatusDot state={collection.enabled ? "connected" : "idle"} />{collection.enabled ? "Available" : "Disabled"}</div>
         <div className="row-actions">

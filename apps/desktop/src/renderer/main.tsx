@@ -402,9 +402,7 @@ function App() {
         {completionReceipt && cloud !== null && <CollectionCompletionReceipt
           receipt={completionReceipt}
           hasPendingAuthorization={authorizationTarget !== null || combinedAccess.pending_authorizations.length > 0}
-          onOpenFolder={() => {
-            if (completionReceipt.path) void act(async () => { await window.mdbaseConnect.openPath(completionReceipt.path!); });
-          }}
+          onOpenFolder={() => void act(() => window.mdbaseConnect.openCollectionFolder(completionReceipt.collectionId))}
           onUseInApplication={() => setRoute("access")}
           onOpenEditor={() => void act(() => window.mdbaseConnect.openEditor(completionReceipt.collectionId))}
           onViewDetails={() => {
@@ -422,7 +420,7 @@ function App() {
           receipt={transferReceipt}
           onOpen={() => {
             if (transferReceipt.direction === "hosted_to_local") {
-              void act(async () => { await window.mdbaseConnect.openPath(transferReceipt.newMainCopy); });
+              void act(() => window.mdbaseConnect.openCollectionFolder(transferReceipt.collectionId));
             } else {
               void act(() => window.mdbaseConnect.openEditor(transferReceipt.collectionId));
             }
