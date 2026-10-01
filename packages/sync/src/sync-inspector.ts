@@ -144,15 +144,18 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
     while (true) {
       const requestedAfter = cursor;
       const page = await this.transport.changes(requestedAfter, 200);
+      // Reset boundaries and scope changes invalidate the old history. Only a
+      // fresh snapshot can reconcile them; they are not malformed paging.
+      if (page.reset_required || page.scope_epoch !== state.scope_epoch) {
+        return this.inspectSnapshot("rebuild", state);
+      }
       if (
-        page.scope_epoch !== state.scope_epoch
-        || page.cursor < requestedAfter
+        page.cursor < requestedAfter
         || page.cursor > page.head
         || (page.has_more && page.cursor === requestedAfter)
       ) {
         throw new SyncError("invalid_change_page", "Authority returned an invalid change boundary.");
       }
-      if (page.reset_required) return this.inspectSnapshot("rebuild", state);
       for (const event of page.events) {
         if (event.sequence <= previousSequence || event.sequence > page.cursor) {
           throw new SyncError("invalid_change_page", "Authority change events are not strictly ordered.");

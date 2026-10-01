@@ -786,6 +786,51 @@ describe("platform-neutral directory mirror", () => {
     expect((await stateStore.read())?.cursor).toBe(0);
   });
 
+  it.each([false, true])("rebuilds on a scope epoch change (reset_required=%s)", async (resetRequired) => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Scope mirror", mode: "read_write" });
+    const base = hosted.transport(replicaId);
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, {
+      ...base,
+      changes: async (after, limit) => ({
+        ...await base.changes(after, limit),
+        reset_required: resetRequired
+      })
+    }, { fileSystem, stateStore });
+    await mirror.sync();
+    const ancestor = fileSystem.files.get("notes/00000.md")!;
+    fileSystem.files.set("notes/00000.md", `${ancestor}\nlocal edit`);
+    hosted.updateReplicaScope(replicaId, ["hidden-type"]);
+
+    const plan = await mirror.inspect();
+    expect(plan).toMatchObject({ kind: "rebuild", scope_epoch: 2, summary: { conflicts: 1 } });
+    expect((await mirror.apply(plan)).status).toBe("attention");
+    expect(fileSystem.files.get("notes/00000.md")).toBe(`${ancestor}\nlocal edit`);
+    expect(await stateStore.read()).toMatchObject({
+      scope_epoch: 2,
+      planned_conflicts: { "portable-0": { conflict_kind: "delete_vs_change", ancestor_document: ancestor } }
+    });
+  });
+
+  it("publishes a new scope epoch even when rebuilding requires no effects", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Scope mirror", mode: "read_write" });
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem: new TestFileSystem(), stateStore
+    });
+    await mirror.sync();
+    hosted.updateReplicaScope(replicaId, ["note"]);
+
+    expect((await mirror.sync()).status).toBe("applied");
+    expect((await stateStore.read())?.scope_epoch).toBe(2);
+    expect((await mirror.inspect()).kind).toBe("incremental");
+  });
+
   it("rejects a snapshot boundary change before applying files", async () => {
     const hosted = new MemoryAuthority({ snapshotPageSize: 1 });
     hosted.seed(records(2));
