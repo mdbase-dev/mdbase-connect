@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { migrationExecutableSha256, repairAuthorityImportSources } from "./migrations.js";
 import type { DatabasePool } from "./db.js";
 import { compatibilityReport } from "./auth-admin-compatibility.js";
 import { usageReport } from "./usage-report.js";
@@ -36,6 +37,7 @@ import {
 interface AuthAdminContext {
   db: DatabasePool;
   defaultRegistrationMode: RegistrationMode;
+  runtimeRevision?: string;
   publicUrl?: string;
   emailTransport?: EmailTransport;
   hostedReplicaRevoker?: HostedReplicaRevoker;
@@ -58,6 +60,21 @@ async function runCommand(
   if (area === "request" && action && allowRequestEnvelope) {
     requireNoArguments(rest);
     return runCommand(decodeRequestEnvelope(action), context, false);
+  }
+  if (area === "repairs" && action === "authority-import-sources") {
+    const flags = parseFlags(rest, new Set([
+      "expected-revision", "expected-executable-sha256", "expected-migration-sha256",
+      "operation-id", "actor", "reason"
+    ]));
+    const expected = requiredFlag(flags, "expected-revision");
+    if (!/^[0-9a-f]{40}$/.test(expected) || context.runtimeRevision !== expected) {
+      throw new AuthAdminUsageError("Authority repair runtime revision does not match the qualified candidate.");
+    }
+    if (await migrationExecutableSha256() !== requiredFlag(flags, "expected-executable-sha256")) {
+      throw new AuthAdminUsageError("Authority repair executable does not match the qualified candidate.");
+    }
+    return repairAuthorityImportSources(context.db, mutationFlags(flags), expected,
+      requiredFlag(flags, "expected-migration-sha256"));
   }
   if (area === "policy" && action === "show") {
     requireNoArguments(rest);
@@ -944,6 +961,7 @@ function requireNoArguments(argv: string[]): void {
 function usage(): string {
   return [
     "Usage:",
+    "  auth-admin repairs authority-import-sources --expected-revision <sha> --expected-executable-sha256 <sha256> --expected-migration-sha256 <sha256> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin policy show",
     "  auth-admin policy history [--limit <n>] [--before-revision <n>]",
     "  auth-admin policy update --expected-revision <n> --actor <id> --reason <text> [changes]",

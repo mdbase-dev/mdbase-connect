@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { repairAuthorityImportSources } from "./migrations.js";
 import { vi } from "vitest";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -12,6 +13,9 @@ import { tokenHash } from "./security.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { recoverAccountImportCancellation } from "./features/authority-transfer/account-cancellation.js";
 
+const repairChecksum = createHash("sha256").update(await readFile(new URL(
+  "../migrations/0036_authority_import_source_repair.sql", import.meta.url
+))).digest("hex");
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL ===
   "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -376,7 +380,10 @@ suite("authority import abort receipts on PostgreSQL", () => {
       "UPDATE authority_transfers SET state=$2,manifest_digest=$3,source_revision=$4,final_head=41 WHERE id=$1",
       [f.id, state, "a".repeat(64), `sha256:${"b".repeat(64)}`]
     );
-    await db.query(await readFile(new URL("../migrations/0036_authority_import_source_repair.sql", import.meta.url), "utf8"));
+    const receipt = await repairAuthorityImportSources(db, {
+      operationId: randomUUID(), actor: "postgres-test", reason: "predecessor writers drained"
+    }, "a".repeat(40), repairChecksum);
+    expect(receipt.repaired_sources).toBeGreaterThanOrEqual(1);
     expect((await db.query("SELECT authority_state,authority_epoch,enabled FROM collections WHERE id=$1", [f.localId])).rows)
       .toEqual([{ authority_state: "active", authority_epoch: "1", enabled: true }]);
     const t = await transferApp(f);
@@ -384,5 +391,61 @@ suite("authority import abort receipts on PostgreSQL", () => {
       expect((await t.complete()).statusCode).toBe(200);
       expect((await t.resume()).json().transfer).toMatchObject({ id: f.id, state: "completed" });
     } finally { await t.app.close(); }
+  });
+
+  it("rolls back data, ledger and receipt if the durable audit cannot be written", async () => {
+    const f = await fixture();
+    const operationId = randomUUID();
+    await db.query("UPDATE collections SET authority_state='candidate',authority_epoch=2,enabled=false WHERE id=$1", [f.localId]);
+    await db.query("DELETE FROM schema_migrations WHERE id='0036_authority_import_source_repair'");
+    await db.query("ALTER TABLE audit_events ADD CONSTRAINT reject_repair_audit CHECK (event_type <> 'authority.import_sources.repaired') NOT VALID");
+    try {
+      await expect(repairAuthorityImportSources(db, {
+        operationId, actor: "postgres-test", reason: "predecessor writers drained"
+      }, "a".repeat(40), repairChecksum)).rejects.toThrow(/reject_repair_audit/);
+      expect((await db.query("SELECT authority_state,authority_epoch FROM collections WHERE id=$1", [f.localId])).rows)
+        .toEqual([{ authority_state: "candidate", authority_epoch: "2" }]);
+      expect((await db.query("SELECT id FROM schema_migrations WHERE id='0036_authority_import_source_repair'")).rows).toHaveLength(0);
+      expect((await db.query("SELECT id FROM audit_events WHERE subject_id=$1", [operationId])).rows).toHaveLength(0);
+    } finally {
+      await db.query("ALTER TABLE audit_events DROP CONSTRAINT reject_repair_audit");
+    }
+  });
+
+  it("takes the same account lock as inventory before repairing source rows", async () => {
+    const f = await fixture();
+    await db.query("UPDATE collections SET authority_state='candidate',authority_epoch=2,enabled=false WHERE id=$1", [f.localId]);
+    const blocker = await db.connect();
+    let pending: ReturnType<typeof repairAuthorityImportSources> | undefined;
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [f.userId]);
+      pending = repairAuthorityImportSources(db, {
+        operationId: randomUUID(), actor: "postgres-test", reason: "predecessor writers drained"
+      }, "a".repeat(40), repairChecksum);
+      let waiting = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const locks = await db.query(
+          "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM users%'"
+        );
+        if (locks.rows.length > 0) { waiting = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBe(true);
+      expect((await db.query("SELECT authority_state FROM collections WHERE id=$1", [f.localId])).rows)
+        .toEqual([{ authority_state: "candidate" }]);
+      await blocker.query("ROLLBACK");
+      expect((await pending).repaired_sources).toBeGreaterThanOrEqual(1);
+      const t = await transferApp(f);
+      try {
+        expect((await t.sync()).statusCode).toBe(200);
+        expect((await db.query("SELECT authority_state,authority_epoch FROM collections WHERE id=$1", [f.localId])).rows)
+          .toEqual([{ authority_state: "active", authority_epoch: "1" }]);
+      } finally { await t.app.close(); }
+    } finally {
+      await blocker.query("ROLLBACK");
+      blocker.release();
+      if (pending) await pending;
+    }
   });
 });
