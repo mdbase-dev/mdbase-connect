@@ -108,6 +108,7 @@ test("cold-start offline keeps locally controlled synced folders visible and usa
   const { page, errors } = await desktop({ hostedOnline: false });
   try {
     await page.getByRole("status").filter({ hasText: "hosted could not refresh" }).waitFor();
+    await page.locator(".content").evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await screenshot(page, "offline-folders");
     assert.equal(await page.getByRole("heading", { name: "No hosted collections", exact: true }).count(), 0);
     assert.equal(await page.getByRole("heading", { name: "Notes", exact: true }).isVisible(), true);
@@ -126,6 +127,41 @@ test("cold-start offline keeps locally controlled synced folders visible and usa
     await page.clock.runFor(5_000);
     await page.locator(".hosted-collection").getByRole("heading", { name: "Notes", exact: true }).waitFor();
     assert.equal(await page.locator(".standalone-mirror").count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("minimum desktop window keeps pairing and collection fields inside the canvas", async () => {
+  const { page, errors } = await desktop({ configured: false });
+  try {
+    await page.setViewportSize({ width: 820, height: 580 });
+    await page.getByRole("button", { name: "Overview", exact: true }).click();
+    await screenshot(page, "minimum-pairing");
+    const hasOverflow = () => page.locator(".content").evaluate((element) => element.scrollWidth > element.clientWidth);
+    const pairingOverflow = await hasOverflow();
+    await page.evaluate(() => {
+      window.mdbaseConnect.listCollections = async () => [{ id: "local-notes", display_name: "Local notes", path: "/disposable/Local notes", spec_version: "0.3.0", enabled: true, contracts: [] }];
+    });
+    await page.clock.runFor(5_000);
+    await page.getByRole("button", { name: /^Collections/ }).click();
+    const row = page.locator(".collection-card").filter({ hasText: "Local notes" });
+    await row.getByRole("button", { name: "Details", exact: true }).click();
+    await row.getByLabel("Description", { exact: true }).fill("My edits remain visible");
+    await screenshot(page, "minimum-metadata");
+    assert.deepEqual({ pairingOverflow, metadataOverflow: await hasOverflow() }, { pairingOverflow: false, metadataOverflow: false }, "pairing and metadata fields stay within the minimum-width canvas");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("connection status remains quiet rather than pulsing while reconnecting", async () => {
+  const { page, errors } = await desktop();
+  try {
+    await page.evaluate(() => {
+      window.mdbaseConnect.status = async () => ({ readiness: { schema_version: 1, ready: true, binary_version: "test" }, protocol_version: 1, state: "connecting", paused: false, registered_collections: 0, direct_access_available: true });
+    });
+    await page.clock.runFor(5_000);
+    await page.getByText("Connecting securely…", { exact: true }).waitFor();
+    assert.equal(await page.locator(".product-sidebar-status .status-dot").evaluate((element) => getComputedStyle(element).animationName), "none");
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
