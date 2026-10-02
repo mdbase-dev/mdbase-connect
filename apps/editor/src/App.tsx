@@ -281,7 +281,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
   const attachments = useAttachmentUpload({ gateway, inventory: fileController, scope: mutationScope.current,
-    inventoryFiles: fileInventory.files, activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
+    activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
@@ -2087,6 +2087,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
             remoteApplyToken={remoteApplyToken} autoFocus={editorAutoFocus}
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
+            onUploadAttachment={canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
             insertion={attachments.insertion} onTitleChange={(title) => changeActiveDraft((current) => ({ ...current, title }))}
             onBodyChange={(body) => changeActiveDraft((current) => ({ ...current, body }))} onOpenLink={navigateToNote}
             onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}

@@ -7,6 +7,7 @@ import type { Draft } from "./note-session";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 import type { EditorPreferences } from "./preferences";
 import type { ResolvedFileReference } from "./use-file-assets";
+import type { AttachmentUploader } from "./AttachmentUpload";
 
 const CodeEditor = lazy(() => import("./CodeEditor").then((module) => ({ default: module.CodeEditor })));
 
@@ -24,6 +25,7 @@ interface MarkdownNoteEditorProps {
   files: CollectionFile[];
   notes: NoteSummary[];
   insertion?: { id: number; text: string; block?: boolean };
+  onUploadAttachment?: AttachmentUploader;
   remoteApplyToken?: number;
   onTitleChange: (title: string) => void;
   onBodyChange: (body: string) => void;
@@ -41,7 +43,7 @@ interface MarkdownNoteEditorProps {
 }
 
 export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, currentPath, recentPaths,
-  linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, remoteApplyToken, onTitleChange, onBodyChange,
+  linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, onUploadAttachment, remoteApplyToken, onTitleChange, onBodyChange,
   onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
   onVisibleFileEmbeds, onVisibleNoteEmbeds, autoFocus = true, readOnly = false, provenance }: MarkdownNoteEditorProps) {
   return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
@@ -63,7 +65,7 @@ export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, 
         onDismissLinkPreview={onDismissLinkPreview} embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes}
         onOpenFile={onOpenFile} files={files} notes={notes} onOpenFileLink={onOpenFileLink}
         onVisibleFileEmbeds={onVisibleFileEmbeds} onVisibleNoteEmbeds={onVisibleNoteEmbeds} insertion={insertion}
-        remoteApplyToken={remoteApplyToken} />
+        remoteApplyToken={remoteApplyToken} onUploadAttachment={onUploadAttachment} />
     </Suspense>
   </article>;
 }

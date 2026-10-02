@@ -32,7 +32,8 @@ import { parseDocument as parseYamlDocument } from "yaml";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import type { ResolvedFileReference } from "./use-file-assets";
 import { writerAutocomplete } from "./code-editor-completions";
-import { fileEmbedPresentation } from "./code-editor-file-embeds";
+import { attachmentCapture, blockAttachmentInsertion, fileEmbedPresentation } from "./code-editor-file-embeds";
+import type { AttachmentUploader } from "./AttachmentUpload";
 import { noteEmbedPresentation } from "./code-editor-note-embeds";
 import { referenceDiagnostics } from "./code-editor-reference-diagnostics";
 import { writerInteractions } from "./code-editor-writer-interactions";
@@ -78,6 +79,7 @@ interface CodeEditorProps {
   onVisibleFileEmbeds?: (keys: string[]) => void;
   onVisibleNoteEmbeds?: (keys: string[]) => void;
   insertion?: { id: number; text: string; block?: boolean };
+  onUploadAttachment?: AttachmentUploader;
   onBlur?: () => void;
   remoteApplyToken?: number;
 }
@@ -141,6 +143,7 @@ export function CodeEditor({
   onVisibleFileEmbeds,
   onVisibleNoteEmbeds,
   insertion,
+  onUploadAttachment,
   onBlur,
   remoteApplyToken
 }: CodeEditorProps) {
@@ -184,6 +187,8 @@ export function CodeEditor({
   const onVisibleFileEmbedsRef = useRef(onVisibleFileEmbeds);
   const onVisibleNoteEmbedsRef = useRef(onVisibleNoteEmbeds);
   const appliedInsertion = useRef<number | undefined>(undefined);
+  const onUploadAttachmentRef = useRef(onUploadAttachment);
+  onUploadAttachmentRef.current = variant === "writer" && language === "markdown" ? onUploadAttachment : undefined;
   const lineSeparator = useRef(lineSeparatorFor(value));
 
   linkSuggestionsRef.current = linkSuggestions;
@@ -210,6 +215,7 @@ export function CodeEditor({
     const extensions: Extension[] = [
       vimMode.current.of([]),
       historyMode.current.of([history()]),
+      Prec.highest(attachmentCapture(() => onUploadAttachmentRef.current)),
       editorSetup(variant),
       syntaxHighlighting(mdbaseHighlightStyle),
       mdbasePopupTheme,
@@ -481,10 +487,8 @@ export function CodeEditor({
     if (!view || readOnly || !insertion || appliedInsertion.current === insertion.id) return;
     appliedInsertion.current = insertion.id;
     const selection = view.state.selection.main;
-    const before = selection.from > 0 ? view.state.doc.sliceString(selection.from - 1, selection.from) : "";
-    const after = selection.to < view.state.doc.length ? view.state.doc.sliceString(selection.to, selection.to + 1) : "";
     const insert = insertion.block
-      ? `${before && before !== "\n" ? "\n\n" : ""}${insertion.text}${after && after !== "\n" ? "\n\n" : ""}`
+      ? blockAttachmentInsertion(view.state.doc, selection.from, selection.to, insertion.text)
       : insertion.text;
     view.dispatch({
       changes: { from: selection.from, to: selection.to, insert },
