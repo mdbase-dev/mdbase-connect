@@ -75,8 +75,10 @@ someone opens it. Note rows keep one fixed height and read title, a one-line
 excerpt (the type's declared description field, else the opening prose), then
 time and folder; a declared type appears as a small badge, never in place of
 the folder. Search results are ordered by relevance without date groups.
-Types reuse the list-and-document rhythm; settings become one quiet
-document rather than a dashboard, with technical facts behind Details. In the collection rail, All notes, Types, and
+Types reuse the list-and-document rhythm; settings are one quiet document
+rather than a dashboard. Section headings sit above their content; preference
+rows share a steady rhythm, collection facts stay compact, and technical facts
+live behind Details. In the collection rail, All notes, Types, and
 Settings remain the primary editing group. Connect sits in a bottom-aligned
 Manage group above connection and account status, visibly secondary until a
 pending authorization count requires attention. Mobile presents each level as
@@ -102,7 +104,11 @@ CodeMirror provides Markdown behavior without introducing IDE chrome. Its
 focus state uses the normal caret and selection only: the editor surface never
 gains a border, outline, or glow. Vim bindings are optional and loaded only
 when enabled. Frontmatter opens as typed rows first, with JSON available as an
-escape hatch for nested or unfamiliar values.
+escape hatch for nested or unfamiliar values. The inspector offers quiet Fields
+and JSON tabs; complete Markdown source lives behind the property options menu,
+not a third primary tab. Sizes and dates use the UI family at the normal chrome
+size. An empty inspector explains what properties are useful for, with a direct
+Add property action.
 Open-ended object properties use compact key/value rows with an explicit empty
 state; an empty object should not become a miniature code editor. A schema
 field named `name` only doubles as the note title when it is textual, so
@@ -128,7 +134,20 @@ continues in the note list. A newly created note is adopted from the create
 response, so the editor never waits for a collection-wide refresh or a redundant
 read.
 
-Type editing uses the same quiet document grammar. Application compatibility
+New folder is a short two-field flow: folder name and the title of its first
+general note. Empty folders are not persisted, so that fact is explained once;
+a file path preview appears only after both names are entered. Typed creation
+remains in New note, where required fields are available before committing.
+Committing actions use the shared filled primary control, and redundant draft
+reminders and decorative folder-name placeholders are omitted.
+
+Type editing uses the same quiet document grammar. Field names are inline
+editable in the UI family, with compact kind selects, labelled shared Required
+checkboxes, and removal in each row's options menu. Row details and YAML remain
+available without surrounding every field name in a permanent input box. The
+path takes the flexible space in the type bar; its save notice stays at the
+trailing edge, never stretched into the centre. The redundant Type definition
+eyebrow and table-like column headers are omitted. Application compatibility
 appears as a disclosure within the type, not as a separate dashboard. Each
 contract implementation keeps its direct field mapping, JSON Schema-driven
 behavior settings, and normalized application view together. Contract IDs,

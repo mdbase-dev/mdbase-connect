@@ -75,13 +75,8 @@
     padding-top: 0;
   }
 
-  .visual-field-columns {
-    grid-template-columns: minmax(78px, 1fr) minmax(84px, 0.72fr) 70px 30px;
-    gap: 6px;
-  }
-
   .visual-field-row {
-    grid-template-columns: 20px minmax(78px, 1fr) minmax(84px, 0.72fr) 70px 30px;
+    grid-template-columns: 20px minmax(0, 1fr) 100px 90px 32px;
     gap: 6px;
   }
 }
@@ -91,12 +86,8 @@
     --type-source-gutter: 18px;
   }
 
-  .visual-field-columns {
-    display: none;
-  }
-
   .visual-field-row {
-    grid-template-columns: 20px minmax(0, 1fr) minmax(96px, 0.72fr) 30px;
+    grid-template-columns: 20px minmax(0, 1fr) 100px 32px;
   }
 
   .visual-field-required {
@@ -104,14 +95,7 @@
     grid-row: 2;
   }
 
-  .visual-field-required > span {
-    position: static;
-    width: auto;
-    height: auto;
-    clip-path: none;
-  }
-
-  .remove-type-field {
+  .type-field-actions {
     grid-column: 4;
     grid-row: 1;
   }
@@ -468,12 +452,8 @@
     margin-right: 0;
   }
 
-  .visual-field-columns {
-    display: none;
-  }
-
   .visual-field-row {
-    grid-template-columns: 20px minmax(0, 1fr) minmax(104px, 0.72fr) 30px;
+    grid-template-columns: 20px minmax(0, 1fr) 100px 32px;
     gap: 6px;
   }
 
@@ -482,14 +462,7 @@
     grid-row: 2;
   }
 
-  .visual-field-required > span {
-    position: static;
-    width: auto;
-    height: auto;
-    clip-path: none;
-  }
-
-  .remove-type-field {
+  .type-field-actions {
     grid-column: 4;
     grid-row: 1;
   }
@@ -645,11 +618,6 @@
     margin-top: 44px;
   }
 
-  .settings-intro {
-    grid-template-columns: 1fr;
-    gap: 5px;
-  }
-
   .fact-row strong {
     max-width: 58vw;
   }
@@ -674,7 +642,7 @@
   }
 
   .new-note-title input {
-    font-size: var(--font-size-title);
+    font-size: var(--font-size-heading);
   }
 
   .new-note-fields {
@@ -784,7 +752,6 @@
   .visual-type-basics-fields label > span,
   .field-description > span,
   .field-constraint-grid label > span,
-  .visual-field-columns,
   .field-path span,
   .list-item-heading span,
   .string-list-heading > span {
