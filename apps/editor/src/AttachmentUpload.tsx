@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { MdbaseFileProgress } from "@mdbase-dev/connect";
+import { trackMdbaseMarkProgress } from "@mdbase-dev/ui/mark-activity";
 import type { ActionMenuItem } from "./ActionMenu";
 import { gatewayError } from "./gateway";
 import { FilePlusIcon as FilePlus } from "./icons";
@@ -47,19 +48,40 @@ export function useAttachmentUpload(input: {
     const occupiedPaths = new Set(input.inventoryFiles.map((file) => normalizedFilePath(file.path)));
     const references: string[] = [];
     input.setNotice(undefined);
+    // The notice that follows plays the mark's saved or error reaction, so the progress ends quietly.
+    const markProgress = trackMdbaseMarkProgress();
+    try {
+      await attachEach(files, session, occupiedPaths, references, token, markProgress.update);
+    } finally {
+      markProgress.cancel();
+    }
+  }
 
-    for (const source of files) {
+  async function attachEach(
+    files: readonly File[],
+    session: NoteSession,
+    occupiedPaths: Set<string>,
+    references: string[],
+    token: ReturnType<CollectionMutationScope["token"]>,
+    reportProgress: (fraction: number) => void
+  ) {
+    for (const [index, source] of files.entries()) {
       const path = availableAttachmentPath(session.document.path, source.name, occupiedPaths);
       occupiedPaths.add(normalizedFilePath(path));
       if (!input.scope.isCurrent(token)) return;
       setUpload({ name: source.name });
       try {
         const uploaded = await input.gateway.uploadFile(path, source, {
-          onProgress: (progress) => { if (input.scope.isCurrent(token)) setUpload({ name: source.name, progress }); }
+          onProgress: (progress) => {
+            if (!input.scope.isCurrent(token)) return;
+            setUpload({ name: source.name, progress });
+            if (progress.totalBytes > 0) reportProgress((index + Math.min(1, progress.transferredBytes / progress.totalBytes)) / files.length);
+          }
         });
         if (!input.scope.isCurrent(token)) return;
         input.inventory.upsert(uploaded);
         references.push(attachmentReference(uploaded));
+        reportProgress((index + 1) / files.length);
       } catch (error) {
         if (!input.scope.isCurrent(token)) return;
         input.setNotice(`Couldn’t attach “${source.name}”. ${gatewayError(error)}`);

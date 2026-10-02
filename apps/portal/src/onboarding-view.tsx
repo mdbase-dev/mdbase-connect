@@ -46,7 +46,7 @@ export function GettingStarted() {
 
   return (
     <main className="center-page">
-      <PageBrand label="connect" />
+      <PageBrand label="connect" markMotion="sort" error={error} />
       <section className="auth-panel onboarding-panel" aria-live="polite">
         <p className="eyebrow">Your first collection</p>
         <h1>Preparing a place to start.</h1>

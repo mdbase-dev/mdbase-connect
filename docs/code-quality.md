@@ -14,6 +14,14 @@ one extracted portal review component adds one TypeScript export (2466 → 2467)
 File-size, package-count, and cycle limits are unchanged. Upgrade semantics stay
 in the collection engine, not Connect adapters.
 
+The mark-motion vocabulary adds one production module (730 → 731; app-ui
+16 → 17): `mark-activity.ts`, the page-wide store that lets a save, failure,
+upload or busy state anywhere in an app reach the app switcher's mark without
+threading state through the tree. Its public API, the loop and entrance lists,
+the signal and progress types, and `saveToneSignal` raise TypeScript exports
+from 2622 to 2639; its wiring into `SaveNotice`, `AppSwitcher` and itself adds
+four relative imports (1593 → 1597).
+
 ## Reviewed recovery and review boundaries
 
 The user-experience recovery changes add five net production modules (717 → 722):

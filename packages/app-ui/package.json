@@ -38,6 +38,10 @@
       "types": "./dist/Dialog.d.ts",
       "import": "./dist/Dialog.js"
     },
+    "./mark-activity": {
+      "types": "./dist/mark-activity.d.ts",
+      "import": "./dist/mark-activity.js"
+    },
     "./permission-selection": {
       "types": "./dist/permission-selection.d.ts",
       "import": "./dist/permission-selection.js"

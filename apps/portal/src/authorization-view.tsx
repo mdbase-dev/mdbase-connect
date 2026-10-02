@@ -85,7 +85,7 @@ export function DeviceAuthorization() {
 
   return (
     <main className="center-page">
-      <PageBrand label="Application connection" />
+      <PageBrand label="Application connection" busy={busy} error={error} />
       <form className="decision-panel device-panel" onSubmit={(event) => {
         event.preventDefault();
         void openRequest(code);
@@ -226,7 +226,8 @@ export function Authorization({ requestId }: { requestId: string }) {
     <main className="center-page approval-page">
       <PageBrand
         label="Application request"
-        markMotion={setupMotionActive ? (preparingStructure ? "rebalance" : "conveyor") : undefined}
+        markMotion={setupMotionActive ? (preparingStructure ? "sort" : "stream") : undefined}
+        error={error}
       />
       <section className="decision-panel authorization-panel">
         <RequestIdentity request={authorization} />
