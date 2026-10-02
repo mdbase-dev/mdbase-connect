@@ -1227,8 +1227,13 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         onProgress({ completed: index + 1, total: plan.moves.length, path: move.from });
       }
       // Bring rewritten references into both the index and open note sessions.
-      await Promise.all([...noteSessions.current.values()].filter((session) => !session.deleted).map((session) => refreshCachedNote(session.document.path).catch(() => undefined)));
-      try { await loadIndex(); } catch (error) { setNotice(`Folder changes were applied, but refreshing the index failed. ${gatewayError(error)}`); }
+      const warnings: string[] = [];
+      await Promise.all([...noteSessions.current.values()].filter((session) => !session.deleted).map(async (session) => {
+        try { await refreshCachedNote(session.document.path); }
+        catch (error) { warnings.push(`Couldn’t reload rewritten links in “${session.document.path}”. ${gatewayError(error)}`); }
+      }));
+      try { await loadIndex(); } catch (error) { warnings.push(`Folder changes were applied, but refreshing the index failed. ${gatewayError(error)}`); }
+      if (warnings.length) result.warnings = warnings;
       if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
       if (noteFilter?.kind === "folder" && result.moved > 0) setNoteFilter({ kind: "folder", value: result.failures.length ? plan.from : plan.to });
       return result;

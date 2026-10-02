@@ -18,6 +18,7 @@ export interface FolderChangeProgress {
 export interface FolderChangeResult {
   moved: number;
   failures: Array<{ path: string; message: string }>;
+  warnings?: string[];
 }
 
 export function folderChangeMoves(from: string, to: string, paths: readonly string[], filePaths: readonly string[]) {

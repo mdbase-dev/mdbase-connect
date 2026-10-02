@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Dialog } from "./Dialog";
 import { Select } from "@mdbase-dev/ui/select";
 import type { FolderChangePlan, FolderChangeProgress, FolderChangeResult } from "./folder-change";
@@ -22,6 +22,12 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
   const [result, setResult] = useState<FolderChangeResult>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!plan && !result) return;
+    const frame = requestAnimationFrame(() => cancel.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [plan, result]);
   const basename = from.split("/").at(-1)!;
   const to = mode === "rename" ? [...from.split("/").slice(0, -1), value.trim()].join("/") : [value, basename].filter(Boolean).join("/");
 
@@ -64,10 +70,11 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
         <p>{result.moved.toLocaleString()} {result.moved === 1 ? "note moved" : "notes moved"}.{result.failures.length ? ` ${result.failures.length.toLocaleString()} ${result.failures.length === 1 ? "note could" : "notes could"} not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back.` : " Links were updated."}</p>
         {result.failures.length > 0 && <ul>{result.failures.map((failure) => <li key={failure.path}><code>{failure.path}</code>: {failure.message}</li>)}</ul>}
       </div>}
+      {result?.warnings && <div role="alert">{result.warnings.map((warning) => <p key={warning}>{warning}</p>)}</div>}
       {error && <p role="alert">{error}</p>}
     </div>
     <footer>
-      <button disabled={busy} onClick={onClose}>{result ? "Done" : "Cancel"}</button>
+      <button ref={cancel} disabled={busy} onClick={onClose}>{result ? "Done" : "Cancel"}</button>
       {!result && (plan ? <button className="confirm-primary" disabled={busy} onClick={() => void apply()}>{busy ? "Moving…" : mode === "rename" ? "Rename folder" : "Move folder"}</button>
         : <button className="confirm-primary" form={`${id}-form`} type="submit" disabled={busy}>{busy ? "Checking notes and links…" : "Review changes"}</button>)}
     </footer>

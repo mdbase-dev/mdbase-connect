@@ -44,6 +44,9 @@ describe("collection-wide folder changes", () => {
     await gateway.create({ path: "Journal/2026/day.md", title: "Day", body: "", properties: {} });
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note title" });
+    const disclosure = screen.getByRole("button", { name: "Expand Journal" });
+    disclosure.focus(); fireEvent.keyDown(disclosure, { key: "F2" });
+    await user.click(within(screen.getByRole("dialog", { name: "Rename ‘Journal’" })).getByRole("button", { name: "Cancel" }));
     const row = screen.getByRole("button", { name: /^Show notes in Journal,/ });
     row.focus(); fireEvent.keyDown(row, { key: "F10", shiftKey: true });
     await user.click(screen.getByRole("menuitem", { name: "Move to…" }));
