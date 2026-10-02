@@ -109,6 +109,11 @@ export type {
   MdbaseTimerList,
   MdbaseTimerReconciliation,
   ReadInput,
+  ReadManyOptions,
+  ReadManyRecord,
+  ReadManyEntry,
+  ReadManyBatchError,
+  ReadManyResult,
   DataContractSelector,
   CollectionFileMetadata,
   DataContractViewIdentity,
@@ -192,6 +197,8 @@ export type {
   CollectionContractImplementationDescriptor,
   CollectionTypeDescriptor
 } from "./operation-types.js";
+export { linksTo } from "./query-predicates.js";
+export type { LinksToOptions } from "./query-predicates.js";
 export { externalStore } from "./external-store.js";
 export type { MdbaseExternalStore } from "./external-store.js";
 export {

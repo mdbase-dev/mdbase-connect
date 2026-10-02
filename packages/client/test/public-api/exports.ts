@@ -2,6 +2,10 @@ import {
   MdbaseBrowserSelection,
   MdbaseConnect,
   externalStore,
+  linksTo,
+  type ReadManyOptions,
+  type ReadManyResult,
+  type ReadManyRecord,
   type ConnectRequestOptions,
   type CollectionFileDescriptor,
   type CollectionDescription,
@@ -73,6 +77,29 @@ void revisionSafeUpdate;
 void timer;
 void file;
 void description;
+
+export async function typedBatchReads(connection: MdbaseConnection<{ title: string }>): Promise<void> {
+  const options: ReadManyOptions = { includeBody: true, frontmatterMode: "both", types: ["note"], concurrency: 2 };
+  const outcome = await connection.readMany(["one.md", "missing.md"] as const, options);
+  if (!outcome.ok) return;
+  const result: ReadManyResult<{ title: string }> = outcome.value;
+  for (const entry of result.results) {
+    if (entry.status === "found") {
+      const record: ReadManyRecord<{ title: string }> = entry.record;
+      const revision: string | undefined = record.revision;
+      const title: string | undefined = record.frontmatter?.title;
+      void revision; void title;
+    } else if (entry.status === "error") {
+      void result.errors.find(error => error.batch === entry.batch)?.failure.problem;
+    } else {
+      void entry.path;
+    }
+  }
+  await connection.queryAll({ where: linksTo("source", "sources/book.md") }, { pageSize: 1_000, maxResults: 500 });
+  connection.executeViewPages({ path: "views.md", view: "all" }, { pageSize: 100, maxResults: 200 });
+  // @ts-expect-error raw path batches cannot select contract views.
+  connection.readMany(["one.md"], { contract: { id: "example", version: "1" } });
+}
 
 export function renderLifecycle(snapshot: MdbaseApplicationSessionSnapshot): string {
   if (snapshot.status === "not_started") return "Start";

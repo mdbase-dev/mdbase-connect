@@ -79,6 +79,41 @@ export interface QueryRecord<Frontmatter extends JsonObject = JsonObject> {
   contract?: DataContractViewIdentity;
 }
 
+/** Query-shaped batched record today; a future authority may supply a revision. */
+export interface ReadManyRecord<Frontmatter extends JsonObject = JsonObject> extends QueryRecord<Frontmatter> {
+  /** Absent on current query authorities. Never synthesized from timestamps or content. */
+  revision?: string;
+}
+
+export interface ReadManyOptions extends ConnectRequestOptions {
+  includeBody?: boolean;
+  frontmatterMode?: QueryInput["frontmatterMode"];
+  /** Restrict matching records to these raw collection types, not a contract view. */
+  types?: string[];
+  /** Unique paths per independent query, default 100; range 1..1,000. */
+  batchSize?: number;
+  /** Independent batches in flight, default 4; range 1..4. Cursor pages stay serial. */
+  concurrency?: number;
+}
+
+export type ReadManyEntry<Frontmatter extends JsonObject = JsonObject> =
+  | { status: "found"; path: string; record: ReadManyRecord<Frontmatter> }
+  | { status: "missing"; path: string }
+  | { status: "error"; path: string; batch: number };
+
+export interface ReadManyBatchError {
+  batch: number;
+  paths: string[];
+  failure: import("./outcomes.js").ConnectFailure<import("./outcomes.js").CollectionQueryProblemCode>;
+}
+
+export interface ReadManyResult<Frontmatter extends JsonObject = JsonObject> {
+  /** One entry per input path, in input order, including duplicates. */
+  results: ReadManyEntry<Frontmatter>[];
+  /** A failed batch is not proof of missing records; its entries are errors. */
+  errors: ReadManyBatchError[];
+}
+
 export interface RecordDocument<Frontmatter extends JsonObject = JsonObject> {
   path: string;
   revision: string;

@@ -154,4 +154,3 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
       lease.dispose();
     }
 }
-

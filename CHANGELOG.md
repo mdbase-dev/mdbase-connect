@@ -10,6 +10,17 @@
   for exact recovery. No consumer API changes are required; existing error UI
   should handle read failures as well as write failures.
 
+- Client query/view iterators release paused cursors on abort and accept an
+  opt-in `maxResults` total cap (`limit` still means page size). Cursor `pageSize`
+  controls the initial pinned size; continuations omit `limit`. Migration:
+  remove small `firstPageSize` overrides when a larger cursor scan is intended;
+  the error-based adaptive-size retry is removed. TaskNotes can drop its paused
+  iterator abort workaround. `readMany(paths, options)` adds typed, escaped,
+  bounded path batches with input ordering, missing entries and batch failures;
+  current query results carry no revisions, so revision reads remain necessary.
+  `linksTo(field, path, {multiple?})` builds authority-resolved scalar/list CEL
+  predicates. See `docs/sdk-query-helpers.md` for semantics and migrations.
+
 - Directory mirrors (`@mdbase-dev/connect-sync`) recover from routine local
   interference without a person: a scoped blocking issue (an obstruction,
   divergent or unreadable file) fences only its own path and connected path

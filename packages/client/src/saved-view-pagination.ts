@@ -100,4 +100,3 @@ export async function* coordinatedSavedViewPages<Frontmatter extends JsonObject>
     lease.dispose();
   }
 }
-
