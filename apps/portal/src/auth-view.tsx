@@ -37,7 +37,7 @@ function AuthInput({ label, matchValue, onChange, onBlur, ...props }: InputHTMLA
   }, [matchValue, props.value]);
   return <label>
     <span id={labelId}>{label}</span>
-    <input {...props} ref={input} name={props.name ?? props.autoComplete}
+    <input {...props} className="mdbase-field" ref={input} name={props.name ?? props.autoComplete}
       aria-labelledby={labelId}
       aria-invalid={error ? true : undefined}
       aria-describedby={[props["aria-describedby"], error ? errorId : ""].filter(Boolean).join(" ") || undefined}
@@ -57,7 +57,7 @@ function Loading({ error }: { error: string }) {
   return <MinimalAuthPage><section className="auth-panel" aria-busy={!error}>
     <h1>{error ? "Couldn’t connect" : "Opening mdbase connect"}</h1>
     <p role={error ? "alert" : "status"}>{error || "Just a moment…"}</p>
-    {error && <button className="button primary" onClick={() => location.reload()}>Try again</button>}
+    {error && <button className="mdbase-button is-primary" onClick={() => location.reload()}>Try again</button>}
   </section></MinimalAuthPage>;
 }
 
@@ -109,7 +109,7 @@ export function Login() {
         <h1>Open this through Tailscale</h1>
         <p>Connect this device to your tailnet, then reload the page.</p>
         {error && <div className="message error" role="alert">{error}</div>}
-        <button className="button primary" onClick={() => location.reload()}>Try again</button>
+        <button className="mdbase-button is-primary" onClick={() => location.reload()}>Try again</button>
       </section>
     </MinimalAuthPage>
   );
@@ -159,7 +159,7 @@ export function Login() {
         {error && <div className="message error" role="alert">{error}</div>}
         <AuthInput label="Name" autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />
         <AuthInput label="Email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
-        <button className="button primary" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        <button className="mdbase-button is-primary" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
       </form>
     </MinimalAuthPage>
   );
@@ -213,7 +213,7 @@ function PasswordLoginForm({
         value={password}
         onChange={(event) => setPassword(event.target.value)}
       />
-      <button className="button primary" disabled={busy} type="submit">
+      <button className="mdbase-button is-primary" disabled={busy} type="submit">
         {busy ? "Signing in…" : "Sign in"}
       </button>
       {recoveryAvailable && (
@@ -279,7 +279,7 @@ export function ForgotPassword() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
-            <button className="button primary" disabled={busy} type="submit">
+            <button className="mdbase-button is-primary" disabled={busy} type="submit">
               {busy ? "Sending link…" : "Send reset link"}
             </button>
           </form>
@@ -329,7 +329,7 @@ export function Unsubscribe({ unsubscribeToken }: { unsubscribeToken: string }) 
         {error && <div className="message error" role="alert">{error}</div>}
         {unsubscribeToken && !unsubscribed && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void unsubscribe(event)}>
-            <button className="button primary" disabled={busy} type="submit">
+            <button className="mdbase-button is-primary" disabled={busy} type="submit">
               {busy ? "Unsubscribing…" : "Unsubscribe"}
             </button>
           </form>
@@ -417,13 +417,13 @@ export function ResetPassword({ resetToken }: { resetToken: string }) {
               value={passwordConfirmation}
               onChange={(event) => setPasswordConfirmation(event.target.value)}
             />
-            <button className="button primary" disabled={busy} type="submit">
+            <button className="mdbase-button is-primary" disabled={busy} type="submit">
               {busy ? "Changing password…" : "Change password"}
             </button>
           </form>
         )}
         {completed
-          ? <a className="button primary" href="/">Open your account</a>
+          ? <a className="mdbase-button is-primary" href="/">Open your account</a>
           : <a className="quiet-auth-link" href="/login">Return to sign in</a>}
       </section>
     </MinimalAuthPage>
@@ -590,7 +590,7 @@ export function Signup({
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
-            <button className="button primary" disabled={busy} type="submit">
+            <button className="mdbase-button is-primary" disabled={busy} type="submit">
               {busy ? "Sending link…" : "Send verification link"}
             </button>
           </form>
@@ -656,6 +656,7 @@ export function Signup({
             <label className="auth-agreement">
               <input
                 type="checkbox"
+                className="mdbase-checkbox"
                 required
                 checked={agreementsAccepted}
                 onChange={(event) => setAgreementsAccepted(event.target.checked)}
@@ -674,13 +675,14 @@ export function Signup({
             {!isInvitation && <label className="auth-agreement">
               <input
                 type="checkbox"
+                className="mdbase-checkbox"
                 checked={productUpdates}
                 onChange={(event) => setProductUpdates(event.target.checked)}
               />
               <span>Send me occasional product updates. You can change this at any time.</span>
             </label>}
             <button
-              className="button primary"
+              className="mdbase-button is-primary"
               disabled={busy || !agreementsAccepted}
               type="submit"
             >
@@ -714,7 +716,7 @@ function AuthProviders({ providers, divider = false, onError }: {
     {providers.map((provider) => <React.Fragment key={provider.id}>
       {provider.id === "google"
         ? <GoogleSignIn returnTo={returnTarget()} onError={onError} />
-        : <a className="button link-button provider-button github-button" href={`${provider.login_url}?return_to=${encodeURIComponent(returnTarget())}`}>
+        : <a className="mdbase-button provider-button github-button" href={`${provider.login_url}?return_to=${encodeURIComponent(returnTarget())}`}>
             <GitHubMark />
             <span>{provider.label}</span>
           </a>}
@@ -872,7 +874,7 @@ export function GoogleIdentityButton({ startUrl, onComplete, onError }: {
   const ready = Boolean(google && width);
   return <div ref={container} className={`google-provider ${busy ? "busy" : ""}`} aria-busy={busy || (!ready && !failed)}>
     <div ref={button} className="google-button" inert={busy || !ready} aria-hidden={busy || !ready} />
-    {!ready && <button type="button" className="button provider-button provider-loading" disabled={!failed}
+    {!ready && <button type="button" className="mdbase-button provider-button provider-loading" disabled={!failed}
       onClick={() => { onError(""); setAttempt((value) => value + 1); }}>
       {!failed && <span className="auth-spinner" aria-hidden="true" />}
       {failed ? "Retry Google sign-in" : "Continue with Google"}

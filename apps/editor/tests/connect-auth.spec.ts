@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { chooseOption } from "./select";
 
 // /connect intentionally redirects unauthenticated accounts to the transactional
@@ -30,13 +30,24 @@ const googleFixture = `window.google = { accounts: { id: {
   renderButton(element, config) {
     element.dataset.theme = config.theme;
     const button = document.createElement('button');
-    button.type = 'button'; button.className = 'button provider-button';
+    button.type = 'button'; button.className = 'mdbase-button provider-button';
     button.style.width = config.width + 'px';
     button.textContent = 'Continue with Google';
     button.onclick = () => window.googleFixtureConfig.callback({credential:'fixture-credential'});
     element.append(button);
   }
 } } };`;
+
+async function expectAccessible(page: Page) {
+  // Audit settled control states, not interpolated theme/disabled colors.
+  await page.locator(".minimal-auth-shell").evaluate(async (element) => {
+    await Promise.all(element.getAnimations({ subtree: true })
+      .filter((animation) => animation.effect?.getTiming().iterations !== Infinity)
+      .map((animation) => animation.finished.catch(() => {})));
+  });
+  const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
+  expect(accessibility.violations).toEqual([]);
+}
 
 test.beforeAll(async () => {
   portal = spawn(process.execPath, [
@@ -83,6 +94,8 @@ test("Connect opens one themed, accessible auth column at desktop and 390px", as
   await expect(page.locator("h1")).toHaveText("Sign in");
   await expect(page.getByLabel("Email", { exact: true })).toHaveAttribute("autocomplete", "username");
   await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("autocomplete", "current-password");
+  expect(await page.locator(".minimal-auth-shell").evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Atkinson Hyperlegible Next Variable");
+  await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveClass(/mdbase-button is-primary/);
   for (const theme of ["light", "dark"] as const) {
     await chooseOption(page.getByRole("combobox", { name: "Color theme" }), theme);
     await expect(page.locator(".google-button")).toHaveAttribute("data-theme", theme === "dark" ? "filled_black" : "outline");
@@ -98,8 +111,7 @@ test("Connect opens one themed, accessible auth column at desktop and 390px", as
       const primary = page.getByRole("button", { name: "Sign in", exact: true });
       expect(await primary.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
       await expect(primary).toHaveCSS("text-decoration-line", "none");
-      const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
-      expect(accessibility.violations).toEqual([]);
+      await expectAccessible(page);
     }
   }
 });
@@ -179,8 +191,7 @@ test("signup and recovery use the same column and announce email delivery withou
     await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
     await expect(page.getByRole("status")).toContainText("If");
     await expect(page.locator(".password-auth-form")).toHaveCount(0);
-    const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
-    expect(accessibility.violations).toEqual([]);
+    await expectAccessible(page);
   }
 });
 
@@ -208,8 +219,7 @@ test("reset and verified signup validate matching passwords inline", async ({ pa
     await expect(page.getByRole("alert")).toHaveText("Passwords do not match.");
     await confirmation.fill("a valid fixture password");
     await expect(confirmation).not.toHaveAttribute("aria-invalid", "true");
-    const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
-    expect(accessibility.violations).toEqual([]);
+    await expectAccessible(page);
     if (path.startsWith("reset")) {
       await page.getByRole("button", { name: submit }).click();
       await expect(page.getByRole("heading", { name: "Password changed" })).toBeVisible();
