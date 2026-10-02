@@ -5,7 +5,7 @@ mod support;
 mod test_postgres;
 
 use mdbase_connect_hosted_provider::{RegisterReplica, ReplicaPurpose};
-use mdbase_connect_protocol::SyncReplicaMode;
+use mdbase_connect_protocol::{DeleteFileRequest, DeleteFileRequestKind, SyncReplicaMode};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
@@ -26,12 +26,19 @@ schema:
     properties:
       slug: {type: string}
       related: {type: string}
+      document:
+        type: object
+        properties:
+          file: {type: string}
 collection:
   unique:
     - field: slug
       scope: collection
   links:
     related:
+      validate_exists: true
+    document.file:
+      target_type: any
       validate_exists: true
 ---
 "#;
@@ -66,10 +73,16 @@ async fn install_note_type(fixture: &FileLifecycleFixture) -> String {
                 allowed_types: Vec::new(),
                 contract_scope: Vec::new(),
                 full_collection: true,
-                allowed_operations: ["assess_type_pack", "apply_type_pack", "create", "update"]
-                    .into_iter()
-                    .map(str::to_string)
-                    .collect(),
+                allowed_operations: [
+                    "assess_type_pack",
+                    "apply_type_pack",
+                    "create",
+                    "update",
+                    "validate",
+                ]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
                 file_capability: None,
@@ -261,12 +274,21 @@ async fn complete_projection(fixture: &FileLifecycleFixture) {
         .start_projection_generation(fixture.collection_id)
         .await
         .unwrap();
-    for _ in 0..16 {
-        let batch = fixture
+    for _ in 0..64 {
+        let batch = match fixture
             .provider
             .advance_projection_generation(fixture.collection_id, generation.generation_id)
             .await
-            .unwrap();
+        {
+            Ok(batch) => batch,
+            // Type-pack installation also schedules recovery. Its projection
+            // worker can race this driver; retry only the declared DB conflict.
+            Err(error) if error.code == "provider_database_retryable" => {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
+            Err(error) => panic!("projection advance failed: {error:?}"),
+        };
         if batch.generation.status == "complete" {
             return;
         }
@@ -280,6 +302,155 @@ async fn record_count(fixture: &FileLifecycleFixture) -> i64 {
         .fetch_one(&fixture.pool)
         .await
         .unwrap()
+}
+
+/// Reader-like nested links to attachments, including unpublished and deleted
+/// files. Run through both exact fallback and current projections.
+async fn assert_attachment_links(fixture: &FileLifecycleFixture, token: &str, tag: &str) {
+    let source_path = format!("notes/{tag}-source.md");
+    let source = create_note(fixture, token, &source_path, &format!("{tag}-source")).await;
+    assert_eq!(source["valid"], true, "{source}");
+    for extension in ["html", "pdf", "epub"] {
+        let file_path = format!("files/reader/{tag}/document.{extension}");
+        let note_path = format!("notes/{tag}-{extension}.md");
+        let input = json!({"path": note_path, "type": "note", "frontmatter": {
+            "slug": format!("{tag}-{extension}"), "related": format!("[[{source_path}]]"),
+            "document": {"file": format!("../{file_path}")}
+        }});
+        let transfer = fixture
+            .stage_upload(&file_path, b"attachment bytes are not records")
+            .await;
+        let before = head(fixture).await;
+        assert_rejected(
+            &operation(fixture, token, "create", input.clone()).await,
+            "link_not_found",
+            &file_path,
+        );
+        assert_eq!(
+            head(fixture).await,
+            before,
+            "an open upload is not an existing file"
+        );
+        let file = fixture
+            .provider
+            .commit_file_upload(
+                fixture.collection_id,
+                &fixture.token,
+                FileLifecycleFixture::commit_request(transfer),
+                None,
+            )
+            .await
+            .unwrap()
+            .file;
+        let created = operation(fixture, token, "create", input).await;
+        assert_eq!(created["valid"], true, "{created}");
+        let updated = operation(
+            fixture,
+            token,
+            "update",
+            json!({"path": note_path, "patch": {"title": "Edited"}}),
+        )
+        .await;
+        assert_eq!(updated["valid"], true, "{updated}");
+        let validated = operation(fixture, token, "validate", json!({"path": note_path})).await;
+        assert_eq!(validated["valid"], true, "{validated}");
+        assert!(
+            validated["diagnostics"].as_array().unwrap().is_empty(),
+            "{validated}"
+        );
+        fixture
+            .provider
+            .delete_file(
+                fixture.collection_id,
+                &fixture.token,
+                DeleteFileRequest {
+                    protocol_version: 1,
+                    message_type: DeleteFileRequestKind::DeleteFile,
+                    mutation_id: Uuid::now_v7(),
+                    file_id: file.file_id,
+                    if_revision: file.revision,
+                    path: file.path,
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        let before = head(fixture).await;
+        let rejected = operation(
+            fixture,
+            token,
+            "update",
+            json!({"path": note_path, "patch": {"title": "Must not save"}}),
+        )
+        .await;
+        assert_rejected(&rejected, "link_not_found", &file_path);
+        assert_eq!(head(fixture).await, before);
+        let invalid = operation(fixture, token, "validate", json!({"path": note_path})).await;
+        assert_rejected(&invalid, "link_not_found", &file_path);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn attachment_link_evidence_is_collection_scoped_and_keeps_original_paths() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let other = FileLifecycleFixture::new(database.url()).await;
+    let token = install_note_type(&fixture).await;
+    let path = "files/OnlyHere.HTML";
+    let transfer = other.stage_upload(path, b"other collection").await;
+    other
+        .provider
+        .commit_file_upload(
+            other.collection_id,
+            &other.token,
+            FileLifecycleFixture::commit_request(transfer),
+            None,
+        )
+        .await
+        .unwrap();
+    let input = |path: &str| {
+        json!({"path": "notes/scoped.md", "type": "note",
+        "frontmatter": {"document": {"file": path}}})
+    };
+    assert_rejected(
+        &operation(&fixture, &token, "create", input(path)).await,
+        "link_not_found",
+        path,
+    );
+    let transfer = fixture.stage_upload(path, b"this collection").await;
+    fixture
+        .provider
+        .commit_file_upload(
+            fixture.collection_id,
+            &fixture.token,
+            FileLifecycleFixture::commit_request(transfer),
+            None,
+        )
+        .await
+        .unwrap();
+    // File stat's portable aliases are not canonical record-link paths.
+    assert_rejected(
+        &operation(&fixture, &token, "create", input("files/onlyhere.html")).await,
+        "link_not_found",
+        "files/onlyhere.html",
+    );
+    let valid = operation(&fixture, &token, "create", input(path)).await;
+    assert_eq!(valid["valid"], true, "{valid}");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn hosted_writes_and_validation_resolve_committed_attachment_links() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let token = install_note_type(&fixture).await;
+    assert!(!projection_is_current(&fixture).await);
+    assert_attachment_links(&fixture, &token, "exact-files").await;
+    complete_projection(&fixture).await;
+    assert!(projection_is_current(&fixture).await);
+    assert_attachment_links(&fixture, &token, "indexed-files").await;
+    assert!(projection_is_current(&fixture).await);
 }
 
 #[tokio::test]

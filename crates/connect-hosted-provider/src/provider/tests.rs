@@ -116,7 +116,7 @@ fn hosted_semantic_paths_use_only_typed_runtime_seams() {
 fn typed_hosted_changes_are_not_reclassified_after_planning() {
     let source = include_str!("mutations/direct_execution.rs");
     let post_plan = source
-        .split_once(".plan_hosted_mutation_typed")
+        .split_once(".plan_hosted_mutation_with_files_typed")
         .expect("direct execution uses the typed planner")
         .1
         .split_once("fn hosted_mutation_context_record_budget")

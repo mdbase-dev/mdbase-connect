@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Hosted required links to ordinary files (including Reader's HTML, PDF and
+  EPUB documents) now validate against committed file metadata from the same
+  authority snapshot. Writes and explicit validation no longer report an
+  existing attachment as missing. Attachment bytes are not downloaded or parsed
+  as records; missing, deleted and unfinished-upload targets remain invalid.
+
 - Application-session startup no longer tears down replacement verification
   when a route or selection refresh cancels an obsolete setup assessment.
   Only that generation's expected cancellation is ignored; genuine exceptions

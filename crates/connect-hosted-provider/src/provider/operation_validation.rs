@@ -350,8 +350,17 @@ impl HostedProvider {
                 context.push(canonical);
             }
         }
+        let existing_file_paths = super::files::load_file_link_context(
+            &mut transaction,
+            &self.crypto,
+            &data_key,
+            collection_id,
+            &catalog,
+            &plan.resolution_lookups,
+        )
+        .await?;
         let result = catalog
-            .execute_hosted_validation_typed(&plan, &context)
+            .execute_hosted_validation_with_files_typed(&plan, &context, &existing_file_paths)
             .map_err(|error| {
                 if error.code.contains("budget_exceeded") {
                     validation_budget(&error.code, "canonical_context", 0, context.len() as u64)

@@ -175,6 +175,61 @@ pub(super) fn decode_current_file(
     ))
 }
 
+const MAX_FILE_LINK_CONTEXT_PATHS: usize = 2_000;
+
+/// Snapshot-bound, metadata-only evidence for links to ordinary files. Only
+/// committed current files answer exact-path lookups, not transfers or history.
+/// Keep authenticated original paths: portable file-API aliases must not alter
+/// canonical record-link semantics.
+pub(super) async fn load_file_link_context(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    catalog: &mdbase::runtime::CompiledCatalog,
+    lookups: &[mdbase::runtime::ResolutionLookupKey],
+) -> ApiResult<Vec<String>> {
+    let paths = catalog.hosted_file_context_paths(lookups);
+    if paths.len() > MAX_FILE_LINK_CONTEXT_PATHS {
+        return Err(ApiError::quota(
+            "hosted_file_context_budget_exceeded",
+            "Hosted file-link context exceeds its path budget.",
+        ));
+    }
+    let tokens = paths
+        .iter()
+        .filter(|path| validate_hosted_file_path(path).is_ok())
+        .map(|path| path_token(data_key, &portable_file_path_key(path)))
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = sqlx::query(
+        r#"SELECT file_id, revision, size, object_key, payload_ciphertext, sequence
+           FROM hosted_provider_files
+           WHERE collection_id = $1 AND path_token = ANY($2::bytea[])
+           LIMIT $3"#,
+    )
+    .bind(collection_id)
+    .bind(tokens)
+    .bind((MAX_FILE_LINK_CONTEXT_PATHS + 1) as i64)
+    .fetch_all(&mut **transaction)
+    .await?;
+    if rows.len() > MAX_FILE_LINK_CONTEXT_PATHS {
+        return Err(ApiError::quota(
+            "hosted_file_context_budget_exceeded",
+            "Hosted file-link context exceeds its path budget.",
+        ));
+    }
+    let mut existing = BTreeSet::new();
+    for row in &rows {
+        let (file, _, _, _) = decode_current_file(crypto, data_key, collection_id, row)?;
+        validate_hosted_file_path(&file.path)?;
+        existing.insert(file.path);
+    }
+    Ok(existing.into_iter().collect())
+}
+
 fn decode_download_file(
     crypto: &ProviderCrypto,
     data_key: &[u8; 32],
