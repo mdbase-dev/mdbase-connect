@@ -15,6 +15,7 @@
 .code-editor-writer .cm-file-embed img,
 .code-editor-writer .cm-file-embed iframe,
 .code-editor-writer .cm-file-embed video { width: 100%; display: block; border: 0; border-radius: var(--radius-md); background: transparent; }
+.code-editor-writer .cm-file-embed video { max-height: min(56vh, 560px); object-fit: contain; }
 .code-editor-writer .cm-file-embed img { max-height: min(56vh, 560px); object-fit: contain; transition: filter var(--motion-quick) var(--ease-standard); }
 /* Bright images would glare on the dark writing surface; restore full brightness when someone looks closer. */
 :root[data-theme="dark"] .code-editor-writer .cm-file-embed img { filter: brightness(.78) contrast(1.06); }

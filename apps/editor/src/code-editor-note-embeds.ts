@@ -44,6 +44,9 @@ class NoteEmbedWidget extends WidgetType {
       content.tabIndex = 0;
       content.setAttribute("aria-label", `Content of ${reference.title}`);
       renderMarkdownFragment(content, reference.body ?? "");
+      // The caption already names the source; don't repeat its document title.
+      const heading = content.firstElementChild;
+      if (!reference.anchor && heading?.tagName === "H1" && heading.textContent === reference.title) heading.remove();
       region.append(content);
     } else {
       const status = document.createElement("p");
