@@ -137,6 +137,62 @@ backlink queries while retaining UI alias/suggestion policy and dirty overlays. 
 publishes native recipes/options, not a private resolver or automatic ambiguity fix.
 Obsidian is offline sync, with no mandatory public-client migration.
 
+## Advertisement audit (sdk-small)
+
+Audited Connect `74ce1bc6` and the shared, read-only mdbase-rs `af73732`.
+**Not ready: do not advertise `link-resolution-options-v1`.** Connect's native
+and hosted descriptions currently omit it; this follow-up deliberately adds no
+flag, option builder or error-triggered fallback.
+
+Remaining implementation gates, with current evidence:
+
+1. **CEL option overloads and plan support are absent.** mdbase-rs
+   `src/cel/host.rs` registers only no-argument and source-path `asFile`; maps and
+   source-path-plus-map currently fail. `src/cel/provenance.rs` rewrites only
+   zero-argument `asFile` calls. mdbase-rs must validate the closed option map,
+   preserve options while injecting provenance, and carry ambiguity/type policy
+   through native and hosted compiled plans and their shared selector. Unknown
+   keys/types must fail, not silently drop policy.
+2. **Field-specific declaration provenance is missing at traversal time.**
+   `src/links/linked_files.rs::StoredLinkTargets` is keyed by source path and link
+   text, not the originating field/occurrence. `LinkedFiles::resolve` returns the
+   stored winner before consulting the index. `src/links/traversal.rs` gives the
+   first frontmatter occurrence precedence; `src/runtime/hosted_links.rs` likewise
+   collapses same-text occurrences to the first frontmatter winner. Source-record
+   provenance in CEL is not field-declaration provenance. Two fields with the
+   same string but different declared target types cannot be distinguished by
+   that shortcut. mdbase-rs must retain field/occurrence constraints (including
+   `this`, traversed records and list elements), intersect requested and declared
+   types, and re-resolve/retain sufficient candidate evidence for unique mode;
+   stored winners must not bypass either policy.
+3. **Hosted candidate completeness is not established.**
+   `src/runtime/hosted_links.rs::HostedRelationshipNeighborhood.complete` attests
+   a bounded incoming/outgoing graph neighborhood, not every eligible resolution
+   candidate. Expression-built links currently resolve only among supplied
+   records. Connect `operation_queries/projection_loading.rs` builds that
+   neighborhood from adjacency, and `base_sources.rs::load_relationship_adjacency`
+   reads resolved edges. A losing duplicate or a target unrelated to the default
+   graph can be absent. Therefore this `complete` bit cannot prove uniqueness or
+   collection-wide arbitrary-expression resolution. The provider must supply a
+   snapshot-consistent, bounded indexed lookup of the entire eligible winning key
+   class (including losing duplicates and explicit paths), preserving type
+   evidence; incomplete/budget-limited evidence must fail explicitly. Existing
+   `projections/activation.rs::load_resolution_candidates` demonstrates a bounded
+   identity-index lookup for indexing, not a query-time options completeness
+   contract. `ResolutionCandidate` currently has identity/path but no type-policy
+   evidence. Keep native default outgoing/backlink indexes unchanged.
+4. **Qualification remains.** Run the shared fixture corpus below across native
+   cache/no-cache and every hosted plan, especially same-text/different-declaration
+   fields, stored shortcut vs expression, losing duplicates outside neighborhoods,
+   explicit out-of-type paths, default/unique modes, rename/catalog changes and
+   budget failures. Demonstrate indexed 50k-record lookup cost without per-link
+   full scans. Only after mdbase-rs owns and proves these semantics should Connect
+   wire the provider evidence, add advertisement per supported profile, and test
+   native/hosted discovery plus zero option dispatch to old authorities under B1.
+
+No Connect-only change can honestly satisfy gates 1–3. Existing ranking evidence
+and neighborhood completeness must not be relabeled as options support.
+
 ## Tests and size
 
 M–L, 5–9 engineer-days plus consumer acceptance. One mdbase-rs fixture corpus runs
