@@ -48,11 +48,8 @@
 
 .connect-nav-group > p {
   margin: 0 10px 7px;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: var(--muted);
+  font-size: 0.875rem;
 }
 
 .connect-nav > nav > .connect-nav-group > a {
@@ -93,7 +90,7 @@
 }
 
 .connect-nav > nav > .connect-nav-group > a.selected strong {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .connect-avatar {
@@ -104,9 +101,8 @@
   border-radius: 50%;
   background: var(--accent-soft);
   color: var(--accent-strong);
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-size: 0.8rem;
+  font-weight: 500;
 }
 
 .connect-shell .collection-rail .connection-footer {
@@ -200,6 +196,7 @@
   min-width: 0;
   overflow: auto;
   background: var(--white);
+  font: 15px/1.5 var(--sans);
 }
 
 .connect-page {
@@ -209,13 +206,14 @@
 }
 
 .connect-page > header {
-  margin-bottom: 52px;
+  margin-bottom: 40px;
 }
 
 .connect-page > header h1 {
   margin: 0;
-  font-size: 27px;
-  line-height: 1.05;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
   letter-spacing: -0.035em;
 }
 
@@ -228,12 +226,12 @@
   display: block;
   margin-top: 13px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.5;
 }
 
 .connect-page > section {
-  margin-top: 52px;
+  margin-top: 40px;
 }
 
 .connect-section-title {
@@ -254,14 +252,15 @@
 
 .connect-section-title h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
 .connect-section-title span {
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 0.75rem;
+  color: var(--muted);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 
 .connect-section-title > p {
@@ -285,7 +284,7 @@
   padding: 6px 2px;
   color: var(--accent-strong);
   text-decoration: none;
-  font-size: 0.75rem;
+  font-size: 14px;
 }
 
 .connect-section-title svg,
@@ -334,12 +333,13 @@
 }
 
 .connect-row strong {
-  font-size: 0.82rem;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .connect-row small {
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 14px;
   line-height: 1.4;
 }
 
@@ -401,7 +401,7 @@ button.danger:disabled {
   align-items: center;
   gap: 7px;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 14px;
   white-space: nowrap;
 }
 
@@ -426,8 +426,8 @@ button.danger:disabled {
   background: var(--accent);
   color: var(--color-on-accent) !important;
   text-decoration: none;
-  font-size: 0.84rem;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .connect-primary-action:hover {
@@ -452,7 +452,7 @@ button.danger:disabled {
   display: grid;
   gap: 6px;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 14px;
 }
 
 .connect-inline-form input,
@@ -736,9 +736,9 @@ button.danger:disabled {
   gap: 2px;
 }
 
-.connect-account-row strong { font-size: 0.82rem; }
-.connect-account-row small { color: var(--muted); font-size: 0.75rem; line-height: 1.4; }
-.connect-account-row > span { color: var(--muted); font-size: 0.75rem; text-align: right; }
+.connect-account-row strong { font-size: 15px; font-weight: 600; }
+.connect-account-row small { color: var(--muted); font-size: 14px; line-height: 1.5; }
+.connect-account-row > span { color: var(--muted); font-size: 14px; text-align: right; }
 
 .connect-account-actions {
   display: flex;
@@ -760,7 +760,7 @@ button.danger:disabled {
   color: var(--accent-strong);
   background: var(--white);
   text-decoration: none;
-  font-size: 0.78rem;
+  font-size: 14px;
 }
 
 .connect-account-action:hover { background: var(--hover); }
@@ -795,8 +795,8 @@ button.danger:disabled {
   display: grid;
   gap: 6px;
   color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .connect-account-form input,
@@ -846,6 +846,7 @@ button.danger:disabled {
 
 .connect-account-reauthentication {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--line);
@@ -854,6 +855,7 @@ button.danger:disabled {
 
 .connect-google-provider {
   position: relative;
+  min-width: 0;
   width: min(100%, 400px);
   min-height: 40px;
 }
@@ -871,8 +873,8 @@ button.danger:disabled {
   border-radius: 5px;
   color: var(--muted);
   background: var(--white);
-  font-family: var(--mono);
-  font-size: 0.75rem;
+  font-family: var(--sans);
+  font-size: 14px;
 }
 
 .connect-deleted-account {
@@ -1102,7 +1104,7 @@ button.danger:disabled {
   }
 
   .connect-shell > .collection-rail .connection-footer > p,
-  .connect-rail-feedback,
+  .connect-shell > .collection-rail .connect-rail-feedback,
   .connect-rail-account > span:last-child {
     display: none;
   }
@@ -1296,7 +1298,7 @@ button.danger:disabled {
 .connect-account-form input,
 .connect-account-reauthentication input,
 .connect-provider-loading {
-  border-radius: 2px;
+  border-radius: var(--radius-control, 5px);
 }
 
 .connect-nav > nav > .connect-nav-group > a.selected {
@@ -1311,23 +1313,11 @@ button.danger:disabled {
   color: var(--muted);
 }
 
-.connect-primary-action {
-  border: 1px solid var(--accent);
-  border-radius: 2px;
-  background: transparent;
-  color: var(--accent) !important;
-}
-
-.connect-primary-action:hover {
-  background: var(--hover);
-  color: var(--accent-strong) !important;
-}
-
 .connect-account-message,
 .connect-pending-banner,
 .connect-deletion-effects,
 .connect-account-reauthentication {
-  border-radius: 2px;
+  border-radius: var(--radius-control, 5px);
 }
 
 .connect-account-message.success {
