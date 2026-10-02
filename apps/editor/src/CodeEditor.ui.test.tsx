@@ -28,6 +28,16 @@ describe("editor autofocus ownership", () => {
 });
 
 describe("writer shortcuts", () => {
+  it.each(["k", "b", "i"])("does not mutate read-only note text with Ctrl %s", (key) => {
+    const onChange = vi.fn();
+    render(<CodeEditor value="Read-only note" label="Note body" language="markdown" variant="writer" readOnly onChange={onChange} />);
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    body.focus();
+    fireEvent.keyDown(body, { key, ctrlKey: true });
+    expect(body).toHaveTextContent("Read-only note");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("uses Ctrl K for a link without consuming Ctrl P", () => {
     const onChange = vi.fn();
     render(<CodeEditor value="" label="Note body" language="markdown" variant="writer" onChange={onChange} />);

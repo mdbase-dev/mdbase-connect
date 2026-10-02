@@ -1727,6 +1727,13 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         setQuickOpen(true);
         return;
       }
+      if (modifier && !event.altKey && !event.shiftKey && key === "k"
+          && !(event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content"))) {
+        // K belongs only to note text, not the browser's location bar or a
+        // second workspace shortcut when focus is on another control.
+        event.preventDefault();
+        return;
+      }
       if (quickOpen || shortcutsOpen) return;
       if (phase !== "ready") return;
       if (modifier && event.shiftKey && key === "n") {

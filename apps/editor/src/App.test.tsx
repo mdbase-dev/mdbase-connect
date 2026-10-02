@@ -705,7 +705,8 @@ describe("mdbase editor", () => {
     expect(screen.getByRole("button", { name: "Quick open" }).title).not.toContain("K");
     for (const target of [search, body, screen.getByRole("button", { name: "Note properties" })]) {
       target.focus();
-      fireEvent.keyDown(target, { key: "k", [modifier]: true });
+      const unhandled = fireEvent.keyDown(target, { key: "k", [modifier]: true });
+      if (target !== body) expect(unhandled).toBe(false);
       expect(screen.queryByRole("dialog", { name: "Quick open" })).not.toBeInTheDocument();
       fireEvent.keyDown(target, { key: "p", [modifier]: true });
       expect(screen.getByRole("dialog", { name: "Quick open" })).toBeInTheDocument();

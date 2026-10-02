@@ -51,6 +51,7 @@ test("quick open uses P inside and outside the writer; K only creates links", as
   }
   await search.focus();
   await page.keyboard.press("Control+k");
+  await expect(search).toBeFocused();
   await expect(page.getByRole("dialog", { name: "Quick open" })).toHaveCount(0);
   await body.fill("");
   await body.focus();
