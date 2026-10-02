@@ -31,13 +31,13 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
-  it("traces into bounded activity while Connect is opening", () => {
+  it("orbits the mark while Connect is opening", () => {
     vi.mocked(fetch).mockImplementation(() => new Promise<Response>(() => {}));
     const { container } = render(<ConnectApp />);
 
     expect(screen.getByText("Opening mdbase connect")).toBeInTheDocument();
     expect(container.querySelector(".connect-loading .mdbase-mark")).toBeInTheDocument();
-    expect(container.querySelector(".connect-loading .mdbase-motion-bootstrap")).not.toBeInTheDocument();
+    expect(container.querySelector(".connect-loading .mdbase-motion-orbit")).toBeInTheDocument();
   });
 
   it("clears password inputs after success even when the following overview refresh fails", async () => {

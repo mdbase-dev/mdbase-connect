@@ -1,4 +1,4 @@
-import { MdbaseMark, type MdbaseMarkMotion } from "@mdbase-dev/ui/brand";
+import { MdbaseMark, type MdbaseMarkMotion, type MdbaseMarkSignal } from "@mdbase-dev/ui/brand";
 import {
   applyThemePreference,
   loadThemePreference,
@@ -88,10 +88,19 @@ export function ThemeMenu() {
   }} />;
 }
 
-export function PageBrand({ label, markMotion }: { label: string; markMotion?: MdbaseMarkMotion }) { return <div className="page-brand-row"><div className="page-brand"><Brand markMotion={markMotion} /><span>{label}</span></div><ThemeMenu /></div>; }
-export function Brand({ productLabel = false, markMotion }: { productLabel?: boolean; markMotion?: MdbaseMarkMotion }) { return <div className="product-brand"><MdbaseMark motion={markMotion} className="product-brand-mark" /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
+/** The page's mark loops while `busy` and shakes each time a new `error` appears. */
+export function PageBrand({ label, markMotion, busy = false, error = "" }: { label: string; markMotion?: MdbaseMarkMotion; busy?: boolean; error?: string }) {
+  const signal = useErrorSignal(error);
+  return <div className="page-brand-row"><div className="page-brand"><Brand markMotion={busy ? "bounce" : markMotion} markSignal={signal} /><span>{label}</span></div><ThemeMenu /></div>;
+}
+export function Brand({ productLabel = false, markMotion, markSignal }: { productLabel?: boolean; markMotion?: MdbaseMarkMotion; markSignal?: MdbaseMarkSignal | null }) { return <div className="product-brand"><MdbaseMark motion={markMotion} signal={markSignal} className="product-brand-mark" /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
+function useErrorSignal(error: string): MdbaseMarkSignal | null {
+  const [signal, setSignal] = useState<MdbaseMarkSignal | null>(null);
+  useEffect(() => setSignal((current) => error ? { kind: "error", id: (current?.id ?? 0) + 1 } : null), [error]);
+  return signal;
+}
 
 export function SectionHeading({ title, note, count }: { title: string; note: string; count?: number }) { return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{count}</span>}</div>; }
 export function Empty({ title, text }: { title: string; text: string }) { return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
-export function Loading({ error = "", onRetry }: { error?: string; onRetry?(): void }) { return <main className="loading" aria-busy={!error}><PageBrand label="connect" markMotion={error ? undefined : "bootstrap"} /><p role={error ? "alert" : "status"}>{error || "Opening mdbase connect…"}</p>{error && onRetry && <button className="button primary" onClick={onRetry}>Try again</button>}</main>; }
+export function Loading({ error = "", onRetry }: { error?: string; onRetry?(): void }) { return <main className="loading" aria-busy={!error}><PageBrand label="connect" markMotion="orbit" error={error} /><p role={error ? "alert" : "status"}>{error || "Opening mdbase connect…"}</p>{error && onRetry && <button className="button primary" onClick={onRetry}>Try again</button>}</main>; }
 

@@ -99,6 +99,7 @@ import { SettingsView } from "./SettingsView";
 import { buildToastItems, ToastStack, type ToastTone } from "./Toasts";
 import { NEW_TYPE_SOURCE } from "./type-constants";
 import { useCollectionIndex } from "./use-collection-index";
+import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
 import { useCollectionWatch } from "./use-collection-watch";
 import { useCollectionTransition } from "./use-collection-transition";
 import { useFileInventory } from "./use-file-inventory";
@@ -250,6 +251,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const typeDescriptors = description?.types ?? emptyTypeDescriptors;
   const setNotice = useCallback((message?: string, tone: ToastTone = "error") => {
     setNoticeState(message ? { message, tone } : undefined);
+    if (message && tone !== "info") signalMdbaseMark(tone === "error" ? "error" : "saved");
   }, []);
   const publishTypeDescription = useCallback((next: CollectionDescription) => {
     workspaceCollectionId.current = next.collectionId;
