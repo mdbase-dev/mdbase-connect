@@ -57,6 +57,17 @@
   minimum-authority, consumer-adoption and rollback gates close. No authority
   capability is advertised by this SDK change.
 
+- Native v0.3 authorities transport exact-source query revisions, bounded ordered
+  document batches through `read`, and opt-in `output: "metadata"` queries with
+  no full frontmatter/body envelope. Local and hosted adapters share mdbase-rs's
+  evaluators/renderers; contract output variants await B5. Consumers must use B1
+  positive capability discovery and retain old-authority behavior, never infer
+  support from errors. Hosted projection format 9 requires a derived-generation
+  rebuild; query plan 13 invalidates predecessor cursors. Payloads/database schema
+  are not forward-only, but rollback requires predecessor projection rebuilding
+  and cursor restart. See `docs/architecture/sdk-wave-b-authority.md` for limits,
+  migration, rollback and the 30k-row transfer benchmark.
+
 - Directory mirrors (`@mdbase-dev/connect-sync`) recover from routine local
   interference without a person: a scoped blocking issue (an obstruction,
   divergent or unreadable file) fences only its own path and connected path

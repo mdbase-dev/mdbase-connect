@@ -42,7 +42,7 @@ use subtle::ConstantTimeEq;
 use tokio::sync::{oneshot, Mutex, OwnedSemaphorePermit, RwLock, Semaphore};
 use uuid::Uuid;
 
-const CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION: u32 = 8;
+const CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION: u32 = 9;
 const _: () = assert!(
     mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION
         == CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION

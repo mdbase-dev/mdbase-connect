@@ -199,6 +199,7 @@ impl CollectionExecutor {
         external: &str,
         scope_binding: &str,
         limit: Option<usize>,
+        output: Option<mdbase::api::QueryOutput>,
         context: &OperationContext,
     ) -> Result<CoordinatedReadPage, ConnectError> {
         self.touch();
@@ -219,6 +220,9 @@ impl CollectionExecutor {
             }
             current
         };
+        if let Some(output) = output {
+            runtime.validate_read_output(&current.runtime, output, context)?;
+        }
         let page = match runtime.read_page_with_limit(&current.runtime, limit, context) {
             Ok(page) => page,
             Err(error @ mdbase::runtime::ProviderError::GenerationExpired)
@@ -277,6 +281,7 @@ impl CollectionExecutor {
         &self,
         external: &str,
         scope_binding: &str,
+        output: Option<mdbase::api::QueryOutput>,
         context: &OperationContext,
     ) -> Result<(), ConnectError> {
         self.touch();
@@ -297,6 +302,9 @@ impl CollectionExecutor {
             }
             cursor
         };
+        if let Some(output) = output {
+            runtime.validate_read_output(&cursor.runtime, output, context)?;
+        }
         runtime.release_read(cursor.runtime, context)?;
         self.remove_read_lease(cursor.lease_id);
         Ok(())

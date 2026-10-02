@@ -186,10 +186,17 @@ pub(super) fn execute_loaded_cancellable(
 
     let result = match operation {
         "read" => {
-            let request = serde_json::from_value::<mdbase::api::ReadRequest>(input.clone())
-                .map_err(|error| mdbase::api::MdbaseError::InvalidRequest {
-                    message: error.to_string(),
-                });
+            let request = if input.get("paths").is_some() {
+                Err(mdbase::api::MdbaseError::InvalidRequest {
+                    message: "Document batches require a v0.3 authority.".into(),
+                })
+            } else {
+                serde_json::from_value::<mdbase::api::ReadRequest>(input.clone()).map_err(|error| {
+                    mdbase::api::MdbaseError::InvalidRequest {
+                        message: error.to_string(),
+                    }
+                })
+            };
             typed_result(collection, request, |typed, request| typed.read(request))
         }
         "query" => {
