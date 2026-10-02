@@ -76,7 +76,8 @@ async fn hosted_revisioned_documents_and_metadata_qualify_all_query_paths() {
         json!([
             "query-record-revisions-v1",
             "read-many-documents-v1",
-            "query-metadata-v1"
+            "query-metadata-v1",
+            "files-stat-v1"
         ])
     );
     for (path, rank) in [("a.md", 2), ("b.md", 1)] {

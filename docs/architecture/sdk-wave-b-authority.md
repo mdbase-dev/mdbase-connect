@@ -34,23 +34,24 @@ storage inputs, binds cursors and transports the canonical result.
   B5 provides that semantic surface. Native collection approval is unchanged.
   These additions do not narrow collection authorization.
 
-Wire types, SDK overloads, old-authority fallbacks and B1 discovery are owned by
-`wb-protocol`; qualification is coordinated in `sdk-review/fleet/WIRE.md`. The
-canonical wire commit `c40fc15d` is adopted; batch input is checked against its
-closed `ReadInput` before engine semantics, and producer tests decode its batch
-and metadata results. Local **v0.3 descriptions** advertise the qualified native
-features below; v0.2 descriptions omit them. Hosted **v0.3 descriptions** also
-advertise them after the guarded disposable PostgreSQL qualification passed
-(exact, projected, residual, document-batch, cursor and Base-row paths). File-page
-feature publication remains the files owner's integration boundary. Do not infer capabilities from failed requests. Only
-qualified **v0.3** native producers may advertise `query-record-revisions-v1`, `read-many-documents-v1`, and
-`query-metadata-v1`. v0.2 compatibility rejects the new request modes.
+The integrated `sdk-upgrade/wave-b` surface owns canonical wire types, SDK
+negotiation, and qualified local/hosted producers together; qualification evidence
+is coordinated in `sdk-review/fleet/WIRE.md`. Batch input is checked against the
+closed `ReadInput` before engine semantics, and producer tests decode canonical
+batch and metadata results. Qualified **v0.3 descriptions** advertise
+`query-record-revisions-v1`, `read-many-documents-v1`, `query-metadata-v1`, and
+`files-stat-v1`; file pages also advertise stat for files-only grants. Local and
+hosted qualification covers exact, projected, residual, document-batch, cursor,
+Base-row, and authenticated stat paths. v0.2 descriptions omit these flags and
+compatibility rejects the new query/read request modes. Never infer capabilities
+from failed requests.
 
 ## Release and rollback: projection 9 / hosted plan 13
 
-1. Land/pin the mdbase-rs revision with Connect's format assertion and architecture
-   guard set to **9**. The coordinator updates `deploy/docker/mdbase-rs-revision`;
-   this implementation does not change that pin or deploy anything.
+1. `deploy/docker/mdbase-rs-revision` pins merged PR #102 at
+   `af7373285a9c3b45d5e8ae4755a894edf3c6aa9a`; Connect's format assertion and
+   architecture guard are **9**, and the engine's hosted plan version is **13**.
+   Integration does not deploy, tag, or promote this revision.
 2. Format 9 adds exact-source revision to the **derived semantic projection JSON**.
    Existing format 8 projections are deserializable but cannot serve format 9
    projection-only queries. Rebuild each collection's projection generation from

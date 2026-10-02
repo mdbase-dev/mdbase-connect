@@ -18,7 +18,8 @@ fn revisioned_documents_and_metadata_rows_use_the_shared_engine() {
         [
             "query-record-revisions-v1",
             "read-many-documents-v1",
-            "query-metadata-v1"
+            "query-metadata-v1",
+            "files-stat-v1"
         ]
     );
     let created = registry.operation(collection.id,"create",&json!({"path":"a.md","frontmatter":{"title":"One","unused":"wide"},"body":"Body 🦀\n"})).unwrap();

@@ -36,6 +36,7 @@ impl HostedProvider {
                     "query-record-revisions-v1",
                     "read-many-documents-v1",
                     "query-metadata-v1",
+                    "files-stat-v1",
                 ]
                 .into_iter()
                 .map(str::to_owned)
