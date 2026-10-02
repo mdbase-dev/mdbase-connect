@@ -19,7 +19,7 @@ export type NoteFilter = { kind: "folder" | "tag" | "type"; value: string };
 const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: true, Home: true, End: true, PageDown: true, PageUp: true };
 
 export interface NoteRowStatus {
-  label: string;
+  label?: string;
   tone: "quiet" | "busy" | "error";
   busy: boolean;
   disabled?: boolean;
@@ -73,6 +73,7 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
   onCollections: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const revealedEntry = useRef<string | undefined>(undefined);
   const searching = Boolean(searchQuery.trim());
   const listItems = useMemo(() => browserListItems(entries, sort, types, undefined, searching), [entries, searching, sort, types]);
   const rowSecondLine = useCallback((entry: CollectionBrowserEntry): { kind: "excerpt" | NoteSearchContext["kind"]; text: string; ranges: SearchTextRange[] } | undefined => {
@@ -105,11 +106,16 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
   }, [onSelect, onSelectFile]);
 
   useEffect(() => {
-    if (selectedEntryIndex < 0) return;
+    const identity = selectedFilePath ? `file:${selectedFilePath}` : selectedPath ? `note:${selectedPath}` : undefined;
+    if (!identity) { revealedEntry.current = undefined; return; }
+    if (selectedEntryIndex < 0 || revealedEntry.current === identity) return;
     const itemIndex = listItems.findIndex((item) => item.entryIndex === selectedEntryIndex);
-    if (itemIndex >= 0) virtualizer.scrollToIndex?.(itemIndex, { align: "auto" });
+    if (itemIndex >= 0) {
+      virtualizer.scrollToIndex?.(itemIndex, { align: "auto" });
+      revealedEntry.current = identity;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEntryIndex]);
+  }, [selectedEntryIndex, selectedFilePath, selectedPath]);
 
   const handleListKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented) return;
@@ -165,7 +171,7 @@ export function NoteList({ entries, noteCount, fileCount, types, selectedPath, s
         return <ContextMenu key={note.path} className="note-row-context" showTrigger={false} label={`${title} note actions`} items={noteActions?.(note.path) ?? []} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><button id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={note.path === selectedPath} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={secondLine?.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} className={`note-row${note.path === selectedPath ? " selected" : ""}${status ? ` ${status.tone}` : ""}`} draggable={!status?.disabled} onDragStart={(event) => { event.dataTransfer.setData(NOTE_PATHS_MIME, JSON.stringify([note.path])); event.dataTransfer.effectAllowed = "move"; }} onClick={() => { if (!status?.disabled) onSelect(note.path); }}>
           <span className="note-title-line"><span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span>{note.types.length > 0 && <span className="note-type-badge" title={`Type: ${note.types.join(", ")}`}>{note.types.join(" · ")}</span>}</span>
           {secondLine && <span id={secondLine.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} aria-hidden={secondLine.kind === "excerpt" || undefined} className={`note-excerpt${secondLine.kind === "excerpt" ? "" : ` note-search-context ${secondLine.kind}`}`}><SearchMatchText text={secondLine.text} ranges={secondLine.ranges} /></span>}
-          {status ? <span className="note-transition">{status.label}</span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{noteFolder && <span className="note-folder">{noteFolder}</span>}</span>}
+          {status?.label ? <span className="note-transition">{status.label}</span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{noteFolder && <span className="note-folder">{noteFolder}</span>}</span>}
         </button></ContextMenu>;
       })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status">Reading notes and files…</div> : <div className="list-empty"><p>{structureError ? "Notes could not finish loading." : search && contentError ? "Search is incomplete." : search ? "No notes or files found." : "This collection is empty."}</p>{!search && !structureError && onCreate && <button onClick={onCreate}>Create the first note</button>}</div>}
     </div>

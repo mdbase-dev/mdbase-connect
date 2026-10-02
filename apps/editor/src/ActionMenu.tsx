@@ -35,7 +35,15 @@ export function MenuPopover({ label, className, triggerRef, onClose, children }:
     role="menu"
     aria-label={label}
     tabIndex={-1}
-    onKeyDown={(event) => moveMenuFocus(event, menu.current)}
+    onKeyDown={(event) => {
+      moveMenuFocus(event, menu.current);
+      if (event.defaultPrevented && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        const focused = document.activeElement;
+        if (focused instanceof HTMLElement && menu.current?.contains(focused)) {
+          focused.scrollIntoView?.({ block: "nearest" });
+        }
+      }
+    }}
   >{children}</div>;
 }
 

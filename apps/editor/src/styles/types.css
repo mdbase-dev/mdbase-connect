@@ -146,7 +146,7 @@
   white-space: nowrap;
 }
 
-.type-inspector-path {
+.type-inspector-bar > .path-label {
   font-family: var(--mono);
   font-size: var(--font-size-caption);
 }

@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NoteDocument } from "./model";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { schemaDateInputValue } from "./schema-date";
@@ -12,7 +12,49 @@ vi.mock("./CodeEditor", () => ({
     <textarea aria-label={label} value={value} readOnly={readOnly} onChange={(event) => onChange?.(event.target.value)} onBlur={onBlur} />
 }));
 
+afterEach(() => vi.useRealTimers());
+
 describe("typed note properties", () => {
+  it("keeps property saves silent until slow, preserves input focus, and retries failures", async () => {
+    vi.useFakeTimers();
+    let reject!: (error: Error) => void;
+    const onSave = vi.fn().mockImplementationOnce(() => new Promise<void>((_done, fail) => { reject = fail; })).mockResolvedValue(undefined);
+    const view = render(<PropertiesPanel note={eventNote} types={[eventType]} wordCount={42} onClose={() => {}} onSave={onSave} />);
+    expect(screen.getByText("Words").nextElementSibling).toHaveTextContent("42");
+    const input = screen.getByLabelText("event_date value");
+    input.focus();
+    fireEvent.change(input, { target: { value: "2026-07-23" } });
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(view.container.querySelector(".property-save-state")).toBeEmptyDOMElement();
+    act(() => vi.advanceTimersByTime(1_499));
+    expect(screen.queryByText("Saving…")).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByText("Saving…")).toBeInTheDocument();
+    expect(input).toHaveFocus();
+    await act(async () => reject(new Error("Offline")));
+    expect(screen.getByRole("alert")).toHaveTextContent("Offline");
+    fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(view.container.querySelector(".property-save-state")).toBeEmptyDOMElement();
+  });
+
+  it("keeps healthy source saves silent and a failed source actionable", async () => {
+    const onSaveDocument = vi.fn().mockResolvedValue(false);
+    const view = render(<PropertiesPanel note={sourceNote} types={[]} onClose={() => {}} onSave={async () => {}} onSaveDocument={onSaveDocument} />);
+    fireEvent.click(screen.getByRole("button", { name: "Property options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit as source" }));
+    expect(view.container.querySelector(".property-save-state")).toBeEmptyDOMElement();
+    const source = screen.getByLabelText("Complete record source");
+    fireEvent.change(source, { target: { value: "Edited source" } });
+    fireEvent.blur(source);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Your edits are still here");
+    expect(screen.getByRole("button", { name: "Save source" })).toBeEnabled();
+    expect(source).toHaveValue("Edited source");
+  });
+
   it("keeps source in the options menu and cycles only between property formats", async () => {
     const user = userEvent.setup();
     render(<PropertiesPanel note={{ ...eventNote, frontmatter: {}, types: [] }} types={[]} onClose={vi.fn()} onSave={vi.fn()} />);

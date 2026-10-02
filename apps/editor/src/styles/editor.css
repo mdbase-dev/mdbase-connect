@@ -1,6 +1,8 @@
 .writing-surface {
-  --writing-gutter: clamp(22px, 6cqi, 64px);
   --writing-measure: 760px;
+  /* A fitting desktop column keeps its full measure as the inspector docks.
+     Gutters grow only once the pane is narrower than that measure. */
+  --writing-gutter: clamp(0px, calc((var(--writing-measure) - 100cqi) / 4), var(--space-6));
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -282,22 +284,6 @@
   padding: 0 2px;
   color: var(--faint);
   font-size: var(--font-size-ui);
-}
-
-.word-count {
-  flex: 0 0 auto;
-  padding: 0 2px;
-  color: var(--faint);
-  font-size: var(--font-size-caption);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity var(--motion-quick) var(--ease-standard);
-}
-
-.editor-bar:hover .word-count,
-.editor-bar:focus-within .word-count {
-  opacity: 1;
 }
 
 .note-skeleton {

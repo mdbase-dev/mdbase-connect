@@ -70,7 +70,13 @@ states, or collection controls.
 
 The desktop app uses three persistent panes: a 176px collection rail, a 304px
 virtualized note list, and the editor. A properties inspector appears only when
-requested. Between 761px and 1120px the collection rail starts hidden until
+requested. Above 1120px it docks beside the editor without covering document
+text. The writing column keeps its 760px measure whenever the narrowed pane
+can fit it, sliding toward the left over the shared 240ms motion token. Only a
+pane narrower than the measure rewraps text. Reduced motion makes docking
+instant; direct sidebar resizing also follows the pointer without animation.
+At tablet/mobile widths the inspector is modal, with a scrim, inert background,
+trapped focus, Escape dismissal and focus restoration. Between 761px and 1120px the collection rail starts hidden until
 someone opens it. Note rows keep one fixed height and read title, a one-line
 excerpt (the type's declared description field, else the opening prose), then
 time and folder; a declared type appears as muted plain text, never in place of
@@ -110,7 +116,12 @@ navigation, proportional counts, and the same primary-action hierarchy.
 CodeMirror provides Markdown behavior without introducing IDE chrome. Its
 focus state uses the normal caret and selection only: the editor surface never
 gains a border, outline, or glow. Vim bindings are optional and loaded only
-when enabled. Frontmatter opens as typed rows first, with JSON available as an
+when enabled. More is one menu on both desktop and mobile, with separators
+between note actions, document views (outline and Linked from), insertion
+(Attach file), and help (shortcuts and Check note). Mobile puts New note and
+Quick open first; there is only one Rename path and one Attach file action.
+Menus scroll when viewport space is limited, and keyboard focus stays visible.
+Frontmatter opens as typed rows first, with JSON available as an
 escape hatch for nested or unfamiliar values. The inspector offers quiet Fields
 and JSON tabs; complete Markdown source lives behind the property options menu,
 not a third primary tab. Sizes and dates use the UI family at the normal chrome
@@ -169,6 +180,11 @@ of browser datalists. Action choices continue to use menu semantics, while
 schema date and date-time fields retain platform pickers with shared input
 styling.
 
+Routine autosaves stay silent and note rows retain their timestamps while typing.
+Only saves lasting more than 1.5 seconds show “Saving…”; failures and conflicts
+remain visible with recovery actions. Word count lives in Properties, not the bar.
+Ctrl/⌘P opens quick open everywhere; Ctrl/⌘K inserts a link only in note text.
+
 ## Embeds and file viewers
 
 Images sit bare on the writing surface with the medium radius and a single
@@ -186,8 +202,8 @@ Escape handling and focus restoration; mobile viewers fill the safe viewport.
 
 ## Signature
 
-The current Markdown path sits quietly above the title. It can be renamed in
-place, making the relationship between the calm note and its durable file
+The current Markdown path sits quietly above the title, with the directory
+truncated before the filename. It can be renamed in place, making the relationship between the calm note and its durable file
 visible without turning the app into a file manager.
 
 ## Note actions and discovery

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { MagnifyingGlassIcon as Search, TagIcon as Filters, XIcon as X } from "./icons";
 import type { NoteFilter } from "./NoteList";
+import { shortcutModifier } from "./QuickOpen";
 import "./styles/note-actions.css";
 
 export interface SearchFacet { name: string; count: number }
@@ -46,7 +47,7 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setActive((value) => (value + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length); }
         if (event.key === "Enter") { event.preventDefault(); choose(suggestions[Math.min(active, suggestions.length - 1)].filter); }
       }} />
-      {search ? <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button> : !filter && <button className="quick-open-trigger" aria-label="Quick open" title={`Quick open · ${navigator.platform.includes("Mac") ? "⌘" : "Ctrl+"}P`} onClick={onQuickOpen}><kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} P</kbd></button>}
+      {search ? <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button> : !filter && <button className="quick-open-trigger" aria-label="Quick open" title={`Quick open · ${shortcutModifier()} P anywhere`} onClick={onQuickOpen}><kbd>{shortcutModifier()} P</kbd></button>}
       <button aria-label="Search filters" aria-expanded={open} aria-controls={open ? "note-filter-suggestions" : undefined} onClick={() => { setBrowse((value) => !value); setDismissed(false); setActive(0); }}><Filters aria-hidden="true" /></button>
     </div>
     {open && <div id="note-filter-suggestions" className="search-filter-suggestions" role="listbox" aria-label="Search filters">

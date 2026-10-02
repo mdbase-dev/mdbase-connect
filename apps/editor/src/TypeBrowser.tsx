@@ -24,6 +24,8 @@ import { InlineRemoveButton } from "./InlineRemoveButton";
 import { ActionMenu } from "./ActionMenu";
 import { ComboboxInput } from "./SelectionControls";
 import { SaveNotice } from "@mdbase-dev/ui/save-notice";
+import { PathLabel } from "./WorkspaceChrome";
+import { useDelayedBusy } from "./use-delayed-busy";
 import { Select, type SelectItems, type SelectOption } from "@mdbase-dev/ui/select";
 import {
   contractCatalogPackStatus,
@@ -218,6 +220,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
   onOpenSettings?: () => void;
   onBack: () => void;
 }) {
+  const slowSave = useDelayedBusy(saving, document?.path);
   const [view, setView] = useState<"visual" | "yaml">("visual");
   const [reviewing, setReviewing] = useState(false);
   const [visualError, setVisualError] = useState<string>();
@@ -261,8 +264,8 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
     <header className="type-inspector-bar mdbase-settle-host">
       <button className="mobile-back icon-button" aria-label="Back to types" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
       {leadingActions}
-      <span className="type-inspector-path">{path}</span>
-      <SaveNotice tone={loading || saving ? "saving" : creating || dirty ? "pending" : "saved"} label={loading ? "Loading" : saving ? "Saving" : creating ? "New" : dirty ? "Unsaved" : "Saved"} />
+      <PathLabel path={path} />
+      {(error || slowSave) && <SaveNotice tone={error ? "attention" : "saving"} label={error ? "Needs attention" : "Saving…"} />}
     </header>
     <section className="type-heading">
       <div className="type-heading-title">

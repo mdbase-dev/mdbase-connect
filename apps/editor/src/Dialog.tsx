@@ -11,9 +11,10 @@ const FOCUSABLE = [
 ].join(",");
 const dialogStack: string[] = [];
 
-export function Dialog({ titleId, className, role = "dialog", onClose, children }: {
+export function Dialog({ titleId, className, scrimClassName, role = "dialog", onClose, children }: {
   titleId: string;
   className: string;
+  scrimClassName?: string;
   role?: "dialog" | "alertdialog";
   onClose: () => void;
   children: ReactNode;
@@ -33,8 +34,23 @@ export function Dialog({ titleId, className, role = "dialog", onClose, children 
     const dialog = document.querySelector<HTMLElement>(`[aria-labelledby="${titleId}"]`);
     const focusable = () => [...(dialog?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])]
       .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
-    const first = dialog?.querySelector<HTMLElement>("[data-autofocus]") ?? focusable()[0];
-    window.requestAnimationFrame(() => first?.focus());
+    const firstControl = () => dialog?.querySelector<HTMLElement>("[data-autofocus]") ?? focusable()[0];
+    // Lazy inspector content may arrive after the dialog mounts. Keep focus on
+    // the modal frame until a control exists, without stealing an input's focus.
+    const focusObserver = new MutationObserver(() => {
+      if (dialogStack.at(-1) !== titleId || document.activeElement !== dialog) return;
+      const first = firstControl();
+      if (first) {
+        first.focus({ preventScroll: true });
+        focusObserver.disconnect();
+      }
+    });
+    if (dialog && !firstControl()) focusObserver.observe(dialog, { childList: true, subtree: true });
+    const focusFrame = window.requestAnimationFrame(() => {
+      const first = firstControl();
+      (first ?? dialog)?.focus({ preventScroll: true });
+      if (first) focusObserver.disconnect();
+    });
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (dialogStack.at(-1) !== titleId) return;
@@ -62,6 +78,8 @@ export function Dialog({ titleId, className, role = "dialog", onClose, children 
     };
     document.addEventListener("keydown", onKeyDown, true);
     return () => {
+      window.cancelAnimationFrame(focusFrame);
+      focusObserver.disconnect();
       document.removeEventListener("keydown", onKeyDown, true);
       const stackIndex = dialogStack.lastIndexOf(titleId);
       if (stackIndex >= 0) dialogStack.splice(stackIndex, 1);
@@ -75,7 +93,7 @@ export function Dialog({ titleId, className, role = "dialog", onClose, children 
   }, [titleId]);
 
   return createPortal(
-    <div className="dialog-scrim" onMouseDown={(event) => {
+    <div className={`dialog-scrim${scrimClassName ? ` ${scrimClassName}` : ""}`} onMouseDown={(event) => {
       if (event.target === event.currentTarget) closeCallback.current();
     }}>
       <section

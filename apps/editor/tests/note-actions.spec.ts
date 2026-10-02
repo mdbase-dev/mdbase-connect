@@ -55,6 +55,7 @@ for (const width of [1440, 390]) {
     }
     await page.keyboard.press("End");
     await expect(menu.getByRole("menuitem", { name: "Check note" })).toBeFocused();
+    await expect(menu.getByRole("menuitem", { name: "Check note" })).toBeInViewport();
     const bounds = await menu.boundingBox();
     expect(bounds!.y).toBeGreaterThanOrEqual(0);
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(640);
