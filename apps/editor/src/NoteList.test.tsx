@@ -26,7 +26,7 @@ describe("NoteList search presentation", () => {
       structureError: "Third page unavailable", contentIndexing: false, contentLoaded: 0,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
       onRetryStructure: retry, onRetryContent: noop, onRetryFiles: noop, onSelect: noop,
-      onSelectFile: noop, onPreview: noop, onDismissPreview: noop, onCollections: noop, onCreate: noop
+      onSelectFile: noop, onCollections: noop, onCreate: noop
     };
     const view = render(<NoteList {...props} />);
     expect(screen.getByText("400 notes loaded · incomplete")).toBeInTheDocument();
@@ -70,7 +70,7 @@ describe("NoteList search presentation", () => {
       contentIndexing: false, contentLoaded: notes.length,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
       onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop, onSelectFile: noop,
-      onPreview: noop, onDismissPreview: noop, onCreate: noop, onCollections: noop
+      onCreate: noop, onCollections: noop
     };
     const view = render(<NoteList {...props} />);
     expect(screen.getByText(`${(10_000).toLocaleString()} found · relevance`)).toBeInTheDocument();
