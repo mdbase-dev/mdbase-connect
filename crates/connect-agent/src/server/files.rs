@@ -107,6 +107,22 @@ impl AgentState {
                 })
                 .map_err(ConnectError::from)
             }
+            "stat_file" => {
+                let request: mdbase_connect_core::file_stat::StatFileRequest =
+                    parse_file_control(input)?;
+                request.validate()?;
+                let capability = require_file_action(grant, FileAction::List)?;
+                if let Some(path) = &request.path {
+                    require_visible_path(capability, path)?;
+                }
+                let file = self
+                    .registry
+                    .stat_file(grant.collection_id, &request, |path| {
+                        file_visible(capability, path)
+                    })?;
+                serde_json::to_value(mdbase_connect_core::file_stat::FileStat::new(file))
+                    .map_err(ConnectError::from)
+            }
             "open_file_upload" => {
                 let request: OpenFileUploadRequest = parse_file_control(input)?;
                 let action = if request.if_revision.is_some() {

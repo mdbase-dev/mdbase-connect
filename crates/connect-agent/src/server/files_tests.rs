@@ -266,3 +266,5 @@ fn download_scope_is_rechecked_against_the_authoritative_current_path() {
 
 #[path = "files_scope_tests.rs"]
 mod scope_tests;
+#[path = "files_stat_tests.rs"]
+mod stat_tests;

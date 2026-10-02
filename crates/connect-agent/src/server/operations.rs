@@ -568,7 +568,17 @@ impl AgentState {
         if let Some(problem) = owner_only_operation_problem(&envelope.operation) {
             return encrypted_problem_response(&keys, metadata, problem);
         }
-        if let Err(message) = validate_operation_discriminators(&envelope.operation, &input) {
+        // Temporary B4 adapter until wb-protocol adds stat_file to the canonical
+        // discriminator catalog. Delete this exception with that wire commit;
+        // file_control still strictly parses/validates the internal stat request.
+        let discriminators = if envelope.operation == "file_control"
+            && input.get("type").and_then(serde_json::Value::as_str) == Some("stat_file")
+        {
+            Ok(())
+        } else {
+            validate_operation_discriminators(&envelope.operation, &input)
+        };
+        if let Err(message) = discriminators {
             return encrypted_problem_response(
                 &keys,
                 metadata,

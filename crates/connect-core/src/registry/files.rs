@@ -328,6 +328,87 @@ impl CollectionRegistry {
         )
     }
 
+    /// Point metadata lookup. The caller owns the exact grant scope; invisible ID
+    /// targets are indistinguishable from missing files, including moved targets.
+    pub fn stat_file(
+        &self,
+        id: Uuid,
+        request: &crate::file_stat::StatFileRequest,
+        visible: impl Fn(&str) -> bool,
+    ) -> Result<Option<CollectionFileDescriptor>, ConnectError> {
+        request.validate()?;
+        let registered = self.get(id)?;
+        if !registered.enabled {
+            return Err(ConnectError::AccessDenied(
+                "This collection is disabled on its computer.".into(),
+            ));
+        }
+        assert_local_authority_folder(Path::new(&registered.path))?;
+        crate::LocalSyncStore::for_registry(self).assert_authority_available(id)?;
+        let (path, preferred_id, expected_identity) = if let Some(file_id) = request.file_id {
+            let Some(indexed) = query_indexed_files(
+                &self.connection()?,
+                "collection_id = ?1 AND file_id = ?2",
+                params![id.to_string(), file_id.to_string()],
+            )?
+            .remove(&file_id) else {
+                return Ok(None);
+            };
+            match self.indexed_file_location(&registered, file_id)? {
+                IndexedFileLocation::Current => (
+                    indexed.descriptor.path,
+                    Some(file_id),
+                    indexed.physical_identity,
+                ),
+                IndexedFileLocation::Moved(path) => {
+                    (path, Some(file_id), indexed.physical_identity)
+                }
+                IndexedFileLocation::Missing => return Ok(None),
+            }
+        } else {
+            (
+                request.path.clone().expect("validated stat target"),
+                None,
+                None,
+            )
+        };
+        if !visible(&path) {
+            return Ok(None);
+        }
+        let provider = self.provider_for(&registered)?;
+        provider.with_collection_read(|collection| {
+            crate::LocalSyncStore::for_registry(self).assert_authority_available(id)?;
+            let path = match crate::collection_files::resolve_file_stat_path(collection, &path)? {
+                Some(path) => path,
+                None => {
+                    // Reconcile deleted indexed targets using their canonical
+                    // spelling. Eligibility remains the engine's responsibility.
+                    let Some(indexed) = self.indexed_file_at_path(id, &portable_path_key(&path))?
+                    else {
+                        return Ok(None);
+                    };
+                    if collection.validate_file_path(&indexed.path).is_err() {
+                        return Ok(None);
+                    }
+                    indexed.path
+                }
+            };
+            if !visible(&path) {
+                return Ok(None);
+            }
+            let file = self.reconcile_file_target_with_identity(
+                &registered,
+                collection,
+                &path,
+                preferred_id,
+                expected_identity.as_ref(),
+            )?;
+            // The canonical destination is checked again on the result before
+            // any descriptor crosses the authorization boundary.
+            Ok(file.filter(|file| visible(&file.path)))
+        })
+    }
+
     pub(super) fn reconcile_file_target(
         &self,
         registered: &CollectionSummary,
@@ -335,12 +416,33 @@ impl CollectionRegistry {
         path: &str,
         preferred_id: Option<Uuid>,
     ) -> Result<Option<CollectionFileDescriptor>, ConnectError> {
+        self.reconcile_file_target_with_identity(registered, collection, path, preferred_id, None)
+    }
+
+    fn reconcile_file_target_with_identity(
+        &self,
+        registered: &CollectionSummary,
+        collection: &mdbase::Collection,
+        path: &str,
+        preferred_id: Option<Uuid>,
+        expected_identity: Option<&PhysicalFileIdentity>,
+    ) -> Result<Option<CollectionFileDescriptor>, ConnectError> {
         let lock = self.file_reconcile_lock(registered.id)?;
         let _guard = lock.lock().map_err(|_| ConnectError::File {
             code: "file_index_unavailable".into(),
             message: "The file index lock is unavailable.".into(),
         })?;
         let candidate = crate::collection_files::discover_collection_file(collection, path)?;
+        if expected_identity.is_some_and(|expected| {
+            candidate
+                .as_ref()
+                .and_then(|file| file.physical_identity.as_ref())
+                != Some(expected)
+        }) {
+            // An ID's physical identity must still be provable at reconciliation
+            // time, including races with a move or replacement after index lookup.
+            return Ok(None);
+        }
         let observed = candidate
             .as_ref()
             .map(|candidate| {
@@ -415,16 +517,14 @@ impl CollectionRegistry {
         registered: &CollectionSummary,
         file_id: Uuid,
     ) -> Result<IndexedFileLocation, ConnectError> {
-        let indexed = query_indexed_files(
+        let Some(indexed) = query_indexed_files(
             &self.connection()?,
             "collection_id = ?1 AND file_id = ?2",
             params![registered.id.to_string(), file_id.to_string()],
         )?
-        .remove(&file_id)
-        .ok_or_else(|| ConnectError::File {
-            code: "file_revision_not_found".to_string(),
-            message: "The requested file revision is no longer available locally.".to_string(),
-        })?;
+        .remove(&file_id) else {
+            return Ok(IndexedFileLocation::Missing);
+        };
         let indexed_path = Path::new(&registered.path).join(&indexed.descriptor.path);
         if fs::symlink_metadata(&indexed_path).is_ok_and(|metadata| {
             metadata.is_file()
@@ -466,11 +566,28 @@ impl CollectionRegistry {
         let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let previous = match target_key {
-            Some(key) => query_indexed_files(
-                &transaction,
-                "collection_id = ?1 AND path_key = ?2",
-                params![collection_id.to_string(), key],
-            )?,
+            Some(key) => {
+                let mut previous = query_indexed_files(
+                    &transaction,
+                    "collection_id = ?1 AND path_key = ?2",
+                    params![collection_id.to_string(), key],
+                )?;
+                // A proven ID move also replaces its old indexed location. Use
+                // the ID index separately so normal path stat remains one keyed
+                // query (no OR predicate/collection-prefix scan).
+                if let Some(file_id) = preferences
+                    .ids_by_path
+                    .get(key)
+                    .filter(|file_id| !previous.contains_key(*file_id))
+                {
+                    previous.extend(query_indexed_files(
+                        &transaction,
+                        "collection_id = ?1 AND file_id = ?2",
+                        params![collection_id.to_string(), file_id.to_string()],
+                    )?);
+                }
+                previous
+            }
             None => read_indexed_files(&transaction, collection_id)?,
         };
         let assignments = assign_file_ids(&previous, observed, &preferences.ids_by_path);
@@ -900,5 +1017,7 @@ fn parse_media_class(value: &str) -> Result<FileMediaClass, ConnectError> {
     }
 }
 
+#[cfg(test)]
+mod stat_tests;
 #[cfg(test)]
 mod tests;

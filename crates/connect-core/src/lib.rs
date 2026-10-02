@@ -1,5 +1,6 @@
 mod collection_files;
 mod config;
+pub mod file_stat;
 mod local_sync;
 mod registry;
 mod secrets;
