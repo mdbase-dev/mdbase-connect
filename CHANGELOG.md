@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Pin mdbase-rs 056db73 (callumalpass/mdbase-rs#108): engines plan seed upgrades
+  from any listed baseline chosen by the lock's `origin_digest`, and report
+  `upgrade_baseline`, which Editor's guided setup relies on.
 - Seed type upgrades follow mdbase-spec 05A's upgrade baselines
   (mdbase-dev/mdbase-spec#59). A type pack's seed `upgrade_from` may now be one
   baseline or a non-empty list of `{ digest, document, version? }`; manifest
