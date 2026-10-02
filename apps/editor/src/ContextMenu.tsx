@@ -66,7 +66,7 @@ export function ContextMenu({ label, items, children, className = "", style, sho
 
   useEffect(() => {
     if (!position) return;
-    menu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    menu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not([disabled])')?.focus();
     const closeForOutsidePress = (event: PointerEvent) => {
       const target = event.target as Node;
       if (!root.current?.contains(target) && !menu.current?.contains(target)) close();
@@ -88,7 +88,7 @@ export function ContextMenu({ label, items, children, className = "", style, sho
       close(true);
       return;
     }
-    const menuItems = [...(menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];
+    const menuItems = [...(menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])') ?? [])];
     if (!menuItems.length) return;
     if (event.key === "Home" || event.key === "End") {
       event.preventDefault();

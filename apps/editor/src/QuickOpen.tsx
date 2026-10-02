@@ -201,7 +201,10 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
     ["Alt J / K", "Next or previous note"],
     [`${modifier} Shift N`, "New note"],
     [`${modifier} Shift L`, "Show or hide the notes sidebar"],
-    ["?", "Show this shortcut guide"]
+    ["F2", "Rename note"],
+    [`${modifier} Backspace`, "Delete selected note, in the list"],
+    ["Shift F10", "Note actions, in the list"],
+    ["?", "Show this shortcut guide, outside text inputs"]
   ];
   return <Dialog titleId="shortcut-help-title" className="shortcut-help" onClose={onClose}>
       <header><h2 id="shortcut-help-title">Shortcuts</h2><button className="icon-button" aria-label="Close keyboard shortcuts" onClick={onClose}><X aria-hidden="true" /></button></header>

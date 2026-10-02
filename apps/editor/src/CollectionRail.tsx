@@ -17,7 +17,7 @@ import { folderTree, type FolderTreeNode } from "./note";
 import type { NoteFilter } from "./NoteList";
 
 
-export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, onSwitch, onCollapse }: {
+export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, onSwitch, onCollapse }: {
   collectionId: string;
   name: string;
   count: number;
@@ -45,8 +45,6 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   onCollapse: () => void;
 }) {
   const collectionFolders = useMemo(() => folderTree(notes, files.map((file) => file.path)), [files, notes]);
-  // Folder drop wiring is owned by the rail lane.
-  void onMoveNotes;
   return <EditorRail
     collectionName={name}
     noteCount={count}

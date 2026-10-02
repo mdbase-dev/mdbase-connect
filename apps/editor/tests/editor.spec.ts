@@ -1003,9 +1003,11 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(quietMarkdown).toHaveAttribute("aria-checked", "false");
 
   await page.getByRole("button", { name: /^All notes, / }).click();
-  await expect(page.getByText("vim", { exact: true })).toBeVisible();
+  await expect(page.getByText("vim", { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("mdbase-editor:preferences") ?? "{}").vim)).toBe(true);
   await page.reload();
-  await expect(page.getByText("vim", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Note body" })).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("mdbase-editor:preferences") ?? "{}").vim)).toBe(true);
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("switch", { name: "Quiet Markdown" })).toHaveAttribute("aria-checked", "false");
 });

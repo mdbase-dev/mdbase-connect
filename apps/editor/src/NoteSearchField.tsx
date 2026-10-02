@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { MagnifyingGlassIcon as Search, SlidersHorizontalIcon as Filters, XIcon as X } from "./icons";
+import { MagnifyingGlassIcon as Search, TagIcon as Filters, XIcon as X } from "./icons";
 import type { NoteFilter } from "./NoteList";
 import "./styles/note-actions.css";
 
@@ -38,7 +38,7 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
   }}>
     <div className="search-field">
       <Search aria-hidden="true" />
-      {filter && <button className="search-filter-chip" aria-label={`Remove ${filter.kind} filter ${filter.value}`} onClick={() => onFilter(undefined)}>{filter.kind === "tag" ? `#${filter.value}` : filter.kind === "type" ? `type:${filter.value}` : filter.value}<X aria-hidden="true" /></button>}
+      {filter && <button className="search-filter-chip" aria-label={`Remove ${filter.kind} filter ${filter.value}`} onClick={() => onFilter(undefined)}><span>{filter.kind === "tag" ? `#${filter.value}` : filter.kind === "type" ? `type:${filter.value}` : filter.value}</span><X aria-hidden="true" /></button>}
       <label className="sr-only" htmlFor="note-search">Search notes and files</label>
       <input ref={input} id="note-search" value={search} onChange={(event) => { onSearch(event.target.value); setDismissed(false); setActive(0); }} onFocus={() => setDismissed(false)} placeholder="Search" role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={open ? "note-filter-suggestions" : undefined} aria-activedescendant={open && suggestions.length ? `note-filter-${Math.min(active, suggestions.length - 1)}` : undefined} onKeyDown={(event) => {
         if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); setBrowse(false); setDismissed(true); }

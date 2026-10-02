@@ -1,0 +1,35 @@
+import { expect, test } from "@playwright/test";
+
+test("note menus move with links, delete immediately, restore, and filter by tag/type", async ({ page }) => {
+  await page.goto("?demo=4");
+  await expect(page.getByRole("textbox", { name: "Note body" })).toBeVisible();
+  const list = page.getByRole("listbox", { name: "Collection notes and files" });
+  await list.focus();
+  await page.keyboard.press("Shift+F10");
+  const rowMenu = page.getByRole("menu", { name: /note actions$/ });
+  await expect(rowMenu).toBeVisible();
+  await rowMenu.getByRole("menuitem", { name: "Move to…" }).click();
+  const move = page.getByRole("dialog", { name: "Move note" });
+  await move.getByRole("combobox", { name: "Destination folder" }).click();
+  await page.getByRole("option", { name: "Projects", exact: true }).click();
+  await move.getByRole("button", { name: "Move", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Projects/the-shape-of-useful-tools.md" })).toBeVisible();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Notes/the-shape-of-useful-tools.md" })).toBeVisible();
+  await list.focus();
+  await page.keyboard.press("Control+Backspace");
+  await expect(page.getByRole("option", { name: /The shape of useful tools/ })).toHaveCount(0);
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByRole("option", { name: /The shape of useful tools/ })).toBeVisible();
+  const search = page.getByRole("combobox", { name: "Search notes and files" });
+  await search.fill("#ideas");
+  await search.press("Enter");
+  await expect(page.getByRole("heading", { name: "#ideas" })).toBeVisible();
+  await page.getByRole("button", { name: "Remove tag filter ideas" }).click();
+  await search.fill("type:note");
+  await search.press("Enter");
+  await expect(page.getByRole("heading", { name: "note", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Remove type filter note" }).click();
+  await expect(page.getByRole("heading", { name: "All notes", exact: true })).toBeVisible();
+});

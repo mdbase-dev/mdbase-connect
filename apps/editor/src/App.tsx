@@ -70,7 +70,6 @@ import {
   noteHeadings,
   noteTags,
   noteTitle,
-  noteWordCount,
   safeRenamePath,
   tags as collectionTags,
   types as collectionTypes
@@ -257,6 +256,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const ignoreNextMobileHistoryPush = useRef(false);
   const mobileLayout = viewportWidth <= 760;
   const typeDescriptors = description?.types ?? emptyTypeDescriptors;
+  const tagFacets = useMemo(() => collectionTags(allNotes), [allNotes]);
+  const typeFacets = useMemo(() => collectionTypes(allNotes, typeDescriptors.map((type) => type.name)), [allNotes, typeDescriptors]);
   const setNotice = useCallback((message?: string, tone: ToastTone = "error") => {
     setNoticeState(message ? { message, tone } : undefined);
     if (message && tone !== "info") signalMdbaseMark(tone === "error" ? "error" : "saved");
@@ -1180,6 +1181,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         if (to === path) continue;
         const session = await actionSession(path);
         await flushSession(session);
+        // An earlier move can rewrite this note's links and advance its revision.
+        await refreshCachedNote(path);
+        if (!mutationScope.current.isCurrent(token)) return;
         const preflight = await runNoteOperation(session, "validating", () => gateway.preflightRename(path, to, session.document.revision));
         if (!mutationScope.current.isCurrent(token)) return;
         const result = await performRename({ session, from: path, to, affectedPaths: preflight.affectedPaths, warnings: preflight.warnings }, true);
@@ -1502,33 +1506,37 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         if (!mutationScope.current.isCurrent(token)) return;
         createSession(restored);
         indexController.create(summaryFromDocument(restored));
-        setNotice(`Restored “${noteTitle(restored, typeDescriptors)}”.`);
+        setNotice(`Restored “${noteTitle(restored, typeDescriptors)}”.`, "success");
       } else {
-        const paths = action.kind === "move" ? action.paths : [action];
-        for (const move of [...paths].reverse()) {
-        const session = noteSessions.current.get(move.to);
-        if (!session || session.deleted) throw new Error("The renamed note is no longer available to restore.");
-        await flushSession(session);
-        const restored = await runNoteOperation(session, "renaming", () => gateway.rename(
-          move.to,
-          move.from,
-          session.document.revision,
-          true
-        ));
-        session.record.accept(restored);
-        session.error = undefined;
-        if (!mutationScope.current.isCurrent(token)) return;
-        noteSessions.current.move(move.to, move.from, session);
-        updateNoteSummary(restored, move.to);
-        if (noteSessions.current.active === session) {
-          setDocument(restored);
-          setSelectedPath(restored.path);
-          setPathDraft(restored.path);
-          localStorage.setItem("mdbase-editor:last-note", restored.path);
-        }
-        setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.to), restored.path));
-        replaceNoteHistoryPath(move.to, restored.path);
-        touchSession(session);
+        const remaining = action.kind === "move" ? [...action.paths] : [action];
+        for (const move of [...remaining].reverse()) {
+          const session = noteSessions.current.get(move.to);
+          if (!session || session.deleted) throw new Error("The renamed note is no longer available to restore.");
+          await flushSession(session);
+          await refreshCachedNote(move.to);
+          if (!mutationScope.current.isCurrent(token)) return;
+          const restored = await runNoteOperation(session, "renaming", () => gateway.rename(
+            move.to,
+            move.from,
+            session.document.revision,
+            true
+          ));
+          if (!mutationScope.current.isCurrent(token)) return;
+          session.record.accept(restored);
+          session.error = undefined;
+          noteSessions.current.move(move.to, move.from, session);
+          updateNoteSummary(restored, move.to);
+          if (noteSessions.current.active === session) {
+            setDocument(restored);
+            setSelectedPath(restored.path);
+            setPathDraft(restored.path);
+            localStorage.setItem("mdbase-editor:last-note", restored.path);
+          }
+          setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.to), restored.path));
+          replaceNoteHistoryPath(move.to, restored.path);
+          touchSession(session);
+          remaining.pop();
+          if (action.kind === "move") setRecoveryAction(remaining.length ? { ...action, paths: [...remaining] } : undefined);
         }
         setNotice("Restored note paths.", "success");
       }
@@ -1754,7 +1762,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       }
       if (quickOpen || shortcutsOpen) return;
       if (phase !== "ready") return;
-      if (!event.defaultPrevented && event.key === "F2" && selectedPath && surface === "notes" && !creationMode && !isEditableTarget(event.target)) {
+      if (!event.defaultPrevented && event.key === "F2" && selectedPath && surface === "notes" && !creationMode && !selectedCollectionFile
+          && !(event.target instanceof Element && event.target.closest('#note-path, [role="dialog"], [role="alertdialog"], [role="menu"]'))) {
         event.preventDefault();
         void renameNote(selectedPath);
         return;
@@ -1800,7 +1809,6 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [canRenameNotes, creationDirty, creationMode, mutationsFrozen, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
-  const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
   const dismissToast = useCallback((id: string) => {
     if (id === "notice") setNoticeState(undefined);
     else if (id === "note-open") setNoteOpenFailure(undefined);
@@ -1976,8 +1984,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         }}
         onSelectFile={navigateToFile}
         filter={noteFilter}
-        tags={collectionTags(allNotes)}
-        filterTypes={collectionTypes(allNotes, description.types.map((type) => type.name))}
+        tags={tagFacets}
+        filterTypes={typeFacets}
         onFilter={setNoteFilter}
         noteActions={noteActions}
         onRename={(path) => void renameNote(path)}
@@ -2033,8 +2041,6 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
               </form> : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
             </div>
             {noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
-            {!mobileLayout && <span className="word-count" aria-label={`${wordCount.toLocaleString()} words`}>{wordCount.toLocaleString()} {wordCount === 1 ? "word" : "words"}</span>}
-            {preferences.vim && <span className="vim-label">vim</span>}
             {!canEditNotes && <span className="connect-muted">Read only</span>}
             <SaveIndicator
               state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
