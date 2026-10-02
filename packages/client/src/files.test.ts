@@ -904,6 +904,35 @@ describe("MdbaseFileClient", () => {
     expect(blob).not.toHaveBeenCalled();
   });
 
+  it.each(["overflow", "short"] as const)(
+    "downloadBytes rejects %s even when the source stream omits integrity checks",
+    async (damage) => {
+      const content = bytes("unchecked stream");
+      const client = fileClient(vi.fn());
+      const cancel = vi.fn();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(content.slice(0, 3));
+          controller.enqueue(damage === "overflow"
+            ? new Uint8Array([...content.slice(3), 0])
+            : content.slice(3, -1));
+          if (damage === "short") controller.close();
+        },
+        cancel
+      });
+      vi.spyOn(client, "downloadStream").mockResolvedValue(stream);
+
+      await expect(client.downloadBytes(descriptor("unchecked.bin", content))).rejects.toEqual(
+        expect.objectContaining<Partial<MdbaseConnectError>>({
+          code: "invalid_operation_response",
+          message: "Downloaded file bytes failed integrity verification."
+        })
+      );
+      expect(stream.locked).toBe(false);
+      if (damage === "overflow") expect(cancel).toHaveBeenCalledOnce();
+    }
+  );
+
   it("returns a verified Blob with the descriptor's media type", async () => {
     const content = bytes("verified blob bytes");
     const client = fileClient(async (method, path, input) => {

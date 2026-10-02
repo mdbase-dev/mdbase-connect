@@ -701,10 +701,19 @@ export class MdbaseFileClient {
         // Reading through EOF is essential: hosted streams verify their digest
         // only after the final range ends, not when the last bytes arrive.
         if (result.done) break;
+        if (result.value.byteLength > bytes.byteLength - offset) {
+          throw connectError("invalid_operation_response", "Downloaded file bytes failed integrity verification.");
+        }
         bytes.set(result.value, offset);
         offset += result.value.byteLength;
       }
+      if (offset !== bytes.byteLength) {
+        throw connectError("invalid_operation_response", "Downloaded file bytes failed integrity verification.");
+      }
       return bytes;
+    } catch (error) {
+      await reader.cancel().catch(() => undefined);
+      throw error;
     } finally {
       reader.releaseLock();
     }
