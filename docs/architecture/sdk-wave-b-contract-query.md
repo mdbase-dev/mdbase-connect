@@ -118,7 +118,10 @@ read. Denying body in the view would not create real isolation under ADR 0012.
 
 On absent B1 flag, canonical collection readers retain existing semantic pagination
 and client-side normalized filtering; body reads use bounded native point reads for
-selected paths. Raw implementing-type workarounds may remain explicitly for Writer /
+selected paths. Do not join a new body's revision to old projected query values:
+refresh the semantic point view and compare its revision to the native read, retrying
+only within a bounded read budget or surfacing staleness. Raw implementing-type
+workarounds may remain explicitly for Writer /
 TaskNotes/Reader until the new view meets their semantics; they must verify provider
 identity and use mdbase-authoritative normalized fields, not invent mapping rules.
 Never fallback from a denial or malformed filter. Remove those compatibility paths

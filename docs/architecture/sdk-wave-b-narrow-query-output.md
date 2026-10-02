@@ -61,13 +61,17 @@ require full-document hydration unless predicates/computed values actually need 
 
 ## Compatibility, approval and migration
 
-B1 positive feature evidence selects the new input. On old authorities, SDK sends
-the ordinary query (no `output` key), preserves select/projections, then normalizes
-full rows into the narrow public shape. Revision required by that shape comes from
-B3 when available; otherwise bounded point reads supply it (extra calls disclosed).
-Never return a made-up/missing required token; callers wanting cheaper legacy
-summary-only behaviour can retain Wave A summaries. Remove this fallback for
-Writer/Reader/TaskNotes/editor and MCP only under B1's minimum-authority gate.
+B1 positive feature evidence selects the new input. On old authorities, consumers
+use the existing SDK ordinary query (no `output` key), preserving select/projections
+and its legacy QueryRecord type. They may discard unneeded fields locally, but must
+not cast that result to the revision-required narrow type. A later point read's token
+cannot be attached to earlier query values. Keep Wave A summaries for legacy discovery;
+use B3's bounded point-read document fallback when a revision is actually needed.
+Explicit metadata-mode SDK calls require support and fail before dispatch if absent;
+consumer discovery branches implement the old-behaviour fallback, not error retries.
+Remove these branches for Writer/Reader/TaskNotes/editor and MCP only under B1's
+minimum-authority gate. This retains two existing request choices, not a second query
+renderer or a dishonest bandwidth/coherence guarantee.
 
 - Writer: `backend/connect.ts` comment/annotation/index discovery selects just
   source/reply/identity values; replace full-row assumptions, keep compiler indexes.
