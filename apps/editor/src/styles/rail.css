@@ -1,0 +1,464 @@
+.collection-rail {
+  grid-column: 1;
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 10px 16px;
+  border-right: 1px solid var(--line);
+}
+
+.rail-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 1px 0 9px;
+}
+
+.rail-header > .mdbase-app-switcher {
+  min-width: 0;
+  margin-right: auto;
+}
+
+@container (max-width: 190px) {
+  .rail-header .wordmark-label strong {
+    display: none;
+    opacity: 0;
+    transform: translateX(-3px);
+  }
+}
+
+@container (max-width: 140px) {
+  .rail-header .mdbase-app-switcher-chevron {
+    display: none;
+  }
+
+  .rail-header .wordmark-label {
+    display: none;
+    opacity: 0;
+    transform: translateX(-3px);
+  }
+}
+
+.collection-rail nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-top: 35px;
+  overflow-y: auto;
+}
+
+.collection-rail nav button {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: left;
+}
+
+.collection-rail nav .collection-name {
+  min-height: 36px;
+  margin: 0 0 10px;
+  padding: 7px 9px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.collection-rail nav .collection-name > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-rail nav .collection-name > svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  color: var(--faint);
+}
+
+.collection-rail nav button > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-rail nav button svg,
+.collection-rail nav button .ph {
+  width: 14px;
+  height: 14px;
+  color: var(--faint);
+  stroke-width: 1.6;
+}
+
+.collection-rail nav button svg {
+  flex: 0 0 auto;
+}
+
+.collection-rail nav .rail-row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.collection-rail nav button .ph {
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.collection-rail nav button small {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.collection-rail nav .editor-rail-link {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+}
+
+.collection-rail nav .editor-rail-link > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.collection-rail nav .editor-rail-link svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--faint);
+}
+
+.collection-rail nav .editor-rail-link small {
+  color: var(--faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.collection-rail nav .editor-rail-link:hover {
+  background: var(--hover);
+}
+
+.collection-rail nav .editor-rail-link.selected {
+  background: var(--selected);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.rail-manage-label {
+  margin: auto 9px 7px;
+  padding-top: 24px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.collection-rail nav button:hover {
+  background: var(--hover);
+}
+
+.collection-rail nav button.selected {
+  background: var(--selected);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.rail-filter-section {
+  margin-top: 18px;
+}
+
+.collection-rail nav .rail-section-toggle {
+  min-height: 28px;
+  padding: 5px 9px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rail-section-header {
+  display: flex;
+  align-items: center;
+}
+
+.collection-rail nav .rail-section-header .rail-section-toggle {
+  min-width: 0;
+  flex: 1;
+}
+
+.collection-rail nav .rail-section-header .rail-section-create {
+  width: 28px;
+  min-height: 28px;
+  flex: 0 0 28px;
+  justify-content: center;
+  padding: 5px;
+  color: var(--faint);
+}
+
+.collection-rail nav .rail-section-header .rail-section-create:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.collection-rail nav .rail-section-header .rail-section-create svg {
+  width: 13px;
+  height: 13px;
+}
+
+.collection-rail nav .rail-section-toggle:hover {
+  background: transparent;
+  color: var(--muted);
+}
+
+.collection-rail nav .rail-section-toggle > span {
+  gap: 5px;
+}
+
+.collection-rail nav .rail-section-toggle svg {
+  width: 11px;
+  height: 11px;
+}
+
+.rail-filter-items {
+  display: grid;
+}
+
+.folder-tree ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.folder-tree ul ul {
+  padding-left: 13px;
+}
+
+.rail-tree-row,
+.rail-facet-row {
+  min-width: 0;
+  display: grid;
+  align-items: center;
+}
+
+.rail-tree-row {
+  position: relative;
+  grid-template-columns: 18px minmax(0, 1fr);
+}
+
+.rail-facet-row {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+  padding-left: 18px;
+}
+
+.collection-rail nav .rail-tree-row .folder-disclosure,
+.collection-rail nav .rail-tree-row .folder-disclosure-spacer {
+  width: 18px;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--faint);
+}
+
+.collection-rail nav .rail-tree-row .folder-disclosure:hover {
+  background: transparent;
+  color: var(--ink);
+}
+
+.collection-rail nav .rail-tree-row .folder-disclosure svg {
+  width: 11px;
+  height: 11px;
+}
+
+.collection-rail nav .context-menu-target .rail-row-action {
+  min-width: 0;
+  min-height: 30px;
+  padding: 5px 3px;
+}
+
+.collection-rail nav .context-menu-target .rail-row-action > span {
+  gap: 6px;
+}
+
+/* The actions button takes the count's place on hover, so labels keep the full row width. */
+.collection-rail nav .context-menu-target .rail-row-menu {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 24px;
+  min-height: 24px;
+  justify-content: center;
+  padding: 0;
+  transform: translateY(-50%);
+  background: var(--hover);
+  color: var(--faint);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.collection-rail nav .context-menu-target:hover .rail-row-menu,
+.collection-rail nav .context-menu-target:focus-within .rail-row-menu,
+.collection-rail nav .context-menu-target .rail-row-menu[aria-expanded="true"] {
+  pointer-events: auto;
+}
+
+.collection-rail nav .context-menu-target:hover .rail-row-menu,
+.collection-rail nav .context-menu-target:focus-within .rail-row-menu,
+.collection-rail nav .context-menu-target .rail-row-menu[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.collection-rail nav .context-menu-target .rail-row-menu:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.collection-rail nav .context-menu-target .rail-row-menu svg {
+  width: 13px;
+  height: 13px;
+}
+
+.folder-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--faint);
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.compatibility-help {
+  margin-top: 14px;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.compatibility-help summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.compatibility-help p {
+  max-width: 47ch;
+  margin: 8px 0 0;
+  line-height: 1.55;
+}
+
+.folder-loading i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: opening-pulse 900ms ease-in-out infinite alternate;
+}
+
+.folder-placeholder {
+  margin: 0;
+  padding: 8px 9px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.collection-rail .connection-footer {
+  min-height: 41px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 12px 1px 0;
+  border-top: 1px solid var(--line);
+}
+
+.connection-footer p {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.collection-rail .shortcut-action {
+  min-width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-right: -5px;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.collection-rail .shortcut-action:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.collection-rail .shortcut-action svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.7;
+}
+
+/* The label yields when the rail is narrow or a connection action (Retry, Use this computer) needs the room. */
+.connection-footer:has(button:not(.shortcut-action)) .shortcut-action span {
+  display: none;
+}
+
+@container (max-width: 149px) {
+  .collection-rail .shortcut-action span {
+    display: none;
+  }
+}
+

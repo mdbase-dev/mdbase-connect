@@ -1,0 +1,115 @@
+.saved-collections {
+  display: grid;
+  margin-top: 32px;
+  border-top: 1px solid var(--line);
+}
+
+.saved-collections > p {
+  margin: 0;
+  padding: 10px 2px 7px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.saved-collection-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+}
+
+.saved-collection-row {
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 3px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.saved-collection-row > span {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+
+.saved-collection-row strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-collection-row small {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.saved-collection-row > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--faint);
+  transition: transform 160ms ease-out, color 160ms ease-out;
+}
+
+.saved-collection-row:hover > svg {
+  transform: translateX(2px);
+  color: var(--accent);
+}
+
+.saved-collection-item .note-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.saved-collection-item .note-actions > .icon-button {
+  width: 32px;
+  height: 32px;
+  color: var(--faint);
+}
+
+.saved-collection-item .note-actions > .icon-button:hover,
+.saved-collection-item .note-actions > .icon-button[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.saved-collection-item .note-actions > .icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.saved-collection-item .action-menu {
+  width: 196px;
+}
+
+@media (hover: hover) {
+  .saved-collection-item .note-actions > .icon-button {
+    opacity: 0;
+    transition: opacity 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+  }
+
+  .saved-collection-item:hover .note-actions > .icon-button,
+  .saved-collection-item:focus-within .note-actions > .icon-button {
+    opacity: 1;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+

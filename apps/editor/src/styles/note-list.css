@@ -1,0 +1,375 @@
+.note-scroll {
+  min-height: 0;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+}
+
+.virtual-list {
+  position: relative;
+  width: 100%;
+}
+
+.note-group-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  background: var(--white);
+  border-bottom: 1px solid var(--line);
+}
+
+.note-group-header span {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 3px;
+  padding: 9px 16px 9px 18px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.note-row:hover {
+  background: var(--hover);
+}
+
+.note-row.selected {
+  background: var(--selected);
+}
+
+.note-row.busy:not(.selected) {
+  background: var(--hover);
+}
+
+.note-row[aria-disabled="true"] {
+  cursor: default;
+}
+
+.note-title-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.note-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.008em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-detail {
+  display: flex;
+  gap: 8px;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-detail time {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.note-detail .note-folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-excerpt {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-search-context {
+  display: block;
+}
+
+.note-search-context.path,
+.note-search-context.metadata {
+  font-size: 12px;
+}
+
+/* A type is a declared schema, not a location: set it apart from the folder in the meta line. */
+.note-type-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  margin-left: auto;
+  padding: 1px 5px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-row.selected .note-type-badge {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  color: var(--accent);
+}
+
+.note-title mark,
+.note-excerpt mark,
+.note-search-context mark,
+.quick-open-results mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--accent-soft);
+  color: inherit;
+}
+
+.note-transition {
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-row.error .note-transition {
+  color: var(--danger);
+}
+
+.note-preview {
+  position: fixed;
+  z-index: 80;
+  max-height: 310px;
+  overflow: hidden;
+  padding: 15px 16px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--white);
+  box-shadow: 0 14px 34px var(--color-shadow);
+  color: var(--ink);
+  pointer-events: none;
+  animation: note-preview-in 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.note-preview > header {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.note-preview > header strong,
+.note-preview > header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-preview > header strong {
+  font-size: 15px;
+  letter-spacing: -0.012em;
+}
+
+.note-preview > header span {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.note-preview-excerpt,
+.note-preview-empty {
+  margin: 13px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.52;
+}
+
+.note-preview-excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+
+.note-preview-empty {
+  color: var(--faint);
+}
+
+.note-preview > footer {
+  display: grid;
+  gap: 10px;
+  margin-top: 13px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+
+.note-preview-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.note-preview-types span {
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: var(--hover);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.note-preview dl {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.note-preview dl > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(62px, 0.35fr) minmax(0, 1fr);
+  gap: 10px;
+  font-size: 11px;
+}
+
+.note-preview dt,
+.note-preview dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-preview dt {
+  color: var(--faint);
+  font-family: var(--mono);
+}
+
+.note-preview dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+.note-preview-excerpt,
+.note-preview-empty {
+  animation: note-preview-in 160ms ease-out;
+}
+
+@keyframes note-preview-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.list-empty,
+.empty-editor {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: start;
+  padding: 28px;
+  color: var(--faint);
+  font-size: 13px;
+}
+
+.empty-editor {
+  position: relative;
+  grid-row: 1 / -1;
+}
+
+.type-access-prompt {
+  grid-column: 2 / -1;
+}
+
+.type-access-message {
+  max-width: 420px;
+}
+
+.type-access-message > svg {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 12px;
+  color: var(--accent);
+}
+
+.type-access-message h2 {
+  margin: 0 0 7px;
+  color: var(--ink);
+  font-size: 17px;
+}
+
+.type-access-message p {
+  line-height: 1.55;
+}
+
+.type-access-message button {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.list-empty p,
+.empty-editor p {
+  margin: 0 0 10px;
+}
+
+.list-empty > button,
+.empty-editor > button,
+.empty-error button {
+  padding: 0;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.empty-error {
+  max-width: 420px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px 10px;
+  color: var(--danger);
+}
+
+.empty-error svg {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+}
+
+.empty-error p {
+  margin: 0;
+}
+
+.empty-error button {
+  grid-column: 2;
+  justify-self: start;
+}
+
