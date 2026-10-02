@@ -120,6 +120,8 @@ test("screenshot redaction flattens opaque pixels and sends only the resulting i
 
 test("feedback keeps application shortcuts out and restores the draft/focus after Escape", async ({ page }) => {
   await page.goto("?demo=4");
+  const switcher = page.getByRole("button", { name: /Switch collection/ });
+  await switcher.click();
   const entry = page.getByRole("button", { name: "Send feedback", exact: true });
   await entry.click();
   const dialog = page.getByRole("dialog", { name: "Send feedback" });
@@ -127,13 +129,15 @@ test("feedback keeps application shortcuts out and restores the draft/focus afte
   await dialog.getByRole("textbox", { name: /What happened/ }).press("Control+Shift+N");
   await expect(page.locator(".new-note-composer")).toHaveCount(0);
   await dialog.getByRole("textbox", { name: /What happened/ }).press("Escape");
-  await expect(dialog).not.toBeVisible(); await expect(entry).toBeFocused();
+  await expect(dialog).not.toBeVisible(); await expect(switcher).toBeFocused();
+  await switcher.click();
   await entry.click();
   await expect(dialog.getByRole("textbox", { name: /What happened/ })).toHaveValue("Keep the editor unchanged while I report this.");
 });
 
 test("bug animation is finite and respects reduced motion", async ({ page }) => {
   await page.goto("?demo=4");
+  await page.getByRole("button", { name: /Switch collection/ }).click();
   const bug = page.locator(".mdbase-feedback-trigger .mdbase-feedback-bug");
   await expect(bug).toBeVisible(); await bug.evaluate((element) => element.classList.add("is-wiggling"));
   await page.emulateMedia({ reducedMotion: "no-preference" });

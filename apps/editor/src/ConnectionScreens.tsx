@@ -6,7 +6,7 @@ import {
 } from "./icons";
 import { ActionMenu } from "./ActionMenu";
 import { ConnectLayout } from "@mdbase-dev/ui/screens";
-import { FeedbackButton, useFeedback } from "@mdbase-dev/ui/feedback";
+import { FeedbackButton, FeedbackBug, useFeedback } from "@mdbase-dev/ui/feedback";
 import { Dialog } from "./Dialog";
 import type { ConnectionSummary } from "./model";
 
@@ -92,7 +92,7 @@ export function CollectionSwitcher({ activeCollectionId, connections, displayNam
     <footer>
       <button className="collection-connect-another" onClick={onConnect}><FilePlus2 aria-hidden="true" />Connect another collection</button>
       {connectHref && <a className="collection-connect-workspace" href={connectHref}>Connect workspace</a>}
-      {feedback.enabled && <button onClick={() => { onClose(); requestAnimationFrame(() => feedback.open()); }}>Send feedback</button>}
+      {feedback.enabled && <button className="mdbase-feedback-trigger" onClick={() => { onClose(); requestAnimationFrame(() => requestAnimationFrame(() => feedback.open())); }}><FeedbackBug wiggle={feedback.wiggle} />Send feedback</button>}
     </footer>
   </Dialog>;
 }

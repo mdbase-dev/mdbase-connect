@@ -655,8 +655,8 @@ test("renames a folder with one link-aware confirmation and supports folder drop
   await dialog.getByRole("button", { name: "Done" }).click();
   await expect(page.getByTitle("Rename Markdown path")).toContainText("Writing notes/the-shape-of-useful-tools.md");
   await page.getByRole("button", { name: /^Show notes in Journal,/ }).dragTo(page.getByRole("button", { name: /^Show notes in Archive,/ }));
-  const move = page.getByRole("dialog", { name: "Move ‘Journal’" });
-  await expect(move.getByRole("combobox", { name: "Destination folder" })).toHaveValue("Archive");
+  const move = page.locator(".folder-change-dialog");
+  await expect(move.getByRole("combobox", { name: "Destination folder" })).toHaveAttribute("data-value", "Archive");
   await move.getByRole("button", { name: "Review changes" }).click();
   await expect(move).toHaveAccessibleName("Move 3 notes?");
   await move.getByRole("button", { name: "Move folder" }).click();
@@ -1358,7 +1358,9 @@ test("keeps dense collection counts and footer controls inside the minimum rail"
   expect(markBox.x + markBox.width).toBeLessThanOrEqual(collapseBox.x);
 
   const counts = rail.locator(".rail-filter-items small");
-  await expect(counts.first()).toBeVisible();
+  await expect(counts.first()).toHaveCSS("opacity", "0");
+  await rail.getByRole("button", { name: /^Show notes in Archive,/ }).hover();
+  await expect(counts.first()).toHaveCSS("opacity", "1");
   expect(await counts.evaluateAll((elements) => elements.every((element) => {
     const count = element.getBoundingClientRect();
     const container = element.closest(".collection-rail")?.getBoundingClientRect();
@@ -1366,10 +1368,10 @@ test("keeps dense collection counts and footer controls inside the minimum rail"
   }))).toBe(true);
 
   const statusLabel = rail.locator(".connection-footer p > span:last-child");
-  const shortcuts = rail.getByRole("button", { name: "Keyboard shortcuts" });
-  const [statusBox, shortcutBox] = await Promise.all([statusLabel.boundingBox(), shortcuts.boundingBox()]);
-  if (!statusBox || !shortcutBox) throw new Error("Collection footer controls are not visible.");
-  expect(statusBox.x + statusBox.width).toBeLessThanOrEqual(shortcutBox.x);
+  await expect(rail.getByRole("button", { name: "Keyboard shortcuts" })).toHaveCount(0);
+  const [statusBox, railBox] = await Promise.all([statusLabel.boundingBox(), rail.boundingBox()]);
+  if (!statusBox || !railBox) throw new Error("Collection footer status is not visible.");
+  expect(statusBox.x + statusBox.width).toBeLessThanOrEqual(railBox.x + railBox.width);
 });
 
 test("uses the native caret in Vim insert mode", async ({ page }) => {

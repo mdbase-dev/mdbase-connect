@@ -7,9 +7,10 @@ export interface RailDropActions {
   onMoveFolder?: (from: string, parent: string) => void;
 }
 
-export function RailDropTarget({ folder, onMoveNotes, onMoveFolder, onExpand, children }: RailDropActions & {
+export function RailDropTarget({ folder, onMoveNotes, onMoveFolder, onExpand, onRename, children }: RailDropActions & {
   folder: string;
   onExpand?: () => void;
+  onRename?: () => void;
   children: ReactNode;
 }) {
   const [hover, setHover] = useState(false);
@@ -18,6 +19,7 @@ export function RailDropTarget({ folder, onMoveNotes, onMoveFolder, onExpand, ch
   useEffect(() => () => clearTimeout(expandTimer.current), []);
   const accepts = (types: readonly string[]) => (onMoveNotes && types.includes(NOTE_PATHS_MIME)) || (onMoveFolder && types.includes(FOLDER_PATH_MIME));
   return <div className={`rail-drop-target${hover ? " drop-ready" : ""}`}
+    onKeyDown={(event) => { if (event.key === "F2" && onRename) { event.preventDefault(); onRename(); } }}
     onDragOver={(event) => {
       if (!accepts([...event.dataTransfer.types])) return;
       event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "move";

@@ -225,7 +225,7 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
   const descendantPaths = expandableFolderPaths(node);
   const descendantsExpanded = descendantPaths.length > 0 && descendantPaths.every((path) => expanded.has(path));
   return <li>
-    <RailDropTarget folder={node.path} onMoveNotes={folderActions.onMoveNotes} onMoveFolder={folderActions.onMoveFolder} onExpand={hasChildren && !isExpanded ? () => onToggle(node.path) : undefined}><ContextMenu
+    <RailDropTarget folder={node.path} onMoveNotes={folderActions.onMoveNotes} onMoveFolder={folderActions.onMoveFolder} onRename={folderActions.onRename ? () => folderActions.onRename?.(node.path) : undefined} onExpand={hasChildren && !isExpanded ? () => onToggle(node.path) : undefined}><ContextMenu
       className="rail-tree-row"
       label={`${node.path} folder actions`}
       items={[
@@ -255,7 +255,6 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
         aria-label={`Show notes in ${node.path}, ${node.count}${loading ? " or more" : ""} ${node.count === 1 && !loading ? "note" : "notes"}`}
         draggable={Boolean(folderActions.onMoveFolder)}
         onDragStart={(event) => { event.dataTransfer.setData(FOLDER_PATH_MIME, node.path); event.dataTransfer.effectAllowed = "move"; }}
-        onKeyDown={(event) => { if (event.key === "F2" && folderActions.onRename) { event.preventDefault(); folderActions.onRename(node.path); } }}
         onClick={() => onFilter({ kind: "folder", value: node.path })}
       >
         <span><Folder aria-hidden="true" /><span className="rail-row-label">{node.name}</span></span>

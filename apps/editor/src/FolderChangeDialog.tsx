@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { Dialog } from "./Dialog";
+import { Select } from "@mdbase-dev/ui/select";
 import type { FolderChangePlan, FolderChangeProgress, FolderChangeResult } from "./folder-change";
 
 export interface FolderChangeActions {
@@ -49,10 +50,10 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
       {!plan && <form id={`${id}-form`} onSubmit={(event) => { event.preventDefault(); void review(); }}>
         <label htmlFor={`${id}-value`}>{mode === "rename" ? "Folder name" : "Destination folder"}</label>
         {mode === "rename" ? <input id={`${id}-value`} value={value} onChange={(event) => setValue(event.target.value)} disabled={busy} data-autofocus />
-          : <select id={`${id}-value`} value={value} onChange={(event) => setValue(event.target.value)} disabled={busy} data-autofocus>
-            <option value="">All notes (collection root)</option>
-            {folders.filter((path) => path !== from && !path.startsWith(`${from}/`)).map((path) => <option key={path} value={path}>{path}</option>)}
-          </select>}
+          : <Select id={`${id}-value`} aria-label="Destination folder" value={value} onChange={setValue} disabled={busy} data-autofocus options={[
+            { value: "", label: "All notes (collection root)" },
+            ...folders.filter((path) => path !== from && !path.startsWith(`${from}/`)).map((path) => ({ value: path, label: path }))
+          ]} />}
         <p>Notes in subfolders move too. Links to these notes will be updated.</p>
       </form>}
       {plan && !result && <div><p>From <code>{plan.from}</code> to <code>{plan.to}</code>. This changes paths across the collection, including subfolders.</p>

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { chooseOption } from "./test/select";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type { MutationOperationOptions, NoteDocument } from "./model";
 
@@ -47,7 +48,7 @@ describe("collection-wide folder changes", () => {
     row.focus(); fireEvent.keyDown(row, { key: "F10", shiftKey: true });
     await user.click(screen.getByRole("menuitem", { name: "Move to…" }));
     const dialog = screen.getByRole("dialog", { name: "Move ‘Journal’" });
-    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Destination folder" }), "Notes");
+    await chooseOption(user, within(dialog).getByRole("combobox", { name: "Destination folder" }), "Notes");
     await user.click(within(dialog).getByRole("button", { name: "Review changes" }));
     await waitFor(() => expect(dialog).toHaveAccessibleName("Move 2 notes?"));
     await user.click(within(dialog).getByRole("button", { name: "Move folder" }));
