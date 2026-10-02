@@ -31,6 +31,7 @@
   ],
   "file_control_messages": [
     { "id": "list_files", "input_schema_version": 1, "mutation": false },
+    { "id": "stat_file", "input_schema_version": 1, "mutation": false },
     { "id": "open_file_upload", "input_schema_version": 1, "mutation": true },
     { "id": "open_file_download", "input_schema_version": 1, "mutation": false },
     { "id": "move_file", "input_schema_version": 1, "mutation": true },

@@ -16,6 +16,7 @@
     "limit": { "type": "integer", "minimum": 0 },
     "offset": { "type": "integer", "minimum": 0 },
     "include_body": { "type": "boolean", "default": false },
+    "output": { "const": "metadata" },
     "frontmatter_mode": {
       "enum": ["effective", "persisted", "both"],
       "default": "effective"
@@ -25,6 +26,10 @@
     "^x-[A-Za-z][A-Za-z0-9._:-]{0,127}$": { "$ref": "#/$defs/extension" }
   },
   "additionalProperties": false,
+  "allOf": [{
+    "if": { "required": ["output"], "properties": { "output": { "const": "metadata" } } },
+    "then": { "properties": { "include_body": { "const": false } } }
+  }],
   "$defs": {
     "identifier": {
       "type": "string",

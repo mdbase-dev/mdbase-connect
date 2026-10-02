@@ -912,6 +912,7 @@ fn rust_encrypted_relay_messages_match_the_canonical_wire_schema() {
 #[test]
 fn rust_collection_description_matches_the_addressable_schema() {
     let description = CollectionDescription {
+        authority_capabilities: None,
         protocol_version: CONTROL_PROTOCOL_VERSION,
         collection_id: Uuid::parse_str("01933333-3333-7333-8333-333333333333").unwrap(),
         display_name: "Tasks".to_string(),

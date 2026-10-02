@@ -74,6 +74,9 @@ pub struct CollectionContractImplementationDescriptor {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionDescription {
+    /// Authority-local implementation features, not permissions. None means legacy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority_capabilities: Option<Vec<String>>,
     pub protocol_version: u32,
     pub collection_id: Uuid,
     pub display_name: String,

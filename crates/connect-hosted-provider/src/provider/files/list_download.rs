@@ -73,6 +73,7 @@ impl HostedProvider {
             }
         }
         Ok(ListFilesPage {
+            authority_capabilities: None,
             protocol_version: FILE_PROTOCOL_VERSION,
             message_type: ListFilesPageKind::FilesPage,
             files,

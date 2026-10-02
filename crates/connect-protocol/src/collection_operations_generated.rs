@@ -36,6 +36,7 @@ pub const COLLECTION_OPERATIONS: &[&str] = &[
 
 pub const FILE_CONTROL_MESSAGE_TYPES: &[&str] = &[
     "list_files",
+    "stat_file",
     "open_file_upload",
     "open_file_download",
     "move_file",
@@ -89,6 +90,7 @@ pub fn operation_input_schema_version(operation: &str, input: &Value) -> Option<
     if operation == "file_control" {
         return match input.get("type").and_then(Value::as_str).unwrap_or("") {
             "list_files" => Some(1),
+            "stat_file" => Some(1),
             "open_file_upload" => Some(1),
             "open_file_download" => Some(1),
             "move_file" => Some(1),

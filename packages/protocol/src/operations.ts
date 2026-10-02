@@ -36,6 +36,7 @@ export type CollectionOperation = typeof COLLECTION_OPERATIONS[number];
 
 export const FILE_CONTROL_MESSAGE_TYPES = [
   "list_files",
+  "stat_file",
   "open_file_upload",
   "open_file_download",
   "move_file",
@@ -110,6 +111,7 @@ const COLLECTION_INPUT_SCHEMA_VERSIONS = {
 
 const FILE_CONTROL_INPUT_SCHEMA_VERSIONS = {
   "list_files": 1,
+  "stat_file": 1,
   "open_file_upload": 1,
   "open_file_download": 1,
   "move_file": 1,

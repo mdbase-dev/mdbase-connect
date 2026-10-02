@@ -1,0 +1,31 @@
+{
+  "legacy_description": {"protocol_version":1,"collection_id":"01933333-3333-7333-8333-333333333333","display_name":"Notes","spec_version":"0.3.0","operations":["describe","query","read"],"change_cursor":0,"types":[],"contracts":[]},
+  "description": {"protocol_version":1,"collection_id":"01933333-3333-7333-8333-333333333333","display_name":"Notes","spec_version":"0.3.0","operations":["describe","query","read"],"change_cursor":0,"types":[],"contracts":[],"authority_capabilities":["query-record-revisions-v1","read-many-documents-v1","query-metadata-v1","future-feature-v42"]},
+  "legacy_files_page": {"protocol_version":1,"type":"files_page","files":[]},
+  "files_page": {"protocol_version":1,"type":"files_page","files":[],"authority_capabilities":["files-stat-v1"]},
+  "legacy_query_record": {"path":"a.md","types":[],"file":{"path":"a.md"},"values":{}},
+  "query_record": {"path":"a.md","types":[],"file":{"path":"a.md"},"values":{},"revision":"opaque:1"},
+  "metadata_result": {"output":"metadata","results":[{"path":"a.md","types":[],"revision":"opaque:1","values":{}}],"meta":{"has_more":false}},
+  "batch_input": {"paths":["a.md","missing.md","invalid.md","a.md"],"include_body":true,"include_document":true},
+  "batch_result": {"items":[{"path":"a.md","status":"found","record":{"path":"a.md","revision":"opaque:1","types":[],"frontmatter":{},"effective_frontmatter":{},"body":"Unicode λ\r\n","document":"Unicode λ\r\n","file":{"path":"a.md"}}},{"path":"missing.md","status":"missing"},{"path":"invalid.md","status":"error","error":{"code":"invalid_frontmatter","message":"Invalid frontmatter"}},{"path":"a.md","status":"found","record":{"path":"a.md","revision":"opaque:1","types":[],"frontmatter":{},"effective_frontmatter":{},"body":"Unicode λ\r\n","document":"Unicode λ\r\n","file":{"path":"a.md"}}}]},
+  "stat_path": {"protocol_version":1,"type":"stat_file","path":"assets/book.pdf"},
+  "stat_id": {"protocol_version":1,"type":"stat_file","file_id":"01911111-1111-7111-8111-111111111111"},
+  "stat_missing": {"protocol_version":1,"type":"file_stat","file":null},
+  "stat_found": {"protocol_version":1,"type":"file_stat","file":{"file_id":"01911111-1111-7111-8111-111111111111","path":"assets/book.pdf","revision":"opaque:file1","content_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","size":1234,"media_class":"pdf","modified_at":"2026-08-01T02:03:04Z"}},
+  "invalid_stat_inputs": [
+    {"protocol_version":1,"type":"stat_file"},
+    {"protocol_version":1,"type":"stat_file","path":"assets/book.pdf","file_id":"01911111-1111-7111-8111-111111111111"},
+    {"protocol_version":1,"type":"stat_file","path":null},
+    {"protocol_version":1,"type":"stat_file","path":"assets/book.pdf","file_id":null},
+    {"protocol_version":1,"type":"stat_file","file_id":"not-a-uuid"},
+    {"protocol_version":1,"type":"stat_file","path":"assets/book.pdf","extra":true},
+    {"protocol_version":2,"type":"stat_file","path":"assets/book.pdf"}
+  ],
+  "invalid_read_inputs": [
+    {}, {"paths":[]}, {"path":"a.md","paths":["a.md"]}, {"path":null},
+    {"paths":["a.md"],"path":null}, {"paths":[""]},
+    {"paths":["a.md"],"include_document":null},
+    {"path":"a.md","contract":{"id":"note","version":"1.0.0"},"include_document":true},
+    {"paths":["a.md"],"extra":true}
+  ]
+}

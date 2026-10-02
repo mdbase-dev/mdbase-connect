@@ -195,6 +195,7 @@ impl CollectionRegistry {
         contracts
             .sort_by(|left, right| (&left.id, &left.version).cmp(&(&right.id, &right.version)));
         Ok(CollectionDescription {
+            authority_capabilities: None,
             protocol_version: CONTROL_PROTOCOL_VERSION,
             collection_id: registered.id,
             display_name: registered.display_name.clone(),
