@@ -1,6 +1,27 @@
 //! SQLite representation of the canonical file index.
 use super::*;
 
+pub(super) fn descriptor_from_index_row(
+    row: &rusqlite::Row<'_>,
+) -> Result<CollectionFileDescriptor, ConnectError> {
+    let file_id = row.get::<_, String>(0)?;
+    let file_id = Uuid::parse_str(&file_id).map_err(|error| ConnectError::File {
+        code: "file_index_corrupt".to_string(),
+        message: format!("The local file index contains an invalid file ID: {error}"),
+    })?;
+    let media_class = row.get::<_, String>(6)?;
+    Ok(CollectionFileDescriptor {
+        file_id,
+        path: row.get(1)?,
+        revision: row.get(2)?,
+        content_digest: row.get(3)?,
+        size: row.get(4)?,
+        media_type: row.get(5)?,
+        media_class: parse_media_class(&media_class)?,
+        modified_at: row.get(7)?,
+    })
+}
+
 pub(super) fn read_indexed_files(
     connection: &Connection,
     collection_id: Uuid,
@@ -97,6 +118,16 @@ pub(super) fn query_indexed_files(
         ))
     })
     .collect()
+}
+
+fn media_class_name(media_class: FileMediaClass) -> &'static str {
+    match media_class {
+        FileMediaClass::Image => "image",
+        FileMediaClass::Audio => "audio",
+        FileMediaClass::Video => "video",
+        FileMediaClass::Pdf => "pdf",
+        FileMediaClass::Other => "other",
+    }
 }
 
 pub(super) fn persist_indexed_file(

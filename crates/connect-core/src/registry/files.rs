@@ -3,7 +3,9 @@ mod index;
 use crate::collection_files::portable_path_key;
 use crate::{discover_collection_files, CollectionFileCandidate, PhysicalFileIdentity};
 use chrono::{DateTime, SecondsFormat, Utc};
-use index::{persist_indexed_file, query_indexed_files, read_indexed_files};
+use index::{
+    descriptor_from_index_row, persist_indexed_file, query_indexed_files, read_indexed_files,
+};
 use mdbase_connect_protocol::{CollectionFileDescriptor, FileMediaClass};
 use rusqlite::Transaction;
 use sha2::{Digest, Sha256};
@@ -422,7 +424,7 @@ impl CollectionRegistry {
     fn reconcile_file_target_with_identity(
         &self,
         registered: &CollectionSummary,
-        collection: &mdbase::Collection,
+        collection: &Collection,
         path: &str,
         preferred_id: Option<Uuid>,
         expected_identity: Option<&PhysicalFileIdentity>,
@@ -799,27 +801,6 @@ impl CollectionRegistry {
     }
 }
 
-fn descriptor_from_index_row(
-    row: &rusqlite::Row<'_>,
-) -> Result<CollectionFileDescriptor, ConnectError> {
-    let file_id = row.get::<_, String>(0)?;
-    let file_id = Uuid::parse_str(&file_id).map_err(|error| ConnectError::File {
-        code: "file_index_corrupt".to_string(),
-        message: format!("The local file index contains an invalid file ID: {error}"),
-    })?;
-    let media_class = row.get::<_, String>(6)?;
-    Ok(CollectionFileDescriptor {
-        file_id,
-        path: row.get(1)?,
-        revision: row.get(2)?,
-        content_digest: row.get(3)?,
-        size: row.get(4)?,
-        media_type: row.get(5)?,
-        media_class: parse_media_class(&media_class)?,
-        modified_at: row.get(7)?,
-    })
-}
-
 fn assign_file_ids(
     previous: &BTreeMap<Uuid, IndexedFile>,
     observed: &[ObservedFile<'_>],
@@ -991,16 +972,6 @@ fn physical_identity_matches(
     _expected: Option<&PhysicalFileIdentity>,
 ) -> bool {
     true
-}
-
-fn media_class_name(media_class: FileMediaClass) -> &'static str {
-    match media_class {
-        FileMediaClass::Image => "image",
-        FileMediaClass::Audio => "audio",
-        FileMediaClass::Video => "video",
-        FileMediaClass::Pdf => "pdf",
-        FileMediaClass::Other => "other",
-    }
 }
 
 fn parse_media_class(value: &str) -> Result<FileMediaClass, ConnectError> {

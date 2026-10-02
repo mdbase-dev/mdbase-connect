@@ -526,6 +526,22 @@ impl AgentState {
     }
 }
 
+// Temporary B4 adapter until wb-protocol adds stat_file to the canonical
+// discriminator catalog. Delete this function and restore the canonical call
+// in operations.rs with that wire commit. Dispatch still strictly parses stat.
+pub(super) fn validate_local_operation_discriminators(
+    operation: &str,
+    input: &serde_json::Value,
+) -> Result<(), &'static str> {
+    if operation == "file_control"
+        && input.get("type").and_then(serde_json::Value::as_str) == Some("stat_file")
+    {
+        Ok(())
+    } else {
+        validate_operation_discriminators(operation, input)
+    }
+}
+
 fn parse_file_control<T: serde::de::DeserializeOwned>(
     input: serde_json::Value,
 ) -> Result<T, ConnectError> {
