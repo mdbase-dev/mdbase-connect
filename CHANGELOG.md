@@ -9,6 +9,17 @@
   Person v3 carries `upgrade_from` the 1.2.0 Person v2 seed; an installed v2
   seed still stops the guided flow for review in Types. No API changes.
 
+- Migration note for SDK consumers: the client's `queryPages` gains an overload
+  for `output: "metadata"` rows. Test doubles that implement the connection's
+  `queryPages` structurally must accept the metadata overload (TypeScript
+  reports TS2322 otherwise). Runtime behaviour is unchanged for ordinary queries.
+
+- Hosted required links to ordinary files (including Reader's HTML, PDF and
+  EPUB documents) now validate against committed file metadata from the same
+  authority snapshot. Writes and explicit validation no longer report an
+  existing attachment as missing. Attachment bytes are not downloaded or parsed
+  as records; missing, deleted and unfinished-upload targets remain invalid.
+
 - Application-session startup no longer tears down replacement verification
   when a route or selection refresh cancels an obsolete setup assessment.
   Only that generation's expected cancellation is ignored; genuine exceptions
