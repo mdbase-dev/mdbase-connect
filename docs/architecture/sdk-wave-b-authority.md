@@ -39,10 +39,10 @@ Wire types, SDK overloads, old-authority fallbacks and B1 discovery are owned by
 canonical wire commit `c40fc15d` is adopted; batch input is checked against its
 closed `ReadInput` before engine semantics, and producer tests decode its batch
 and metadata results. Local **v0.3 descriptions** advertise the qualified native
-features below; v0.2 descriptions omit them. Hosted advertisement remains off
-until the guarded PostgreSQL integration test passes (disposable Docker startup
-is currently blocked). File-page feature publication remains the files owner's
-integration boundary. Do not infer capabilities from failed requests. Only
+features below; v0.2 descriptions omit them. Hosted **v0.3 descriptions** also
+advertise them after the guarded disposable PostgreSQL qualification passed
+(exact, projected, residual, document-batch, cursor and Base-row paths). File-page
+feature publication remains the files owner's integration boundary. Do not infer capabilities from failed requests. Only
 qualified **v0.3** native producers may advertise `query-record-revisions-v1`, `read-many-documents-v1`, and
 `query-metadata-v1`. v0.2 compatibility rejects the new request modes.
 

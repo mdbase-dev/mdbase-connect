@@ -31,7 +31,16 @@ impl HostedProvider {
             &resources_aad(collection_id),
         )?;
         let description = CollectionDescription {
-            authority_capabilities: None,
+            authority_capabilities: resources.spec_version.starts_with("0.3.").then(|| {
+                [
+                    "query-record-revisions-v1",
+                    "read-many-documents-v1",
+                    "query-metadata-v1",
+                ]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+            }),
             protocol_version: CONTROL_PROTOCOL_VERSION,
             collection_id,
             display_name: row.get("display_name"),

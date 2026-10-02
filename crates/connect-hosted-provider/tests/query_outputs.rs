@@ -29,6 +29,7 @@ async fn hosted_revisioned_documents_and_metadata_qualify_all_query_paths() {
                 contract_scope: Vec::new(),
                 full_collection: true,
                 allowed_operations: [
+                    "describe",
                     "read",
                     "query",
                     "create",
@@ -69,6 +70,15 @@ async fn hosted_revisioned_documents_and_metadata_qualify_all_query_paths() {
                 .unwrap()
         }
     };
+    let description = operation("describe", json!({})).await;
+    assert_eq!(
+        description["authority_capabilities"],
+        json!([
+            "query-record-revisions-v1",
+            "read-many-documents-v1",
+            "query-metadata-v1"
+        ])
+    );
     for (path, rank) in [("a.md", 2), ("b.md", 1)] {
         let created = operation("create",json!({"path":path,"frontmatter":{"source":"book","rank":rank,"unused":"wide fields"},"body":"Unicode 🦀\n#tag\n"})).await;
         assert_eq!(created["valid"], true, "{created}");
