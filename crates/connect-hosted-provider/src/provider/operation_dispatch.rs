@@ -66,6 +66,12 @@ impl HostedProvider {
                 .await?;
         }
         validate_hosted_operation_input(operation, &input)?;
+        if input.get("contract").is_some()
+            && ((operation == "read" && input.get("paths").is_some())
+                || (operation == "query" && input.get("output").is_some()))
+        {
+            return Err(ApiError::bad_request("unsupported_contract_output", "Contract document batches and metadata output require the B5 contract-query surface."));
+        }
         let portable_selector = matches!(
             operation,
             "query" | "read" | "create" | "update" | "delete" | "rename"
@@ -153,17 +159,24 @@ impl HostedProvider {
                 .await?;
             return result;
         }
-        self.execute_authorized_operation(
-            collection_id,
-            token,
-            operation,
-            request_id,
-            input,
-            &replica,
-            contract_scope,
-            None,
-        )
-        .await
+        let result = self
+            .execute_authorized_operation(
+                collection_id,
+                token,
+                operation,
+                request_id,
+                input,
+                &replica,
+                contract_scope,
+                None,
+            )
+            .await?;
+        // Long reads must not publish content after grant revocation.
+        let current = self
+            .authenticate_for(collection_id, token, ReplicaPurpose::Application)
+            .await?;
+        authorize_application_operation(&current, operation, request_origin)?;
+        Ok(result)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -218,7 +231,7 @@ impl HostedProvider {
                 };
                 let result = if operation == "read" {
                     let typed = self
-                        .execute_direct_point_read_typed(collection_id, &scoped_input)
+                        .execute_direct_read_typed(collection_id, &scoped_input)
                         .await?;
                     typed.to_v03()
                 } else if operation == "query" {

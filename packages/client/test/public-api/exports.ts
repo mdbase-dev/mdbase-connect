@@ -87,6 +87,9 @@ export async function typedBatchReads(connection: MdbaseConnection<{ title: stri
     if (entry.status === "found") {
       const record: ReadManyRecord<{ title: string }> = entry.record;
       const revision: string | undefined = record.revision;
+      // @ts-expect-error negotiated projections are still not full documents.
+      const document: import("@mdbase-dev/connect").RecordDocument<{ title: string }> = record;
+      void document;
       const title: string | undefined = record.frontmatter?.title;
       void revision; void title;
     } else if (entry.status === "error") {

@@ -33,23 +33,6 @@ pub enum FileMediaClass {
     Other,
 }
 
-/// Device-local projection of a hosted collection. Folder exclusions apply to
-/// Markdown and files; hidden and reserved paths are independently mandatory.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SelectiveSyncPolicy {
-    #[serde(default)]
-    pub file_classes: Vec<FileMediaClass>,
-    #[serde(default)]
-    pub excluded_folders: Vec<String>,
-}
-
-impl SelectiveSyncPolicy {
-    pub fn includes(&self, media_class: FileMediaClass) -> bool {
-        self.file_classes.contains(&media_class)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileAction {
@@ -151,12 +134,78 @@ pub enum ListFilesRequestKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListFilesPage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority_capabilities: Option<Vec<String>>,
     pub protocol_version: u32,
     #[serde(rename = "type")]
     pub message_type: ListFilesPageKind,
     pub files: Vec<CollectionFileDescriptor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next: Option<String>,
+}
+
+/// Path validity and file eligibility remain the authority's responsibility.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "StatFileRequestWire")]
+pub struct StatFileRequest {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: StatFileRequestKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<Uuid>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StatFileRequestWire {
+    protocol_version: u32,
+    #[serde(rename = "type")]
+    message_type: StatFileRequestKind,
+    #[serde(default, deserialize_with = "crate::collections::present_value")]
+    path: Option<String>,
+    #[serde(default, deserialize_with = "crate::collections::present_value")]
+    file_id: Option<Uuid>,
+}
+
+impl TryFrom<StatFileRequestWire> for StatFileRequest {
+    type Error = &'static str;
+
+    fn try_from(wire: StatFileRequestWire) -> Result<Self, Self::Error> {
+        if wire.protocol_version != FILE_PROTOCOL_VERSION {
+            return Err("unsupported file protocol version");
+        }
+        if wire.path.is_some() == wire.file_id.is_some() {
+            return Err("stat_file requires exactly one of path or file_id");
+        }
+        Ok(Self {
+            protocol_version: wire.protocol_version,
+            message_type: wire.message_type,
+            path: wire.path,
+            file_id: wire.file_id,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StatFileRequestKind {
+    StatFile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileStat {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: FileStatKind,
+    pub file: Option<CollectionFileDescriptor>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileStatKind {
+    FileStat,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

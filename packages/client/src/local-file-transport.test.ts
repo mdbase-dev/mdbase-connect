@@ -25,6 +25,12 @@ const ids = {
   transfer: "01955555-5555-7555-8555-555555555555"
 };
 
+const readControls = [
+  { kind: "list", method: "GET", path: "", input: undefined },
+  { kind: "stat", method: "POST", path: "stat", input: { protocol_version: 1, type: "stat_file", path: "Assets/file.bin" } },
+  { kind: "download", method: "POST", path: "downloads", input: { protocol_version: 1, type: "open_file_download", file_id: ids.transfer, transfer_id: ids.transfer } }
+] as const;
+
 afterEach(() => vi.restoreAllMocks());
 
 describe("LocalFileTransport", () => {
@@ -236,7 +242,7 @@ describe("LocalFileTransport", () => {
       }));
   });
 
-  it("uses a fresh encrypted request when a file read falls back to relay", async () => {
+  it.each(readControls)("uses a fresh encrypted request when a file $kind falls back to relay", async ({ method, path, input }) => {
     const fixture = await transportFixture("upload");
     const requests: Array<{ request_id: string; counter: string }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
@@ -248,7 +254,7 @@ describe("LocalFileTransport", () => {
       );
     });
 
-    await expect(fixture.transport.control(fixture.token, "GET", "", undefined))
+    await expect(fixture.transport.control(fixture.token, method, path, input))
       .rejects.toMatchObject({ code: "connector_offline" });
 
     expect(requests).toHaveLength(2);
@@ -256,7 +262,7 @@ describe("LocalFileTransport", () => {
     expect(requests[1]?.counter).not.toBe(requests[0]?.counter);
   });
 
-  it("retries an evicted file read once with a fresh encrypted request", async () => {
+  it.each(readControls)("retries an evicted file $kind once with a fresh encrypted request", async ({ method, path, input }) => {
     const fixture = await transportFixture("upload", false);
     const requests: Array<{ request_id: string; counter: string }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
@@ -272,7 +278,7 @@ describe("LocalFileTransport", () => {
       });
     });
 
-    await expect(fixture.transport.control(fixture.token, "GET", "", undefined))
+    await expect(fixture.transport.control(fixture.token, method, path, input))
       .rejects.toMatchObject({ code: "connector_offline" });
     expect(requests).toHaveLength(2);
     expect(requests[1]?.request_id).not.toBe(requests[0]?.request_id);

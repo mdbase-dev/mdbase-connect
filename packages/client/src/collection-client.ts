@@ -15,6 +15,7 @@ import type {
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,
   RecordDocument as WireRecordDocument,
+  ReadManyDocumentsResult as WireReadManyDocumentsResult,
   SavedViewExecution as WireSavedViewExecution,
   SavedViewList as WireSavedViewList,
   SavedViewSourceDocument as WireSavedViewSourceDocument,
@@ -25,7 +26,8 @@ import { abortableDelay } from "./async.js";
 import { invalidatesDescription, normalizeChangesPage } from "./change-events.js";
 import { CollectionDescriptionCache } from "./description-cache.js";
 import { coordinatedQueryPages } from "./query-pagination.js";
-import { queryReadMany } from "./read-many.js";
+import { readMany as readManyRecords } from "./read-many.js";
+import { wireDataContractIdentity, wireQueryInput, wireQueryRecord, wireQueryResult, type WireQueryResult } from "./query-wire.js";
 import { coordinatedSavedViewPages } from "./saved-view-pagination.js";
 import {
   MdbaseConnectError,
@@ -81,6 +83,11 @@ import type {
   ConnectRequestOptions,
   QueryAllOptions,
   QueryInput,
+  QueryMetadataInput,
+  QueryMetadataRecord,
+  QueryMetadataResult,
+  QueryMetadataPage,
+  QueryRecord,
   QueryPage,
   QueryPagesOptions,
   QueryResult,
@@ -108,7 +115,9 @@ import type {
 import {
   createRequestBudget,
   DEFAULT_REQUEST_TIMEOUT_MS,
-  requestAbortReason
+  requestAbortReason,
+  requestOptionsWithinBudget,
+  withRequestBudget
 } from "./request-budget.js";
 import { watchRetryPolicy } from "./watch-policy.js";
 
@@ -127,7 +136,8 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
 
   constructor(
     private readonly transport: MdbaseCollectionTransport,
-    private readonly requestTimeoutMs: number | null = DEFAULT_REQUEST_TIMEOUT_MS
+    private readonly requestTimeoutMs: number | null = DEFAULT_REQUEST_TIMEOUT_MS,
+    private readonly supportsAuthorityFeature?: (id: string, options?: ConnectRequestOptions) => Promise<ConnectOutcome<boolean>>
   ) {
     this.descriptions = new CollectionDescriptionCache(transport, requestTimeoutMs);
   }
@@ -169,68 +179,75 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
   }
 
   readMany(paths: readonly string[], options: ReadManyOptions = {}): Promise<ConnectOutcome<ReadManyResult<Frontmatter>, CollectionQueryProblemCode>> {
-    return queryReadMany((input, requestOptions) => this.queryAll(input, requestOptions), paths, options, this.requestTimeoutMs);
-  }
-
-  async query(
-    input: QueryInput = {},
-    options?: ConnectRequestOptions
-  ): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
-    const outcome = await this.envelopeOperation<
-      WireQueryResult<Frontmatter>,
-      CollectionQueryProblemCode
-    >(
-      "query",
-      wireQueryInput(input),
-      COLLECTION_QUERY_PROBLEM_CODES,
-      options
+    return readManyRecords(
+      (input, requestOptions) => this.queryAll(input, requestOptions),
+      (selected, includeBody, requestOptions) => this.envelopeOperation<WireReadManyDocumentsResult<Frontmatter>, CollectionReadProblemCode>(
+        "read", { paths: selected, include_body: includeBody, include_document: false }, COLLECTION_READ_PROBLEM_CODES, requestOptions
+      ),
+      this.supportsAuthorityFeature, paths, options, this.requestTimeoutMs
     );
-    return mapOutcome(outcome, ({ results, meta }) => ({
-      results: results.map(wireQueryRecord),
-      ...(meta ? {
-        meta: {
-          ...(typeof meta.total_count === "number" ? { totalCount: meta.total_count } : {}),
-          ...(meta.total_count_outcome === undefined
-            ? {}
-            : { totalCountOutcome: meta.total_count_outcome }),
-          hasMore: meta.has_more,
-          ...(meta.cursor ? { cursor: meta.cursor } : {}),
-          ...(meta.snapshot ? { snapshot: meta.snapshot } : {})
-        }
-      } : {})
-    }));
   }
 
-  async *queryPages(
-    input: QueryInput = {},
-    options: QueryPagesOptions<Frontmatter> = {}
-  ): AsyncGenerator<ConnectOutcome<QueryPage<Frontmatter>, CollectionQueryProblemCode>> {
-    yield* coordinatedQueryPages(
+  query(input: QueryMetadataInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<QueryMetadataResult, CollectionQueryProblemCode>>;
+  query(input?: QueryInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>>;
+  query(input: QueryInput | QueryMetadataInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<QueryResult<Frontmatter> | QueryMetadataResult, CollectionQueryProblemCode>>;
+  async query(input: QueryInput | QueryMetadataInput = {}, options?: ConnectRequestOptions): Promise<ConnectOutcome<QueryResult<Frontmatter> | QueryMetadataResult, CollectionQueryProblemCode>> {
+    if (input.output !== undefined && input.output !== "metadata") {
+      return connectFailure(connectProblem("invalid_request", "Unknown query output mode."));
+    }
+    if (input.output !== "metadata") {
+      const outcome = await this.envelopeOperation<WireQueryResult<Frontmatter>, CollectionQueryProblemCode>(
+        "query", wireQueryInput(input), COLLECTION_QUERY_PROBLEM_CODES, options
+      );
+      return mapOutcome(outcome, value => wireQueryResult(value, undefined));
+    }
+    const captured = await captureConnectOutcome(() => withRequestBudget(options, this.requestTimeoutMs, async budget => {
+      const requestOptions = requestOptionsWithinBudget({ ...options, timeoutMs: null }, budget);
+      if (input.includeBody) throw connectError("invalid_request", "Metadata queries cannot include a body.");
+      const support = await this.supportsAuthorityFeature?.("query-metadata-v1", requestOptions);
+      if (support && !support.ok) throw new MdbaseConnectError(support.problem);
+      if (!support?.value) throw connectError("unsupported_operation", "This authority does not support metadata queries. Use an ordinary query on legacy authorities.");
+      const outcome = await this.envelopeOperation<WireQueryResult<Frontmatter>, CollectionQueryProblemCode>(
+        "query", wireQueryInput(input), COLLECTION_QUERY_PROBLEM_CODES, requestOptions
+      );
+      return mapOutcome(outcome, value => wireQueryResult(value, input.output));
+    }), COLLECTION_QUERY_PROBLEM_CODES);
+    return captured.ok ? captured.value : captured;
+  }
+
+  queryPages(input: QueryMetadataInput, options?: QueryPagesOptions<JsonObject, QueryMetadataRecord>): AsyncGenerator<ConnectOutcome<QueryMetadataPage, CollectionQueryProblemCode>>;
+  queryPages(input?: QueryInput, options?: QueryPagesOptions<Frontmatter>): AsyncGenerator<ConnectOutcome<QueryPage<Frontmatter>, CollectionQueryProblemCode>>;
+  async *queryPages(input: QueryInput | QueryMetadataInput = {}, options: QueryPagesOptions<Frontmatter> | QueryPagesOptions<JsonObject, QueryMetadataRecord> = {}): AsyncGenerator<ConnectOutcome<QueryPage<Frontmatter, QueryRecord<Frontmatter> | QueryMetadataRecord> & { output?: "metadata" }, CollectionQueryProblemCode>> {
+    yield* coordinatedQueryPages<Frontmatter, QueryRecord<Frontmatter> | QueryMetadataRecord>(
       (pageInput, pageOptions) => this.query(pageInput, pageOptions),
-      (cursor) => this.releaseQueryCursor(cursor),
+      (cursor) => this.releaseQueryCursor(cursor, input.output),
       input,
-      options
+      // The overload ties callback row types to input.output; the wire parser
+      // rejects mode mismatch before pagination can deliver a page.
+      options as QueryPagesOptions<Frontmatter, QueryRecord<Frontmatter> | QueryMetadataRecord>
     );
   }
 
-  async queryAll(
-    input: QueryInput = {},
-    options: QueryAllOptions<Frontmatter> = {}
-  ): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
+  queryAll(input: QueryMetadataInput, options?: QueryAllOptions<JsonObject, QueryMetadataRecord>): Promise<ConnectOutcome<QueryMetadataResult, CollectionQueryProblemCode>>;
+  queryAll(input?: QueryInput, options?: QueryAllOptions<Frontmatter>): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>>;
+  async queryAll(input: QueryInput | QueryMetadataInput = {}, options: QueryAllOptions<Frontmatter> | QueryAllOptions<JsonObject, QueryMetadataRecord> = {}): Promise<ConnectOutcome<QueryResult<Frontmatter> | QueryMetadataResult, CollectionQueryProblemCode>> {
     const budget = createRequestBudget(options, this.requestTimeoutMs);
-    const results: QueryResult<Frontmatter>["results"] = [];
-    let finalPage: QueryPage<Frontmatter> | undefined;
+    const results: Array<QueryRecord<Frontmatter> | QueryMetadataRecord> = [];
+    let finalPage: QueryPage<Frontmatter, QueryRecord<Frontmatter> | QueryMetadataRecord> | undefined;
     const diagnostics: MdbaseDiagnostic[] = [];
     try {
-      for await (const outcome of this.queryPages(input, {
+      const pageOptions = {
         firstPageSize: options.firstPageSize,
         pageSize: options.pageSize,
         maxResults: options.maxResults,
         signal: budget.signal,
         pageTimeoutMs: null,
-        coordination: options.coordination,
-        onProgress: options.onProgress
-      })) {
+        coordination: options.coordination
+      };
+      const pages = input.output === "metadata"
+        ? this.queryPages(input, { ...pageOptions, onProgress: (options as QueryAllOptions<JsonObject, QueryMetadataRecord>).onProgress })
+        : this.queryPages(input, { ...pageOptions, onProgress: (options as QueryAllOptions<Frontmatter>).onProgress });
+      for await (const outcome of pages) {
         if (!outcome.ok) return outcome;
         const page = outcome.value;
         results.push(...page.results);
@@ -238,21 +255,23 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
         diagnostics.push(...outcome.diagnostics);
       }
       if (budget.signal.aborted) throw requestAbortReason(budget.signal);
-      return connectSuccess({
-        results,
-        ...(finalPage ? { meta: {
-          ...(finalPage.meta?.totalCount === undefined
-            ? (!finalPage.meta?.hasMore ? { totalCount: results.length } : {})
-            : { totalCount: finalPage.meta.totalCount }),
-          ...(finalPage.meta?.hasMore && finalPage.meta.totalCountOutcome ? { totalCountOutcome: finalPage.meta.totalCountOutcome } : {}),
-          hasMore: finalPage.meta?.hasMore ?? false,
-          ...(finalPage.snapshot ? { snapshot: finalPage.snapshot } : {})
-        } } : {})
-      }, diagnostics);
+      const meta = finalPage ? {
+        ...(finalPage.meta?.totalCount === undefined
+          ? (!finalPage.meta?.hasMore ? { totalCount: results.length } : {})
+          : { totalCount: finalPage.meta.totalCount }),
+        ...(finalPage.meta?.hasMore && finalPage.meta.totalCountOutcome ? { totalCountOutcome: finalPage.meta.totalCountOutcome } : {}),
+        hasMore: finalPage.meta?.hasMore ?? false,
+        ...(finalPage.snapshot ? { snapshot: finalPage.snapshot } : {})
+      } : undefined;
+      // Every page is parsed in the requested mode, never converted from full
+      // rows to revision-required metadata (or from partial rows to documents).
+      return input.output === "metadata"
+        ? connectSuccess({ output: "metadata", results: results as QueryMetadataRecord[], ...(meta ? { meta } : {}) }, diagnostics)
+        : connectSuccess({ results: results as QueryRecord<Frontmatter>[], ...(meta ? { meta } : {}) }, diagnostics);
     } catch (error) {
       if (error instanceof MdbaseConnectError) {
         return connectFailure(error.problem) as ConnectOutcome<
-          QueryResult<Frontmatter>,
+          QueryResult<Frontmatter> | QueryMetadataResult,
           CollectionQueryProblemCode
         >;
       }
@@ -507,14 +526,20 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     );
   }
 
-  private async releaseQueryCursor(cursor: string): Promise<void> {
+  private async releaseQueryCursor(cursor: string, output?: "metadata"): Promise<void> {
     try {
-      await this.envelopeOperation<WireQueryResult<Frontmatter>, CollectionQueryProblemCode>(
-        "query",
-        { release_cursor: cursor },
-        COLLECTION_QUERY_PROBLEM_CODES,
-        { timeoutMs: 2_000, coordination: { coalesce: false } }
-      );
+      await withRequestBudget({ timeoutMs: 2_000 }, null, async budget => {
+        const options = requestOptionsWithinBudget({ signal: budget.signal, timeoutMs: null, coordination: { coalesce: false } }, budget);
+        if (output) {
+          // A supplied/stale cursor can reach cleanup even when the page was
+          // rejected before dispatch. Never send metadata release to an old route.
+          const support = await this.supportsAuthorityFeature?.("query-metadata-v1", options);
+          if (!support?.ok || !support.value) return;
+        }
+        await this.envelopeOperation<WireQueryResult<Frontmatter>, CollectionQueryProblemCode>(
+          "query", { release_cursor: cursor, ...(output ? { output } : {}) }, COLLECTION_QUERY_PROBLEM_CODES, options
+        );
+      });
     } catch {
       // Lease expiry is bounded by the authority; cleanup never masks query results.
     }
@@ -540,21 +565,6 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     }
     return connectSuccess(envelope.result, envelope.diagnostics);
   }
-}
-
-interface WireQueryResult<Frontmatter extends JsonObject> {
-  results: Array<import("@mdbase-dev/connect-protocol").QueryRecord<Frontmatter>>;
-  meta?: {
-    total_count?: number | null;
-    total_count_outcome?: {
-      status: "deferred";
-      budget: "eager_summary_rows";
-      limit: number;
-    };
-    has_more: boolean;
-    cursor?: string;
-    snapshot?: string;
-  };
 }
 
 interface WireDeleteResult {
@@ -603,7 +613,12 @@ function mapOutcome<Input, Output, Code extends ConnectProblemCode>(
   outcome: ConnectOutcome<Input, Code>,
   map: (value: Input) => Output
 ): ConnectOutcome<Output, Code> {
-  return outcome.ok ? connectSuccess(map(outcome.value), outcome.diagnostics) : outcome;
+  if (!outcome.ok) return outcome;
+  try { return connectSuccess(map(outcome.value), outcome.diagnostics); }
+  catch (error) {
+    if (error instanceof MdbaseConnectError) return connectFailure(error.problem) as ConnectOutcome<Output, Code>;
+    throw error;
+  }
 }
 
 function wireReadInput(input: ReadInput) {
@@ -611,48 +626,6 @@ function wireReadInput(input: ReadInput) {
     path: input.path,
     ...(input.contract ? { contract: input.contract } : {}),
     ...(input.includeDocument === undefined ? {} : { include_document: input.includeDocument })
-  };
-}
-
-function wireQueryInput(input: QueryInput) {
-  return {
-    ...(input.types ? { types: input.types } : {}),
-    ...(input.timezone ? { timezone: input.timezone } : {}),
-    ...(input.context ? { context: input.context } : {}),
-    ...(input.projections ? {
-      projections: Object.fromEntries(Object.entries(input.projections).map(([name, projection]) => [
-        name,
-        { expr: projection.expression, ...(projection.description ? { description: projection.description } : {}) }
-      ]))
-    } : {}),
-    ...(input.where ? { where: input.where } : {}),
-    ...(input.select ? {
-      select: input.select.map((selection) => typeof selection === "string"
-        ? selection
-        : {
-            name: selection.name,
-            expr: selection.expression,
-            ...(selection.label ? { label: selection.label } : {}),
-            ...(selection.description ? { description: selection.description } : {})
-          })
-    } : {}),
-    ...(input.orderBy ? { order_by: input.orderBy } : {}),
-    ...(input.groupBy ? { group_by: input.groupBy } : {}),
-    ...(input.summaryFunctions ? {
-      summary_functions: Object.fromEntries(Object.entries(input.summaryFunctions).map(([name, projection]) => [
-        name,
-        { expr: projection.expression, ...(projection.description ? { description: projection.description } : {}) }
-      ]))
-    } : {}),
-    ...(input.summaries ? { summaries: input.summaries } : {}),
-    ...(input.limit === undefined ? {} : { limit: input.limit }),
-    ...(input.offset === undefined ? {} : { offset: input.offset }),
-    ...(input.pagination ? { pagination: input.pagination } : {}),
-    ...(input.cursor ? { cursor: input.cursor } : {}),
-    ...(input.snapshot ? { snapshot: input.snapshot } : {}),
-    ...(input.includeBody === undefined ? {} : { include_body: input.includeBody }),
-    ...(input.frontmatterMode ? { frontmatter_mode: input.frontmatterMode } : {}),
-    ...(input.contract ? { contract: input.contract } : {})
   };
 }
 
@@ -821,25 +794,6 @@ function wireContractSetupChoice(choice: import("./operation-types.js").Contract
         fields: choice.fields,
         ...(choice.binding ? { binding: choice.binding } : {})
       };
-}
-
-function wireDataContractIdentity(value: import("@mdbase-dev/connect-protocol").DataContractViewIdentity): import("./operation-types.js").DataContractViewIdentity {
-  return {
-    id: value.id,
-    version: value.version,
-    digest: value.digest,
-    type: value.type,
-    implementationDigest: value.implementation_digest
-  };
-}
-
-function wireQueryRecord<Frontmatter extends JsonObject>(value: import("@mdbase-dev/connect-protocol").QueryRecord<Frontmatter>): import("./operation-types.js").QueryRecord<Frontmatter> {
-  const { effective_frontmatter, contract, ...record } = value;
-  return {
-    ...record,
-    ...(effective_frontmatter === undefined ? {} : { effectiveFrontmatter: effective_frontmatter }),
-    ...(contract ? { contract: wireDataContractIdentity(contract) } : {})
-  };
 }
 
 function wireRecordDocument<Frontmatter extends JsonObject>(value: WireRecordDocument<Frontmatter>): RecordDocument<Frontmatter> {

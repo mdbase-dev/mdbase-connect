@@ -170,6 +170,112 @@ pub(crate) fn discover_collection_file(
     Ok(inventory.files.pop())
 }
 
+/// Validate direct Rust callers as well as deserialized requests. Wire decoding
+/// checks the target discriminator; local path safety remains authority-owned.
+pub(crate) fn validate_file_stat_request(
+    request: &mdbase_connect_protocol::StatFileRequest,
+) -> Result<(), ConnectError> {
+    if request.protocol_version != mdbase_connect_protocol::FILE_PROTOCOL_VERSION {
+        return Err(ConnectError::File {
+            code: "unsupported_protocol_version".into(),
+            message: "The file control protocol version is unsupported.".into(),
+        });
+    }
+    if request.path.is_some() == request.file_id.is_some()
+        || request.file_id.is_some_and(|id| id.is_nil())
+    {
+        return Err(ConnectError::File {
+            code: "invalid_file_request".into(),
+            message: "File stat requires exactly one path or non-nil file ID.".into(),
+        });
+    }
+    if let Some(path) = &request.path {
+        validate_portable_path(path).map_err(|message| ConnectError::File {
+            code: "unsafe_file_path".into(),
+            message,
+        })?;
+        if path.len() > 1_024 {
+            return Err(ConnectError::File {
+                code: "unsafe_file_path".into(),
+                message: "The file path exceeds 1024 bytes.".into(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Resolve a stat path by its portable key, without visiting unrelated subtrees.
+/// Eligibility still comes exclusively from the engine and ordinary discovery.
+pub(crate) fn resolve_file_stat_path(
+    collection: &Collection,
+    relative: &str,
+) -> Result<Option<String>, ConnectError> {
+    validate_portable_path(relative).map_err(|message| ConnectError::File {
+        code: "unsafe_file_path".into(),
+        message,
+    })?;
+    match collection.validate_file_path(relative) {
+        Ok(_) => {}
+        Err(
+            FilePathError::HiddenComponent | FilePathError::Reserved | FilePathError::RecordPath,
+        ) => return Ok(None),
+        Err(error) => {
+            return Err(ConnectError::File {
+                code: "unsafe_file_path".into(),
+                message: error.to_string(),
+            })
+        }
+    }
+    let root = collection.root().canonicalize()?;
+    let mut parent = root.clone();
+    let mut canonical = Vec::new();
+    for component in relative.split('/') {
+        match fs::symlink_metadata(&parent) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+            Ok(metadata) if metadata.is_dir() && !is_link_or_reparse_point(&metadata) => {}
+            Ok(_) => {
+                return Err(ConnectError::File {
+                    code: "unsafe_file_path".into(),
+                    message: "A file parent is not a regular directory.".into(),
+                })
+            }
+        }
+        if parent != root && nested_collection(&parent) {
+            return Ok(None);
+        }
+        let key = portable_path_key(component);
+        let mut matching = fs::read_dir(&parent)?
+            .map(|entry| entry.map(|entry| entry.file_name()))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter_map(|name| name.into_string().ok())
+            .filter(|name| portable_path_key(name) == key);
+        let Some(name) = matching.next() else {
+            return Ok(None);
+        };
+        if matching.next().is_some() {
+            return Err(ConnectError::File {
+                code: "path_alias".into(),
+                message: "Multiple filesystem entries share the requested portable path.".into(),
+            });
+        }
+        parent.push(&name);
+        canonical.push(name);
+    }
+    let canonical = canonical.join("/");
+    match collection.validate_file_path(&canonical) {
+        Ok(_) => Ok(Some(canonical)),
+        Err(
+            FilePathError::HiddenComponent | FilePathError::Reserved | FilePathError::RecordPath,
+        ) => Ok(None),
+        Err(error) => Err(ConnectError::File {
+            code: "unsafe_file_path".into(),
+            message: error.to_string(),
+        }),
+    }
+}
+
 /// Apply sync inclusion independently from authority inventory and app grants.
 pub fn select_collection_files<'a>(
     inventory: &'a CollectionFileInventory,

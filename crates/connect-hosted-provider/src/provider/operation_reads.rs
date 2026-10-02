@@ -31,6 +31,17 @@ impl HostedProvider {
             &resources_aad(collection_id),
         )?;
         let description = CollectionDescription {
+            authority_capabilities: resources.spec_version.starts_with("0.3.").then(|| {
+                [
+                    "query-record-revisions-v1",
+                    "read-many-documents-v1",
+                    "query-metadata-v1",
+                    "files-stat-v1",
+                ]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+            }),
             protocol_version: CONTROL_PROTOCOL_VERSION,
             collection_id,
             display_name: row.get("display_name"),
@@ -199,7 +210,7 @@ impl HostedProvider {
     ) -> ApiResult<OperationResult> {
         if operation == "read" {
             return self
-                .execute_direct_point_read_typed(collection_id, input)
+                .execute_direct_read_typed(collection_id, input)
                 .await
                 .map(|operation| operation.to_v03());
         }
@@ -220,15 +231,6 @@ impl HostedProvider {
         Err(ApiError::internal(format!(
             "Hosted read operation {operation} has no bounded execution path."
         )))
-    }
-
-    pub(super) async fn execute_direct_point_read_typed(
-        &self,
-        collection_id: Uuid,
-        input: &Value,
-    ) -> ApiResult<mdbase::runtime::CanonicalOperationOutcome> {
-        self.execute_direct_point_read_for_identity(collection_id, input, None)
-            .await
     }
 
     async fn execute_direct_resource_read(
@@ -435,15 +437,28 @@ impl HostedProvider {
         Ok(plan.operation)
     }
 
-    async fn execute_direct_point_read_for_identity(
+    pub(super) async fn execute_direct_read_typed(
         &self,
         collection_id: Uuid,
         input: &Value,
-        stable_id: Option<Uuid>,
     ) -> ApiResult<mdbase::runtime::CanonicalOperationOutcome> {
+        // Decode/validate before opening storage; semantics and row assembly
+        // remain in mdbase-rs, including ordered duplicate output slots.
+        let batch = input
+            .get("paths")
+            .map(|_| {
+                serde_json::from_value::<mdbase_connect_protocol::ReadInput>(input.clone())
+                    .map_err(|error| ApiError::bad_request("invalid_request", error.to_string()))?;
+                mdbase::api::ReadManyRequest::parse(input)
+                    .map_err(|message| ApiError::bad_request("invalid_request", message))
+            })
+            .transpose()?;
         let started = Instant::now();
         let mut transaction = self.pool.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("SET LOCAL statement_timeout = 15000")
             .execute(&mut *transaction)
             .await?;
         let collection = sqlx::query(
@@ -478,49 +493,85 @@ impl HostedProvider {
             load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
                 .await?;
         let catalog = compile_point_catalog(resources, resource_documents)?;
-        let path = input.get("path").and_then(Value::as_str);
-        let identity = stable_id.map(DirectRecordIdentity::StableId).or_else(|| {
-            path.map(|path| DirectRecordIdentity::PathToken(path_token(&data_key, path)))
-        });
-        let lookup_kind = if stable_id.is_some() {
-            "stable_id"
-        } else {
-            "path_token"
-        };
-        let (result, records_fetched, ciphertext_bytes) = if let Some(identity) = identity {
-            match load_direct_record(
+        let paths = batch
+            .as_ref()
+            .map(|request| {
+                request
+                    .paths
+                    .iter()
+                    .map(|path| path.as_str())
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_else(|| {
+                input
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .into_iter()
+                    .collect()
+            });
+        let mut records = BTreeMap::new();
+        let mut ciphertext_bytes = 0_u64;
+        let mut source_bytes = 0_u64;
+        for path in paths {
+            if started.elapsed() > Duration::from_secs(15) {
+                return Err(ApiError::quota(
+                    "hosted_time_budget_exceeded",
+                    "Document read exceeded its deadline; split the read.",
+                ));
+            }
+            if let Some((record, bytes, modified_at)) = load_direct_record(
                 &mut transaction,
                 &self.crypto,
                 &data_key,
                 collection_id,
-                identity,
+                DirectRecordIdentity::PathToken(path_token(&data_key, path)),
             )
             .await?
             {
-                Some((record, ciphertext_bytes, modified_at)) => {
-                    if path.is_some_and(|path| record.path != path) {
-                        return Err(ApiError::internal(
-                            "The hosted encrypted record path does not match the requested identity.",
-                        ));
-                    }
-                    let canonical = mdbase::runtime::CanonicalRecordInput {
-                        stable_id: Some(record.record_id.to_string()),
-                        path: record.path.clone(),
-                        document: record.document.clone(),
-                        file_size: record.document.len() as u64,
-                        file_mtime: Some(modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
-                    };
-                    (
-                        catalog.read_record_typed(input, &canonical),
-                        1_u64,
-                        ciphertext_bytes,
-                    )
+                if record.path != path {
+                    return Err(ApiError::internal(
+                        "The hosted encrypted record does not match its requested path.",
+                    ));
                 }
-                None => (catalog.read_record_not_found_typed(input), 0, 0),
+                source_bytes = source_bytes.saturating_add(record.document.len() as u64);
+                if batch.is_some() && source_bytes > MAX_HOSTED_RESOURCE_RECORD_BYTES {
+                    return Err(ApiError::quota(
+                        "hosted_read_capacity_exceeded",
+                        "Document batch exceeds the 32 MiB hydration capacity; split the read.",
+                    ));
+                }
+                ciphertext_bytes = ciphertext_bytes.saturating_add(bytes);
+                records.insert(
+                    path.to_string(),
+                    mdbase::runtime::CanonicalRecordInput {
+                        stable_id: Some(record.record_id.to_string()),
+                        path: record.path,
+                        file_size: record.document.len() as u64,
+                        document: record.document,
+                        file_mtime: Some(modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
+                    },
+                );
             }
+        }
+        let records_fetched = records.len() as u64;
+        let lookup_kind = if batch.is_some() {
+            "path_batch"
         } else {
-            (catalog.read_record_not_found_typed(input), 0, 0)
+            "path_token"
         };
+        let result = if let Some(batch) = &batch {
+            catalog.read_records_typed(batch, &records)
+        } else if let Some(record) = records.values().next() {
+            catalog.read_record_typed(input, record)
+        } else {
+            catalog.read_record_not_found_typed(input)
+        };
+        if started.elapsed() > Duration::from_secs(15) {
+            return Err(ApiError::quota(
+                "hosted_time_budget_exceeded",
+                "Document read exceeded its deadline; split the read.",
+            ));
+        }
         transaction.commit().await?;
         let memory = crate::HostedProcessMemory::capture();
         tracing::info!(
@@ -730,7 +781,7 @@ pub(super) async fn load_direct_record(
     let row = match identity {
         DirectRecordIdentity::StableId(record_id) => {
             sqlx::query(
-                r#"SELECT record_id, sequence, payload_ciphertext, updated_at
+                r#"SELECT record_id, sequence, revision, payload_ciphertext, updated_at
                    FROM hosted_provider_records
                    WHERE collection_id = $1 AND record_id = $2"#,
             )
@@ -741,7 +792,7 @@ pub(super) async fn load_direct_record(
         }
         DirectRecordIdentity::PathToken(token) => {
             sqlx::query(
-                r#"SELECT record_id, sequence, payload_ciphertext, updated_at
+                r#"SELECT record_id, sequence, revision, payload_ciphertext, updated_at
                    FROM hosted_provider_records
                    WHERE collection_id = $1 AND path_token = $2"#,
             )
@@ -763,9 +814,13 @@ pub(super) async fn load_direct_record(
         &ciphertext,
         &current_record_aad(collection_id, record_id, sequence),
     )?;
-    if record.record_id != record_id {
+    if record.record_id != record_id
+        || record.revision != row.get::<String, _>("revision")
+        || record.revision
+            != mdbase::api::Revision::from_document(record.document.as_bytes()).as_str()
+    {
         return Err(ApiError::internal(
-            "The hosted encrypted record identity does not match its metadata.",
+            "The hosted encrypted record identity or source revision does not match its metadata.",
         ));
     }
     Ok(Some((

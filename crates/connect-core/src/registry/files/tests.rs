@@ -2,7 +2,7 @@ use super::*;
 use mdbase::runtime::FilesystemProvider;
 use tempfile::tempdir;
 
-fn registered() -> (
+pub(super) fn registered() -> (
     tempfile::TempDir,
     tempfile::TempDir,
     CollectionRegistry,

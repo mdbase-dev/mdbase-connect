@@ -9,6 +9,8 @@
     { "$ref": "#/$defs/fileDescriptor" },
     { "$ref": "#/$defs/listFilesRequest" },
     { "$ref": "#/$defs/listFilesPage" },
+    { "$ref": "#/$defs/statFileRequest" },
+    { "$ref": "#/$defs/fileStat" },
     { "$ref": "#/$defs/openUploadRequest" },
     { "$ref": "#/$defs/openDownloadRequest" },
     { "$ref": "#/$defs/moveFileRequest" },
@@ -161,7 +163,30 @@
         "protocol_version": { "const": 1 },
         "type": { "const": "files_page" },
         "files": { "type": "array", "items": { "$ref": "#/$defs/fileDescriptor" } },
-        "next": { "type": "string", "minLength": 1 }
+        "next": { "type": "string", "minLength": 1 },
+        "authority_capabilities": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "statFileRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "stat_file" },
+        "path": { "$ref": "#/$defs/path" },
+        "file_id": { "$ref": "#/$defs/uuid" }
+      },
+      "oneOf": [{ "required": ["path"] }, { "required": ["file_id"] }]
+    },
+    "fileStat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "file"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "file_stat" },
+        "file": { "oneOf": [{ "$ref": "#/$defs/fileDescriptor" }, { "type": "null" }] }
       }
     },
     "openUploadRequest": {

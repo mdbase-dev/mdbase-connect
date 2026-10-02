@@ -9,6 +9,8 @@ import {
 import type {
   ConnectRequestOptions,
   QueryInput,
+  QueryMetadataInput,
+  QueryRecord,
   QueryPage,
   QueryPagesOptions,
   QueryResult
@@ -16,17 +18,17 @@ import type {
 
 import { nonNegativeInteger, positiveInteger, queryCursorLease, resultCap } from "./query-pagination-internals.js";
 
-type QueryOperation<Frontmatter extends JsonObject> = (
-  input: QueryInput,
+type QueryOperation<Frontmatter extends JsonObject, Row> = (
+  input: QueryInput | QueryMetadataInput,
   options?: ConnectRequestOptions
-) => Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>>;
+) => Promise<ConnectOutcome<QueryResult<Frontmatter, Row> & { output?: "metadata" }, CollectionQueryProblemCode>>;
 
-export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
-  query: QueryOperation<Frontmatter>,
+export async function* coordinatedQueryPages<Frontmatter extends JsonObject, Row = QueryRecord<Frontmatter>>(
+  query: QueryOperation<Frontmatter, Row>,
   releaseQueryCursor: (cursor: string) => Promise<void>,
-  input: QueryInput = {},
-  options: QueryPagesOptions<Frontmatter> = {}
-): AsyncGenerator<ConnectOutcome<QueryPage<Frontmatter>, CollectionQueryProblemCode>> {
+  input: QueryInput | QueryMetadataInput = {},
+  options: QueryPagesOptions<Frontmatter, Row> = {}
+): AsyncGenerator<ConnectOutcome<QueryPage<Frontmatter, Row> & { output?: "metadata" }, CollectionQueryProblemCode>> {
     const {
       offset: requestedOffset,
       limit: requestedLimit,
@@ -58,7 +60,8 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
         const automaticCursorProbe = pageNumber === 0
           && requestedCursor === undefined
           && requestedPagination === undefined
-          && requestedSnapshot === undefined;
+          && requestedSnapshot === undefined
+          && input.output !== "metadata";
         let queried = await query({
           ...criteria,
           // Initial size is portable across authorities; continuations use the
@@ -133,7 +136,8 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
         const results = result.results.length > remaining ? result.results.slice(0, remaining) : result.results;
         loaded += results.length;
         const complete = loaded >= maxResults || !result.meta?.hasMore || result.results.length === 0;
-        const page: QueryPage<Frontmatter> = {
+        const page: QueryPage<Frontmatter, Row> & { output?: "metadata" } = {
+          ...(result.output ? { output: result.output } : {}),
           results,
           ...(result.meta ? { meta: result.meta } : {}),
           page: pageNumber,

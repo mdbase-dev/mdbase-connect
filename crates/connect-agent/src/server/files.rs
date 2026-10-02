@@ -1,12 +1,12 @@
 use super::*;
 use mdbase_connect_protocol::{
     AbortFileTransferRequest, CommitFileUploadRequest, DeleteFileRequest, FileAction, FileFrame,
-    FileFrameHeader, FileFrameKind, FileScope, FileTransferBinding, FileTransferCipher,
-    FileTransferDirection, FileTransferProtection, FileTransferStrategy,
+    FileFrameHeader, FileFrameKind, FileScope, FileStat, FileStatKind, FileTransferBinding,
+    FileTransferCipher, FileTransferDirection, FileTransferProtection, FileTransferStrategy,
     GetFileTransferStatusRequest, ListFilesPage, ListFilesPageKind, ListFilesRequest,
     MoveFileRequest, OpenFileDownloadRequest, OpenFileUploadRequest, RelayFileFrame,
-    RelayFileHeader, RelayFileKind, FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
-    RELAY_FILE_PROTOCOL_VERSION,
+    RelayFileHeader, RelayFileKind, StatFileRequest, FILE_PROTOCOL_VERSION,
+    FILE_TRANSFER_PROTOCOL_VERSION, RELAY_FILE_PROTOCOL_VERSION,
 };
 
 impl AgentState {
@@ -99,10 +99,34 @@ impl AgentState {
                     )
                 });
                 serde_json::to_value(ListFilesPage {
+                    authority_capabilities: self
+                        .registry
+                        .get(grant.collection_id)?
+                        .spec_version
+                        .starts_with("0.3")
+                        .then(|| vec!["files-stat-v1".to_string()]),
                     protocol_version: FILE_PROTOCOL_VERSION,
                     message_type: ListFilesPageKind::FilesPage,
                     files,
                     next,
+                })
+                .map_err(ConnectError::from)
+            }
+            "stat_file" => {
+                let request: StatFileRequest = parse_file_control(input)?;
+                let capability = require_file_action(grant, FileAction::List)?;
+                if let Some(path) = &request.path {
+                    require_visible_path(capability, path)?;
+                }
+                let file = self
+                    .registry
+                    .stat_file(grant.collection_id, &request, |path| {
+                        file_visible(capability, path)
+                    })?;
+                serde_json::to_value(FileStat {
+                    protocol_version: FILE_PROTOCOL_VERSION,
+                    message_type: FileStatKind::FileStat,
+                    file,
                 })
                 .map_err(ConnectError::from)
             }

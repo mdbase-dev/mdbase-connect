@@ -9,6 +9,7 @@ mod collections;
 pub(super) mod file_io;
 mod file_sync;
 mod operations;
+mod query_outputs;
 mod runtime_claim_recovery;
 mod runtime_claims;
 mod scope;

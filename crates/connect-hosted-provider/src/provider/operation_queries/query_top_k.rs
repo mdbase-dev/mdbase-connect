@@ -270,13 +270,7 @@ async fn execute_path_keyset_base_page(
             path: result.path.clone(),
             record_id: row.record_id,
         });
-        results.push(json!({
-            "path": result.path,
-            "file": result.file,
-            "effective_frontmatter": result.effective_frontmatter,
-            "types": result.types,
-            "values": result.values,
-        }));
+        results.push(result.to_query_record());
     }
     let result_bytes = serialized_value_bytes(&results);
     let resident_bytes = page
@@ -310,7 +304,8 @@ async fn execute_path_keyset_base_page(
         exact_documents: 0,
         exact_ciphertext_bytes: 0,
         base_path_keyset: true,
-        has_more: plan.offset
+        has_more: plan
+            .offset
             .saturating_add(state.emitted_rows)
             .saturating_add(results.len() as u64)
             < page.total_count,
@@ -618,15 +613,7 @@ async fn execute_bounded_base_page(
     });
     let results = page
         .iter()
-        .map(|item| {
-            json!({
-                "path": item.row.path,
-                "file": item.row.file,
-                "effective_frontmatter": item.row.effective_frontmatter,
-                "types": item.row.types,
-                "values": item.row.values,
-            })
-        })
+        .map(|item| item.row.to_query_record())
         .collect::<Vec<_>>();
     let result_bytes = serialized_value_bytes(&results);
     let group_bytes = groups.as_ref().map_or(0, serialized_value_bytes);

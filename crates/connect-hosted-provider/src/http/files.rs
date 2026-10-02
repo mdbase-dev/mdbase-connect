@@ -3,14 +3,18 @@ use axum::body::Body;
 use axum::response::Response;
 use futures_util::{stream, Stream, StreamExt};
 use mdbase_connect_protocol::{
-    CommitFileUploadReceipt, CommitFileUploadRequest, FileTransferSession,
-    PrepareFileUploadPartRequest, PreparedFilePart,
+    CommitFileUploadReceipt, CommitFileUploadRequest, FileStat, FileTransferSession,
+    PrepareFileUploadPartRequest, PreparedFilePart, StatFileRequest,
 };
 use serde::de::DeserializeOwned;
 
 pub(super) fn file_routes() -> Router<AppState> {
     Router::new()
         .route("/v1/authorities/{collection_id}/files", get(list_files))
+        .route(
+            "/v1/authorities/{collection_id}/files/stat",
+            post(stat_file),
+        )
         .route(
             "/v1/authorities/{collection_id}/files/{file_id}/move",
             post(move_file),
@@ -79,6 +83,24 @@ async fn list_files(
                 },
                 origin.as_deref(),
             )
+            .await?,
+    ))
+}
+
+async fn stat_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Path(collection_id): Path<Uuid>,
+    body: Bytes,
+) -> ApiResult<Json<FileStat>> {
+    let token =
+        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
+    let request = file_json::<StatFileRequest>(&body)?;
+    Ok(Json(
+        state
+            .provider
+            .stat_file(collection_id, token, request, request_origin(&headers))
             .await?,
     ))
 }

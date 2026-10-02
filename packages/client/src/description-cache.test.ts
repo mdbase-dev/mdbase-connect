@@ -5,7 +5,7 @@ import { connectError } from "./errors.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
 
 function description(name = "Notes"): CollectionDescription {
-  return { protocol_version: 3, collection_id: "collection", display_name: name, spec_version: "0.3", operations: ["describe", "changes"], change_cursor: 1, types: [], contracts: [] };
+  return { protocol_version: 1, collection_id: "collection", display_name: name, spec_version: "0.3", operations: ["describe", "changes"], change_cursor: 1, types: [], contracts: [] };
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;

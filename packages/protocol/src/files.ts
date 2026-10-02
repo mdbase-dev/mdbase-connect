@@ -110,7 +110,20 @@ export interface ListFilesRequest {
   limit?: number;
 }
 
+export type StatFileRequest = {
+  protocol_version: 1;
+  type: "stat_file";
+} & ({ path: string; file_id?: never } | { path?: never; file_id: string });
+
+export interface FileStat {
+  protocol_version: 1;
+  type: "file_stat";
+  file: CollectionFileDescriptor | null;
+}
+
 export interface ListFilesPage {
+  /** Authority-local file implementation features, not granted actions. */
+  authority_capabilities?: string[];
   protocol_version: 1;
   type: "files_page";
   files: CollectionFileDescriptor[];

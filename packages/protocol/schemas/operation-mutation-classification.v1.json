@@ -417,6 +417,23 @@
     {
       "operation": "file_control",
       "input": {
+        "type": "stat_file"
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "stat_file",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "file_control",
+      "input": {
         "type": "open_file_upload"
       },
       "schema_version": 1,

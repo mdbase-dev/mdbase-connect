@@ -195,6 +195,17 @@ impl CollectionRegistry {
         contracts
             .sort_by(|left, right| (&left.id, &left.version).cmp(&(&right.id, &right.version)));
         Ok(CollectionDescription {
+            authority_capabilities: (collection.spec_profile() == SpecProfile::V03).then(|| {
+                [
+                    "query-record-revisions-v1",
+                    "read-many-documents-v1",
+                    "query-metadata-v1",
+                    "files-stat-v1",
+                ]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+            }),
             protocol_version: CONTROL_PROTOCOL_VERSION,
             collection_id: registered.id,
             display_name: registered.display_name.clone(),

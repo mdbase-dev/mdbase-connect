@@ -704,6 +704,12 @@ impl CollectionRegistry {
         operation: &str,
         input: &Value,
     ) -> Result<Option<ContractScope>, ConnectError> {
+        if input.get("contract").is_some()
+            && ((operation == "read" && input.get("paths").is_some())
+                || (operation == "query" && input.get("output").is_some()))
+        {
+            return Err(ConnectError::InvalidInput("Contract document batches and metadata output require the B5 contract-query surface.".into()));
+        }
         let portable_selector = matches!(
             operation,
             "query" | "read" | "create" | "update" | "delete" | "rename"

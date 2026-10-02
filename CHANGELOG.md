@@ -8,6 +8,15 @@
   and current assessment failures remain visible. No public API or
   authority protocol changes.
 
+- `readMany(paths, options)` now uses revision-bearing document batches when
+  `read-many-documents-v1` is advertised, retaining typed path queries otherwise
+  with zero extended requests to unsupported authorities. Signature, ordering,
+  duplicates, body/frontmatter options and bounded scheduling remain unchanged.
+  Type filtering stays authority-owned via query preselection; subsequent reads
+  return their own content+revision pair, not a discovery token. Qualified reads
+  require existing read approval. Legacy consumers still need revision reads;
+  exact Markdown and full record documents remain the point-read API.
+
 - Record-session watch following bounds refresh admission to four sessions and
   coalesces event bursts, so a change gap across 1,000 open records no longer
   leaves most records silently stale. Transient read failures retry with
@@ -37,6 +46,27 @@
   typed events and no longer discards configuration/contract changes. Migration:
   use `kind` and typed fields instead of raw-ID heuristics; normalize custom test
   events and pass `fresh: true` when every description must reach the authority.
+
+- The SDK discovers authority-local implementation features through approved
+  descriptions or file listings, sharing in-flight discovery and caching only
+  for the current connection/route lifetime. `files.stat({path}|{fileId})`
+  returns typed metadata/null outcomes with a capability-gated legacy listing
+  fallback. Metadata query output is opt-in and revision-required; unsupported
+  authorities receive no extended requests. Existing query/list callers are
+  unchanged; metadata consumers must retain their ordinary-query branch until
+  minimum-authority, consumer-adoption and rollback gates close. No authority
+  capability is advertised by this SDK change.
+
+- Native v0.3 authorities transport exact-source query revisions, bounded ordered
+  document batches through `read`, and opt-in `output: "metadata"` queries with
+  no full frontmatter/body envelope. Local and hosted adapters share mdbase-rs's
+  evaluators/renderers; contract output variants await B5. Consumers must use B1
+  positive capability discovery and retain old-authority behavior, never infer
+  support from errors. Hosted projection format 9 requires a derived-generation
+  rebuild; query plan 13 invalidates predecessor cursors. Payloads/database schema
+  are not forward-only, but rollback requires predecessor projection rebuilding
+  and cursor restart. See `docs/architecture/sdk-wave-b-authority.md` for limits,
+  migration, rollback and the 30k-row transfer benchmark.
 
 - Directory mirrors (`@mdbase-dev/connect-sync`) recover from routine local
   interference without a person: a scoped blocking issue (an obstruction,

@@ -108,6 +108,12 @@ pub(super) fn execute_runtime_read(
     scope_binding: &str,
     context: &mdbase::runtime::OperationContext,
 ) -> Result<RuntimeExecution, ConnectError> {
+    let output = input
+        .get("output")
+        .cloned()
+        .map(serde_json::from_value::<mdbase::api::QueryOutput>)
+        .transpose()
+        .map_err(|error| ConnectError::InvalidInput(error.to_string()))?;
     match query_cursor_action(request.operation, input)? {
         QueryCursorAction::Ordinary => executor.with_foreground(context, |runtime| {
             let outcome = require_runtime(runtime)?.execute_typed_with_context(request, context)?;
@@ -143,13 +149,13 @@ pub(super) fn execute_runtime_read(
                         })
                 })
                 .transpose()?;
-            let page = executor.read_page(cursor, scope_binding, limit, context)?;
+            let page = executor.read_page(cursor, scope_binding, limit, output, context)?;
             Ok(RuntimeExecution {
                 operation: read_page_operation(page.operation, page.next),
             })
         }
         QueryCursorAction::Release(cursor) => {
-            executor.release_read(cursor, scope_binding, context)?;
+            executor.release_read(cursor, scope_binding, output, context)?;
             Ok(RuntimeExecution {
                 operation: mdbase::runtime::CanonicalOperationOutcome::cursor_release(
                     mdbase::runtime::CursorReleaseOutcome { released: true },
@@ -858,6 +864,7 @@ mod typed_boundary_tests {
         let operation = mdbase::runtime::CanonicalOperationOutcome::try_completed(
             mdbase::runtime::CanonicalOperationValue::Query(Some(
                 mdbase::runtime::CanonicalQueryValue {
+                    output: None,
                     records: vec![mdbase::api::ProjectedValue::new(json!({
                         "path": "tasks/one.md",
                         "types": ["task"]

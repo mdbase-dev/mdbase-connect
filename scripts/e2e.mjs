@@ -1069,6 +1069,32 @@ implements:
         })
       );
     }
+    // Qualify the actual SDK's negotiated native output paths over both local
+    // routes, not just direct provider/engine or mocked transport contracts.
+    const batchPath = sdkQuery.results[0].path;
+    for (const route of ["direct", "relay"]) {
+      if (route === "relay") connection.disableDirectAccess();
+      for (const feature of ["read-many-documents-v1", "query-metadata-v1"]) {
+        if (!requireConnectSuccess(await connection.supportsAuthorityFeature(feature))) {
+          throw new Error(`Qualified local authority omitted ${feature} on ${route}`);
+        }
+      }
+      const metadata = requireConnectSuccess(await connection.query({
+        output: "metadata", where: `file.path == ${JSON.stringify(batchPath)}`, select: ["file.path"]
+      }));
+      const batch = requireConnectSuccess(await connection.readMany(
+        [batchPath, "wave-b-missing.md", batchPath], { includeBody: true, frontmatterMode: "both" }
+      ));
+      const item = batch.results[0];
+      const row = metadata.results[0];
+      if (metadata.output !== "metadata" || metadata.results.length !== 1 || !row.revision
+        || ["frontmatter", "effectiveFrontmatter", "body", "document", "file"].some(key => key in row)
+        || batch.errors.length || item.status !== "found" || item.record.revision !== row.revision
+        || typeof item.record.body !== "string" || !item.record.frontmatter || !item.record.effectiveFrontmatter
+        || batch.results[1].status !== "missing" || batch.results[2] !== item || connection.route !== route) {
+        throw new Error(`SDK native metadata/document coherence failed on ${route}`);
+      }
+    }
   } finally {
     globalThis.fetch = browserFetch;
   }

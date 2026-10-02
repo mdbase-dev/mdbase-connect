@@ -211,6 +211,69 @@ versioned capabilities in their manifest; they never maintain a parallel array
 of protocol operations. Use `getSnapshot()` and `subscribe()` directly or
 through your framework's external-store integration.
 
+### Authority implementation features
+
+`await connection.supportsAuthorityFeature(id, options)` returns a
+`ConnectOutcome<boolean>`, not permission. Discovery uses the current authority's
+approved `describe`, or a one-item file listing within the approved scope for
+file-only connections. Concurrent calls share discovery; each caller retains its
+own cancellation/deadline. Missing or unknown advertisements mean unsupported.
+Discovery failures remain failures, never evidence for a legacy fallback.
+
+`connection.authorityCapabilities` is an immutable, connection-lifetime cache;
+before discovery it is empty. Normalized `describe()` responses also expose
+immutable `authorityCapabilities`. Reauthorization, reconnect, authority
+replacement and direct/relay route changes discard cached support. Nothing is
+persisted, and relay/control-plane capabilities are not authority evidence.
+
+```ts
+const support = await connection.supportsAuthorityFeature("query-metadata-v1");
+if (!support.ok) renderProblem(support.problem);
+else if (support.value) {
+  const result = await connection.query({
+    output: "metadata", select: ["source", "file.path"]
+  });
+  if (result.ok) {
+    // Required path, types, revision and values; no frontmatter/file/body/document.
+    for (const row of result.value.results) useSummary(row.path, row.revision, row.values);
+  }
+} else {
+  // Late-updated authorities: keep the ordinary query, not a metadata cast.
+  const result = await connection.query({ select: ["source", "file.path"] });
+  if (result.ok) useLegacyRows(result.value.results);
+}
+
+const stat = await connection.files.stat({ path: "Assets/book.pdf" });
+// Or: connection.files.stat({ fileId: descriptor.fileId }, { signal });
+if (!stat.ok) renderProblem(stat.problem);
+else if (stat.value) useFile(stat.value); // null means missing or invisible.
+```
+
+`query`, `queryPages` and `queryAll` discriminate metadata rows in their return
+and progress types. Explicit metadata calls require `query-metadata-v1` and fail
+with `unsupported_operation` **before dispatch** when absent. They reject
+`includeBody:true`. Ordinary queries and their inputs remain unchanged; their
+optional `revision` is the authority's exact-source token, not a semantic-cache
+freshness guarantee. Never attach a query token to a later point-read body.
+Advanced `MdbaseCollectionClient` transports may supply the constructor's feature
+helper; without one, metadata is unsupported.
+
+`files.stat` requires existing file **list** approval and returns
+`ConnectOutcome<CollectionFileDescriptor|null>`. When `files-stat-v1` is absent,
+it uses the existing paginated listing: the known folder for a path, the approved
+scope for a file ID, comparing portable file identity. This legacy path is not
+point-cost or an atomic snapshot; listing-reset (`file_list_changed`), denial,
+cancellation and timeout outcomes remain visible. A stat does not reserve bytes:
+downloads still need revision/digest validation.
+
+**Migration:** existing query/list callers need no changes. Writer, Reader,
+TaskNotes and editor can replace point-discovery folder scans with `files.stat`;
+metadata consumers must branch on successful discovery and keep their ordinary
+query path for old authorities. Remove those fallbacks only after the minimum
+supported authority implements the feature, all consumer pins adopt it, and
+N-1/rollback/connection-cache windows close. Feature support never broadens the
+exact local grant. Authorities advertise only after their own qualification.
+
 ### Legacy v1 and capability-group v2 declarations
 
 The same SDK accepts both declaration versions without translating legacy exact
@@ -706,8 +769,15 @@ opt-in total cap; `limit` remains a page-size fallback. `pageSize` sets the init
 cursor size unless `firstPageSize` overrides it; cursor continuations use that
 pinned size. Abort releases even a paused iterator's cursor without needing
 `return()`. `readMany(paths, { includeBody, frontmatterMode, types })` provides
-ordered found/missing/error entries over bounded independent path-query batches.
-It has **no authoritative revisions today**; keep `read()` for editing revisions.
+ordered found/missing/error entries over bounded independent batches. When
+`read-many-documents-v1` is advertised it uses revision-bearing document reads;
+otherwise it retains typed path queries without sending extended inputs. The
+signature and query-shaped result stay unchanged (`includeBody` defaults false,
+`frontmatterMode` defaults effective). A `types` filter is evaluated by an
+authority query before hydration; selection and reads are not one snapshot.
+Qualified reads require existing `read` approval, plus `query` for type selection.
+Legacy revisions remain optional; never infer them from mtime/size or combine a
+query token with later content. Keep `read()` for exact Markdown/full documents.
 `linksTo(field, path)` builds a guarded server-side `asFile()` predicate (use
 `{multiple: true}` for a link list), not a client resolver. See
 [query helper contracts and consumer migration notes](../../docs/sdk-query-helpers.md).

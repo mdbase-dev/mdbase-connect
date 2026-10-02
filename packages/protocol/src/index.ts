@@ -1,5 +1,7 @@
 import { FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES } from "./capabilities.js";
 import type { ConnectProblem } from "./connect-problems.generated.js";
+import type { JsonObject, QueryRecord } from "./records.js";
+export * from "./records.js";
 import type {
   ApplicationFileRequirement,
   LegacyApplicationFileRequirement,
@@ -737,8 +739,6 @@ export interface ConnectorCollection {
   contracts: CollectionContractDescriptor[];
 }
 
-export type JsonObject = Record<string, unknown>;
-
 export interface MdbaseDiagnostic {
   [key: string]: unknown;
   severity: "error" | "warning" | "info";
@@ -870,60 +870,6 @@ export interface SavedViewExecution<Frontmatter extends JsonObject = JsonObject>
   };
 }
 
-export interface CollectionFileMetadata extends JsonObject {
-  name: string;
-  folder: string;
-  size: number;
-  mtime: string;
-  tags?: string[];
-  links?: unknown[];
-  embeds?: unknown[];
-}
-
-export interface DataContractViewIdentity {
-  id: string;
-  version: string;
-  digest: string;
-  type: string;
-  implementation_digest: string;
-}
-
-/**
- * A projected query row. Frontmatter members are optional because
- * `frontmatter_mode` selects which fixed-semantics representation is returned.
- */
-export interface QueryRecord<Frontmatter extends JsonObject = JsonObject> {
-  path: string;
-  frontmatter?: Frontmatter;
-  effective_frontmatter?: Frontmatter;
-  body?: string;
-  types: string[];
-  file: Partial<CollectionFileMetadata> & { path?: string };
-  values?: JsonObject;
-  /** Present when the authority returned a normalized contract projection. */
-  contract?: DataContractViewIdentity;
-}
-
-/** An authoritative record or a field-limited data-contract projection. */
-export interface RecordDocument<Frontmatter extends JsonObject = JsonObject> {
-  path: string;
-  revision: string;
-  types: string[];
-  frontmatter: Frontmatter;
-  effective_frontmatter: Frontmatter;
-  /** Omitted from contract-scoped results. */
-  body?: string;
-  /**
-   * The exact UTF-8 Markdown source, including frontmatter delimiters,
-   * comments, quoting, whitespace, line endings, and trailing newline.
-   * Returned only when the operation requests it.
-   */
-  document?: string;
-  file: Partial<CollectionFileMetadata> & { path?: string };
-  /** Present when the authority returned a normalized contract projection. */
-  contract?: DataContractViewIdentity;
-}
-
 export interface CollectionTypeDescriptor {
   name: string;
   version?: number;
@@ -973,6 +919,8 @@ export interface CollectionContractImplementationDescriptor {
 }
 
 export interface CollectionDescription {
+  /** Authority-local implementation features, not permissions. Absence means legacy. */
+  authority_capabilities?: string[];
   protocol_version: 1;
   collection_id: string;
   display_name: string;

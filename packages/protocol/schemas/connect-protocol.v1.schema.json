@@ -674,10 +674,94 @@
         "display_name": { "type": "string", "minLength": 1 },
         "spec_version": { "type": "string", "minLength": 1 },
         "operations": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/operation" } },
+        "authority_capabilities": { "type": "array", "items": { "type": "string" } },
         "change_cursor": { "type": "integer", "minimum": 0 },
         "types": { "type": "array", "items": { "$ref": "#/$defs/collectionType" } },
         "contracts": { "type": "array", "items": { "$ref": "#/$defs/collectionContract" } },
         "configuration": { "type": "object", "description": "Canonical portable collection settings. Extension and implementation-specific values are omitted." }
+      }
+    },
+    "dataContractSelector": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "type": "string" }, "version": { "type": "string" }, "type": { "type": "string" }
+      }
+    },
+    "readInput": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "paths": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "type": "string", "minLength": 1 } },
+        "include_body": { "type": "boolean", "description": "Batch default true; point-read defaults unchanged." },
+        "include_document": { "type": "boolean", "default": false },
+        "contract": { "$ref": "#/$defs/dataContractSelector" }
+      },
+      "oneOf": [{ "required": ["path"] }, { "required": ["paths"] }],
+      "allOf": [{ "if": { "required": ["contract"] }, "then": { "properties": { "include_document": { "const": false } } } }]
+    },
+    "recordDocument": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "revision", "types", "frontmatter", "effective_frontmatter", "file"],
+      "properties": {
+        "path": { "type": "string" }, "revision": { "type": "string" },
+        "types": { "type": "array", "items": { "type": "string" } },
+        "frontmatter": { "type": "object" }, "effective_frontmatter": { "type": "object" },
+        "body": { "type": "string" }, "document": { "type": "string" },
+        "file": { "type": "object" }, "contract": { "type": "object" }
+      }
+    },
+    "readManyDocumentItem": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false, "required": ["path", "status", "record"],
+          "properties": { "path": { "type": "string" }, "status": { "const": "found" }, "record": { "$ref": "#/$defs/recordDocument" } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["path", "status"],
+          "properties": { "path": { "type": "string" }, "status": { "const": "missing" } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["path", "status", "error"],
+          "properties": {
+            "path": { "type": "string" }, "status": { "const": "error" },
+            "error": {
+              "type": "object", "additionalProperties": false, "required": ["code", "message"],
+              "properties": { "code": { "type": "string" }, "message": { "type": "string" } }
+            }
+          }
+        }
+      ]
+    },
+    "readManyDocumentsResult": {
+      "description": "Ordered items including duplicates. Serialized operation envelope maximum 8 MiB; overflow fails explicitly and asks callers to split, never truncates.",
+      "type": "object", "additionalProperties": false, "required": ["items"],
+      "properties": { "items": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/readManyDocumentItem" } } }
+    },
+    "queryRecord": {
+      "type": "object", "additionalProperties": false, "required": ["path", "types", "file"],
+      "properties": {
+        "path": { "type": "string" }, "revision": { "type": "string" },
+        "types": { "type": "array", "items": { "type": "string" } },
+        "frontmatter": { "type": "object" }, "effective_frontmatter": { "type": "object" },
+        "body": { "type": "string" }, "values": { "type": "object" },
+        "file": { "type": "object" }, "contract": { "type": "object" }
+      }
+    },
+    "queryMetadataRecord": {
+      "type": "object", "additionalProperties": false, "required": ["path", "types", "revision", "values"],
+      "properties": {
+        "path": { "type": "string" }, "revision": { "type": "string" },
+        "types": { "type": "array", "items": { "type": "string" } },
+        "values": { "type": "object" }, "contract": { "type": "object" }
+      }
+    },
+    "queryMetadataResult": {
+      "type": "object", "additionalProperties": false, "required": ["output", "results"],
+      "properties": {
+        "output": { "const": "metadata" },
+        "results": { "type": "array", "items": { "$ref": "#/$defs/queryMetadataRecord" } },
+        "meta": { "type": "object" }
       }
     },
     "collectionType": {

@@ -7,6 +7,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   decodeFileFrame,
+  isMutatingOperation,
   FILE_PROTOCOL_VERSION,
   FILE_TRANSFER_PROTOCOL_VERSION
 } from "@mdbase-dev/connect-protocol";
@@ -123,7 +124,7 @@ export class LocalFileTransport {
       }
       if (response) this.options.onDirectUnavailable();
     }
-    if (triedDirect && method === "GET") {
+    if (triedDirect && !isMutatingOperation("file_control", controlInput)) {
       token = token.expiresAt > Date.now() + 30_000
         ? token
         : await this.options.refreshAuthorization(signal);
@@ -193,7 +194,7 @@ export class LocalFileTransport {
         );
       }
       if (error.code === "fresh_request_required"
-          && method === "GET"
+          && !isMutatingOperation("file_control", localFileControlInput(method, path, input))
           && !freshReadRetried) {
         return this.controlAttempt<Result>(
           token,
@@ -224,7 +225,7 @@ export class LocalFileTransport {
     );
     if (!decrypted.ok
         && decrypted.problem.code === "fresh_request_required"
-        && method === "GET"
+        && !isMutatingOperation("file_control", localFileControlInput(method, path, input))
         && !freshReadRetried) {
       return this.controlAttempt<Result>(
         token,
@@ -744,7 +745,9 @@ function localFileControlInput(
     return transferControl("abort_file_transfer", segments[1]!);
   }
   if (method === "POST" && isRecord(input)) {
-    const expectedType = path === "uploads"
+    const expectedType = path === "stat"
+      ? "stat_file"
+      : path === "uploads"
       ? "open_file_upload"
       : path === "downloads"
         ? "open_file_download"
