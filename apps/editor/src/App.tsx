@@ -279,7 +279,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
   const attachments = useAttachmentUpload({ gateway, inventory: fileController, scope: mutationScope.current,
-    inventoryFiles: fileInventory.files, activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
+    activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
