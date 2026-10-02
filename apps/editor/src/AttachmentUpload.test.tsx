@@ -1,6 +1,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { availableAttachmentPath, useAttachmentUpload } from "./AttachmentUpload";
+import { attachmentUploadFailure, availableAttachmentPath, useAttachmentUpload } from "./AttachmentUpload";
+import { MdbaseConnectError } from "@mdbase-dev/connect";
+import { connectProblem } from "@mdbase-dev/connect/advanced";
 import { CollectionMutationScope } from "./collection-mutation-scope";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { FileInventoryController } from "./file-inventory-controller";
@@ -18,6 +20,46 @@ function harness() {
     activeSession: () => active, setNotice }));
   return { gateway, inventory, scope, setNotice, ...hook, changeNote: () => { active = undefined; } };
 }
+
+describe("attachment failure copy and recovery", () => {
+  it.each([
+    [new Error("The gateway file exceeds this hosted collection’s per-file limit."), "scan.pdf is too large to upload."],
+    [new Error("Gateway file exceeds the 25 MB limit."), "scan.pdf is larger than the 25 MB limit."],
+    [new Error("File exceeds limit: 26214400 bytes."), "scan.pdf is larger than the 26214400 bytes limit."],
+    [new Error("Unsupported media type in gateway validation"), "scan.pdf is a file type that can’t be uploaded."],
+    [new MdbaseConnectError(connectProblem("not_authorized", "Relay grant does not authorize add"), { status: 403 }), "You don’t have permission to upload scan.pdf."],
+    [new Error("Object upload failed with HTTP 403."), "You don’t have permission to upload scan.pdf."],
+    [new Error("Object upload failed with HTTP 415."), "scan.pdf is a file type that can’t be uploaded."],
+    [new Error("Object upload failed with HTTP 413."), "scan.pdf is too large to upload."],
+    [new Error("The note is no longer editable."), "Couldn’t upload scan.pdf."],
+    [new Error("Gateway invariant failed at private/storage/key"), "Couldn’t upload scan.pdf."]
+  ])("permanent errors are plain language and never retryable (%s)", (error, message) => {
+    expect(attachmentUploadFailure("scan.pdf", error)).toEqual({ message, retryable: false });
+    expect(message).not.toMatch(/gateway|relay|private\/storage/iu);
+  });
+
+  it.each([
+    new TypeError("Failed to fetch"),
+    new Error("Network request failed at gateway"),
+    new DOMException("Request timed out at gateway", "TimeoutError"),
+    new Error("Object upload failed with HTTP 503."),
+    new MdbaseConnectError(connectProblem("timeout", "Relay deadline exceeded")),
+    new MdbaseConnectError(connectProblem("temporarily_unavailable", "The file transfer could not be completed."), { cause: new TypeError("Failed to fetch") }),
+    new MdbaseConnectError(connectProblem("hosted_provider_unavailable", "Provider response failed"), { status: 502 })
+  ])("offers Retry for transient errors (%s)", (error) => {
+    const failure = attachmentUploadFailure("scan.pdf", error);
+    expect(failure.retryable).toBe(true);
+    expect(failure.message).toContain("scan.pdf");
+    expect(failure.message).not.toMatch(/gateway|relay|provider|HTTP|deadline/iu);
+  });
+
+  it("never retries an ambiguous write even with a 5xx status", () => {
+    const error = new MdbaseConnectError(connectProblem("temporarily_unavailable", "Commit interrupted", { operationOutcome: "unknown" }), { status: 503 });
+    expect(attachmentUploadFailure("scan.pdf", error)).toEqual({
+      message: "Couldn’t confirm whether scan.pdf was uploaded. Check the collection’s files before uploading again.", retryable: false
+    });
+  });
+});
 
 describe("shared attachment pipeline", () => {
   it("uses the existing note-relative Attachments convention, sanitizes names and dedupes normalized paths", () => {
@@ -77,6 +119,13 @@ describe("shared attachment pipeline", () => {
     scope.changeOwner("other");
     act(() => result.current.reset());
     expect(result.current.insertion).toBeUndefined();
+  });
+
+  it("uses the same plain-language error copy for menu uploads", async () => {
+    const { result, gateway, setNotice } = harness();
+    vi.spyOn(gateway, "uploadFile").mockRejectedValue(new Error("The file exceeds this gateway’s per-file limit."));
+    await act(async () => result.current.attach([new File(["pdf"], "scan.pdf", { type: "application/pdf" })]));
+    expect(setNotice).toHaveBeenLastCalledWith("scan.pdf is too large to upload.");
   });
 
   it("does not insert into a different note after an in-flight upload", async () => {

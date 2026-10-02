@@ -83,8 +83,11 @@ relative paths, and wiki embeds with deterministic normalized matching; unsafe
 schemes, traversal, and ambiguous basenames remain unresolved. The attachment menu, clipboard images and file drops share one upload pipeline
 and the same note-relative attachment location. Paste/drop uses view-local,
 edit-mapped insertion anchors (drop coordinates, not the current selection).
-Uploading and retry/remove widgets never enter the saved Markdown. The file
-commits first; only then does the editor insert an independently undoable
+Image upload widgets occupy their own block even mid-paragraph; completed image
+references are separated from prose by line breaks. Upload and failure widgets
+never enter the saved Markdown. Errors use plain language and only transient
+failures offer Retry; permanent size/type/permission failures offer Remove.
+The file commits first; only then does the editor insert an independently undoable
 Markdown reference. Navigation, removal, deleted anchors and read-only/frozen
 notes cannot receive late references. This makes partial failure explicit: a
 committed file survives even if insertion is removed or the later note save

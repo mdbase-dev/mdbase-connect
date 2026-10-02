@@ -1,7 +1,6 @@
 import { EditorSelection, EditorState, StateEffect, StateField, Transaction, type Extension, type Range, type Text } from "@codemirror/state";
 import { isolateHistory } from "@codemirror/commands";
-import type { AttachmentUploader } from "./AttachmentUpload";
-import { gatewayError } from "./gateway";
+import { attachmentUploadFailure, type AttachmentUploader, type AttachmentUploadFailure } from "./AttachmentUpload";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import { fileAssetKey, isInlinePreviewable, isTextPreviewable } from "./file-reference-resolution";
@@ -147,7 +146,7 @@ interface PendingAttachment {
   id: number;
   position: number;
   file: File;
-  error?: string;
+  error?: AttachmentUploadFailure;
   retry: () => void;
   remove: () => void;
 }
@@ -181,18 +180,20 @@ const pendingAttachments = StateField.define<readonly PendingAttachment[]>({
 class AttachmentWidget extends WidgetType {
   constructor(readonly job: PendingAttachment, readonly disabled: boolean) { super(); }
   eq(other: AttachmentWidget) {
-    return this.job.id === other.job.id && this.job.error === other.job.error && this.disabled === other.disabled;
+    return this.job.id === other.job.id && this.job.error?.message === other.job.error?.message
+      && this.job.error?.retryable === other.job.error?.retryable && this.disabled === other.disabled;
   }
   toDOM() {
-    const widget = document.createElement("span");
-    widget.className = `cm-attachment-upload${this.job.error ? " is-error" : ""}`;
+    const block = isImageAttachment(this.job.file);
+    const widget = document.createElement(block ? "div" : "span");
+    widget.className = `cm-attachment-upload${block ? " is-block" : ""}${this.job.error ? " is-error" : ""}`;
     const label = document.createElement("span");
     label.setAttribute("role", "status");
     label.textContent = this.job.error
-      ? `Couldn’t upload ${this.job.file.name}. ${this.job.error}`
+      ? this.job.error.message
       : `Uploading ${this.job.file.name}…`;
     widget.append(label);
-    for (const [text, action] of this.job.error
+    for (const [text, action] of this.job.error?.retryable
       ? [["Retry", this.job.retry], ["Remove", this.job.remove]] as const
       : [["Remove", this.job.remove]] as const) {
       const button = document.createElement("button");
@@ -209,6 +210,10 @@ class AttachmentWidget extends WidgetType {
   ignoreEvent() { return true; }
 }
 
+function isImageAttachment(file: File): boolean {
+  return file.type.startsWith("image/") || !file.type && /\.(?:png|jpe?g|gif|webp|avif|svg|bmp|ico)$/iu.test(file.name);
+}
+
 export function blockAttachmentInsertion(doc: Text, from: number, to: number, reference: string): string {
   const before = doc.sliceString(Math.max(0, from - 1), from);
   const after = doc.sliceString(to, to + 1);
@@ -219,7 +224,7 @@ export function blockAttachmentInsertion(doc: Text, from: number, to: number, re
 export function attachmentCapture(uploader: () => AttachmentUploader | undefined): Extension {
   return [pendingAttachments, EditorView.decorations.compute([pendingAttachments, EditorState.readOnly], (state) =>
     Decoration.set(state.field(pendingAttachments).map((job) => Decoration.widget({
-      side: 1, widget: new AttachmentWidget(job, state.readOnly)
+      side: 1, block: isImageAttachment(job.file), widget: new AttachmentWidget(job, state.readOnly)
     }).range(job.position)), true)
   ), ViewPlugin.fromClass(class {
     private sequence = 0;
@@ -270,7 +275,9 @@ export function attachmentCapture(uploader: () => AttachmentUploader | undefined
       } catch (error) {
         if (this.destroyed) return;
         const current = this.view.state.field(pendingAttachments).find((job) => job.id === id);
-        if (current) this.view.dispatch({ effects: changeAttachment.of({ ...current, error: gatewayError(error) }) });
+        if (current) this.view.dispatch({ effects: changeAttachment.of({
+          ...current, error: attachmentUploadFailure(current.file.name, error)
+        }) });
       }
     }
   }, { eventHandlers: {

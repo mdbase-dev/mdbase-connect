@@ -1,5 +1,6 @@
 /* Uploads stay at the caret, outside the durable Markdown until the file commits. */
 .code-editor-writer .cm-attachment-upload { display: inline-flex; max-width: 100%; flex-wrap: wrap; align-items: baseline; gap: var(--space-1); margin-inline: var(--space-1); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); background: var(--color-surface-subtle); color: var(--color-text-soft); font: var(--font-size-ui)/1.5 var(--sans); vertical-align: baseline; white-space: normal; overflow-wrap: anywhere; }
+.code-editor-writer .cm-attachment-upload.is-block { display: flex; width: fit-content; margin: var(--space-2) 0; }
 .code-editor-writer .cm-attachment-upload.is-error { color: var(--color-danger); }
 .code-editor-writer .cm-attachment-upload .mdbase-button { flex: none; min-height: 24px; padding: 0 var(--space-1); }
 .code-editor-writer .cm-editor.is-file-drag-over { background: var(--color-accent-soft); }

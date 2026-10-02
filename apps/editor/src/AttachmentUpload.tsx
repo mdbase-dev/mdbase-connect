@@ -1,8 +1,7 @@
 import { useRef, useState } from "react";
-import type { MdbaseFileProgress } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type MdbaseFileProgress } from "@mdbase-dev/connect";
 import { trackMdbaseMarkProgress } from "@mdbase-dev/ui/mark-activity";
 import type { ActionMenuItem } from "./ActionMenu";
-import { gatewayError } from "./gateway";
 import { FilePlusIcon as FilePlus } from "./icons";
 import type { FileInventoryController } from "./file-inventory-controller";
 import type { CollectionFile, CollectionGateway } from "./model";
@@ -10,6 +9,45 @@ import type { NoteSession } from "./note-session";
 import { StaleCollectionOperationError, type CollectionMutationScope } from "./collection-mutation-scope";
 
 export type AttachmentUploader = (file: File) => Promise<string>;
+
+export interface AttachmentUploadFailure {
+  message: string;
+  retryable: boolean;
+}
+
+/** Translate transfer failures, never exposing provider/transport diagnostics in the note. */
+export function attachmentUploadFailure(name: string, error: unknown): AttachmentUploadFailure {
+  const sdk = error instanceof MdbaseConnectError ? error : undefined;
+  const failure = error instanceof Error || error instanceof DOMException ? error : undefined;
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause : undefined;
+  const diagnostic = [failure?.message ?? "", cause?.message ?? ""].join(" ");
+  const status = sdk?.status ?? Number(diagnostic.match(/\bHTTP\s+(\d{3})\b/iu)?.[1]);
+  const permanent = (message: string) => ({ message, retryable: false });
+  if (status === 413 || /too large|per-file limit|exceed.*(?:size|limit)|size.*exceed/iu.test(diagnostic)) {
+    // Current upload errors don't expose a typed byte limit. Use a limit only
+    // when the service actually reports it; never assume a collection's quota.
+    const amount = "(\\d+(?:\\.\\d+)?\\s*(?:bytes|[KMGT]i?B))";
+    const limit = diagnostic.match(new RegExp(`${amount}\\s+(?:(?:file|upload|size)\\s+)?limit`, "iu"))?.[1]
+      ?? diagnostic.match(new RegExp(`(?:limit|maximum file size)\\s*(?:of|is|:|=)?\\s*${amount}`, "iu"))?.[1];
+    return permanent(limit ? `${name} is larger than the ${limit.trim()} limit.` : `${name} is too large to upload.`);
+  }
+  if (status === 415 || /(?:unsupported|invalid) (?:media|file|content) type|file type.*not supported/iu.test(diagnostic)) {
+    return permanent(`${name} is a file type that can’t be uploaded.`);
+  }
+  if (sdk?.problem.category === "authorization" || status === 401 || status === 403
+      || /permission|not authorized|access denied|forbidden/iu.test(diagnostic)) {
+    return permanent(`You don’t have permission to upload ${name}.`);
+  }
+  // An uncertain mutation outcome must be resolved, not uploaded again.
+  if (sdk?.outcomeUnknown) return permanent(`Couldn’t confirm whether ${name} was uploaded. Check the collection’s files before uploading again.`);
+  const timedOut = sdk?.code === "timeout" || failure?.name === "TimeoutError"
+    || /timed? out|timeout/iu.test(diagnostic);
+  const network = /failed to fetch|network(?:error| request| connection| error)|connection (?:lost|reset)/iu.test(diagnostic);
+  const retryable = timedOut || network || status === 408 || status === 429 || status >= 500 && status < 600 || Boolean(sdk?.retryable);
+  if (timedOut) return { message: `Uploading ${name} took too long. Try again.`, retryable };
+  if (network) return { message: `Couldn’t upload ${name}. Check your connection and try again.`, retryable };
+  return { message: retryable ? `Couldn’t upload ${name} right now. Try again shortly.` : `Couldn’t upload ${name}.`, retryable };
+}
 
 interface AttachmentUploadState {
   name: string;
@@ -85,7 +123,7 @@ export function useAttachmentUpload(input: {
         reportProgress((index + 1) / files.length);
       } catch (error) {
         if (!input.scope.isCurrent(token)) return;
-        input.setNotice(`Couldn’t attach “${source.name}”. ${gatewayError(error)}`);
+        input.setNotice(attachmentUploadFailure(source.name, error).message);
         setUpload(undefined);
         return;
       }
