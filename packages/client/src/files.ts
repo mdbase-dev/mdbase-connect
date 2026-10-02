@@ -466,25 +466,9 @@ export class MdbaseFileClient {
     file: CollectionFileDescriptor,
     options: MdbaseFileDownloadOptions = {}
   ): Promise<Blob> {
-    if (file.size > MAX_BUFFERED_DOWNLOAD_BYTES) {
-      throw connectError(
-        "invalid_request",
-        `download() buffers at most ${MAX_BUFFERED_DOWNLOAD_BYTES} bytes; use downloadStream() for larger files.`
-      );
-    }
-    const stream = await this.downloadStream(file, options);
-    const chunks: Uint8Array[] = [];
-    const reader = stream.getReader();
-    while (true) {
-      const result = await reader.read();
-      if (result.done) break;
-      chunks.push(result.value);
-    }
-    return new Blob(chunks.map((chunk) => {
-      const copy = new Uint8Array(chunk.byteLength);
-      copy.set(chunk);
-      return copy.buffer;
-    }), { type: file.mediaType ?? "" });
+    const bytes = await this.downloadBytes(file, options);
+    // downloadBytes owns a full, non-shared ArrayBuffer; Blob snapshots it.
+    return new Blob([bytes.buffer as ArrayBuffer], { type: file.mediaType ?? "" });
   }
 
   /** Download and verify a file with network backpressure and bounded buffering. */
@@ -701,7 +685,29 @@ export class MdbaseFileClient {
     file: CollectionFileDescriptor,
     options: MdbaseFileDownloadOptions = {}
   ): Promise<Uint8Array> {
-    return new Uint8Array(await (await this.download(file, options)).arrayBuffer());
+    if (file.size > MAX_BUFFERED_DOWNLOAD_BYTES) {
+      throw connectError(
+        "invalid_request",
+        `download() buffers at most ${MAX_BUFFERED_DOWNLOAD_BYTES} bytes; use downloadStream() for larger files.`
+      );
+    }
+    const stream = await this.downloadStream(file, options);
+    const bytes = new Uint8Array(file.size);
+    const reader = stream.getReader();
+    let offset = 0;
+    try {
+      while (true) {
+        const result = await reader.read();
+        // Reading through EOF is essential: hosted streams verify their digest
+        // only after the final range ends, not when the last bytes arrive.
+        if (result.done) break;
+        bytes.set(result.value, offset);
+        offset += result.value.byteLength;
+      }
+      return bytes;
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   async move(

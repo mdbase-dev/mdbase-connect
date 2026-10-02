@@ -12,6 +12,22 @@ describe("IncrementalSha256", () => {
       .toBe(expected);
   });
 
+  it.each([0, 1, 55, 56, 63, 64, 65, 119, 120, 127, 128, 129, 1_048_577])(
+    "hashes %i bytes from offset views across padding and block boundaries",
+    (size) => {
+      const backing = Uint8Array.from({ length: size + 19 }, (_, index) => (index * 29 + 17) % 256);
+      const input = backing.subarray(7, 7 + size);
+      const expected = createHash("sha256").update(input).digest("hex");
+      expect(new IncrementalSha256().update(input).digestHex()).toBe(expected);
+      const streamed = new IncrementalSha256();
+      for (let offset = 0; offset < input.length; offset += 71) {
+        streamed.update(input.subarray(offset, offset + 71));
+        streamed.update(new Uint8Array());
+      }
+      expect(streamed.digestHex()).toBe(expected);
+    }
+  );
+
   it("is independent of arbitrary streaming chunk boundaries", () => {
     const input = Uint8Array.from({ length: 131_137 }, (_, index) => (index * 29 + 17) % 256);
     const hash = new IncrementalSha256();

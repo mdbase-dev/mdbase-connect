@@ -55,7 +55,7 @@ export class IncrementalSha256 {
       }
     }
     while (offset + 64 <= input.byteLength) {
-      this.compress(input.subarray(offset, offset + 64));
+      this.compress(input, offset);
       offset += 64;
     }
     if (offset < input.byteLength) {
@@ -85,10 +85,10 @@ export class IncrementalSha256 {
       .join("");
   }
 
-  private compress(block: Uint8Array): void {
+  private compress(block: Uint8Array, blockOffset = 0): void {
     const words = this.words;
     for (let index = 0; index < 16; index += 1) {
-      const offset = index * 4;
+      const offset = blockOffset + index * 4;
       words[index] = (
         (block[offset] << 24)
         | (block[offset + 1] << 16)

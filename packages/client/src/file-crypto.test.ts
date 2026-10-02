@@ -124,6 +124,36 @@ describe("file transfer encryption", () => {
     );
   });
 
+  it("encrypts only a plaintext view and snapshots it before caller mutation", async () => {
+    const { applicationCipher, connectorCipher, header } = await fixture();
+    const backing = new TextEncoder().encode("prefixhello binarysuffix");
+    const plaintext = backing.subarray(6, 18);
+    const pending = applicationCipher.encryptChunk("upload_chunk", header, plaintext);
+    backing.fill(0);
+    const encoded = await pending;
+    const envelope = new Uint8Array(encoded.length + 19);
+    envelope.set(encoded, 7);
+    expect(new TextDecoder().decode(await connectorCipher.decryptChunk(
+      envelope.subarray(7, 7 + encoded.length)
+    ))).toBe("hello binary");
+  });
+
+  it("copies shared plaintext because WebCrypto does not accept shared buffers", async () => {
+    const { applicationCipher, connectorCipher, header } = await fixture();
+    const backing = new Uint8Array(new SharedArrayBuffer(24));
+    backing.set(new TextEncoder().encode("hello binary"), 5);
+    const encoded = await applicationCipher.encryptChunk("upload_chunk", header, backing.subarray(5, 17));
+    expect(new TextDecoder().decode(await connectorCipher.decryptChunk(encoded))).toBe("hello binary");
+  });
+
+  it("rejects truncated and extended encrypted frames", async () => {
+    const { applicationCipher, connectorCipher, header } = await fixture();
+    const encoded = await applicationCipher.encryptChunk("upload_chunk", header, new TextEncoder().encode("hello binary"));
+    for (const damaged of [encoded.slice(0, -1), new Uint8Array([...encoded, 0])]) {
+      await expect(connectorCipher.decryptChunk(damaged)).rejects.toMatchObject({ code: "invalid_length" });
+    }
+  });
+
   it("rejects transfer substitution before attempting decryption", async () => {
     const { applicationCipher, binding, header } = await fixture();
     const encoded = await applicationCipher.encryptChunk(
