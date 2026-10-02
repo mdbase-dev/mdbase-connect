@@ -161,7 +161,9 @@ fn stat_rejects_symlinks_and_ambiguous_portable_aliases() {
         .stat_file(id, &request(Some("link.bin"), None), |_| true)
         .is_err());
     fs::write(root.path().join("FILE.bin"), b"alias").unwrap();
-    if fs::read_dir(root.path()).unwrap().count() == 4 {
+    // Case-insensitive filesystems overwrite file.bin rather than creating an
+    // ambiguous alias. Probe the contents, not the fixture's directory count.
+    if fs::read(root.path().join("file.bin")).unwrap() == b"safe" {
         assert_eq!(
             registry
                 .stat_file(id, &request(Some("file.bin"), None), |_| true)
