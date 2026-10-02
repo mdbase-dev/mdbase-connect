@@ -12,8 +12,8 @@ if (initialScripts.length === 0 || styles.length === 0) {
 
 const limits = {
   initialJavaScript: 200 * 1024,
-  // Includes @mdbase-dev/ui's tokens, controls, brand and screens, shared with Reader and Writer.
-  initialCss: 41 * 1024
+  // Includes @mdbase-dev/ui's tokens, controls, brand, screens and mark motion, shared with Reader and Writer.
+  initialCss: 42 * 1024
 };
 
 const initialJavaScript = await compressedBytes(initialScripts);

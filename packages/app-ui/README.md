@@ -22,7 +22,16 @@ applyThemePreference(loadThemePreference());
   as `--ink` belong to each app.
 - `theme` stores the System, Light or Dark choice as `mdbase:theme`.
 - `brand` draws the Frontmatter mark, each app's inverted mark, and the
-  `mdbase <app>` wordmark. Add `motion.css` to animate the mark.
+  `mdbase <app>` wordmark. Add `motion.css` to animate the mark: loops
+  (`orbit`, `scan`, `bounce`, `stream`, `sort`, `hop`), entrances
+  (`keys-first`, `drop`, `assemble`), one-shot `saved`/`error` signals, and a
+  `progress` fill.
+- `mark-activity` is the page-wide store behind the app switcher's mark.
+  `SaveNotice` already reports saves and problems to it. For other work, call
+  `signalMdbaseMark("saved" | "error")` when a write the person made finishes,
+  `trackMdbaseMarkProgress()` (or `useMdbaseMarkProgress(fraction)`) when the
+  total is known, and `holdMdbaseMarkBusy(loop)` (or `useMdbaseMarkBusy`) while
+  it is not.
 - `apps` lists the mdbase apps and builds links that open the current
   collection in another app. Lab and local builds pass their own URLs to
   `withAppUrls`.

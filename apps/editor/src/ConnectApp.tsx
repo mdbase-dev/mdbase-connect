@@ -781,13 +781,15 @@ function RouteLink({ view, collectionId, navigate, children, className = "", ari
   return <a className={className} href={connectViewUrl(view, collectionId)} aria-label={ariaLabel} aria-current={ariaCurrent} onClick={activate}>{children}</a>;
 }
 
+const connectLoadingFailed = { kind: "error", id: 1 } as const;
+
 function ConnectLoading({ error }: { error: string }) {
   const { reportError } = useFeedback();
   const reportedInitialFailure = useRef(false);
   useEffect(() => {
     if (error && !reportedInitialFailure.current) { reportedInitialFailure.current = true; reportError({ code: "unknown_error" }); }
   }, [error, reportError]);
-  return <div className="connect-loading" aria-busy={!error}><MdbaseMark className="wordmark-mark" /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p><FeedbackButton topic={error ? "problem" : undefined} /></div>;
+  return <div className="connect-loading" aria-busy={!error}><MdbaseMark motion="orbit" signal={error ? connectLoadingFailed : null} className="wordmark-mark" /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p><FeedbackButton topic={error ? "problem" : undefined} /></div>;
 }
 
 function DesktopRecoveryHelp({ action }: { action: string }) {

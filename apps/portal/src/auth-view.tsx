@@ -12,7 +12,7 @@ import { Loading, PageBrand } from "./portal-ui";
 function MinimalAuthPage({ children }: { children: React.ReactNode }) {
   return <div className="minimal-auth-shell">
     <main className="center-page minimal-auth-page">
-      <PageBrand label="connect" />
+      <PageBrand label="connect" markMotion="drop" />
       {children}
     </main>
     <footer className="minimal-auth-footer">
@@ -223,7 +223,7 @@ export function ForgotPassword() {
   const available = config.password_recovery === true;
   return (
     <main className="center-page">
-      <PageBrand label="connect" />
+      <PageBrand label="connect" busy={busy} error={error} />
       <section className="auth-panel">
         <p className="eyebrow">Account recovery</p>
         <h1>{submitted ? "Check your email." : "Reset your password"}</h1>
@@ -348,7 +348,7 @@ export function ResetPassword({ resetToken }: { resetToken: string }) {
   const ready = Boolean(resetToken && config.password_login);
   return (
     <main className="center-page">
-      <PageBrand label="connect" />
+      <PageBrand label="connect" busy={busy} error={error} />
       <section className="auth-panel">
         <p className="eyebrow">Account recovery</p>
         <h1>{completed

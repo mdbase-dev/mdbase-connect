@@ -698,18 +698,22 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     const abortAssessment = () => controller.abort(options?.signal?.reason);
     if (options?.signal?.aborted) abortAssessment();
     else options?.signal?.addEventListener("abort", abortAssessment, { once: true });
-    let assessed;
+    let outcome;
     let contractsVerified;
     try {
-      [assessed, contractsVerified] = await Promise.all([
+      [outcome, contractsVerified] = await Promise.all([
         timeStartupRead("setup-assessment", () => connection.assessCollectionSetup(initialInput, { ...options, signal: controller.signal })), verification
       ]);
+    } catch (error) {
+      // Only expected cancellation of an obsolete verification is not a startup fault.
+      if (generation !== this.verificationGeneration && controller.signal.aborted
+        && (error === controller.signal.reason || (error instanceof MdbaseConnectError && error.code === "operation_cancelled"))) return;
+      throw error;
     } finally {
       options?.signal?.removeEventListener("abort", abortAssessment);
       controller.abort();
       if (this.readinessController === controller) this.readinessController = undefined;
     }
-    let outcome = assessed;
     if (generation !== this.verificationGeneration) return;
     if (!outcome.ok) {
       this.publish(outcome.problem.code === "application_declaration_mismatch"

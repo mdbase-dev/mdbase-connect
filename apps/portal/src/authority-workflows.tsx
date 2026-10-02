@@ -43,7 +43,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   if (!pairing) return <Loading error={error} onRetry={() => { if (error) { setError(""); setAttempt((value) => value + 1); } }} />;
   return (
     <main className="center-page">
-      <PageBrand label="Computer pairing" />
+      <PageBrand label="Computer pairing" error={error} />
       <section className="decision-panel">
         {deepLink ? <><p className="eyebrow">Computer approved</p><h1>Return to mdbase connect.</h1><p>The desktop app will finish securely. No connector token was displayed or copied.</p><a className="button primary link-button" href={deepLink}>Open mdbase connect</a></> : <><p className="eyebrow">New computer</p><h1>{pairing.connector_name}</h1><p>Allow this computer to connect to your account. It will publish collection names and route application requests, but not local folder paths.</p>{error && <div className="message error">{error}</div>}<div className="decision-actions"><a className="button secondary link-button" href="/">Cancel</a><button className="button primary" onClick={() => void approve()}>Approve computer</button></div></>}
       </section>
@@ -119,7 +119,7 @@ export function MirrorPairing({ pairingId }: { pairingId: string }) {
   const selected = request.collections.find((collection) => collection.id === collectionId);
   return (
     <main className="center-page">
-      <PageBrand label="Folder sync" />
+      <PageBrand label="Folder sync" busy={busy} error={error} />
       <section className="decision-panel">
         {approved ? <>
           <p className="eyebrow outcome-label">Folder approved</p>
@@ -224,7 +224,7 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
   const inactive = adoption.state === "cancelled" || adoption.state === "expired";
   return (
     <main className="center-page">
-      <PageBrand label="Move collection online" />
+      <PageBrand label="Move collection online" busy={busy} error={error} />
       <section className="decision-panel authority-decision">
         {adoption.state === "completed" ? <>
           <p className="eyebrow outcome-label">Move complete</p>
@@ -345,7 +345,7 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
   const inactive = transfer.state === "cancelled" || transfer.state === "expired";
   return (
     <main className="center-page">
-      <PageBrand label="Move main copy" />
+      <PageBrand label="Move main copy" busy={busy} error={error} />
       <section className="decision-panel authority-decision">
         {transfer.state === "completed" ? <>
           <p className="eyebrow outcome-label">Transfer complete</p>

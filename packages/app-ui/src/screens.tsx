@@ -4,8 +4,9 @@ import type { MdbaseAppId } from "./apps.js";
 import { Wordmark } from "./brand.js";
 
 /**
- * What an app shows while it opens a collection: its wordmark, held still, and a quiet line
- * saying what it is waiting for. A failure keeps the same place and offers a retry.
+ * What an app shows while it opens a collection: its wordmark, scanning, and a quiet line
+ * saying what it is waiting for. A failure keeps the same place, shakes the mark once and
+ * offers a retry.
  */
 export function OpeningScreen({ app, title, detail, error, onRetry }: {
   readonly app: MdbaseAppId;
@@ -16,7 +17,7 @@ export function OpeningScreen({ app, title, detail, error, onRetry }: {
 }): JSX.Element {
   return <main className="mdbase-opening" data-loading-state={error ? "failed" : "opening"} aria-label={title} aria-busy={!error}>
     <div className="mdbase-opening-message" role={error ? "alert" : "status"}>
-      <Wordmark app={app} />
+      <Wordmark app={app} motion="scan" signal={error ? openingFailed : null} />
       <div>
         <p>{error ?? title}</p>
         {!error && detail && <small>{detail}</small>}
@@ -25,6 +26,8 @@ export function OpeningScreen({ app, title, detail, error, onRetry }: {
     </div>
   </main>;
 }
+
+const openingFailed = { kind: "error", id: 1 } as const;
 
 /**
  * The screen before a collection is open: the app's wordmark, a headline, what the app will
@@ -44,7 +47,7 @@ export function ConnectLayout({ app, title, lead, status, error, detail, footnot
 }): JSX.Element {
   return <main className="mdbase-connect-screen">
     <section>
-      <Wordmark app={app} />
+      <Wordmark app={app} motion="assemble" />
       <h1>{title}</h1>
       {lead && <p className="mdbase-connect-lead">{lead}</p>}
       {status && status !== error && <p className="mdbase-connect-status" role="status">{status}</p>}

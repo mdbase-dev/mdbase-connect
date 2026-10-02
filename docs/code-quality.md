@@ -14,6 +14,14 @@ one extracted portal review component adds one TypeScript export (2466 → 2467)
 File-size, package-count, and cycle limits are unchanged. Upgrade semantics stay
 in the collection engine, not Connect adapters.
 
+The mark-motion vocabulary adds one production module (730 → 731; app-ui
+16 → 17): `mark-activity.ts`, the page-wide store that lets a save, failure,
+upload or busy state anywhere in an app reach the app switcher's mark without
+threading state through the tree. Its public API, the loop and entrance lists,
+the signal and progress types, and `saveToneSignal` raise TypeScript exports
+from 2622 to 2639; its wiring into `SaveNotice`, `AppSwitcher` and itself adds
+four relative imports (1593 → 1597).
+
 ## Reviewed recovery and review boundaries
 
 The user-experience recovery changes add five net production modules (717 → 722):
@@ -142,11 +150,12 @@ Shared private feedback moves the Editor-owned form, capture/diagnostics helpers
 and Turnstile widget into four cohesive `packages/app-ui` modules: the provider,
 bounded schema/media helpers, raster markup, and verification loader. It deletes
 the old local Turnstile module and replaces the local form/helper implementation,
-for three net production files (733 total), six net relative imports (1,599), and
-19 conservative TypeScript export references (2,641). The UI package inventory
-moves from 16 to 20 files; no dependency, package, or 1,000-line limit changes.
+for three net production files (734 total), six net relative imports (1,603), and
+19 conservative TypeScript export references (2,658), including the current
+mark-motion and startup-cancellation changes on main. The UI package inventory
+moves from 17 to 21 files; no dependency, package, or 1,000-line limit changes.
 The mobile-history guard moves to the existing state-types module, lowering
-Editor's legacy file cap from 2,273 to 2,268. Form/consent/retry/verification tests,
+Editor's legacy file cap from 2,277 to 2,270. Form/consent/retry/verification tests,
 legacy and v2 Worker fixtures, axe/keyboard blackout checks, and positive-control
 real tab capture justify the boundaries; see [shared feedback](shared-feedback.md).
 This creates no collection semantics, storage, or second email transport.

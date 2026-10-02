@@ -1,198 +1,306 @@
-/* Animations for the platform mark. Base mark styling lives in brand.css. */
+/*
+ * Animations for the Frontmatter mark. Base mark styling lives in brand.css.
+ * Colours go through --mark-ink and --mark-accent so the platform mark and the
+ * inverted app marks share every animation.
+ */
 
-/* Bootstrap: trace once in reading order, then continue as bounded I/O. */
-.mdbase-motion-bootstrap .mdbase-mark-segment {
-  --mdbase-trace-delay: 0ms;
-  stroke: currentColor;
-  stroke-width: 3;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  vector-effect: non-scaling-stroke;
-  animation: mdbase-trace-ink 720ms cubic-bezier(0.16, 1, 0.3, 1) var(--mdbase-trace-delay) 1 both;
-}
+/* Each segment's place in reading order, and where assemble scatters it from. */
+.mdbase-mark-segment-1 { --step: 0; --scatter: translate(-18px, -22px) rotate(-24deg); }
+.mdbase-mark-segment-2 { --step: 1; --scatter: translate(6px, -30px) rotate(18deg); }
+.mdbase-mark-segment-3 { --step: 2; --scatter: translate(26px, -18px) rotate(-12deg); }
+.mdbase-mark-segment-4 { --step: 3; --scatter: translate(-30px, 4px) rotate(30deg); }
+.mdbase-mark-segment-5 { --step: 4; --scatter: translate(34px, 6px) rotate(-20deg); }
+.mdbase-mark-segment-6 { --step: 5; --scatter: translate(-24px, 26px) rotate(16deg); }
+.mdbase-mark-segment-7 { --step: 6; --scatter: translate(22px, 30px) rotate(-28deg); }
+.mdbase-mark-segment-8 { --step: 7; --scatter: translate(-14px, 34px) rotate(22deg); }
+.mdbase-mark-segment-9 { --step: 8; --scatter: translate(8px, 40px) rotate(-16deg); }
+.mdbase-mark-segment-10 { --step: 9; --scatter: translate(30px, 24px) rotate(26deg); }
 
-.mdbase-motion-bootstrap .mdbase-mark-accent {
-  stroke: var(--color-accent);
-  animation-name: mdbase-trace-accent;
-}
+/* ---------- Loops ---------- */
 
-.mdbase-motion-bootstrap .mdbase-mark-segment-2 { --mdbase-trace-delay: 35ms; }
-.mdbase-motion-bootstrap .mdbase-mark-segment-3 { --mdbase-trace-delay: 70ms; }
-.mdbase-motion-bootstrap .mdbase-mark-segment-4 { --mdbase-trace-delay: 125ms; }
-.mdbase-motion-bootstrap .mdbase-mark-segment-5 { --mdbase-trace-delay: 165ms; }
-.mdbase-motion-bootstrap .mdbase-mark-segment-6 { --mdbase-trace-delay: 220ms; }
-.mdbase-motion-bootstrap .mdbase-mark-segment-7 { --mdbase-trace-delay: 260ms; }
-.mdbase-motion-bootstrap .mdbase-mark-segment-8 { --mdbase-trace-delay: 315ms; }
-.mdbase-motion-bootstrap .mdbase-mark-segment-9 { --mdbase-trace-delay: 350ms; }
-.mdbase-motion-bootstrap .mdbase-mark-segment-10 { --mdbase-trace-delay: 385ms; }
-
-.mdbase-motion-bootstrap .mdbase-mark-fence {
-  animation: mdbase-hide-original-fence 1ms linear 1.12s 1 forwards;
-}
-
-.mdbase-motion-bootstrap .mdbase-mark-conveyor-track {
-  animation:
-    mdbase-show-conveyor 1ms linear 1.12s 1 forwards,
-    mdbase-gap-conveyor 900ms linear 1.12s infinite;
-}
-
-@keyframes mdbase-trace-ink {
-  0% {
-    fill: transparent;
-    opacity: 0;
-    stroke-dashoffset: 1;
-    stroke-opacity: 1;
-  }
-  10% { opacity: 1; }
-  54% {
-    fill: transparent;
-    opacity: 1;
-    stroke-dashoffset: 0;
-    stroke-opacity: 1;
-  }
-  72%,
-  100% {
-    fill: currentColor;
-    opacity: 1;
-    stroke-dashoffset: 0;
-    stroke-opacity: 0;
-  }
-}
-
-@keyframes mdbase-trace-accent {
-  0% {
-    fill: transparent;
-    opacity: 0;
-    stroke-dashoffset: 1;
-    stroke-opacity: 1;
-  }
-  10% { opacity: 1; }
-  54% {
-    fill: transparent;
-    opacity: 1;
-    stroke-dashoffset: 0;
-    stroke-opacity: 1;
-  }
-  72%,
-  100% {
-    fill: var(--color-accent);
-    opacity: 1;
-    stroke-dashoffset: 0;
-    stroke-opacity: 0;
-  }
-}
-
-@keyframes mdbase-hide-original-fence {
-  to { opacity: 0; }
-}
-
-@keyframes mdbase-show-conveyor {
-  to { opacity: 1; }
-}
-
-/* Unfold: the frontmatter boundary opens once to reveal its fields. */
-.mdbase-motion-unfold .mdbase-mark-fence-top {
-  animation: mdbase-unfold-top 760ms cubic-bezier(0.16, 1, 0.3, 1) 1 both;
-}
-
-.mdbase-motion-unfold .mdbase-mark-fence-bottom {
-  animation: mdbase-unfold-bottom 760ms cubic-bezier(0.16, 1, 0.3, 1) 1 both;
-}
-
-.mdbase-motion-unfold .mdbase-mark-row {
-  animation: mdbase-unfold-row 760ms cubic-bezier(0.16, 1, 0.3, 1) 70ms 1 both;
-}
-
-@keyframes mdbase-unfold-top {
-  from { transform: translateY(27px) scaleX(0.62); }
-  to { transform: translateY(0) scaleX(1); }
-}
-
-@keyframes mdbase-unfold-bottom {
-  from { transform: translateY(-27px) scaleX(0.62); }
-  to { transform: translateY(0) scaleX(1); }
-}
-
-@keyframes mdbase-unfold-row {
-  from { opacity: 0; transform: scaleX(0.45); }
-  to { opacity: 1; transform: scaleX(1); }
-}
-
-/* Rebalance: two fixed-width rows change structure in opposite directions. */
-.mdbase-motion-rebalance .mdbase-mark-segment-4,
-.mdbase-motion-rebalance .mdbase-mark-segment-6 {
-  transform-origin: left center;
-}
-
-.mdbase-motion-rebalance .mdbase-mark-segment-5,
-.mdbase-motion-rebalance .mdbase-mark-segment-7 {
-  transform-origin: right center;
-}
-
-.mdbase-motion-rebalance .mdbase-mark-segment-4 {
-  animation: mdbase-rebalance-top-key 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-
-.mdbase-motion-rebalance .mdbase-mark-segment-5 {
-  animation: mdbase-rebalance-top-value 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-
-.mdbase-motion-rebalance .mdbase-mark-segment-6 {
-  animation: mdbase-rebalance-bottom-key 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-
-.mdbase-motion-rebalance .mdbase-mark-segment-7 {
-  animation: mdbase-rebalance-bottom-value 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-
-@keyframes mdbase-rebalance-top-key {
-  0%, 15%, 100% { transform: scaleX(1); }
-  42%, 72% { transform: scaleX(2.666667); }
-}
-
-@keyframes mdbase-rebalance-top-value {
-  0%, 15%, 100% { transform: scaleX(1); }
-  42%, 72% { transform: scaleX(0.642857); }
-}
-
-@keyframes mdbase-rebalance-bottom-key {
-  0%, 15%, 100% { transform: scaleX(1); }
-  42%, 72% { transform: scaleX(0.428571); }
-}
-
-@keyframes mdbase-rebalance-bottom-value {
-  0%, 15%, 100% { transform: scaleX(1); }
-  42%, 72% { transform: scaleX(1.4); }
-}
-
-/* Conveyor: repeated fence segments travel left inside exact fence clips. */
-.mdbase-motion-conveyor .mdbase-mark-fence {
+/* Orbit: the fences run in opposite directions, so the mark reads as turning. */
+.mdbase-motion-orbit .mdbase-mark-fence {
   opacity: 0;
 }
 
-.mdbase-motion-conveyor .mdbase-mark-conveyor-track {
-  opacity: 1;
-  animation: mdbase-gap-conveyor 900ms linear infinite;
+.mdbase-motion-orbit .mdbase-mark-track-top {
+  animation: mdbase-orbit-right 1.3s linear infinite;
 }
 
-@keyframes mdbase-gap-conveyor {
+.mdbase-motion-orbit .mdbase-mark-track-bottom {
+  animation: mdbase-orbit-left 1.3s linear infinite;
+}
+
+@keyframes mdbase-orbit-right {
+  from { transform: translateX(0); }
+  to { transform: translateX(28px); }
+}
+
+@keyframes mdbase-orbit-left {
   from { transform: translateX(0); }
   to { transform: translateX(-28px); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .mdbase-mark .mdbase-mark-segment,
-  .mdbase-mark .mdbase-mark-row,
-  .mdbase-mark .mdbase-mark-fence,
-  .mdbase-mark .mdbase-mark-conveyor-track {
-    animation: none !important;
-    filter: none !important;
+/* Scan: a brightness band reads the record line by line. */
+.mdbase-motion-scan :is(.mdbase-mark-fence, .mdbase-mark-row) {
+  opacity: 0.35;
+  animation: mdbase-scan 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+}
+
+.mdbase-motion-scan .mdbase-mark-row-top { animation-delay: 0.14s; }
+.mdbase-motion-scan .mdbase-mark-row-bottom { animation-delay: 0.28s; }
+.mdbase-motion-scan .mdbase-mark-fence-bottom { animation-delay: 0.42s; }
+
+@keyframes mdbase-scan {
+  0% { opacity: 0.35; }
+  14% { opacity: 1; }
+  46%, 100% { opacity: 0.35; }
+}
+
+/* Bounce: the fence dashes hop like a typing indicator, the bottom fence mirrored. */
+.mdbase-motion-bounce .mdbase-mark-fence .mdbase-mark-segment {
+  animation: mdbase-bounce-up 1.2s cubic-bezier(0.45, 0, 0.55, 1) infinite both;
+}
+
+.mdbase-motion-bounce .mdbase-mark-fence-bottom .mdbase-mark-segment {
+  animation-name: mdbase-bounce-down;
+}
+
+.mdbase-motion-bounce :is(.mdbase-mark-segment-2, .mdbase-mark-segment-9) { animation-delay: 0.14s; }
+.mdbase-motion-bounce :is(.mdbase-mark-segment-3, .mdbase-mark-segment-10) { animation-delay: 0.28s; }
+
+@keyframes mdbase-bounce-up {
+  0%, 40%, 100% { transform: translateY(0); }
+  20% { transform: translateY(-5px); }
+}
+
+@keyframes mdbase-bounce-down {
+  0%, 40%, 100% { transform: translateY(0); }
+  20% { transform: translateY(5px); }
+}
+
+/* Stream: records pass through the fences, as in a sync. The rows are clipped to the frame. */
+.mdbase-motion-stream .mdbase-mark-row {
+  animation: mdbase-stream 2.2s infinite;
+}
+
+.mdbase-motion-stream .mdbase-mark-row-bottom {
+  animation-delay: 0.1s;
+}
+
+@keyframes mdbase-stream {
+  0%, 30% {
     opacity: 1;
-    stroke: none;
+    transform: translateX(0);
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+  48% { opacity: 0; transform: translateX(-44px); }
+  48.01% {
+    opacity: 0;
+    transform: translateX(44px);
+    animation-timing-function: cubic-bezier(0, 0.55, 0.45, 1);
+  }
+  70%, 100% { opacity: 1; transform: translateX(0); }
+}
+
+/* Sort: the two fields swap places, one passing behind the other. */
+.mdbase-motion-sort .mdbase-mark-row-top {
+  animation: mdbase-sort-top 3s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.mdbase-motion-sort .mdbase-mark-row-bottom {
+  animation: mdbase-sort-bottom 3s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes mdbase-sort-top {
+  0%, 15% { opacity: 1; transform: translateY(0); }
+  27% { opacity: 0.25; }
+  40%, 65% { opacity: 1; transform: translateY(22px); }
+  77% { opacity: 0.25; }
+  90%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes mdbase-sort-bottom {
+  0%, 15% { transform: translateY(0); }
+  40%, 65% { transform: translateY(-22px); }
+  90%, 100% { transform: translateY(0); }
+}
+
+/* Hop: the highlight moves from one value to the other and back. */
+.mdbase-motion-hop .mdbase-mark-segment-5 {
+  animation: mdbase-hop-from 2.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.mdbase-motion-hop .mdbase-mark-segment-7 {
+  animation: mdbase-hop-to 2.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes mdbase-hop-from {
+  0%, 38%, 100% { fill: var(--mark-accent); }
+  50%, 88% { fill: var(--mark-ink); }
+}
+
+@keyframes mdbase-hop-to {
+  0%, 38%, 100% { fill: var(--mark-ink); }
+  50%, 88% { fill: var(--mark-accent); }
+}
+
+/* ---------- Entrances ---------- */
+
+/* Keys first: the fences open from their middle dash, keys appear, values extend, and the highlight lands last. */
+.mdbase-motion-keys-first .mdbase-mark-row .mdbase-mark-segment {
+  transform-origin: left center;
+}
+
+.mdbase-motion-keys-first .mdbase-mark-fence .mdbase-mark-segment {
+  animation: mdbase-fence-in 420ms cubic-bezier(0.16, 1, 0.3, 1) 100ms 1 both;
+}
+
+.mdbase-motion-keys-first :is(.mdbase-mark-segment-2, .mdbase-mark-segment-9) {
+  animation-delay: 0ms;
+}
+
+.mdbase-motion-keys-first :is(.mdbase-mark-segment-4, .mdbase-mark-segment-6) {
+  animation: mdbase-grow 260ms cubic-bezier(0.16, 1, 0.3, 1) 220ms 1 both;
+}
+
+.mdbase-motion-keys-first .mdbase-mark-segment-7 {
+  animation: mdbase-grow 480ms cubic-bezier(0.16, 1, 0.3, 1) 380ms 1 both;
+}
+
+.mdbase-motion-keys-first .mdbase-mark-segment-5 {
+  animation:
+    mdbase-grow 520ms cubic-bezier(0.16, 1, 0.3, 1) 440ms 1 both,
+    mdbase-land 600ms ease 820ms 1 both;
+}
+
+@keyframes mdbase-fence-in {
+  from { opacity: 0; transform: scaleX(0); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes mdbase-grow {
+  from { transform: scaleX(0); }
+  to { transform: none; }
+}
+
+@keyframes mdbase-land {
+  from { fill: var(--mark-ink); }
+  to { fill: var(--mark-accent); }
+}
+
+/* Drop: segments fall into place in reading order with a little overshoot. */
+.mdbase-motion-drop .mdbase-mark-segment {
+  animation: mdbase-drop 560ms cubic-bezier(0.34, 1.56, 0.64, 1) calc(var(--step) * 45ms) 1 both;
+}
+
+@keyframes mdbase-drop {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Assemble: scattered pieces settle into the record. */
+.mdbase-motion-assemble .mdbase-mark-segment {
+  animation: mdbase-assemble 900ms cubic-bezier(0.16, 1, 0.3, 1) calc(var(--step) * 28ms + 28ms) 1 both;
+}
+
+@keyframes mdbase-assemble {
+  from { opacity: 0; transform: var(--scatter) scale(0.7); }
+  40% { opacity: 1; }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- Signals ---------- */
+
+/* Saved: the fences press in, the highlight flashes success while it stretches, then settles. */
+.mdbase-signal-saved .mdbase-mark-accent {
+  transform-origin: left center;
+  animation: mdbase-saved-stretch 640ms cubic-bezier(0.34, 1.56, 0.64, 1) 80ms 1 both;
+}
+
+.mdbase-signal-saved .mdbase-mark-fence-top {
+  animation: mdbase-press-top 520ms cubic-bezier(0.34, 1.56, 0.64, 1) 1 both;
+}
+
+.mdbase-signal-saved .mdbase-mark-fence-bottom {
+  animation: mdbase-press-bottom 520ms cubic-bezier(0.34, 1.56, 0.64, 1) 1 both;
+}
+
+.mdbase-signal-saved .mdbase-mark-row-bottom {
+  animation: mdbase-saved-dim 640ms ease 1 both;
+}
+
+@keyframes mdbase-press-top {
+  40% { transform: translateY(4px); }
+  to { transform: none; }
+}
+
+@keyframes mdbase-press-bottom {
+  40% { transform: translateY(-4px); }
+  to { transform: none; }
+}
+
+@keyframes mdbase-saved-stretch {
+  35% { fill: var(--color-success); transform: scaleX(0.8); }
+  to { transform: none; }
+}
+
+@keyframes mdbase-saved-dim {
+  30% { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
+/* Error: the fields shake once and the highlight turns to danger before recovering. */
+.mdbase-signal-error .mdbase-mark-row {
+  animation: mdbase-shake 520ms cubic-bezier(0.36, 0.07, 0.19, 0.97) 1 both;
+}
+
+.mdbase-signal-error .mdbase-mark-row-bottom {
+  animation-delay: 40ms;
+}
+
+.mdbase-signal-error .mdbase-mark-accent {
+  animation: mdbase-danger 1.4s ease 1 both;
+}
+
+@keyframes mdbase-shake {
+  15% { transform: translateX(-4px); }
+  35% { transform: translateX(4px); }
+  55% { transform: translateX(-2.5px); }
+  75% { transform: translateX(1.5px); }
+  to { transform: none; }
+}
+
+@keyframes mdbase-danger {
+  0%, 60% { fill: var(--color-danger); }
+  to { fill: var(--mark-accent); }
+}
+
+/* ---------- Hover ---------- */
+
+/* Wave: one ripple runs through the resting mark in reading order. */
+:is(.mdbase-app-switcher, .mdbase-mark-hover-host):hover .mdbase-mark-at-rest .mdbase-mark-segment {
+  animation: mdbase-wave 420ms cubic-bezier(0.45, 0, 0.55, 1) calc(var(--step) * 30ms) 1 both;
+}
+
+@keyframes mdbase-wave {
+  50% { transform: translateY(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdbase-mark :is(.mdbase-mark-segment, .mdbase-mark-row, .mdbase-mark-fence, .mdbase-mark-track) {
+    animation: none !important;
+    opacity: 1;
     transform: none !important;
   }
 
-  .mdbase-mark .mdbase-mark-conveyor-track {
-    opacity: 0;
+  /* Orbit's moving tracks stand in for the fences; with motion off, show the fences. */
+  .mdbase-mark .mdbase-mark-track {
+    display: none;
+  }
+
+  /* Keep a still cue for a failure, since it carries meaning. */
+  .mdbase-signal-error .mdbase-mark-accent {
+    fill: var(--color-danger);
   }
 }
