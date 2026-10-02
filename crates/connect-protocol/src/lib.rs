@@ -8,6 +8,9 @@ mod application_authorization;
 mod application_capabilities_generated;
 mod application_declaration;
 mod applications;
+#[cfg(test)]
+mod change_event_tests;
+mod change_events_generated;
 mod collection_operations_generated;
 mod collections;
 mod compatibility;
@@ -25,6 +28,7 @@ pub use application_authorization::*;
 pub use application_capabilities_generated::*;
 pub use application_declaration::*;
 pub use applications::*;
+pub use change_events_generated::*;
 pub use collection_operations_generated::*;
 pub use collections::*;
 pub use compatibility::*;

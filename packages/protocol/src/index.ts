@@ -16,6 +16,7 @@ import type {
 export * from "./connect-problems.generated.js";
 export * from "./files.js";
 export * from "./operations.js";
+export * from "./change-events.js";
 export * from "./mutation-fingerprint.js";
 export * from "./compatibility.js";
 export * from "./capabilities.js";

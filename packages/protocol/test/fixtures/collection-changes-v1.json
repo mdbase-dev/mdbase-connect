@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "local": [
+    {"cursor":1,"type":"mdbase.record.created","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"note.md","previous_revision":null,"revision":"r1","previous_types":[],"types":["note"],"changed_fields":["/title"],"body_changed":true,"runtime":{"event_id":"event-1","watermark":1,"generation":{"epoch":1,"sequence":1},"origin":"known_mutation","commit_id":null},"change_index":0}},
+    {"cursor":2,"type":"mdbase.record.modified","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"note.md","previous_revision":"r1","revision":"r2","previous_types":["note"],"types":["task"],"changed_fields":["/status","/title"],"body_changed":false,"runtime":{},"change_index":0}},
+    {"cursor":3,"type":"mdbase.record.deleted","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"note.md","previous_revision":"r2","revision":null,"previous_types":["task"],"types":[],"changed_fields":[],"body_changed":true,"runtime":{},"change_index":0}},
+    {"cursor":4,"type":"mdbase.record.renamed","occurred_at":"2026-08-04T00:00:00Z","payload":{"from":"old.md","to":"note.md","previous_revision":"r1","revision":"r2","previous_types":["note"],"types":["note"],"changed_fields":[],"body_changed":false,"runtime":{},"change_index":0}},
+    {"cursor":5,"type":"mdbase.type.changed","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"_types/note.md","previous_revision":"r1","revision":"r2","runtime":{},"change_index":0}},
+    {"cursor":6,"type":"mdbase.config.changed","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"mdbase.yaml","previous_revision":"r1","revision":"r2","runtime":{},"change_index":0}},
+    {"cursor":7,"type":"mdbase.contract.changed","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"_contracts/task.yaml","previous_revision":"r1","revision":"r2","runtime":{},"change_index":0}},
+    {"cursor":8,"type":"mdbase.view.changed","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"_views/tasks.yaml","previous_revision":"r1","revision":"r2","runtime":{},"change_index":0}},
+    {"cursor":9,"type":"mdbase.resource.changed","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"Assets/image.png","previous_revision":"r1","revision":"r2","runtime":{},"change_index":0}},
+    {"cursor":10,"type":"mdbase.collection.invalidated","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"other.yaml","previous_revision":"r1","revision":"r2","runtime":{},"change_index":0}}
+  ],
+  "hosted": [
+    {"cursor":1,"type":"mdbase.record.created","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"note.md","after":{"title":"New"},"changed_fields":["title"],"revision":"r1","types":["note"]}},
+    {"cursor":2,"type":"mdbase.record.modified","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"note.md","before":{"title":"Old"},"after":{"title":"New"},"changed_fields":["title"],"previous_revision":"r1","revision":"r2","previous_types":["note"],"types":["task"]}},
+    {"cursor":3,"type":"mdbase.record.deleted","occurred_at":"2026-08-04T00:00:00Z","payload":{"path":"note.md","before":{"title":"Old"},"previous_revision":"r1","types":["note"]}},
+    {"cursor":4,"type":"mdbase.record.renamed","occurred_at":"2026-08-04T00:00:00Z","payload":{"from":"old.md","to":"note.md","before":{"title":"Old"},"after":{"title":"New"},"previous_revision":"r1","revision":"r2","types":["task"],"previous_types":["note"]}}
+  ],
+  "files": [
+    {"cursor":11,"type":"mdbase.file.put","occurred_at":"2026-08-04T00:00:00Z","payload":{"file":{"file_id":"01911111-1111-7111-8111-111111111111","path":"Assets/image.png","revision":"f1","content_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","size":10,"media_type":"image/png","media_class":"image","modified_at":"2026-08-04T00:00:00Z"}}},
+    {"cursor":12,"type":"file_remove","occurred_at":"2026-08-04T00:00:00Z","payload":{"file_id":"01911111-1111-7111-8111-111111111111","previous_path":"Assets/image.png","revision":"f1"}}
+  ]
+}

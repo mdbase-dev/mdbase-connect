@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "events": {
+    "mdbase.record.created": "record.created",
+    "mdbase.record.modified": "record.updated",
+    "mdbase.record.deleted": "record.deleted",
+    "mdbase.record.renamed": "record.renamed",
+    "mdbase.type.changed": "schema.changed",
+    "mdbase.config.changed": "config.changed",
+    "mdbase.contract.changed": "contract.changed",
+    "mdbase.view.changed": "view.changed",
+    "mdbase.view_source.changed": "view.changed",
+    "mdbase.resource.changed": "file.changed",
+    "mdbase.file.put": "file.put",
+    "mdbase.file.remove": "file.removed",
+    "file_put": "file.put",
+    "file_remove": "file.removed",
+    "mdbase.collection.invalidated": "gap"
+  },
+  "payloads": {
+    "RecordChangePayload": {
+      "path": "string",
+      "from": "string",
+      "to": "string",
+      "previous_revision": "string",
+      "revision": "string",
+      "previous_types": "strings",
+      "types": "strings",
+      "changed_fields": "strings",
+      "body_changed": "boolean",
+      "before": "object",
+      "after": "object"
+    },
+    "ResourceChangePayload": {
+      "name": "string",
+      "path": "string",
+      "previous_revision": "string",
+      "revision": "string",
+      "reason": "string"
+    },
+    "FileChangePayload": {
+      "file": "file",
+      "file_id": "string",
+      "previous_path": "string",
+      "revision": "string"
+    }
+  }
+}

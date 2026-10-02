@@ -618,6 +618,7 @@ mod tests {
     use std::time::Instant;
 
     include!("runtime_changes/event_helpers_tests.rs");
+    include!("runtime_changes/change_fixture_tests.rs");
 
     #[test]
     fn provider_event_receipt_closes_append_before_ack_crash_window() {
