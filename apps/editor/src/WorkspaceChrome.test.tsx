@@ -1,8 +1,71 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PathLabel, SaveIndicator } from "./WorkspaceChrome";
+import { useState } from "react";
+import userEvent from "@testing-library/user-event";
+import { InspectorFrame, PathLabel, SaveIndicator } from "./WorkspaceChrome";
 
 afterEach(() => vi.useRealTimers());
+
+describe("inspector presentation", () => {
+  it("keeps a desktop inspector in the workspace without a scrim or modal focus trap", () => {
+    const view = render(<InspectorFrame overlay={false} label="Note properties" width={340} onClose={() => {}}><aside aria-label="Note properties"><input aria-label="Property" /></aside></InspectorFrame>);
+    expect(view.container.querySelector(".inspector-dock")).toContainElement(screen.getByRole("complementary", { name: "Note properties" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(view.container.querySelector(".dialog-scrim")).toBeNull();
+  });
+
+  it.each(["Escape", "scrim"])("traps narrow inspector focus and restores it after %s dismissal", async (dismissal) => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return <div id="root">
+        <button onClick={() => setOpen(true)}>Show properties</button>
+        {open && <InspectorFrame overlay label="Note properties" width={340} onClose={() => setOpen(false)}>
+          <aside><button data-inspector-close onClick={() => setOpen(false)}>Close inspector</button><input aria-label="Property" /><button>Last action</button></aside>
+        </InspectorFrame>}
+      </div>;
+    }
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Show properties" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Note properties" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(document.getElementById("root")).toHaveAttribute("aria-hidden", "true");
+    expect(document.getElementById("root")!.inert).toBe(true);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Close inspector" })).toHaveFocus());
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(screen.getByRole("button", { name: "Last action" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Close inspector" })).toHaveFocus();
+    if (dismissal === "Escape") await user.keyboard("{Escape}");
+    else fireEvent.mouseDown(dialog.parentElement!);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(document.getElementById("root")).not.toHaveAttribute("aria-hidden");
+    expect(document.getElementById("root")!.inert).toBe(false);
+  });
+
+  it("focuses the modal frame while loading, then its first control when lazy content arrives", async () => {
+    const view = render(<InspectorFrame overlay label="Note properties" width={340} onClose={() => {}}><p>Loading…</p></InspectorFrame>);
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Note properties" })).toHaveFocus());
+    view.rerender(<InspectorFrame overlay label="Note properties" width={340} onClose={() => {}}><button data-inspector-close>Close inspector</button><input aria-label="Property" /></InspectorFrame>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Close inspector" })).toHaveFocus());
+    const input = screen.getByRole("textbox", { name: "Property" });
+    input.focus();
+    view.rerender(<InspectorFrame overlay label="Note properties" width={340} onClose={() => {}}><button data-inspector-close>Close inspector</button><input aria-label="Property" /><p>More information</p></InspectorFrame>);
+    expect(input).toHaveFocus();
+  });
+
+  it("delegates modal dismissal to the panel close action so pending source saves can finish", async () => {
+    const closePanel = vi.fn();
+    const fallback = vi.fn();
+    render(<InspectorFrame overlay label="Note properties" width={340} onClose={fallback}><button data-inspector-close onClick={closePanel}>Save and close</button></InspectorFrame>);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(closePanel).toHaveBeenCalledOnce();
+    expect(fallback).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Note properties" })).toBeInTheDocument();
+  });
+});
 
 describe("quiet save status", () => {
   it("stays silent when healthy, waiting, or saving quickly", () => {

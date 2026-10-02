@@ -113,6 +113,7 @@ import {
   BacklinksPanel,
   EmptyEditor,
   InspectorPanelLoading,
+  InspectorFrame,
   NoteSkeleton,
   OutlineMenu,
   PaneControl,
@@ -1828,13 +1829,15 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       : viewportWidth - editorMinimum
   ));
   const inspectorTrack = Math.min(layout.inspectorWidth, inspectorResizeMax);
+  const inspectorOverlay = viewportWidth <= 1120;
+  const reservedInspectorWidth = inspectorVisible && !inspectorOverlay ? inspectorTrack : 0;
   const collectionResizeMax = Math.max(COLLECTION_WIDTH.min, Math.min(
     COLLECTION_WIDTH.max,
-    viewportWidth - preferredListTrack - editorMinimum
+    viewportWidth - preferredListTrack - editorMinimum - reservedInspectorWidth
   ));
   const listResizeMax = Math.max(LIST_WIDTH.min, Math.min(
     LIST_WIDTH.max,
-    viewportWidth - preferredCollectionTrack - editorMinimum
+    viewportWidth - preferredCollectionTrack - editorMinimum - reservedInspectorWidth
   ));
   const collectionTrack = Math.min(preferredCollectionTrack, collectionResizeMax);
   const listTrack = Math.min(preferredListTrack, listResizeMax);
@@ -2095,7 +2098,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           onRetry={() => noteOpenFailure ? navigateToNote(noteOpenFailure.path, noteOpenFailure.options) : void start()}
         />}
       </main>}
-      {propertiesOpen && (document ? <Suspense fallback={<InspectorPanelLoading label="Note properties" />}>
+      {propertiesOpen && <InspectorFrame overlay={inspectorOverlay} label="Note properties" width={inspectorTrack} onClose={() => setPropertiesOpen(false)}>{document ? <Suspense fallback={<InspectorPanelLoading label="Note properties" />}>
         <PropertiesPanel
           key={document.path}
           note={document}
@@ -2108,10 +2111,10 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           onSave={saveProperties}
           onSaveDocument={(source, previousSource) => saveRecordSource(document.path, source, previousSource)}
         />
-      </Suspense> : noteLoading ? <InspectorPanelLoading label="Note properties" /> : null)}
-      {backlinksOpen && (document
+      </Suspense> : noteLoading ? <InspectorPanelLoading label="Note properties" /> : null}</InspectorFrame>}
+      {backlinksOpen && <InspectorFrame overlay={inspectorOverlay} label="Backlinks" width={inspectorTrack} onClose={() => setBacklinksOpen(false)}>{document
         ? <BacklinksPanel notes={backlinkNotes} types={typeDescriptors} loading={foldersLoading || (!contentComplete && !contentError)} error={contentError} onRetry={() => void loadContentIndex()} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />
-        : noteLoading ? <InspectorPanelLoading label="Backlinks" /> : null)}
+        : noteLoading ? <InspectorPanelLoading label="Backlinks" /> : null}</InspectorFrame>}
     </>}
 
     {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{missingTypeCapabilities(connectionSummary).length > 0 ? <TypeAccessPrompt
@@ -2203,7 +2206,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         onReset={() => setLayout((current) => ({ ...current, listWidth: LIST_WIDTH.default }))}
         onDragChange={(dragging) => setResizingPane(dragging ? "list" : undefined)}
       />}
-      {inspectorVisible && !mobileLayout && <PaneResizeHandle
+      {inspectorVisible && !inspectorOverlay && <PaneResizeHandle
         className="inspector-resizer"
         label="Resize note inspector"
         value={inspectorTrack}

@@ -1,4 +1,5 @@
-import { useRef, type ReactNode } from "react";
+import { useId, useRef, type CSSProperties, type ReactNode } from "react";
+import { Dialog } from "./Dialog";
 import { MenuPopover, useMenuTrigger } from "./ActionMenu";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
@@ -55,7 +56,7 @@ export function BacklinksPanel({ notes, types, loading, error, onRetry, onClose,
   return <aside className="backlinks-panel" aria-label="Backlinks" aria-busy={loading}>
     <header className="panel-header">
       <div><h2>Backlinks</h2><p>{error ? "References are incomplete" : loading ? "Finding references" : `${notes.length} ${notes.length === 1 ? "note" : "notes"} link here`}</p></div>
-      <button className="icon-button" aria-label="Close backlinks" onClick={onClose}><X aria-hidden="true" /></button>
+      <button className="icon-button" aria-label="Close backlinks" data-inspector-close onClick={onClose}><X aria-hidden="true" /></button>
     </header>
     {error && <p role="alert">{error} {onRetry && <button onClick={onRetry}>Retry backlinks</button>}</p>}
     <div className="backlink-list">
@@ -102,6 +103,28 @@ export function OutlineMenu({ headings, onReveal }: { headings: NoteHeading[]; o
       ><span className="outline-hash">{"#".repeat(heading.level)}</span><span className="outline-text">{heading.text}</span></button>) : <p className="outline-empty">No headings yet.</p>}
     </MenuPopover>}
   </div>;
+}
+
+export function InspectorFrame({ overlay, label, width, onClose, children }: {
+  overlay: boolean;
+  label: "Note properties" | "Backlinks";
+  width: number;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const titleId = useId();
+  const content = useRef<HTMLDivElement>(null);
+  if (!overlay) return <div className="inspector-dock">{children}</div>;
+  return <Dialog titleId={titleId} className="inspector-overlay" scrimClassName="inspector-scrim" onClose={() => {
+    // Source editing may need to finish a save before closing. Use the same
+    // close action for Escape/the scrim as for the panel's own close button.
+    const close = content.current?.querySelector<HTMLButtonElement>("[data-inspector-close]");
+    if (close) close.click();
+    else onClose();
+  }}>
+    <h2 id={titleId} className="sr-only">{label}</h2>
+    <div ref={content} className="inspector-content" style={{ "--inspector-width": `${width}px` } as CSSProperties}>{children}</div>
+  </Dialog>;
 }
 
 export function InspectorPanelLoading({ label }: { label: "Note properties" | "Backlinks" }) {

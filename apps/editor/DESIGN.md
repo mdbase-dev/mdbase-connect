@@ -70,8 +70,13 @@ states, or collection controls.
 
 The desktop app uses three persistent panes: a 176px collection rail, a 304px
 virtualized note list, and the editor. A properties inspector appears only when
-requested, overlaying the workspace so opening it never moves or rewraps the
-writing column. Between 761px and 1120px the collection rail starts hidden until
+requested. Above 1120px it docks beside the editor without covering document
+text. The writing column keeps its 760px measure whenever the narrowed pane
+can fit it, sliding toward the left over the shared 240ms motion token. Only a
+pane narrower than the measure rewraps text. Reduced motion makes docking
+instant; direct sidebar resizing also follows the pointer without animation.
+At tablet/mobile widths the inspector is modal, with a scrim, inert background,
+trapped focus, Escape dismissal and focus restoration. Between 761px and 1120px the collection rail starts hidden until
 someone opens it. Note rows keep one fixed height and read title, a one-line
 excerpt (the type's declared description field, else the opening prose), then
 time and folder; a declared type appears as a small badge, never in place of

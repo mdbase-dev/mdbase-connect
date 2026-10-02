@@ -226,7 +226,7 @@ export function PropertiesPanel({
   return <aside className="properties-panel" aria-label="Note properties">
     <header className="panel-header">
       <div><h2>Properties</h2><p>{note.types.length ? note.types.join(", ") : "No type"}</p></div>
-      <button className="icon-button" aria-label="Close properties" onClick={closePanel}><X aria-hidden="true" /></button>
+      <button className="icon-button" aria-label="Close properties" data-inspector-close onClick={closePanel}><X aria-hidden="true" /></button>
     </header>
 
     <dl className="file-facts">

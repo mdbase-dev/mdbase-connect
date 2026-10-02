@@ -56,7 +56,7 @@ describe("mdbase editor", () => {
     expect(screen.queryByRole("button", { name: "New type" })).not.toBeInTheDocument();
   });
 
-  it("keeps navigation tracks stable when an inspector overlays the workspace", async () => {
+  it("reserves a docked inspector track without letting desktop panes overlap", async () => {
     vi.stubGlobal("innerWidth", 1_150);
     localStorage.setItem("mdbase-editor:layout", JSON.stringify({
       collectionWidth: 176,
@@ -79,12 +79,14 @@ describe("mdbase editor", () => {
     expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--list-track")).toBe("520px");
 
     await user.click(screen.getByRole("button", { name: "Note properties" }));
-    await waitFor(() => expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--list-track")).toBe("520px"));
+    await waitFor(() => expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--list-track")).toBe("314px"));
+    expect(container.querySelector(".inspector-dock")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Note properties" })).not.toBeInTheDocument();
     const resizeHandle = screen.getByRole("separator", { name: "Resize notes sidebar" });
-    expect(resizeHandle).toHaveAttribute("aria-valuenow", "520");
+    expect(resizeHandle).toHaveAttribute("aria-valuenow", "314");
     resizeHandle.focus();
     await user.keyboard("{ArrowLeft}");
-    expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--list-track")).toBe("512px");
+    expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--list-track")).toBe("306px");
   });
 
   it("collapses, restores, and resizes both navigation sidebars", async () => {

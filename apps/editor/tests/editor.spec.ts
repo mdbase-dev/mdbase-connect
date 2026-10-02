@@ -1247,11 +1247,10 @@ test("resizes, collapses, and restores the desktop sidebars", async ({ page }) =
   await page.getByRole("button", { name: "Show collections sidebar" }).click();
   await page.getByRole("button", { name: "Show notes sidebar" }).click();
   await expect(page.getByRole("separator", { name: "Resize collections sidebar" })).toHaveAttribute("aria-valuenow", "184");
-  const restored = await page.locator(".note-list-pane").evaluate((element) => element.getBoundingClientRect().width);
-  expect(restored).toBeCloseTo(after, 0);
+  await expect.poll(() => page.locator(".note-list-pane").evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(after, 0);
 });
 
-test("contains a long collection heading without shrinking navigation for Properties", async ({ page }) => {
+test("contains a long collection heading when navigation makes room for a docked inspector", async ({ page }) => {
   await page.setViewportSize({ width: 1_150, height: 760 });
   await page.addInitScript(() => localStorage.setItem("mdbase-editor:layout", JSON.stringify({
     collectionWidth: 176,
@@ -1269,7 +1268,7 @@ test("contains a long collection heading without shrinking navigation for Proper
   await page.getByRole("button", { name: "Note properties" }).click();
   const pane = page.locator(".note-list-pane");
   const search = page.locator(".note-list-controls .search-field");
-  await expect.poll(async () => pane.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(520, 0);
+  await expect.poll(async () => pane.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(314, 0);
   const bounds = await Promise.all([pane, search].map((locator) => locator.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     return { left: rect.left, right: rect.right };
@@ -1278,10 +1277,10 @@ test("contains a long collection heading without shrinking navigation for Proper
   expect(bounds[1].right).toBeLessThanOrEqual(bounds[0].right);
 
   const resize = page.getByRole("separator", { name: "Resize notes sidebar" });
-  await expect(resize).toHaveAttribute("aria-valuenow", "520");
+  await expect(resize).toHaveAttribute("aria-valuenow", "314");
   await resize.focus();
   await page.keyboard.press("ArrowLeft");
-  await expect.poll(async () => pane.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(512, 0);
+  await expect.poll(async () => pane.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(306, 0);
 });
 
 test("keeps the current note inspector open and resizable between note switches", async ({ page }) => {
