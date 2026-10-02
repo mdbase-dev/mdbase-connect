@@ -842,6 +842,129 @@ describe("MdbaseFileClient", () => {
     expect(aborted).toBe(true);
   });
 
+  it.each(["download", "downloadBytes", "downloadStream"] as const)(
+    "%s rejects tampered, truncated and oversized hosted or framed data",
+    async (method) => {
+      const content = bytes("multiple chunks with final integrity verification");
+      const file = descriptor("integrity.bin", content);
+      for (const framed of [false, true]) {
+        for (const damage of ["tampered", "truncated", "oversized"] as const) {
+          let aborts = 0;
+          const delivered = content.slice();
+          if (damage === "tampered") delivered[delivered.length - 1] ^= 1;
+          const chunk = (index: number) => {
+            const part = delivered.slice(index * 7, (index + 1) * 7);
+            if (index !== Math.ceil(content.length / 7) - 1) return part;
+            if (damage === "truncated") return part.slice(0, -1);
+            if (damage === "oversized") return new Uint8Array([...part, 0]);
+            return part;
+          };
+          const client = fileClient(async (controlMethod, path, input) => {
+            if (path === "downloads") {
+              expect(input.revision).toBe(file.revision);
+              return framed
+                ? framedSession(input.transfer_id, content.length, "download", [], 7)
+                : uploadSession(input.transfer_id, { kind: "object_ranges", part_size: 7 }, content.length, "download");
+            }
+            if (controlMethod === "DELETE") { aborts += 1; return {}; }
+            throw new Error(`Unexpected control path ${path}`);
+          }, framed ? {
+            async uploadChunk() { throw new Error("unexpected upload"); },
+            async downloadChunk(_session, index) { return chunk(index); }
+          } : undefined, framed ? undefined : {
+            async downloadPart(_session, index) { return byteStream(chunk(index)); }
+          });
+          const result = (async () => {
+            if (method !== "downloadStream") return client[method](file);
+            const reader = (await client.downloadStream(file)).getReader();
+            while (!(await reader.read()).done) { /* verification includes EOF */ }
+          })();
+          await expect(result).rejects.toMatchObject({ code: "invalid_operation_response" });
+          expect(aborts).toBe(1);
+        }
+      }
+    }
+  );
+
+  it("assembles bytes directly without constructing a Blob", async () => {
+    const content = bytes("direct buffered download");
+    const client = fileClient(async (method, path, input) => {
+      if (path === "downloads") {
+        return uploadSession(input.transfer_id, { kind: "object_ranges", part_size: 7 }, content.length, "download");
+      }
+      if (method === "DELETE") return {};
+      throw new Error(`Unexpected control path ${path}`);
+    }, undefined, {
+      async downloadPart(_session, index) { return byteStream(content.slice(index * 7, (index + 1) * 7)); }
+    });
+    const blob = vi.spyOn(globalThis, "Blob");
+    const downloaded = await client.downloadBytes(descriptor("direct.bin", content));
+    expect(downloaded).toEqual(content);
+    expect(downloaded.buffer.byteLength).toBe(content.length);
+    expect(blob).not.toHaveBeenCalled();
+  });
+
+  it.each(["overflow", "short"] as const)(
+    "downloadBytes rejects %s even when the source stream omits integrity checks",
+    async (damage) => {
+      const content = bytes("unchecked stream");
+      const client = fileClient(vi.fn());
+      const cancel = vi.fn();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(content.slice(0, 3));
+          controller.enqueue(damage === "overflow"
+            ? new Uint8Array([...content.slice(3), 0])
+            : content.slice(3, -1));
+          if (damage === "short") controller.close();
+        },
+        cancel
+      });
+      vi.spyOn(client, "downloadStream").mockResolvedValue(stream);
+
+      await expect(client.downloadBytes(descriptor("unchecked.bin", content))).rejects.toEqual(
+        expect.objectContaining<Partial<MdbaseConnectError>>({
+          code: "invalid_operation_response",
+          message: "Downloaded file bytes failed integrity verification."
+        })
+      );
+      expect(stream.locked).toBe(false);
+      if (damage === "overflow") expect(cancel).toHaveBeenCalledOnce();
+    }
+  );
+
+  it("returns a verified Blob with the descriptor's media type", async () => {
+    const content = bytes("verified blob bytes");
+    const client = fileClient(async (method, path, input) => {
+      if (path === "downloads") {
+        return uploadSession(input.transfer_id, { kind: "object_ranges", part_size: 7 }, content.length, "download");
+      }
+      if (method === "DELETE") return {};
+      throw new Error(`Unexpected control path ${path}`);
+    }, undefined, {
+      async downloadPart(_session, index) { return byteStream(content.slice(index * 7, (index + 1) * 7)); }
+    });
+    const blob = await client.download({ ...descriptor("verified.bin", content), mediaType: "text/plain" });
+    expect(blob.type).toBe("text/plain");
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(content);
+  });
+
+  it.each(["download", "downloadBytes"] as const)("%s verifies empty files", async (method) => {
+    const content = new Uint8Array();
+    const client = fileClient(async (controlMethod, path, input) => {
+      if (path === "downloads") {
+        return uploadSession(input.transfer_id, { kind: "object_ranges", part_size: 7 }, 0, "download");
+      }
+      if (controlMethod === "DELETE") return {};
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    const file = descriptor("empty.bin", content);
+    const result = await client[method](file);
+    expect(result instanceof Blob ? result.size : result.length).toBe(0);
+    await expect(client[method]({ ...file, contentDigest: digest(bytes("not empty")) }))
+      .rejects.toMatchObject({ code: "invalid_operation_response" });
+  });
+
   it("preserves typed cancellation when an aborted framed fetch throws TypeError", async () => {
     const content = bytes("cancel framed download");
     const file = descriptor("cancel-framed.bin", content);
@@ -1305,7 +1428,7 @@ describe("MdbaseFileClient", () => {
     expect(maximumActive).toBe(4);
   });
 
-  it("requires the streaming API for downloads above the bounded convenience limit", async () => {
+  it.each(["download", "downloadBytes"] as const)("%s requires streaming above the bounded convenience limit", async (method) => {
     const request = vi.fn();
     const client = fileClient(request);
     const file = {
@@ -1313,7 +1436,7 @@ describe("MdbaseFileClient", () => {
       size: 64 * 1024 * 1024 + 1
     };
 
-    await expect(client.download(file)).rejects.toMatchObject({
+    await expect(client[method](file)).rejects.toMatchObject({
       code: "invalid_request",
       message: expect.stringContaining("downloadStream()")
     });

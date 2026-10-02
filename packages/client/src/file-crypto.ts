@@ -85,9 +85,9 @@ export class GrantFileTransferCipher {
     const payload = await crypto.subtle.encrypt({
       name: "AES-GCM",
       iv: chunkNonce(header.chunk_index),
-      additionalData: arrayBuffer(authenticatedData),
+      additionalData: webCryptoBytes(authenticatedData),
       tagLength: 128
-    }, this.key, arrayBuffer(plaintext));
+    }, this.key, webCryptoBytes(plaintext));
     return encodeFileFrame({ kind, header, payload: new Uint8Array(payload) });
   }
 
@@ -99,9 +99,9 @@ export class GrantFileTransferCipher {
       const plaintext = await crypto.subtle.decrypt({
         name: "AES-GCM",
         iv: chunkNonce(frame.header.chunk_index),
-        additionalData: arrayBuffer(authenticatedData),
+        additionalData: webCryptoBytes(authenticatedData),
         tagLength: 128
-      }, this.key, arrayBuffer(frame.payload));
+      }, this.key, webCryptoBytes(frame.payload));
       return new Uint8Array(plaintext);
     } catch {
       throw new FileTransferCryptoError(
@@ -188,6 +188,10 @@ function chunkNonce(index: number): Uint8Array<ArrayBuffer> {
   return nonce;
 }
 
-function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return Uint8Array.from(bytes).buffer;
+function webCryptoBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  // WebCrypto snapshots BufferSource synchronously, including the view bounds.
+  // SharedArrayBuffer is not a valid BufferSource and still needs an owned copy.
+  return bytes.buffer instanceof ArrayBuffer
+    ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    : Uint8Array.from(bytes);
 }
