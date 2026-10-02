@@ -280,6 +280,11 @@ in the background. Route details remain diagnostics; feature UI should read
 needs authorization/setup, is temporarily unavailable, or is unsupported by the
 selected authority.
 
+A route or selection refresh supersedes its previous setup verification.
+Cancellation of that obsolete generation must not fail startup or disconnect
+its replacement; genuine exceptions and current assessment failures still
+surface normally.
+
 `MdbaseBrowserSelection` keeps the stable collection ID in
 `?collection=<id>`, preserves unrelated path/query/hash and router state, and
 reports browser back/forward
