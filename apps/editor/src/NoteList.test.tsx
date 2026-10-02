@@ -40,6 +40,10 @@ describe("NoteList search presentation", () => {
     view.rerender(<NoteList {...props} statuses={new Map([[first.path, { tone: "busy", busy: true }]])} />);
     expect(row.querySelector("time")).toHaveTextContent(timestamp!);
     expect(row).toHaveAttribute("aria-busy", "true");
+    const saved = { ...first, file: { ...first.file, mtime: "2026-01-02T12:00:00Z" } };
+    view.rerender(<NoteList {...props} entries={[{ kind: "note", path: first.path, note: saved }, props.entries[1]]} />);
+    expect(row.querySelector("time")!.textContent).not.toBe(timestamp);
+    expect(row).not.toHaveAttribute("aria-busy");
     const updated = { ...second, file: { ...second.file, mtime: "2026-02-02T12:00:00Z" } };
     view.rerender(<NoteList {...props} entries={[{ kind: "note", path: second.path, note: updated }, props.entries[0]]} />);
     expect(viewport.scrollToIndex).toHaveBeenCalledOnce();

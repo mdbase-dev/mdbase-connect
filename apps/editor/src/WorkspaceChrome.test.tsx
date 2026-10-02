@@ -35,7 +35,7 @@ describe("quiet save status", () => {
   it("shows errors, conflict and recovery immediately with relevant actions", () => {
     const retry = vi.fn();
     const cancel = vi.fn();
-    const view = render(<SaveIndicator state="error" onRetry={retry} />);
+    const view = render(<SaveIndicator state="error" activity="saving" onRetry={retry} />);
     expect(screen.getByText("Needs attention")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
     expect(retry).toHaveBeenCalledOnce();

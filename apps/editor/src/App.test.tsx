@@ -847,6 +847,11 @@ describe("mdbase editor", () => {
     await user.click(failed);
     expect((screen.getByRole("textbox", { name: "Note body" }) as HTMLTextAreaElement).value).toContain("Unsaved sentence.");
     expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    const recoveredGateway: DemoCollectionGateway = gateway;
+    recoveredGateway.update = DemoCollectionGateway.prototype.update.bind(gateway);
+    await user.click(screen.getByRole("button", { name: "Retry save" }));
+    await waitFor(async () => expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("Unsaved sentence."));
+    await waitFor(() => expect(screen.queryByText("Needs attention")).not.toBeInTheDocument());
   });
 
   it("orders property updates behind a note save without blocking navigation", async () => {

@@ -247,13 +247,22 @@ async function expectSharedSelectControls(scope: Locator) {
 }
 
 test("shows an explicit status while a collection opens", async ({ page }) => {
+  const time = new Date();
+  await page.clock.install({ time });
+  await page.clock.pauseAt(new Date(time.getTime() + 1_000));
   await page.goto("?demo=80&delay=450");
   const opening = page.getByRole("main", { name: "Opening collection" });
-  await expect(opening).toBeVisible();
+  // Allow the lazy App and its first frame to settle, then keep the opening
+  // state frozen while checking its contract instead of racing a 450ms load.
+  await expect.poll(async () => {
+    await page.clock.runFor(50);
+    return opening.isVisible();
+  }).toBe(true);
   await expect(opening).toHaveAttribute("aria-busy", "true");
   await expect(opening).toHaveAttribute("data-loading-state", "opening");
   await expect(page.getByText("Reading its notes and types")).toBeVisible();
   await expect(opening.locator(".opening-rail, .opening-list")).toHaveCount(0);
+  await page.clock.resume();
   await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
   await expect(opening).not.toBeAttached();
 });
@@ -345,7 +354,8 @@ test("edits and autosaves a Markdown note", async ({ page }) => {
   await expect(title).toHaveValue("The shape of useful tools");
   await title.fill("Useful tools, revised");
   await page.getByRole("textbox", { name: "Note body" }).fill("A deliberately quiet editing surface.");
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 2_000 });
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
+  await expect(page.getByText("Saved", { exact: true })).toHaveCount(0);
 
   const body = page.getByRole("textbox", { name: "Note body" });
   const codeMirror = page.locator(".body-editor .cm-editor");
@@ -384,7 +394,7 @@ test("recovers unsent note edits after reload without silently saving them", asy
   await page.getByRole("button", { name: "Restore unsaved edits", exact: true }).click();
   await expect(body).toBeEditable();
   await expect(body).toHaveText(draft);
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
 });
 
 test("keeps the writing measure while placing editor scrollbars at the pane edge", async ({ page }) => {
@@ -395,7 +405,7 @@ test("keeps the writing measure while placing editor scrollbars at the pane edge
   const body = page.getByRole("textbox", { name: "Note body" });
   const longLine = "A long readable line ".repeat(100);
   await body.fill(Array.from({ length: 80 }, (_, index) => `${index + 1}. ${longLine}`).join("\n"));
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 5_000 });
 
   const wrapped = await page.locator(".writing-surface").evaluate((surface) => {
     const titleInput = surface.querySelector<HTMLElement>(".title-input");
@@ -502,7 +512,7 @@ test("wraps long titles and gives narrow editor panes a usable writing measure",
   await title.fill("Short title");
   await expect.poll(() => title.evaluate((element) => element.getBoundingClientRect().height)).toBe(52);
   await page.getByRole("textbox", { name: "Note body" }).focus();
-  await expect(page.getByText("Saved", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
   await page.getByRole("option", { name: /Garden notes 2/ }).click();
   await expect(title).toHaveValue("Garden notes 2");
   await page.getByRole("option", { name: /Short title/ }).click();
@@ -559,7 +569,7 @@ test("restores each note's caret and undo history", async ({ page }) => {
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("ArrowLeft");
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 2_000 });
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
 
   await page.getByRole("option").filter({ hasText: "Garden notes 2" }).click();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
@@ -702,7 +712,7 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   await expect(body).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 2_000 });
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
 });
 
 for (const trigger of ["@", "[["] as const) {
@@ -716,21 +726,22 @@ for (const trigger of ["@", "[["] as const) {
     await page.goto("?demo=12");
     const editor = page.getByRole("main", { name: "Note editor" });
     const body = page.getByRole("textbox", { name: "Note body" });
-    const saveState = editor.locator(".mdbase-save-notice");
+    const saveState = editor;
     await body.click();
     await page.keyboard.press("Control+End");
     await page.keyboard.type(`\n\n${trigger}the shape`);
 
     const completion = page.locator(".cm-tooltip-autocomplete");
     await expect(completion).toBeVisible();
-    await expect(saveState).toHaveText("Unsaved");
-    await expect(saveState).toHaveText("Saved", { timeout: 2_000 });
+    await expect(saveState).toHaveAttribute("data-save-state", "waiting");
+    await expect(saveState).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
+    await expect(editor.locator(".mdbase-save-notice")).toHaveCount(0);
     await expect(completion).toBeVisible();
 
     await page.keyboard.press("Enter");
     await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
-    await expect(saveState).toHaveText("Unsaved");
-    await expect(saveState).toHaveText("Saved", { timeout: 2_000 });
+    await expect(saveState).toHaveAttribute("data-save-state", "waiting");
+    await expect(saveState).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
     await expect(page.getByText(/Couldn’t save/)).toHaveCount(0);
     expect(runtimeErrors).toEqual([]);
   });
@@ -883,7 +894,7 @@ test("creates and edits a contact through its declared display field", async ({ 
   const title = page.getByRole("textbox", { name: "Note title" });
   await expect(title).toHaveValue("Ada Lovelace");
   await title.fill("Augusta Ada King");
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
   await page.getByRole("button", { name: "Note properties" }).click();
   const panel = page.getByRole("complementary", { name: "Note properties" });
   await expect(panel.getByRole("textbox", { name: "name value" })).toHaveValue("Augusta Ada King");
@@ -1080,7 +1091,7 @@ test("edits complete type membership, choices, and multiple required fields", as
 
   await page.getByRole("button", { name: "Review changes" }).click();
   await page.getByRole("button", { name: "Confirm update" }).click();
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review changes" })).toBeDisabled();
   await page.getByRole("button", { name: "YAML" }).click();
   const source = page.getByRole("textbox", { name: "note type YAML" });
   await expect(source).toContainText("Journal/**/*.md");
@@ -1150,7 +1161,7 @@ test("edits and reviews portable collection behaviour", async ({ page }) => {
   await expect(page.locator(".type-collection-changes")).toContainText("Path policy");
 
   await page.getByRole("button", { name: "Confirm update" }).click();
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review changes" })).toBeDisabled();
   await page.getByRole("button", { name: "YAML" }).click();
   const source = page.getByRole("textbox", { name: "note type YAML" });
   await expect(source).toContainText("name_field: title");
@@ -1193,7 +1204,7 @@ test("builds and saves a recursive list-of-objects field", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Update this type?" })).toBeVisible();
   await expect(page.locator(".type-change-review dl > div").filter({ hasText: "Fields added" })).toContainText("2");
   await page.getByRole("button", { name: "Confirm update" }).click();
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review changes" })).toBeDisabled();
 
   await page.getByRole("button", { name: "YAML" }).click();
   const source = page.getByRole("textbox", { name: "note type YAML" });
@@ -1240,7 +1251,7 @@ test("resizes, collapses, and restores the desktop sidebars", async ({ page }) =
   expect(restored).toBeCloseTo(after, 0);
 });
 
-test("contains a long collection heading when a saved notes sidebar is clamped", async ({ page }) => {
+test("contains a long collection heading without shrinking navigation for Properties", async ({ page }) => {
   await page.setViewportSize({ width: 1_150, height: 760 });
   await page.addInitScript(() => localStorage.setItem("mdbase-editor:layout", JSON.stringify({
     collectionWidth: 176,
@@ -1258,7 +1269,7 @@ test("contains a long collection heading when a saved notes sidebar is clamped",
   await page.getByRole("button", { name: "Note properties" }).click();
   const pane = page.locator(".note-list-pane");
   const search = page.locator(".note-list-controls .search-field");
-  await expect.poll(async () => pane.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(314, 0);
+  await expect.poll(async () => pane.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(520, 0);
   const bounds = await Promise.all([pane, search].map((locator) => locator.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     return { left: rect.left, right: rect.right };
@@ -1267,10 +1278,10 @@ test("contains a long collection heading when a saved notes sidebar is clamped",
   expect(bounds[1].right).toBeLessThanOrEqual(bounds[0].right);
 
   const resize = page.getByRole("separator", { name: "Resize notes sidebar" });
-  await expect(resize).toHaveAttribute("aria-valuenow", "314");
+  await expect(resize).toHaveAttribute("aria-valuenow", "520");
   await resize.focus();
   await page.keyboard.press("ArrowLeft");
-  await expect.poll(async () => pane.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(306, 0);
+  await expect.poll(async () => pane.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(512, 0);
 });
 
 test("keeps the current note inspector open and resizable between note switches", async ({ page }) => {
@@ -1302,8 +1313,8 @@ test("keeps the current note inspector open and resizable between note switches"
   await page.reload();
   await page.getByRole("button", { name: "Note properties" }).click();
   await expect(page.getByRole("separator", { name: "Resize note inspector" })).toHaveAttribute("aria-valuenow", String(Math.round(after)));
-  const restored = await panel.evaluate((element) => element.getBoundingClientRect().width);
-  expect(restored).toBeCloseTo(after, 0);
+  await expect(panel.getByRole("button", { name: "Close properties" })).toBeVisible();
+  await expect.poll(() => panel.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(after, 0);
 });
 
 test("keeps dense collection counts and footer controls inside the minimum rail", async ({ page }) => {
@@ -1398,10 +1409,10 @@ test("edits structured frontmatter without exposing an undifferentiated textarea
   await tags.getByRole("button", { name: "Add tag" }).click();
   await tags.getByRole("textbox", { name: "tags value item 3" }).fill("nested editing");
   const propertySaveState = panel.locator(".property-save-state");
-  await expect(propertySaveState).toHaveText("Changes save automatically");
   await expect(propertySaveState).toBeEmpty();
   await panel.getByRole("button", { name: "Close properties" }).click();
   await expect(panel).not.toBeVisible();
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
   await page.getByRole("button", { name: "Note properties" }).click();
   await panel.getByRole("tab", { name: /JSON/ }).click();
   await expect(panel.getByRole("textbox", { name: "Frontmatter JSON" })).toContainText('"nested editing"');
@@ -1419,10 +1430,10 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await expect(panel.getByLabel("title property kind")).toHaveCount(0);
   await panel.getByRole("textbox", { name: "title value" }).fill("Source-backed title");
   const propertySaveState = panel.locator(".property-save-state");
-  await expect(propertySaveState).toHaveText("Changes save automatically");
   await expect(propertySaveState).toBeEmpty();
   await panel.getByRole("button", { name: "Close properties" }).click();
   await expect(panel).not.toBeVisible();
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
 
   await page.getByRole("button", { name: "Note properties" }).click();
   await panel.getByRole("tab", { name: "Source" }).click();
@@ -1431,7 +1442,7 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   const original = await source.textContent();
   await source.fill(`${original ?? ""}\nSource tail.\n`);
   await panel.getByRole("tab", { name: "Source" }).click();
-  await expect(panel.getByText("Source saved")).toBeVisible();
+  await expect(panel.locator(".property-save-state")).toBeEmpty();
   await expect(panel).toBeVisible();
   await panel.getByRole("button", { name: "Close properties" }).click();
   await expect(panel).not.toBeVisible();
@@ -1625,7 +1636,7 @@ test("keeps type editing usable at the minimum mobile width", async ({ page }) =
   await page.getByRole("button", { name: "Back to types" }).click();
   await page.getByRole("button", { name: "Add a type" }).click();
   await page.getByRole("button", { name: "New type" }).click();
-  await expect(page.getByText("New", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "New type", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Review changes" })).toBeVisible();
 });
 
