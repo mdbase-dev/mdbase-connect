@@ -2728,6 +2728,7 @@ dependencies = [
  "fs2",
  "iana-time-zone",
  "libc",
+ "mdbase",
  "mdbase-command",
  "mdbase-connect-core",
  "mdbase-connect-daemon",

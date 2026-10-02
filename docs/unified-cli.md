@@ -133,6 +133,15 @@ The command and target values come from fixed enums. The observation never
 contains a filesystem path, collection ID, query, input, result, diagnostic
 message, or record value.
 
+Direct `watch` emits `{"watch":{"ready":true}}` as a flushed JSON line on stderr
+only after the engine watcher has registered its backend and reconciled its
+initial snapshot. Callers that will write files should wait for this signal
+rather than assuming startup has completed after a delay. It contains no path
+or record payload, is not an event, and does not contribute to `--count`.
+Stdout remains exclusively the portable Watch-profile event stream. The CLI
+streaming host owns this stdio lifecycle; collection observation and event
+semantics remain in `mdbase-rs`.
+
 A later presentation layer may add human record tables without changing the
 portable JSON contract. Output formatting does not belong in the engine.
 
