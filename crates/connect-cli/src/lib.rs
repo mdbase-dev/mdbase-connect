@@ -32,7 +32,7 @@ use mdbase_connect_protocol::{
     SyncReplicaMode, LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use serde_json::Value;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use uuid::Uuid;
@@ -643,6 +643,40 @@ fn hosted_cli_authorization_operations(
         .collect())
 }
 
+// The streaming host owns stdio and readiness; event semantics remain in the engine.
+fn run_direct_watch(root: &Path, debounce_ms: u64, count: Option<usize>) -> Result<(), String> {
+    if debounce_ms == 0 {
+        return Err("--debounce-ms must be greater than zero".to_string());
+    }
+    if count == Some(0) {
+        return Err("--count must be greater than zero".to_string());
+    }
+    let watcher =
+        mdbase::watch::CollectionWatcher::open(root, std::time::Duration::from_millis(debounce_ms))
+            .map_err(|error| error.to_string())?;
+    // open() waits for backend registration and initial reconciliation. This
+    // payload-free status must precede any writes a caller wants to observe.
+    {
+        let mut stderr = std::io::stderr().lock();
+        writeln!(stderr, "{{\"watch\":{{\"ready\":true}}}}")
+            .and_then(|_| stderr.flush())
+            .map_err(|error| error.to_string())?;
+    }
+    let mut stdout = std::io::stdout().lock();
+    let mut emitted = 0;
+    loop {
+        let event = watcher.recv_portable().map_err(|error| error.to_string())?;
+        let rendered = serde_json::to_string(&event).map_err(|error| error.to_string())?;
+        writeln!(stdout, "{rendered}")
+            .and_then(|_| stdout.flush())
+            .map_err(|error| error.to_string())?;
+        emitted += 1;
+        if count.is_some_and(|count| emitted >= count) {
+            return Ok(());
+        }
+    }
+}
+
 async fn execute(args: Args) -> Result<i32, CliError> {
     match args.command {
         RootCommand::Version => {
@@ -670,8 +704,7 @@ async fn execute(args: Args) -> Result<i32, CliError> {
                     let root = args.root.unwrap_or_else(|| {
                         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
                     });
-                    mdbase_command::run_watch(&root, debounce_ms, count)
-                        .map_err(CliError::internal)?;
+                    run_direct_watch(&root, debounce_ms, count).map_err(CliError::internal)?;
                     return Ok(0);
                 }
                 command => command,

@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::thread;
@@ -846,6 +847,25 @@ fn deterministic_profilers_are_built_into_the_final_executable() {
 }
 
 #[test]
+fn direct_watch_rejects_invalid_options_without_announcing_readiness() {
+    for arguments in [
+        vec!["watch", "--debounce-ms", "0"],
+        vec!["watch", "--count", "0"],
+    ] {
+        let output = run(&arguments);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("\"ready\":true"));
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let missing = scratch.path().join("missing");
+    let output = run(&["--root", missing.to_str().unwrap(), "watch"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("\"ready\":true"));
+}
+
+#[test]
 fn direct_watch_streams_one_portable_event_and_exits_at_the_requested_count() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path().join("notes");
@@ -859,7 +879,7 @@ fn direct_watch_streams_one_portable_event_and_exits_at_the_requested_count() {
     ]);
     assert!(initialized.status.success());
 
-    let mut child = Command::new(binary())
+    let child = Command::new(binary())
         .args([
             "--root",
             &root_string,
@@ -874,33 +894,50 @@ fn direct_watch_streams_one_portable_event_and_exits_at_the_requested_count() {
         .stderr(Stdio::piped())
         .spawn()
         .expect("start watcher");
-    thread::sleep(Duration::from_millis(300));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut watcher = Daemon { child }; // Kill/reap the child on assertion failure too.
+    let stderr = watcher.child.stderr.take().unwrap();
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+    let stderr_reader = thread::spawn(move || {
+        let mut reader = BufReader::new(stderr);
+        let mut stderr = String::new();
+        let ready = reader.read_line(&mut stderr).map(|_| stderr.clone());
+        let _ = ready_tx.send(ready);
+        reader.read_to_string(&mut stderr).map(|_| stderr)
+    });
+    let mut stdout = watcher.child.stdout.take().unwrap();
+    let (output_tx, output_rx) = std::sync::mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let mut output = Vec::new();
+        let result = stdout.read_to_end(&mut output).map(|_| output);
+        let _ = output_tx.send(result);
+    });
+    let ready = ready_rx
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .expect("watcher did not announce readiness")
+        .expect("read watcher readiness");
+    assert_eq!(
+        serde_json::from_str::<Value>(&ready).expect("watch readiness JSON"),
+        serde_json::json!({"watch": {"ready": true}})
+    );
     std::fs::write(
         root.join("watched.md"),
         "---\ntitle: Watched\n---\n\n# Watched\n",
     )
     .unwrap();
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while child.try_wait().unwrap().is_none() {
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let output = child.wait_with_output().unwrap();
-            panic!(
-                "watch did not terminate\nstdout={}\nstderr={}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        thread::sleep(Duration::from_millis(20));
-    }
-    let output = child.wait_with_output().expect("watcher exits");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let event = json(&output);
+    // EOF, not merely the first event, proves --count closed the stream.
+    let stdout = output_rx
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .expect("watch did not terminate after its requested event")
+        .expect("read watch event stream");
+    let status = watcher.child.wait().expect("watcher exits");
+    let stderr = stderr_reader
+        .join()
+        .unwrap()
+        .expect("read watch diagnostics");
+    assert!(status.success(), "{stderr}");
+    let event: Value = serde_json::from_slice(&stdout).expect("exactly one portable event");
     assert_eq!(event["kind"], "record_created");
     assert_eq!(event["path"], "watched.md");
     assert!(event["id"]
