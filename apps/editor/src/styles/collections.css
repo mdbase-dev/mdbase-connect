@@ -8,10 +8,7 @@
   margin: 0;
   padding: 10px 2px 7px;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: var(--font-size-caption);
 }
 
 .saved-collection-item {
@@ -43,21 +40,21 @@
 .saved-collection-row strong {
   overflow: hidden;
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--font-size-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .saved-collection-row small {
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
 }
 
 .saved-collection-row > svg {
   width: 15px;
   height: 15px;
   color: var(--faint);
-  transition: transform 160ms ease-out, color 160ms ease-out;
+  transition: transform var(--motion-quick) var(--ease-out), color var(--motion-quick) var(--ease-out);
 }
 
 .saved-collection-row:hover > svg {
@@ -94,7 +91,7 @@
 @media (hover: hover) {
   .saved-collection-item .note-actions > .icon-button {
     opacity: 0;
-    transition: opacity 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+    transition: opacity var(--motion-quick) var(--ease-out), background var(--motion-quick) var(--ease-out), color var(--motion-quick) var(--ease-out);
   }
 
   .saved-collection-item:hover .note-actions > .icon-button,

@@ -1,6 +1,5 @@
-/* Latin subsets of the two mdbase families. Browsers fetch a weight only when text uses it. */
-@import "@fontsource/atkinson-hyperlegible/latin-400.css";
-@import "@fontsource/atkinson-hyperlegible/latin-700.css";
+/* Next provides real intermediate weights (200–800), served locally under font-src 'self'. */
+@import "@fontsource-variable/atkinson-hyperlegible-next/wght.css";
 @import "@fontsource/azeret-mono/latin-400.css";
 @import "@fontsource/azeret-mono/latin-500.css";
 @import "@fontsource/azeret-mono/latin-600.css";

@@ -268,7 +268,7 @@ export function PropertiesPanel({
     </div>}
 
     <div className="property-footer">
-      {(error || (mode === "source" ? sourceSaveError : autoSaveError)) && <p className="property-error" role="alert">{error || (mode === "source" ? sourceSaveError : autoSaveError)}{mode !== "source" && autoSaveError && <button className="property-save" onClick={() => setRetry((value) => value + 1)}>Retry save</button>}</p>}
+      {(error || (mode === "source" ? sourceSaveError : autoSaveError)) && <p className="property-error" role="alert">{error || (mode === "source" ? sourceSaveError : autoSaveError)}{mode !== "source" && autoSaveError && <button className="property-save mdbase-button is-secondary" onClick={() => setRetry((value) => value + 1)}>Retry save</button>}</p>}
       {mode === "source"
         ? <div className="source-save-actions">
           <p className="property-save-state" aria-live="polite">{slowSourceSave
@@ -276,7 +276,7 @@ export function PropertiesPanel({
             : sourceChanged
               ? "Source saves when focus leaves the editor"
               : ""}</p>
-          <button className="property-save" disabled={readOnly || !sourceChanged || saving} onClick={() => void saveSource(true)}>{slowSourceSave ? "Saving…" : "Save source"}</button>
+          <button className="property-save mdbase-button is-primary" disabled={readOnly || !sourceChanged || saving} onClick={() => void saveSource(true)}>{slowSourceSave ? "Saving…" : "Save source"}</button>
         </div>
         : <p className="property-save-state" aria-live="polite">{rawError
           ? "Fix the JSON to continue saving"

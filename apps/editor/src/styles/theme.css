@@ -2,6 +2,9 @@
   color: var(--ink);
   background: var(--canvas);
   font-family: var(--sans);
+  /* Preserve rem-based geometry; UI chrome uses its own body size token. */
+  font-size: 100%;
+  font-weight: var(--font-weight-regular);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --color-diff-local: oklch(98% 0.012 28);

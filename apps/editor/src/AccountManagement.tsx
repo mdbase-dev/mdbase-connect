@@ -230,7 +230,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
             <label><span>New password</span><input type="password" autoComplete="new-password" minLength={15} required aria-describedby="account-password-guidance" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
             <p className="connect-muted" id="account-password-guidance">Use at least 15 characters. Spaces are welcome.</p>
             <label><span>Confirm new password</span><input type="password" autoComplete="new-password" minLength={15} required value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label>
-            <button className="connect-primary-action" disabled={busy.has("password")}>{busy.has("password") ? "Changing password…" : "Change password"}</button>
+            <button className="connect-primary-action mdbase-button is-primary" disabled={busy.has("password")}>{busy.has("password") ? "Changing password…" : "Change password"}</button>
           </form>}
         </div>}
       </div>}
@@ -325,7 +325,7 @@ function EmailPreferenceRow({ title, description, checked, busy, onChange }: {
 }) {
   return <label className="connect-account-row">
     <div><strong>{title}</strong><small>{description}</small></div>
-    <input type="checkbox" checked={checked} disabled={busy} onChange={(event) => onChange(event.target.checked)} />
+    <input className="mdbase-checkbox" type="checkbox" checked={checked} disabled={busy} onChange={(event) => onChange(event.target.checked)} />
   </label>;
 }
 

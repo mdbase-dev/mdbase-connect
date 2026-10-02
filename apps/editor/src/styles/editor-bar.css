@@ -23,7 +23,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-caption);
 }
 
 .note-history {
@@ -57,11 +57,11 @@
   padding: 5px 6px;
   overflow: hidden;
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--faint);
   background: transparent;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -102,7 +102,7 @@
   height: 12px;
   flex: 0 0 auto;
   opacity: 0;
-  transition: opacity 160ms ease-out;
+  transition: opacity var(--motion-quick) var(--ease-out);
 }
 
 .path-button:hover {
@@ -142,10 +142,9 @@
 .cancel-operation {
   padding: 3px 5px;
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .cancel-operation:hover {
@@ -165,9 +164,7 @@
   width: 164px;
   padding: 5px;
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
   background: var(--white);
-  box-shadow: 0 8px 20px var(--color-shadow);
 }
 
 .action-menu button {
@@ -177,9 +174,8 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 3px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   text-align: left;
 }
 
@@ -220,8 +216,7 @@
 .outline-menu .outline-hash {
   flex: 0 0 auto;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .outline-menu .outline-text {
@@ -235,7 +230,7 @@
   margin: 0;
   padding: 8px;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
 }
 
 .action-menu svg {
@@ -255,9 +250,7 @@
   min-width: 180px;
   padding: 5px;
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
   background: var(--white);
-  box-shadow: 0 8px 20px var(--color-shadow);
 }
 
 .context-menu button {
@@ -267,9 +260,8 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 3px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   text-align: left;
 }
 
@@ -302,7 +294,7 @@
   border-bottom: 1px solid var(--line);
   background: var(--canvas);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-caption);
 }
 
 .notice > svg {
@@ -325,7 +317,7 @@
   width: min(180px, 24vw);
   height: 4px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 50%;
   overflow: hidden;
   color: var(--accent);
   background: var(--hover);
@@ -360,38 +352,27 @@
 .rename-confirm strong,
 .delete-confirm strong {
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
 }
 
 .rename-confirm span,
 .delete-confirm span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .rename-confirm button {
   padding: 5px 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .rename-confirm button:hover {
   background: var(--hover);
   color: var(--ink);
-}
-
-.rename-confirm .primary-confirm-action {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--color-on-accent);
-}
-
-.rename-confirm .primary-confirm-action:hover {
-  background: var(--accent-strong);
-  color: var(--color-on-accent);
 }
 
 .notice button {
@@ -414,7 +395,7 @@
   border-bottom: 1px solid var(--line-strong);
   background: var(--canvas);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
 }
 
 .conflict-summary {
@@ -444,7 +425,7 @@
 }
 
 .conflict-summary span {
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .conflict-actions {
@@ -455,26 +436,15 @@
 .conflict-actions button {
   padding: 5px 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .conflict-actions button:hover {
   background: var(--hover);
   color: var(--ink);
-}
-
-.conflict-actions .primary-conflict-action {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--color-on-accent);
-}
-
-.conflict-actions .primary-conflict-action:hover {
-  background: var(--accent-strong);
-  color: var(--color-on-accent);
 }
 
 .conflict-resolver > details {
@@ -485,8 +455,8 @@
   width: max-content;
   padding: 8px 24px;
   color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .conflict-diff {
@@ -497,7 +467,7 @@
   display: flex;
   gap: 16px;
   margin-bottom: 8px;
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .diff-legend span::before {
@@ -506,7 +476,7 @@
   height: 7px;
   display: inline-block;
   margin-right: 5px;
-  border-radius: 1px;
+  border-radius: var(--radius-sm);
 }
 
 .diff-legend .local::before { background: var(--color-diff-local-mark); }
@@ -533,9 +503,7 @@
 
 .title-diff small {
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
-  text-transform: uppercase;
+  font-size: var(--font-size-caption);
 }
 
 .title-diff span {
@@ -549,10 +517,10 @@
   margin-top: 8px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--white);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .diff-line {
@@ -600,8 +568,8 @@
 .delete-confirm button {
   padding: 5px 7px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .delete-confirm .danger-action {
@@ -625,12 +593,9 @@
   gap: 9px;
   padding: 8px 8px 8px 13px;
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
   background: var(--white);
-  box-shadow: 0 8px 24px var(--color-shadow);
   color: var(--muted);
-  font-size: 12px;
-  animation: toast-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  font-size: var(--font-size-ui);
 }
 
 .toast > svg {
@@ -655,9 +620,9 @@
   align-items: center;
   padding: 5px 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--accent);
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .toast > button:not(.icon-button):hover:not(:disabled) {

@@ -41,7 +41,7 @@ export function SaveIndicator({ state, activity, detail, identity, onCancel, onR
   const label = attention ? "Needs attention" : state === "recovery" ? "Recovery pending"
     : detail ?? (activity ? activityLabels[activity] : "Saving…");
   const tone: SaveTone = attention ? "attention" : state === "recovery" ? "pending" : "saving";
-  return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{state === "error" && onRetry && <button className="cancel-operation" onClick={onRetry}>Retry save</button>}{onCancel && <button className="cancel-operation" onClick={onCancel}>Cancel</button>}</div>;
+  return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{state === "error" && onRetry && <button className="cancel-operation mdbase-button is-secondary" onClick={onRetry}>Retry save</button>}{onCancel && <button className="cancel-operation mdbase-button is-secondary" onClick={onCancel}>Cancel</button>}</div>;
 }
 export function BacklinksPanel({ notes, types, loading, error, onRetry, onClose, onOpen }: {
   notes: NoteSummary[];

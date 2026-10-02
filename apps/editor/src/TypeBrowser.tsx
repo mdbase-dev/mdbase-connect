@@ -256,7 +256,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
     }
   }
 
-  if (!creating && !type) return <main className="type-inspector empty-type">{leadingActions && <div className="empty-pane-actions">{leadingActions}</div>}<div><p>This collection has no type definitions.</p>{onCreate && <button className="empty-type-create" onClick={onCreate}>Create the first type</button>}</div></main>;
+  if (!creating && !type) return <main className="type-inspector empty-type">{leadingActions && <div className="empty-pane-actions">{leadingActions}</div>}<div><p>This collection has no type definitions.</p>{onCreate && <button className="empty-type-create mdbase-button is-primary" onClick={onCreate}>Create the first type</button>}</div></main>;
   const name = creating ? "New type" : type!.name;
   const path = creating ? "A path will be created from the type name" : document?.path ?? type!.path ?? `_types/${type!.name}.md`;
   return <main className="type-inspector" aria-label={`${name} type definition`}>
@@ -286,8 +286,8 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
           </div>
           <div className="type-editor-actions">
             {dirty && <span className="type-change-scope" id="type-change-scope"><CircleAlert aria-hidden="true" />{creating ? "Saving affects every matching note" : <>Saving affects every note of type <code>{type!.name}</code></>}</span>}
-            <button className="type-secondary-action" onClick={creating ? onCancel : onRevert} disabled={readOnly || saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
-            <button className="save-type-button" aria-describedby={dirty ? "type-change-scope" : undefined} onClick={() => setReviewing(true)} disabled={readOnly || loading || saving || !dirty || !parsed.value || contractErrors.length > 0}>{saving ? "Saving…" : "Review changes"}</button>
+            <button className="type-secondary-action mdbase-button is-tertiary" onClick={creating ? onCancel : onRevert} disabled={readOnly || saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
+            <button className="save-type-button mdbase-button is-primary" aria-describedby={dirty ? "type-change-scope" : undefined} onClick={() => setReviewing(true)} disabled={readOnly || loading || saving || !dirty || !parsed.value || contractErrors.length > 0}>{saving ? "Saving…" : "Review changes"}</button>
           </div></>}
         </div>
       }
@@ -433,8 +433,8 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
             : "Objects and lists can contain fields at any depth."}</p>
         </div>
         {linkedSchema
-          ? <button onClick={onOpenYaml}><FileCode2 aria-hidden="true" />Edit reference</button>
-          : <button onClick={() => onChange((current) => addTypeField(current))}><Plus aria-hidden="true" />Add field</button>}
+          ? <button className="mdbase-button is-tertiary" onClick={onOpenYaml}><FileCode2 aria-hidden="true" />Edit reference</button>
+          : <button className="mdbase-button" onClick={() => onChange((current) => addTypeField(current))}><Plus aria-hidden="true" />Add field</button>}
       </div>
       <div className="visual-field-columns" aria-hidden="true"><span>Field</span><span>Kind</span><span>Required</span><span /></div>
     </section>
@@ -1131,6 +1131,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
               onChange={(next) => onChange((source) => setTypeLinkRule(source, rule.field, "format", (next || undefined) as TypeLinkFormat | undefined))}
             /></label>
             <label className="collection-toggle"><input
+              className="mdbase-checkbox"
               type="checkbox"
               checked={rule.validateExists}
               onChange={(event) => onChange((source) => setTypeLinkRule(source, rule.field, "validate_exists", event.target.checked || undefined))}
@@ -1650,7 +1651,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
       </button>
       <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only">Field name</span><input type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title="Notes use this field to declare their type. Edit it in YAML if you need to change it.">Type key</small>}</label>
       <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field kind</span><Select aria-label={`${fieldLabel} field kind`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
-      <label className="visual-field-required"><input type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span>Required</span></label>
+      <label className="visual-field-required"><input className="mdbase-checkbox" type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span>Required</span></label>
       {typeKey ? <span className="remove-type-field" aria-hidden="true" /> : <InlineRemoveButton className="remove-type-field" label={`Remove ${fieldLabel} field`} onClick={() => onChange((current) => removeTypeField(current, field.path))} />}
     </div>
     {expanded && <div className="visual-field-details">
@@ -1882,10 +1883,10 @@ function FieldConstraints({ field, onChange }: {
   if (field.kind === "array") {
     constraint("minItems", "Minimum items", field.constraints.minItems);
     constraint("maxItems", "Maximum items", field.constraints.maxItems);
-    controls.push(<label className="field-toggle" key="uniqueItems"><input type="checkbox" checked={field.constraints.uniqueItems === true} onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "uniqueItems", event.target.checked || undefined))} /><span>Require unique items</span></label>);
+    controls.push(<label className="field-toggle" key="uniqueItems"><input className="mdbase-checkbox" type="checkbox" checked={field.constraints.uniqueItems === true} onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "uniqueItems", event.target.checked || undefined))} /><span>Require unique items</span></label>);
   }
   if (field.kind === "object") {
-    controls.push(<label className="field-toggle" key="additionalProperties"><input type="checkbox" checked={field.constraints.additionalProperties !== false} onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "additionalProperties", event.target.checked))} /><span>Allow undeclared fields</span></label>);
+    controls.push(<label className="field-toggle" key="additionalProperties"><input className="mdbase-checkbox" type="checkbox" checked={field.constraints.additionalProperties !== false} onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "additionalProperties", event.target.checked))} /><span>Allow undeclared fields</span></label>);
   }
   if (!controls.length) return null;
   return <div className="field-constraint-grid">{controls}</div>;
@@ -1944,7 +1945,7 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
     </div>}
     <p className="type-review-scope">Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm.</p>
     <details><summary>Review YAML diff</summary><div className="line-diff" role="table" aria-label="Type source differences">{diff.map((line, index) => <div className={`diff-line ${line.kind}`} role="row" key={`${line.kind}:${index}`}><span className="diff-marker" aria-hidden="true">{line.kind === "local" ? "−" : line.kind === "remote" ? "+" : line.kind === "omitted" ? "···" : " "}</span><span className="diff-line-number" aria-hidden="true">{line.localLine ?? line.remoteLine ?? ""}</span><code role="cell">{line.text || " "}</code></div>)}</div></details>
-    <div className="type-review-actions"><button onClick={onBack}>Back to editing</button><button className="confirm-type-button" disabled={saving} onClick={onConfirm}>{saving ? "Saving…" : creating ? "Create type" : "Confirm update"}</button></div>
+    <div className="type-review-actions"><button className="mdbase-button is-tertiary" onClick={onBack}>Back to editing</button><button className="confirm-type-button mdbase-button is-primary" disabled={saving} onClick={onConfirm}>{saving ? "Saving…" : creating ? "Create type" : "Confirm update"}</button></div>
   </div>;
 }
 

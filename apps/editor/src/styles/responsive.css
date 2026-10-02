@@ -229,11 +229,11 @@
 
   .note-title-field {
     min-height: 45px;
-    font-size: 29px;
+    font-size: var(--font-size-heading);
   }
 
   .body-editor .cm-content {
-    font-size: var(--editor-font-size, 17px);
+    font-size: var(--editor-font-size, var(--font-size-prose));
   }
 
   .body-editor .cm-scroller {
@@ -263,7 +263,7 @@
   .context-menu button {
     min-height: 44px;
     padding-inline: 10px;
-    font-size: 13px;
+    font-size: var(--font-size-ui);
   }
 
   .properties-panel,
@@ -307,11 +307,11 @@
   }
 
   .type-heading h1 {
-    font-size: 24px;
+    font-size: var(--font-size-heading);
   }
 
   .settings-document h1 {
-    font-size: 27px;
+    font-size: var(--font-size-heading);
   }
 
   .type-heading-title {
@@ -321,7 +321,7 @@
   .type-heading-title > .ph {
     width: 22px;
     flex-basis: 22px;
-    font-size: 22px;
+    font-size: var(--font-size-heading);
   }
 
   .type-heading-title > svg {
@@ -345,7 +345,7 @@
 
   .type-heading > p:not(.eyebrow) {
     margin-top: 6px;
-    font-size: 13px;
+    font-size: var(--font-size-ui);
     line-height: 1.4;
   }
 
@@ -373,7 +373,7 @@
   .type-disclosure-summary {
     grid-column: 1;
     max-width: 100%;
-    font-size: 11px;
+    font-size: var(--font-size-ui);
     text-align: left;
   }
 
@@ -665,7 +665,7 @@
   }
 
   .new-note-title input {
-    font-size: 29px;
+    font-size: var(--font-size-title);
   }
 
   .new-note-fields {
@@ -719,7 +719,7 @@
     align-self: end;
     width: 100%;
     max-height: calc(100dvh - max(18px, env(safe-area-inset-top)));
-    border-radius: 8px 8px 0 0;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
   }
 
   .dialog-scrim:has(.confirm-dialog, .collection-switcher) {
@@ -769,7 +769,7 @@
   .type-definition-changes p,
   .type-change-review .type-review-scope,
   .type-change-review > details > summary {
-    font-size: 11px;
+    font-size: var(--font-size-caption);
   }
 
   .visual-type-basics-fields label > span,
@@ -779,7 +779,7 @@
   .field-path span,
   .list-item-heading span,
   .string-list-heading > span {
-    font-size: 11px;
+    font-size: var(--font-size-caption);
   }
 }
 
@@ -810,7 +810,7 @@
   *::before,
   *::after {
     scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
