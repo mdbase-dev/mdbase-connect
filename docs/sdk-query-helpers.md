@@ -129,7 +129,8 @@ collection-relative target path, including its extension; it is compared, not
 resolved or normalized. Scalar link fields are the default; `{multiple: true}`
 uses `exists()` for a declared link list. A wrong field shape is an authority
 query error/diagnostic, not a client coercion. Missing/null fields, null list
-members, and unresolved targets do not match.
+members, and unresolved targets do not match. Use this with raw queries;
+semantic contract queries do not allow a CEL `where` filter.
 
 ```ts
 const where = linksTo("source", "sources/book.md");

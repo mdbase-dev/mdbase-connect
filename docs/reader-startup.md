@@ -1,6 +1,7 @@
 # Reader startup: compatible SDK and authority improvements
 
-No public SDK methods, options or session statuses change.
+Startup lifecycle and session statuses do not change. Current query helper APIs
+and consumer migration notes are documented in [query helpers](sdk-query-helpers.md).
 
 ## Readiness
 
