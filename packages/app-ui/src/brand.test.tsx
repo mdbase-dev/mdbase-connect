@@ -51,6 +51,11 @@ describe("marks", () => {
     expect(markup.match(/<rect x="-?\d+" y="(22|88)" width="20"/g)).toHaveLength(10);
   });
 
+  it("draws every bar with square corners", () => {
+    expect(renderToStaticMarkup(<MdbaseMark motion="conveyor" />)).not.toContain("rx=");
+    expect(renderToStaticMarkup(<Wordmark app="writer" />)).not.toContain("rx=");
+  });
+
   it("gives Editor the platform mark and other apps their own", () => {
     expect(renderToStaticMarkup(<Wordmark app="editor" />))
       .toContain('class="mdbase-mark wordmark-mark"');

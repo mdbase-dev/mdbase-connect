@@ -331,13 +331,13 @@
 
     function rect([x, y, width, height], index) {
       const tone = index === 4 ? "mdbase-mark-accent" : "mdbase-mark-ink";
-      return `<rect class="mdbase-mark-segment mdbase-mark-segment-${index + 1} ${tone}" x="${x}" y="${y}" width="${width}" height="${height}" rx="2" pathLength="1"/>`;
+      return `<rect class="mdbase-mark-segment mdbase-mark-segment-${index + 1} ${tone}" x="${x}" y="${y}" width="${width}" height="${height}" pathLength="1"/>`;
     }
 
     function mark(motion, id) {
-      const conveyor = xs.flatMap((x) => [22, 88].map((y) => `<rect x="${x}" y="${y}" width="20" height="10" rx="2"/>`)).join("");
+      const conveyor = xs.flatMap((x) => [22, 88].map((y) => `<rect x="${x}" y="${y}" width="20" height="10"/>`)).join("");
       return `<svg class="mdbase-motion-mark mdbase-motion-${motion}" viewBox="18 18 84 84" aria-hidden="true" focusable="false">
-        <defs><clipPath id="fences-${id}"><rect x="22" y="22" width="76" height="10" rx="2"/><rect x="22" y="88" width="76" height="10" rx="2"/></clipPath></defs>
+        <defs><clipPath id="fences-${id}"><rect x="22" y="22" width="76" height="10"/><rect x="22" y="88" width="76" height="10"/></clipPath></defs>
         <g class="mdbase-mark-fence mdbase-mark-fence-top">${segments.slice(0, 3).map((value, index) => rect(value, index)).join("")}</g>
         <g class="mdbase-mark-row mdbase-mark-row-top">${segments.slice(3, 5).map((value, index) => rect(value, index + 3)).join("")}</g>
         <g class="mdbase-mark-row mdbase-mark-row-bottom">${segments.slice(5, 7).map((value, index) => rect(value, index + 5)).join("")}</g>

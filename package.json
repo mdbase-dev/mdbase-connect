@@ -85,7 +85,8 @@
     "typecheck": "pnpm -r typecheck",
     "ci:local": "node scripts/ci-local.mjs",
     "pin:mdbase-rs": "node scripts/mdbase-rs-pin.mjs set",
-    "version:check": "node scripts/check-release-version.mjs"
+    "version:check": "node scripts/check-release-version.mjs",
+    "generate:icons": "node scripts/write-brand-icons.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
