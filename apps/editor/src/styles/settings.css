@@ -38,13 +38,13 @@
 
 .settings-intro h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--font-size-section);
 }
 
 .settings-intro p {
   margin: 1px 0 0;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--font-size-caption);
 }
 
 .settings-details > summary {
@@ -54,7 +54,7 @@
   gap: 6px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   cursor: pointer;
   list-style: none;
 }
@@ -70,7 +70,7 @@
 .settings-details > summary svg {
   width: 11px;
   height: 11px;
-  transition: transform 120ms ease;
+  transition: transform var(--motion-fast) var(--ease-standard);
 }
 
 .settings-details[open] > summary svg {
@@ -90,13 +90,13 @@
 
 .setting-row h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-ui);
 }
 
 .setting-row p {
   margin: 4px 0 0;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   line-height: 1.4;
 }
 
@@ -115,7 +115,7 @@
   gap: 6px;
   padding: 0 8px;
   color: var(--danger);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .settings-danger-action:hover {
@@ -130,11 +130,8 @@
 .settings-secondary-action {
   min-height: 34px;
   padding: 0 10px;
-  border-radius: 4px;
-  background: var(--selected);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .settings-secondary-action:hover:not(:disabled) {
@@ -149,7 +146,7 @@
   min-height: 34px;
   padding: 0 10px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .settings-quiet-action:hover:not(:disabled) {
@@ -176,7 +173,7 @@
 .settings-list {
   margin: 10px 0;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--font-size-caption);
   line-height: 1.5;
 }
 
@@ -199,13 +196,13 @@
 
 .settings-review h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-ui);
 }
 
 .settings-review pre,
 #your-person code {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -215,7 +212,7 @@
   height: 20px;
   padding: 2px;
   border: 1px solid var(--line-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--canvas);
 }
 
@@ -225,7 +222,7 @@
   display: block;
   border-radius: 50%;
   background: var(--faint);
-  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), background 180ms ease-out;
+  transition: transform var(--motion-base) var(--ease-out), background var(--motion-base) var(--ease-out);
 }
 
 .toggle.checked span {
@@ -235,21 +232,20 @@
 
 .fact-row > span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
 }
 
 .fact-row strong {
   max-width: 420px;
   overflow-wrap: anywhere;
-  font-size: 12px;
-  font-weight: 400;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-regular);
   text-align: right;
 }
 
 .fact-row .mono {
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
   line-height: 1.5;
 }
 

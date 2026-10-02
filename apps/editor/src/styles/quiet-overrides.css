@@ -8,7 +8,7 @@
 .icon-button,
 .action-menu button,
 .context-menu button {
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .collection-rail nav button.selected,
@@ -26,7 +26,7 @@
 .note-row.selected .note-title,
 .type-row.selected,
 .type-pack-entry.selected {
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .search-field,
@@ -37,7 +37,7 @@
 .connect-feedback-origin .mdbase-select,
 .connect-account-form input,
 .connect-account-reauthentication input {
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: transparent;
 }
 
@@ -51,7 +51,7 @@
 .note-preview,
 .toast,
 .icon-picker-popover {
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   box-shadow: none;
 }
 
@@ -71,7 +71,7 @@
 .conflict-actions .primary-conflict-action,
 .type-review-actions .confirm-type-button {
   border: 1px solid var(--accent);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--accent) !important;
 }
@@ -93,7 +93,7 @@
 
 .settings-secondary-action {
   border: 1px solid var(--line-strong);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
 }
@@ -104,7 +104,7 @@
 .connect-account-reauthentication,
 .field-conversion-warning,
 .type-definition-changes {
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .type-workspace-loading p,
@@ -116,7 +116,7 @@
 .note-preview-loading {
   margin: 0;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--font-size-caption);
   line-height: 1.5;
 }
 
@@ -131,7 +131,7 @@
   display: block;
   margin: 0 0 8px;
   background: transparent;
-  font-size: 15px;
+  font-size: var(--font-size-section);
   animation: none;
 }
 
@@ -165,7 +165,7 @@
 
 .properties-panel-loading > strong {
   margin-top: 2px;
-  font-size: 15px;
+  font-size: var(--font-size-section);
 }
 
 .contract-catalog-loading {
@@ -210,6 +210,6 @@
 @media (max-width: 560px) {
   .confirm-dialog,
   .collection-switcher {
-    border-radius: 2px 2px 0 0;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   }
 }

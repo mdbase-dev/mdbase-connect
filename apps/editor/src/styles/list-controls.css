@@ -11,7 +11,6 @@
 .type-workspace-loading {
   align-content: start;
   gap: 16px;
-  padding: 24px 18px;
 }
 
 .list-header {
@@ -30,8 +29,8 @@
 .list-header h1 {
   overflow: hidden;
   margin: 0;
-  font-size: 17px;
-  font-weight: 700;
+  font-size: var(--font-size-prose);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -41,7 +40,7 @@
   margin: 2px 0 0;
   overflow: hidden;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -50,7 +49,7 @@
   margin-left: 6px;
   color: var(--accent);
   font-size: inherit;
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .list-header .list-retry:hover {
@@ -59,16 +58,15 @@
 
 .status-dot.reconnecting {
   background: var(--color-warning-text, oklch(43% 0.055 69));
-  animation: opening-pulse 800ms ease-in-out infinite alternate;
 }
 
 .collection-rail .reconnect-action {
   flex: 0 0 auto;
   padding: 4px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--color-warning-text, oklch(43% 0.055 69));
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .collection-rail .reconnect-action:hover {
@@ -80,10 +78,10 @@
   flex: 1;
   overflow: hidden;
   padding: 5px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -103,7 +101,6 @@
   flex: 0 0 auto;
   display: inline-grid;
   place-items: center;
-  border-radius: 4px;
   color: var(--muted);
 }
 
@@ -125,7 +122,7 @@
   min-height: 32px;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--faint);
 }
 
@@ -151,8 +148,7 @@
 
 .backlink-button > span {
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
   line-height: 1;
 }
 
@@ -251,8 +247,6 @@
   margin: 0 12px 8px;
   padding: 0 9px;
   border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--canvas);
 }
 
 .search-field:focus-within {
@@ -278,7 +272,7 @@
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 13px;
+  font-size: var(--font-size-ui);
 }
 
 .search-field input::placeholder {
@@ -330,11 +324,8 @@
 .view-options-heading {
   margin: 7px 8px 3px;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-bold);
 }
 
 .view-options-divider {
@@ -367,8 +358,7 @@ kbd {
   border: 0;
   background: transparent;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   line-height: 1;
   white-space: nowrap;
 }

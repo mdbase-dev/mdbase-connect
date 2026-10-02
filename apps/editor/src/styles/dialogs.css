@@ -5,7 +5,6 @@
   display: grid;
   place-items: start center;
   padding: min(14vh, 110px) 18px 18px;
-  background: var(--color-scrim, oklch(21% 0.018 255 / 18%));
 }
 
 .quick-open,
@@ -15,9 +14,7 @@
   width: min(580px, 100%);
   overflow: hidden;
   border: 1px solid var(--line-strong);
-  border-radius: 6px;
   background: var(--white);
-  box-shadow: 0 12px 32px var(--color-shadow);
 }
 
 .confirm-dialog {
@@ -28,14 +25,14 @@
 .confirm-dialog-copy h2 {
   margin: 0;
   color: var(--ink);
-  font-size: 21px;
+  font-size: var(--font-size-heading);
   letter-spacing: -0.02em;
 }
 
 .confirm-dialog-copy > div {
   margin-top: 9px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   line-height: 1.55;
 }
 
@@ -52,16 +49,14 @@
   min-height: 36px;
   padding: 0 12px;
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .confirm-dialog > footer .confirm-primary {
   border-color: var(--accent);
-  background: var(--accent);
-  color: var(--color-on-accent, white);
 }
 
 .confirm-dialog > footer .confirm-danger {
@@ -84,7 +79,7 @@
   flex: 1;
   margin: 0;
   color: var(--ink);
-  font-size: 18px;
+  font-size: var(--font-size-prose);
   letter-spacing: -0.015em;
 }
 
@@ -101,13 +96,12 @@
   align-items: center;
   gap: 14px;
   padding: 8px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   text-align: left;
 }
 
 .collection-switcher-list > button:hover { background: var(--hover); }
-.collection-switcher-list > button.current { background: var(--selected); }
 
 .collection-switcher-list > button > span:first-child {
   min-width: 0;
@@ -125,12 +119,12 @@
 
 .collection-switcher-list strong {
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--font-size-ui);
 }
 
 .collection-switcher-list small {
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
 }
 
 .collection-switcher > footer {
@@ -144,9 +138,9 @@
   align-items: center;
   gap: 9px;
   padding: 6px 9px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   text-align: left;
 }
 
@@ -184,7 +178,7 @@
   background: transparent;
   color: var(--ink);
   caret-color: var(--ink);
-  font-size: 16px;
+  font-size: var(--font-size-section);
 }
 
 .quick-open-search input::placeholder {
@@ -201,10 +195,8 @@
 .quick-open-section {
   padding: 8px 9px 4px;
   color: var(--faint);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .quick-open-command > span {
@@ -225,7 +217,7 @@
   display: flex;
   align-items: center;
   padding: 7px 9px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   text-align: left;
 }
 
@@ -249,13 +241,13 @@
 
 .quick-open-results strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
 }
 
 .quick-open-results small {
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
 }
 
 .quick-open-results > p {
@@ -268,7 +260,7 @@
   padding: 7px 16px 9px;
   border-top: 1px solid var(--line);
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .quick-open > footer span {
@@ -292,7 +284,7 @@
 .shortcut-help h2 {
   margin: 0;
   color: var(--ink);
-  font-size: 17px;
+  font-size: var(--font-size-prose);
   letter-spacing: -0.01em;
 }
 

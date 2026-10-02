@@ -12,7 +12,7 @@
 }
 
 .fatal-error strong {
-  font-size: 1.25rem;
+  font-size: var(--font-size-prose);
 }
 
 .fatal-error p {
@@ -59,7 +59,7 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  border-radius: 999px;
+  border-radius: 50%;
   background: var(--scrollbar-thumb-current);
 }
 
@@ -101,6 +101,11 @@ select {
 button {
   border: 0;
   background: none;
+}
+
+/* Counts align without making the interface look like source code. */
+:where(small, time, .contract-count, .file-workspace-size, .schema-item-number) {
+  font-variant-numeric: tabular-nums;
 }
 
 button:not(:disabled),
@@ -148,9 +153,7 @@ select:focus-visible {
   overflow-y: auto;
   padding: 4px;
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
   background: var(--white);
-  box-shadow: 0 8px 22px var(--color-shadow);
 }
 
 .combobox-popover.drop-up {
@@ -164,9 +167,9 @@ select:focus-visible {
   display: flex;
   align-items: center;
   padding: 5px 9px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
   text-align: left;
 }
 
@@ -185,7 +188,7 @@ select:focus-visible {
   margin: 0;
   padding: 7px 9px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
 }
 
 

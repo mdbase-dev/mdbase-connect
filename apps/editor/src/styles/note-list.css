@@ -23,10 +23,8 @@
 
 .note-group-header span {
   color: var(--faint);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -51,10 +49,6 @@
   background: var(--hover);
 }
 
-.note-row.selected {
-  background: var(--selected);
-}
-
 .note-row.busy:not(.selected) {
   background: var(--hover);
 }
@@ -73,8 +67,8 @@
 .note-title {
   min-width: 0;
   overflow: hidden;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.008em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -85,7 +79,7 @@
   gap: 8px;
   overflow: hidden;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -106,7 +100,7 @@
   display: block;
   overflow: hidden;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -118,7 +112,7 @@
 
 .note-search-context.path,
 .note-search-context.metadata {
-  font-size: 12px;
+  font-size: var(--font-size-caption);
 }
 
 /* A type is a declared schema, not a location: set it apart from the folder in the meta line. */
@@ -130,11 +124,10 @@
   padding: 1px 5px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -150,7 +143,7 @@
 .note-search-context mark,
 .quick-open-results mark {
   padding: 0 1px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--accent-soft);
   color: inherit;
 }
@@ -158,8 +151,7 @@
 .note-transition {
   overflow: hidden;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
   letter-spacing: 0.015em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -176,12 +168,9 @@
   overflow: hidden;
   padding: 15px 16px 14px;
   border: 1px solid var(--line-strong);
-  border-radius: 6px;
   background: var(--white);
-  box-shadow: 0 14px 34px var(--color-shadow);
   color: var(--ink);
   pointer-events: none;
-  animation: note-preview-in 150ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .note-preview > header {
@@ -198,21 +187,21 @@
 }
 
 .note-preview > header strong {
-  font-size: 15px;
+  font-size: var(--font-size-section);
   letter-spacing: -0.012em;
 }
 
 .note-preview > header span {
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .note-preview-excerpt,
 .note-preview-empty {
   margin: 13px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   line-height: 1.52;
 }
 
@@ -243,11 +232,10 @@
 
 .note-preview-types span {
   padding: 3px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--hover);
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .note-preview dl {
@@ -261,7 +249,7 @@
   display: grid;
   grid-template-columns: minmax(62px, 0.35fr) minmax(0, 1fr);
   gap: 10px;
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .note-preview dt,
@@ -273,7 +261,6 @@
 
 .note-preview dt {
   color: var(--faint);
-  font-family: var(--mono);
 }
 
 .note-preview dd {
@@ -283,7 +270,7 @@
 
 .note-preview-excerpt,
 .note-preview-empty {
-  animation: note-preview-in 160ms ease-out;
+  animation: note-preview-in var(--motion-quick) var(--ease-out);
 }
 
 @keyframes note-preview-in {
@@ -299,7 +286,7 @@
   justify-items: start;
   padding: 28px;
   color: var(--faint);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
 }
 
 .empty-editor {
@@ -325,7 +312,7 @@
 .type-access-message h2 {
   margin: 0 0 7px;
   color: var(--ink);
-  font-size: 17px;
+  font-size: var(--font-size-prose);
 }
 
 .type-access-message p {
@@ -334,7 +321,7 @@
 
 .type-access-message button {
   color: var(--accent);
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .list-empty p,
@@ -347,7 +334,7 @@
 .empty-error button {
   padding: 0;
   color: var(--accent);
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .empty-error {
