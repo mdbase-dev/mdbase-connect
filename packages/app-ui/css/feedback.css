@@ -1,56 +1,56 @@
 .mdbase-feedback-app { display: contents; }
 .mdbase-feedback-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
-.mdbase-feedback-trigger { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--color-text-soft); font: 12px/1.4 var(--sans); cursor: pointer; }
+.mdbase-feedback-trigger { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-soft); font: var(--font-size-caption)/1.4 var(--sans); cursor: pointer; }
 .mdbase-feedback-trigger:hover { background: var(--color-selected); color: var(--color-text); }
 .mdbase-feedback-bug { width: 22px; height: 22px; flex-shrink: 0; }
 @keyframes mdbase-feedback-wiggle { 0%,100% { transform: rotate(0); } 25% { transform: rotate(-14deg); } 75% { transform: rotate(14deg); } }
 @media (prefers-reduced-motion: no-preference) { .mdbase-feedback-bug.is-wiggling { animation: mdbase-feedback-wiggle 280ms ease-in-out 2; } }
-.mdbase-feedback-dialog { position: fixed; inset: 0 0 0 auto; margin: 0; padding: 0; width: 440px; max-width: 100vw; height: 100dvh; max-height: 100dvh; border: 0; border-left: 1px solid var(--color-border-strong); background: var(--color-canvas); color: var(--color-text); font: 13px/1.5 var(--sans); overflow: hidden; }
+.mdbase-feedback-dialog { position: fixed; inset: 0 0 0 auto; margin: 0; padding: 0; width: 440px; max-width: 100vw; height: 100dvh; max-height: 100dvh; border: 0; border-left: 1px solid var(--color-border-strong); background: var(--color-canvas); color: var(--color-text); font: var(--font-size-ui)/1.5 var(--sans); overflow: hidden; }
 .mdbase-feedback-dialog[open] { display: flex; flex-direction: column; }
 .mdbase-feedback-dialog:not([open]) { display: none; }
 .mdbase-feedback-dialog::backdrop { background: var(--color-scrim); }
 .mdbase-feedback-dialog *, .mdbase-feedback-markup * { box-sizing: border-box; }
 .mdbase-feedback-dialog :is(button,input,textarea), .mdbase-feedback-markup button { font: inherit; }
 .mdbase-feedback-dialog :focus-visible, .mdbase-feedback-markup :focus-visible, .mdbase-feedback-trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
-.mdbase-feedback-dialog button, .mdbase-feedback-markup .mdbase-feedback-actions button, .mdbase-feedback-tools button { border: 1px solid var(--color-border-strong); border-radius: 4px; padding: 7px 11px; background: var(--color-canvas); color: var(--color-text); cursor: pointer; }
+.mdbase-feedback-dialog button, .mdbase-feedback-markup .mdbase-feedback-actions button, .mdbase-feedback-tools button { border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); padding: 7px 11px; background: var(--color-canvas); color: var(--color-text); cursor: pointer; }
 .mdbase-feedback-dialog button:hover, .mdbase-feedback-markup button:hover { background: var(--color-selected); }
 .mdbase-feedback-dialog button:disabled, .mdbase-feedback-markup button:disabled { opacity: .5; cursor: default; }
 .mdbase-feedback-header { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 27px; border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
-.mdbase-feedback-header h2 { font-size: 23px; line-height: 1.25; letter-spacing: -.5px; margin: 0; color: var(--color-text); }
-.mdbase-feedback-header button { border: 0; width: 34px; height: 34px; padding: 0; font-size: 23px; color: var(--color-text-muted); }
+.mdbase-feedback-header h2 { font-size: var(--font-size-heading); line-height: 1.25; letter-spacing: -.5px; margin: 0; color: var(--color-text); }
+.mdbase-feedback-header button { border: 0; width: 34px; height: 34px; padding: 0; font-size: var(--font-size-heading); color: var(--color-text-muted); }
 .mdbase-feedback-dialog form { display: flex; flex-direction: column; flex: 1; overflow: hidden; margin: 0; }
 .mdbase-feedback-body { flex: 1; overflow-y: auto; padding: 23px 27px; }
 .mdbase-feedback-topics { display: grid; gap: 6px; border: 0; padding: 0; margin: 0 0 23px; }
-.mdbase-feedback-topics legend { margin-bottom: 10px; font-size: 12px; font-weight: 700; }
-.mdbase-feedback-topics label { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border: 1px solid var(--color-border); border-radius: 4px; font-size: 12px; cursor: pointer; }
+.mdbase-feedback-topics legend { margin-bottom: 10px; font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); }
+.mdbase-feedback-topics label { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: var(--font-size-caption); cursor: pointer; }
 .mdbase-feedback-topics label:has(:checked) { border-color: var(--color-accent); background: var(--color-accent-soft); }
 .mdbase-feedback-dialog input:is([type=radio],[type=checkbox]) { accent-color: var(--color-accent); margin: 0; width: 14px; height: 14px; flex-shrink: 0; }
-.mdbase-feedback-field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; font-weight: 700; }
-.mdbase-feedback-field small { margin-left: 6px; font-weight: 400; font-size: 11px; color: var(--color-text-muted); }
-.mdbase-feedback-field :is(input,textarea) { width: 100%; background: var(--color-canvas); border: 1px solid var(--color-border-strong); border-radius: 4px; color: var(--color-text); padding: 10px 11px; font-weight: 400; }
+.mdbase-feedback-field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; font-weight: var(--font-weight-semibold); }
+.mdbase-feedback-field small { margin-left: 6px; font-weight: var(--font-weight-regular); font-size: var(--font-size-caption); color: var(--color-text-muted); }
+.mdbase-feedback-field :is(input,textarea) { width: 100%; background: var(--color-canvas); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); color: var(--color-text); padding: 10px 11px; font-weight: var(--font-weight-regular); }
 .mdbase-feedback-field textarea { min-height: 125px; resize: vertical; }
 .mdbase-feedback-field :is(input,textarea)::placeholder { color: var(--color-text-muted); }
 .mdbase-feedback-screenshot { margin: 0 0 20px; }
 .mdbase-feedback-dialog .mdbase-feedback-preview { display: block; position: relative; padding: 0; width: 100%; overflow: hidden; }
 .mdbase-feedback-preview img { display: block; width: 100%; height: 165px; object-fit: contain; }
-.mdbase-feedback-preview span { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); background: var(--color-canvas); border: 1px solid var(--color-border-strong); border-radius: 4px; padding: 4px 8px; font-size: 11px; white-space: nowrap; }
-.mdbase-feedback-screenshot-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 11px; }
+.mdbase-feedback-preview span { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); background: var(--color-canvas); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); padding: 4px 8px; font-size: var(--font-size-caption); white-space: nowrap; }
+.mdbase-feedback-screenshot-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: var(--font-size-caption); }
 .mdbase-feedback-screenshot-actions label { display: flex; align-items: center; gap: 7px; }
 .mdbase-feedback-upload { position: relative; color: var(--color-accent); cursor: pointer; padding: 6px 0; }
 .mdbase-feedback-upload input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 .mdbase-feedback-upload:focus-within { outline: 2px solid var(--color-accent); outline-offset: 3px; }
-.mdbase-feedback-check { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.mdbase-feedback-check { display: flex; gap: 8px; align-items: center; font-size: var(--font-size-caption); }
 .mdbase-feedback-details > .mdbase-feedback-check { margin: 14px 0 8px; }
-.mdbase-feedback-help { font-size: 11px; line-height: 1.6; color: var(--color-text-muted); margin: 9px 0; }
-.mdbase-feedback-dialog details { font-size: 11px; color: var(--color-text-soft); margin: 12px 0; }
+.mdbase-feedback-help { font-size: var(--font-size-caption); line-height: 1.6; color: var(--color-text-muted); margin: 9px 0; }
+.mdbase-feedback-dialog details { font-size: var(--font-size-caption); color: var(--color-text-soft); margin: 12px 0; }
 .mdbase-feedback-dialog summary { cursor: pointer; }
-.mdbase-feedback-dialog pre { font: 11px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--color-surface-subtle); padding: 12px; border: 1px solid var(--color-border); border-radius: 4px; }
-.mdbase-feedback-error { color: var(--color-danger); font-size: 12px; }
+.mdbase-feedback-dialog pre { font: var(--font-size-caption)/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--color-surface-subtle); padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.mdbase-feedback-error { color: var(--color-danger); font-size: var(--font-size-caption); }
 .mdbase-feedback-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-top: 1px solid var(--color-border); padding: 18px 27px; flex-shrink: 0; }
 .mdbase-feedback-dialog .mdbase-feedback-primary, .mdbase-feedback-markup .mdbase-feedback-actions .mdbase-feedback-primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
 .mdbase-feedback-dialog .mdbase-feedback-primary:hover, .mdbase-feedback-markup .mdbase-feedback-actions .mdbase-feedback-primary:hover { background: var(--color-accent-strong); }
 .mdbase-feedback-success { padding: 40px 27px; }
-.mdbase-feedback-success h3 { font-size: 25px; line-height: 1.3; margin: 0 0 17px; }
+.mdbase-feedback-success h3 { font-size: var(--font-size-heading); line-height: 1.3; margin: 0 0 17px; }
 .mdbase-feedback-success .mdbase-feedback-primary { margin-top: 20px; }
 .mdbase-feedback-markup { width: min(1100px,calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); padding: 0; }
 .mdbase-feedback-markup .mdbase-dialog-body { max-height: calc(100dvh - 34px); display: flex; flex-direction: column; overflow: hidden; padding: 20px; }
@@ -59,4 +59,4 @@
 .mdbase-feedback-canvas { background: var(--color-surface-subtle); border: 1px solid var(--color-border); padding: 12px; overflow: auto; display: flex; justify-content: center; align-items: center; min-height: 0; }
 .mdbase-feedback-canvas canvas { display: block; max-width: 100%; max-height: calc(100dvh - 345px); width: auto; height: auto; background: white; touch-action: none; cursor: crosshair; }
 .mdbase-feedback-markup .mdbase-feedback-actions { padding: 15px 0 0; }
-@media (max-width: 600px) { .mdbase-feedback-header { padding: 23px; } .mdbase-feedback-body { padding: 20px 23px; } .mdbase-feedback-actions { padding: 16px 23px; } .mdbase-feedback-tools { gap: 4px; } .mdbase-feedback-tools button { font-size: 11px; padding: 6px 8px; } }
+@media (max-width: 600px) { .mdbase-feedback-header { padding: 23px; } .mdbase-feedback-body { padding: 20px 23px; } .mdbase-feedback-actions { padding: 16px 23px; } .mdbase-feedback-tools { gap: 4px; } .mdbase-feedback-tools button { font-size: var(--font-size-caption); padding: 6px 8px; } }

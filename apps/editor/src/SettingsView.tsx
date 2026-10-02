@@ -74,7 +74,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         <DirectAccessRow connection={connection} busy={directAccessBusy} onRequest={onRequestDirectAccess} />
         <div className="setting-row connection-action">
           <div><h3>Saved access</h3><p>Remove this collection from the editor without changing its files.</p></div>
-          <button className="settings-danger-action" onClick={onForget}><Trash2 aria-hidden="true" />Forget from this browser</button>
+          <button className="settings-danger-action mdbase-button is-tertiary is-danger" onClick={onForget}><Trash2 aria-hidden="true" />Forget from this browser</button>
         </div>
         <details className="settings-details">
           <summary><span>Details</span><ChevronRight aria-hidden="true" /></summary>
@@ -131,7 +131,7 @@ function DirectAccessRow({ connection, busy, onRequest }: {
       ? "Checking…"
       : "Check again";
   return <SettingRow title="This computer" description={description}>
-    <button className="settings-secondary-action" disabled={status === "checking" || busy} onClick={onRequest}>{label}</button>
+    <button className="settings-secondary-action mdbase-button" disabled={status === "checking" || busy} onClick={onRequest}>{label}</button>
   </SettingRow>;
 }
 
@@ -142,7 +142,7 @@ function connectionRouteLabel(connection: ConnectionSummary | null): string {
 }
 
 function Toggle({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
-  return <button className={`toggle${checked ? " checked" : ""}`} role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}><span /></button>;
+  return <button className="mdbase-switch" role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}><span aria-hidden="true" /></button>;
 }
 
 function objectValue(value: unknown): Record<string, unknown> {

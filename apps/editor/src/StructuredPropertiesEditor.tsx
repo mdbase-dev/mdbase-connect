@@ -235,7 +235,7 @@ function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityC
     return <SchemaValueEditor name={`${name} value`} schema={schema} value={value} hideLabel onChange={onChange} onValidityChange={onValidityChange} />;
   }
   if (typeof value === "boolean") {
-    return <label className="boolean-property"><input type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} /><span>{value ? "True" : "False"}</span></label>;
+    return <label className="boolean-property"><input className="mdbase-checkbox" type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} /><span>{value ? "True" : "False"}</span></label>;
   }
   if (typeof value === "number") {
     return <input aria-label={`${name} value`} type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} />;

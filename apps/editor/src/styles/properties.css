@@ -272,11 +272,6 @@ input:is([type="date"], [type="datetime-local"])::-webkit-calendar-picker-indica
   font-size: var(--font-size-ui);
 }
 
-.boolean-property input,
-.required-toggle input {
-  accent-color: var(--accent);
-}
-
 .null-property {
   min-height: 34px;
   display: flex;

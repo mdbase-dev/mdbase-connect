@@ -114,12 +114,6 @@
   align-items: center;
   gap: 6px;
   padding: 0 8px;
-  color: var(--danger);
-  font-size: var(--font-size-ui);
-}
-
-.settings-danger-action:hover {
-  background: var(--danger-soft);
 }
 
 .settings-danger-action svg {
@@ -130,27 +124,11 @@
 .settings-secondary-action {
   min-height: 34px;
   padding: 0 10px;
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
-
-.settings-secondary-action:hover:not(:disabled) {
-  background: var(--hover);
-}
-
-.settings-secondary-action:disabled {
-  color: var(--faint);
 }
 
 .settings-quiet-action {
   min-height: 34px;
   padding: 0 10px;
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-}
-
-.settings-quiet-action:hover:not(:disabled) {
-  color: var(--ink);
 }
 
 .setting-controls,
@@ -205,29 +183,6 @@
   font-size: var(--font-size-caption);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.toggle {
-  width: 34px;
-  height: 20px;
-  padding: 2px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-lg);
-  background: var(--canvas);
-}
-
-.toggle span {
-  width: 14px;
-  height: 14px;
-  display: block;
-  border-radius: 50%;
-  background: var(--faint);
-  transition: transform var(--motion-base) var(--ease-out), background var(--motion-base) var(--ease-out);
-}
-
-.toggle.checked span {
-  transform: translateX(14px);
-  background: var(--accent);
 }
 
 .fact-row > span {

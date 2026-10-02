@@ -48,20 +48,6 @@
 .confirm-dialog > footer button {
   min-height: 36px;
   padding: 0 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
-
-.confirm-dialog > footer .confirm-primary {
-  border-color: var(--accent);
-}
-
-.confirm-dialog > footer .confirm-danger {
-  border-color: var(--danger);
-  color: var(--danger);
 }
 
 .collection-switcher { width: min(520px, 100%); }

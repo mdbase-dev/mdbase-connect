@@ -162,6 +162,7 @@ function renderMarkdownFragment(container: HTMLElement, source: string) {
         if (task) {
           const checkbox = document.createElement("input");
           checkbox.type = "checkbox";
+          checkbox.className = "mdbase-checkbox";
           checkbox.checked = task[1].toLocaleLowerCase() === "x";
           checkbox.disabled = true;
           entry.append(checkbox, document.createTextNode(cleanInlineMarkdown(task[2])));

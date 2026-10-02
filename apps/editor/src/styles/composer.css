@@ -318,21 +318,5 @@
 .new-note-actions button {
   min-height: 36px;
   padding: 0 11px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
-
-.new-note-actions .create-note-button {
-  border-color: var(--line-strong);
-  background: var(--white);
-  color: var(--ink);
-}
-
-.new-note-actions button:disabled {
-  cursor: default;
-  opacity: 0.42;
 }
 

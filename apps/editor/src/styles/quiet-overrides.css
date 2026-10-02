@@ -65,37 +65,10 @@
   color: var(--muted);
 }
 
-.connect-primary-action,
-.confirm-dialog > footer .confirm-primary,
-.rename-confirm .primary-confirm-action,
-.conflict-actions .primary-conflict-action,
-.type-review-actions .confirm-type-button {
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--accent) !important;
-}
-
-.connect-primary-action:hover,
-.confirm-dialog > footer .confirm-primary:hover,
-.rename-confirm .primary-confirm-action:hover,
-.conflict-actions .primary-conflict-action:hover,
-.type-review-actions .confirm-type-button:hover {
-  background: var(--hover);
-  color: var(--accent-strong) !important;
-}
-
 .connect-account-message.success {
   border-color: color-mix(in oklch, var(--success) 42%, var(--line));
   background: transparent;
   color: var(--success);
-}
-
-.settings-secondary-action {
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink);
 }
 
 .connect-pending-banner,

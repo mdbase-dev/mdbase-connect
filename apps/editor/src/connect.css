@@ -408,8 +408,6 @@ button.danger:disabled {
   justify-content: center;
   padding: 6px 12px;
   text-decoration: none;
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
 }
 
 .connect-muted {

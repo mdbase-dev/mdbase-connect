@@ -358,10 +358,6 @@
   color: var(--ink);
 }
 
-.rename-confirm .primary-confirm-action {
-  border-color: var(--accent);
-}
-
 .notice button {
   width: 25px;
   height: 25px;
@@ -432,10 +428,6 @@
 .conflict-actions button:hover {
   background: var(--hover);
   color: var(--ink);
-}
-
-.conflict-actions .primary-conflict-action {
-  border-color: var(--accent);
 }
 
 .conflict-resolver > details {

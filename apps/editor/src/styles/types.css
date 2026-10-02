@@ -381,44 +381,11 @@
   justify-content: center;
   gap: 6px;
   padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--white);
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
 }
 
 .type-editor-actions button svg {
   width: 13px;
   height: 13px;
-}
-
-.type-editor-actions .save-type-button {
-  border-color: var(--line-strong);
-  color: var(--ink);
-}
-
-.type-editor-actions .type-secondary-action {
-  border-color: transparent;
-  background: transparent;
-  color: var(--faint);
-  font-weight: var(--font-weight-regular);
-}
-
-.type-editor-actions button:hover:not(:disabled),
-.empty-type-create:hover {
-  border-color: var(--accent);
-  background: var(--hover);
-}
-
-.type-editor-actions .type-secondary-action:hover:not(:disabled) {
-  border-color: transparent;
-}
-
-.type-editor-actions button:disabled {
-  cursor: default;
-  opacity: 0.42;
 }
 
 .type-source-loading {
@@ -938,12 +905,6 @@
   font-size: var(--font-size-ui);
 }
 
-.collection-toggle input {
-  width: auto;
-  height: auto;
-  accent-color: var(--accent);
-}
-
 .collection-toggle span {
   color: inherit !important;
   font-family: inherit !important;
@@ -1177,14 +1138,7 @@
   align-items: center;
   gap: 5px;
   padding: 6px 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-bold);
 }
-
-.visual-type-fields-heading button:hover { background: var(--hover); color: var(--ink); }
 .visual-type-fields-heading svg { width: 12px; height: 12px; }
 
 .visual-field-columns {
@@ -2327,8 +2281,6 @@
   font-size: var(--font-size-ui);
 }
 
-.visual-field-required input { accent-color: var(--accent); }
-
 /* The column header names this control; the label returns when the header is hidden at narrow widths. */
 .visual-field-required > span {
   position: absolute;
@@ -2499,12 +2451,6 @@
   align-self: end;
   color: var(--muted);
   font-size: var(--font-size-ui);
-}
-
-.field-toggle input {
-  width: auto;
-  height: auto;
-  accent-color: var(--accent);
 }
 
 .field-toggle span {
@@ -2765,15 +2711,6 @@
 .type-review-actions button {
   min-height: 34px;
   padding: 0 11px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
-
-.type-review-actions .confirm-type-button {
-  border-color: var(--accent);
 }
 
 /* The YAML sits in a centred column. Its line numbers move in with it rather

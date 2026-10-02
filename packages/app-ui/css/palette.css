@@ -64,7 +64,7 @@
   color: var(--color-text);
   background: transparent;
   font: inherit;
-  font-size: 15px;
+  font-size: var(--font-size-section);
 }
 
 .mdbase-command-search input::placeholder {
@@ -81,8 +81,8 @@
 .mdbase-command-group {
   padding: 10px 10px 4px;
   color: var(--color-text-muted);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
 }
 
 .mdbase-command-results > button {
@@ -124,14 +124,14 @@
 
 .mdbase-command-results strong {
   flex: 0 1 auto;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
 }
 
 .mdbase-command-results small {
   flex: 1 1 auto;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-caption);
 }
 
 .mdbase-command-results kbd,
@@ -140,7 +140,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--control-radius);
   color: var(--color-text-muted);
-  font: 10px/1.2 var(--mono);
+  font: var(--font-size-caption)/1.2 var(--mono);
 }
 
 .mdbase-command-footer kbd {
@@ -149,7 +149,7 @@
 
 .mdbase-command-alternate {
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   white-space: nowrap;
 }
 
@@ -160,13 +160,13 @@
   padding: 8px 14px;
   border-top: 1px solid var(--color-border);
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
 }
 
 .mdbase-command-empty {
   padding: 28px;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   text-align: center;
 }
 
