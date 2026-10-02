@@ -267,6 +267,7 @@ test("renders linked collection images inline and in the file preview", async ({
     width: (element as HTMLImageElement).naturalWidth
   }))).toEqual({ complete: true, width: 960 });
 
+  await page.locator(".cm-file-embed").hover();
   await page.getByRole("button", { name: "Open frontmatter.svg" }).click();
   const preview = page.getByRole("dialog", { name: "Preview frontmatter.svg" });
   await expect(preview.getByRole("img", { name: "frontmatter.svg" })).toBeVisible();
