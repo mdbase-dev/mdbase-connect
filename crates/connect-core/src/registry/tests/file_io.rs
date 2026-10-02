@@ -122,6 +122,111 @@ fn unchanged_integrity_scan_does_not_rewrite_index_rows() {
 }
 
 #[test]
+fn stat_reads_only_one_target_without_warming_unrelated_files() {
+    let (dir, registry, id) = fixture(2, 4);
+    std::fs::write(dir.path().join("collection/record-0.md"), [0xff, 0xfe]).unwrap();
+    measure("bounded_stat_regression", json!({}), || {
+        registry
+            .stat_file(
+                id,
+                &crate::file_stat::StatFileRequest {
+                    protocol_version: 1,
+                    message_type: crate::file_stat::StatFileRequestKind::StatFile,
+                    path: Some("file-0.bin".into()),
+                    file_id: None,
+                },
+                |_| true,
+            )
+            .unwrap()
+            .unwrap()
+    });
+    WORK.with(|work| {
+        let work = work.borrow();
+        assert_eq!(work.get("inventory_hash_bytes"), Some(&(1024 * 1024)));
+        assert_eq!(work.get("inventory_files").copied().unwrap_or(0), 0);
+        assert_eq!(work.get("snapshot_captures").copied().unwrap_or(0), 0);
+        assert_eq!(work.get("index_rows_loaded"), Some(&1));
+    });
+}
+
+#[test]
+#[ignore = "synthetic 5k-file stat versus paginated inventory benchmark"]
+fn benchmark_file_stat_5k() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("collection");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
+    for index in 0..5000 {
+        std::fs::write(root.join(format!("file-{index:04}.bin")), [42_u8; 32]).unwrap();
+    }
+    let registry = CollectionRegistry::open(dir.path().join("state")).unwrap();
+    let id = registry.add(&root).unwrap().id;
+    registry.reconcile_files(id).unwrap();
+    let before = measure(
+        "stat_5k_before_inventory",
+        json!({"files":5000,"page_size":100}),
+        || {
+            let mut after = None;
+            let mut calls = 0;
+            let mut response_bytes = 0;
+            let mut found = None;
+            loop {
+                let page = registry
+                    .indexed_files_page(id, after.as_deref(), 101)
+                    .unwrap();
+                calls += 1;
+                let more = page.len() > 100;
+                let files = page.into_iter().take(100).collect::<Vec<_>>();
+                found = found.or_else(|| {
+                    files
+                        .iter()
+                        .find(|file| file.path == "file-4999.bin")
+                        .cloned()
+                });
+                after = files.last().map(|file| file.path.clone());
+                let response = mdbase_connect_protocol::ListFilesPage {
+                    protocol_version: 1,
+                    message_type: mdbase_connect_protocol::ListFilesPageKind::FilesPage,
+                    files,
+                    next: more.then(|| format!("local-v1:1:{}", after.as_deref().unwrap())),
+                };
+                response_bytes += serde_json::to_vec(&response).unwrap().len();
+                if !more {
+                    break;
+                }
+            }
+            println!(
+                "FILE_STAT_BENCH {}",
+                json!({"mode":"before","calls":calls,"response_bytes":response_bytes})
+            );
+            found.unwrap()
+        },
+    );
+    let after = measure("stat_5k_after_point", json!({"files":5000}), || {
+        let file = registry
+            .stat_file(
+                id,
+                &crate::file_stat::StatFileRequest {
+                    protocol_version: 1,
+                    message_type: crate::file_stat::StatFileRequestKind::StatFile,
+                    path: Some("file-4999.bin".into()),
+                    file_id: None,
+                },
+                |_| true,
+            )
+            .unwrap()
+            .unwrap();
+        let response = crate::file_stat::FileStat::new(Some(file.clone()));
+        println!(
+            "FILE_STAT_BENCH {}",
+            json!({"mode":"after","calls":1,"response_bytes":serde_json::to_vec(&response).unwrap().len()})
+        );
+        file
+    });
+    assert_eq!(before, after);
+}
+
+#[test]
 fn chunk_acknowledgements_do_not_enumerate_resume_state() {
     let (_dir, registry, id) = fixture(0, 0);
     let owner = Uuid::now_v7();
