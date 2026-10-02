@@ -120,6 +120,9 @@ jobs:
           repository: callumalpass/mdbase-rs
           ref: ${{ steps.mdbase_revision.outputs.revision }}
           path: mdbase-rs
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
       - name: Install Rust
         shell: bash
         run: |
@@ -134,10 +137,17 @@ jobs:
           # merge-queue and pull-request ref can read it.
           shared-key: connect-debug-${{ steps.mdbase_revision.outputs.revision }}
           save-if: false
-      - run: cargo test --locked ${{ matrix.packages }}
+      - run: node scripts/ci/cargo-test.mjs --locked ${{ matrix.packages }}
         env:
           MDBASE_CONNECT_ENV: test
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: flake-evidence-filesystem-${{ matrix.label }}-${{ github.run_attempt }}
+          path: mdbase-connect/.ci-flakes/
+          include-hidden-files: true
+          retention-days: 14
 
   runtime-testbed:
     name: Runtime interoperability testbed
@@ -180,6 +190,8 @@ jobs:
       - name: Install portable testbed runner
         working-directory: mdbase-spec/packages/testbed
         run: npm ci
+      # Keep compilation outside the adapter's response deadline.
+      - run: cargo build --locked -p mdbase-connect-testbed-adapter
       - name: Exercise the Connect notification runtime
         run: >-
           node ../mdbase-spec/packages/testbed/src/cli.mjs run
@@ -263,6 +275,14 @@ jobs:
         run: pnpm test:accessibility
       - run: pnpm typecheck
       - run: pnpm test
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: flake-evidence-node-${{ github.run_attempt }}
+          path: .ci-flakes/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
       - if: needs.classify.outputs.run_full == 'true'
         run: pnpm package:audit
       - name: Pack qualified public packages
@@ -485,10 +505,21 @@ jobs:
       - run: cargo fmt --all --check
       - run: scripts/check-cargo-features
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo test --locked --workspace
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: node --test scripts/ci/*.test.mjs
+      - run: node scripts/ci/cargo-test.mjs --locked --workspace
         env:
           MDBASE_CONNECT_ENV: test
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: flake-evidence-rust-workspace-${{ github.run_attempt }}
+          path: mdbase-connect/.ci-flakes/
+          include-hidden-files: true
+          retention-days: 14
       - run: cargo build --locked --workspace
       - name: Archive runtime binaries for transfer measurement
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:benchmark-binaries')

@@ -21,7 +21,8 @@ export const localSteps = [
   { tier: "rust", command: "cargo fmt --all --check" },
   { tier: "rust", command: "scripts/check-cargo-features" },
   { tier: "rust", command: "cargo clippy --locked --workspace --all-targets -- -D warnings" },
-  { tier: "rust", command: "cargo test --locked --workspace" }
+  { tier: "rust", command: "node --test scripts/ci/*.test.mjs" },
+  { tier: "rust", command: "node scripts/ci/cargo-test.mjs --locked --workspace" }
 ];
 
 /**
@@ -34,8 +35,9 @@ export const ciOnlySteps = [
   { prefix: "pnpm check:mdbase-rs-pin", reason: "merge queue only; a PR may pin an engine commit that is not on mdbase-rs main yet" },
   { prefix: "rustup ", reason: "toolchain setup; rust-toolchain.toml selects it locally" },
   { prefix: "node scripts/ci/server-test-plan.mjs", reason: "pull-request path selection; ci:local runs the Rust tier on request" },
-  { prefix: "cargo test --locked ${{ matrix.packages }}", reason: "macOS and Windows filesystem lanes; covered on Linux by cargo test --workspace" },
+  { prefix: "node scripts/ci/cargo-test.mjs --locked ${{ matrix.packages }}", reason: "macOS and Windows filesystem lanes; covered on Linux by cargo test --workspace" },
   { prefix: "npm ci", reason: "installs the portable testbed runner from the pinned mdbase-spec checkout" },
+  { prefix: "cargo build --locked -p mdbase-connect-testbed-adapter", reason: "prebuilds the testbed executable outside its response deadline; local workspace tests compile its harness" },
   { prefix: "node ../mdbase-spec/packages/testbed/src/cli.mjs", reason: "needs the pinned mdbase-spec checkout" },
   { prefix: "echo 'Playwright cache", reason: "cache marker" },
   { prefix: "pnpm exec playwright install", reason: "browser installation; the browser tier assumes Chromium is installed" },
