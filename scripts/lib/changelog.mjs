@@ -16,7 +16,9 @@ export function parseFragment(name, text) {
 
 export async function fragments(root) {
   const directory = path.join(root, "changelog.d");
-  const names = await readdir(directory);
+  let names;
+  try { names = await readdir(directory); }
+  catch (error) { if (error.code === "ENOENT") return []; throw error; }
   return Promise.all(names.sort().map(async (name) => parseFragment(name, await readFile(path.join(directory, name), "utf8"))));
 }
 
