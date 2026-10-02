@@ -7,7 +7,6 @@ export type MdbaseMarkRect = Readonly<{
   y: number;
   width: number;
   height: number;
-  rx: number;
 }>;
 
 export const mdbaseMarkMotions = [
@@ -26,23 +25,22 @@ export function mdbaseMarkMotionClass(motion?: MdbaseMarkMotion): string {
 export const MDBASE_MARK_VIEW_BOX = "18 18 84 84";
 
 export const mdbaseMarkInkRects = [
-  { x: 22, y: 22, width: 20, height: 10, rx: 2 },
-  { x: 50, y: 22, width: 20, height: 10, rx: 2 },
-  { x: 78, y: 22, width: 20, height: 10, rx: 2 },
-  { x: 22, y: 44, width: 12, height: 10, rx: 2 },
-  { x: 22, y: 66, width: 28, height: 10, rx: 2 },
-  { x: 58, y: 66, width: 40, height: 10, rx: 2 },
-  { x: 22, y: 88, width: 20, height: 10, rx: 2 },
-  { x: 50, y: 88, width: 20, height: 10, rx: 2 },
-  { x: 78, y: 88, width: 20, height: 10, rx: 2 }
+  { x: 22, y: 22, width: 20, height: 10 },
+  { x: 50, y: 22, width: 20, height: 10 },
+  { x: 78, y: 22, width: 20, height: 10 },
+  { x: 22, y: 44, width: 12, height: 10 },
+  { x: 22, y: 66, width: 28, height: 10 },
+  { x: 58, y: 66, width: 40, height: 10 },
+  { x: 22, y: 88, width: 20, height: 10 },
+  { x: 50, y: 88, width: 20, height: 10 },
+  { x: 78, y: 88, width: 20, height: 10 }
 ] as const satisfies readonly MdbaseMarkRect[];
 
 export const mdbaseMarkAccentRect = {
   x: 42,
   y: 44,
   width: 56,
-  height: 10,
-  rx: 2
+  height: 10
 } as const satisfies MdbaseMarkRect;
 
 const conveyorXs = [-6, 22, 50, 78, 106] as const;
@@ -80,8 +78,8 @@ export function MdbaseMark({ motion, className }: {
   >
     <defs>
       <clipPath id={clipId}>
-        <rect x="22" y="22" width="76" height="10" rx="2" />
-        <rect x="22" y="88" width="76" height="10" rx="2" />
+        <rect x="22" y="22" width="76" height="10" />
+        <rect x="22" y="88" width="76" height="10" />
       </clipPath>
     </defs>
     <g className="mdbase-mark-fence mdbase-mark-fence-top">
@@ -100,7 +98,7 @@ export function MdbaseMark({ motion, className }: {
     </g>
     <g clipPath={`url(#${clipId})`}>
       <g className="mdbase-mark-conveyor-track">
-        {conveyorXs.flatMap((x) => [22, 88].map((y) => <rect key={`${x}-${y}`} x={x} y={y} width="20" height="10" rx="2" />))}
+        {conveyorXs.flatMap((x) => [22, 88].map((y) => <rect key={`${x}-${y}`} x={x} y={y} width="20" height="10" />))}
       </g>
     </g>
   </svg>;
