@@ -33,12 +33,15 @@ import { FeedbackPage } from "./FeedbackPage";
 import { FeedbackButton, FeedbackProvider, feedbackApplication, useFeedback, type FeedbackFailure } from "@mdbase-dev/ui/feedback";
 import { feedbackEndpoint as configuredFeedbackEndpoint, turnstileSiteKey } from "./feedback";
 import {
-  BracketsCurlyIcon as Braces,
-  GearSixIcon as Settings,
+  DesktopIcon as Desktop,
+  FolderIcon as Folder,
+  HardDrivesIcon as HardDrives,
   InfoIcon as Info,
+  KeyIcon as Key,
   NotebookIcon as Notebook,
   PackageIcon as Package,
   PlusIcon as Plus,
+  UserCircleIcon as Account,
   WarningCircleIcon as Warning
 } from "./icons";
 import "./connect.css";
@@ -287,15 +290,15 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         {selectedCollection && <section className="connect-nav-group" aria-labelledby="current-collection-navigation">
           <p id="current-collection-navigation">{selectedCollection.name}</p>
           <NavLink label="Overview" icon={<Info />} selected={activeView === "overview"} view="overview" collectionId={selectedCollection.id} navigate={navigate} />
-          <NavLink label="Storage & sync" icon={<Notebook />} selected={activeView === "storage"} view="storage" collectionId={selectedCollection.id} navigate={navigate} />
-          <NavLink label="App access" icon={<Package />} selected={activeView === "access"} view="access" collectionId={selectedCollection.id} navigate={navigate} />
+          <NavLink label="Storage & sync" icon={<HardDrives />} selected={activeView === "storage"} view="storage" collectionId={selectedCollection.id} navigate={navigate} />
+          <NavLink label="App access" icon={<Key />} selected={activeView === "access"} view="access" collectionId={selectedCollection.id} navigate={navigate} />
         </section>}
         <section className="connect-nav-group" aria-labelledby="account-navigation">
           <p id="account-navigation">Account</p>
-          <NavLink label="All collections" icon={<Notebook />} selected={activeView === "collections"} view="collections" collectionId={selectedCollection?.id} navigate={navigate} />
+          <NavLink label="All collections" icon={<Folder />} selected={activeView === "collections"} view="collections" collectionId={selectedCollection?.id} navigate={navigate} />
           <NavLink label="Applications" icon={<Package />} selected={activeView === "applications"} view="applications" collectionId={selectedCollection?.id} navigate={navigate} />
-          <NavLink label="Computers" icon={<Braces />} selected={activeView === "computers"} view="computers" collectionId={selectedCollection?.id} navigate={navigate} />
-          <NavLink label="Account & sessions" icon={<Settings />} selected={activeView === "account"} view="account" collectionId={selectedCollection?.id} navigate={navigate} />
+          <NavLink label="Computers" icon={<Desktop />} selected={activeView === "computers"} view="computers" collectionId={selectedCollection?.id} navigate={navigate} />
+          <NavLink label="Account & sessions" icon={<Account />} selected={activeView === "account"} view="account" collectionId={selectedCollection?.id} navigate={navigate} />
           <FeedbackButton className="connect-feedback-mobile-link" />
         </section>
       </nav>
