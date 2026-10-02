@@ -14,6 +14,8 @@ import type {
   QueryResult
 } from "./operation-types.js";
 
+import { nonNegativeInteger, positiveInteger, queryCursorLease, resultCap } from "./query-pagination-internals.js";
+
 type QueryOperation<Frontmatter extends JsonObject> = (
   input: QueryInput,
   options?: ConnectRequestOptions
@@ -38,14 +40,15 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
     const pageSize = positiveInteger(options.pageSize ?? requestedLimit, 1_000);
     let cursor = requestedCursor;
     let cursorMode = requestedCursor !== undefined;
-    let continuationLimits = true;
-    let cursorToRelease = requestedCursor;
+    const maxResults = resultCap(options.maxResults);
+    const lease = queryCursorLease(releaseQueryCursor, options.signal, requestedCursor);
     let snapshot = requestedSnapshot;
     let loaded = 0;
     let pageNumber = 0;
 
     try {
-      while (!options.signal?.aborted) {
+      while (!options.signal?.aborted && loaded < maxResults) {
+        lease.startRequest();
         const pageCursor = cursor;
         const pageRequestOptions = {
           signal: options.signal,
@@ -58,11 +61,11 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
           && requestedSnapshot === undefined;
         let queried = await query({
           ...criteria,
-          // The cursor pins data, not transport size. Older authorities can
-          // reject continuation limits; retry that exact cursor without a limit.
+          // Initial size is portable across authorities; continuations use the
+          // pinned size. Do not infer variable-size support from operation errors.
           ...(!cursorMode
-            ? { limit: pageNumber === 0 ? firstPageSize : pageSize }
-            : continuationLimits ? { limit: pageSize } : {}),
+            ? { limit: Math.min(pageNumber === 0 ? firstPageSize : pageSize, maxResults - loaded) }
+            : {}),
           ...(cursorMode
             ? (pageCursor ? { cursor: pageCursor } : { pagination: "cursor" as const })
             : {
@@ -79,24 +82,24 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
         // Cursor pagination is a read-only capability probe for authorities
         // predating generation cursors. Retry the first page without that
         // optional field only when the authority rejected the operation
-        // schema; explicit cursor requests remain strict.
+        // schema; explicit cursor requests remain strict. This existing fallback
+        // serves pre-cursor desktop authorities; remove when those are unsupported.
         if (
           automaticCursorProbe
+          && !options.signal?.aborted
           && !queried.ok
           && queried.problem.code === "operation_invalid"
         ) {
           queried = await query({
             ...criteria,
-            limit: firstPageSize,
+            limit: Math.min(firstPageSize, maxResults - loaded),
             offset
           }, pageRequestOptions);
         }
-        if (cursorMode && pageCursor && continuationLimits
-          && !queried.ok && queried.problem.code === "operation_invalid") {
-          continuationLimits = false;
-          queried = await query({ ...criteria, cursor: pageCursor }, pageRequestOptions);
-        }
+        lease.finishRequest(queried.ok ? queried.value.meta?.cursor : undefined);
+        if (options.signal?.aborted) return;
         if (!queried.ok) {
+          lease.dispose();
           yield queried;
           return;
         }
@@ -105,12 +108,11 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
         if (returnedCursor) {
           cursorMode = true;
           cursor = returnedCursor;
-          cursorToRelease = returnedCursor;
         } else if (cursorMode) {
           cursor = undefined;
-          cursorToRelease = pageCursor;
         }
         if (cursorMode && result.meta?.hasMore && !returnedCursor) {
+          lease.dispose();
           yield connectFailure(connectProblem(
             "invalid_operation_response",
             "The collection authority omitted the cursor required for the next query page."
@@ -119,6 +121,7 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
         }
         const returnedSnapshot = result.meta?.snapshot;
         if (!cursorMode && snapshot && returnedSnapshot && snapshot !== returnedSnapshot) {
+          lease.dispose();
           yield connectFailure(connectProblem(
             "query_snapshot_changed",
             "The collection query snapshot changed while paging. Refresh the query before continuing."
@@ -126,10 +129,12 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
           return;
         }
         if (!cursorMode && !snapshot && returnedSnapshot) snapshot = returnedSnapshot;
-        loaded += result.results.length;
-        const complete = !result.meta?.hasMore || result.results.length === 0;
+        const remaining = maxResults - loaded;
+        const results = result.results.length > remaining ? result.results.slice(0, remaining) : result.results;
+        loaded += results.length;
+        const complete = loaded >= maxResults || !result.meta?.hasMore || result.results.length === 0;
         const page: QueryPage<Frontmatter> = {
-          results: result.results,
+          results,
           ...(result.meta ? { meta: result.meta } : {}),
           page: pageNumber,
           offset,
@@ -138,6 +143,7 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
           ...(returnedCursor ? { cursor: returnedCursor } : {}),
           ...(!cursorMode && snapshot ? { snapshot } : {})
         };
+        if (complete) lease.dispose();
         options.onProgress?.(page);
         yield connectSuccess(page, queried.diagnostics);
         if (complete) return;
@@ -145,23 +151,7 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
         pageNumber += 1;
       }
     } finally {
-      if (cursorMode && cursorToRelease) {
-        // Cleanup has its own bounded request. It must not delay delivery of
-        // completed pages or consume the caller's data deadline.
-        void releaseQueryCursor(cursorToRelease).catch(() => undefined);
-      }
+      lease.dispose();
     }
-
 }
 
-function nonNegativeInteger(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.max(0, Math.floor(value))
-    : fallback;
-}
-
-function positiveInteger(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? Math.floor(value)
-    : fallback;
-}

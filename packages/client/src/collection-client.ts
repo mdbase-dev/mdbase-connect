@@ -203,6 +203,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
       for await (const outcome of this.queryPages(input, {
         firstPageSize: options.firstPageSize,
         pageSize: options.pageSize,
+        maxResults: options.maxResults,
         signal: budget.signal,
         pageTimeoutMs: null,
         coordination: options.coordination,
@@ -218,8 +219,11 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
       return connectSuccess({
         results,
         meta: {
-          totalCount: finalPage?.meta?.totalCount ?? results.length,
-          hasMore: finalPage ? !finalPage.complete : false,
+          ...(finalPage?.meta?.totalCount === undefined
+            ? (!finalPage?.meta?.hasMore && options.maxResults !== 0 ? { totalCount: results.length } : {})
+            : { totalCount: finalPage.meta.totalCount }),
+          ...(finalPage?.meta?.totalCountOutcome ? { totalCountOutcome: finalPage.meta.totalCountOutcome } : {}),
+          hasMore: finalPage?.meta?.hasMore ?? false,
           ...(finalPage?.snapshot ? { snapshot: finalPage.snapshot } : {})
         }
       }, diagnostics);

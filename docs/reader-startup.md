@@ -20,22 +20,15 @@ accounts for that module, three internal exports and two imports, not new public
 
 ## Cursor pages
 
-The existing `firstPageSize` and `pageSize` options now also control cursor-mode requests.
-A continuation sends `{cursor, limit: pageSize}`. On `operation_invalid` only, it retries the
-same cursor without `limit` and uses that legacy form for the remaining pages. Authorization,
-transport, budget and other errors are not interpreted as unsupported sizing.
+The client now uses the portable fixed-size cursor contract: `pageSize` sets the initial
+size unless `firstPageSize` overrides it, and continuations omit `limit`. The former
+continuation-limit/error-retry mechanism is removed; support is not inferred from errors.
+A small `firstPageSize` therefore stays small for the entire cursor scan. Reader should use
+`pageSize: 1000` without a smaller first-page override when requesting a large scan.
+See [query helpers](sdk-query-helpers.md) for total caps, abort cleanup and migration details.
 
-| SDK / authority | Behavior |
-| --- | --- |
-| Old SDK / updated authority | Original fixed initial-page behavior remains valid. |
-| Updated SDK / updated authority | Small first page, larger continuation pages. |
-| Updated SDK / authority rejecting continuation limits | Same-cursor retry without a limit. |
-| Updated SDK / authority ignoring continuation limits | Original smaller pages remain valid. |
-
-Cursor identity, snapshot generation and explicit release are preserved. The authority accepts
-only positive integer continuation limits, clamps page sizes to the engine's 1,000-record maximum,
-and binds the first effective size at each cursor offset so replay is deterministic. Conflicting
-explicit sizes are rejected. Per-offset state is charged against retained-state limits.
+The newer authority's variable-size capability remains valid for explicitly supported callers,
+but is not used by these SDK iterators. Cursor identity, generation and release are unchanged.
 
 The filesystem engine can hold a read-only WAL snapshot and frozen definitions instead of
 materializing every result for simple metadata queries. General queries retain materialized

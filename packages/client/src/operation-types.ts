@@ -209,10 +209,12 @@ export interface QueryResult<Record extends JsonObject = JsonObject> {
 }
 
 export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
-  /** Initial page size. Cursor authorities pin this size for the query lifetime. */
+  /** Initial page size. Cursor continuations use this pinned size. */
   firstPageSize?: number;
-  /** Also sets the initial size unless firstPageSize is explicit; authorities may cap it. */
+  /** Initial cursor size (default 200), unless firstPageSize is set. Offset continuations use this size (default 1,000). Authorities may cap it. */
   pageSize?: number;
+  /** Total rows to deliver, not a page size. Zero makes no data requests. */
+  maxResults?: number;
   signal?: AbortSignal;
   /** Independent budget for each page requested by this caller-driven iterator. */
   pageTimeoutMs?: number | null;
@@ -222,10 +224,12 @@ export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
 
 export interface QueryAllOptions<Record extends JsonObject = JsonObject>
   extends ConnectRequestOptions {
-  /** Initial page size. Cursor authorities pin this size for the query lifetime. */
+  /** Initial page size. Cursor continuations use this pinned size. */
   firstPageSize?: number;
-  /** Also sets the initial size unless firstPageSize is explicit; authorities may cap it. */
+  /** Initial cursor size (default 200), unless firstPageSize is set. Offset continuations use this size (default 1,000). Authorities may cap it. */
   pageSize?: number;
+  /** Total rows to return, independent of page size. */
+  maxResults?: number;
   onProgress?: (page: QueryPage<Record>) => void;
 }
 
@@ -438,8 +442,12 @@ export interface ExecuteViewInput {
 }
 
 export interface SavedViewPagesOptions<Frontmatter extends JsonObject = JsonObject> {
+  /** Initial page size, pinned for cursor continuations. */
   firstPageSize?: number;
+  /** Initial cursor size (default 200), unless firstPageSize is set. Offset continuations use this size (default 1,000). Authorities may cap it. */
   pageSize?: number;
+  /** Total rows to deliver, not a page size. Zero makes no data requests. */
+  maxResults?: number;
   signal?: AbortSignal;
   /** Independent budget for each page requested by this caller-driven iterator. */
   pageTimeoutMs?: number | null;
