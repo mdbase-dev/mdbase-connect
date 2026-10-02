@@ -28,10 +28,17 @@ async fn hosted_revisioned_documents_and_metadata_qualify_all_query_paths() {
                 allowed_types: Vec::new(),
                 contract_scope: Vec::new(),
                 full_collection: true,
-                allowed_operations: ["read", "query", "create", "update", "execute_view"]
-                    .into_iter()
-                    .map(str::to_string)
-                    .collect(),
+                allowed_operations: [
+                    "read",
+                    "query",
+                    "create",
+                    "update",
+                    "create_view_source",
+                    "execute_view",
+                ]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: vec![2],
                 file_capability: None,
@@ -185,9 +192,15 @@ async fn hosted_revisioned_documents_and_metadata_qualify_all_query_paths() {
     )
     .await;
     // Hosted Base rows use mdbase-rs's same normal renderer, including revisions.
-    operation("create",json!({"path":"list.base","frontmatter":{"views":[{"type":"table","name":"List","filters":"file.ext == 'md'"}]}})).await;
-    let base = operation("execute_view", json!({"path":"list.base","view":"list"})).await;
+    let source = operation("create_view_source",json!({"path":"views/list.base","document":"views:\n  - type: table\n    name: List\n    filters: \"file.ext == 'md'\"\n"})).await;
+    assert_eq!(source["valid"], true, "{source}");
+    let base = operation(
+        "execute_view",
+        json!({"path":"views/list.base","view":"list"}),
+    )
+    .await;
     assert_eq!(base["valid"], true, "{base}");
+    assert_eq!(base["result"]["results"].as_array().unwrap().len(), 2);
     for row in base["result"]["results"].as_array().unwrap() {
         assert!(row["revision"].as_str().unwrap().starts_with("sha256:"));
     }
