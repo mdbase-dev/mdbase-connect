@@ -647,15 +647,47 @@ test("previews internal editor links on hover, but not sidebar rows", async ({ p
   await expect(preview).toContainText("Journal/garden-notes-2.md");
 });
 
+test("moves dragged notes onto folders and All notes at the collection root", async ({ page }) => {
+  await page.goto("?demo=12");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+  const note = page.getByRole("option", { name: /Garden notes 2/ });
+  await note.dragTo(page.getByRole("button", { name: /^Show notes in Projects,/ }));
+  await expect(page.getByRole("button", { name: /^Show notes in Journal, 2 notes/ })).toBeVisible();
+  await note.click();
+  await expect(page.getByTitle("Rename Markdown path")).toContainText("Projects/garden-notes-2.md");
+  await note.dragTo(page.getByRole("button", { name: /^All notes,/ }));
+  await expect(page.getByTitle("Rename Markdown path")).toHaveText("garden-notes-2.md");
+});
+
+test("renames a folder with one link-aware confirmation and supports folder drops", async ({ page }) => {
+  await page.goto("?demo=12");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+  const row = page.getByRole("button", { name: /^Show notes in Notes,/ });
+  await row.focus(); await page.keyboard.press("F2");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: "Folder name" }).fill("Writing notes");
+  await dialog.getByRole("button", { name: "Review changes" }).click();
+  await expect(dialog).toHaveAccessibleName("Rename ‘Notes’ and move 3 notes and update 1 link?");
+  await dialog.getByRole("button", { name: "Rename folder" }).click();
+  await expect(dialog).toContainText("3 notes moved. Links were updated.");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByTitle("Rename Markdown path")).toContainText("Writing notes/the-shape-of-useful-tools.md");
+  await page.getByRole("button", { name: /^Show notes in Journal,/ }).dragTo(page.getByRole("button", { name: /^Show notes in Archive,/ }));
+  const move = page.locator(".folder-change-dialog");
+  await expect(move.getByRole("combobox", { name: "Destination folder" })).toHaveAttribute("data-value", "Archive");
+  await move.getByRole("button", { name: "Review changes" }).click();
+  await expect(move).toHaveAccessibleName("Move 3 notes?");
+  await move.getByRole("button", { name: "Move folder" }).click();
+  await expect(move).toContainText("3 notes moved.");
+});
+
 test("filters collection facets, follows backlinks, and completes wikilinks", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
 
   const folders = page.getByRole("group", { name: "Folders" });
-  const foldersToggle = folders.getByRole("button", { name: "Folders" });
-  await expect(foldersToggle).toHaveAttribute("aria-expanded", "true");
-  await foldersToggle.click();
-  await expect(foldersToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(folders.getByRole("button", { name: "Folders" })).toHaveCount(0);
+  await expect(folders.getByRole("button", { name: "New folder" })).toBeVisible();
 
   await page.getByRole("combobox", { name: "Search notes and files" }).fill("#ideas");
   await page.getByRole("combobox", { name: "Search notes and files" }).press("Enter");
@@ -1344,14 +1376,20 @@ test("keeps dense collection counts and footer controls inside the minimum rail"
   expect(markBox.x + markBox.width).toBeLessThanOrEqual(collapseBox.x);
 
   const counts = rail.locator(".rail-filter-items small");
-  await expect(counts.first()).toBeVisible();
+  await expect(counts.first()).toHaveCSS("opacity", "0");
+  await rail.getByRole("button", { name: /^Show notes in Archive,/ }).hover();
+  await expect(counts.first()).toHaveCSS("opacity", "1");
   expect(await counts.evaluateAll((elements) => elements.every((element) => {
     const count = element.getBoundingClientRect();
     const container = element.closest(".collection-rail")?.getBoundingClientRect();
     return Boolean(container) && count.right <= container.right && element.scrollWidth <= element.clientWidth;
   }))).toBe(true);
 
+  const statusLabel = rail.locator(".connection-footer p > span:last-child");
   await expect(rail.getByRole("button", { name: "Keyboard shortcuts" })).toHaveCount(0);
+  const [statusBox, railBox] = await Promise.all([statusLabel.boundingBox(), rail.boundingBox()]);
+  if (!statusBox || !railBox) throw new Error("Collection footer status is not visible.");
+  expect(statusBox.x + statusBox.width).toBeLessThanOrEqual(railBox.x + railBox.width);
   await page.keyboard.press("?");
   await expect(page.getByRole("dialog", { name: "Shortcuts" })).toBeVisible();
 });
