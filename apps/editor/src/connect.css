@@ -48,8 +48,8 @@
 
 .connect-nav-group > p {
   margin: 0 10px 7px;
-  color: var(--faint);
-  font-size: var(--font-size-caption);
+  color: var(--muted);
+  font-size: var(--font-size-ui);
 }
 
 .connect-nav > nav > .connect-nav-group > a {
@@ -95,7 +95,7 @@
   place-items: center;
   border-radius: 50%;
   font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
 }
 
 .connect-shell .collection-rail .connection-footer {
@@ -188,6 +188,7 @@
   min-width: 0;
   overflow: auto;
   background: var(--white);
+  font: var(--font-size-section)/1.5 var(--sans);
 }
 
 .connect-page {
@@ -197,13 +198,14 @@
 }
 
 .connect-page > header {
-  margin-bottom: 52px;
+  margin-bottom: 40px;
 }
 
 .connect-page > header h1 {
   margin: 0;
   font-size: var(--font-size-heading);
-  line-height: 1.05;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
   letter-spacing: -0.035em;
 }
 
@@ -216,12 +218,12 @@
   display: block;
   margin-top: 13px;
   color: var(--muted);
-  font-size: var(--font-size-ui);
+  font-size: var(--font-size-section);
   line-height: 1.5;
 }
 
 .connect-page > section {
-  margin-top: 52px;
+  margin-top: 40px;
 }
 
 .connect-section-title {
@@ -243,12 +245,14 @@
 .connect-section-title h2 {
   margin: 0;
   font-size: var(--font-size-section);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;
 }
 
 .connect-section-title span {
-  color: var(--faint);
+  color: var(--muted);
   font-size: var(--font-size-ui);
+  font-variant-numeric: tabular-nums;
 }
 
 .connect-section-title > p {
@@ -321,12 +325,13 @@
 }
 
 .connect-row strong {
-  font-size: var(--font-size-ui);
+  font-size: var(--font-size-section);
+  font-weight: var(--font-weight-semibold);
 }
 
 .connect-row small {
   color: var(--muted);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-ui);
   line-height: 1.4;
 }
 
@@ -386,7 +391,7 @@ button.danger:disabled {
   align-items: center;
   gap: 7px;
   color: var(--muted);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-ui);
   white-space: nowrap;
 }
 
@@ -408,6 +413,7 @@ button.danger:disabled {
   justify-content: center;
   padding: 6px 12px;
   text-decoration: none;
+
 }
 
 .connect-muted {
@@ -703,9 +709,9 @@ button.danger:disabled {
   gap: 2px;
 }
 
-.connect-account-row strong { font-size: var(--font-size-ui); }
-.connect-account-row small { color: var(--muted); font-size: var(--font-size-caption); line-height: 1.4; }
-.connect-account-row > span { color: var(--muted); font-size: var(--font-size-caption); text-align: right; }
+.connect-account-row strong { font-size: var(--font-size-section); font-weight: var(--font-weight-semibold); }
+.connect-account-row small { color: var(--muted); font-size: var(--font-size-ui); line-height: 1.5; }
+.connect-account-row > span { color: var(--muted); font-size: var(--font-size-ui); text-align: right; }
 
 .connect-account-actions {
   display: flex;
@@ -763,7 +769,7 @@ button.danger:disabled {
   gap: 6px;
   color: var(--muted);
   font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
 }
 
 .connect-account-form input,
@@ -810,6 +816,7 @@ button.danger:disabled {
 
 .connect-account-reauthentication {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--line);
@@ -817,6 +824,7 @@ button.danger:disabled {
 
 .connect-google-provider {
   position: relative;
+  min-width: 0;
   width: min(100%, 400px);
   min-height: 40px;
 }
@@ -834,6 +842,7 @@ button.danger:disabled {
   border-radius: var(--radius-sm);
   color: var(--muted);
   background: var(--white);
+  font-family: var(--sans);
   font-size: var(--font-size-ui);
 }
 
@@ -1064,7 +1073,7 @@ button.danger:disabled {
   }
 
   .connect-shell > .collection-rail .connection-footer > p,
-  .connect-rail-feedback,
+  .connect-shell > .collection-rail .connect-rail-feedback,
   .connect-rail-account > span:last-child {
     display: none;
   }
