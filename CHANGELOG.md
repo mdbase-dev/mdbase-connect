@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Seed type upgrades follow mdbase-spec 05A's upgrade baselines
+  (mdbase-dev/mdbase-spec#59). A type pack's seed `upgrade_from` may now be one
+  baseline or a non-empty list of `{ digest, document, version? }`; manifest
+  validation (`validateAppManifest`, and the new `validateTypePackProvision`
+  in `@mdbase-dev/connect-protocol/manifest`) rejects baselines on non-seed
+  types, digest mismatches, duplicates, the resource's own digest, a different
+  type kind or name, and a `version` the document does not declare, at the
+  offending baseline's path. The single-object form is unchanged. The SDK's
+  type-pack assessments add `upgradeBaseline` to seed updates, and receipts add
+  `originDigest`. The devkit's `defineTypePack` accepts
+  `upgradeFrom: [{ document, version? }]` on seed types. The editor's guided
+  Person setup accepts a starter upgrade only when the engine reports a
+  baseline the bundled pack declares, and says **Person type kept as it is**
+  when the engine preserves the type with a reason instead of offering the
+  update again. Lists take effect once the engines implementing 05A are pinned;
+  earlier engines reject them.
+
 - The editor's guided person setup installs `mdbase.contact` 1.3.0, whose
   Person v3 starter neither declares nor requires `type`. People created in
   collections whose `settings.explicit_type_keys` is not `[type]` (such as

@@ -900,7 +900,7 @@ function SupportedApprovalForm({
                 <div>
                   <strong>{provision.manifest.name ?? provision.manifest.id} <code>{provision.manifest.version}</code></strong>
                   <small>{provision.manifest.description ?? "Install or update the application definitions declared by this version."}</small>
-                  {provision.manifest.resources.some((resource) => resource.upgrade_from) && <small>Upgrades existing starter types while keeping your customizations and notes. Conflicts, or other types still using the old contract, stop the whole upgrade.</small>}
+                  {provision.manifest.resources.some((resource) => resource.upgrade_from) && <small>Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade.</small>}
                 </div>
               </li>
             ))}

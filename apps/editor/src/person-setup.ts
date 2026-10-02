@@ -31,18 +31,19 @@ interface PersonStarterUpgrade {
   merged: boolean;
 }
 
-/** A seed type replaced through the provision's own reviewed `upgrade_from` baseline. */
+/** A seed type the engine upgrades from one of the bundled provision's own reviewed baselines. */
 function starterUpgrade(provision: TypePackProvision, resource: TypePackResourceDiff): PersonStarterUpgrade | undefined {
   const seed = provision.manifest.resources.find((candidate) => candidate.source === resource.source && candidate.target === resource.target);
   if (resource.action !== "update" || resource.kind !== "type" || resource.mode !== "seed" || seed?.kind !== "type" || seed.mode !== "seed") return undefined;
-  if (!seed.upgrade_from || resource.installedDigest !== seed.upgrade_from.digest) return undefined;
-  return { target: resource.target, merged: resource.currentDigest !== resource.installedDigest };
+  const baseline = resource.upgradeBaseline;
+  if (!baseline || ![seed.upgrade_from ?? []].flat().some(({ digest }) => digest === baseline.digest)) return undefined;
+  return { target: resource.target, merged: resource.currentDigest !== baseline.digest };
 }
 
-export function requireGuidedPersonSetup(provision: TypePackProvision, assessment: TypePackAssessment) {
+export function requireGuidedPersonSetup(provision: TypePackProvision, assessment: TypePackAssessment): { upgrade?: PersonStarterUpgrade; kept?: true } {
   // This guided flow adds missing definitions, records ownership of identical
-  // existing bytes, or upgrades an older Person starter the pack declares it
-  // supersedes. Other updates, adoptions, and downgrades belong in Types.
+  // existing bytes, or upgrades an older Person starter from a baseline the pack
+  // declares. Other updates, adoptions, and downgrades belong in Types.
   const unsafe = assessment.resources.find((resource) =>
     (["update", "delete", "conflict"].includes(resource.action) && !starterUpgrade(provision, resource))
     || (resource.action === "adopt" && resource.currentDigest !== resource.digest));
@@ -50,6 +51,9 @@ export function requireGuidedPersonSetup(provision: TypePackProvision, assessmen
     throw new Error(unsafe?.reason ?? "These definitions need review in Types. No files have been changed.");
   }
   const person = assessment.resources.find((resource) => resource.target === PERSON_STARTER.target);
+  // The engine keeps a Person type it cannot trace to a declared starter, with a
+  // reason. Retrying would only repeat that, so setup reports it and stops.
+  if (person?.action === "preserve" && person.mode === "seed" && person.reason) return { kept: true };
   const upgrade = person && starterUpgrade(provision, person);
   if (person?.action !== "create" && !upgrade) {
     throw new Error("A Person type already exists but needs compatible mappings. Review it in Types; this setup will not replace it.");

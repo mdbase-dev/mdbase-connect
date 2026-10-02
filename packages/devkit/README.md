@@ -79,6 +79,28 @@ The helper validates each contract document and derives the exact semantic
 `provides` descriptors. Managed resources evolve with the pack; seed resources
 become collection-owned after their initial creation.
 
+A seed type may list the exact starters previously shipped for it, so a
+collection that still has any of them can be upgraded:
+
+```ts
+{
+  kind: "type",
+  mode: "seed",
+  source: "types/task/3.md",
+  target: "_types/task.md",
+  document: taskV3,
+  upgradeFrom: [{ document: taskV1 }, { document: taskV2 }]
+}
+```
+
+`defineTypePack` emits these as `upgrade_from` baselines, computing each
+digest and copying the `version` the document declares (an explicit `version`
+must match it). It rejects baselines on anything but a seed type, duplicates,
+the resource's own document, and documents of a different type kind or name,
+using the same validator as application manifests. An unedited starter is
+replaced exactly; an edited one is merged only against the baseline the
+collection's lock records as its origin, and is otherwise left unchanged.
+
 Native applications may add a reverse-domain private-use callback scheme that
 matches the v1 manifest's application ID, such as
 `example.tasks.desktop://auth/mdbase/callback` for

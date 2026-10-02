@@ -27,8 +27,8 @@ it("loads the exact SHA-pinned canonical People/Contact provision without a cata
   expect(person).toContain("    required: [name]\n");
   expect(person).not.toMatch(/^ {6}type:$/m);
   // Person v3 upgrades the exact Person v2 seed from 1.2.0.
-  expect(provision.manifest.resources.find(({ target }) => target === "_types/person.md")?.upgrade_from?.digest)
-    .toBe("sha256:aa81c2964285ecc69fcb96bca4b6ae80bbddeb648908d840d7c7be50df15b362");
+  expect(provision.manifest.resources.find(({ target }) => target === "_types/person.md")?.upgrade_from)
+    .toMatchObject({ digest: "sha256:aa81c2964285ecc69fcb96bca4b6ae80bbddeb648908d840d7c7be50df15b362" });
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(fetcher.mock.calls[0][0]).not.toContain("mdbase.dev/contracts");
 });

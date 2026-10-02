@@ -278,10 +278,14 @@ and Person types/notes remain untouched; old pack artifacts retain their exact
 bytes. A redundant type chooser is hidden when only one compatible type exists.
 
 The guided flow permits additions, preservation of existing seeds, ownership of
-identical existing bytes, and the upgrade of a seed type whose installed digest
-is the provision's declared `upgrade_from` baseline. Conflicts, downgrades,
-deletions, managed-resource updates, any other seed update, or an incompatible
-existing Person seed stop for review in Types. Assessment/apply
+identical existing bytes, and the upgrade of a seed type the engine reports as
+upgraded from one of the provision's declared `upgrade_from` baselines
+(`upgradeBaseline`). Conflicts, downgrades, deletions, managed-resource
+updates, any other seed update, or an incompatible existing Person seed stop
+for review in Types. Under mdbase-spec 05A the engine keeps an edited Person
+type it cannot trace to a declared baseline (for example, under a lock written
+before seeds recorded `origin_digest`) and reports a `reason`; the review then
+says **Person type kept as it is** instead of offering the update again. Assessment/apply
 reuse the existing atomic, digest-guarded engine path, with no auto-adoption of
 changed files, record migration, permission changes, or automatic retry.
 After approval the collection description refreshes and creation opens directly.

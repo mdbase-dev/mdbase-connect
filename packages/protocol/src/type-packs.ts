@@ -41,9 +41,20 @@ export const MDBASE_TIMER_FIRED_CONTRACT = {
   digest: "sha256:41105be7a7abf33b31ced47e1e1965242236e40ccaea286b959b0a8c591f5642",
 } as const satisfies ContractRequirement;
 
+/** Exact bytes of a starter the publisher previously shipped for a seed type. */
+type TypePackUpgradeBaseline = {
+  digest: string;
+  document: string;
+  /** The `version` the baseline document declares, for presentation only. */
+  version?: number;
+};
+
 export interface TypePackManifestResource {
-  /** Explicit three-way upgrade; only valid for seed type resources. */
-  upgrade_from?: { digest: string; document: string };
+  /**
+   * Previously shipped starters this seed type may be upgraded from; only valid
+   * for seed type resources. A single baseline is equivalent to a one-item list.
+   */
+  upgrade_from?: TypePackUpgradeBaseline | TypePackUpgradeBaseline[];
   kind: "contract" | "type" | "schema";
   mode: "managed" | "seed";
   source: string;
@@ -85,6 +96,8 @@ export interface TypePackResourceDiff {
   current_digest?: string;
   installed_digest?: string;
   adopted_from_digest?: string;
+  /** The declared baseline an engine upgraded this seed from (seed `update` only). */
+  upgrade_baseline?: { digest: string; version?: number };
   reason?: string;
 }
 
@@ -93,7 +106,10 @@ export interface TypePackReceipt {
   version: string;
   digest: string;
   installed_by: string;
-  resources: Omit<TypePackResourceDiff, "action" | "current_digest" | "installed_digest" | "reason">[];
+  resources: Array<Omit<TypePackResourceDiff, "action" | "current_digest" | "installed_digest" | "upgrade_baseline" | "reason"> & {
+    /** Seed only: the publisher document the target descends from, when known. */
+    origin_digest?: string;
+  }>;
 }
 
 export interface TypePackAssessment {

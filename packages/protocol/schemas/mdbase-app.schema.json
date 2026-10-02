@@ -319,17 +319,24 @@
         "kind": { "enum": ["contract", "type", "schema"] },
         "mode": { "enum": ["managed", "seed"] },
         "upgrade_from": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["digest", "document"],
-          "properties": {
-            "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-            "document": { "type": "string", "maxLength": 262144 }
-          }
+          "oneOf": [
+            { "$ref": "#/$defs/typePackUpgradeBaseline" },
+            { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/typePackUpgradeBaseline" } }
+          ]
         },
         "source": { "type": "string", "minLength": 1, "maxLength": 240 },
         "target": { "type": "string", "minLength": 1, "maxLength": 240 },
         "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "typePackUpgradeBaseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "document"],
+      "properties": {
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "document": { "type": "string", "maxLength": 262144 },
+        "version": { "type": "integer", "minimum": 1 }
       }
     },
     "typePackSourceResource": {

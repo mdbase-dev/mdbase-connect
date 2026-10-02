@@ -79,17 +79,78 @@ test("semantic capabilities and provision ownership share one canonical validato
   );
 });
 
-test("seed upgrades retain the exact reviewed baseline and reject tampering", () => {
+function sha256(text) {
+  return `sha256:${createHash("sha256").update(text).digest("hex")}`;
+}
+
+function starter(version, extra = "") {
+  const text = `---\nkind: mdbase.type\nname: scratch\nversion: ${version}\n${extra}---\n`;
+  return { digest: sha256(text), document: text };
+}
+
+function upgradeManifest(upgradeFrom) {
   const value = manifest();
-  const resource = value.provisions.type_packs[0].manifest.resources[0];
-  resource.upgrade_from = { digest, document };
+  const desired = starter(3);
+  const pack = value.provisions.type_packs[0];
+  Object.assign(pack.manifest.resources[0], { digest: desired.digest, upgrade_from: upgradeFrom });
+  pack.resources[0].document = desired.document;
+  return value;
+}
+
+function issuesOf(value) {
+  const result = validateAppManifest(value);
+  return result.valid ? [] : result.issues.map(({ path, keyword }) => `${keyword} ${path}`);
+}
+
+const upgradePath = "/provisions/type_packs/0/manifest/resources/0/upgrade_from";
+
+test("seed upgrades retain a single exact reviewed baseline and reject tampering", () => {
+  const baseline = starter(2);
+  const value = upgradeManifest({ ...baseline });
   assert.deepEqual(validateAppManifest(value), { valid: true, issues: [] });
-  assert.deepEqual(parseAppManifest(value).provisions.type_packs[0].manifest.resources[0].upgrade_from, { digest, document });
+  assert.deepEqual(parseAppManifest(value).provisions.type_packs[0].manifest.resources[0].upgrade_from, baseline);
+  const resource = value.provisions.type_packs[0].manifest.resources[0];
   resource.upgrade_from.document += "changed";
-  assert.equal(validateAppManifest(value).valid, false);
-  resource.upgrade_from.document = document;
+  assert.deepEqual(issuesOf(value), [`digest ${upgradePath}/digest`]);
+  resource.upgrade_from.document = baseline.document;
   resource.mode = "managed";
-  assert.equal(validateAppManifest(value).valid, false);
+  assert.deepEqual(issuesOf(value), [`seedUpgrade ${upgradePath}`]);
+});
+
+test("seed upgrades accept a non-empty list of distinct earlier starters", () => {
+  const list = [{ ...starter(1), version: 1 }, starter(2, "description: second\n")];
+  const value = upgradeManifest(list);
+  assert.deepEqual(validateAppManifest(value), { valid: true, issues: [] });
+  assert.deepEqual(parseAppManifest(value).provisions.type_packs[0].manifest.resources[0].upgrade_from, list);
+  assert.ok(issuesOf(upgradeManifest([])).some((entry) => entry.startsWith("minItems ")));
+});
+
+test("seed upgrade baselines are rejected with the offending baseline's path", () => {
+  const first = starter(1);
+  const second = starter(2);
+  const desired = starter(3);
+  const cases = [
+    [[first, { ...second, document: `${second.document}changed` }], `digest ${upgradePath}/1/digest`],
+    [[first, second, first], `uniqueBaseline ${upgradePath}/2/digest`],
+    [[first, desired], `seedUpgrade ${upgradePath}/1/digest`],
+    [[first, { ...second, version: 1 }], `seedUpgrade ${upgradePath}/1/version`]
+  ];
+  for (const [upgradeFrom, expected] of cases) {
+    assert.deepEqual(issuesOf(upgradeManifest(upgradeFrom)), [expected]);
+  }
+  for (const document of [
+    "---\nkind: mdbase.type\nname: other\nversion: 2\n---\n",
+    "---\nkind: mdbase.contract\nname: scratch\nversion: 2\n---\n",
+    "no frontmatter\n"
+  ]) {
+    assert.deepEqual(
+      issuesOf(upgradeManifest([first, { digest: sha256(document), document }])),
+      [`seedUpgrade ${upgradePath}/1/document`]
+    );
+  }
+  const managed = upgradeManifest([first]);
+  managed.provisions.type_packs[0].manifest.resources[0].kind = "schema";
+  assert.deepEqual(issuesOf(managed), [`seedUpgrade ${upgradePath}`]);
 });
 
 test("legacy contract-scoped declarations are rejected rather than widened", () => {

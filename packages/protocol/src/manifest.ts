@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
+import { parseDocument } from "yaml";
 import appManifestSchema from "../schemas/mdbase-app.schema.json" with { type: "json" };
 import legacyAppManifestSchema from "../schemas/mdbase-app.legacy-v1.schema.json" with { type: "json" };
 import type { LegacyMdbaseAppManifest } from "./index.js";
@@ -411,62 +412,116 @@ function validateProvisionRequirements(value: unknown): ManifestValidationIssue[
         ));
       }
     }
-    const packManifest = asObject(provision.manifest);
-    const declaredResources = Array.isArray(packManifest.resources)
-      ? packManifest.resources.map(asObject)
-      : [];
-    const embeddedResources = Array.isArray(provision.resources)
-      ? provision.resources.map(asObject)
-      : [];
-    const embedded = new Map(
-      embeddedResources.map((resource) => [String(resource.source), resource.document])
-    );
-    if (
-      embedded.size !== embeddedResources.length
-      || new Set(declaredResources.map((resource) => String(resource.source))).size
-        !== declaredResources.length
-      || declaredResources.length !== embeddedResources.length
-    ) {
-      issues.push(issue(
-        `/provisions/type_packs/${packIndex}/resources`,
-        "resourceSet",
-        "must match manifest source paths exactly"
-      ));
+    issues.push(...validateTypePackProvision(provision, `/provisions/type_packs/${packIndex}`));
+  }
+  return issues;
+}
+
+/**
+ * Validate one schema-valid type-pack provision beyond its JSON Schema: the
+ * embedded resources are exactly the manifest's, each digest pins its bytes,
+ * and every seed `upgrade_from` baseline satisfies mdbase 05A. Issue paths are
+ * prefixed with `path`, the provision's location in its enclosing document.
+ */
+export function validateTypePackProvision(
+  value: unknown,
+  path = ""
+): ManifestValidationIssue[] {
+  const provision = asObject(value);
+  const manifest = asObject(provision.manifest);
+  const declaredResources = Array.isArray(manifest.resources)
+    ? manifest.resources.map(asObject)
+    : [];
+  const embeddedResources = Array.isArray(provision.resources)
+    ? provision.resources.map(asObject)
+    : [];
+  const embedded = new Map(
+    embeddedResources.map((resource) => [String(resource.source), resource.document])
+  );
+  if (
+    embedded.size !== embeddedResources.length
+    || new Set(declaredResources.map((resource) => String(resource.source))).size
+      !== declaredResources.length
+    || declaredResources.length !== embeddedResources.length
+  ) {
+    return [issue(`${path}/resources`, "resourceSet", "must match manifest source paths exactly")];
+  }
+  const issues: ManifestValidationIssue[] = [];
+  for (const [resourceIndex, resource] of declaredResources.entries()) {
+    const resourcePath = `${path}/manifest/resources/${resourceIndex}`;
+    const source = String(resource.source);
+    const document = embedded.get(source);
+    if (typeof document !== "string") {
+      issues.push(issue(`${path}/resources`, "resourceSet", `is missing manifest source ${source}`));
       continue;
     }
-    for (const [resourceIndex, resource] of declaredResources.entries()) {
-      const source = String(resource.source);
-      if (resource.upgrade_from !== undefined) {
-        const baseline = asObject(resource.upgrade_from);
-        const path = `/provisions/type_packs/${packIndex}/manifest/resources/${resourceIndex}/upgrade_from`;
-        if (resource.kind !== "type" || resource.mode !== "seed") {
-          issues.push(issue(path, "seedUpgrade", "is only allowed for seed types"));
-        }
-        if (typeof baseline.document === "string"
-          && baseline.digest !== `sha256:${createHash("sha256").update(baseline.document).digest("hex")}`) {
-          issues.push(issue(`${path}/digest`, "digest", "does not match the baseline document"));
-        }
-      }
-      const document = embedded.get(source);
-      if (typeof document !== "string") {
-        issues.push(issue(
-          `/provisions/type_packs/${packIndex}/resources`,
-          "resourceSet",
-          `is missing manifest source ${source}`
-        ));
-        continue;
-      }
-      const digest = `sha256:${createHash("sha256").update(document).digest("hex")}`;
-      if (digest !== resource.digest) {
-        issues.push(issue(
-          `/provisions/type_packs/${packIndex}/manifest/resources/${resourceIndex}/digest`,
-          "digest",
-          "does not match the embedded document"
-        ));
-      }
+    if (sha256(document) !== resource.digest) {
+      issues.push(issue(`${resourcePath}/digest`, "digest", "does not match the embedded document"));
+    }
+    if (resource.upgrade_from !== undefined) {
+      issues.push(...validateSeedUpgrade(resource, document, `${resourcePath}/upgrade_from`));
     }
   }
   return issues;
+}
+
+/** 05A seed-upgrade baselines: exact, distinct, earlier starters of the same type. */
+function validateSeedUpgrade(
+  resource: Record<string, unknown>,
+  document: string,
+  path: string
+): ManifestValidationIssue[] {
+  if (resource.kind !== "type" || resource.mode !== "seed") {
+    return [issue(path, "seedUpgrade", "is only allowed for seed types")];
+  }
+  const desired = typeFrontmatter(document);
+  const listed = Array.isArray(resource.upgrade_from);
+  const baselines = (listed ? resource.upgrade_from as unknown[] : [resource.upgrade_from]).map(asObject);
+  const seen = new Set<unknown>();
+  const issues: ManifestValidationIssue[] = [];
+  for (const [index, baseline] of baselines.entries()) {
+    const baselinePath = listed ? `${path}/${index}` : path;
+    const baselineDocument = String(baseline.document);
+    if (baseline.digest !== sha256(baselineDocument)) {
+      issues.push(issue(`${baselinePath}/digest`, "digest", "does not match the baseline document"));
+    } else if (seen.has(baseline.digest)) {
+      issues.push(issue(`${baselinePath}/digest`, "uniqueBaseline", "duplicates another upgrade baseline"));
+    } else if (baseline.digest === resource.digest) {
+      issues.push(issue(`${baselinePath}/digest`, "seedUpgrade", "must not be the resource's own document"));
+    }
+    seen.add(baseline.digest);
+    const previous = typeFrontmatter(baselineDocument);
+    if (!desired || !previous || previous.kind !== desired.kind || previous.name !== desired.name) {
+      issues.push(issue(
+        `${baselinePath}/document`,
+        "seedUpgrade",
+        "must be a type document with the same kind and name as the resource"
+      ));
+    } else if (baseline.version !== undefined && previous.version !== baseline.version) {
+      issues.push(issue(
+        `${baselinePath}/version`,
+        "seedUpgrade",
+        "must equal the version the baseline document declares"
+      ));
+    }
+  }
+  return issues;
+}
+
+/** Top-level frontmatter of a type document, or undefined when it has none. */
+function typeFrontmatter(document: string): Record<string, unknown> | undefined {
+  const source = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(document)?.[1];
+  if (source === undefined) return undefined;
+  const parsed = parseDocument(source, { uniqueKeys: true });
+  if (parsed.errors.length > 0) return undefined;
+  const value = parsed.toJS({ maxAliasCount: 0 }) as unknown;
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function sha256(document: string): string {
+  return `sha256:${createHash("sha256").update(document).digest("hex")}`;
 }
 
 function validateConfigurationSetup(value: unknown): ManifestValidationIssue[] {

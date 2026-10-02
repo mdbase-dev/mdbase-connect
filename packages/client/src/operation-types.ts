@@ -608,6 +608,8 @@ export interface TypePackResourceDiff {
   currentDigest?: string;
   installedDigest?: string;
   adoptedFromDigest?: string;
+  /** The declared baseline an engine upgraded this seed from (seed `update` only). */
+  upgradeBaseline?: { digest: string; version?: number };
   reason?: string;
 }
 
@@ -616,7 +618,10 @@ export interface TypePackReceipt {
   version: string;
   digest: string;
   installedBy: string;
-  resources: Array<Omit<TypePackResourceDiff, "action" | "currentDigest" | "installedDigest" | "reason">>;
+  resources: Array<Omit<TypePackResourceDiff, "action" | "currentDigest" | "installedDigest" | "upgradeBaseline" | "reason"> & {
+    /** Seed only: the publisher document the target descends from, when known. */
+    originDigest?: string;
+  }>;
 }
 
 export interface TypePackAssessment {
