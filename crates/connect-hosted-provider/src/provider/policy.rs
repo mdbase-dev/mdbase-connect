@@ -379,6 +379,10 @@ pub(super) fn visible(record: &SyncRecord, allowed_types: &[String]) -> bool {
 }
 
 #[cfg(test)]
+#[path = "change_fixture_tests.rs"]
+mod change_fixture_tests;
+
+#[cfg(test)]
 mod retained_policy_tests {
     use super::*;
 

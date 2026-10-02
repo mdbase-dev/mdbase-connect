@@ -1,7 +1,5 @@
 import type {
-  CollectionChange as WireCollectionChange,
   CollectionChangesPage as WireCollectionChangesPage,
-  CollectionDescription as WireCollectionDescription,
   CollectionOperation,
   ConnectProblemCode,
   CollectionTypeDocument,
@@ -24,6 +22,8 @@ import type {
   TypePackAssessment as WireTypePackAssessment,
 } from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
+import { invalidatesDescription, normalizeChangesPage } from "./change-events.js";
+import { CollectionDescriptionCache } from "./description-cache.js";
 import { coordinatedQueryPages } from "./query-pagination.js";
 import { queryReadMany } from "./read-many.js";
 import { coordinatedSavedViewPages } from "./saved-view-pagination.js";
@@ -35,7 +35,6 @@ import {
 } from "./errors.js";
 import {
   COLLECTION_CHANGES_PROBLEM_CODES,
-  COLLECTION_DESCRIPTION_PROBLEM_CODES,
   COLLECTION_MUTATION_PROBLEM_CODES,
   COLLECTION_QUERY_PROBLEM_CODES,
   COLLECTION_READ_PROBLEM_CODES,
@@ -55,6 +54,7 @@ import {
 } from "./outcomes.js";
 import type {
   ChangesInput,
+  DescribeOptions,
   CollectionChange,
   CollectionChangesPage,
   CollectionDescription,
@@ -119,10 +119,18 @@ import { watchRetryPolicy } from "./watch-policy.js";
  * sandbox, or another provider without changing its record logic.
  */
 export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject> {
+  private readonly descriptions: CollectionDescriptionCache;
+  private lastSchemaCursor = -1;
+
+  /** Local cache generation, not an authority revision or cross-connection identity. */
+  get schemaGeneration(): number { return this.descriptions.schemaGeneration; }
+
   constructor(
     private readonly transport: MdbaseCollectionTransport,
     private readonly requestTimeoutMs: number | null = DEFAULT_REQUEST_TIMEOUT_MS
-  ) {}
+  ) {
+    this.descriptions = new CollectionDescriptionCache(transport, requestTimeoutMs);
+  }
 
   operation<Result>(
     operation: CollectionOperation,
@@ -135,9 +143,8 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     );
   }
 
-  async describe(options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
-    const outcome = await this.rawOperation<WireCollectionDescription, CollectionDescriptionProblemCode>("describe", {}, COLLECTION_DESCRIPTION_PROBLEM_CODES, options);
-    return mapOutcome(outcome, wireCollectionDescription);
+  describe(options?: DescribeOptions): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
+    return this.descriptions.describe(options);
   }
 
   async changes(
@@ -145,7 +152,15 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<CollectionChangesPage, CollectionChangesProblemCode>> {
     const outcome = await this.rawOperation<WireCollectionChangesPage, CollectionChangesProblemCode>("changes", input, COLLECTION_CHANGES_PROBLEM_CODES, options);
-    return mapOutcome(outcome, wireChangesPage);
+    const mapped = mapOutcome(outcome, normalizeChangesPage);
+    if (mapped.ok) {
+      const invalidations = mapped.value.events.filter(invalidatesDescription);
+      if (mapped.value.reset || invalidations.some((event) => event.cursor > this.lastSchemaCursor)) {
+        this.descriptions.invalidate();
+        this.lastSchemaCursor = mapped.value.cursor;
+      }
+    }
+    return mapped;
   }
 
   async read(input: ReadInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionReadProblemCode>> {
@@ -519,6 +534,9 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     const envelope = transported.value;
     if (!envelope.valid) {
       return connectFailure(operationProblem(envelope)) as unknown as ConnectOutcome<Result, Code>;
+    }
+    if (["create_type", "update_type", "apply_type_pack", "apply_collection_setup", "create_view_source", "update_view_source", "delete_view_source"].includes(operation)) {
+      this.descriptions.invalidate();
     }
     return connectSuccess(envelope.result, envelope.diagnostics);
   }
@@ -947,52 +965,5 @@ function wireCollectionSetupReceipt(value: import("@mdbase-dev/connect-protocol"
     configuration: value.configuration,
     typePacks: value.type_packs.map(wireTypePackReceipt),
     cleanupDeferred: value.cleanup_deferred
-  };
-}
-
-function wireChange(value: WireCollectionChange): CollectionChange {
-  return {
-    cursor: value.cursor,
-    type: value.type,
-    occurredAt: value.occurred_at,
-    payload: value.payload
-  };
-}
-
-function wireChangesPage(value: WireCollectionChangesPage): CollectionChangesPage {
-  return {
-    events: value.events.map(wireChange),
-    cursor: value.cursor,
-    hasMore: value.has_more,
-    reset: value.reset
-  };
-}
-
-function wireCollectionDescription(value: WireCollectionDescription): CollectionDescription {
-  return {
-    protocolVersion: value.protocol_version,
-    collectionId: value.collection_id,
-    displayName: value.display_name,
-    specVersion: value.spec_version,
-    operations: value.operations,
-    changeCursor: value.change_cursor,
-    types: value.types,
-    contracts: value.contracts.map((contract) => ({
-      contractType: contract.contract_type,
-      id: contract.id,
-      version: contract.version,
-      digest: contract.digest,
-      schema: contract.schema,
-      ...(contract.binding_schema ? { bindingSchema: contract.binding_schema } : {}),
-      implementations: contract.implementations.map((implementation) => ({
-        typeName: implementation.type_name,
-        typeVersion: implementation.type_version,
-        ...(implementation.type_path ? { typePath: implementation.type_path } : {}),
-        digest: implementation.digest,
-        fields: implementation.fields,
-        ...(implementation.binding ? { binding: implementation.binding } : {})
-      }))
-    })),
-    ...(value.configuration ? { configuration: value.configuration } : {})
   };
 }

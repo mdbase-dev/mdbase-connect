@@ -63,6 +63,7 @@ import type {
   ChangesInput,
   CollectionChange,
   CollectionChangesPage,
+  DescribeOptions,
   CollectionDescription,
   CollectionSetupApplyResult,
   CollectionSetupAssessment,
@@ -556,9 +557,8 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     this.transport.notifyStorageChanged();
   }
 
-  describe(options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
-    return this.collectionClient.describe(options);
-  }
+  get schemaGeneration(): number { return this.collectionClient.schemaGeneration; }
+  describe(options?: DescribeOptions): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> { return this.collectionClient.describe(options); }
 
   changes(input: ChangesInput = {}, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionChangesPage, CollectionChangesProblemCode>> {
     return this.collectionClient.changes(input, options);

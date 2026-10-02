@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   MdbaseConnectError,
+  normalizeCollectionChange,
   type MdbaseApplicationSessionSnapshot,
   type DirectAccessStatus,
   type MdbaseConnection,
@@ -25,6 +26,37 @@ describe("bridge declaration readiness", () => {
     };
     expect(missingCoreCapabilities(connection)).toEqual(["records.update", "files.read"]);
     expect(missingTypeCapabilities(connection)).toEqual(["definitions.read"]);
+  });
+});
+
+describe("ConnectCollectionGateway typed changes", () => {
+  it("forwards explicit fresh description requests", async () => {
+    const describeCollection = vi.fn(async () => connectSuccess({ collectionId: "notes", types: [], contracts: [] }));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, { describe: describeCollection });
+    await gateway.describe({ fresh: true });
+    expect(describeCollection).toHaveBeenCalledExactlyOnceWith({ fresh: true });
+  });
+  it("forwards schema, contract, configuration and unknown events without raw-ID filtering", async () => {
+    const events = ["mdbase.type.changed", "mdbase.config.changed", "mdbase.contract.changed", "future.event"].map((type, cursor) =>
+      normalizeCollectionChange({ cursor, type, occurred_at: "now", payload: { path: "schema.yaml" } }));
+    const stop = vi.fn();
+    const watch = vi.fn(async () => connectSuccess({
+      subscribe(onChange: (event: typeof events[number]) => void) {
+        events.forEach(onChange);
+        return stop;
+      }
+    }));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, { watch });
+    const controller = new AbortController();
+    const onChange = vi.fn();
+    const pending = gateway.watch(onChange, controller.signal);
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledTimes(4));
+    expect(onChange.mock.calls.map(([event]) => event.kind)).toEqual(["schema.changed", "config.changed", "contract.changed", "unknown"]);
+    controller.abort();
+    await pending;
+    expect(stop).toHaveBeenCalledOnce();
   });
 });
 

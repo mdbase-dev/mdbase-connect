@@ -169,7 +169,29 @@ export async function compiledQuickstart(
     { lifetimeSignal: lifetime.signal },
     { signal: lifetime.signal, timeoutMs: 20_000 }
   );
-  watched.ok && watched.value.close();
+  if (watched.ok) {
+    watched.value.subscribe((change) => {
+      if (change.kind === "record.updated") {
+        const path: string = change.path;
+        const changedFields: string[] | undefined = change.changedFields;
+        const revision: string | undefined = change.previousRevision;
+        void [path, changedFields, revision, change.raw.payload];
+      } else if (change.kind === "record.renamed") {
+        const paths: [string, string] = [change.from, change.to];
+        void paths;
+      } else if (change.kind === "file.put") {
+        const fileId: string = change.file.fileId;
+        void fileId;
+      } else if (change.kind === "unknown") {
+        const reason: "unrecognized_type" | "invalid_payload" = change.reason;
+        void reason;
+      }
+    });
+    watched.value.close();
+  }
+  const generation: number = connection.schemaGeneration;
+  const described = await connection.describe({ fresh: true, signal: lifetime.signal });
+  void [generation, described];
   const cleared = session.clearSelection();
   if (!cleared.ok) void cleared.problem.recovery;
 }

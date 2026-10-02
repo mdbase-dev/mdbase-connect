@@ -20,21 +20,14 @@ export function reconcileStructuralChanges(
   const expectedPresence = new Map<string, { present: boolean; source: "create" | "delete" | "rename" }>();
 
   for (const change of changes) {
-    const path = typeof change.payload.path === "string" ? change.payload.path : undefined;
-    const from = typeof change.payload.from === "string" ? change.payload.from : undefined;
-    const to = typeof change.payload.to === "string" ? change.payload.to : undefined;
-
-    if (change.type === "mdbase.record.created") {
-      if (!path) return { requiresRefresh: true, deletedPathsToConfirm: [] };
-      expectedPresence.set(path, { present: true, source: "create" });
-    } else if (change.type === "mdbase.record.deleted") {
-      if (!path) return { requiresRefresh: true, deletedPathsToConfirm: [] };
-      expectedPresence.set(path, { present: false, source: "delete" });
-    } else if (change.type === "mdbase.record.renamed") {
-      if (!from || !to) return { requiresRefresh: true, deletedPathsToConfirm: [] };
-      expectedPresence.set(from, { present: false, source: "rename" });
-      expectedPresence.set(to, { present: true, source: "rename" });
-    }
+    if (change.kind === "record.created") {
+      expectedPresence.set(change.path, { present: true, source: "create" });
+    } else if (change.kind === "record.deleted") {
+      expectedPresence.set(change.path, { present: false, source: "delete" });
+    } else if (change.kind === "record.renamed") {
+      expectedPresence.set(change.from, { present: false, source: "rename" });
+      expectedPresence.set(change.to, { present: true, source: "rename" });
+    } else return { requiresRefresh: true, deletedPathsToConfirm: [] };
   }
 
   const deletedPathsToConfirm: string[] = [];

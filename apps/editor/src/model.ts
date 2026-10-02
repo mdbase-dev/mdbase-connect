@@ -1,5 +1,6 @@
 import type {
   CollectionDescription,
+  DescribeOptions,
   CollectionChange,
   CollectionFileDescriptor,
   CollectionTypeDocument,
@@ -159,7 +160,7 @@ export interface CollectionGateway {
     options?: CollectionAuthorizationOptions
   ): Promise<void>;
   forgetConnection(collectionId: string): void;
-  describe(): Promise<CollectionDescription>;
+  describe(options?: DescribeOptions): Promise<CollectionDescription>;
   /** Demo collections have no authenticated account. Members are never read here. */
   peopleDirectory?(options?: { signal?: AbortSignal }): Promise<import("@mdbase-dev/connect").PeopleDirectory>;
   /** Every page of one contract/type projection. */

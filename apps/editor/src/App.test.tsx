@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { MdbaseConnectError, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
+import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
 import { connectProblem } from "@mdbase-dev/connect-testing";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
@@ -1504,12 +1504,10 @@ class RemoteChangeGateway extends DemoCollectionGateway {
       revision: "remote-2",
       file: { ...current.file, mtime: new Date().toISOString() }
     };
-    this.listener?.({
-      cursor: 2,
-      type: "mdbase.record.modified",
-      occurredAt: new Date().toISOString(),
+    this.listener?.(normalizeCollectionChange({
+      cursor: 2, type: "mdbase.record.modified", occurred_at: new Date().toISOString(),
       payload: { path: current.path, types: current.types }
-    });
+    }));
   }
 }
 
@@ -1601,35 +1599,29 @@ class CountingGateway extends DemoCollectionGateway {
   override async create(input: Parameters<DemoCollectionGateway["create"]>[0]): Promise<NoteDocument> {
     this.createCalls += 1;
     const created = await super.create(input);
-    this.listener?.({
-      cursor: 1,
-      type: "mdbase.record.created",
-      occurredAt: new Date().toISOString(),
+    this.listener?.(normalizeCollectionChange({
+      cursor: 1, type: "mdbase.record.created", occurred_at: new Date().toISOString(),
       payload: { path: created.path, types: created.types }
-    });
+    }));
     return created;
   }
 
   override async rename(from: string, to: string, revision: string, updateRefs = true, options: MutationOperationOptions = {}): Promise<NoteDocument> {
     const renamed = await super.rename(from, to, revision, updateRefs, options);
-    this.listener?.({
-      cursor: 2,
-      type: "mdbase.record.renamed",
-      occurredAt: new Date().toISOString(),
+    this.listener?.(normalizeCollectionChange({
+      cursor: 2, type: "mdbase.record.renamed", occurred_at: new Date().toISOString(),
       payload: { from, to, types: renamed.types }
-    });
+    }));
     return renamed;
   }
 
   override async delete(path: string, revision: string, options: MutationOperationOptions = {}): Promise<void> {
     await super.delete(path, revision, options);
     this.deleteCalls += 1;
-    this.listener?.({
-      cursor: 3,
-      type: "mdbase.record.deleted",
-      occurredAt: new Date().toISOString(),
+    this.listener?.(normalizeCollectionChange({
+      cursor: 3, type: "mdbase.record.deleted", occurred_at: new Date().toISOString(),
       payload: { path, previous_types: [] }
-    });
+    }));
   }
 
   override async watch(onChange: (change?: CollectionChange) => void, signal: AbortSignal): Promise<void> {
@@ -1657,12 +1649,10 @@ class SaveCountingGateway extends DemoCollectionGateway {
 
   override async update(...input: Parameters<DemoCollectionGateway["update"]>): Promise<NoteDocument> {
     const updated = await super.update(...input);
-    this.listener?.({
-      cursor: 1,
-      type: "mdbase.record.modified",
-      occurredAt: new Date().toISOString(),
+    this.listener?.(normalizeCollectionChange({
+      cursor: 1, type: "mdbase.record.modified", occurred_at: new Date().toISOString(),
       payload: { path: updated.path, types: updated.types }
-    });
+    }));
     return updated;
   }
 

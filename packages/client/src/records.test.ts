@@ -4,6 +4,7 @@ import { connectProblem } from "./errors.js";
 import type { CollectionChange, RecordDocument, UpdateInput, WatchStatus } from "./operation-types.js";
 import { connectFailure, connectSuccess } from "./outcomes.js";
 import { MdbaseRecords } from "./records.js";
+import { normalizeCollectionChange } from "./change-events.js";
 
 function record(path: string, body: string, revision: string, frontmatter: JsonObject = {}): RecordDocument {
   return { path, revision, body, frontmatter, effectiveFrontmatter: frontmatter, types: [], file: { path } };
@@ -54,7 +55,7 @@ function fakeConnection() {
       }
     },
     emit: (type: string, payload: JsonObject) => {
-      for (const listener of [...listeners]) listener({ cursor: 1, type, occurredAt: "", payload });
+      for (const listener of [...listeners]) listener(normalizeCollectionChange({ cursor: 1, type, occurred_at: "", payload }));
     },
     reset: () => {
       for (const status of statuses) {

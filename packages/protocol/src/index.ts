@@ -16,10 +16,10 @@ import type {
 export * from "./connect-problems.generated.js";
 export * from "./files.js";
 export * from "./operations.js";
+export * from "./change-events.generated.js";
 export * from "./mutation-fingerprint.js";
 export * from "./compatibility.js";
 export * from "./capabilities.js";
-
 export * from "./application-authorization.js";
 export * from "./type-packs.js";
 export * from "./collection-setup.js";

@@ -1,5 +1,6 @@
 import {
   MdbaseRecords,
+  normalizeCollectionChange,
   type CollectionChange,
   type ConnectOutcome,
   type ConnectProblem,
@@ -64,7 +65,7 @@ export function createRecordTestAuthority<Frontmatter extends JsonObject = JsonO
     return record;
   };
   const emit = (type: string, payload: JsonObject) => {
-    const change: CollectionChange = { cursor: ++cursor, type, occurredAt: new Date().toISOString(), payload };
+    const change = normalizeCollectionChange({ cursor: ++cursor, type, occurred_at: new Date().toISOString(), payload });
     for (const listener of [...listeners]) listener(change);
   };
   const missing = (path: string) => connectFailure(connectProblem("file_not_found", `File not found: ${path}`));
