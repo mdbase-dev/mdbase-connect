@@ -21,10 +21,18 @@ interface FeedbackScreenshot {
   bytes: Uint8Array;
 }
 
+interface FeedbackApplication {
+  product: "mdbase editor" | "mdbase reader" | "mdbase writer" | "mdbase connect";
+  source_view: string;
+  build_revision: string | null;
+  environment: "production" | "staging" | "development" | "lab";
+}
+
 interface FeedbackSubmission {
-  schema_version: 1;
+  schema_version: 1 | 2;
+  application?: FeedbackApplication;
   request_id: string;
-  topic: "problem" | "idea";
+  topic: "problem" | "idea" | "appreciation";
   message: string;
   reply_email?: string;
   context?: { collection_name?: string; application_origin?: string };
@@ -95,23 +103,25 @@ export default worker;
 
 function validateSubmission(value: unknown): FeedbackSubmission {
   const input = object(value, "Feedback must be an object.");
-  exactKeys(input, ["schema_version", "request_id", "topic", "message", "reply_email", "context", "diagnostics", "screenshot", "turnstile_token"]);
-  if (input.schema_version !== 1) throw new RequestError(400, "unsupported_schema", "This feedback format is not supported.");
+  if (input.schema_version !== 1 && input.schema_version !== 2) throw new RequestError(400, "unsupported_schema", "This feedback format is not supported.");
+  exactKeys(input, ["schema_version", "request_id", "topic", "message", "reply_email", "context", "diagnostics", "screenshot", "turnstile_token", ...(input.schema_version === 2 ? ["application"] : [])]);
+  const application = input.schema_version === 2 ? validateApplication(input.application) : undefined;
   const requestId = text(input.request_id, "request_id", 64);
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestId)) {
     throw new RequestError(400, "invalid_request_id", "The feedback request identifier is invalid.");
   }
-  if (input.topic !== "problem" && input.topic !== "idea") throw new RequestError(400, "invalid_topic", "Choose problem or idea.");
+  if (input.topic !== "problem" && input.topic !== "idea" && input.topic !== "appreciation") throw new RequestError(400, "invalid_topic", "Choose problem, idea, or appreciation.");
   const message = text(input.message, "message", MAX_MESSAGE_LENGTH).trim();
   if (!message) throw new RequestError(400, "missing_message", "Describe the feedback before sending it.");
   if (message.includes("\0")) throw new RequestError(400, "invalid_message", "The feedback message contains unsupported characters.");
   const replyEmail = input.reply_email === undefined ? undefined : email(text(input.reply_email, "reply_email", 320));
-  const context = input.context === undefined ? undefined : validateContext(input.context);
-  const diagnostics = input.diagnostics === undefined ? undefined : validateDiagnostics(input.diagnostics);
+  const context = input.context === undefined ? undefined : validateContext(input.context, input.schema_version === 2);
+  const diagnostics = input.diagnostics === undefined ? undefined : input.schema_version === 2 ? validateSharedDiagnostics(input.diagnostics) : validateDiagnostics(input.diagnostics);
   const screenshot = input.screenshot === undefined ? undefined : validateScreenshot(input.screenshot);
   const turnstileToken = input.turnstile_token === undefined ? undefined : text(input.turnstile_token, "turnstile_token", 2_048);
   return {
-    schema_version: 1,
+    schema_version: input.schema_version,
+    ...(application ? { application } : {}),
     request_id: requestId,
     topic: input.topic,
     message,
@@ -123,9 +133,40 @@ function validateSubmission(value: unknown): FeedbackSubmission {
   };
 }
 
-function validateContext(value: unknown): FeedbackSubmission["context"] {
+function validateApplication(value: unknown): FeedbackApplication {
+  const input = object(value, "Application information is required.");
+  exactKeys(input, ["product", "source_view", "build_revision", "environment"]);
+  if (typeof input.product !== "string" || !["mdbase editor", "mdbase reader", "mdbase writer", "mdbase connect"].includes(input.product)) throw new RequestError(400, "invalid_application", "The feedback application is invalid.");
+  const sourceView = text(input.source_view, "source_view", 64);
+  if (!/^[a-z][a-z0-9_-]{0,63}$/u.test(sourceView)) throw new RequestError(400, "invalid_application", "The feedback view must be a fixed identifier.");
+  if (input.build_revision !== null && (typeof input.build_revision !== "string" || !/^[a-zA-Z0-9._-]{1,64}$/u.test(input.build_revision))) throw new RequestError(400, "invalid_application", "The application revision is invalid.");
+  if (typeof input.environment !== "string" || !["production", "staging", "development", "lab"].includes(input.environment)) throw new RequestError(400, "invalid_application", "The application environment is invalid.");
+  return { product: input.product as FeedbackApplication["product"], source_view: sourceView, build_revision: input.build_revision as string | null, environment: input.environment as FeedbackApplication["environment"] };
+}
+
+function validateSharedDiagnostics(value: unknown): Record<string, unknown> {
+  const input = object(value, "Diagnostics must be an object.");
+  exactKeys(input, ["schema_version", "browser", "operating_system", "viewport", "events"]);
+  if (input.schema_version !== 2) throw new RequestError(400, "invalid_diagnostics", "The diagnostic format is invalid.");
+  const browser = text(input.browser, "browser", 40);
+  if (!/^(?:Edge|Firefox|Chrome|Safari) (?:\d+|unknown)$|^Other$/u.test(browser)) throw new RequestError(400, "invalid_diagnostics", "The diagnostic browser is invalid.");
+  if (typeof input.operating_system !== "string" || !["Windows", "macOS", "Android", "iOS", "Linux", "Other"].includes(input.operating_system)) throw new RequestError(400, "invalid_diagnostics", "The diagnostic operating system is invalid.");
+  if (typeof input.viewport !== "string" || !["compact", "medium", "wide"].includes(input.viewport)) throw new RequestError(400, "invalid_diagnostics", "The diagnostic viewport is invalid.");
+  if (!Array.isArray(input.events) || input.events.length > MAX_DIAGNOSTIC_EVENTS) throw new RequestError(400, "invalid_diagnostics", "The diagnostic events are invalid.");
+  const events = input.events.map((value: unknown) => {
+    const event = object(value, "A diagnostic event must be an object.");
+    exactKeys(event, ["at", "code", "status"]);
+    const at = text(event.at, "diagnostic event time", 40);
+    if (!Number.isFinite(Date.parse(at)) || typeof event.code !== "string" || !["cancelled", "http_error", "invalid_response", "outcome_unknown", "partial_failure", "timeout", "network_error", "unknown_error", "save_failed", "source_open_failed", "preview_failed"].includes(event.code)) throw new RequestError(400, "invalid_diagnostics", "A diagnostic event is invalid.");
+    if (event.status !== undefined && (typeof event.status !== "number" || !Number.isInteger(event.status) || event.status < 100 || event.status > 599)) throw new RequestError(400, "invalid_diagnostics", "A diagnostic status is invalid.");
+    return { at, code: event.code, ...(event.status === undefined ? {} : { status: event.status }) };
+  });
+  return { ...input, events };
+}
+
+function validateContext(value: unknown, shared: boolean): FeedbackSubmission["context"] {
   const input = object(value, "Feedback context must be an object.");
-  exactKeys(input, ["collection_name", "application_origin"]);
+  exactKeys(input, shared ? ["collection_name"] : ["collection_name", "application_origin"]);
   const collectionName = input.collection_name === undefined ? undefined : text(input.collection_name, "collection_name", 200).trim();
   let applicationOrigin: string | undefined;
   if (input.application_origin !== undefined) {
@@ -231,7 +272,7 @@ async function sendEmail(fetchImpl: typeof fetch, env: FeedbackWorkerEnv, submis
     body: JSON.stringify({
       from: env.FEEDBACK_FROM,
       to: [env.FEEDBACK_TO],
-      subject: submission.topic === "problem" ? "[Problem] mdbase connect feedback" : "[Idea] mdbase connect feedback",
+      subject: `${submission.topic === "problem" ? "[Problem]" : submission.topic === "idea" ? "[Idea]" : "[Appreciation]"} ${submission.application?.product ?? "mdbase connect"} feedback`,
       text: emailBody(submission),
       ...(submission.reply_email ? { reply_to: submission.reply_email } : {}),
       ...(attachments.length > 0 ? { attachments } : {})
@@ -250,6 +291,12 @@ function emailBody(submission: FeedbackSubmission): string {
     "",
     "Context"
   ];
+  if (submission.application) {
+    lines.push(`Application: ${submission.application.product}`);
+    lines.push(`View: ${submission.application.source_view}`);
+    lines.push(`Build: ${submission.application.build_revision ?? "Not provided"}`);
+    lines.push(`Environment: ${submission.application.environment}`);
+  }
   lines.push(`Collection: ${submission.context?.collection_name ?? "Not included"}`);
   lines.push(`Application origin: ${submission.context?.application_origin ?? "Not included"}`);
   lines.push(`Reply email: ${submission.reply_email ?? "Not provided"}`);

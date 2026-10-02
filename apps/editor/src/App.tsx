@@ -25,6 +25,7 @@ import { ActionMenu } from "./ActionMenu";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
 import { useCollectionBrowserEntries } from "./collection-browser";
 import { CollectionRail } from "./CollectionRail";
+import { useFeedback } from "@mdbase-dev/ui/feedback";
 import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
 import { ConflictResolver } from "./ConflictResolver";
 import { DraftRecovery, frontmatterPatch } from "./draft-recovery";
@@ -35,7 +36,7 @@ import {
   type ContractCatalogPack
 } from "./contract-catalog";
 import { reviewCatalogPackInstallation } from "./catalog-pack-installation";
-import type { AppPhase, ConnectionState, ContractCatalogLoadState, CreationContext, MobileHistoryState, MobilePane, Surface } from "./app-state-types";
+import { isMobileHistoryState, type AppPhase, type ConnectionState, type ContractCatalogLoadState, type CreationContext, type MobileHistoryState, type MobilePane, type Surface } from "./app-state-types";
 import { editorPermissions, gatewayError, missingCoreCapabilities, missingTypeCapabilities } from "./gateway";
 import { CollectionMutationScope, StaleCollectionOperationError, type CollectionScopeToken } from "./collection-mutation-scope";
 import { useTypeDefinitionLifecycle } from "./use-type-definition-lifecycle";
@@ -156,7 +157,8 @@ interface NoteNavigationOptions {
   historyIndex?: number;
 }
 
-export function App({ gateway }: { gateway: CollectionGateway }) {
+export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway; onFeedbackContext?(surface: Surface, collectionName?: string): void }) {
+  const { reportError } = useFeedback();
   const { controller: indexController, state: collectionIndex } = useCollectionIndex(gateway);
   const { controller: fileController, state: fileInventory } = useFileInventory(gateway);
   const fileAssetStore = useFileAssetStore(gateway);
@@ -192,6 +194,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const deferredSearch = useDeferredValue(search);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>();
   const [surface, setSurface] = useState<Surface>(initialEditorSurface);
+  useEffect(() => { onFeedbackContext?.(surface, description?.displayName); }, [surface, description?.displayName, onFeedbackContext]);
+  useEffect(() => { if (noteOpenFailure) reportError({ code: "source_open_failed" }); }, [noteOpenFailure, reportError]);
   const [selectedTypeName, setSelectedTypeName] = useState<string>();
   const [typeWorkspace, setTypeWorkspace] = useState<"definition" | "packs">("definition");
   const [contractCatalog, setContractCatalog] = useState<ContractCatalogLoadState>({ status: "idle" });
@@ -444,6 +448,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       session.error = `“${session.draft.title || session.document.path}” changed elsewhere. Your edits are still here.`;
       if (active) setNotice(session.error);
     } else if (snapshot.problem && snapshot.problem !== previous.problem) {
+      reportError({ code: "save_failed" });
       const message = gatewayError(new MdbaseConnectError(snapshot.problem));
       session.error = message;
       setNotice(active ? message : `Couldn’t save “${session.draft.title || session.document.path}”. ${message}`);
@@ -451,7 +456,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       session.error = undefined;
     }
     touchSession(session);
-  }, [touchSession, updateNoteSummary]);
+  }, [touchSession, updateNoteSummary, reportError]);
 
   const createSession = useCallback((next: NoteDocument) => {
     const session = new NoteSession(next, () => typeDescriptorsRef.current, sessionRecords(mutationScope.current.token()));
@@ -2262,12 +2267,4 @@ function collectionExplicitTypeKeys(configuration: unknown): string[] {
   const configured = (settings as Record<string, unknown>).explicit_type_keys;
   if (!Array.isArray(configured)) return ["type", "types"];
   return configured.filter((key): key is string => typeof key === "string");
-}
-
-function isMobileHistoryState(value: unknown): value is MobileHistoryState {
-  if (!value || typeof value !== "object") return false;
-  const state = value as Partial<MobileHistoryState>;
-  return state.mdbaseEditor === true
-    && (state.pane === "collections" || state.pane === "notes" || state.pane === "editor")
-    && (state.surface === "notes" || state.surface === "types" || state.surface === "settings");
 }

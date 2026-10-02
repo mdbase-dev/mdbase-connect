@@ -3,7 +3,10 @@ import "@mdbase-dev/ui/tokens.css";
 import "@mdbase-dev/ui/brand.css";
 import "@mdbase-dev/ui/controls.css";
 import "@mdbase-dev/ui/screens.css";
-import { lazy, StrictMode, Suspense } from "react";
+import { lazy, StrictMode, Suspense, useCallback, useState } from "react";
+import { FeedbackProvider, feedbackApplication } from "@mdbase-dev/ui/feedback";
+import { feedbackEndpoint, turnstileSiteKey } from "./feedback";
+import type { Surface } from "./app-state-types";
 import { createRoot } from "react-dom/client";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 import { DemoCollectionGateway } from "./demo-gateway";
@@ -28,6 +31,16 @@ const gateway = demoCount > 0
   ? new DemoCollectionGateway(demoCount, demoDelay)
   : new ConnectCollectionGateway();
 
+function EditorWorkspace() {
+  const [context, setContext] = useState<{ surface: Surface; collectionName?: string }>({ surface: "notes" });
+  const updateContext = useCallback((surface: Surface, collectionName?: string) => {
+    setContext((previous) => previous.surface === surface && previous.collectionName === collectionName ? previous : { surface, collectionName });
+  }, []);
+  return <FeedbackProvider endpoint={feedbackEndpoint()} turnstileSiteKey={turnstileSiteKey()} application={feedbackApplication("mdbase editor", context.surface, import.meta.env.VITE_MDBASE_REVISION, import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "development" : "production"))} collectionName={context.collectionName}>
+    <AppErrorBoundary><EditorApp gateway={gateway} onFeedbackContext={updateContext} /></AppErrorBoundary>
+  </FeedbackProvider>;
+}
+
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><AppErrorBoundary><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}>{connectWorkspace ? <ConnectWorkspace /> : <EditorApp gateway={gateway} />}</Suspense></AppErrorBoundary></StrictMode>
+  <StrictMode><AppErrorBoundary product={connectWorkspace ? "mdbase connect" : "mdbase editor"}><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}>{connectWorkspace ? <ConnectWorkspace /> : <EditorWorkspace />}</Suspense></AppErrorBoundary></StrictMode>
 );

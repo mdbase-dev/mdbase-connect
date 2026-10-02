@@ -146,6 +146,20 @@ references, 2,292 TypeScript export references, 16 `mdbase::Collection`
 references, and one `TypedCollection` reference. These checks are architectural
 alarms rather than substitutes for review.
 
+Shared private feedback moves the Editor-owned form, capture/diagnostics helpers,
+and Turnstile widget into four cohesive `packages/app-ui` modules: the provider,
+bounded schema/media helpers, raster markup, and verification loader. It deletes
+the old local Turnstile module and replaces the local form/helper implementation,
+for three net production files (734 total), six net relative imports (1,603), and
+19 conservative TypeScript export references (2,658), including the current
+mark-motion and startup-cancellation changes on main. The UI package inventory
+moves from 17 to 21 files; no dependency, package, or 1,000-line limit changes.
+The mobile-history guard moves to the existing state-types module, lowering
+Editor's legacy file cap from 2,277 to 2,270. Form/consent/retry/verification tests,
+legacy and v2 Worker fixtures, axe/keyboard blackout checks, and positive-control
+real tab capture justify the boundaries; see [shared feedback](shared-feedback.md).
+This creates no collection semantics, storage, or second email transport.
+
 The retained-identity mirror enrollment fix (#450) adds one Rust public function,
 `connect-mirror::validate_mirror_folder`, bringing the reviewed limit to 3,217.
 The agent calls it before remote pairing; marker creation shares its private

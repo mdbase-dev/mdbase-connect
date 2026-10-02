@@ -6,6 +6,7 @@ import {
 } from "./icons";
 import { ActionMenu } from "./ActionMenu";
 import { ConnectLayout } from "@mdbase-dev/ui/screens";
+import { FeedbackButton } from "@mdbase-dev/ui/feedback";
 import { Dialog } from "./Dialog";
 import type { ConnectionSummary } from "./model";
 
@@ -55,6 +56,7 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
     {!fatal && <p className="mdbase-connect-footnote">{updatingAccess
       ? "mdbase connect keeps the access you already approved and shows only what needs to be added."
       : "You’ll continue to mdbase connect. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."}</p>}
+    <FeedbackButton />
     <details className="compatibility-help"><summary>Collection not listed?</summary><p>The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result.</p></details>
   </ConnectLayout>;
 }

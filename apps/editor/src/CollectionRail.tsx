@@ -13,6 +13,8 @@ import {
   TagIcon as Tag
 } from "./icons";
 import { ContextMenu } from "./ContextMenu";
+import { FeedbackButton } from "@mdbase-dev/ui/feedback";
+import "@mdbase-dev/ui/feedback.css";
 import { EditorRail } from "./EditorRail";
 import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
 import { folderTree, tags as collectionTags, types as collectionTypes, type FolderTreeNode } from "./note";
@@ -74,6 +76,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
         ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? "Checking…" : "Use this computer"}</button>
         : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : "Reconnecting"}</span></p>}
       {connectionState === "reconnecting" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
+      <FeedbackButton />
       <button className="shortcut-action" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onClick={onShortcuts}><Keyboard aria-hidden="true" /><span>Shortcuts</span></button>
     </>}
   >

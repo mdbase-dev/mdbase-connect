@@ -4,6 +4,12 @@ import { afterEach, beforeEach, vi } from "vitest";
 
 configure({ asyncUtilTimeout: 5_000 });
 
+// jsdom does not implement native modal dialogs or their top-layer behavior.
+if (typeof HTMLDialogElement.prototype.showModal !== "function") {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
+}
+
 // jsdom hides [popover] elements but has no Popover API. Menus and select lists from
 // @mdbase-dev/ui open with showPopover, so stand in for it: an open popover is displayed.
 if (typeof HTMLElement.prototype.showPopover !== "function") {

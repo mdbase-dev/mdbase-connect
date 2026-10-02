@@ -19,6 +19,8 @@ try {
     const archive = join(scratch, `${packageDescription.name.replace(/^@/, "").replaceAll("/", "-")}.tgz`);
     await run("pnpm", ["pack", "--out", archive], { cwd: packageRoot });
     const entries = (await run("tar", ["-tzf", archive])).stdout.trim().split("\n");
+    assert(new Set(entries.map((entry) => entry.toLowerCase())).size === entries.length,
+      `${packageDescription.name} publishes case-insensitive path collisions`);
     const manifest = JSON.parse((await run("tar", ["-xOf", archive, "package/package.json"])).stdout);
     assert(manifest.license === "MIT", `${manifest.name} is missing its MIT license metadata`);
     assert(manifest.repository?.url, `${manifest.name} is missing repository metadata`);
