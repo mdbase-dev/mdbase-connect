@@ -307,7 +307,7 @@ input:is([type="date"], [type="datetime-local"])::-webkit-calendar-picker-indica
 .remove-property {
   position: absolute;
   top: 33px;
-  right: -4px;
+  right: 0;
 }
 
 .nested-property {

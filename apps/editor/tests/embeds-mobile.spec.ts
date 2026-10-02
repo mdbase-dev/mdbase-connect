@@ -5,8 +5,8 @@ async function fitsViewport(page: Page, selector: string) {
     client: element.clientWidth, scroll: element.scrollWidth,
     right: element.getBoundingClientRect().right, viewport: window.innerWidth
   }));
-  expect(bounds.scroll).toBeLessThanOrEqual(bounds.client + 1);
-  expect(bounds.right).toBeLessThanOrEqual(bounds.viewport + 1);
+  expect(bounds.scroll, `${selector} scroll width`).toBeLessThanOrEqual(bounds.client + 1);
+  expect(bounds.right, `${selector} right edge`).toBeLessThanOrEqual(bounds.viewport + 1);
 }
 
 for (const width of [360, 390, 430]) {
@@ -50,6 +50,9 @@ for (const width of [360, 390, 430]) {
     await page.getByRole("menuitem", { name: "Note properties" }).click();
     await expect(page.getByLabel("tags value item 1")).toHaveValue("notes");
     await fitsViewport(page, ".property-fields");
+    const propertyFields = await page.locator(".property-fields").boundingBox();
+    const removeProperty = await page.getByRole("button", { name: "Remove tags property" }).boundingBox();
+    expect(removeProperty!.x + removeProperty!.width).toBeLessThanOrEqual(propertyFields!.x + propertyFields!.width);
     const removeTag = page.getByRole("button", { name: "Remove tags item 1" });
     const target = await removeTag.boundingBox();
     expect(target!.width).toBeGreaterThanOrEqual(44);
