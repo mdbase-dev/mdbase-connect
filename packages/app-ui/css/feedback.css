@@ -24,7 +24,7 @@
 .mdbase-feedback-topics legend { margin-bottom: 10px; font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); }
 .mdbase-feedback-topics label { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: var(--font-size-caption); cursor: pointer; }
 .mdbase-feedback-topics label:has(:checked) { border-color: var(--color-accent); background: var(--color-accent-soft); }
-.mdbase-feedback-dialog input:is([type=radio],[type=checkbox]) { accent-color: var(--color-accent); margin: 0; width: 14px; height: 14px; flex-shrink: 0; }
+.mdbase-feedback-dialog input[type=radio] { accent-color: var(--color-accent); margin: 0; width: 14px; height: 14px; flex-shrink: 0; }
 .mdbase-feedback-field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; font-weight: var(--font-weight-semibold); }
 .mdbase-feedback-field small { margin-left: 6px; font-weight: var(--font-weight-regular); font-size: var(--font-size-caption); color: var(--color-text-muted); }
 .mdbase-feedback-field :is(input,textarea) { width: 100%; background: var(--color-canvas); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); color: var(--color-text); padding: 10px 11px; font-weight: var(--font-weight-regular); }

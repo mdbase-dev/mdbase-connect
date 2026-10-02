@@ -31,8 +31,9 @@ reserved for paths, source/code and the canonical lowercase mdbase wordmark,
 not field names, types or state labels. Counts, dates, sizes and versions use
 tabular numerals in the primary family. The shared six-step type scale is
 12/13/15/17/24/34px: interface chrome defaults to 13px, captions are 12px, and
-nothing is smaller. Note content is 17px with a relaxed 1.7 line height and a
-maximum readable measure. Labels use sentence case without uppercase tracking.
+nothing is smaller. Mobile document titles use the 24px heading step instead
+of introducing a seventh size. Note content is 17px with a relaxed 1.7 line
+height and a maximum readable measure. Labels use sentence case without uppercase tracking.
 
 ## Controls
 

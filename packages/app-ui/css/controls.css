@@ -509,7 +509,7 @@ textarea.mdbase-field {
   border-radius: var(--radius-lg);
   background: var(--color-surface-subtle);
   cursor: pointer;
-  transition: background var(--motion-base) var(--var(--ease-out)), border-color var(--motion-base) var(--var(--ease-out));
+  transition: background var(--motion-base) var(--ease-out), border-color var(--motion-base) var(--ease-out);
 }
 
 .mdbase-switch > span {
@@ -518,7 +518,7 @@ textarea.mdbase-field {
   border-radius: 50%;
   background: var(--color-text-soft);
   pointer-events: none;
-  transition: transform var(--motion-base) var(--var(--ease-out)), background var(--motion-base) var(--var(--ease-out));
+  transition: transform var(--motion-base) var(--ease-out), background var(--motion-base) var(--ease-out);
 }
 
 .mdbase-switch[aria-checked="true"] {
@@ -556,7 +556,7 @@ textarea.mdbase-field {
   color: var(--color-on-accent);
   vertical-align: middle;
   cursor: pointer;
-  transition: background var(--motion-quick) var(--var(--ease-out)), border-color var(--motion-quick) var(--var(--ease-out));
+  transition: background var(--motion-quick) var(--ease-out), border-color var(--motion-quick) var(--ease-out);
 }
 
 .mdbase-checkbox:checked,

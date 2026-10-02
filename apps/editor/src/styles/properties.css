@@ -208,7 +208,7 @@
 .property-row > input,
 .property-row .schema-value > input,
 .add-property-row input,
-.new-note-fields input {
+.new-note-fields input:not([type="checkbox"]) {
   width: 100%;
   min-height: 34px;
   padding: 6px 8px;
@@ -392,10 +392,6 @@ label.schema-value {
   gap: 7px;
   color: var(--muted);
   font-size: var(--font-size-ui);
-}
-
-.schema-boolean input {
-  accent-color: var(--accent);
 }
 
 .schema-object,

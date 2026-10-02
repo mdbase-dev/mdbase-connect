@@ -591,8 +591,8 @@
 
 .visual-type-basics-fields input,
 .field-description input,
-.field-constraint-grid input,
-.collection-behaviour-section input,
+.field-constraint-grid input:not([type="checkbox"]),
+.collection-behaviour-section input:not([type="checkbox"]),
 .string-list-item input,
 .visual-field-row input[type="text"] {
   width: 100%;

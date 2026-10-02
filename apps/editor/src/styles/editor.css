@@ -38,6 +38,8 @@
 
 /* Size the editable title from its text without measuring or updating layout in JS. */
 .note-title-measure {
+  /* Next's descenders extend below the native textarea's rounded line box. */
+  padding-bottom: calc(var(--space-1) / 2);
   visibility: hidden;
 }
 

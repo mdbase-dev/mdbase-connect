@@ -305,7 +305,7 @@
 }
 
 .new-note-actions .create-note-button kbd {
-  color: var(--faint);
+  color: inherit;
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
 }

@@ -140,7 +140,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--control-radius);
   color: var(--color-text-muted);
-  font: var(--font-size-caption)/1.2 var(--mono);
+  font: var(--font-size-caption)/1.2 var(--sans);
 }
 
 .mdbase-command-footer kbd {

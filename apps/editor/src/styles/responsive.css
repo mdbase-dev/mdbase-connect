@@ -238,7 +238,7 @@
 
   .note-title-field {
     min-height: 45px;
-    font-size: var(--font-size-title);
+    font-size: var(--font-size-heading);
   }
 
   .body-editor .cm-content {
@@ -819,7 +819,7 @@
   *::before,
   *::after {
     scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }

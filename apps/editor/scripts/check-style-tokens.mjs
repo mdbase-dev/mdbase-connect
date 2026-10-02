@@ -11,13 +11,20 @@ export function checkStyleTokens(css, filename) {
   const source = css.replace(/\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g,
     (value) => value.replace(/[^\n]/g, " "));
   const errors = [];
+  for (const match of source.matchAll(/var\(\s*--[\w-]+\s*\(/g)) {
+    const line = source.slice(0, match.index).split("\n").length;
+    errors.push(`${filename}:${line}: malformed custom-property reference (${match[0]}).`);
+  }
   const declarations = /(?:^|[;{}])\s*((?:--[\w-]*font-size)|font-size|font|border(?:-(?:top|bottom)-(?:left|right))?-radius|box-shadow)\s*:\s*([^;{}]*)/g;
   for (const match of source.matchAll(declarations)) {
     const [, property, value] = match;
     const rawPixels = /(?:\d*\.)?\d+px\b/i.test(value);
     const rawShadow = property === "box-shadow" && !/^(?:var\(--[\w-]+\)|none|inherit|initial|unset|revert(?:-layer)?)(?:\s*!important)?\s*$/.test(value.trim());
-    if (rawPixels || rawShadow) {
-      const line = source.slice(0, match.index).split("\n").length;
+    const rawRadius = property.endsWith("radius") && !/^(?:(?:0|50%|inherit|initial|unset|revert(?:-layer)?)(?:\s+|$))*$/.test(
+      value.replace(/var\(--[\w-]+\)|\s*!important/g, "").trim()
+    );
+    if (rawPixels || rawShadow || rawRadius) {
+      const line = source.slice(0, match.index + match[0].indexOf(property)).split("\n").length;
       errors.push(`${filename}:${line}: ${property} must use shared tokens (${value.trim()}).`);
     }
   }

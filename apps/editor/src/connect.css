@@ -568,10 +568,6 @@ button.danger:disabled {
   font-size: var(--font-size-ui);
 }
 
-.connect-permissions input {
-  accent-color: var(--accent);
-}
-
 .connect-grant-meta {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1248,7 +1244,7 @@ button.danger:disabled {
   .connect-shell *::before,
   .connect-shell *::after {
     scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
   }
 }
 

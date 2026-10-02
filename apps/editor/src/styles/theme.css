@@ -2,7 +2,8 @@
   color: var(--ink);
   background: var(--canvas);
   font-family: var(--sans);
-  font-size: var(--font-size-ui);
+  /* Preserve rem-based geometry; UI chrome uses its own body size token. */
+  font-size: 100%;
   font-weight: var(--font-weight-regular);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
