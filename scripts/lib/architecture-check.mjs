@@ -218,7 +218,7 @@ async function workspacePackageGraph(root) {
   return { graph, packagePaths };
 }
 
-export async function evaluateArchitecture(root, budgets) {
+export async function evaluateArchitecture(root, budgets, { checkCounters = true } = {}) {
   const files = await sourceFiles(root);
   const failures = [];
   const productionFiles = files.filter((file) => !isTestFile(relativePath(root, file)));
@@ -260,8 +260,11 @@ export async function evaluateArchitecture(root, budgets) {
     productionFilesByPackage[packageName] = (productionFilesByPackage[packageName] ?? 0) + 1;
   }
   const workspaceInventory = await workspacePackageGraph(root);
+  for (const packageName of workspaceInventory.packagePaths) {
+    productionFilesByPackage[packageName] ??= 0;
+  }
   const packageBudgets = budgets.productionFileBudgetsByPackage;
-  if (packageBudgets) {
+  if (checkCounters && packageBudgets) {
     const knownPackagePaths = new Set(Object.keys(productionFilesByPackage));
     for (const packageName of workspaceInventory.packagePaths) {
       knownPackagePaths.add(packageName);
@@ -469,7 +472,7 @@ export async function evaluateArchitecture(root, budgets) {
   };
   for (const [name, count] of Object.entries(reviewedCounts)) {
     const maximum = reviewBudgets[name];
-    if (Number.isSafeInteger(maximum) && count > maximum) {
+    if (checkCounters && Number.isSafeInteger(maximum) && count > maximum) {
       failures.push(`${name} is ${count}; its reviewed budget is ${maximum}.`);
     }
   }
@@ -490,13 +493,13 @@ export async function evaluateArchitecture(root, budgets) {
     (total, dependencies) => total + dependencies.length,
     0
   );
-  if (Number.isSafeInteger(reviewBudgets.relativeImports) && reviewBudgets.relativeImports >= 0 && relativeImportCount > reviewBudgets.relativeImports) {
+  if (checkCounters && Number.isSafeInteger(reviewBudgets.relativeImports) && reviewBudgets.relativeImports >= 0 && relativeImportCount > reviewBudgets.relativeImports) {
     failures.push(
       `relativeImports is ${relativeImportCount}; its reviewed budget is ${reviewBudgets.relativeImports}.`
     );
   }
   const workspacePackageCount = workspaceInventory.packagePaths.size;
-  if (Number.isSafeInteger(reviewBudgets.workspacePackages) && reviewBudgets.workspacePackages >= 0 && workspacePackageCount > reviewBudgets.workspacePackages) {
+  if (checkCounters && Number.isSafeInteger(reviewBudgets.workspacePackages) && reviewBudgets.workspacePackages >= 0 && workspacePackageCount > reviewBudgets.workspacePackages) {
     failures.push(
       `workspacePackages is ${workspacePackageCount}; its reviewed budget is ${reviewBudgets.workspacePackages}.`
     );

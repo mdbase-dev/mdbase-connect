@@ -210,8 +210,15 @@ jobs:
     if: needs.classify.outputs.run_full == 'true' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 55
+    env:
+      # PR merge commits and merge groups both compare against their exact base;
+      # committed per-change declarations compose across every PR in a group.
+      ARCHITECTURE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 11.15.1
@@ -229,6 +236,8 @@ jobs:
       - run: pnpm check:release-readiness
       - run: pnpm check:release-components
       - run: pnpm audit:dependencies
+      - run: pnpm check:changelog
+      - run: pnpm check:generated
       - run: pnpm check:architecture
       # Workspace packages publish their declarations from dist, so build the
       # dependency graph before checking downstream consumers.

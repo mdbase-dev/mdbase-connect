@@ -197,6 +197,9 @@ SDK, managed-service control plane and relay, hosted collection provider, MCP
 gateway, and shared protocols. These products release independently even
 though they share one workspace and lockfile.
 
+See [Contributing](CONTRIBUTING.md) for change fragments, architecture-growth
+review, generated-file rebases, and automated beta version preparation.
+
 Development requires a Rust toolchain, Node.js 24 LTS, and pnpm 11.15.1.
 
 ```bash

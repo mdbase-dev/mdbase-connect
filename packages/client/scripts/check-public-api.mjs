@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const packageRoot = resolve(import.meta.dirname, "..");
@@ -17,11 +17,13 @@ for (const [entry, path] of Object.entries(entries)) {
   report[entry] = exportedNames(source);
 }
 
-if (process.argv.includes("--print")) {
+if (process.argv.includes("--write")) {
+  await writeFile(resolve(packageRoot, "public-api.json"), `${JSON.stringify(report, null, 2)}\n`);
+} else if (process.argv.includes("--print")) {
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 } else {
   const expected = JSON.parse(await readFile(resolve(packageRoot, "public-api.json"), "utf8"));
-  assert.deepEqual(report, expected, "Public API inventory changed; review and update public-api.json");
+  assert.deepEqual(report, expected, "Generated public API inventory is stale; run pnpm generate:public-api (review entry-point changes, not this generated file)");
   process.stdout.write("Reviewed public API inventory matches root, /advanced, /crypto, and connect-testing.\n");
 }
 

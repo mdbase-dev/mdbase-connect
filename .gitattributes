@@ -3,3 +3,7 @@
 *.sql text eol=lf
 # Digest-pinned type packs are verified byte for byte, including line endings.
 *.pack.json text eol=lf
+# Derived inventories: resolve source conflicts, then regenerate (CONTRIBUTING.md).
+packages/client/public-api.json linguist-generated=true text eol=lf
+packages/protocol/src/*.generated.ts linguist-generated=true text eol=lf
+crates/connect-protocol/src/*_generated.rs linguist-generated=true text eol=lf

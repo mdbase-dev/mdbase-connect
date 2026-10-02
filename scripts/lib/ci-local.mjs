@@ -11,6 +11,8 @@ export const localSteps = [
   { tier: "node", command: "pnpm check:release-readiness" },
   { tier: "node", command: "pnpm check:release-components" },
   { tier: "node", command: "pnpm audit:dependencies" },
+  { tier: "node", command: "pnpm check:changelog" },
+  { tier: "node", command: "pnpm check:generated" },
   { tier: "node", command: "pnpm check:architecture" },
   { tier: "node", command: "pnpm build" },
   { tier: "browser", command: "pnpm test:browser-storage" },
