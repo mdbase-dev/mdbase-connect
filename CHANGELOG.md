@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Application-session startup no longer tears down replacement verification
+  when a route or selection refresh cancels an obsolete setup assessment.
+  Only that generation's expected cancellation is ignored; genuine exceptions
+  and current assessment failures remain visible. TaskNotes can remove its
+  beta.123 startup-cancellation package patch after upgrading. No public API or
+  authority protocol changes. See `docs/sdk-startup-cancellation.md`.
+
 - Record-session watch following bounds refresh admission to four sessions and
   coalesces event bursts, so a change gap across 1,000 open records no longer
   leaves most records silently stale. Transient read failures retry with
