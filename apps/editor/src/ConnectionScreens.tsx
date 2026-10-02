@@ -7,6 +7,7 @@ import {
 import { ActionMenu } from "./ActionMenu";
 import { ConnectLayout } from "@mdbase-dev/ui/screens";
 import { FeedbackButton, FeedbackBug, useFeedback } from "@mdbase-dev/ui/feedback";
+import "@mdbase-dev/ui/feedback.css";
 import { Dialog } from "./Dialog";
 import type { ConnectionSummary } from "./model";
 

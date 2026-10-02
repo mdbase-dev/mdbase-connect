@@ -5,7 +5,6 @@ import "@mdbase-dev/ui/controls.css";
 import "@mdbase-dev/ui/screens.css";
 import { lazy, StrictMode, Suspense, useCallback, useState } from "react";
 import { FeedbackProvider, feedbackApplication } from "@mdbase-dev/ui/feedback";
-import "@mdbase-dev/ui/feedback.css";
 import { feedbackEndpoint, turnstileSiteKey } from "./feedback";
 import type { Surface } from "./app-state-types";
 import { createRoot } from "react-dom/client";
