@@ -1,7 +1,7 @@
 {
   "productionFileMaxLines": 1000,
   "legacyFileLineBudgets": {
-    "apps/editor/src/App.tsx": 2273,
+    "apps/editor/src/App.tsx": 2268,
     "apps/editor/src/TypeBrowser.tsx": 1989
   },
   "productionFileBudgetsByPackage": {
@@ -17,7 +17,7 @@
     "crates/connect-protocol": 18,
     "crates/connect-runtime": 3,
     "crates/connect-testbed-adapter": 1,
-    "packages/app-ui": 16,
+    "packages/app-ui": 20,
     "packages/client": 79,
     "packages/devkit": 3,
     "packages/management": 1,
@@ -44,11 +44,11 @@
     "semanticProjectionFormatVersion": 8
   },
   "reviewBudgets": {
-    "productionFiles": 730,
-    "relativeImports": 1593,
+    "productionFiles": 733,
+    "relativeImports": 1599,
     "workspacePackages": 25,
     "rustPublicDeclarations": 3299,
-    "typeScriptExportDeclarations": 2622,
+    "typeScriptExportDeclarations": 2641,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }

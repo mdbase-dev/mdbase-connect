@@ -34,6 +34,10 @@
       "types": "./dist/CommandPalette.d.ts",
       "import": "./dist/CommandPalette.js"
     },
+    "./feedback": {
+      "types": "./dist/Feedback.d.ts",
+      "import": "./dist/Feedback.js"
+    },
     "./dialog": {
       "types": "./dist/Dialog.d.ts",
       "import": "./dist/Dialog.js"
@@ -73,6 +77,7 @@
     "./brand.css": "./css/brand.css",
     "./controls.css": "./css/controls.css",
     "./fonts.css": "./css/fonts.css",
+    "./feedback.css": "./css/feedback.css",
     "./motion.css": "./css/motion.css",
     "./palette.css": "./css/palette.css",
     "./screens.css": "./css/screens.css",

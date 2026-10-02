@@ -15,6 +15,14 @@ export interface MobileHistoryState {
   surface: Surface;
 }
 
+export function isMobileHistoryState(value: unknown): value is MobileHistoryState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Partial<MobileHistoryState>;
+  return state.mdbaseEditor === true
+    && (state.pane === "collections" || state.pane === "notes" || state.pane === "editor")
+    && (state.surface === "notes" || state.surface === "types" || state.surface === "settings");
+}
+
 export interface CreationContext {
   folder?: string;
   tag?: string;

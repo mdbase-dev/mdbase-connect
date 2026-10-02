@@ -77,13 +77,15 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     await screen.findByRole("heading", { name: "Garden notes" });
-    await user.click(screen.getAllByRole("link", { name: "Send feedback" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Send feedback" })[0]);
 
-    await waitFor(() => expect(location.pathname).toBe("/connect/feedback"));
-    expect(screen.getByRole("heading", { name: "Send feedback" })).toHaveFocus();
+    expect(location.pathname).toBe("/connect");
+    expect(screen.getByRole("dialog", { name: "Send feedback" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /What happened/ })).toHaveFocus();
+    await user.click(screen.getByText("What gets sent"));
     expect(screen.getByRole("checkbox", { name: /Include collection name: Garden notes/ })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /Include application origin/ })).not.toBeChecked();
-    expect(screen.getByText(/Nothing here is included unless you choose it/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Include technical diagnostics/ })).not.toBeChecked();
+    expect(screen.getByText("Private feedback to the mdbase team.")).toBeInTheDocument();
   });
 
   it("keeps Connect inside the editor collection shell", async () => {

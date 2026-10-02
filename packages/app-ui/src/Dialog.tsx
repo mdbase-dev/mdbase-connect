@@ -28,6 +28,7 @@ export function Dialog({ open, onClose, title, className, closeDisabled = false,
     ref={ref}
     className={["mdbase-dialog", className].filter(Boolean).join(" ")}
     aria-label={title}
+    onKeyDown={(event) => event.stopPropagation()}
     onCancel={(event) => {
       event.preventDefault();
       if (!closeDisabled) onClose();
