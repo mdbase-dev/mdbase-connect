@@ -918,7 +918,7 @@ function mediaClass(path: string, mediaType: string): CollectionFile["mediaClass
   return "other";
 }
 
-const FRONTMATTER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540"><rect width="960" height="540" fill="#f5f8fb"/><g fill="none" stroke="#243444" stroke-width="16" stroke-linecap="square"><path d="M230 122h500M230 418h500"/><path d="M230 220h135M230 320h135"/></g><g fill="none" stroke-width="16" stroke-linecap="square"><path d="M415 220h315" stroke="#2878a6"/><path d="M415 320h315" stroke="#243444"/></g></svg>`;
+const FRONTMATTER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540"><g fill="none" stroke="#6d8499" stroke-width="16" stroke-linecap="square"><path d="M230 122h500M230 418h500"/><path d="M230 220h135M230 320h135"/></g><g fill="none" stroke-width="16" stroke-linecap="square"><path d="M415 220h315" stroke="#2878a6"/><path d="M415 320h315" stroke="#6d8499"/></g></svg>`;
 const DEMO_PDF = `%PDF-1.4
 1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj

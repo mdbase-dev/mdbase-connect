@@ -267,6 +267,7 @@ test("renders linked collection images inline and in the file preview", async ({
     width: (element as HTMLImageElement).naturalWidth
   }))).toEqual({ complete: true, width: 960 });
 
+  await page.locator(".cm-file-embed").hover();
   await page.getByRole("button", { name: "Open frontmatter.svg" }).click();
   const preview = page.getByRole("dialog", { name: "Preview frontmatter.svg" });
   await expect(preview.getByRole("img", { name: "frontmatter.svg" })).toBeVisible();
@@ -717,7 +718,8 @@ for (const trigger of ["@", "[["] as const) {
     const editor = page.getByRole("main", { name: "Note editor" });
     const body = page.getByRole("textbox", { name: "Note body" });
     const saveState = editor.locator(".mdbase-save-notice");
-    await body.click();
+    // Embeds now take focus to reveal their actions; start typing in prose.
+    await body.locator(".cm-line").first().click();
     await page.keyboard.press("Control+End");
     await page.keyboard.type(`\n\n${trigger}the shape`);
 
@@ -1363,7 +1365,7 @@ test("uses the native caret in Vim insert mode", async ({ page }) => {
   await page.goto("?demo=12");
 
   const body = page.getByRole("textbox", { name: "Note body" });
-  await body.click();
+  await body.locator(".cm-line").first().click();
   const scroller = page.locator(".body-editor .cm-scroller");
   const blockCursor = page.locator(".body-editor .cm-vimCursorLayer .cm-fat-cursor");
   await expect(scroller).toHaveClass(/cm-vimMode/);
@@ -1542,7 +1544,7 @@ test("keeps every editor action reachable at the minimum mobile width", async ({
   expect(bounds.actionRight).toBeLessThanOrEqual(bounds.viewportWidth);
   expect(bounds.surfaceRight).toBeLessThanOrEqual(bounds.viewportWidth);
 
-  await body.click();
+  await body.locator(".cm-line").first().click();
   await page.keyboard.press("Control+f");
   const searchBounds = await page.locator(".body-editor .cm-search").evaluate((search) => ({
     right: search.getBoundingClientRect().right,
@@ -1576,14 +1578,20 @@ test("keeps type field names styled and inside their grid columns", async ({ pag
           const kind = input.closest(".visual-field-row")!.querySelector(".visual-field-kind")!.getBoundingClientRect();
           return {
             left: bounds.left, right: bounds.right, height: bounds.height,
-            labelLeft: label.left, labelRight: label.right, kindLeft: kind.left
+            labelLeft: label.left, labelRight: label.right, kindLeft: kind.left,
+            bottom: bounds.bottom, kindTop: kind.top
           };
         });
         const context = `${colorScheme}/${width}`;
         expect(layout.height, context).toBeGreaterThanOrEqual(34);
         expect(layout.left, context).toBeGreaterThanOrEqual(layout.labelLeft);
         expect(layout.right, context).toBeLessThanOrEqual(layout.labelRight);
-        expect(layout.right, context).toBeLessThanOrEqual(layout.kindLeft - 5);
+        if (width <= 760) {
+          // Mobile gives the name a complete row and puts kind/required below it.
+          expect(layout.bottom, context).toBeLessThanOrEqual(layout.kindTop - 5);
+        } else {
+          expect(layout.right, context).toBeLessThanOrEqual(layout.kindLeft - 5);
+        }
       }
     }
   }

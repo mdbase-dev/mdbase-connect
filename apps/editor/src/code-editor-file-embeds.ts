@@ -3,6 +3,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from 
 import type { FileAssetSnapshot } from "./file-asset-store";
 import { fileAssetKey, isInlinePreviewable, isTextPreviewable } from "./file-reference-resolution";
 import type { ResolvedFileReference } from "./use-file-assets";
+import { embedActions, focusEmbedOnPointer } from "./embed-actions";
 
 class FileEmbedWidget extends WidgetType {
   private unmountInlinePdf?: () => void;
@@ -29,6 +30,8 @@ class FileEmbedWidget extends WidgetType {
     const filename = asset.file.path.split("/").at(-1) ?? asset.file.path;
     const preview = document.createElement("figure");
     preview.className = `cm-file-embed cm-file-embed-${asset.file.mediaClass} ${asset.status}`;
+    preview.tabIndex = 0;
+    focusEmbedOnPointer(preview);
     preview.setAttribute("aria-label", asset.status === "ready" ? `Preview ${filename}` : `Preview ${filename}, ${asset.status.replace("_", " ")}`);
 
     if (!isInlinePreviewable(asset.file)) {
@@ -91,29 +94,16 @@ class FileEmbedWidget extends WidgetType {
     }
 
     const caption = document.createElement("figcaption");
-    const name = document.createElement("strong");
-    const detail = document.createElement("span");
-    name.textContent = label ?? filename;
-    detail.textContent = asset.file.path;
-    caption.append(name, detail);
-    if (asset.status === "ready" && asset.file.mediaClass !== "audio" && asset.file.mediaClass !== "video" && asset.file.mediaClass !== "pdf" && this.open) {
-      const open = document.createElement("button");
-      open.type = "button";
-      open.className = "cm-file-embed-open";
-      open.setAttribute("aria-label", `Open ${filename}`);
-      open.textContent = "Open";
-      open.addEventListener("click", (event) => {
-        event.stopPropagation();
-        this.open?.(asset);
-      });
-      caption.append(open);
-    }
-    preview.append(caption);
+    caption.textContent = label || filename;
+    caption.title = asset.file.path;
+    preview.append(caption, embedActions(asset.file.path, filename,
+      asset.status === "ready" && asset.file.mediaClass !== "pdf" && this.open
+        ? () => this.open?.(asset) : undefined));
     return preview;
   }
 
   ignoreEvent(event: Event) {
-    return event.target instanceof Element && Boolean(event.target.closest("button, audio, video, .cm-file-embed-pdf-viewer"));
+    return event.target instanceof Element && Boolean(event.target.closest(".cm-file-embed"));
   }
 
   destroy() {

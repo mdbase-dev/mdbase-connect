@@ -1,6 +1,7 @@
 import type { Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
 import type { ResolvedNoteEmbed } from "./note-embeds";
+import { embedActions, focusEmbedOnPointer } from "./embed-actions";
 
 class NoteEmbedWidget extends WidgetType {
   constructor(
@@ -23,26 +24,29 @@ class NoteEmbedWidget extends WidgetType {
     const reference = this.reference;
     const region = document.createElement("section");
     region.className = `cm-note-embed ${reference.status}`;
+    region.tabIndex = 0;
+    focusEmbedOnPointer(region);
     region.setAttribute("role", "region");
     region.setAttribute("aria-label", `Transclusion of ${reference.title}`);
 
     const header = document.createElement("header");
-    const title = document.createElement(reference.path && this.open ? "button" : "strong");
+    const title = document.createElement("strong");
     title.textContent = reference.title;
-    if (title instanceof HTMLButtonElement) {
-      title.type = "button";
-      title.setAttribute("aria-label", `Open ${reference.title}`);
-      title.addEventListener("click", () => this.open?.(reference.path!));
-    }
-    const path = document.createElement("span");
-    path.textContent = `${reference.path ?? reference.target}${reference.anchor ? `#${reference.anchor}` : ""}`;
-    header.append(title, path);
+    title.title = `${reference.path ?? reference.target}${reference.anchor ? `#${reference.anchor}` : ""}`;
+    header.append(title);
     region.append(header);
+    if (reference.path) region.append(embedActions(reference.path, reference.title,
+      this.open ? () => this.open?.(reference.path!) : undefined));
 
     if (reference.status === "ready") {
       const content = document.createElement("div");
       content.className = "cm-note-embed-content";
+      content.tabIndex = 0;
+      content.setAttribute("aria-label", `Content of ${reference.title}`);
       renderMarkdownFragment(content, reference.body ?? "");
+      // The caption already names the source; don't repeat its document title.
+      const heading = content.firstElementChild;
+      if (!reference.anchor && heading?.tagName === "H1" && heading.textContent === reference.title) heading.remove();
       region.append(content);
     } else {
       const status = document.createElement("p");
@@ -65,7 +69,7 @@ class NoteEmbedWidget extends WidgetType {
   }
 
   ignoreEvent(event: Event) {
-    return event.target instanceof Element && Boolean(event.target.closest("button"));
+    return event.target instanceof Element && Boolean(event.target.closest(".cm-note-embed"));
   }
 }
 

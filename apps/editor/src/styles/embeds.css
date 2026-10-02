@@ -9,11 +9,13 @@
 
 /* Editor's completions describe notes by their path, which reads best in the mono face. */
 .code-editor .cm-editor .cm-tooltip-autocomplete .cm-completionDetail { font-family: var(--mono); }
-.code-editor-writer .cm-file-embed { position: relative; width: 100%; display: grid; margin: 18px 0 24px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); outline: 0; background: var(--canvas); }
-.code-editor-writer .cm-file-embed.ready:hover { border-color: var(--line-strong); }
+.code-editor-writer .cm-file-embed { position: relative; min-width: 0; width: 100%; display: grid; margin: 18px 0 24px; background: transparent; }
+.code-editor-writer .cm-file-embed:focus-visible,
+.code-editor-writer .cm-note-embed:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .code-editor-writer .cm-file-embed img,
 .code-editor-writer .cm-file-embed iframe,
-.code-editor-writer .cm-file-embed video { width: 100%; display: block; border: 0; background: var(--canvas); }
+.code-editor-writer .cm-file-embed video { width: 100%; display: block; border: 0; border-radius: var(--radius-md); background: transparent; }
+.code-editor-writer .cm-file-embed video { max-height: min(56vh, 560px); object-fit: contain; }
 .code-editor-writer .cm-file-embed img { max-height: min(56vh, 560px); object-fit: contain; transition: filter var(--motion-quick) var(--ease-standard); }
 /* Bright images would glare on the dark writing surface; restore full brightness when someone looks closer. */
 :root[data-theme="dark"] .code-editor-writer .cm-file-embed img { filter: brightness(.78) contrast(1.06); }
@@ -21,8 +23,8 @@
 :root .code-editor-writer .cm-file-embed:hover img,
 :root .code-editor-writer .cm-file-embed-active img { filter: none; }
 .code-editor-writer .cm-file-embed iframe { height: min(48vh, 460px); pointer-events: none; }
-.code-editor-writer .cm-file-embed-pdf-cover { min-height: clamp(180px, 32vh, 320px); display: grid; place-content: center; justify-items: center; gap: 12px; border: 0; border-radius: 0; background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 42%), linear-gradient(145deg, var(--white), var(--canvas)); color: inherit; cursor: pointer; }
-.code-editor-writer .cm-file-embed-pdf-cover span:first-child { display: grid; place-items: center; width: 72px; height: 88px; border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--line)); border-radius: var(--radius-sm) var(--radius-lg) var(--radius-sm) var(--radius-sm); background: color-mix(in srgb, var(--accent-soft) 72%, var(--white)); color: var(--accent-strong); box-shadow: var(--elevation-high); font-family: var(--sans); font-size: var(--font-size-ui); font-weight: var(--font-weight-semibold); }
+.code-editor-writer .cm-file-embed-pdf-cover { min-height: 144px; display: grid; place-content: center; justify-items: center; gap: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--canvas); color: inherit; cursor: pointer; }
+.code-editor-writer .cm-file-embed-pdf-cover span:first-child { color: var(--muted); font: var(--font-weight-medium) var(--font-size-ui)/1.4 var(--sans); }
 .code-editor-writer .cm-file-embed-pdf-cover span:last-child { color: var(--muted); font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); }
 .code-editor-writer .cm-file-embed-pdf-cover:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .code-editor-writer .cm-file-embed-pdf-viewer { width: 100%; height: clamp(460px, 68vh, 760px); min-height: 0; overflow: hidden; outline: 0; background: var(--canvas); cursor: default; }
@@ -30,23 +32,16 @@
 .code-editor-writer .cm-file-embed audio { width: calc(100% - 24px); margin: 24px 12px; }
 .code-editor-writer .cm-file-embed pre { max-height: min(56vh, 560px); margin: 0; overflow: auto; padding: 18px 20px; background: var(--canvas); color: var(--color-editor-text); font: var(--font-size-caption)/1.65 var(--mono); white-space: pre-wrap; word-break: break-word; }
 .code-editor-writer .cm-file-embed-status { min-height: 120px; display: grid; place-items: center; padding: 24px; color: var(--faint); font-size: var(--font-size-caption); text-align: center; }
-.code-editor-writer .cm-file-embed figcaption { min-width: 0; display: flex; align-items: baseline; gap: 10px; padding: 9px 12px 10px; border-top: 1px solid var(--line); background: var(--white); line-height: 1.25; }
-.code-editor-writer .cm-file-embed figcaption strong,
-.code-editor-writer .cm-file-embed figcaption span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.code-editor-writer .cm-file-embed figcaption strong { min-width: 0; color: var(--ink); font-size: var(--font-size-caption); }
-.code-editor-writer .cm-file-embed figcaption span { flex: 1; color: var(--faint); font-family: var(--mono); font-size: var(--font-size-caption); text-align: right; }
-.code-editor-writer .cm-file-embed-open { flex: none; min-height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); color: var(--muted); font: var(--font-weight-medium) var(--font-size-caption)/1 var(--sans); }
-.code-editor-writer .cm-file-embed-open:hover,
-.code-editor-writer .cm-file-embed-open:focus-visible { border-color: var(--line-strong); color: var(--ink); }
+.code-editor-writer .cm-file-embed figcaption { min-width: 0; padding: 8px 0 0; color: var(--muted); font-size: var(--font-size-caption); line-height: 1.5; overflow-wrap: anywhere; }
+.code-editor-writer .cm-embed-actions { position: absolute; z-index: 1; top: 8px; right: 8px; display: flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white); box-shadow: var(--elevation-low); opacity: 0; pointer-events: none; transition: opacity var(--motion-quick) var(--ease-standard); }
+.code-editor-writer :is(.cm-file-embed, .cm-note-embed):is(:hover, :focus-within) .cm-embed-actions { opacity: 1; pointer-events: auto; }
+.code-editor-writer .cm-embed-actions button { min-height: 32px; padding: 0 10px; border-radius: var(--radius-sm); color: var(--muted); font: var(--font-weight-medium) var(--font-size-caption)/1.4 var(--sans); cursor: pointer; }
+.code-editor-writer .cm-embed-actions button:hover { background: var(--hover); color: var(--ink); }
+.code-editor-writer .cm-embed-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-.code-editor-writer .cm-note-embed { width: 100%; margin: 18px 0 24px; overflow: hidden; border: 1px solid var(--line); border-left: 3px solid color-mix(in srgb, var(--accent) 58%, var(--line)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--white) 82%, var(--canvas)); color: var(--color-editor-text); }
-.code-editor-writer .cm-note-embed > header { min-width: 0; display: flex; align-items: baseline; gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--white); line-height: 1.25; }
-.code-editor-writer .cm-note-embed > header button,
-.code-editor-writer .cm-note-embed > header strong { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: var(--ink); font: var(--font-weight-semibold) var(--font-size-caption)/1.25 inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.code-editor-writer .cm-note-embed > header button { cursor: pointer; }
-.code-editor-writer .cm-note-embed > header button:hover,
-.code-editor-writer .cm-note-embed > header button:focus-visible { color: var(--accent); outline: 0; text-decoration: underline; text-underline-offset: 2px; }
-.code-editor-writer .cm-note-embed > header span { min-width: 0; flex: 1; overflow: hidden; color: var(--faint); font: var(--font-size-caption)/1.35 var(--mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.code-editor-writer .cm-note-embed { position: relative; min-width: 0; width: 100%; margin: 18px 0 24px; border: 1px solid var(--line); border-radius: var(--radius-md); background: transparent; color: var(--color-editor-text); }
+.code-editor-writer .cm-note-embed > header { min-width: 0; padding: 14px 20px 0; color: var(--muted); font-size: var(--font-size-caption); line-height: 1.5; overflow-wrap: anywhere; }
+.code-editor-writer .cm-note-embed > header strong { font-weight: var(--font-weight-medium); }
 .code-editor-writer .cm-note-embed-content { max-height: min(62vh, 680px); overflow: auto; padding: 16px 20px 19px; font-size: .92em; line-height: 1.62; }
 .code-editor-writer .cm-note-embed-content > :first-child { margin-top: 0; }
 .code-editor-writer .cm-note-embed-content > :last-child { margin-bottom: 0; }
@@ -73,9 +68,9 @@
 .code-editor-writer .cm-note-embed.missing,
 .code-editor-writer .cm-note-embed.ambiguous,
 .code-editor-writer .cm-note-embed.missing_fragment,
-.code-editor-writer .cm-note-embed.error { border-left-color: var(--warning); }
+.code-editor-writer .cm-note-embed.error { border-color: var(--warning); }
 
-.file-viewer-backdrop { position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; padding: clamp(14px, 3vw, 36px); background: color-mix(in srgb, var(--ink) 76%, transparent); backdrop-filter: blur(8px); }
+.dialog-scrim:has(.file-viewer) { z-index: 120; place-items: center; padding: clamp(14px, 3vw, 36px); }
 .file-viewer { width: min(1180px, 100%); height: min(900px, 100%); min-height: 0; display: grid; grid-template-rows: 54px minmax(0, 1fr); overflow: hidden; border: 1px solid color-mix(in srgb, var(--line-strong) 74%, transparent); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--elevation-high); }
 .file-viewer > header { min-width: 0; display: flex; align-items: center; gap: 14px; padding: 0 10px 0 17px; border-bottom: 1px solid var(--line); }
 .file-viewer > header > div { min-width: 0; flex: 1; display: grid; gap: 1px; }
@@ -97,7 +92,7 @@
 .file-workspace-size { flex: 0 0 auto; color: var(--faint); font-size: var(--font-size-ui); font-variant-numeric: tabular-nums; }
 .file-workspace-content { min-width: 0; min-height: 0; display: grid; place-items: center; overflow: auto; background: color-mix(in srgb, var(--canvas) 94%, var(--ink)); }
 .file-workspace-content.file-viewer-image { padding: clamp(18px, 4vw, 56px); }
-.file-workspace-content.file-viewer-image img { max-width: 100%; max-height: 100%; display: block; border: 1px solid var(--line); border-radius: var(--radius-sm); object-fit: contain; }
+.file-workspace-content.file-viewer-image img { max-width: 100%; max-height: 100%; display: block; border-radius: var(--radius-md); object-fit: contain; }
 .file-workspace-content.file-viewer-pdf .embedpdf-viewer { width: 100%; height: 100%; background: var(--canvas); }
 .file-workspace-message { width: min(420px, calc(100% - 40px)); display: grid; justify-items: center; gap: 8px; color: var(--faint); text-align: center; }
 .file-workspace-message > svg { width: 32px; height: 32px; margin-bottom: 4px; }
@@ -107,5 +102,17 @@
 .file-loading-mark { width: 18px; height: 18px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; }
 @keyframes file-loading-spin { to { transform: rotate(360deg); } }
 @keyframes file-viewer-in { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .file-viewer-backdrop, .file-loading-mark { animation: none; } }
+@media (max-width: 760px) {
+  .code-editor-writer .cm-embed-actions button { min-height: 44px; }
+  .code-editor-writer .cm-file-embed-pdf-viewer { height: min(68dvh, 560px); }
+  .dialog-scrim:has(.file-viewer) { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .file-viewer { height: 100%; border: 0; border-radius: 0; grid-template-rows: auto minmax(0, 1fr); }
+  .file-viewer > header { min-height: 64px; gap: 4px; padding: 6px 8px 6px 16px; }
+  .file-viewer > header a, .file-open-original { min-height: 44px; display: inline-flex; align-items: center; }
+  .file-workspace .editor-bar { flex-wrap: wrap; }
+  .file-workspace-path { flex-basis: calc(100% - 52px); }
+  .file-workspace-size { margin-left: 48px; }
+  .editor-pane.file-workspace { grid-template-rows: auto minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .file-loading-mark { animation: none; } }
 

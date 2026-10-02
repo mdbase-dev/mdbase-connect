@@ -81,8 +81,13 @@ rows share a steady rhythm, collection facts stay compact, and technical facts
 live behind Details. In the collection rail, All notes, Types, and
 Settings remain the primary editing group. Connect sits in a bottom-aligned
 Manage group above connection and account status, visibly secondary until a
-pending authorization count requires attention. Mobile presents each level as
-a separate navigable screen.
+pending authorization count requires attention. Mobile (≤760px) presents each
+level as a separate navigable screen, with 44px touch targets and safe-area
+padding. The note bar contains only Back and More; the complete path sits
+subtly above the title, and Rename path, New note and Quick open live in More.
+List screens have a labeled, filled New note action. Properties take over the
+screen, and quick open fits the available viewport rather than keeping its
+desktop keyboard-help footer.
 
 ## Connect account screens
 
@@ -161,6 +166,21 @@ Searchable suggestions use `ComboboxInput` and the same listbox surface instead
 of browser datalists. Action choices continue to use menu semantics, while
 schema date and date-time fields retain platform pickers with shared input
 styling.
+
+## Embeds and file viewers
+
+Images sit bare on the writing surface with the medium radius and a single
+muted caption below; never add a permanent title/path/action bar. Transparent
+assets retain their transparency in both themes. Bright image previews are
+slightly dimmed in dark mode, without rewriting the underlying file. Previews
+have a bounded height; full-size viewing remains available.
+
+Open and Copy path reveal on hover or keyboard focus, and tapping an embed
+focuses it on touch screens. Both actions remain keyboard-reachable. Note
+transclusions and PDF/file previews use the same quiet title, fine rule and
+on-demand actions, not an accented rail or decorative cover. Long transclusions
+scroll in a focusable content region. File dialogs use the shared focus trap,
+Escape handling and focus restoration; mobile viewers fill the safe viewport.
 
 ## Signature
 
