@@ -21,6 +21,17 @@
   `linksTo(field, path, {multiple?})` builds authority-resolved scalar/list CEL
   predicates. See `docs/sdk-query-helpers.md` for semantics and migrations.
 
+- The client SDK exposes discriminated change events with camel-case record,
+  schema, configuration, contract, view and file metadata. Original event IDs,
+  payloads and wire events remain available; unknown IDs/payloads and feed gaps
+  are explicit variants. `describe()` caches successful results for up to 60
+  seconds, shares concurrent loads, and invalidates on structural events and
+  accepted schema mutations. `schemaGeneration` tracks local invalidation;
+  `describe({ fresh: true })` forces an authority refresh. The editor consumes
+  typed events and no longer discards configuration/contract changes. Migration:
+  use `kind` and typed fields instead of raw-ID heuristics; normalize custom test
+  events and pass `fresh: true` when every description must reach the authority.
+
 - Directory mirrors (`@mdbase-dev/connect-sync`) recover from routine local
   interference without a person: a scoped blocking issue (an obstruction,
   divergent or unreadable file) fences only its own path and connected path

@@ -73,12 +73,17 @@ export function useCollectionWatch(input: {
       if (change && isFileChange(change)) {
         filesChanged = true;
         reconcileFileChange(change, input.files, input.assets);
-      } else if (change?.type === "mdbase.record.modified" && typeof change.payload.path === "string") changedPaths.add(change.payload.path);
-      else if (change?.type === "mdbase.type.changed") {
+      } else if (change?.kind === "record.updated") changedPaths.add(change.path);
+      else if (change?.kind === "schema.changed" || change?.kind === "config.changed" || change?.kind === "contract.changed" || change?.kind === "view.changed") {
         typesChanged = true;
         indexChanged = true;
-      } else if (change?.type === "mdbase.record.created" || change?.type === "mdbase.record.deleted" || change?.type === "mdbase.record.renamed") structuralChanges.push(change);
-      else indexChanged = true;
+      } else if (change?.kind === "record.created" || change?.kind === "record.deleted" || change?.kind === "record.renamed") structuralChanges.push(change);
+      else {
+        // Unknown events and feed gaps cannot prove which cached model remains valid.
+        typesChanged = true;
+        indexChanged = true;
+        filesChanged = true;
+      }
 
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
@@ -100,7 +105,9 @@ export function useCollectionWatch(input: {
         else for (const path of structural.deletedPathsToConfirm) pendingReads.set(path, true);
         for (const path of paths) pendingReads.set(path, pendingReads.get(path) ?? false);
         void drainReads();
-        if (shouldRefreshTypes) void input.refreshDescription();
+        if (shouldRefreshTypes) void input.refreshDescription().catch((error) => {
+          if (!controller.signal.aborted) input.setConnectionIssue(gatewayError(error));
+        });
         if (shouldRefreshFiles) void input.files.reload().catch(() => undefined);
       }, 180);
     };

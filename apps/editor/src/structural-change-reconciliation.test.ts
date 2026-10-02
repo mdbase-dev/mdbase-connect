@@ -1,14 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { CollectionChange } from "@mdbase-dev/connect";
+import { normalizeCollectionChange, type CollectionChange } from "@mdbase-dev/connect";
 import { reconcileStructuralChanges } from "./structural-change-reconciliation";
 
 function change(type: string, payload: CollectionChange["payload"], cursor = 1): CollectionChange {
-  return {
-    cursor,
-    type,
-    occurredAt: "2026-08-03T00:00:00.000Z",
-    payload
-  };
+  return normalizeCollectionChange({ cursor, type, occurred_at: "2026-08-03T00:00:00.000Z", payload });
 }
 
 describe("structuralChangesRequireRefresh", () => {

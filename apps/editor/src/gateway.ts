@@ -4,6 +4,7 @@ import {
   MdbaseConnectError,
   type ConnectOutcome,
   type CollectionDescription,
+  type DescribeOptions,
   type DataContractSelector,
   type MdbaseConnection,
   type MdbaseConnectionInfo,
@@ -177,8 +178,8 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return records;
   }
 
-  async describe(): Promise<CollectionDescription> {
-    return requireOutcome(await this.requireConnection().describe());
+  async describe(options?: DescribeOptions): Promise<CollectionDescription> {
+    return requireOutcome(await this.requireConnection().describe(options));
   }
 
   async list({ signal, onProgress }: NoteIndexRequest = {}): Promise<NoteIndexResult> {
@@ -450,13 +451,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
     await new Promise<void>((resolve, reject) => {
       let stop: () => void = () => undefined;
       stop = opened.subscribe(
-        (change) => {
-          if (change.type.startsWith("mdbase.record.")
-              || change.type.startsWith("mdbase.file.")
-              || change.type === "file_put"
-              || change.type === "file_remove"
-              || change.type === "mdbase.type.changed") onChange(change);
-        },
+        onChange,
         onStatus,
         (problem) => {
           stop();

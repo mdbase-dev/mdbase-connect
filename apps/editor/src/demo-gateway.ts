@@ -1,3 +1,4 @@
+import { normalizeCollectionChange } from "@mdbase-dev/connect";
 import type {
   CollectionChange,
   CollectionContractDescriptor,
@@ -223,7 +224,11 @@ export class DemoCollectionGateway implements CollectionGateway {
     this.files.push(file);
     this.fileContents.set(file.fileId, blob);
     onProgress?.({ phase: "uploading", transferredBytes: blob.size, totalBytes: blob.size });
-    this.emit("mdbase.file.put", { file: clone(file) as unknown as JsonObject });
+    this.emit("mdbase.file.put", { file: {
+      file_id: file.fileId, path: file.path, revision: file.revision,
+      content_digest: file.contentDigest, size: file.size, media_class: file.mediaClass,
+      modified_at: file.modifiedAt, ...(file.mediaType ? { media_type: file.mediaType } : {})
+    } });
     return clone(file);
   }
 
@@ -611,12 +616,9 @@ export class DemoCollectionGateway implements CollectionGateway {
   }
 
   private emit(type: string, payload: JsonObject) {
-    const change: CollectionChange = {
-      cursor: ++this.changeCursor,
-      type,
-      occurredAt: new Date().toISOString(),
-      payload
-    };
+    const change = normalizeCollectionChange({
+      cursor: ++this.changeCursor, type, occurred_at: new Date().toISOString(), payload
+    });
     for (const listener of this.listeners) listener(change);
   }
 

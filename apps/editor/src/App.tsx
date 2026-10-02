@@ -352,7 +352,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const refreshDescription = useCallback(async (isCurrent: () => boolean = () => true) => {
     const epoch = collectionEpoch.current;
-    const next = await gateway.describe();
+    const next = await gateway.describe({ fresh: true });
     if (epoch !== collectionEpoch.current || !isCurrent()) return undefined;
     workspaceCollectionId.current = next.collectionId;
     typeDescriptorsRef.current = next.types;

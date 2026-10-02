@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CollectionChange } from "@mdbase-dev/connect";
+import { normalizeCollectionChange } from "@mdbase-dev/connect";
 import type { CollectionGateway } from "./model";
 import { useCollectionWatch } from "./use-collection-watch";
 
@@ -45,7 +45,7 @@ function setup(notes: string[] = []) {
   return {
     ...hook, input, reads, watching, reload,
     get signal() { return signal; }, get maxActive() { return maxActive; },
-    emit: (path: string, type = "mdbase.record.modified") => handler({ type, payload: { path }, cursor: 1, occurredAt: "2026-01-01T00:00:00Z" } as CollectionChange),
+    emit: (path: string, type = "mdbase.record.modified") => handler(normalizeCollectionChange({ type, payload: { path }, cursor: 1, occurred_at: "2026-01-01T00:00:00Z" })),
     unknown: () => handler(), status: (value: Parameters<typeof status>[0]) => status(value)
   };
 }
@@ -152,6 +152,25 @@ describe("useCollectionWatch bounded drain", () => {
     await act(async () => { fallback.reject(new Error("late index failure")); });
     expect(state.input.setConnectionIssue).not.toHaveBeenCalled();
     expect(state.reads).toHaveLength(1);
+  });
+
+  for (const type of ["mdbase.config.changed", "mdbase.contract.changed", "mdbase.view_source.changed", "future.schema.changed", "mdbase.collection.invalidated"]) {
+    it(`refreshes schema and index for ${type} instead of filtering it out`, async () => {
+      const state = setup();
+      state.emit("schema.yaml", type);
+      await tick();
+      expect(state.input.refreshDescription).toHaveBeenCalledOnce();
+      expect(state.input.loadIndex).toHaveBeenCalledOnce();
+      expect(state.reads).toHaveLength(0);
+    });
+  }
+
+  it("reports schema refresh failures instead of creating an unhandled rejection", async () => {
+    const state = setup();
+    state.input.refreshDescription.mockRejectedValue(new Error("Schema unavailable"));
+    state.emit("mdbase.yaml", "mdbase.config.changed");
+    await tick();
+    expect(state.input.setConnectionIssue).toHaveBeenCalledWith("Schema unavailable");
   });
 
   it("retains debounce, structural/index refresh, and types/files refresh semantics", async () => {
