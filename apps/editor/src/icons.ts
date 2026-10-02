@@ -29,6 +29,7 @@ export { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
 export { PlusIcon } from "@phosphor-icons/react/Plus";
 export { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 export { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
+export { PushPinIcon } from "@phosphor-icons/react/PushPin";
 export { TagIcon } from "@phosphor-icons/react/Tag";
 export { TrashIcon } from "@phosphor-icons/react/Trash";
 export { UploadSimpleIcon } from "@phosphor-icons/react/UploadSimple";

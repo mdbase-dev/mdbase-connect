@@ -30,7 +30,7 @@ describe("Note actions", () => {
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note body" });
     const menu = await openRowMenu();
-    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Rename", "Move to…", "Duplicate", "Copy link", "Copy path", "Delete"]);
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Rename", "Move to…", "Duplicate", "Copy link", "Copy path", "Pin", "Delete"]);
     await user.click(within(menu).getByRole("menuitem", { name: "Copy link" }));
     expect(write).toHaveBeenCalledWith("[[Journal/garden-notes-2]]");
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");

@@ -27,6 +27,37 @@ describe("Rail move command", () => {
     expect(rename.mock.calls.every((call) => call[3] === true)).toBe(true);
   });
 
+  it("continues after a first-note collision instead of skipping the rest of the batch", async () => {
+    const gateway = new DemoCollectionGateway(3);
+    await gateway.create({ path: "Archive/the-shape-of-useful-tools.md", title: "Existing", body: "Keep", properties: {} });
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    fireEvent.click(screen.getByRole("button", { name: "Drop notes" }));
+    await screen.findByText(/Moved 1 note. 1 couldn’t be changed/);
+    expect(await gateway.read("Archive/garden-notes-2.md")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await screen.findByText("Restored note paths.");
+    expect(await gateway.read("Journal/garden-notes-2.md")).toBeDefined();
+    expect((await gateway.read("Archive/the-shape-of-useful-tools.md")).body).toContain("Keep");
+  });
+
+  it("retains only failed path undos for retry", async () => {
+    const gateway = new DemoCollectionGateway(3);
+    const rename = vi.spyOn(gateway, "rename");
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    fireEvent.click(screen.getByRole("button", { name: "Drop notes" }));
+    await screen.findByText(/Moved 2 notes/);
+    const collision = await gateway.create({ path: "Notes/the-shape-of-useful-tools.md", title: "Collision", body: "Keep", properties: {} });
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await screen.findByText(/Restored 1 note. 1 couldn’t be changed/);
+    await gateway.delete(collision.path, collision.revision);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await screen.findByText("Restored note paths.");
+    expect(rename.mock.calls.filter(([from]) => from === "Archive/garden-notes-2.md")).toHaveLength(1);
+    expect(await gateway.read("Notes/the-shape-of-useful-tools.md")).toBeDefined();
+  });
+
   it("keeps a successful partial move undoable when the next destination collides", async () => {
     const gateway = new DemoCollectionGateway(3);
     await gateway.create({ path: "Archive/garden-notes-2.md", title: "Existing", body: "Do not replace", properties: {} });

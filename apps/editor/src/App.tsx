@@ -11,7 +11,9 @@ import {
   InfoIcon as Info,
   LinkIcon as Link2,
   PencilSimpleIcon as Pencil,
-  TrashIcon as Trash2
+  TrashIcon as Trash2,
+  TagIcon as Tag,
+  PushPinIcon as Pin
 } from "./icons";
 import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MdbaseRecordSessionSnapshot } from "@mdbase-dev/connect";
 import {
@@ -29,6 +31,7 @@ import {
 } from "react";
 import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
 import { MoveNoteDialog } from "./MoveNoteDialog";
+import { bulkFields, bulkFrontmatter, runNoteBatch, type BatchResult, type BulkPropertyChange } from "./bulk-note-actions";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
 import { useCollectionBrowserEntries } from "./collection-browser";
 import { CollectionRail } from "./CollectionRail";
@@ -88,7 +91,7 @@ import {
   type NoteActivity,
   type SaveState
 } from "./note-session";
-import { loadNoteSort, saveNoteSort, sortNotes, type NoteSort } from "./note-list-view";
+import { loadNoteSort, saveNoteSort, sortNotes, loadPinnedNotes, savePinnedNotes, type NoteSelection, type NoteSort } from "./note-list-view";
 import { filterLabel, filterScopeLabel, NoteList, type NoteFilter, type NoteRowStatus } from "./NoteList";
 import { noteRowStatus, updateMutationActivity } from "./note-mutation-presentation";
 import {
@@ -132,6 +135,7 @@ import {
   PathLabel,
   TypeAccessPrompt
 } from "./WorkspaceChrome";
+const BulkNoteProperties = lazy(() => import("./BulkNoteProperties").then((module) => ({ default: module.BulkNoteProperties })));
 const TypeList = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeList })));
 const TypeInspector = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeInspector })));
 const TypePackBrowser = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypePackBrowser })));
@@ -150,10 +154,19 @@ interface Confirmation {
   onConfirm: () => void | Promise<void>;
 }
 
+type BatchUndo = { kind: "delete"; document: NoteDocument } | { kind: "properties"; document: NoteDocument; revision: string };
+
 type RecoveryAction =
+  | { kind: "batch"; changes: BatchUndo[]; message: string }
   | { kind: "delete"; document: NoteDocument }
   | { kind: "rename"; from: string; to: string }
-  | { kind: "move"; paths: Array<{ from: string; to: string }>; references: number };
+  | { kind: "move"; paths: Array<{ from: string; to: string }>; references: number; message?: string };
+
+function batchMessage<Value>(verb: string, result: BatchResult<Value>): string {
+  const count = result.succeeded.length;
+  const failures = result.failed.length ? ` ${result.failed.length} couldn’t be changed: ${result.failed.map(({ path, error }) => `${path} — ${gatewayError(error)}`).join("; ")}` : "";
+  return `${verb} ${count} ${count === 1 ? "note" : "notes"}.${failures}`;
+}
 
 interface NoteNavigationHistory {
   paths: string[];
@@ -189,6 +202,11 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const [directAccessBusy, setDirectAccessBusy] = useState(false);
   const [connectionRetry, setConnectionRetry] = useState(0);
   const [selectedPath, setSelectedPath] = useState<string>();
+  const [selection, setSelection] = useState<NoteSelection>();
+  const [pinnedPaths, setPinnedPaths] = useState<string[]>([]);
+  const [bulkPropertyKind, setBulkPropertyKind] = useState<BulkPropertyChange["kind"]>();
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const batchRunning = useRef(false);
   const [document, setDocument] = useState<NoteDocument>();
   const [draft, setDraft] = useState<Draft>();
   const [noteLoading, setNoteLoading] = useState(false);
@@ -201,6 +219,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const deferredSearch = useDeferredValue(search);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>();
   const [surface, setSurface] = useState<Surface>(initialEditorSurface);
+  useEffect(() => { setSelection((current) => current?.anchor === selectedPath ? current : undefined); setBulkPropertyKind(undefined); }, [selectedPath]);
+  useEffect(() => { setSelection(undefined); setBulkPropertyKind(undefined); }, [search, noteFilter, surface]);
+  useEffect(() => { setPinnedPaths(description ? loadPinnedNotes(description.collectionId) : []); }, [description?.collectionId]);
   useEffect(() => { onFeedbackContext?.(surface, description?.displayName); }, [surface, description?.displayName, onFeedbackContext]);
   useEffect(() => { if (noteOpenFailure) reportError({ code: "source_open_failed" }); }, [noteOpenFailure, reportError]);
   const [selectedTypeName, setSelectedTypeName] = useState<string>();
@@ -591,7 +612,10 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       else selectNoteHistoryIndex(options.historyIndex, next.path);
       return true;
     } catch (error) {
-      if (current()) setNoteOpenFailure({ path, options, message: `Couldn’t open “${path}”. ${gatewayError(error)}` });
+      if (current()) {
+        setSelection(undefined);
+        setNoteOpenFailure({ path, options, message: `Couldn’t open “${path}”. ${gatewayError(error)}` });
+      }
       return false;
     } finally {
       if (current()) {
@@ -826,6 +850,12 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   }, [deferredSearch, noteFilter, noteSort, searchedNotes, typeDescriptors]);
   const { visibleFiles, entries: visibleBrowserEntries } = useCollectionBrowserEntries(
     visibleNotes, fileInventory.files, noteFilter, deferredSearch, noteSort, typeDescriptors);
+  const visibleNotePaths = useMemo(() => new Set(visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path)), [visibleBrowserEntries]);
+  const listSelection = useMemo(() => selectedCollectionFile || creationMode ? { paths: [] } : selection ? { ...selection, paths: selection.paths.filter((path) => visibleNotePaths.has(path)) } : { paths: selectedPath && visibleNotePaths.has(selectedPath) ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath }, [creationMode, selectedCollectionFile, selectedPath, selection, visibleNotePaths]);
+  const selectionFields = useMemo(() => {
+    const paths = new Set(listSelection.paths);
+    return bulkFields(allNotes.filter((note) => paths.has(note.path)), typeDescriptors);
+  }, [allNotes, listSelection.paths, typeDescriptors]);
   const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description]);
   const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors]);
   const embeddedNotes = useEmbeddedNoteReferences(
@@ -938,6 +968,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     setEditingPath(false);
     setPathDraft("");
     setMovePaths(undefined);
+    setSelection(undefined);
+    setBulkPropertyKind(undefined);
+    setBulkBusy(false);
     setOutlineOpen(false);
     setRenamePlan(undefined);
     setPendingRenameRecovery(undefined);
@@ -1161,6 +1194,22 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     } catch (error) { if (mutationScope.current.isCurrent(token)) setNotice(`Couldn’t duplicate note. ${gatewayError(error)}`); }
   }
 
+  function togglePin(path: string) {
+    if (!description) return;
+    const next = pinnedPaths.includes(path) ? pinnedPaths.filter((value) => value !== path) : [...pinnedPaths, path];
+    setPinnedPaths(next);
+    savePinnedNotes(description.collectionId, next);
+  }
+
+  function remapPin(from: string, to: string) {
+    if (!description) return;
+    setPinnedPaths((current) => {
+      const next = [...new Set(current.map((path) => path === from ? to : path))];
+      savePinnedNotes(description.collectionId, next);
+      return next;
+    });
+  }
+
   function noteActions(path: string): ActionMenuItem[] {
     return [
       { label: "Rename", icon: <Pencil aria-hidden="true" />, disabled: mutationsFrozen || !canRenameNotes, onSelect: () => void renameNote(path) },
@@ -1168,36 +1217,95 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       { label: "Duplicate", icon: <Copy aria-hidden="true" />, disabled: mutationsFrozen || !canCreateNotes, onSelect: () => void duplicateNote(path) },
       { label: "Copy link", icon: <Link2 aria-hidden="true" />, onSelect: () => copyFacet(`[[${path.replace(/\.md$/i, "")}]]`, "note link") },
       { label: "Copy path", icon: <Copy aria-hidden="true" />, onSelect: () => copyFacet(path, "note path") },
-      { label: "Delete", icon: <Trash2 aria-hidden="true" />, tone: "danger", disabled: mutationsFrozen || !canDeleteNotes, onSelect: () => void requestDelete(path) }
+      { label: pinnedPaths.includes(path) ? "Unpin" : "Pin", icon: <Pin aria-hidden="true" />, onSelect: () => togglePin(path) },
+      { label: "Delete", icon: <Trash2 aria-hidden="true" />, tone: "danger", disabled: mutationsFrozen || !canDeleteNotes || bulkBusy, onSelect: () => void requestDelete(path) }
     ];
   }
 
-  async function onMoveNotes(paths: string[], folder: string) {
-    if (!canRenameNotes || mutationScope.current.isFrozen) return;
+  function bulkActions(paths: string[]): ActionMenuItem[] {
+    const disabled = mutationsFrozen || bulkBusy || recoveryBusy;
+    return [
+      { label: "Move to…", icon: <Folder aria-hidden="true" />, disabled: disabled || !canRenameNotes, onSelect: () => setMovePaths(paths) },
+      { label: "Add tag", icon: <Tag aria-hidden="true" />, disabled: disabled || !canEditNotes, onSelect: () => setBulkPropertyKind("add-tag") },
+      { label: "Remove tag", icon: <Tag aria-hidden="true" />, disabled: disabled || !canEditNotes, onSelect: () => setBulkPropertyKind("remove-tag") },
+      { label: "Set property", icon: <Pencil aria-hidden="true" />, disabled: disabled || !canEditNotes || !selectionFields.some((field) => field.shared), onSelect: () => setBulkPropertyKind("property") },
+      { label: "Delete", icon: <Trash2 aria-hidden="true" />, tone: "danger", disabled: disabled || !canDeleteNotes, onSelect: () => void deleteSelectedNotes(paths) }
+    ];
+  }
+
+  async function executeBatch<Value>(paths: string[], operation: (path: string) => Promise<Value | undefined>, completed: (result: BatchResult<Value>) => void) {
+    if (batchRunning.current || recoveryBusy || mutationScope.current.isFrozen) return;
     const token = mutationScope.current.token();
-    const moved: Array<{ from: string; to: string }> = [];
-    let references = 0;
+    batchRunning.current = true; setBulkBusy(true); setNotice(undefined); setRecoveryAction(undefined);
     try {
-      const destination = folder ? safeRenamePath(folder) : "";
-      if (folder && !destination) throw new Error("Choose a collection-relative folder.");
-      for (const path of new Set(paths)) {
-        if (!mutationScope.current.isCurrent(token)) return;
-        const to = [destination, path.split("/").at(-1)!].filter(Boolean).join("/");
-        if (to === path) continue;
-        const session = await actionSession(path);
-        await flushSession(session);
-        // An earlier move can rewrite this note's links and advance its revision.
-        await refreshCachedNote(path);
-        if (!mutationScope.current.isCurrent(token)) return;
-        const preflight = await runNoteOperation(session, "validating", () => gateway.preflightRename(path, to, session.document.revision));
-        if (!mutationScope.current.isCurrent(token)) return;
-        const result = await performRename({ session, from: path, to, affectedPaths: preflight.affectedPaths, warnings: preflight.warnings }, true);
-        if (!result) break;
-        moved.push({ from: path, to: result.path });
-        references += preflight.affectedPaths.length;
-      }
-    } catch (error) { if (mutationScope.current.isCurrent(token)) setNotice(`Couldn’t move note. ${gatewayError(error)}`); }
-    finally { if (moved.length && mutationScope.current.isCurrent(token)) setRecoveryAction({ kind: "move", paths: moved, references }); }
+      const result = await mutationScope.current.register(token, runNoteBatch(paths, async (path) => {
+        if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+        return operation(path);
+      }));
+      if (mutationScope.current.isCurrent(token)) { setNotice(undefined); completed(result); }
+    } finally {
+      batchRunning.current = false;
+      if (mutationScope.current.isCurrent(token)) setBulkBusy(false);
+    }
+  }
+
+  function completePropertyBatch(verb: string, result: BatchResult<BatchUndo>) {
+    const message = batchMessage(verb, result);
+    if (result.succeeded.length) setRecoveryAction({ kind: "batch", changes: result.succeeded.map(({ value }) => value), message });
+    else setNotice(message, result.failed.length ? "error" : "info");
+  }
+
+  async function applyBulkProperties(paths: string[], change: BulkPropertyChange) {
+    if (!canEditNotes) return;
+    await executeBatch<BatchUndo>(paths, async (path) => {
+      const session = await actionSession(path);
+      await flushSession(session);
+      const before = structuredClone(session.document);
+      if (change.kind === "property" && !bulkFields([before], typeDescriptors).some((field) => field.name === change.field && field.shared)) throw new Error("This property is not declared by the note’s type.");
+      const next = bulkFrontmatter(before, change);
+      if (JSON.stringify(next) === JSON.stringify(before.frontmatter)) return;
+      const token = mutationScope.current.token();
+      const updated = await runNoteOperation(session, "properties", () => gateway.updateDocument(path,
+        replaceDocumentFrontmatter(before.document ?? composeRecordSource(before.frontmatter, before.body ?? ""), next), before.revision));
+      if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+      session.record.accept(updated); session.error = undefined; touchSession(session);
+      return { kind: "properties", document: before, revision: updated.revision };
+    }, (result) => completePropertyBatch("Updated", result));
+  }
+
+  async function deleteSelectedNotes(paths: string[]) {
+    if (!canDeleteNotes) return;
+    await executeBatch<BatchUndo>(paths, async (path) => {
+      const session = await actionSession(path);
+      await flushSession(session);
+      const deleted = await deleteNote(session, false);
+      return deleted ? { kind: "delete", document: deleted } : undefined;
+    }, (result) => { completePropertyBatch("Deleted", result); setSelection(undefined); setBulkPropertyKind(undefined); });
+  }
+
+  async function onMoveNotes(paths: string[], folder: string) {
+    if (!canRenameNotes) return;
+    const destination = folder ? safeRenamePath(folder) : "";
+    if (folder && !destination) { setNotice("Choose a collection-relative folder."); return; }
+    let references = 0;
+    await executeBatch(paths, async (path) => {
+      const to = [destination, path.split("/").at(-1)!].filter(Boolean).join("/");
+      if (to === path) return;
+      const session = await actionSession(path);
+      await flushSession(session);
+      // An earlier move can rewrite this note's links and advance its revision.
+      await refreshCachedNote(path);
+      const preflight = await runNoteOperation(session, "validating", () => gateway.preflightRename(path, to, session.document.revision));
+      const renamed = await performRename({ session, from: path, to, affectedPaths: preflight.affectedPaths, warnings: preflight.warnings }, true, undefined, false);
+      if (!renamed) throw new Error("The move did not complete.");
+      references += preflight.affectedPaths.length;
+      return { from: path, to: renamed.path };
+    }, (result) => {
+      const message = `${batchMessage("Moved", result)}${references ? ` Also updated links in ${references} ${references === 1 ? "note" : "notes"}.` : ""}`;
+      if (result.succeeded.length) setRecoveryAction({ kind: "move", paths: result.succeeded.map(({ value }) => value), references, message });
+      else setNotice(message, result.failed.length ? "error" : "info");
+      setSelection(undefined); setBulkPropertyKind(undefined);
+    });
   }
 
   async function requestRename() {
@@ -1259,7 +1367,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     }
   }
 
-  async function performRename(plan: RenamePlan, updateRefs: boolean, requestId?: string) {
+  async function performRename(plan: RenamePlan, updateRefs: boolean, requestId?: string, reportUndo = true) {
     if (mutationScope.current.isFrozen) return;
     const token = mutationScope.current.token();
     const { session, from, to } = plan;
@@ -1301,7 +1409,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       }
       setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, from), renamed.path));
       replaceNoteHistoryPath(from, renamed.path);
-      setRecoveryAction({ kind: "rename", from, to: renamed.path });
+      if (reportUndo) setRecoveryAction({ kind: "rename", from, to: renamed.path });
+      remapPin(from, renamed.path);
       touchSession(session);
       return renamed;
     } catch (error) {
@@ -1322,6 +1431,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         ? message
         : `Couldn’t rename “${session.draft.title || session.document.path}”. ${message}`);
       touchSession(session);
+      if (!reportUndo) throw error;
     } finally {
       if (!mutationScope.current.isCurrent(token)) return;
       if (session.mutationController === controller) {
@@ -1447,7 +1557,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   }
 
   async function requestDelete(path = noteSessions.current.active?.document.path) {
-    if (!path || mutationScope.current.isFrozen || !canDeleteNotes || deleteRequests.current.has(path)) return;
+    if (!path || batchRunning.current || mutationScope.current.isFrozen || !canDeleteNotes || deleteRequests.current.has(path)) return;
     const token = mutationScope.current.token();
     deleteRequests.current.add(path);
     try {
@@ -1458,7 +1568,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     finally { deleteRequests.current.delete(path); }
   }
 
-  async function deleteNote(session: NoteSession) {
+  async function deleteNote(session: NoteSession, reportUndo = true) {
     if (mutationScope.current.isFrozen) return;
     const token = mutationScope.current.token();
     const path = session.document.path;
@@ -1488,7 +1598,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         noteSessions.current.delete(path);
         indexController.commitRemoval(path);
         setRecentPaths((current) => forgetRecentPath(current, path));
-        if (deletedDocument) setRecoveryAction({ kind: "delete", document: deletedDocument });
+        if (deletedDocument && reportUndo) setRecoveryAction({ kind: "delete", document: deletedDocument });
+        return deletedDocument;
       } catch (error) {
         if (!mutationScope.current.isCurrent(token)) return;
         session.deleted = false;
@@ -1496,6 +1607,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         session.error = gatewayError(error);
         setNotice(`Couldn’t delete “${session.draft.title || path}”. ${session.error}`);
         touchSession(session);
+        throw error;
       }
   }
 
@@ -1506,6 +1618,31 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     setRecoveryBusy(true);
     setNotice(undefined);
     try {
+      if (action.kind === "batch") {
+        const result = await runNoteBatch(action.changes.map((change) => change.document.path), async (path) => {
+          if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+          const change = action.changes.find((item) => item.document.path === path)!;
+          if (change.kind === "delete") {
+            const restored = await mutationScope.current.register(token, gateway.restore(change.document));
+            if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+            createSession(restored); indexController.create(summaryFromDocument(restored));
+          } else {
+            const session = await actionSession(path);
+            await flushSession(session);
+            const restored = await runNoteOperation(session, "properties", () => gateway.updateDocument(path,
+              replaceDocumentFrontmatter(session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body ?? ""), change.document.frontmatter), change.revision));
+            if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+            session.record.accept(restored); session.error = undefined; touchSession(session);
+          }
+          return path;
+        });
+        if (!mutationScope.current.isCurrent(token)) return;
+        const failed = new Set(result.failed.map((item) => item.path));
+        const remaining = action.changes.filter((change) => failed.has(change.document.path));
+        setRecoveryAction(remaining.length ? { ...action, changes: remaining, message: batchMessage("Restored", result) } : undefined);
+        if (!remaining.length) setNotice("Restored selected notes.", "success");
+        return;
+      }
       if (action.kind === "delete") {
         const restored = await mutationScope.current.register(token, gateway.restore(action.document));
         if (!mutationScope.current.isCurrent(token)) return;
@@ -1513,8 +1650,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         indexController.create(summaryFromDocument(restored));
         setNotice(`Restored “${noteTitle(restored, typeDescriptors)}”.`, "success");
       } else {
-        const remaining = action.kind === "move" ? [...action.paths] : [action];
-        for (const move of [...remaining].reverse()) {
+        const moves = action.kind === "move" ? [...action.paths] : [action];
+        const result = await runNoteBatch([...moves].reverse().map((move) => move.to), async (path) => {
+          const move = moves.find((move) => move.to === path)!;
           const session = noteSessions.current.get(move.to);
           if (!session || session.deleted) throw new Error("The renamed note is no longer available to restore.");
           await flushSession(session);
@@ -1526,7 +1664,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
             session.document.revision,
             true
           ));
-          if (!mutationScope.current.isCurrent(token)) return;
+          if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
           session.record.accept(restored);
           session.error = undefined;
           noteSessions.current.move(move.to, move.from, session);
@@ -1539,9 +1677,16 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           }
           setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.to), restored.path));
           replaceNoteHistoryPath(move.to, restored.path);
+          remapPin(move.to, restored.path);
           touchSession(session);
-          remaining.pop();
-          if (action.kind === "move") setRecoveryAction(remaining.length ? { ...action, paths: [...remaining] } : undefined);
+          return move;
+        });
+        if (!mutationScope.current.isCurrent(token)) return;
+        if (result.failed.length) {
+          const failed = new Set(result.failed.map((item) => item.path));
+          if (action.kind === "move") setRecoveryAction({ ...action, paths: moves.filter((move) => failed.has(move.to)), message: batchMessage("Restored", result) });
+          else setNotice(batchMessage("Restored", result));
+          return;
         }
         setNotice("Restored note paths.", "success");
       }
@@ -1907,7 +2052,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     onCheckNote: () => void validateNote(),
     onCopyPath: () => { if (document) copyFacet(document.path, "note path"); }
   });
-  const activeToasts = buildToastItems({ notice, recoveryMessage: recoveryAction ? recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document, typeDescriptors)}”.` : recoveryAction.kind === "move" ? `Moved ${recoveryAction.paths.length} ${recoveryAction.paths.length === 1 ? "note" : "notes"}.${recoveryAction.references ? ` Also updated links in ${recoveryAction.references} ${recoveryAction.references === 1 ? "note" : "notes"}.` : ""}` : `Renamed to “${recoveryAction.to}”.` : undefined, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
+  const activeToasts = buildToastItems({ notice, recoveryMessage: recoveryAction ? recoveryAction.kind === "batch" ? recoveryAction.message : recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document, typeDescriptors)}”.` : recoveryAction.kind === "move" ? recoveryAction.message ?? `Moved ${recoveryAction.paths.length} ${recoveryAction.paths.length === 1 ? "note" : "notes"}.${recoveryAction.references ? ` Also updated links in ${recoveryAction.references} ${recoveryAction.references === 1 ? "note" : "notes"}.` : ""}` : `Renamed to “${recoveryAction.to}”.` : undefined, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
   const pendingNoteMutations = gateway.pendingNoteMutations();
   activeToasts.push(...pendingNoteToasts(pendingNoteMutations, activePendingRename?.requestId, recoveryBusy, recoverPendingNote));
   if (noteOpenFailure && document) activeToasts.push({
@@ -1975,6 +2120,13 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     {surface === "notes" && <>
       {(!layout.listCollapsed || mobileLayout) && <NoteList
         entries={visibleBrowserEntries}
+        selection={listSelection}
+        onSelection={setSelection}
+        pinnedPaths={pinnedPaths}
+        selectionBar={listSelection.paths.length > 1 && <div className="note-selection" aria-label="Selected notes" aria-busy={bulkBusy}>
+          <div className="note-selection-bar"><span role="status">{listSelection.paths.length} selected</span><ActionMenu label="Selection actions" items={bulkActions(listSelection.paths)} /><button className="mdbase-button is-tertiary" aria-label="Clear selection" onClick={() => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); }}>Clear</button></div>
+          {bulkPropertyKind && <Suspense fallback={<p>Loading properties…</p>}><BulkNoteProperties key={bulkPropertyKind} kind={bulkPropertyKind} fields={selectionFields} busy={bulkBusy} onApply={(change) => applyBulkProperties(listSelection.paths, change)} onClose={() => setBulkPropertyKind(undefined)} /></Suspense>}
+        </div>}
         noteCount={visibleNotes.length}
         fileCount={visibleFiles.length}
         types={description.types}
@@ -2014,9 +2166,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         tags={tagFacets}
         filterTypes={typeFacets}
         onFilter={setNoteFilter}
-        noteActions={noteActions}
+        noteActions={(path) => listSelection.paths.length > 1 && listSelection.paths.includes(path) ? bulkActions(listSelection.paths) : noteActions(path)}
         onRename={(path) => void renameNote(path)}
-        onDelete={(path) => void requestDelete(path)}
+        onDelete={(path) => { if (listSelection.paths.length > 1 && listSelection.paths.includes(path)) void deleteSelectedNotes(listSelection.paths); else void requestDelete(path); }}
         onCreate={canCreateNotes ? beginCreate : undefined}
         onCollections={() => returnToMobilePane("collections")}
         leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
