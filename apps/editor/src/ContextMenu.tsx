@@ -155,6 +155,7 @@ export function ContextMenu({ label, items, children, className = "", style, sho
           key={item.label}
           role="menuitem"
           disabled={item.disabled}
+          title={item.title}
           className={item.tone === "danger" ? "danger-action" : undefined}
           onClick={() => {
             close();

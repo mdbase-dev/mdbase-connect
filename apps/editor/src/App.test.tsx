@@ -369,18 +369,14 @@ describe("mdbase editor", () => {
     expect(screen.getByRole("combobox", { name: "Type" })).toHaveAttribute("data-value", "note");
   });
 
-  it("collapses collection facets, filters notes, and follows backlinks", async () => {
+  it("filters collection folders and facets and follows backlinks", async () => {
     const user = userEvent.setup();
     render(<App gateway={new DemoCollectionGateway(12)} />);
 
     await screen.findByRole("heading", { name: "All notes" });
     const folders = screen.getByRole("group", { name: "Folders" });
-    const foldersToggle = await within(folders).findByRole("button", { name: "Folders" });
-    expect(foldersToggle).toHaveAttribute("aria-expanded", "true");
-    await user.click(foldersToggle);
-    expect(foldersToggle).toHaveAttribute("aria-expanded", "false");
-    expect(within(folders).queryByRole("button", { name: /Archive/ })).not.toBeInTheDocument();
-    await user.click(foldersToggle);
+    expect(within(folders).queryByRole("button", { name: "Folders" })).not.toBeInTheDocument();
+    expect(within(folders).getByRole("button", { name: "New folder" })).toBeInTheDocument();
     await user.click(within(folders).getByRole("button", { name: /^Show notes in Archive,/ }));
     expect(screen.getByRole("heading", { name: "Archive" })).toBeInTheDocument();
     expect(screen.getAllByRole("option")).toHaveLength(2);

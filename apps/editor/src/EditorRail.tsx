@@ -8,7 +8,8 @@ import {
   NotebookIcon as Notebook,
   SidebarSimpleIcon as PanelLeftClose
 } from "./icons";
-import { AppSwitcher } from "@mdbase-dev/ui/app-switcher";
+import { Wordmark } from "@mdbase-dev/ui/brand";
+import { RailDropTarget, type RailDropActions } from "./RailDropTarget";
 
 export type EditorRailSurface = "notes" | "types" | "settings" | "connect";
 
@@ -16,12 +17,6 @@ interface RailDestination {
   href?: string;
   onClick?: () => void;
 }
-
-// Local builds point the app menu at local copies of Reader and Writer.
-const appUrls = {
-  reader: import.meta.env.VITE_MDBASE_READER_URL as string | undefined,
-  writer: import.meta.env.VITE_MDBASE_WRITER_URL as string | undefined
-};
 
 export function EditorRail({
   collectionName,
@@ -36,6 +31,9 @@ export function EditorRail({
   mobileReturn,
   onSwitch,
   onCollapse,
+  onMoveNotes,
+  onMoveFolder,
+  notesSelected,
   children,
   footer
 }: {
@@ -53,19 +51,19 @@ export function EditorRail({
   onCollapse?: () => void;
   children?: ReactNode;
   footer: ReactNode;
-}) {
+  notesSelected?: boolean;
+} & RailDropActions) {
   return <aside className="collection-rail" aria-label="Collection navigation">
-    <div className="rail-header"><AppSwitcher current="editor" urls={appUrls} />{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
+    <div className="rail-header"><button className="rail-collection-switcher" aria-label={`Switch collection, current collection ${collectionName}`} aria-haspopup="dialog" onClick={onSwitch}><Wordmark app="editor" /><span className="rail-current-collection"><span>{collectionName}</span><ChevronDown aria-hidden="true" /></span></button>{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
     <nav>
       {mobileReturn && <a className="mobile-editor-return" href={mobileReturn.href} onClick={mobileReturn.onClick}><span><ArrowLeft aria-hidden="true" />{mobileReturn.label}</span></a>}
-      <button className="collection-name" aria-label={`Switch collection, current collection ${collectionName}`} onClick={onSwitch}><span>{collectionName}</span><ChevronDown aria-hidden="true" /></button>
-      <RailLink destination={notes} selected={surface === "notes"} label="All notes" ariaLabel={noteCount === undefined ? "All notes" : `All notes, ${noteCount.toLocaleString()} total`} icon={<Notebook aria-hidden="true" />} count={noteCount} />
+      <RailDropTarget folder="" onMoveNotes={onMoveNotes} onMoveFolder={onMoveFolder}><RailLink destination={notes} selected={notesSelected ?? surface === "notes"} label="All notes" ariaLabel={noteCount === undefined ? "All notes" : `All notes, ${noteCount.toLocaleString()} total`} icon={<Notebook aria-hidden="true" />} count={noteCount} /></RailDropTarget>
+      {children}
       <RailLink destination={types} selected={surface === "types"} label="Types" ariaLabel={typeCount === undefined ? "Types" : `Types (${typeCount})`} icon={<Braces aria-hidden="true" />} count={typeCount} />
       <RailLink destination={settings} selected={surface === "settings"} label="Settings" icon={<Settings aria-hidden="true" />} />
-      {children}
-      <p className="rail-manage-label">Manage</p>
+      <div className="rail-bottom-spacer" />
       <a className={`editor-rail-link${surface === "connect" ? " selected" : ""}`} href={connectHref} aria-current={surface === "connect" ? "page" : undefined}>
-        <span><Link aria-hidden="true" />Connect</span>{connectCount !== undefined && <small>{connectCount}</small>}
+        <span><Link aria-hidden="true" /><span className="rail-row-label">Connect</span></span>{connectCount !== undefined && <small>{connectCount}</small>}
       </a>
     </nav>
     <footer className="connection-footer">{footer}</footer>
@@ -80,11 +78,11 @@ function RailLink({ destination, selected, label, ariaLabel, icon, count }: {
   icon: ReactNode;
   count?: number;
 }) {
-  const content = <><span>{icon}{label}</span>{count !== undefined && <small>{count.toLocaleString()}</small>}</>;
+  const content = <><span>{icon}<span className="rail-row-label">{label}</span></span>{count !== undefined && <small>{count.toLocaleString()}</small>}</>;
   if (destination.href) {
     return <a className={`editor-rail-link${selected ? " selected" : ""}`} href={destination.href} aria-label={ariaLabel} aria-current={selected ? "page" : undefined}>{content}</a>;
   }
-  return <button className={selected ? "selected" : ""} aria-label={ariaLabel} onClick={destination.onClick}>{content}</button>;
+  return <button className={selected ? "selected" : ""} aria-label={ariaLabel} aria-current={selected ? "page" : undefined} onClick={destination.onClick}>{content}</button>;
 }
 
 function RailCollapseButton({ onClick }: { onClick: () => void }) {

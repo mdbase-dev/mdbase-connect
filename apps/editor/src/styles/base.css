@@ -76,6 +76,9 @@ body,
   margin: 0;
 }
 
+/* Provider layout is global; the feedback dialog styles load with its feature. */
+.mdbase-feedback-app { display: contents; }
+
 body {
   font-size: var(--font-size-ui);
   min-width: 320px;

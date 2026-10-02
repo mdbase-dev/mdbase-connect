@@ -1036,6 +1036,10 @@ button.danger:disabled {
     padding: 0;
   }
 
+  .connect-shell .rail-current-collection {
+    display: none;
+  }
+
   .connect-shell > .collection-rail nav {
     flex: 1;
     margin: 0 4px;

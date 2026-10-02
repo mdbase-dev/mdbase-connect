@@ -87,15 +87,35 @@ Types reuse the list-and-document rhythm; settings are one quiet document
 rather than a dashboard. Section headings sit above their content; preference
 rows share a steady rhythm, collection facts stay compact, and technical facts
 live behind Details. In the collection rail, All notes, Types, and
-Settings remain the primary editing group. Connect sits in a bottom-aligned
-Manage group above connection and account status, visibly secondary until a
-pending authorization count requires attention. Mobile (≤760px) presents each
-level as a separate navigable screen, with 44px touch targets and safe-area
-padding. The note bar contains only Back and More; the complete path sits
-subtly above the title, and Rename path, New note and Quick open live in More.
-List screens have a labeled, filled New note action. Properties take over the
-screen, and quick open fits the available viewport rather than keeping its
-desktop keyboard-help footer.
+Settings remain the primary editing group. One header trigger combines the brand
+lockup and current collection and opens the collection switcher; it includes
+recent collections, connecting another collection, the Connect workspace, and
+Send feedback. Feedback is not squeezed beside the connection status.
+Folders follow All notes directly, without a section heading, with a quiet New
+folder action. Connect sits at the bottom above connection status, visibly
+secondary until a pending authorization count requires attention. Counts use
+UI text with tabular numerals and appear only on hover, focus, or the selected
+row; accessible names always include them.
+
+Folder context menus provide Rename folder and Move to; F2 renames the focused
+folder. Dragging folders or notes onto a folder moves them there; All notes is
+the collection-root target. Hovering a collapsed folder expands it after 600ms.
+Folder changes first review the complete subtree and links using revision-aware
+rename preflights, then require one confirmation with note and affected-link
+counts. Execution updates references, reports progress, and lists partial
+failures without rolling back accepted changes. Folder changes that contain
+attachments are blocked with an embed-safety explanation until attachment
+reference rewriting is supported; note-only moves leave attachments untouched.
+Existing destination folders are not merged implicitly; exact-path collisions
+are rejected before writing. After a partial change, remaining notes can be
+moved individually to the destination.
+
+Mobile (≤760px) presents each level as a separate navigable screen, with 44px
+touch targets and safe-area padding. The note bar contains only Back and More;
+the complete path sits subtly above the title, and Rename path, New note and
+Quick open live in More. List screens have a labeled, filled New note action.
+Properties take over the screen, and quick open fits the available viewport
+rather than keeping its desktop keyboard-help footer.
 
 ## Connect account screens
 
