@@ -79,7 +79,7 @@ void file;
 void description;
 
 export async function typedBatchReads(connection: MdbaseConnection<{ title: string }>): Promise<void> {
-  const options: ReadManyOptions = { includeBody: true, frontmatterMode: "both", types: ["note"], concurrency: 2 };
+  const options: ReadManyOptions = { revisions: false, includeBody: true, frontmatterMode: "both", types: ["note"], concurrency: 2 };
   const outcome = await connection.readMany(["one.md", "missing.md"] as const, options);
   if (!outcome.ok) return;
   const result: ReadManyResult<{ title: string }> = outcome.value;

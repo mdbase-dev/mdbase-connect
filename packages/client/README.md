@@ -771,7 +771,12 @@ pinned size. Abort releases even a paused iterator's cursor without needing
 `return()`. `readMany(paths, { includeBody, frontmatterMode, types })` provides
 ordered found/missing/error entries over bounded independent batches. When
 `read-many-documents-v1` is advertised it uses revision-bearing document reads;
-otherwise it retains typed path queries without sending extended inputs. The
+otherwise it retains typed path queries without sending extended inputs.
+Read-only callers can set `revisions: false` to always use typed path queries,
+without discovery or separate type selection, with a default batch size of 1,000
+(up to the query page limit). Use `batchSize: 500` for smaller body payloads.
+This mode needs only `query` approval and does not guarantee revisions; retain
+the default for revision-safe editing. The
 signature and query-shaped result stay unchanged (`includeBody` defaults false,
 `frontmatterMode` defaults effective). A `types` filter is evaluated by an
 authority query before hydration; selection and reads are not one snapshot.

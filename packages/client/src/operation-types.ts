@@ -87,11 +87,13 @@ export interface QueryRecord<Frontmatter extends JsonObject = JsonObject> {
 export type ReadManyRecord<Frontmatter extends JsonObject = JsonObject> = QueryRecord<Frontmatter>;
 
 export interface ReadManyOptions extends ConnectRequestOptions {
+  /** Default true: prefer negotiated document revisions. False uses read-only path queries; no revision guarantee. */
+  revisions?: boolean;
   includeBody?: boolean;
   frontmatterMode?: QueryInput["frontmatterMode"];
   /** Restrict matching records to these raw collection types, not a contract view. */
   types?: string[];
-  /** Unique paths per batch, default 100; range 1..1,000. Document authorities cap at 100. */
+  /** Unique paths per batch, default 100 (1,000 with revisions:false); range 1..1,000. Document authorities cap at 100. */
   batchSize?: number;
   /** Independent batches in flight, default 4; range 1..4. Cursor pages stay serial. */
   concurrency?: number;

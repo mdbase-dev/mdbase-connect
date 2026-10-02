@@ -131,6 +131,44 @@ describe("readMany", () => {
   });
 });
 
+describe("read-only readMany", () => {
+  it.each([true, false])("hydrates 300 typed paths in one query without discovery (advertised=%s)", async advertised => {
+    const supports = vi.fn(async () => connectSuccess(advertised));
+    const { client, request } = nativeFixture(async (operation, input) => {
+      expect(operation).toBe("query");
+      return envelope(selected(input).filter(path => path !== "missing.md").reverse());
+    }, supports);
+    const paths = [...Array.from({ length: 299 }, (_, i) => `${i}.md`), "missing.md"];
+    const result = await client.readMany([...paths, paths[0]], {
+      revisions: false, types: ["note"], includeBody: true, frontmatterMode: "both"
+    });
+    expect(supports).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledOnce();
+    expect(request.mock.calls[0][1]).toMatchObject({ limit: 300, types: ["note"], include_body: true, frontmatter_mode: "both" });
+    expect(request.mock.calls[0][1]).not.toHaveProperty("select");
+    if (!result.ok) throw new Error(result.problem.message);
+    expect(result.value.results.map(entry => entry.path)).toEqual([...paths, paths[0]]);
+    expect(result.value.results[299]).toEqual({ status: "missing", path: "missing.md" });
+    expect(result.value.results[0]).toBe(result.value.results[300]);
+  });
+
+  it("uses the query page ceiling and honors smaller explicit batches", async () => {
+    const { client, request } = nativeFixture(async (_operation, input) => envelope(selected(input)));
+    const paths = Array.from({ length: 1001 }, (_, i) => `${i}.md`);
+    expect((await client.readMany(paths, { revisions: false })).ok).toBe(true);
+    expect(request.mock.calls.map(call => (call[1] as any).limit)).toEqual([1000, 1]);
+    request.mockClear();
+    await client.readMany(paths.slice(0, 3), { revisions: false, batchSize: 2 });
+    expect(request.mock.calls.map(call => (call[1] as any).limit)).toEqual([2, 1]);
+  });
+
+  it("rejects non-boolean revision policy", async () => {
+    const { client, request } = nativeFixture(async () => envelope([]));
+    await expect(client.readMany(["a.md"], { revisions: "false" } as any)).rejects.toThrow(TypeError);
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+
 describe("revision-bearing readMany", () => {
   it("uses only advertised read paths, preserving duplicate identity and missing entries", async () => {
     const { client, request, supports } = nativeFixture(async (operation, input) => {
