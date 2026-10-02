@@ -1,5 +1,33 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "collections_publication_tests.rs"]
+mod publication_tests;
+
+// Windows scanners/indexers can temporarily deny replacement without delete
+// sharing. Keep ownership of the same synced temporary file and retry only the
+// native sharing/access errors, never remove the destination first. This is for
+// metadata publication; remove when tempfile::persist supplies this behavior.
+#[cfg(any(windows, test))]
+fn persist_config_with_windows_retry(
+    mut temporary: NamedTempFile,
+    mut persist: impl FnMut(NamedTempFile) -> Result<fs::File, tempfile::PersistError>,
+) -> Result<(), ConnectError> {
+    for attempt in 0..=20 {
+        match persist(temporary) {
+            Ok(_) => return Ok(()),
+            Err(error)
+                if attempt < 20 && matches!(error.error.raw_os_error(), Some(5 | 32 | 33)) =>
+            {
+                temporary = error.file;
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(error) => return Err(ConnectError::Io(error.error)),
+        }
+    }
+    unreachable!("bounded persistence loop returns on its final attempt")
+}
+
 impl CollectionRegistry {
     /// List registered collection metadata without loading type or contract resources.
     pub fn list(&self) -> Result<Vec<CollectionSummary>, ConnectError> {
@@ -403,6 +431,9 @@ impl CollectionRegistry {
             temporary.as_file().set_permissions(permissions)?;
             temporary.write_all(serialized.as_bytes())?;
             temporary.as_file().sync_all()?;
+            #[cfg(windows)]
+            persist_config_with_windows_retry(temporary, |file| file.persist(&config_path))?;
+            #[cfg(not(windows))]
             temporary
                 .persist(&config_path)
                 .map_err(|error| ConnectError::Io(error.error))?;
