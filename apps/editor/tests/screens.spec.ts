@@ -26,9 +26,17 @@ for (const width of [1440, 390]) {
     await page.getByRole("button", { name: "Types (1)" }).click();
     await page.getByRole("option", { name: /note/ }).click();
     await expect(page.getByRole("textbox", { name: "title field name" })).toBeVisible();
+    await expect(page.locator(".type-inspector-bar .mdbase-save-notice")).toHaveCount(0);
+    // Healthy saves are silent; exercise the slow-save layout with a temporary
+    // shared notice fixture. TypeInspector unit tests cover its delayed display.
     const notice = await page.locator(".type-inspector-bar").evaluate((bar) => {
+      const fixture = document.createElement("span");
+      fixture.className = "mdbase-save-notice";
+      fixture.textContent = "Saving…";
+      bar.append(fixture);
       const rect = bar.getBoundingClientRect();
-      const status = bar.querySelector(".mdbase-save-notice")!.getBoundingClientRect();
+      const status = fixture.getBoundingClientRect();
+      fixture.remove();
       return { gap: rect.right - status.right, width: status.width };
     });
     expect(notice.gap).toBeLessThan(25);

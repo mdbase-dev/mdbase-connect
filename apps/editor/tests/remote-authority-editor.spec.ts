@@ -37,7 +37,7 @@ test("chooses a remote authority collection and performs CRUD through its provid
 
   await page.getByRole("textbox", { name: "Note body" }).fill("Stored directly on mdbase.");
   await expect.poll(() => authority.operations.filter((operation) => operation === "update").length).toBe(1);
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
 
   await page.getByRole("button", { name: "A hosted draft.md" }).click();
   const path = page.getByRole("textbox", { name: "Markdown path" });

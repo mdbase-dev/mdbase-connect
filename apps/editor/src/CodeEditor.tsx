@@ -619,6 +619,7 @@ const writerHighlightStyle = HighlightStyle.define([
 
 function markdownFormatCommand(format: MarkdownFormat) {
   return (view: EditorView) => {
+    if (view.state.readOnly) return true;
     const transaction = view.state.changeByRange((range) => {
       const edit = markdownEdit(view.state.doc.toString(), range.from, range.to, format);
       return {

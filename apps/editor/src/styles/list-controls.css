@@ -164,7 +164,7 @@
 
 .pane-resizers {
   position: absolute;
-  z-index: 15;
+  z-index: 25;
   inset: 0;
   pointer-events: none;
 }

@@ -115,12 +115,14 @@ import {
   BacklinksPanel,
   EmptyEditor,
   InspectorPanelLoading,
+  InspectorFrame,
   NoteSkeleton,
   OutlineMenu,
   PaneControl,
   PaneResizeHandle,
   PaneSkeleton,
   SaveIndicator,
+  PathLabel,
   TypeAccessPrompt
 } from "./WorkspaceChrome";
 const TypeList = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeList })));
@@ -1722,10 +1724,17 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         setShortcutsOpen(false);
         return;
       }
-      if (modifier && (key === "p" || (key === "k" && !isEditableTarget(event.target)))) {
+      if (modifier && !event.altKey && !event.shiftKey && key === "p") {
         event.preventDefault();
         setShortcutsOpen(false);
         setQuickOpen(true);
+        return;
+      }
+      if (modifier && !event.altKey && !event.shiftKey && key === "k"
+          && !(event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content"))) {
+        // K belongs only to note text, not the browser's location bar or a
+        // second workspace shortcut when focus is on another control.
+        event.preventDefault();
         return;
       }
       if (quickOpen || shortcutsOpen) return;
@@ -1767,8 +1776,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         setShortcutsOpen(true);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [creationDirty, creationMode, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
@@ -1822,7 +1831,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       : viewportWidth - editorMinimum
   ));
   const inspectorTrack = Math.min(layout.inspectorWidth, inspectorResizeMax);
-  const reservedInspectorWidth = inspectorVisible && viewportWidth > 1120 ? inspectorTrack : 0;
+  const inspectorOverlay = viewportWidth <= 1120;
+  const reservedInspectorWidth = inspectorVisible && !inspectorOverlay ? inspectorTrack : 0;
   const collectionResizeMax = Math.max(COLLECTION_WIDTH.min, Math.min(
     COLLECTION_WIDTH.max,
     viewportWidth - preferredListTrack - editorMinimum - reservedInspectorWidth
@@ -1870,9 +1880,11 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const notePathControl = document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
     <label className="sr-only" htmlFor="note-path">Markdown path</label>
     <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
-  </form> : mobileLayout ? <p className="mobile-note-path" title={document.path}>{document.path}</p>
-    : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>);
+  </form> : mobileLayout ? <p className="mobile-note-path" title={document.path}><PathLabel path={document.path} /></p>
+    : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path" aria-label={document.path}><PathLabel path={document.path} /><Pencil aria-hidden="true" /></button>);
   const noteSaveIndicator = <SaveIndicator
+    identity={noteSessions.current.active?.editorSessionKey ?? document?.path}
+    onRetry={canEditNotes ? () => { void noteSessions.current.active?.record.save(); } : undefined}
     state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
     activity={noteSessions.current.active?.activity}
     detail={noteSessions.current.active?.activityDetail}
@@ -1986,7 +1998,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         onCreate={createNote}
         onCancel={cancelCreation}
         onDraftChange={setCreationDirty}
-      /></Suspense> : <main className="editor-pane" aria-label="Note editor">
+      /></Suspense> : <main className="editor-pane" aria-label="Note editor" data-save-state={saveState}>
         {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar mdbase-settle-host">
             <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
@@ -2009,7 +2021,6 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
             </div>
             {!mobileLayout && <div className="path-wrap">{notePathControl}</div>}
             {!mobileLayout && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
-            {!mobileLayout && <span className="word-count" aria-label={`${wordCount.toLocaleString()} words`}>{wordCount.toLocaleString()} {wordCount === 1 ? "word" : "words"}</span>}
             {!mobileLayout && preferences.vim && <span className="vim-label">vim</span>}
             {!mobileLayout && !canEditNotes && <span className="connect-muted">Read only</span>}
             {!mobileLayout && noteSaveIndicator}
@@ -2100,10 +2111,11 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           onRetry={() => noteOpenFailure ? navigateToNote(noteOpenFailure.path, noteOpenFailure.options) : void start()}
         />}
       </main>}
-      {propertiesOpen && (document ? <Suspense fallback={<InspectorPanelLoading label="Note properties" />}>
+      {propertiesOpen && <InspectorFrame overlay={inspectorOverlay} label="Note properties" width={inspectorTrack} onClose={() => setPropertiesOpen(false)}>{document ? <Suspense fallback={<InspectorPanelLoading label="Note properties" />}>
         <PropertiesPanel
           key={document.path}
           note={document}
+          wordCount={wordCount}
           types={description.types}
           recordPaths={allNotes.map((note) => note.path)}
           error={propertiesError}
@@ -2112,10 +2124,10 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           onSave={saveProperties}
           onSaveDocument={(source, previousSource) => saveRecordSource(document.path, source, previousSource)}
         />
-      </Suspense> : noteLoading ? <InspectorPanelLoading label="Note properties" /> : null)}
-      {backlinksOpen && (document
+      </Suspense> : noteLoading ? <InspectorPanelLoading label="Note properties" /> : null}</InspectorFrame>}
+      {backlinksOpen && <InspectorFrame overlay={inspectorOverlay} label="Backlinks" width={inspectorTrack} onClose={() => setBacklinksOpen(false)}>{document
         ? <BacklinksPanel notes={backlinkNotes} types={typeDescriptors} loading={foldersLoading || (!contentComplete && !contentError)} error={contentError} onRetry={() => void loadContentIndex()} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />
-        : noteLoading ? <InspectorPanelLoading label="Backlinks" /> : null)}
+        : noteLoading ? <InspectorPanelLoading label="Backlinks" /> : null}</InspectorFrame>}
     </>}
 
     {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{missingTypeCapabilities(connectionSummary).length > 0 ? <TypeAccessPrompt
@@ -2207,7 +2219,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         onReset={() => setLayout((current) => ({ ...current, listWidth: LIST_WIDTH.default }))}
         onDragChange={(dragging) => setResizingPane(dragging ? "list" : undefined)}
       />}
-      {inspectorVisible && !mobileLayout && <PaneResizeHandle
+      {inspectorVisible && !inspectorOverlay && <PaneResizeHandle
         className="inspector-resizer"
         label="Resize note inspector"
         value={inspectorTrack}

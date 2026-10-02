@@ -1,8 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CollectionContractDescriptor, CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContractCatalog } from "./contract-catalog";
 import type { NoteSummary, TypeDocument } from "./model";
 import { TypeInspector, TypePackBrowser } from "./TypeBrowser";
@@ -10,7 +10,31 @@ import { NEW_TYPE_SOURCE } from "./type-constants";
 import { readVisualType } from "./type-schema";
 import { chooseOption, optionsOf } from "./test/select";
 
+afterEach(() => vi.useRealTimers());
+
 describe("recursive type builder", () => {
+  it("keeps the type save notice silent until slow and surfaces failure immediately", () => {
+    vi.useFakeTimers();
+    const props = {
+      type: { name: "note", schema: {}, extensions: {} },
+      document: { name: "note", path: "_types/note.md", revision: "one", document: NEW_TYPE_SOURCE },
+      source: NEW_TYPE_SOURCE, notes: [], creating: false, loading: false, saving: false,
+      onSourceChange: vi.fn(), onSave: vi.fn(), onRevert: vi.fn(), onCancel: vi.fn(), onBack: vi.fn()
+    };
+    const view = render(<TypeInspector {...props} />);
+    expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toBeNull();
+    view.rerender(<TypeInspector {...props} saving />);
+    act(() => vi.advanceTimersByTime(1_499));
+    expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toBeNull();
+    act(() => vi.advanceTimersByTime(1));
+    expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toHaveTextContent("Saving…");
+    view.rerender(<TypeInspector {...props} error="Offline" />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Offline");
+    expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toHaveTextContent("Needs attention");
+    view.rerender(<TypeInspector {...props} />);
+    expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toBeNull();
+  });
+
   it("moves field deletion into a keyboard-accessible row menu", async () => {
     const user = userEvent.setup();
     render(<InspectorHarness />);

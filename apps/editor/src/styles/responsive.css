@@ -110,15 +110,6 @@
     grid-template-columns: var(--collection-display) var(--list-display) minmax(320px, 1fr);
   }
 
-  .app-shell.inspector-visible .properties-panel,
-  .app-shell.inspector-visible .backlinks-panel {
-    position: absolute;
-    z-index: 20;
-    top: 0;
-    right: 0;
-    width: var(--inspector-display);
-    height: 100%;
-  }
 }
 
 @media (min-width: 761px) {
@@ -291,15 +282,12 @@
     font-size: var(--font-size-ui);
   }
 
+  .inspector-content {
+    width: 100vw;
+  }
+
   .properties-panel,
-  .backlinks-panel,
-  .app-shell.inspector-visible .properties-panel,
-  .app-shell.inspector-visible .backlinks-panel {
-    position: absolute;
-    z-index: 30;
-    inset: 0;
-    width: auto;
-    height: auto;
+  .backlinks-panel {
     padding: max(20px, env(safe-area-inset-top)) 18px max(20px, env(safe-area-inset-bottom));
     border: 0;
   }
