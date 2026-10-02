@@ -635,6 +635,18 @@ test("previews internal editor links on hover, but not sidebar rows", async ({ p
   await expect(preview).toContainText("Journal/garden-notes-2.md");
 });
 
+test("moves dragged notes onto folders and All notes at the collection root", async ({ page }) => {
+  await page.goto("?demo=12");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+  const note = page.getByRole("option", { name: /Garden notes 2/ });
+  await note.dragTo(page.getByRole("button", { name: /^Show notes in Projects,/ }));
+  await expect(page.getByRole("button", { name: /^Show notes in Journal, 2 notes/ })).toBeVisible();
+  await note.click();
+  await expect(page.getByTitle("Rename Markdown path")).toContainText("Projects/garden-notes-2.md");
+  await note.dragTo(page.getByRole("button", { name: /^All notes,/ }));
+  await expect(page.getByTitle("Rename Markdown path")).toHaveText("garden-notes-2.md");
+});
+
 test("renames a folder with one link-aware confirmation and supports folder drops", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");

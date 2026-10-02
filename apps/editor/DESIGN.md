@@ -81,7 +81,8 @@ Types reuse the list-and-document rhythm; settings become one quiet
 document rather than a dashboard, with technical facts behind Details. In the collection rail, All notes, Types, and
 Settings remain the primary editing group. One header trigger combines the brand
 lockup and current collection and opens the collection switcher; it includes
-recent collections, connecting another collection, and the Connect workspace.
+recent collections, connecting another collection, the Connect workspace, and
+Send feedback. Feedback is not squeezed beside the connection status.
 Folders follow All notes directly, without a section heading, with a quiet New
 folder action. Connect sits at the bottom above connection status, visibly
 secondary until a pending authorization count requires attention. Counts use
@@ -98,6 +99,9 @@ counts. Execution updates references, reports progress, and lists partial
 failures without rolling back accepted changes. Folder changes that contain
 attachments are blocked with an embed-safety explanation until attachment
 reference rewriting is supported; note-only moves leave attachments untouched.
+Existing destination folders are not merged implicitly; exact-path collisions
+are rejected before writing. After a partial change, remaining notes can be
+moved individually to the destination.
 
 ## Editing
 

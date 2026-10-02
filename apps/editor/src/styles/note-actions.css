@@ -1,10 +1,10 @@
 .note-search-root { position: relative; min-width: 0; }
 .search-field { flex-wrap: wrap; }
 .search-field input { flex: 1; min-width: 40px; }
-.search-field .search-filter-chip { display: inline-flex; width: auto; max-width: 100%; gap: 4px; padding: 3px 6px; color: var(--accent); background: var(--accent-soft); font-size: 12px; }
+.search-field .search-filter-chip { display: inline-flex; width: auto; max-width: 100%; gap: 4px; padding: 3px 6px; color: var(--accent); background: var(--accent-soft); font-size: var(--font-size-caption); }
 .search-filter-chip svg { width: 14px; height: 14px; flex-shrink: 0; }
 .search-filter-suggestions { position: absolute; z-index: 30; top: 100%; left: 0; right: 0; max-height: 320px; overflow: auto; border: 1px solid var(--line); background: var(--white); }
-.search-filter-suggestions button { display: flex; justify-content: space-between; gap: 12px; width: 100%; min-height: 36px; padding: 8px 12px; text-align: left; font-size: 14px; }
+.search-filter-suggestions button { display: flex; justify-content: space-between; gap: 12px; width: 100%; min-height: 36px; padding: 8px 12px; text-align: left; font-size: var(--font-size-ui); }
 .search-filter-suggestions button:hover, .search-filter-suggestions button[aria-selected="true"] { background: var(--accent-soft); }
 .search-filter-suggestions small { color: var(--muted); font-variant-numeric: tabular-nums; }
 .search-filter-suggestions p { padding: 8px 12px; color: var(--muted); }
@@ -14,8 +14,8 @@
 .has-note-footer .cm-scroller { flex-direction: column; }
 .body-editor.has-note-footer .cm-content { flex-shrink: 0; width: 100%; min-height: auto; }
 .note-footer { width: 100%; padding: 24px max(var(--writing-gutter), calc((100% - var(--writing-measure)) / 2)) 48px; }
-.linked-from { border-top: 1px solid var(--line); padding-top: 20px; color: var(--muted); font-size: 14px; }
-.linked-from h2 { font-size: 14px; font-weight: 500; margin: 0 0 12px; }
+.linked-from { border-top: 1px solid var(--line); padding-top: 20px; color: var(--muted); font-size: var(--font-size-ui); }
+.linked-from h2 { font-size: var(--font-size-ui); font-weight: var(--font-weight-medium); margin: 0 0 12px; }
 .linked-from .backlink-list button { width: auto; display: flex; gap: 8px; padding: 6px 0; text-align: left; }
 .linked-from .backlink-list strong { font-weight: 500; }
 .linked-from .backlink-list small { display: none; }
