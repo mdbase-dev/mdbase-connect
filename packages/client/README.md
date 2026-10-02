@@ -85,7 +85,7 @@ if (!watch.ok) {
   renderProblem(watch.problem);
 } else {
   const unsubscribeWatch = watch.value.subscribe(
-    (change) => console.log(change.type, change.payload.path),
+    (change) => console.log(change.kind, change.kind === "record.updated" ? change.path : change.raw),
     renderWatchStatus,
     renderProblem
   );
@@ -629,8 +629,63 @@ The SDK returns typed outcomes, carries successful mdbase diagnostics alongside
 the value, carries revision tokens in typed record results, and accepts
 `ifRevision` on mutations. `describe()` exposes
 JSON Schemas, portable type definitions, canonical collection settings, and
-first-class data contracts. `watch()` resumes from a local collection cursor;
+first-class data contracts. `watch()` resumes from an authority collection cursor;
 the Connect server does not store the change feed.
+
+### Typed changes and description caching
+
+`changes()` and `watch()` return the same discriminated `CollectionChange` union.
+Switch on `change.kind`: `record.created`, `record.updated`, `record.deleted`,
+`record.renamed`, `schema.changed`, `config.changed`, `contract.changed`,
+`view.changed`, `file.changed`, `file.put`, `file.removed`, `gap`, or `unknown`.
+Record variants expose `path` (or `from`/`to`) and optional `revision`,
+`previousRevision`, `types`, `previousTypes`, `changedFields`, `bodyChanged`,
+`before`/`after` frontmatter. Metadata is never inferred when an older authority
+omits it. In particular, hosted deletion `types` describes the deleted record,
+whereas local deletion `types` is the empty after-state; use `previousTypes`
+when supplied. `changedFields` preserves authority identifiers (local JSON
+Pointers, hosted top-level keys). A change does not replace an authoritative read.
+
+```ts
+const watched = await connection.watch();
+if (watched.ok) watched.value.subscribe((change) => {
+  if (change.kind === "record.updated") {
+    console.log(change.path, change.changedFields, change.bodyChanged);
+  } else if (change.kind === "schema.changed") {
+    console.log("Schema generation", connection.schemaGeneration);
+  }
+});
+```
+
+Original `type` and `payload` remain available, and `raw` retains the exact wire
+event. Unrecognized IDs and malformed known payloads become explicit `unknown`
+events; inspect `reason` and `raw` rather than guessing a known variant.
+`mdbase.collection.invalidated` becomes `gap`. A reset page's `events` contains a
+synthetic `reset` variant whose `raw` is the original page, not a wire event.
+The page's `reset` flag and watch's terminal `change_cursor_reset` failure and
+`reset_required` status remain unchanged: refresh state and subscribe again.
+Custom transports/test emitters can use `normalizeCollectionChange(wireEvent)`.
+
+`describe()` now caches successful descriptions for at most **60 seconds** per
+connection/client. `describe({ fresh: true })` bypasses the settled cache.
+Concurrent calls share one request; failures are not cached and a failed fresh
+load does not fall back to an old description. Each waiter's cancellation and
+timeout are independent; the shared load uses the connection's request budget.
+Schema/config/contract/view events, unknown events, and feed gaps/reset pages
+observed through this client's `changes()`/`watch()` invalidate the cache before
+publication and advance `schemaGeneration`. Accepted type/setup/view mutations
+also invalidate it. A load spanning an invalidation cannot refill the cache.
+Generation is a local invalidation counter, not an authority revision or a
+cross-connection schema identity. Without an active watch, the 60-second bound
+still applies; use `fresh: true` at correctness-critical refresh boundaries.
+
+**Migration:** replace raw-ID regexes and snake-case payload parsing with `kind`
+and typed fields, retaining full refresh/read handling for `unknown`, `gap`, and
+reset. Existing raw consumers can continue using `type`/`payload`. Hand-built
+`CollectionChange` values must go through `normalizeCollectionChange` (or supply
+the typed variant and raw event). Callers requiring every `describe()` to reach
+the authority must now pass `{ fresh: true }`.
+
 `queryAll()` treats `timeoutMs` as one deadline for the complete paginated
 query. The caller-driven `queryPages()` iterator instead accepts
 `pageTimeoutMs`, an independent budget for each page, plus a lifetime `signal`.

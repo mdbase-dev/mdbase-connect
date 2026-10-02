@@ -1,4 +1,6 @@
 import type {
+  CollectionChange as WireCollectionChange,
+  CollectionChangesPage as WireCollectionChangesPage,
   CollectionOperation,
   ConnectProblem,
   ContractRequirement,
@@ -766,12 +768,57 @@ export interface MdbaseWatchSubscription {
   close(): void;
 }
 
-export interface CollectionChange {
+export interface DescribeOptions extends ConnectRequestOptions {
+  /** Bypass the settled description cache (concurrent requests still share a load). */
+  fresh?: boolean;
+}
+
+interface ChangeBase {
   cursor: number;
+  /** Original authority event ID. Prefer kind for application logic. */
   type: string;
   occurredAt: string;
   payload: JsonObject;
+  /** Unmodified wire event, including authority-specific metadata. */
+  raw: WireCollectionChange;
 }
+
+export interface RecordChangeMetadata {
+  revision?: string;
+  previousRevision?: string;
+  types?: string[];
+  previousTypes?: string[];
+  /** Authority field identifiers: local JSON Pointers, hosted top-level keys. Preserved, not guessed. */
+  changedFields?: string[];
+  bodyChanged?: boolean;
+  /** Hosted authorities may supply frontmatter; local authorities need not. */
+  before?: JsonObject;
+  after?: JsonObject;
+}
+
+interface ResourceChangeBase extends ChangeBase {
+  path?: string;
+  name?: string;
+  revision?: string;
+  previousRevision?: string;
+}
+
+export type CollectionChange =
+  | (ChangeBase & RecordChangeMetadata & { kind: "record.created"; path: string })
+  | (ChangeBase & RecordChangeMetadata & { kind: "record.updated"; path: string })
+  | (ChangeBase & RecordChangeMetadata & { kind: "record.deleted"; path: string })
+  | (ChangeBase & RecordChangeMetadata & { kind: "record.renamed"; from: string; to: string })
+  | (ResourceChangeBase & { kind: "schema.changed" })
+  | (ResourceChangeBase & { kind: "config.changed" })
+  | (ResourceChangeBase & { kind: "contract.changed" })
+  | (ResourceChangeBase & { kind: "view.changed" })
+  | (ChangeBase & { kind: "file.changed"; path: string; revision?: string; previousRevision?: string })
+  | (ChangeBase & { kind: "file.put"; file: import("./file-descriptor.js").CollectionFileDescriptor })
+  | (ChangeBase & { kind: "file.removed"; fileId: string; previousPath?: string; revision?: string })
+  | (ChangeBase & { kind: "gap"; reason?: string })
+  | (ChangeBase & { kind: "unknown"; reason: "unrecognized_type" | "invalid_payload" })
+  /** Synthesized from a reset page, not a new authority event ID. Watch still terminates with change_cursor_reset. */
+  | { kind: "reset"; cursor: number; type: "reset"; occurredAt: null; payload: JsonObject; raw: WireCollectionChangesPage };
 
 export interface CollectionChangesPage {
   events: CollectionChange[];

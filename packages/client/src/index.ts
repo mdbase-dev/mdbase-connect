@@ -1,3 +1,4 @@
+export { normalizeCollectionChange } from "./change-events.js";
 export {
   MdbaseApplicationSession,
   MdbaseMemoryVerificationStore
@@ -191,6 +192,8 @@ export type {
   WatchInput,
   MdbaseWatchSubscription,
   CollectionChange,
+  RecordChangeMetadata,
+  DescribeOptions,
   CollectionChangesPage,
   CollectionDescription,
   CollectionContractDescriptor,

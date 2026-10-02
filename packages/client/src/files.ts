@@ -1,3 +1,5 @@
+import { clientFileDescriptor, type CollectionFileDescriptor } from "./file-descriptor.js";
+export type { CollectionFileDescriptor } from "./file-descriptor.js";
 import type {
   CollectionFileDescriptor as WireCollectionFileDescriptor,
   CommitFileUploadReceipt,
@@ -47,17 +49,6 @@ import {
 } from "./request-budget.js";
 
 export type MdbaseFileSource = FileSource;
-
-export interface CollectionFileDescriptor {
-  fileId: string;
-  path: string;
-  revision: string;
-  contentDigest: `sha256:${string}`;
-  size: number;
-  mediaType?: string;
-  mediaClass: import("@mdbase-dev/connect-protocol").FileMediaClass;
-  modifiedAt: string;
-}
 
 export interface MdbaseFileDeleteReceipt {
   protocolVersion: 1;
@@ -945,17 +936,4 @@ export class MdbaseFileClient {
       `transfers/${encodeURIComponent(transferId)}`
     ).catch(() => undefined);
   }
-}
-
-function clientFileDescriptor(file: WireCollectionFileDescriptor): CollectionFileDescriptor {
-  return {
-    fileId: file.file_id,
-    path: file.path,
-    revision: file.revision,
-    contentDigest: file.content_digest,
-    size: file.size,
-    ...(file.media_type ? { mediaType: file.media_type } : {}),
-    mediaClass: file.media_class,
-    modifiedAt: file.modified_at
-  };
 }

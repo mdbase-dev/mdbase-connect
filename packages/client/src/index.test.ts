@@ -4963,7 +4963,10 @@ describe("bounded watch subscriptions", () => {
       cursor: change.cursor,
       type: change.type,
       occurredAt: change.occurred_at,
-      payload: change.payload
+      payload: change.payload,
+      kind: "record.updated",
+      path: "notes/one.md",
+      raw: change
     }]);
     expect(statuses).toEqual(["connected"]);
     opened.value.close();
