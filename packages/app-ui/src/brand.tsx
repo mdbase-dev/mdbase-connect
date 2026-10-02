@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type JSX } from "react";
+import { useEffect, useId, useRef, useState, type JSX } from "react";
 
 import type { MdbaseAppId } from "./apps.js";
 
@@ -131,12 +131,17 @@ export function MdbaseMark({ app, motion, signal, progress, className }: {
   className?: string | undefined;
 }): JSX.Element {
   const uid = useId().replaceAll(":", "");
-  // An entrance plays once; dropping its class afterwards stops it replaying when a signal remounts the lines.
+  // An entrance plays once per mark. Dropping its class afterwards stops it replaying when a signal
+  // remounts the lines, and remembering it stops a replay when a loop or progress hands back to it.
   const [entering, setEntering] = useState(isEntrance(motion));
+  const played = useRef<MdbaseMarkMotion | undefined>(undefined);
   useEffect(() => {
-    if (!isEntrance(motion)) return setEntering(false);
+    if (!isEntrance(motion) || played.current === motion) return setEntering(false);
     setEntering(true);
-    const timer = setTimeout(() => setEntering(false), ENTRANCE_MS);
+    const timer = setTimeout(() => {
+      played.current = motion;
+      setEntering(false);
+    }, ENTRANCE_MS);
     return () => clearTimeout(timer);
   }, [motion]);
 
