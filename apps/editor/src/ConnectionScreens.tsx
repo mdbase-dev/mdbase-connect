@@ -60,10 +60,11 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
     <details className="compatibility-help"><summary>Collection not listed?</summary><p>The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result.</p></details>
   </ConnectLayout>;
 }
-export function CollectionSwitcher({ activeCollectionId, connections, displayName, onOpen, onConnect, onClose }: {
+export function CollectionSwitcher({ activeCollectionId, connections, displayName, connectHref, onOpen, onConnect, onClose }: {
   activeCollectionId?: string;
   connections: ConnectionSummary[];
   displayName: string;
+  connectHref?: string;
   onOpen: (collectionId: string) => void;
   onConnect: () => void;
   onClose: () => void;
@@ -89,6 +90,7 @@ export function CollectionSwitcher({ activeCollectionId, connections, displayNam
     </div>
     <footer>
       <button className="collection-connect-another" onClick={onConnect}><FilePlus2 aria-hidden="true" />Connect another collection</button>
+      {connectHref && <a className="collection-connect-workspace" href={connectHref}>Connect workspace</a>}
     </footer>
   </Dialog>;
 }

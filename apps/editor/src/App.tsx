@@ -24,7 +24,8 @@ import {
 import { ActionMenu } from "./ActionMenu";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
 import { useCollectionBrowserEntries } from "./collection-browser";
-import { CollectionRail } from "./CollectionRail";
+import { CollectionRail, connectWorkspaceUrl } from "./CollectionRail";
+import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
 import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
 import { ConflictResolver } from "./ConflictResolver";
@@ -1147,6 +1148,93 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     });
   }
 
+  async function planFolderChange(from: string, to: string): Promise<FolderChangePlan> {
+    if (mutationScope.current.isFrozen || !canRenameNotes) throw new Error("Moving notes is not available with this collection’s current access.");
+    if (!structureComplete || foldersLoading || structureError || fileInventory.loading || fileInventory.error) {
+      throw new Error("Wait for the complete note and attachment index before changing a folder.");
+    }
+    const token = mutationScope.current.token();
+    const moves = folderChangeMoves(from, to, allNotes.map((note) => note.path), fileInventory.files.map((file) => file.path));
+    return mutationScope.current.register(token, (async () => {
+      let referenceCount = 0;
+      const warnings = new Set<string>();
+      for (const move of moves) {
+        let session = noteSessions.current.get(move.from);
+        if (!session) {
+          const note = await gateway.read(move.from);
+          if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+          session = noteSessions.current.get(move.from) ?? createSession(note);
+        }
+        if (session.recoveryDraft) throw new Error(`Recover the unsaved edits in “${move.from}” before moving this folder.`);
+        await flushSession(session);
+        const preview = await runNoteOperation(session, "validating", () => gateway.preflightRename(move.from, move.to, session.document.revision));
+        if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+        referenceCount += preview.operation.referencesAffected?.length ?? preview.affectedPaths.length;
+        preview.warnings.forEach((warning) => warnings.add(warning));
+      }
+      return { from, to, moves, referenceCount, warnings: [...warnings], ...token };
+    })());
+  }
+
+  async function changeFolder(plan: FolderChangePlan, onProgress: (progress: FolderChangeProgress) => void): Promise<FolderChangeResult> {
+    const token = mutationScope.current.token();
+    if (mutationScope.current.isFrozen || !canRenameNotes || token.epoch !== plan.epoch || token.collectionId !== plan.collectionId) {
+      throw new Error("The collection changed. Review the folder change again.");
+    }
+    const latestMoves = folderChangeMoves(plan.from, plan.to, allNotes.map((note) => note.path), fileInventory.files.map((file) => file.path));
+    if (JSON.stringify(latestMoves) !== JSON.stringify(plan.moves)) throw new Error("The folder’s notes changed. Review the folder change again.");
+    return mutationScope.current.register(token, (async () => {
+      const result: FolderChangeResult = { moved: 0, failures: [] };
+      for (const [index, move] of plan.moves.entries()) {
+        if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+        onProgress({ completed: index, total: plan.moves.length, path: move.from });
+        try {
+          let session = noteSessions.current.get(move.from);
+          if (!session) session = createSession(await gateway.read(move.from));
+          if (session.recoveryDraft) throw new Error("Recover unsaved edits before moving this note.");
+          await flushSession(session);
+          // Earlier renames may have rewritten this note’s links and revision.
+          await refreshCachedNote(move.from);
+          if (session.document.path !== move.from) throw new Error("This note already moved elsewhere.");
+          const renamed = await runNoteOperation(session, "renaming", () => gateway.rename(move.from, move.to, session!.document.revision, true, {
+            onProgress: (progress) => {
+              if (mutationScope.current.isCurrent(token)) onProgress({ completed: index, total: plan.moves.length, path: move.from,
+                detail: progress.completedUnits === undefined ? undefined : `${progress.completedUnits} changes applied` });
+            }
+          }));
+          if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+          session.record.accept(renamed);
+          noteSessions.current.move(move.from, renamed.path, session);
+          updateNoteSummary(renamed, move.from);
+          if (noteSessions.current.active === session) {
+            setDocument(renamed); setSelectedPath(renamed.path); setPathDraft(renamed.path);
+            localStorage.setItem("mdbase-editor:last-note", renamed.path);
+          }
+          setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.from), renamed.path));
+          replaceNoteHistoryPath(move.from, renamed.path);
+          touchSession(session);
+          result.moved += 1;
+        } catch (error) {
+          if (!mutationScope.current.isCurrent(token)) throw error;
+          result.failures.push({ path: move.from, message: gatewayError(error) });
+          // An uncertain mutation must be recovered before issuing more writes.
+          if (pendingNoteRequestId(error)) {
+            result.failures.at(-1)!.message += " The move may still be applying; recover the pending operation before retrying.";
+            result.failures.push(...plan.moves.slice(index + 1).map((remaining) => ({ path: remaining.from, message: "Not attempted because an earlier move needs recovery." })));
+            break;
+          }
+        }
+        onProgress({ completed: index + 1, total: plan.moves.length, path: move.from });
+      }
+      // Bring rewritten references into both the index and open note sessions.
+      await Promise.all([...noteSessions.current.values()].filter((session) => !session.deleted).map((session) => refreshCachedNote(session.document.path).catch(() => undefined)));
+      try { await loadIndex(); } catch (error) { setNotice(`Folder changes were applied, but refreshing the index failed. ${gatewayError(error)}`); }
+      if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+      if (noteFilter?.kind === "folder" && result.moved > 0) setNoteFilter({ kind: "folder", value: result.failures.length ? plan.from : plan.to });
+      return result;
+    })());
+  }
+
   async function requestRename() {
     if (mutationScope.current.isFrozen || !canRenameNotes) return;
     const token = mutationScope.current.token();
@@ -1892,6 +1980,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       onCreateFolder={canCreateNotes ? beginFolderCreate : undefined}
       onCreateNoteInFolder={canCreateNotes ? beginNoteInFolder : undefined}
       onCreateSubfolder={canCreateNotes ? beginSubfolder : undefined}
+      onPlanFolderChange={canRenameNotes && !mutationsFrozen ? planFolderChange : undefined}
+      onChangeFolder={canRenameNotes && !mutationsFrozen ? changeFolder : undefined}
       onCreateNoteWithTag={canCreateNotes ? beginNoteWithTag : undefined}
       onCreateNoteWithType={canCreateNotes ? beginNoteWithType : undefined}
       onOpenType={openTypeFromRail}
@@ -2221,6 +2311,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     />}
     {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
     {collectionSwitcherOpen && <CollectionSwitcher
+      connectHref={connectWorkspaceUrl(description.collectionId)}
       activeCollectionId={connectionSummary?.collectionId}
       connections={sessionSnapshot.connections}
       displayName={description.displayName}

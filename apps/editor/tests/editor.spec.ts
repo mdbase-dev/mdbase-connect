@@ -646,10 +646,8 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
 
   const folders = page.getByRole("group", { name: "Folders" });
-  const foldersToggle = folders.getByRole("button", { name: "Folders" });
-  await expect(foldersToggle).toHaveAttribute("aria-expanded", "true");
-  await foldersToggle.click();
-  await expect(foldersToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(folders.getByRole("button", { name: "Folders" })).toHaveCount(0);
+  await expect(folders.getByRole("button", { name: "New folder" })).toBeVisible();
 
   const tags = page.getByRole("group", { name: "Tags" });
   await tags.getByRole("button", { name: "Tags" }).click();

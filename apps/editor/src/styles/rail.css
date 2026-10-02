@@ -15,10 +15,29 @@
   padding: 0 1px 0 9px;
 }
 
-.rail-header > .mdbase-app-switcher {
+.rail-header > .rail-collection-switcher {
   min-width: 0;
-  margin-right: auto;
+  flex: 1;
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  text-align: left;
 }
+
+.rail-current-collection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.rail-current-collection svg { width: 12px; height: 12px; flex: 0 0 auto; }
+.rail-collection-switcher .wordmark { white-space: nowrap; }
+.rail-collection-switcher:hover .rail-current-collection { color: var(--accent); }
+.rail-header .desktop-pane-control { align-self: flex-start; }
 
 @container (max-width: 190px) {
   .rail-header .wordmark-label strong {
@@ -44,7 +63,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  margin-top: 35px;
+  margin-top: 20px;
   overflow-y: auto;
 }
 
@@ -195,8 +214,34 @@
 }
 
 .rail-filter-section {
-  margin-top: 18px;
+  margin-top: 6px;
 }
+
+.rail-bottom-spacer { margin-top: auto; min-height: 24px; }
+
+.rail-drop-target { position: relative; border-radius: 4px; }
+.rail-drop-target.drop-ready { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--selected); }
+.rail-drop-hint { position: absolute; right: 6px; bottom: 0; font-size: 11px; color: var(--ink); background: var(--paper); pointer-events: none; }
+
+.collection-rail nav .rail-new-folder { font-size: 12px; }
+.collection-rail nav small { opacity: 0; font-family: var(--sans); font-variant-numeric: tabular-nums; }
+.collection-rail nav button:hover small,
+.collection-rail nav a:hover small,
+.collection-rail nav button:focus-visible small,
+.collection-rail nav a:focus-visible small,
+.collection-rail nav .selected small,
+.collection-rail nav .rail-drop-target:focus-within small,
+.collection-rail nav .context-menu-target:hover small,
+.collection-rail nav .context-menu-target:focus-within small { opacity: 1; }
+
+.folder-change-dialog form { display: grid; gap: 10px; }
+.folder-change-dialog input,
+.folder-change-dialog select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); font: inherit; }
+.folder-change-dialog .confirm-dialog-copy { max-height: 65vh; overflow-y: auto; }
+.folder-change-dialog code { overflow-wrap: anywhere; }
+.folder-change-dialog p + p { margin-top: 10px; }
+.collection-connect-workspace { display: inline-flex; padding: 10px; color: var(--muted); text-decoration: none; }
+.collection-connect-workspace:hover { color: var(--ink); background: var(--hover); }
 
 .collection-rail nav .rail-section-toggle {
   min-height: 28px;
@@ -308,14 +353,14 @@
 .collection-rail nav .context-menu-target .rail-row-action {
   min-width: 0;
   min-height: 30px;
-  padding: 5px 3px;
+  padding: 5px 28px 5px 3px;
 }
 
 .collection-rail nav .context-menu-target .rail-row-action > span {
   gap: 6px;
 }
 
-/* The actions button takes the count's place on hover, so labels keep the full row width. */
+/* Keep a stable actions slot; counts stay visible beside it on hover or focus. */
 .collection-rail nav .context-menu-target .rail-row-menu {
   position: absolute;
   top: 50%;

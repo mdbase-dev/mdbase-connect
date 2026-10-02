@@ -52,10 +52,25 @@ time and folder; a declared type appears as a small badge, never in place of
 the folder. Search results are ordered by relevance without date groups.
 Types reuse the list-and-document rhythm; settings become one quiet
 document rather than a dashboard, with technical facts behind Details. In the collection rail, All notes, Types, and
-Settings remain the primary editing group. Connect sits in a bottom-aligned
-Manage group above connection and account status, visibly secondary until a
-pending authorization count requires attention. Mobile presents each level as
-a separate navigable screen.
+Settings remain the primary editing group. One header trigger combines the brand
+lockup and current collection and opens the collection switcher; it includes
+recent collections, connecting another collection, and the Connect workspace.
+Folders follow All notes directly, without a section heading, with a quiet New
+folder action. Connect sits at the bottom above connection status, visibly
+secondary until a pending authorization count requires attention. Counts use
+UI text with tabular numerals and appear only on hover, focus, or the selected
+row; accessible names always include them. Mobile presents each level as a
+separate navigable screen.
+
+Folder context menus provide Rename folder and Move to; F2 renames the focused
+folder. Dragging folders or notes onto a folder moves them there; All notes is
+the collection-root target. Hovering a collapsed folder expands it after 600ms.
+Folder changes first review the complete subtree and links using revision-aware
+rename preflights, then require one confirmation with note and affected-link
+counts. Execution updates references, reports progress, and lists partial
+failures without rolling back accepted changes. Folder changes that contain
+attachments are blocked with an embed-safety explanation until attachment
+reference rewriting is supported; note-only moves leave attachments untouched.
 
 ## Editing
 
