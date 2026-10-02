@@ -61,7 +61,7 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
     value={schemaDateInputValue(value, dateFormat)}
     onChange={(event) => onChange(schemaDateValue(event.target.value, dateFormat))}
   /></label>;
-  if (type === "boolean") return <label className="schema-value schema-boolean">{label}<span><input aria-label={name} type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} />{value === true ? "True" : "False"}</span></label>;
+  if (type === "boolean") return <label className="schema-value schema-boolean">{label}<span><input className="mdbase-checkbox" aria-label={name} type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} />{value === true ? "True" : "False"}</span></label>;
   if (type === "number" || type === "integer") return <label className="schema-value">{label}<input
     aria-label={name}
     type="number"

@@ -669,13 +669,12 @@ class TaskCheckboxWidget extends WidgetType {
   toDOM() {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "cm-task-checkbox";
+    button.className = "cm-task-checkbox mdbase-checkbox";
     button.dataset.taskFrom = String(this.from);
     button.setAttribute("role", "checkbox");
     button.setAttribute("aria-checked", String(this.checked));
     button.setAttribute("aria-label", this.checked ? "Mark task incomplete" : "Mark task complete");
     button.title = this.checked ? "Mark task incomplete" : "Mark task complete";
-    button.textContent = this.checked ? "✓" : "";
     return button;
   }
 

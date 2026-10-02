@@ -48,7 +48,7 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
         </div>;
       })}
     </div>}
-    {!fatal && <button className="mdbase-connect-action" onClick={onConnect}>{actionLabel ?? (updatingAccess
+    {!fatal && <button className="mdbase-connect-action mdbase-button is-primary" onClick={onConnect}>{actionLabel ?? (updatingAccess
       ? "Update access"
       : connections.length
         ? "Connect another collection"
@@ -88,7 +88,7 @@ export function CollectionSwitcher({ activeCollectionId, connections, displayNam
       })}
     </div>
     <footer>
-      <button className="collection-connect-another" onClick={onConnect}><FilePlus2 aria-hidden="true" />Connect another collection</button>
+      <button className="collection-connect-another mdbase-button" onClick={onConnect}><FilePlus2 aria-hidden="true" />Connect another collection</button>
     </footer>
   </Dialog>;
 }

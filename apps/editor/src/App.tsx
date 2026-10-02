@@ -2090,7 +2090,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           {renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
             <div><strong>Rename this note?</strong><span>{renamePlan.affectedPaths.length.toLocaleString()} {renamePlan.affectedPaths.length === 1 ? "note contains" : "notes contain"} links that will change.{renamePlan.warnings.length > 0 ? ` ${renamePlan.warnings.length.toLocaleString()} ${renamePlan.warnings.length === 1 ? "link needs" : "links need"} attention and won’t be changed automatically.` : ""}</span></div>
             <button onClick={cancelRename}>Cancel</button>
-            <button className="primary-confirm-action" onClick={() => void performRename(renamePlan, true)}>Rename and update links</button>
+            <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}>Rename and update links</button>
           </div>}
           <MarkdownNoteEditor footer={<BacklinksPanel notes={backlinkNotes} types={typeDescriptors} loading={contentIndexing} error={contentError} onFind={!contentComplete && !contentIndexing && !contentError ? () => setBacklinksOpen(true) : undefined} onRetry={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
             draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey} readOnly={noteReadOnly}

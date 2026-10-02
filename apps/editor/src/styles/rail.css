@@ -56,9 +56,8 @@
   justify-content: space-between;
   gap: 8px;
   padding: 7px 9px;
-  border-radius: 4px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   text-align: left;
 }
 
@@ -67,8 +66,8 @@
   margin: 0 0 10px;
   padding: 7px 9px;
   color: var(--ink);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .collection-rail nav .collection-name > span {
@@ -116,7 +115,7 @@
 
 .collection-rail nav button .ph {
   flex: 0 0 auto;
-  font-size: 14px;
+  font-size: var(--font-size-ui);
   line-height: 14px;
   text-align: center;
 }
@@ -124,7 +123,7 @@
 .collection-rail nav button small {
   flex: 0 0 auto;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
 }
 
@@ -136,9 +135,8 @@
   justify-content: space-between;
   gap: 8px;
   padding: 7px 9px;
-  border-radius: 4px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   text-align: left;
   text-decoration: none;
 }
@@ -159,7 +157,7 @@
 
 .collection-rail nav .editor-rail-link small {
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
 }
 
@@ -168,20 +166,15 @@
 }
 
 .collection-rail nav .editor-rail-link.selected {
-  background: var(--selected);
-  color: var(--ink);
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .rail-manage-label {
   margin: auto 9px 7px;
   padding-top: 24px;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
 }
 
 .collection-rail nav button:hover {
@@ -189,9 +182,7 @@
 }
 
 .collection-rail nav button.selected {
-  background: var(--selected);
-  color: var(--ink);
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .rail-filter-section {
@@ -202,11 +193,8 @@
   min-height: 28px;
   padding: 5px 9px;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
 }
 
 .rail-section-header {
@@ -335,11 +323,6 @@
 .collection-rail nav .context-menu-target:focus-within .rail-row-menu,
 .collection-rail nav .context-menu-target .rail-row-menu[aria-expanded="true"] {
   pointer-events: auto;
-}
-
-.collection-rail nav .context-menu-target:hover .rail-row-menu,
-.collection-rail nav .context-menu-target:focus-within .rail-row-menu,
-.collection-rail nav .context-menu-target .rail-row-menu[aria-expanded="true"] {
   opacity: 1;
 }
 
@@ -358,14 +341,13 @@
   align-items: center;
   gap: 5px;
   color: var(--faint);
-  letter-spacing: 0.04em;
   text-transform: none;
 }
 
 .compatibility-help {
   margin-top: 14px;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
 }
 
 .compatibility-help summary {
@@ -385,14 +367,13 @@
   height: 4px;
   border-radius: 50%;
   background: currentColor;
-  animation: opening-pulse 900ms ease-in-out infinite alternate;
 }
 
 .folder-placeholder {
   margin: 0;
   padding: 8px 9px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .collection-rail .connection-footer {
@@ -413,7 +394,7 @@
   gap: 7px;
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   white-space: nowrap;
 }
 
@@ -435,9 +416,9 @@
   gap: 5px;
   margin-right: -5px;
   padding: 0 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .collection-rail .shortcut-action:hover {

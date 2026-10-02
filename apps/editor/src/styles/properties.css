@@ -8,10 +8,6 @@
   overflow: hidden;
 }
 
-.properties-panel-loading {
-  gap: 18px;
-}
-
 .panel-header {
   display: flex;
   align-items: flex-start;
@@ -26,7 +22,7 @@
 .properties-panel h2,
 .backlinks-panel h2 {
   margin: 2px 0 0;
-  font-size: 15px;
+  font-size: var(--font-size-section);
   letter-spacing: -0.01em;
 }
 
@@ -70,7 +66,7 @@
 
 .backlink-list strong {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -79,7 +75,7 @@
   overflow: hidden;
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -88,8 +84,7 @@
   margin: 4px 0 0;
   overflow: hidden;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -108,7 +103,7 @@
 
 .file-facts dt {
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
 }
 
 .file-facts dd {
@@ -116,9 +111,9 @@
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   line-height: 1.5;
+  font-variant-numeric: tabular-nums;
 }
 
 .panel-tabs {
@@ -136,7 +131,7 @@
   padding: 0 8px;
   border-bottom: 1px solid transparent;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .panel-tabs button[aria-selected="true"] {
@@ -177,8 +172,8 @@
 
 .property-row-label > span {
   overflow: hidden;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
   text-overflow: ellipsis;
 }
 
@@ -191,40 +186,37 @@
 .property-row-label small,
 .property-kind {
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   font-style: normal;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: var(--font-weight-medium);
 }
 
 .property-description {
   margin: -1px 0 8px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   line-height: 1.4;
 }
 
 .field-error {
   margin: 5px 0 0;
   color: var(--danger);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   line-height: 1.4;
 }
 
 .property-row > input,
 .property-row .schema-value > input,
 .add-property-row input,
-.new-note-fields input {
+.new-note-fields input:not([type="checkbox"]) {
   width: 100%;
   min-height: 34px;
   padding: 6px 8px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   outline: 0;
   background: var(--canvas);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
 }
 
 .property-row > input:focus,
@@ -246,7 +238,8 @@
 .property-row.invalid > .schema-value > input:focus,
 .property-row.invalid > .property-string-list input:focus {
   border-color: var(--danger);
-  box-shadow: 0 0 0 2px var(--danger-soft);
+  outline: 1px solid var(--danger-soft);
+  outline-offset: -1px;
 }
 
 .property-row.invalid > .mdbase-select,
@@ -256,7 +249,8 @@
 
 .property-row.invalid > .mdbase-select:focus,
 .property-row.invalid > .schema-value > .mdbase-select:focus {
-  box-shadow: 0 0 0 2px var(--danger-soft);
+  outline: 1px solid var(--danger-soft);
+  outline-offset: -1px;
 }
 
 input:is([type="date"], [type="datetime-local"]) {
@@ -275,12 +269,7 @@ input:is([type="date"], [type="datetime-local"])::-webkit-calendar-picker-indica
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
-}
-
-.boolean-property input,
-.required-toggle input {
-  accent-color: var(--accent);
+  font-size: var(--font-size-ui);
 }
 
 .null-property {
@@ -290,21 +279,20 @@ input:is([type="date"], [type="datetime-local"])::-webkit-calendar-picker-indica
   justify-content: space-between;
   gap: 8px;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .null-property button {
   color: var(--muted);
   font-family: var(--sans);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .set-null-property {
   margin-top: 5px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .set-null-property:hover {
@@ -321,7 +309,7 @@ input:is([type="date"], [type="datetime-local"])::-webkit-calendar-picker-indica
   height: 112px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--canvas);
 }
 
@@ -333,7 +321,7 @@ input:is([type="date"], [type="datetime-local"])::-webkit-calendar-picker-indica
 .raw-properties .cm-content {
   padding: 9px 10px 40px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   line-height: 1.55;
 }
 
@@ -349,18 +337,15 @@ label.schema-value {
 .schema-value > span,
 .schema-value > legend > span {
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .schema-value > span small,
 .schema-value > legend small {
   margin-left: 7px;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
 }
 
 .schema-value-label {
@@ -376,8 +361,8 @@ label.schema-value {
   margin-left: 0;
   color: var(--faint);
   font-family: inherit;
-  font-size: 11px;
-  font-weight: 400;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
   letter-spacing: 0;
   line-height: 1.4;
   text-transform: none;
@@ -394,11 +379,10 @@ label.schema-value {
   align-items: center;
   padding: 6px 8px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--canvas);
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .schema-boolean > span:last-child {
@@ -407,11 +391,7 @@ label.schema-value {
   align-items: center;
   gap: 7px;
   color: var(--muted);
-  font-size: 11px;
-}
-
-.schema-boolean input {
-  accent-color: var(--accent);
+  font-size: var(--font-size-ui);
 }
 
 .schema-object,
@@ -427,8 +407,8 @@ label.schema-value {
   width: 100%;
   padding: 0;
   color: var(--ink);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .schema-object-fields,
@@ -470,12 +450,11 @@ label.schema-value {
   min-height: 34px;
   padding: 6px 8px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   outline: 0;
   background: var(--canvas);
   color: var(--ink);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .schema-map-key input:focus {
@@ -492,9 +471,9 @@ label.schema-value {
 .schema-item-number {
   padding-top: 9px;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
   text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .schema-nested-value > .schema-remove-value {
@@ -515,8 +494,8 @@ label.schema-value {
   margin-top: 10px;
   padding: 5px 0;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .schema-add-trigger:hover {
@@ -543,14 +522,14 @@ label.schema-value {
   min-height: 30px;
   padding: 0 6px;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .schema-empty-value {
   margin: 0;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .schema-json-value {
@@ -561,7 +540,7 @@ label.schema-value {
 .schema-json-value .code-editor {
   height: 112px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--canvas);
   overflow: hidden;
 }
@@ -569,12 +548,12 @@ label.schema-value {
 .schema-json-value .cm-content {
   padding: 8px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
 }
 
 .schema-value-error {
   color: var(--danger);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
 }
 
 .add-property {
@@ -584,7 +563,7 @@ label.schema-value {
   margin-top: 12px;
   padding: 5px 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .add-property svg {
@@ -596,21 +575,21 @@ label.schema-value {
   margin-bottom: 10px;
   padding: 11px;
   border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--line));
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--danger) 4%, transparent);
 }
 
 .missing-properties h3,
 .effective-properties h3 {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .missing-properties > p,
 .effective-properties > div > p {
   margin: 3px 0 8px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   line-height: 1.4;
 }
 
@@ -643,8 +622,8 @@ label.schema-value {
 .property-options small {
   overflow: hidden;
   color: var(--faint);
-  font-size: 11px;
-  font-weight: 400;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -658,7 +637,7 @@ label.schema-value {
   margin-top: 12px;
   padding: 9px;
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--canvas);
 }
 
@@ -668,7 +647,7 @@ label.schema-value {
   gap: 6px;
   padding: 0 8px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--white);
 }
 
@@ -684,7 +663,7 @@ label.schema-value {
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .property-options {
@@ -696,15 +675,13 @@ label.schema-value {
 .property-options > p {
   margin: 14px 4px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
 }
 
 .property-options em {
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
   font-style: normal;
-  text-transform: uppercase;
 }
 
 .schema-remove-value:disabled,
@@ -718,7 +695,7 @@ label.schema-value {
   width: 100%;
   padding: 7px 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
   text-align: left;
 }
 
@@ -747,7 +724,7 @@ label.schema-value {
   display: block;
   margin-bottom: 5px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .custom-property input {
@@ -755,9 +732,9 @@ label.schema-value {
   min-height: 34px;
   padding: 6px 8px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--white);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .custom-property > div {
@@ -770,7 +747,7 @@ label.schema-value {
 .custom-property > div button {
   min-height: 30px;
   padding: 0 8px;
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .add-property-row {
@@ -786,16 +763,16 @@ label.schema-value {
   display: block;
   margin-bottom: 5px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .small-button {
   min-height: 34px;
   padding: 0 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 700;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
 }
 
 .small-button:disabled {
@@ -806,7 +783,7 @@ label.schema-value {
 .quiet-empty {
   margin: 18px 0;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   line-height: 1.5;
 }
 
@@ -815,7 +792,7 @@ label.schema-value {
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--canvas);
 }
 
@@ -825,7 +802,7 @@ label.schema-value {
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   line-height: 1.4;
 }
 
@@ -834,7 +811,7 @@ label.schema-value {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--canvas);
 }
 
@@ -850,7 +827,7 @@ label.schema-value {
 .record-source .cm-content {
   padding: 10px 12px 80px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   line-height: 1.55;
 }
 
@@ -869,21 +846,23 @@ label.schema-value {
   min-height: 32px;
   padding: 5px 8px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   outline: 0;
   background: var(--canvas);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
 }
 
 .property-string-list input:focus {
   border-color: var(--accent);
   background: var(--white);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .property-row.invalid .property-string-list input:focus {
   border-color: var(--danger);
-  box-shadow: inset 0 0 0 1px var(--danger);
+  outline: 1px solid var(--danger);
+  outline-offset: -1px;
 }
 
 .property-string-list button {
@@ -892,8 +871,8 @@ label.schema-value {
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
 }
 
 .property-string-list svg {
@@ -922,22 +901,19 @@ label.schema-value {
 
 .effective-property strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--font-size-ui);
   text-overflow: ellipsis;
 }
 
 .effective-property small {
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
-  text-transform: uppercase;
+  font-size: var(--font-size-caption);
 }
 
 .effective-property output {
   overflow-wrap: anywhere;
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
   line-height: 1.4;
 }
 
@@ -972,15 +948,14 @@ label.schema-value {
 .property-save-state {
   margin: 0;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   line-height: 1.4;
 }
 
 .property-error {
   margin: 8px 0 0;
   color: var(--danger);
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   line-height: 1.4;
 }
 
