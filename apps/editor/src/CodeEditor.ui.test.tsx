@@ -80,6 +80,17 @@ describe("rendered Markdown links", () => {
 });
 
 describe("note transclusions", () => {
+  it("names a full note once and keeps its content keyboard-scrollable", async () => {
+    render(<CodeEditor value={"Intro.\n\n![[Notes/plan]]"} label="Note body" language="markdown" variant="writer"
+      embeddedNotes={[{ ...noteReference, to: 23, key: "8:23", anchor: undefined, body: "# Project plan\n\nUseful content." }]} onOpenLink={vi.fn()} />);
+    const region = await screen.findByRole("region", { name: "Transclusion of Project plan" });
+    expect(region.querySelector("h1")).toBeNull();
+    expect(region).toHaveTextContent("Useful content.");
+    const content = screen.getByLabelText("Content of Project plan");
+    content.focus();
+    expect(content).toHaveFocus();
+  });
+
   it("does not reconfigure on unrelated renders or callback identities and keeps retained widgets fresh", async () => {
     const reconfigure = vi.spyOn(Compartment.prototype, "reconfigure");
     const first = vi.fn();

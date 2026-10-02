@@ -1,11 +1,11 @@
 import {
-  BracketsCurlyIcon as Braces,
   FileCodeIcon as FileCode2,
   XIcon as X
 } from "./icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import { CodeEditor } from "./CodeEditor";
+import { ActionMenu } from "./ActionMenu";
 import type { NoteDocument } from "./model";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import { noteWordCount } from "./note";
@@ -235,18 +235,22 @@ export function PropertiesPanel({
       <div><dt>Modified</dt><dd>{formatDate(note.file?.mtime)}</dd></div>
     </dl>
 
-    <div className="panel-tabs" role="tablist" aria-label="Record view" onKeyDown={(event) => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      event.preventDefault();
-      const modes = ["fields", "json", "source"] as const;
-      const offset = event.key === "ArrowRight" ? 1 : -1;
-      const next = modes[(modes.indexOf(mode) + offset + modes.length) % modes.length];
-      setMode(next);
-      document.getElementById(`properties-${next}-tab`)?.focus();
-    }}>
-      <button id="properties-fields-tab" role="tab" aria-controls="properties-fields-panel" aria-selected={mode === "fields"} tabIndex={mode === "fields" ? 0 : -1} onClick={() => setMode("fields")}>Fields</button>
-      <button id="properties-json-tab" role="tab" aria-controls="properties-json-panel" aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}><Braces aria-hidden="true" /> JSON</button>
-      <button id="properties-source-tab" role="tab" aria-controls="properties-source-panel" aria-selected={mode === "source"} tabIndex={mode === "source" ? 0 : -1} onClick={() => setMode("source")}><FileCode2 aria-hidden="true" /> Source</button>
+    <div className="property-view-controls">
+      <div className="panel-tabs" role="tablist" aria-label="Properties format" onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const modes = ["fields", "json"] as const;
+        const offset = event.key === "ArrowRight" ? 1 : -1;
+        const next = modes[((mode === "json" ? 1 : 0) + offset + modes.length) % modes.length];
+        setMode(next);
+        document.getElementById(`properties-${next}-tab`)?.focus();
+      }}>
+        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}>Fields</button>
+        <button id="properties-json-tab" role="tab" aria-controls={mode === "json" ? "properties-json-panel" : undefined} aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}>JSON</button>
+      </div>
+      <ActionMenu label="Property options" items={[
+        { label: mode === "source" ? "Back to fields" : "Edit as source", icon: <FileCode2 aria-hidden="true" />, onSelect: () => setMode(mode === "source" ? "fields" : "source") }
+      ]} />
     </div>
 
     {mode === "fields" ? <fieldset disabled={readOnly} id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">
@@ -257,12 +261,13 @@ export function PropertiesPanel({
         recordPaths={recordPaths}
         onChange={change}
         onValidityChange={setStructuredFieldsValid}
+        emptyMessage="Add a property to keep details like tags, dates, or a status with this note."
       />
     </fieldset> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
-      <p className="raw-properties-note">Persisted frontmatter only. For the complete Markdown record, use Source.</p>
+      <p className="raw-properties-note">Frontmatter only, without the note body.</p>
       <CodeEditor value={raw} onChange={updateRaw} label="Raw frontmatter JSON" language="json" lineWrapping={false} readOnly={readOnly} />
       {rawError && <p className="property-error" role="alert">{rawError}</p>}
-    </div> : <div id="properties-source-panel" className="record-source" role="tabpanel" aria-labelledby="properties-source-tab">
+    </div> : <div id="properties-source-panel" className="record-source" role="region" aria-label="Record source">
       <p>Exact Markdown source, including YAML frontmatter and body.</p>
       <CodeEditor value={source} onChange={(value) => { if (!readOnly) setSource(value); }} onBlur={() => { if (!readOnly) void saveSource(); }} label="Complete record source" language="markdown" lineWrapping={false} readOnly={readOnly} />
     </div>}

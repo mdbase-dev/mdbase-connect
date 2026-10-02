@@ -115,14 +115,18 @@ test("middle truncates long paths on mobile and keeps in-place rename available"
   await page.getByRole("button", { name: "Rename only", exact: true }).click();
   await expect(page.getByTitle("Rename Markdown path")).toHaveAccessibleName(path);
   await page.setViewportSize({ width: 390, height: 844 });
-  const filename = page.locator(".path-button .path-filename");
+  const mobilePath = page.locator(".mobile-note-path");
+  await expect(mobilePath).toBeVisible();
+  await expect(mobilePath).toHaveText(path);
+  const filename = mobilePath.locator(".path-filename");
   const bounds = await filename.evaluate(el => {
     const r = el.getBoundingClientRect();
-    const button = el.closest("button")!.getBoundingClientRect();
-    return { visible: r.left >= button.left && r.right <= button.right, clipped: el.scrollWidth > el.clientWidth };
+    const path = el.closest("p")!.getBoundingClientRect();
+    return { visible: r.left >= path.left && r.right <= path.right, clipped: el.scrollWidth > el.clientWidth };
   });
   expect(bounds).toEqual({ visible: true, clipped: false });
-  expect(await page.locator(".path-directory").evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
-  await page.getByTitle("Rename Markdown path").click();
+  expect(await mobilePath.locator(".path-directory").evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+  await page.getByRole("button", { name: "More note actions" }).click();
+  await page.getByRole("menuitem", { name: "Rename path" }).click();
   await expect(page.getByRole("textbox", { name: "Markdown path" })).toHaveValue(path);
 });

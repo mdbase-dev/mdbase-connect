@@ -34,6 +34,19 @@ describe("recursive type builder", () => {
     view.rerender(<TypeInspector {...props} />);
     expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toBeNull();
   });
+
+  it("moves field deletion into a keyboard-accessible row menu", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness />);
+    const options = screen.getByRole("button", { name: "title field options" });
+    options.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "Remove title field" })).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.queryByDisplayValue("title")).not.toBeInTheDocument();
+    expect(screen.getByTestId("source")).not.toHaveTextContent("title:");
+  });
+
   it("summarises secondary type settings behind quiet disclosures", async () => {
     const user = userEvent.setup();
     render(<InspectorHarness source={collectionSource} contracts={[personContract]} />);
@@ -58,11 +71,8 @@ describe("recursive type builder", () => {
     const user = userEvent.setup();
     render(<InspectorHarness />);
 
-    expect(screen.getByRole("button", { name: "Remove title field" })).toHaveClass(
-      "icon-button",
-      "inline-remove-button",
-      "remove-type-field"
-    );
+    expect(screen.queryByRole("button", { name: "Remove title field" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "title field options" })).toHaveAttribute("aria-haspopup", "menu");
     await user.click(screen.getByRole("button", { name: "Expand profile field" }));
     expect(screen.getByDisplayValue("display_name")).toBeInTheDocument();
     const nestedGroup = screen.getByText("Nested fields").closest<HTMLElement>(".nested-field-group")!;

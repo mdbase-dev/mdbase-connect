@@ -40,12 +40,14 @@ export function GoogleIdentityButton({ client, purpose, onComplete, onError }: {
   const [busy, setBusy] = useState(false);
   const [google, setGoogle] = useState<GoogleAccountsApi | null>(null);
   const [width, setWidth] = useState(0);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
     async function prepare() {
       try {
         setGoogle(null);
+        setFailed(false);
         const start = await client.startGoogleAccountFlow(purpose);
         const loaded = await loadGoogleIdentityServices();
         if (!active) return;
@@ -64,6 +66,7 @@ export function GoogleIdentityButton({ client, purpose, onComplete, onError }: {
               })
               .catch((reason) => {
                 onError(reason);
+                setGoogle(null);
                 setBusy(false);
                 setAttempt((value) => value + 1);
               });
@@ -71,7 +74,10 @@ export function GoogleIdentityButton({ client, purpose, onComplete, onError }: {
         });
         setGoogle(loaded);
       } catch (reason) {
-        if (active) onError(reason);
+        if (active) {
+          setFailed(true);
+          onError(reason);
+        }
       }
     }
     void prepare();
@@ -98,9 +104,13 @@ export function GoogleIdentityButton({ client, purpose, onComplete, onError }: {
   }, [dark, google, width]);
 
   const ready = Boolean(google && width);
-  return <div ref={container} className={`connect-google-provider ${busy ? "busy" : ""}`} aria-busy={busy}>
-    <div ref={button} className="connect-google-button" />
-    {!ready && <span className="connect-provider-loading">Preparing Google sign-in…</span>}
+  return <div ref={container} className={`connect-google-provider ${busy ? "busy" : ""}`} aria-busy={busy || (!ready && !failed)}>
+    <div ref={button} className="connect-google-button" inert={busy || !ready} aria-hidden={busy || !ready} />
+    {!ready && <button type="button" className="connect-provider-loading" disabled={!failed}
+      onClick={() => setAttempt((value) => value + 1)}>
+      {failed ? "Retry Google sign-in" : "Continue with Google"}
+    </button>}
+    <span className="sr-only" role="status">{busy ? "Signing in with Google…" : !ready && !failed ? "Loading Google sign-in…" : ""}</span>
   </div>;
 }
 
@@ -119,6 +129,10 @@ function loadGoogleIdentityServices(): Promise<GoogleAccountsApi> {
     };
     script.onerror = () => reject(new Error("Google sign-in could not be loaded."));
     document.head.append(script);
+  });
+  googleLibrary = googleLibrary.catch((reason) => {
+    googleLibrary = null;
+    throw reason;
   });
   return googleLibrary;
 }

@@ -44,7 +44,8 @@ describe("typed note properties", () => {
   it("keeps healthy source saves silent and a failed source actionable", async () => {
     const onSaveDocument = vi.fn().mockResolvedValue(false);
     const view = render(<PropertiesPanel note={sourceNote} types={[]} onClose={() => {}} onSave={async () => {}} onSaveDocument={onSaveDocument} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Source" }));
+    fireEvent.click(screen.getByRole("button", { name: "Property options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit as source" }));
     expect(view.container.querySelector(".property-save-state")).toBeEmptyDOMElement();
     const source = screen.getByLabelText("Complete record source");
     fireEvent.change(source, { target: { value: "Edited source" } });
@@ -53,6 +54,26 @@ describe("typed note properties", () => {
     expect(screen.getByRole("button", { name: "Save source" })).toBeEnabled();
     expect(source).toHaveValue("Edited source");
   });
+
+  it("keeps source in the options menu and cycles only between property formats", async () => {
+    const user = userEvent.setup();
+    render(<PropertiesPanel note={{ ...eventNote, frontmatter: {}, types: [] }} types={[]} onClose={vi.fn()} onSave={vi.fn()} />);
+    expect(screen.getByText(/Add a property to keep details/)).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Source" })).not.toBeInTheDocument();
+    const fields = screen.getByRole("tab", { name: "Fields" });
+    fields.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "JSON" })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(fields).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Property options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Edit as source" }));
+    expect(screen.getByRole("region", { name: "Record source" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Property options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Back to fields" }));
+    expect(fields).toHaveAttribute("aria-selected", "true");
+  });
+
   it("visibly rejects structured, JSON, source, and autosave edits while frozen", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
@@ -63,7 +84,8 @@ describe("typed note properties", () => {
     await user.click(screen.getByRole("tab", { name: "JSON" }));
     expect(screen.getByLabelText("Raw frontmatter JSON")).toHaveAttribute("readonly");
     fireEvent.change(screen.getByLabelText("Raw frontmatter JSON"), { target: { value: "{}" } });
-    await user.click(screen.getByRole("tab", { name: "Source" }));
+    await user.click(screen.getByRole("button", { name: "Property options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Edit as source" }));
     expect(screen.getByLabelText("Complete record source")).toHaveAttribute("readonly");
     fireEvent.blur(screen.getByLabelText("Complete record source"));
     expect(screen.getByRole("button", { name: "Save source" })).toBeDisabled();
@@ -157,7 +179,8 @@ describe("typed note properties", () => {
     const onClose = vi.fn();
     render(<PropertiesPanel note={sourceNote} types={[]} onClose={onClose} onSave={async () => undefined} onSaveDocument={onSaveDocument} />);
 
-    await user.click(screen.getByRole("tab", { name: "Source" }));
+    await user.click(screen.getByRole("button", { name: "Property options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Edit as source" }));
     const editor = screen.getByLabelText("Complete record source");
     const normalized = sourceNote.document!.replace(/\r\n/g, "\n");
     expect(editor).toHaveValue(normalized);
@@ -214,7 +237,8 @@ describe("typed note properties", () => {
       onSaveDocument={onSaveDocument}
     />);
 
-    await user.click(screen.getByRole("tab", { name: "Source" }));
+    await user.click(screen.getByRole("button", { name: "Property options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Edit as source" }));
     const sourceEditor = screen.getByLabelText("Complete record source");
     const nextDocument = oldDocument.replace("custom: old", "custom: from-source");
     fireEvent.change(sourceEditor, { target: { value: nextDocument } });

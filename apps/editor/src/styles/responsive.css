@@ -1,5 +1,6 @@
 .mobile-back,
-.mobile-collections {
+.mobile-collections,
+.mobile-label {
   display: none;
 }
 
@@ -75,13 +76,8 @@
     padding-top: 0;
   }
 
-  .visual-field-columns {
-    grid-template-columns: minmax(78px, 1fr) minmax(84px, 0.72fr) 70px 30px;
-    gap: 6px;
-  }
-
   .visual-field-row {
-    grid-template-columns: 20px minmax(78px, 1fr) minmax(84px, 0.72fr) 70px 30px;
+    grid-template-columns: 20px minmax(0, 1fr) 100px 90px 32px;
     gap: 6px;
   }
 }
@@ -91,12 +87,8 @@
     --type-source-gutter: 18px;
   }
 
-  .visual-field-columns {
-    display: none;
-  }
-
   .visual-field-row {
-    grid-template-columns: 20px minmax(0, 1fr) minmax(96px, 0.72fr) 30px;
+    grid-template-columns: 20px minmax(0, 1fr) 100px 32px;
   }
 
   .visual-field-required {
@@ -104,14 +96,7 @@
     grid-row: 2;
   }
 
-  .visual-field-required > span {
-    position: static;
-    width: auto;
-    height: auto;
-    clip-path: none;
-  }
-
-  .remove-type-field {
+  .type-field-actions {
     grid-column: 4;
     grid-row: 1;
   }
@@ -216,16 +201,61 @@
     padding-top: max(10px, env(safe-area-inset-top));
   }
 
+  .editor-pane { grid-template-rows: auto auto auto minmax(0, 1fr); }
+
   .editor-bar {
-    min-height: 58px;
+    min-height: calc(52px + env(safe-area-inset-top));
+    justify-content: space-between;
     gap: 0;
-    padding: max(4px, env(safe-area-inset-top)) 6px 0 4px;
+    padding: calc(4px + env(safe-area-inset-top)) 8px 4px;
   }
 
   .writing-surface {
     --writing-gutter: 22px;
-    padding-top: 34px;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    padding-top: 22px;
   }
+
+  .note-provenance {
+    min-width: 0;
+    margin: 0 var(--writing-gutter) 12px;
+    color: var(--muted);
+    font-size: var(--font-size-caption);
+  }
+
+  .mobile-note-path {
+    margin: 0;
+    font-family: var(--mono);
+    overflow-wrap: anywhere;
+  }
+
+  .note-provenance .path-input { min-height: 44px; font-size: var(--font-size-ui); }
+  .note-provenance .save-indicator { display: flex; }
+  .note-provenance .mdbase-save-notice.is-saved { display: none; }
+  .note-provenance .save-indicator .mdbase-save-notice { min-width: 0; justify-content: flex-start; }
+  .note-provenance .cancel-operation { min-height: 44px; }
+  .note-provenance .note-opening-status { display: block; max-width: 100%; }
+
+  .mobile-label { display: inline; }
+  .list-header .new-note {
+    width: auto;
+    flex: none;
+    display: inline-flex;
+    gap: 6px;
+    padding-inline: 10px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: var(--color-on-accent);
+    font-size: var(--font-size-ui);
+    font-weight: var(--font-weight-medium);
+  }
+
+  /* Keep undo/error notices clear of the composer's bottom commit controls. */
+  .app-shell:has(.new-note-composer) .toast-stack { bottom: calc(100px + env(safe-area-inset-bottom)); }
+  .toast button, .toast .icon-button { min-width: 44px; min-height: 44px; }
+
+  .note-scroll { padding-bottom: env(safe-area-inset-bottom); }
+  .app-shell { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 
   .note-title-field {
     min-height: 45px;
@@ -240,20 +270,6 @@
     padding-bottom: max(60px, env(safe-area-inset-bottom));
   }
 
-  .path-button {
-    width: 100%;
-    max-width: 100%;
-    min-height: 44px;
-    padding-inline: 7px;
-  }
-
-  .path-button > svg {
-    opacity: 1;
-  }
-
-  .save-indicator .mdbase-save-notice {
-    min-width: 48px;
-  }
 
   .action-menu {
     width: 190px;
@@ -433,7 +449,7 @@
   .collection-link-primary,
   .collection-unique-rule,
   .collection-unique-rule:not(.has-path) {
-    grid-template-columns: minmax(0, 1fr) 30px;
+    grid-template-columns: minmax(0, 1fr) 44px;
     align-items: start;
   }
 
@@ -456,28 +472,25 @@
     margin-right: 0;
   }
 
-  .visual-field-columns {
-    display: none;
-  }
-
   .visual-field-row {
-    grid-template-columns: 20px minmax(0, 1fr) minmax(104px, 0.72fr) 30px;
+    grid-template-columns: 44px minmax(0, 1fr) 88px 44px;
     gap: 6px;
   }
 
+  .field-disclosure { width: 44px; grid-column: 1; grid-row: 1; }
+  .visual-field-name { grid-column: 2 / 4; grid-row: 1; }
+  .visual-field-kind { grid-column: 2; grid-row: 2; }
   .visual-field-required {
-    grid-column: 2 / 4;
+    grid-column: 3 / 5;
     grid-row: 2;
+    min-height: 44px;
   }
+  .type-inspector .inline-remove-button { width: 44px; }
+  .type-inspector .icon-picker-clear { width: 44px; }
+  .type-inspector .icon-picker-current { padding-right: 48px; }
+  .string-list-item { grid-template-columns: 16px minmax(0, 1fr) 44px; }
 
-  .visual-field-required > span {
-    position: static;
-    width: auto;
-    height: auto;
-    clip-path: none;
-  }
-
-  .remove-type-field {
+  .type-field-actions {
     grid-column: 4;
     grid-row: 1;
   }
@@ -633,11 +646,6 @@
     margin-top: 44px;
   }
 
-  .settings-intro {
-    grid-template-columns: 1fr;
-    gap: 5px;
-  }
-
   .fact-row strong {
     max-width: 58vw;
   }
@@ -662,7 +670,7 @@
   }
 
   .new-note-title input {
-    font-size: var(--font-size-title);
+    font-size: var(--font-size-heading);
   }
 
   .new-note-fields {
@@ -676,7 +684,7 @@
   }
 
   .schema-map-entry {
-    grid-template-columns: minmax(0, 1fr) 32px;
+    grid-template-columns: minmax(0, 1fr) 44px;
   }
 
   .schema-map-entry > .schema-value {
@@ -710,6 +718,38 @@
 
 
 
+
+  .dialog-scrim:has(.quick-open) { padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom)); }
+  .quick-open { max-height: 100%; display: flex; flex-direction: column; }
+  .quick-open-search { flex: none; }
+  .quick-open-search input { min-height: 52px; }
+  .quick-open-search .icon-button { flex: none; }
+  .quick-open-results { min-height: 0; max-height: none; }
+  .quick-open > footer { display: none; }
+  .search-field { min-height: 44px; }
+  .search-field input { min-height: 44px; }
+  .search-field button { min-width: 44px; min-height: 44px; }
+  .setting-row { gap: 12px; }
+  .person-choice, .person-current { flex-wrap: wrap; min-width: 0; }
+  .setting-row > div, .fact-row strong { min-width: 0; overflow-wrap: anywhere; }
+  .properties-panel button:not(.mdbase-switch),
+  .properties-panel summary,
+  .settings-document button:not(.mdbase-switch),
+  .settings-document summary,
+  .type-inspector button:not(.mdbase-switch),
+  .type-inspector summary,
+  .new-note-composer button:not(.mdbase-switch),
+  .new-note-composer summary { min-height: 44px; }
+  .properties-panel input:not([type="checkbox"]), .properties-panel textarea,
+  .settings-document input:not([type="checkbox"]),
+  .type-inspector input:not([type="checkbox"]),
+  .new-note-composer input:not([type="checkbox"]) { min-height: 44px; }
+  .properties-panel .mdbase-select, .type-inspector .mdbase-select,
+  .settings-document .mdbase-select, .new-note-composer .mdbase-select { min-width: 44px; min-height: 44px; }
+  .properties-panel .inline-remove-button, .new-note-composer .inline-remove-button { width: 44px; }
+  .properties-panel .property-row { padding-right: 44px; }
+  .property-string-list > div { grid-template-columns: minmax(0, 1fr) 44px; }
+  .schema-array-item { grid-template-columns: 18px minmax(0, 1fr) 44px; }
 
   .confirm-dialog,
   .collection-switcher {
@@ -772,7 +812,6 @@
   .visual-type-basics-fields label > span,
   .field-description > span,
   .field-constraint-grid label > span,
-  .visual-field-columns,
   .field-path span,
   .list-item-heading span,
   .string-list-heading > span {
