@@ -99,7 +99,12 @@ impl AgentState {
                     )
                 });
                 serde_json::to_value(ListFilesPage {
-                    authority_capabilities: None,
+                    authority_capabilities: self
+                        .registry
+                        .get(grant.collection_id)?
+                        .spec_version
+                        .starts_with("0.3")
+                        .then(|| vec!["files-stat-v1".to_string()]),
                     protocol_version: FILE_PROTOCOL_VERSION,
                     message_type: ListFilesPageKind::FilesPage,
                     files,

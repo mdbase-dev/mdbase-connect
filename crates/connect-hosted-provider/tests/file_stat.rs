@@ -171,6 +171,26 @@ async fn exact_file_stat_local_indexes_hosted_policy_and_signed_http() {
         )
         .await
         .unwrap();
+    let page = fixture
+        .provider
+        .list_files(
+            fixture.collection_id,
+            &application_token,
+            ListFilesRequest {
+                protocol_version: FILE_PROTOCOL_VERSION,
+                message_type: ListFilesRequestKind::ListFiles,
+                folder: None,
+                after: None,
+                limit: Some(1),
+            },
+            Some("https://files.example"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        page.authority_capabilities,
+        Some(vec!["files-stat-v1".to_string()])
+    );
     let stat = |target| {
         fixture.provider.stat_file(
             fixture.collection_id,

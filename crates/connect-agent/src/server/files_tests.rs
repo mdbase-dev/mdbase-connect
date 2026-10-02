@@ -88,6 +88,10 @@ fn local_list_pages_share_one_index_revision_and_expire_after_refresh() {
     )
     .unwrap();
     assert_eq!(first.files.len(), 1);
+    assert_eq!(
+        first.authority_capabilities,
+        Some(vec!["files-stat-v1".to_string()])
+    );
     let cursor = first.next.expect("three files produce a continuation");
 
     registry.mark_file_inventory_dirty(collection.id).unwrap();
@@ -100,6 +104,7 @@ fn local_list_pages_share_one_index_revision_and_expire_after_refresh() {
     )
     .unwrap();
     assert_eq!(second.files[0].path, "Allowed/b.bin");
+    assert_eq!(second.authority_capabilities, first.authority_capabilities);
 
     fs::write(root.path().join("Allowed/d.bin"), b"d.bin").unwrap();
     registry.mark_file_inventory_dirty(collection.id).unwrap();
@@ -113,6 +118,34 @@ fn local_list_pages_share_one_index_revision_and_expire_after_refresh() {
             .code(),
         "file_list_changed"
     );
+}
+
+#[test]
+fn legacy_file_pages_do_not_advertise_native_stat() {
+    let state_dir = tempdir().unwrap();
+    let root = tempdir().unwrap();
+    fs::write(root.path().join("mdbase.yaml"), "spec_version: 0.2.0\n").unwrap();
+    fs::create_dir(root.path().join("Allowed")).unwrap();
+    fs::write(root.path().join("Allowed/a.bin"), b"legacy").unwrap();
+    let registry = CollectionRegistry::open(state_dir.path()).unwrap();
+    let collection = registry.add(root.path()).unwrap();
+    registry
+        .refresh_file_index_if_needed(collection.id)
+        .unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    let state = AgentState::new(registry, watcher, None);
+    let grant = file_grant(collection.id, vec![FileAction::List]);
+    let page: ListFilesPage = serde_json::from_value(
+        state
+            .file_control(
+                &grant,
+                serde_json::json!({"protocol_version":1,"type":"list_files"}),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(page.files.len(), 1);
+    assert!(page.authority_capabilities.is_none());
 }
 
 fn file_grant(collection_id: Uuid, actions: Vec<FileAction>) -> GrantSummary {

@@ -73,7 +73,7 @@ impl HostedProvider {
             }
         }
         Ok(ListFilesPage {
-            authority_capabilities: None,
+            authority_capabilities: Some(vec!["files-stat-v1".to_string()]),
             protocol_version: FILE_PROTOCOL_VERSION,
             message_type: ListFilesPageKind::FilesPage,
             files,
