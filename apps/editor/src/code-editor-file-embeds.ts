@@ -1,4 +1,7 @@
-import type { Extension, Range } from "@codemirror/state";
+import { EditorSelection, EditorState, StateEffect, StateField, Transaction, type Extension, type Range, type Text } from "@codemirror/state";
+import { isolateHistory } from "@codemirror/commands";
+import type { AttachmentUploader } from "./AttachmentUpload";
+import { gatewayError } from "./gateway";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import { fileAssetKey, isInlinePreviewable, isTextPreviewable } from "./file-reference-resolution";
@@ -138,6 +141,185 @@ class FileEmbedWidget extends WidgetType {
       this.unmountInlinePdf = () => root.unmount();
     });
   }
+}
+
+interface PendingAttachment {
+  id: number;
+  position: number;
+  file: File;
+  error?: string;
+  retry: () => void;
+  remove: () => void;
+}
+
+const changeAttachment = StateEffect.define<PendingAttachment>();
+const removeAttachment = StateEffect.define<number>();
+const pendingAttachments = StateField.define<readonly PendingAttachment[]>({
+  create: () => [],
+  update(jobs, transaction) {
+    // These are view-local anchors, never placeholder text in a saved note.
+    const completed = transaction.effects.find((effect) => effect.is(removeAttachment))?.value;
+    let next = jobs.filter((job) => {
+      let deleted = false;
+      transaction.changes.iterChangedRanges((from, to) => {
+        if (from !== to && from <= job.position && to >= job.position) deleted = true;
+      });
+      return !deleted;
+    }).map((job) => ({ ...job, position: transaction.changes.mapPos(job.position,
+      typeof completed === "number" && job.id < completed ? -1 : 1) }));
+    for (const effect of transaction.effects) {
+      if (effect.is(removeAttachment)) next = next.filter((job) => job.id !== effect.value);
+      if (effect.is(changeAttachment)) {
+        next = next.filter((job) => job.id !== effect.value.id);
+        next.push(effect.value);
+      }
+    }
+    return next;
+  }
+});
+
+class AttachmentWidget extends WidgetType {
+  constructor(readonly job: PendingAttachment, readonly disabled: boolean) { super(); }
+  eq(other: AttachmentWidget) {
+    return this.job.id === other.job.id && this.job.error === other.job.error && this.disabled === other.disabled;
+  }
+  toDOM() {
+    const widget = document.createElement("span");
+    widget.className = `cm-attachment-upload${this.job.error ? " is-error" : ""}`;
+    const label = document.createElement("span");
+    label.setAttribute("role", "status");
+    label.textContent = this.job.error
+      ? `Couldn’t upload ${this.job.file.name}. ${this.job.error}`
+      : `Uploading ${this.job.file.name}…`;
+    widget.append(label);
+    for (const [text, action] of this.job.error
+      ? [["Retry", this.job.retry], ["Remove", this.job.remove]] as const
+      : [["Remove", this.job.remove]] as const) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "mdbase-button is-tertiary";
+      button.textContent = text;
+      button.setAttribute("aria-label", `${text} upload of ${this.job.file.name}`);
+      button.disabled = this.disabled;
+      button.addEventListener("click", action);
+      widget.append(button);
+    }
+    return widget;
+  }
+  ignoreEvent() { return true; }
+}
+
+export function blockAttachmentInsertion(doc: Text, from: number, to: number, reference: string): string {
+  const before = doc.sliceString(Math.max(0, from - 1), from);
+  const after = doc.sliceString(to, to + 1);
+  return `${before && before !== "\n" ? "\n\n" : ""}${reference}${after && after !== "\n" ? "\n\n" : ""}`;
+}
+
+/** Paste/drop shares the menu's uploader, but owns only editor-local insertion anchors. */
+export function attachmentCapture(uploader: () => AttachmentUploader | undefined): Extension {
+  return [pendingAttachments, EditorView.decorations.compute([pendingAttachments, EditorState.readOnly], (state) =>
+    Decoration.set(state.field(pendingAttachments).map((job) => Decoration.widget({
+      side: 1, widget: new AttachmentWidget(job, state.readOnly)
+    }).range(job.position)), true)
+  ), ViewPlugin.fromClass(class {
+    private sequence = 0;
+    private destroyed = false;
+    constructor(readonly view: EditorView) {}
+    destroy() {
+      this.destroyed = true;
+      this.view.dom.classList.remove("is-file-drag-over");
+    }
+    update() {
+      if (!this.enabled()) this.view.dom.classList.remove("is-file-drag-over");
+    }
+    enabled() { return !this.view.state.readOnly && Boolean(uploader()); }
+    add(files: readonly File[], position: number) {
+      const jobs = files.map((file): PendingAttachment => {
+        const id = ++this.sequence;
+        return { id, file, position, retry: () => void this.run(id), remove: () => {
+          if (!this.destroyed && this.enabled()) this.view.dispatch({ effects: removeAttachment.of(id) });
+        } };
+      });
+      this.view.dispatch({ effects: jobs.map((job) => changeAttachment.of(job)) });
+      // Preserve ordering for files dropped at the same anchor.
+      void (async () => { for (const job of jobs) await this.run(job.id); })();
+    }
+    async run(id: number) {
+      if (this.destroyed || !this.enabled()) return;
+      const upload = uploader()!;
+      const job = this.view.state.field(pendingAttachments).find((job) => job.id === id);
+      if (!job) return;
+      this.view.dispatch({ effects: changeAttachment.of({ ...job, error: undefined }) });
+      try {
+        const reference = await upload(job.file);
+        if (this.destroyed) return;
+        const current = this.view.state.field(pendingAttachments).find((job) => job.id === id);
+        if (!current) return; // Removal/navigation must never insert a late reference.
+        if (!this.enabled()) throw new Error("The note is no longer editable.");
+        const insert = blockAttachmentInsertion(this.view.state.doc, current.position, current.position, reference);
+        const selection = this.view.state.selection.main;
+        this.view.dispatch({
+          changes: { from: current.position, insert },
+          // Normal paste advances a caret still at the insertion point. A caret
+          // moved elsewhere during upload remains owned by the writer.
+          selection: selection.empty && selection.head === current.position
+            ? EditorSelection.cursor(current.position + insert.length) : undefined,
+          effects: removeAttachment.of(id),
+          annotations: [Transaction.userEvent.of("input.attachment"), isolateHistory.of("full")]
+        });
+      } catch (error) {
+        if (this.destroyed) return;
+        const current = this.view.state.field(pendingAttachments).find((job) => job.id === id);
+        if (current) this.view.dispatch({ effects: changeAttachment.of({ ...current, error: gatewayError(error) }) });
+      }
+    }
+  }, { eventHandlers: {
+    paste(event) {
+      if (!this.enabled() || !event.clipboardData) return false;
+      const files = clipboardAttachments(event.clipboardData);
+      if (!files.length) return false;
+      event.preventDefault();
+      this.add(files, this.view.state.selection.main.from);
+      return true;
+    },
+    dragover(event) {
+      if (!this.enabled() || !event.dataTransfer?.types.includes("Files")) return false;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      this.view.dom.classList.add("is-file-drag-over");
+      return true;
+    },
+    dragleave(event) {
+      if (!(event.relatedTarget instanceof Node) || !this.view.dom.contains(event.relatedTarget)) {
+        this.view.dom.classList.remove("is-file-drag-over");
+      }
+    },
+    drop(event) {
+      this.view.dom.classList.remove("is-file-drag-over");
+      if (!this.enabled() || !event.dataTransfer?.files.length) return false;
+      const position = this.view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (position === null) return false;
+      event.preventDefault();
+      this.add([...event.dataTransfer.files], position);
+      return true;
+    }
+  } })];
+}
+
+export function clipboardAttachments(data: Pick<DataTransfer, "files" | "items">, now = new Date()): File[] {
+  const files = data.files.length ? [...data.files]
+    : [...data.items].flatMap((item) => {
+      const file = item.kind === "file" ? item.getAsFile() : null;
+      return file ? [file] : [];
+    });
+  return files.map((file) => {
+    if (!file.type.startsWith("image/")) return file;
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}`;
+    const extension = file.name.match(/\.([a-z0-9]+)$/iu)?.[1]
+      ?? ({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/svg+xml": "svg" }[file.type] ?? "img");
+    return new File([file], `Pasted image ${timestamp}.${extension}`, { type: file.type, lastModified: file.lastModified });
+  });
 }
 
 export function fileEmbedPresentation(

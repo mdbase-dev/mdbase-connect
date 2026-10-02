@@ -80,10 +80,15 @@ count and byte budgets bound the cache.
 Markdown embed discovery uses the CodeMirror Markdown syntax tree so examples
 inside code are not fetched. One resolver handles standard image destinations,
 relative paths, and wiki embeds with deterministic normalized matching; unsafe
-schemes, traversal, and ambiguous basenames remain unresolved. Uploading an
-attachment commits the file first and only then inserts a Markdown reference
-into the active note. This makes partial failure explicit: a committed file
-survives even if the later note save does not.
+schemes, traversal, and ambiguous basenames remain unresolved. The attachment menu, clipboard images and file drops share one upload pipeline
+and the same note-relative attachment location. Paste/drop uses view-local,
+edit-mapped insertion anchors (drop coordinates, not the current selection).
+Uploading and retry/remove widgets never enter the saved Markdown. The file
+commits first; only then does the editor insert an independently undoable
+Markdown reference. Navigation, removal, deleted anchors and read-only/frozen
+notes cannot receive late references. This makes partial failure explicit: a
+committed file survives even if insertion is removed or the later note save
+fails. File size/type authorization stays in the collection gateway/SDK.
 
 ## Note editing
 
