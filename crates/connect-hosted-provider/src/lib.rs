@@ -38,16 +38,17 @@ pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
 pub use provider::run_hosted_cutover_migrations;
 pub use provider::PROJECTION_ENGINE_UPGRADE;
 pub use provider::{
-    DiagnosticSection, DrainStateDiagnostic, HostedDiagnostics, HostedLifecycleWorkDiagnostic,
-    HostedMutationJournalDiagnostics, HostedProjectionBatch, HostedProjectionGeneration,
-    HostedProjectionIndexPlan, HostedProjectionIndexPlanEntry, HostedProjectionStatus,
-    HostedProjectionVerification, HostedProvider, HostedQueryActivity, LifecycleDiagnosticSection,
-    MigrationLedgerDiagnostic, MutationJournalLifecycleDiagnostic, NotificationRecoveryState,
-    NotificationRecoveryStatus, PrepareAuthorityImport, PrepareAuthorityTransfer,
-    ProjectionProgressDiagnostic, ProjectionReadinessDiagnostic, ProviderAccountLimits,
-    ProviderAccountUsage, ProviderAuthorityImport, ProviderAuthorityImportState,
-    ProviderAuthorityTransfer, ProviderAuthorityTransferState, ProviderLimits, RegisterReplica,
-    ReplicaPurpose, ResourceChangeDiagnostic, RuntimeOutboxLifecycleDiagnostic, StorageDiagnostic,
+    DiagnosticSection, DrainStateDiagnostic, FileStat, HostedDiagnostics,
+    HostedLifecycleWorkDiagnostic, HostedMutationJournalDiagnostics, HostedProjectionBatch,
+    HostedProjectionGeneration, HostedProjectionIndexPlan, HostedProjectionIndexPlanEntry,
+    HostedProjectionStatus, HostedProjectionVerification, HostedProvider, HostedQueryActivity,
+    LifecycleDiagnosticSection, MigrationLedgerDiagnostic, MutationJournalLifecycleDiagnostic,
+    NotificationRecoveryState, NotificationRecoveryStatus, PrepareAuthorityImport,
+    PrepareAuthorityTransfer, ProjectionProgressDiagnostic, ProjectionReadinessDiagnostic,
+    ProviderAccountLimits, ProviderAccountUsage, ProviderAuthorityImport,
+    ProviderAuthorityImportState, ProviderAuthorityTransfer, ProviderAuthorityTransferState,
+    ProviderLimits, RegisterReplica, ReplicaPurpose, ResourceChangeDiagnostic,
+    RuntimeOutboxLifecycleDiagnostic, StatFileRequest, StatFileRequestKind, StorageDiagnostic,
     HOSTED_DIAGNOSTICS_SCHEMA_VERSION,
 };
 #[cfg(feature = "test-hooks")]

@@ -85,6 +85,7 @@ mod crypto_state;
 mod diagnostics;
 mod file_policy;
 mod files;
+pub use files::{FileStat, StatFileRequest, StatFileRequestKind};
 mod lifecycle;
 pub use lifecycle::run_hosted_cutover_migrations;
 mod lifecycle_states;

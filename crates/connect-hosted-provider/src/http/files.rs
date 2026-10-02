@@ -12,6 +12,10 @@ pub(super) fn file_routes() -> Router<AppState> {
     Router::new()
         .route("/v1/authorities/{collection_id}/files", get(list_files))
         .route(
+            "/v1/authorities/{collection_id}/files/stat",
+            post(stat_file),
+        )
+        .route(
             "/v1/authorities/{collection_id}/files/{file_id}/move",
             post(move_file),
         )
@@ -79,6 +83,24 @@ async fn list_files(
                 },
                 origin.as_deref(),
             )
+            .await?,
+    ))
+}
+
+async fn stat_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Path(collection_id): Path<Uuid>,
+    body: Bytes,
+) -> ApiResult<Json<crate::provider::FileStat>> {
+    let token =
+        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
+    let request = file_json::<crate::provider::StatFileRequest>(&body)?;
+    Ok(Json(
+        state
+            .provider
+            .stat_file(collection_id, token, request, request_origin(&headers))
             .await?,
     ))
 }

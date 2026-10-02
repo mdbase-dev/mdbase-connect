@@ -96,7 +96,9 @@ mod lifecycle;
 mod list_download;
 mod maintenance;
 mod persistence;
+mod stat;
 mod upload;
+pub use stat::{FileStat, StatFileRequest, StatFileRequestKind};
 
 impl HostedProvider {
     async fn cleanup_after_failed_finalization(&self, transfer: &HostedFileTransfer) {
