@@ -21,8 +21,11 @@ import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type R
 import { CodeEditor } from "./CodeEditor";
 import { SchemaValueEditor, schemaInitialValue } from "./SchemaValueEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
+import { ActionMenu } from "./ActionMenu";
 import { ComboboxInput } from "./SelectionControls";
 import { SaveNotice } from "@mdbase-dev/ui/save-notice";
+import { PathLabel } from "./WorkspaceChrome";
+import { useDelayedBusy } from "./use-delayed-busy";
 import { Select, type SelectItems, type SelectOption } from "@mdbase-dev/ui/select";
 import {
   contractCatalogPackStatus,
@@ -217,6 +220,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
   onOpenSettings?: () => void;
   onBack: () => void;
 }) {
+  const slowSave = useDelayedBusy(saving, document?.path);
   const [view, setView] = useState<"visual" | "yaml">("visual");
   const [reviewing, setReviewing] = useState(false);
   const [visualError, setVisualError] = useState<string>();
@@ -260,16 +264,15 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
     <header className="type-inspector-bar mdbase-settle-host">
       <button className="mobile-back icon-button" aria-label="Back to types" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
       {leadingActions}
-      <span>{path}</span>
-      <SaveNotice tone={loading || saving ? "saving" : creating || dirty ? "pending" : "saved"} label={loading ? "Loading" : saving ? "Saving" : creating ? "New" : dirty ? "Unsaved" : "Saved"} />
+      <PathLabel path={path} />
+      {(error || slowSave) && <SaveNotice tone={error ? "attention" : "saving"} label={error ? "Needs attention" : "Saving…"} />}
     </header>
     <section className="type-heading">
-      <p className="eyebrow">{creating ? "Create type" : "Type definition"}</p>
       <div className="type-heading-title">
         {!creating && isPhosphorIconName(collectionTypeIcon(type)) && <PhosphorIcon name={collectionTypeIcon(type)} aria-hidden="true" />}
         <h1>{name}</h1>
       </div>
-      {creating ? <p>Give the type a unique name and describe its fields in JSON Schema.</p> : type!.description && <p>{type!.description}</p>}
+      {creating ? <p>Give the type a name, then add the fields its notes need.</p> : type!.description && <p>{type!.description}</p>}
       {!creating && <p className="type-heading-facts">{typeHeadingFacts(type!, contractState.implementations.length)}</p>}
     </section>
     <section className="type-source">
@@ -400,7 +403,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
           suggestions={pathSuggestions}
           onChange={(values) => onChange((source) => updateTypePathGlobs(source, values))}
         />
-        {definition.pathGlobs.length > 0 && definition.fieldsPresent.length > 0 && <span className="type-match-operator" aria-label="and">AND</span>}
+        {definition.pathGlobs.length > 0 && definition.fieldsPresent.length > 0 && <span className="type-match-operator">and</span>}
         <StringListEditor
           label="Frontmatter contains all"
           values={definition.fieldsPresent}
@@ -421,7 +424,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
       </div>}
       {impact && <TypeMembershipPreview impact={impact.membership} advanced={definition.advancedMatch} />}
     </TypeEditorDisclosure>
-    <section className="visual-type-section">
+    <section className="visual-type-section visual-type-fields-intro">
       <div className="visual-type-fields-heading">
         <div>
           <h3>Fields</h3>
@@ -433,7 +436,6 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
           ? <button className="mdbase-button is-tertiary" onClick={onOpenYaml}><FileCode2 aria-hidden="true" />Edit reference</button>
           : <button className="mdbase-button" onClick={() => onChange((current) => addTypeField(current))}><Plus aria-hidden="true" />Add field</button>}
       </div>
-      <div className="visual-field-columns" aria-hidden="true"><span>Field</span><span>Kind</span><span>Required</span><span /></div>
     </section>
     <div className="visual-type-fields">
       {linkedSchema ? <>
@@ -442,7 +444,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
           <div><strong>Schema-managed fields</strong><p><code>{linkedSchema}</code> is installed with this type. Field structure is edited at the schema source.</p></div>
         </div>
         {linkedSchemaFields.map((field) => <div className="linked-schema-field" key={field.reference}>
-          <div><code>{field.label}</code>{field.description && <small>{field.description}</small>}</div>
+          <div><span>{field.label}</span>{field.description && <small>{field.description}</small>}</div>
           <span>{kindName(field.kind)}</span>
           <span className={field.required ? "required" : ""}>{field.required ? "Required" : "Optional"}</span>
           <Link2 aria-label="Linked schema field" />
@@ -1646,10 +1648,12 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
       <button className="field-disclosure" aria-label={`${expanded ? "Collapse" : "Expand"} ${fieldLabel} field`} aria-expanded={expanded} onClick={() => onActivate(expanded ? undefined : fieldLabel)}>
         {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </button>
-      <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only">Field name</span><input type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title="Notes use this field to declare their type. Edit it in YAML if you need to change it.">Type key</small>}</label>
+      <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only">Field name</span><input aria-label={`${fieldLabel} field name`} type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title="Notes use this field to declare their type. Edit it in YAML if you need to change it.">Type key</small>}</label>
       <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field kind</span><Select aria-label={`${fieldLabel} field kind`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
       <label className="visual-field-required"><input className="mdbase-checkbox" type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span>Required</span></label>
-      {typeKey ? <span className="remove-type-field" aria-hidden="true" /> : <InlineRemoveButton className="remove-type-field" label={`Remove ${fieldLabel} field`} onClick={() => onChange((current) => removeTypeField(current, field.path))} />}
+      <div className="type-field-actions">{!typeKey && <ActionMenu label={`${fieldLabel} field options`} items={[
+        { label: `Remove ${fieldLabel} field`, icon: <Trash2 aria-hidden="true" />, tone: "danger", onSelect: () => onChange((current) => removeTypeField(current, field.path)) }
+      ]} />}</div>
     </div>
     {expanded && <div className="visual-field-details">
       <div className="field-path"><span>{fieldLabel}</span>{field.advancedKeys.length > 0 && <strong>Advanced YAML rules</strong>}</div>

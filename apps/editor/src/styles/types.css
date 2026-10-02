@@ -138,12 +138,22 @@
   font-size: var(--font-size-ui);
 }
 
-.type-inspector-bar > span {
+.type-inspector-bar > span:not(.mdbase-save-notice) {
   min-width: 0;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.type-inspector-bar > .path-label {
+  font-family: var(--mono);
+  font-size: var(--font-size-caption);
+}
+
+.type-inspector-bar > .mdbase-save-notice {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .type-heading {
@@ -324,7 +334,7 @@
 }
 
 .type-change-scope code {
-  font-family: var(--mono);
+  font-family: inherit;
   font-size: var(--font-size-caption);
 }
 
@@ -444,8 +454,8 @@
   padding-top: 28px;
 }
 
-.visual-type-section:has(> .visual-field-columns) {
-  padding-bottom: 0;
+.visual-type-fields-intro {
+  padding-bottom: var(--space-4);
 }
 
 .visual-type-section + .type-editor-disclosure {
@@ -603,7 +613,7 @@
   border-radius: var(--radius-sm);
   background: var(--white);
   color: var(--ink);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-ui);
 }
 
 .collection-behaviour-section {
@@ -943,8 +953,36 @@
   margin-top: 18px;
 }
 
-.visual-field-name input {
+.visual-field-row .visual-field-name input {
+  border-color: transparent;
+  background: transparent;
+  font-family: var(--sans);
   font-size: var(--font-size-ui);
+  transition: border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
+}
+
+.visual-field-row .visual-field-name input:hover:not(:read-only) {
+  border-color: var(--line);
+}
+
+.visual-field-row .visual-field-name input:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-soft);
+  background: var(--canvas);
+}
+
+.visual-field-kind .mdbase-select {
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+}
+
+.visual-field-kind .mdbase-select:hover:not(:disabled) {
+  border-color: var(--line);
+}
+
+.visual-field-kind .mdbase-select:focus-visible {
+  border-color: var(--accent);
 }
 
 .advanced-match-note {
@@ -1020,7 +1058,7 @@
 }
 
 .type-membership-method code {
-  font-family: var(--mono);
+  font-family: inherit;
   font-size: var(--font-size-caption);
 }
 
@@ -1140,15 +1178,6 @@
 }
 .visual-type-fields-heading svg { width: 12px; height: 12px; }
 
-.visual-field-columns {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(120px, 0.72fr) 84px 30px;
-  gap: 8px;
-  padding: 18px 2px 7px 24px;
-  color: var(--faint);
-  font-size: var(--font-size-ui);
-}
-
 .visual-type-fields {
   width: min(100%, 800px);
   align-self: center;
@@ -1183,15 +1212,14 @@
   line-height: 1.5;
 }
 
-.linked-schema-notice code,
-.linked-schema-field code {
+.linked-schema-notice code {
   font-family: var(--mono);
   font-size: var(--font-size-caption);
 }
 
 .linked-schema-field {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(120px, 0.72fr) 84px 30px;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, 0.5fr) 84px 30px;
   align-items: center;
   gap: 8px;
   min-height: 44px;
@@ -1907,8 +1935,8 @@
 .contract-field-definition code {
   overflow: hidden;
   color: var(--ink);
-  font-family: var(--mono);
-  font-size: var(--font-size-caption);
+  font-family: var(--sans);
+  font-size: var(--font-size-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2244,7 +2272,7 @@
 .visual-field-row {
   min-height: 52px;
   display: grid;
-  grid-template-columns: 20px minmax(120px, 1fr) minmax(120px, 0.72fr) 84px 30px;
+  grid-template-columns: 20px minmax(0, 1fr) 128px 90px 32px;
   align-items: center;
   gap: 8px;
   padding: 8px 2px;
@@ -2280,14 +2308,8 @@
   font-size: var(--font-size-ui);
 }
 
-/* The column header names this control; the label returns when the header is hidden at narrow widths. */
-.visual-field-required > span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+.type-field-actions {
+  justify-self: end;
 }
 
 .visual-field-name.type-key {
@@ -2644,7 +2666,7 @@
 .type-impact-warning svg { width: 16px; height: 16px; }
 .type-impact-warning strong { color: inherit; }
 .type-impact-warning p { margin: 3px 0 0; color: inherit; }
-.type-impact-warning code { font-family: var(--mono); font-size: var(--font-size-caption); }
+.type-impact-warning code { font-family: inherit; font-size: inherit; }
 
 .type-definition-changes {
   margin: 14px 0;

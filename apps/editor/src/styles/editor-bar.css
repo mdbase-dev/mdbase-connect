@@ -74,10 +74,27 @@
   text-align: left;
 }
 
-.path-button > span {
+.path-label {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.path-directory {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path-filename {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .path-button > svg {
@@ -145,9 +162,16 @@
   inset: auto;
   margin: 0;
   width: 164px;
+  overflow-y: auto;
   padding: 5px;
   border: 1px solid var(--line-strong);
   background: var(--white);
+}
+
+.action-menu-separator {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--line);
 }
 
 .action-menu button {

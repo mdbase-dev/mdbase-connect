@@ -25,7 +25,8 @@ Editor's quiet treatment is the canonical palette; do not restate values here.
 Use a restrained monochrome strategy in both themes. The canvas is the only
 major surface. Fields use fine neutral outlines; secondary actions use a quiet tonal fill,
 tertiary actions read as text, and the single committing action uses a filled
-accent. Green indicates verified connection or
+accent. Identity provider buttons retain their required provider treatment, at
+secondary weight. Green indicates verified connection or
 completion. Amber indicates pending attention. Red indicates revocation,
 disconnection, or destructive local administration. Semantic color should
 occupy as little space as possible.
@@ -48,6 +49,8 @@ values so both themes preserve the same hierarchy.
 - The six shared size tokens are caption 12px, UI 13px, section 15px, prose 17px,
   heading 24px and document title 34px. UI chrome defaults to 13px; nothing is
   smaller than 12px. Emphasis normally uses 500/600, not bold-or-nothing.
+- Account authentication uses the prose token in a centered, mobile-safe column;
+  Connect management uses the section token for body copy.
 - Labels use sentence case without uppercase tracking. Body copy has a relaxed
   line height and a readable measure, capped near 70ch.
 - Typography, the 4/8/12px corner scale, two elevations, spacing and motion come

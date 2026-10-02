@@ -189,7 +189,8 @@ describe("App collection switch ownership", () => {
   it("drains an A complete-source save and cannot publish it into same-path B", async () => {
     const { gateway, user } = await hostileHarness();
     await user.click(screen.getByRole("button", { name: "Note properties" }));
-    await user.click(screen.getByRole("tab", { name: "Source" }));
+    await user.click(screen.getByRole("button", { name: "Property options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Edit as source" }));
     const source = screen.getByLabelText("Complete record source");
     fireEvent.change(source, { target: { value: "# Hostile source\n\nOwned by A" } });
     await user.click(screen.getByRole("button", { name: "Save source" }));

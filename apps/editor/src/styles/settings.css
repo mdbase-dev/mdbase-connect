@@ -25,14 +25,13 @@
 }
 
 .settings-document > section {
-  margin-top: 58px;
+  margin-top: var(--space-12);
 }
 
 .settings-intro {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  gap: 26px;
-  padding-bottom: 14px;
+  gap: var(--space-1);
+  padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--line-strong);
 }
 
@@ -42,9 +41,10 @@
 }
 
 .settings-intro p {
-  margin: 1px 0 0;
+  margin: 0;
   color: var(--faint);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
 }
 
 .settings-details > summary {
@@ -79,18 +79,27 @@
 
 .setting-row,
 .fact-row {
-  min-height: 58px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 24px;
-  padding: 11px 0;
+  gap: var(--space-6);
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--line);
+}
+
+.setting-row {
+  min-height: 64px;
+}
+
+.fact-row {
+  min-height: 44px;
+  padding: var(--space-2) 0;
 }
 
 .setting-row h3 {
   margin: 0;
   font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
 }
 
 .setting-row p {
@@ -195,6 +204,7 @@
   overflow-wrap: anywhere;
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-regular);
+  font-variant-numeric: tabular-nums;
   text-align: right;
 }
 

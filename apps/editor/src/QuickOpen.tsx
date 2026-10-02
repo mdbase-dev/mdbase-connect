@@ -48,6 +48,9 @@ export function QuickOpen({ index, recentPaths, types, commands = [], onSelect, 
     [commandMode, filteredCommands, results, showCommands]);
   const rows = sections.map((section) => section.row);
   useEffect(() => setActiveIndex(0), [query]);
+  useEffect(() => {
+    document.getElementById(`quick-open-${activeIndex}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [activeIndex, rows.length]);
 
   function choose(row: QuickOpenRow | undefined) {
     if (!row) return;
@@ -78,7 +81,7 @@ export function QuickOpen({ index, recentPaths, types, commands = [], onSelect, 
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") {
               event.preventDefault();
-              setActiveIndex((current) => Math.min(rows.length - 1, current + 1));
+              setActiveIndex((current) => Math.max(0, Math.min(rows.length - 1, current + 1)));
             } else if (event.key === "ArrowUp") {
               event.preventDefault();
               setActiveIndex((current) => Math.max(0, current - 1));
@@ -186,11 +189,14 @@ function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSearchResul
   }));
 }
 
+export function shortcutModifier(): string {
+  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ? "⌘" : "Ctrl";
+}
+
 export function ShortcutHelp({ onClose }: { onClose: () => void }) {
-  const modifier = navigator.platform.includes("Mac") ? "⌘" : "Ctrl";
+  const modifier = shortcutModifier();
   const shortcuts = [
     [`${modifier} P`, "Quick open"],
-    [`${modifier} K`, "Quick open, outside the note text"],
     [">", "Actions in quick open"],
     ["↑ / ↓", "Move through the note list"],
     [`${modifier} F`, "Find in note"],
@@ -201,7 +207,10 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
     ["Alt J / K", "Next or previous note"],
     [`${modifier} Shift N`, "New note"],
     [`${modifier} Shift L`, "Show or hide the notes sidebar"],
-    ["?", "Show this shortcut guide"]
+    ["F2", "Rename note"],
+    [`${modifier} Backspace`, "Delete selected note, in the list"],
+    ["Shift F10", "Note actions, in the list"],
+    ["?", "Show this shortcut guide, outside text inputs"]
   ];
   return <Dialog titleId="shortcut-help-title" className="shortcut-help" onClose={onClose}>
       <header><h2 id="shortcut-help-title">Shortcuts</h2><button className="icon-button" aria-label="Close keyboard shortcuts" onClick={onClose}><X aria-hidden="true" /></button></header>

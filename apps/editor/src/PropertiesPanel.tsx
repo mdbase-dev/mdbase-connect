@@ -1,18 +1,21 @@
 import {
-  BracketsCurlyIcon as Braces,
   FileCodeIcon as FileCode2,
   XIcon as X
 } from "./icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import { CodeEditor } from "./CodeEditor";
+import { ActionMenu } from "./ActionMenu";
 import type { NoteDocument } from "./model";
 import { composeRecordSource, parseRecordSource } from "./record-source";
+import { noteWordCount } from "./note";
+import { useDelayedBusy } from "./use-delayed-busy";
 import { propertyValidationErrors, StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
 
 interface PropertiesPanelProps {
   note: NoteDocument;
   types: CollectionTypeDescriptor[];
+  wordCount?: number;
   recordPaths?: string[];
   error?: string;
   readOnly?: boolean;
@@ -24,6 +27,7 @@ interface PropertiesPanelProps {
 export function PropertiesPanel({
   note,
   types,
+  wordCount = noteWordCount(note.body ?? ""),
   recordPaths = [],
   error,
   readOnly = false,
@@ -50,6 +54,11 @@ export function PropertiesPanel({
   const [structuredFieldsValid, setStructuredFieldsValid] = useState(true);
   const [autoSaveState, setAutoSaveState] = useState<"saved" | "waiting" | "saving">("saved");
   const [saving, setSaving] = useState(false);
+  const slowFieldsSave = useDelayedBusy(autoSaveState === "saving", note.path);
+  const slowSourceSave = useDelayedBusy(saving, note.path);
+  const [autoSaveError, setAutoSaveError] = useState<string>();
+  const [sourceSaveError, setSourceSaveError] = useState<string>();
+  const [retry, setRetry] = useState(0);
   const changed = JSON.stringify(draft) !== JSON.stringify(persistedFrontmatter);
   const sourceChanged = source !== persistedDocument;
   const initialFingerprint = JSON.stringify(persistedFrontmatter);
@@ -101,18 +110,22 @@ export function PropertiesPanel({
       return;
     }
     setAutoSaveState("waiting");
+    setAutoSaveError(undefined);
     const generation = ++saveGeneration.current;
     const timer = window.setTimeout(() => {
       lastSubmitted.current = draftFingerprint;
       setAutoSaveState("saving");
       void Promise.resolve(saveCallback.current(note.path, draft)).then(() => {
         if (generation === saveGeneration.current) setAutoSaveState("saved");
-      }).catch(() => {
-        if (generation === saveGeneration.current) setAutoSaveState("waiting");
+      }).catch((failure: unknown) => {
+        if (generation === saveGeneration.current) {
+          setAutoSaveState("waiting");
+          setAutoSaveError(failure instanceof Error ? failure.message : "Properties could not be saved.");
+        }
       });
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [changed, draft, draftFingerprint, fieldsInvalid, note.path, readOnly, validationFingerprint]);
+  }, [changed, draft, draftFingerprint, fieldsInvalid, note.path, readOnly, retry, validationFingerprint]);
   useEffect(() => () => {
     const latest = latestDraft.current;
     const fingerprint = JSON.stringify(latest);
@@ -165,6 +178,7 @@ export function PropertiesPanel({
     const baseline = sourceBaseline.current;
     lastSourceSubmitted.current = next;
     setSaving(true);
+    setSourceSaveError(undefined);
     const pending: Promise<NoteDocument | false> = onSaveDocument
       ? Promise.resolve(onSaveDocument(next, baseline))
         .catch(() => false as const)
@@ -174,6 +188,7 @@ export function PropertiesPanel({
     sourceSavePromise.current = undefined;
     setSaving(false);
     if (!saved) {
+      setSourceSaveError("Source could not be saved. Your edits are still here.");
       lastSourceSubmitted.current = baseline;
       return;
     }
@@ -211,26 +226,31 @@ export function PropertiesPanel({
   return <aside className="properties-panel" aria-label="Note properties">
     <header className="panel-header">
       <div><h2>Properties</h2><p>{note.types.length ? note.types.join(", ") : "No type"}</p></div>
-      <button className="icon-button" aria-label="Close properties" onClick={closePanel}><X aria-hidden="true" /></button>
+      <button className="icon-button" aria-label="Close properties" data-inspector-close onClick={closePanel}><X aria-hidden="true" /></button>
     </header>
 
     <dl className="file-facts">
+      <div><dt>Words</dt><dd>{wordCount.toLocaleString()}</dd></div>
       <div><dt>Size</dt><dd>{formatBytes(note.file?.size)}</dd></div>
       <div><dt>Modified</dt><dd>{formatDate(note.file?.mtime)}</dd></div>
     </dl>
 
-    <div className="panel-tabs" role="tablist" aria-label="Record view" onKeyDown={(event) => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      event.preventDefault();
-      const modes = ["fields", "json", "source"] as const;
-      const offset = event.key === "ArrowRight" ? 1 : -1;
-      const next = modes[(modes.indexOf(mode) + offset + modes.length) % modes.length];
-      setMode(next);
-      document.getElementById(`properties-${next}-tab`)?.focus();
-    }}>
-      <button id="properties-fields-tab" role="tab" aria-controls="properties-fields-panel" aria-selected={mode === "fields"} tabIndex={mode === "fields" ? 0 : -1} onClick={() => setMode("fields")}>Fields</button>
-      <button id="properties-json-tab" role="tab" aria-controls="properties-json-panel" aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}><Braces aria-hidden="true" /> JSON</button>
-      <button id="properties-source-tab" role="tab" aria-controls="properties-source-panel" aria-selected={mode === "source"} tabIndex={mode === "source" ? 0 : -1} onClick={() => setMode("source")}><FileCode2 aria-hidden="true" /> Source</button>
+    <div className="property-view-controls">
+      <div className="panel-tabs" role="tablist" aria-label="Properties format" onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const modes = ["fields", "json"] as const;
+        const offset = event.key === "ArrowRight" ? 1 : -1;
+        const next = modes[((mode === "json" ? 1 : 0) + offset + modes.length) % modes.length];
+        setMode(next);
+        document.getElementById(`properties-${next}-tab`)?.focus();
+      }}>
+        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}>Fields</button>
+        <button id="properties-json-tab" role="tab" aria-controls={mode === "json" ? "properties-json-panel" : undefined} aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}>JSON</button>
+      </div>
+      <ActionMenu label="Property options" items={[
+        { label: mode === "source" ? "Back to fields" : "Edit as source", icon: <FileCode2 aria-hidden="true" />, onSelect: () => setMode(mode === "source" ? "fields" : "source") }
+      ]} />
     </div>
 
     {mode === "fields" ? <fieldset disabled={readOnly} id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">
@@ -241,36 +261,35 @@ export function PropertiesPanel({
         recordPaths={recordPaths}
         onChange={change}
         onValidityChange={setStructuredFieldsValid}
+        emptyMessage="Add a property to keep details like tags, dates, or a status with this note."
       />
     </fieldset> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
-      <p className="raw-properties-note">Persisted frontmatter only. For the complete Markdown record, use Source.</p>
+      <p className="raw-properties-note">Frontmatter only, without the note body.</p>
       <CodeEditor value={raw} onChange={updateRaw} label="Raw frontmatter JSON" language="json" lineWrapping={false} readOnly={readOnly} />
       {rawError && <p className="property-error" role="alert">{rawError}</p>}
-    </div> : <div id="properties-source-panel" className="record-source" role="tabpanel" aria-labelledby="properties-source-tab">
+    </div> : <div id="properties-source-panel" className="record-source" role="region" aria-label="Record source">
       <p>Exact Markdown source, including YAML frontmatter and body.</p>
       <CodeEditor value={source} onChange={(value) => { if (!readOnly) setSource(value); }} onBlur={() => { if (!readOnly) void saveSource(); }} label="Complete record source" language="markdown" lineWrapping={false} readOnly={readOnly} />
     </div>}
 
     <div className="property-footer">
-      {error && <p className="property-error" role="alert">{error}</p>}
+      {(error || (mode === "source" ? sourceSaveError : autoSaveError)) && <p className="property-error" role="alert">{error || (mode === "source" ? sourceSaveError : autoSaveError)}{mode !== "source" && autoSaveError && <button className="property-save mdbase-button is-secondary" onClick={() => setRetry((value) => value + 1)}>Retry save</button>}</p>}
       {mode === "source"
         ? <div className="source-save-actions">
-          <p className="property-save-state" aria-live="polite">{saving
-            ? "Saving source…"
+          <p className="property-save-state" aria-live="polite">{slowSourceSave
+            ? "Saving…"
             : sourceChanged
               ? "Source saves when focus leaves the editor"
-              : "Source saved"}</p>
-          <button className="property-save mdbase-button is-primary" disabled={readOnly || !sourceChanged || saving} onClick={() => void saveSource(true)}>{saving ? "Saving…" : "Save source"}</button>
+              : ""}</p>
+          <button className="property-save mdbase-button is-primary" disabled={readOnly || !sourceChanged || saving} onClick={() => void saveSource(true)}>{slowSourceSave ? "Saving…" : "Save source"}</button>
         </div>
         : <p className="property-save-state" aria-live="polite">{rawError
           ? "Fix the JSON to continue saving"
           : fieldsInvalid
             ? "Fix invalid fields to continue saving"
-            : autoSaveState === "saving"
-              ? "Saving changes…"
-              : autoSaveState === "waiting"
-                ? "Changes save automatically"
-                : ""}</p>}
+            : slowFieldsSave
+              ? "Saving…"
+              : ""}</p>}
     </div>
   </aside>;
 }

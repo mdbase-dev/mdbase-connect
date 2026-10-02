@@ -57,7 +57,7 @@ describe("mdbase editor", () => {
     expect(screen.queryByRole("button", { name: "New type" })).not.toBeInTheDocument();
   });
 
-  it("clamps a widened notes sidebar when an inspector reduces the available space", async () => {
+  it("reserves a docked inspector track without letting desktop panes overlap", async () => {
     vi.stubGlobal("innerWidth", 1_150);
     localStorage.setItem("mdbase-editor:layout", JSON.stringify({
       collectionWidth: 176,
@@ -81,6 +81,8 @@ describe("mdbase editor", () => {
 
     await user.click(screen.getByRole("button", { name: "Note properties" }));
     await waitFor(() => expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--list-track")).toBe("314px"));
+    expect(container.querySelector(".inspector-dock")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Note properties" })).not.toBeInTheDocument();
     const resizeHandle = screen.getByRole("separator", { name: "Resize notes sidebar" });
     expect(resizeHandle).toHaveAttribute("aria-valuenow", "314");
     resizeHandle.focus();
@@ -152,8 +154,13 @@ describe("mdbase editor", () => {
 
     expect(await screen.findByRole("heading", { name: "All notes" })).toBeInTheDocument();
     const body = await screen.findByRole("textbox", { name: "Note body" });
+    const row = screen.getByRole("option", { name: /The shape of useful tools/, selected: true });
+    const timestamp = row.querySelector("time")!.textContent;
     await user.type(body, "\nA saved sentence.");
-    await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument(), { timeout: 2_000 });
+    expect(row.querySelector("time")).toHaveTextContent(timestamp!);
+    expect(row).not.toHaveTextContent("Unsaved");
+    await waitFor(async () => expect((await gateway.read(seeded.path)).body).toContain("A saved sentence."), { timeout: 2_000 });
+    expect(screen.queryByText("Saved")).not.toBeInTheDocument();
 
     const first = (await gateway.list()).notes[0];
     const saved = await gateway.read(first.path);
@@ -194,7 +201,7 @@ describe("mdbase editor", () => {
     await gateway.watchStarted;
     expect(gateway.listCalls).toBe(1);
     await user.type(body, "\nA local update.");
-    await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument(), { timeout: 2_000 });
+    await waitFor(async () => expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("A local update."), { timeout: 2_000 });
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     expect(gateway.listCalls).toBe(1);
@@ -452,7 +459,8 @@ describe("mdbase editor", () => {
     expect(screen.getByRole("heading", { name: "Update this type?" })).toBeInTheDocument();
     expect(screen.getByText(/1 note is missing required field/)).toHaveTextContent("field");
     await user.click(screen.getByRole("button", { name: "Confirm update" }));
-    await waitFor(() => expect(screen.getByText("Saved", { selector: ".type-inspector-bar .mdbase-save-notice" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled());
+    expect(screen.queryByText("Saved", { selector: ".type-inspector-bar .mdbase-save-notice" })).not.toBeInTheDocument();
     expect((await gateway.readType("note")).document).toContain("A durable general note.");
 
     await user.click(screen.getByRole("button", { name: "YAML" }));
@@ -625,6 +633,22 @@ describe("mdbase editor", () => {
     expect(gateway.watchCalls).toBe(1);
   });
 
+  it.each(["ctrlKey", "metaKey"] as const)("uses P everywhere and leaves K alone outside note text (%s)", async (modifier) => {
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    const body = await screen.findByRole("textbox", { name: "Note body" });
+    const search = screen.getByRole("combobox", { name: "Search notes and files" });
+    expect(screen.getByRole("button", { name: "Quick open" }).title).not.toContain("K");
+    for (const target of [search, body, screen.getByRole("button", { name: "Note properties" })]) {
+      target.focus();
+      const unhandled = fireEvent.keyDown(target, { key: "k", [modifier]: true });
+      if (target !== body) expect(unhandled).toBe(false);
+      expect(screen.queryByRole("dialog", { name: "Quick open" })).not.toBeInTheDocument();
+      fireEvent.keyDown(target, { key: "p", [modifier]: true });
+      expect(screen.getByRole("dialog", { name: "Quick open" })).toBeInTheDocument();
+      fireEvent.keyDown(window, { key: "Escape" });
+    }
+  });
+
   it("fuzzy-searches titles and paths and quick-opens recent notes", async () => {
     const gateway = new DemoCollectionGateway(12);
     const user = userEvent.setup();
@@ -686,7 +710,8 @@ describe("mdbase editor", () => {
     await user.click(second);
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
     expect(first).toHaveAttribute("aria-busy", "true");
-    expect(first).toHaveTextContent("Saving");
+    expect(first.querySelector("time")).toBeInTheDocument();
+    expect(first).not.toHaveTextContent("Saving");
 
     const third = screen.getByRole("option", { name: /A quiet interface 3/ });
     await user.click(third);
@@ -738,7 +763,7 @@ describe("mdbase editor", () => {
     expect((screen.getByRole("textbox", { name: "Note body" }) as HTMLTextAreaElement).value).toContain("Still here.");
     expect(gateway.readPaths.length).toBe(readsBeforeNavigation + 1);
     gateway.releaseUpdate();
-    await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument());
+    await waitFor(async () => expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("Still here."));
     expect((screen.getByRole("textbox", { name: "Note body" }) as HTMLTextAreaElement).value).toContain("Still here.");
   });
 
@@ -758,6 +783,11 @@ describe("mdbase editor", () => {
     await user.click(failed);
     expect((screen.getByRole("textbox", { name: "Note body" }) as HTMLTextAreaElement).value).toContain("Unsaved sentence.");
     expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    const recoveredGateway: DemoCollectionGateway = gateway;
+    recoveredGateway.update = DemoCollectionGateway.prototype.update.bind(gateway);
+    await user.click(screen.getByRole("button", { name: "Retry save" }));
+    await waitFor(async () => expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("Unsaved sentence."));
+    await waitFor(() => expect(screen.queryByText("Needs attention")).not.toBeInTheDocument());
   });
 
   it("orders property updates behind a note save without blocking navigation", async () => {
@@ -773,7 +803,7 @@ describe("mdbase editor", () => {
     await user.type(screen.getByRole("textbox", { name: "Name" }), "status");
     await user.click(screen.getByRole("button", { name: "Add" }));
     await user.type(screen.getByRole("textbox", { name: "status value" }), "draft");
-    expect(screen.getByText("Changes save automatically")).toBeInTheDocument();
+    expect(screen.queryByText("Changes save automatically")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
@@ -825,7 +855,8 @@ describe("mdbase editor", () => {
 
     expect(screen.getAllByText("Updating 1 linked note", { exact: true })).toHaveLength(2);
     gateway.releaseRename();
-    await waitFor(() => expect(screen.getByText("Saved", { exact: true })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTitle("Rename Markdown path")).toHaveTextContent("renamed-with-links.md"));
+    expect(screen.queryByText("Saved", { exact: true })).not.toBeInTheDocument();
   });
 
   it("cancels a resumable rename without losing its recovery action", async () => {

@@ -50,6 +50,29 @@ test("places Connect inside the editor collection shell", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Storage & sync" })).toBeVisible();
 });
 
+test("gives Connect navigation distinct icons and section counts the UI face", async ({ page }) => {
+  await page.goto("connect?server=http%3A%2F%2Fconnect.test&collection=collection");
+  await expect(page.getByRole("heading", { name: "Garden notes" })).toBeVisible();
+  const navigation = page.getByRole("complementary", { name: "mdbase connect navigation" });
+  const icons = await navigation.locator("nav a svg").evaluateAll((elements) => elements.map((element) => element.innerHTML));
+  expect(icons).toHaveLength(7);
+  expect(new Set(icons).size).toBe(7);
+  const rail = page.getByRole("complementary", { name: "Collection navigation" });
+  expect(await navigation.getByRole("link", { name: "Computers", exact: true }).locator("svg").innerHTML())
+    .not.toBe(await rail.getByRole("link", { name: "Types", exact: true }).locator("svg").innerHTML());
+  expect(await navigation.getByRole("link", { name: "Account & sessions", exact: true }).locator("svg").innerHTML())
+    .not.toBe(await rail.getByRole("link", { name: "Settings", exact: true }).locator("svg").innerHTML());
+  const count = page.locator(".connect-section-title")
+    .filter({ has: page.getByRole("heading", { name: "Application access", exact: true }) })
+    .locator(":scope > div > span");
+  await expect(count).toHaveText("0");
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(count).toHaveCSS("font-family", /Atkinson Hyperlegible Next Variable/);
+    await expect(count).toHaveCSS("font-variant-numeric", "tabular-nums");
+  }
+});
+
 test("condenses the shared editor shell on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("connect?server=http%3A%2F%2Fconnect.test&collection=collection");

@@ -4,6 +4,16 @@
   border-top: 1px solid var(--line);
 }
 
+/* The selected row is the keyboard focus indicator for the composite listbox. */
+.note-scroll:focus-visible {
+  outline: none;
+}
+
+.note-scroll:focus-visible:not(:has(.note-row.selected)) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .virtual-list {
   position: relative;
   width: 100%;
@@ -22,23 +32,12 @@
 
 .note-scroll .note-row.selected {
   background: var(--selected);
-}
-
-.note-scroll .note-row.selected::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--line-strong);
-  pointer-events: none;
+  border-left-color: var(--line-strong);
 }
 
 .note-scroll:focus-within .note-row.selected {
   background: var(--accent-soft);
-}
-
-.note-scroll:focus-within .note-row.selected::before {
-  background: var(--accent);
+  border-left-color: var(--accent);
 }
 
 .note-group-header {
@@ -72,9 +71,16 @@
   align-items: stretch;
   justify-content: center;
   gap: 3px;
-  padding: 9px 16px 9px 18px;
+  padding: var(--space-2) 16px var(--space-2) 15px;
+  border-left: 3px solid transparent;
   border-bottom: 1px solid var(--line);
   text-align: left;
+  transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+
+/* Flex shrinking clips glyphs even when the outer row stays at 76px. */
+.note-row > span {
+  flex-shrink: 0;
 }
 
 .note-row:hover {
@@ -94,6 +100,8 @@
   display: flex;
   align-items: center;
   gap: 7px;
+  font-size: var(--font-size-ui);
+  line-height: 1.3;
 }
 
 .note-title {
@@ -112,6 +120,7 @@
   overflow: hidden;
   color: var(--faint);
   font-size: var(--font-size-caption);
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -158,7 +167,7 @@
   color: var(--muted);
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-medium);
-  line-height: 1.5;
+  line-height: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -177,6 +186,7 @@
   overflow: hidden;
   color: var(--faint);
   font-size: var(--font-size-ui);
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

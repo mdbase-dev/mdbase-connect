@@ -70,15 +70,23 @@ states, or collection controls.
 
 The desktop app uses three persistent panes: a 176px collection rail, a 304px
 virtualized note list, and the editor. A properties inspector appears only when
-requested. Between 761px and 1120px the collection rail starts hidden until
+requested. Above 1120px it docks beside the editor without covering document
+text. The writing column keeps its 760px measure whenever the narrowed pane
+can fit it, sliding toward the left over the shared 240ms motion token. Only a
+pane narrower than the measure rewraps text. Reduced motion makes docking
+instant; direct sidebar resizing also follows the pointer without animation.
+At tablet/mobile widths the inspector is modal, with a scrim, inert background,
+trapped focus, Escape dismissal and focus restoration. Between 761px and 1120px the collection rail starts hidden until
 someone opens it. Note rows keep one fixed height and read title, a one-line
 excerpt (the type's declared description field, else the opening prose), then
 time and folder; a declared type appears as muted plain text, never in place of
 the folder. Selection has a persistent edge marker: accent-tinted while the list
 has focus, neutral while writing. Rows never open a hover preview; their excerpt
 remains available to assistive technology. Search results are ordered by relevance without date groups.
-Types reuse the list-and-document rhythm; settings become one quiet
-document rather than a dashboard, with technical facts behind Details. In the collection rail, All notes, Types, and
+Types reuse the list-and-document rhythm; settings are one quiet document
+rather than a dashboard. Section headings sit above their content; preference
+rows share a steady rhythm, collection facts stay compact, and technical facts
+live behind Details. In the collection rail, All notes, Types, and
 Settings remain the primary editing group. One header trigger combines the brand
 lockup and current collection and opens the collection switcher; it includes
 recent collections, connecting another collection, the Connect workspace, and
@@ -87,8 +95,7 @@ Folders follow All notes directly, without a section heading, with a quiet New
 folder action. Connect sits at the bottom above connection status, visibly
 secondary until a pending authorization count requires attention. Counts use
 UI text with tabular numerals and appear only on hover, focus, or the selected
-row; accessible names always include them. Mobile presents each level as a
-separate navigable screen.
+row; accessible names always include them.
 
 Folder context menus provide Rename folder and Move to; F2 renames the focused
 folder. Dragging folders or notes onto a folder moves them there; All notes is
@@ -103,13 +110,43 @@ Existing destination folders are not merged implicitly; exact-path collisions
 are rejected before writing. After a partial change, remaining notes can be
 moved individually to the destination.
 
+Mobile (≤760px) presents each level as a separate navigable screen, with 44px
+touch targets and safe-area padding. The note bar contains only Back and More;
+the complete path sits subtly above the title, and Rename path, New note and
+Quick open live in More. List screens have a labeled, filled New note action.
+Properties take over the screen, and quick open fits the available viewport
+rather than keeping its desktop keyboard-help footer.
+
+## Connect account screens
+
+Authentication, account setup, and password recovery share one centered,
+mobile-safe column with the `mdbase connect` lockup and editor typeface. One
+heading and short explanation introduce the task. The committing action is a
+filled accent button; recovery, account switching, and legal links remain quiet
+and theme-aware. Email and identity providers are separated by one “or” divider,
+never by rules between providers. Provider controls reserve their space while
+loading and offer retry on failure. Native form constraints surface inline with
+visible focus and screen-reader descriptions.
+
+Connect management retains its existing document layout, with sentence-case
+navigation, proportional counts, and the same primary-action hierarchy.
+
 ## Editing
 
 CodeMirror provides Markdown behavior without introducing IDE chrome. Its
 focus state uses the normal caret and selection only: the editor surface never
 gains a border, outline, or glow. Vim bindings are optional and loaded only
-when enabled. Frontmatter opens as typed rows first, with JSON available as an
-escape hatch for nested or unfamiliar values.
+when enabled. More is one menu on both desktop and mobile, with separators
+between note actions, document views (outline and Linked from), insertion
+(Attach file), and help (shortcuts and Check note). Mobile puts New note and
+Quick open first; there is only one Rename path and one Attach file action.
+Menus scroll when viewport space is limited, and keyboard focus stays visible.
+Frontmatter opens as typed rows first, with JSON available as an
+escape hatch for nested or unfamiliar values. The inspector offers quiet Fields
+and JSON tabs; complete Markdown source lives behind the property options menu,
+not a third primary tab. Sizes and dates use the UI family at the normal chrome
+size. An empty inspector explains what properties are useful for, with a direct
+Add property action.
 Open-ended object properties use compact key/value rows with an explicit empty
 state; an empty object should not become a miniature code editor. A schema
 field named `name` only doubles as the note title when it is textual, so
@@ -135,7 +172,20 @@ continues in the note list. A newly created note is adopted from the create
 response, so the editor never waits for a collection-wide refresh or a redundant
 read.
 
-Type editing uses the same quiet document grammar. Application compatibility
+New folder is a short two-field flow: folder name and the title of its first
+general note. Empty folders are not persisted, so that fact is explained once;
+a file path preview appears only after both names are entered. Typed creation
+remains in New note, where required fields are available before committing.
+Committing actions use the shared filled primary control, and redundant draft
+reminders and decorative folder-name placeholders are omitted.
+
+Type editing uses the same quiet document grammar. Field names are inline
+editable in the UI family, with compact kind selects, labelled shared Required
+checkboxes, and removal in each row's options menu. Row details and YAML remain
+available without surrounding every field name in a permanent input box. The
+path takes the flexible space in the type bar; its save notice stays at the
+trailing edge, never stretched into the centre. The redundant Type definition
+eyebrow and table-like column headers are omitted. Application compatibility
 appears as a disclosure within the type, not as a separate dashboard. Each
 contract implementation keeps its direct field mapping, JSON Schema-driven
 behavior settings, and normalized application view together. Contract IDs,
@@ -150,10 +200,30 @@ of browser datalists. Action choices continue to use menu semantics, while
 schema date and date-time fields retain platform pickers with shared input
 styling.
 
+Routine autosaves stay silent and note rows retain their timestamps while typing.
+Only saves lasting more than 1.5 seconds show “Saving…”; failures and conflicts
+remain visible with recovery actions. Word count lives in Properties, not the bar.
+Ctrl/⌘P opens quick open everywhere; Ctrl/⌘K inserts a link only in note text.
+
+## Embeds and file viewers
+
+Images sit bare on the writing surface with the medium radius and a single
+muted caption below; never add a permanent title/path/action bar. Transparent
+assets retain their transparency in both themes. Bright image previews are
+slightly dimmed in dark mode, without rewriting the underlying file. Previews
+have a bounded height; full-size viewing remains available.
+
+Open and Copy path reveal on hover or keyboard focus, and tapping an embed
+focuses it on touch screens. Both actions remain keyboard-reachable. Note
+transclusions and PDF/file previews use the same quiet title, fine rule and
+on-demand actions, not an accented rail or decorative cover. Long transclusions
+scroll in a focusable content region. File dialogs use the shared focus trap,
+Escape handling and focus restoration; mobile viewers fill the safe viewport.
+
 ## Signature
 
-The current Markdown path sits quietly above the title. It can be renamed in
-place, making the relationship between the calm note and its durable file
+The current Markdown path sits quietly above the title, with the directory
+truncated before the filename. It can be renamed in place, making the relationship between the calm note and its durable file
 visible without turning the app into a file manager.
 
 ## Note actions and discovery
