@@ -9,7 +9,7 @@ import { connectFailure, connectSuccess, type ConnectOutcome } from "./outcomes.
  * - `saving`: a write or exact recovery is in flight.
  * - `conflict`: a newer record changed what was edited locally; see `remote`.
  * - `recovery`: a write's outcome is unknown; no new write is sent until it is recovered.
- * - `error`: the last write failed; local changes are kept.
+ * - `error`: a write or refresh failed; local changes and the last accepted record are kept.
  * - `deleted`: the record no longer exists; local changes are kept.
  */
 export type MdbaseRecordSessionState =
@@ -62,7 +62,7 @@ export interface MdbaseRecordSessionSnapshot<R> {
   readonly remote: R | null;
   /** Local changes not yet acknowledged, including a write in flight or awaiting recovery. */
   readonly dirty: boolean;
-  /** Why the last write or recovery failed. */
+  /** Why a write, recovery or refresh failed. */
   readonly problem: ConnectProblem | null;
   /** The interrupted write's request ID, while `state` is `recovery`. */
   readonly pendingRequestId?: string;
@@ -94,6 +94,8 @@ export class MdbaseRecordSession<R> {
   private patch: JsonObject = {};
   private remote: R | null = null;
   private problem: ConnectProblem | null = null;
+  // Editing/discarding a draft cannot establish freshness after a failed read.
+  private refreshProblem: ConnectProblem | null = null;
   private deleted = false;
   private busy = false;
   private pending: Interrupted | undefined;
@@ -218,8 +220,13 @@ export class MdbaseRecordSession<R> {
       const outcome = await read(this.record, options);
       if (!outcome.ok) {
         if (outcome.problem.code === "file_not_found") this.markDeleted();
+        else {
+          this.refreshProblem = outcome.problem;
+          this.emit();
+        }
         return outcome;
       }
+      this.refreshProblem = null;
       this.seen.add(this.adapter.revision(outcome.value));
       this.classify(outcome.value);
       this.emit();
@@ -244,6 +251,7 @@ export class MdbaseRecordSession<R> {
     this.record = record;
     this.remote = null;
     this.problem = null;
+    this.refreshProblem = null;
     this.emit();
   }
 
@@ -428,6 +436,7 @@ export class MdbaseRecordSession<R> {
       if (key in this.patch && sameJson(this.patch[key], value)) delete this.patch[key];
     }
     this.problem = null;
+    this.refreshProblem = null;
     this.pending = undefined;
     this.settle();
     if (this.dirtyLocally()) this.schedule();
@@ -498,7 +507,7 @@ export class MdbaseRecordSession<R> {
       : this.remote ? "conflict"
         : this.busy ? "saving"
           : this.pending ? "recovery"
-            : this.problem ? "error"
+            : this.problem || this.refreshProblem ? "error"
               : dirty ? "unsaved" : "saved";
     return {
       state,
@@ -507,7 +516,7 @@ export class MdbaseRecordSession<R> {
       record: this.record,
       remote: this.remote,
       dirty,
-      problem: this.problem,
+      problem: this.problem ?? this.refreshProblem,
       ...(this.pending ? { pendingRequestId: this.pending.requestId } : {})
     };
   }

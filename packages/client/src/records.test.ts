@@ -252,6 +252,91 @@ describe("connection.records", () => {
       expect(session.snapshot.body).toBe("Missed");
     });
 
+    it("orders reset reconciliation behind an in-flight save and keeps newer local edits", async () => {
+      const { records, connection, watch, reset, elsewhere } = setup();
+      records.follow(watch);
+      const { session } = await open(records, "note.md", { autosave: false });
+      let finish!: () => void;
+      const originalUpdate = connection.update.getMockImplementation()!;
+      connection.update.mockImplementationOnce(async input => {
+        await new Promise<void>(resolve => { finish = resolve; });
+        return originalUpdate(input);
+      });
+      session.setBody("Saved");
+      const save = session.save();
+      reset();
+      session.setBody("Newer typing");
+      expect(connection.read).toHaveBeenCalledOnce();
+      finish();
+      await save;
+      await vi.runAllTimersAsync();
+      expect(session.snapshot).toMatchObject({ state: "unsaved", body: "Newer typing", record: { body: "Saved" } });
+      elsewhere("note.md", "Remote");
+      reset();
+      await vi.runAllTimersAsync();
+      expect(session.snapshot).toMatchObject({ state: "conflict", body: "Newer typing", remote: { body: "Remote" } });
+    });
+
+    it("holds reset reconciliation through exact recovery instead of silently dropping it", async () => {
+      const { records, watch, reset, elsewhere, loseNextResponse, connection } = setup();
+      const stop = records.follow(watch);
+      const { session } = await open(records, "note.md", { autosave: false });
+      loseNextResponse();
+      session.setBody("Saved but lost");
+      await session.save();
+      expect(session.snapshot.state).toBe("recovery");
+      elsewhere("note.md", "Missed after the write");
+      reset();
+      await vi.runAllTimersAsync();
+      expect(connection.read).toHaveBeenCalledOnce();
+      await session.flush();
+      await vi.runAllTimersAsync();
+      expect(session.snapshot).toMatchObject({ state: "saved", body: "Missed after the write" });
+      expect(connection.update).toHaveBeenCalledOnce();
+      stop();
+    });
+
+    it("stops waiting for reconciliation without cancelling exact write recovery", async () => {
+      const { records, watch, reset, elsewhere, loseNextResponse, connection } = setup();
+      const stop = records.follow(watch);
+      const { session } = await open(records, "note.md", { autosave: false });
+      loseNextResponse();
+      session.setBody("Lost");
+      await session.save();
+      elsewhere("note.md", "Missed");
+      reset();
+      stop();
+      await session.flush();
+      await vi.runAllTimersAsync();
+      expect(connection.read).toHaveBeenCalledOnce();
+      expect(connection.update).toHaveBeenCalledOnce();
+      expect(session.snapshot).toMatchObject({ state: "saved", body: "Lost" });
+    });
+
+    it("holds a reset when the write ahead of it enters recovery", async () => {
+      const { records, watch, reset, elsewhere, loseNextResponse, connection } = setup();
+      records.follow(watch);
+      const { session } = await open(records, "note.md", { autosave: false });
+      let finish!: () => void;
+      const originalUpdate = connection.update.getMockImplementation()!;
+      connection.update.mockImplementationOnce(async input => {
+        await new Promise<void>(resolve => { finish = resolve; });
+        return originalUpdate(input);
+      });
+      loseNextResponse();
+      session.setBody("Lost");
+      const save = session.save();
+      reset();
+      finish();
+      await save;
+      await vi.runAllTimersAsync();
+      elsewhere("note.md", "Missed");
+      await session.flush();
+      await vi.runAllTimersAsync();
+      expect(session.snapshot).toMatchObject({ state: "saved", body: "Missed" });
+      expect(connection.update).toHaveBeenCalledOnce();
+    });
+
     it("stops following when unsubscribed", async () => {
       const { records, watch, emit, elsewhere, connection } = setup();
       const stop = records.follow(watch);

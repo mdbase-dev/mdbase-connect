@@ -158,9 +158,22 @@ pending mutation, never sent again, even after a reload: `open()` finds the
 record's interrupted update (by a digest, so its path is never stored) and
 resumes it as `recovery`. `follow()` refreshes open sessions from the
 watch, follows renames, marks deletions (local text is kept), and re-reads
-everything after a change gap. Releasing the last view never cancels a pending
-save. `snapshot.state` is one of `saved`, `unsaved`, `saving`, `conflict`,
-`recovery`, `error` or `deleted`; `snapshot.problem` says why a write failed.
+everything after a change gap. It admits at most four session refreshes at once
+and coalesces repeated events: events during a refresh cause one follow-up read.
+Transient read failures retry three times after 100, 200 and 400 ms; cancellation
+and authorization/input failures do not retry. Reconciliation waits for exact
+write recovery, rather than dropping the missed change. Stopping the last
+follower drops queued refreshes and retries; admitted reads still settle.
+Releasing the last view never cancels a pending save. `snapshot.state` is one of
+`saved`, `unsaved`, `saving`, `conflict`, `recovery`, `error` or `deleted`;
+`snapshot.problem` says why a write, recovery or refresh failed. A failed
+refresh keeps the last accepted record and local edits, but a clean session
+reports `error`, not `saved`, until an authoritative read or acknowledged write
+succeeds (even if the revision is unchanged). No new states or method signatures
+are required; consumers upgrading from earlier SDKs should render `error` for
+read failures as well as write failures. Explicit `session.refresh()` still
+performs one queued read and returns its outcome; only `follow()` schedules
+coalescing and retries.
 The session is an external store, so `externalStore(session)` works with
 `useSyncExternalStore`. Applications whose records live behind their own
 repository construct `MdbaseRecordSession` with an `MdbaseRecordSessionAdapter`
