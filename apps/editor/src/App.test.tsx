@@ -723,7 +723,7 @@ describe("mdbase editor", () => {
     fireEvent.keyDown(window, { key: "k", altKey: true });
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools"));
 
-    await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
+    fireEvent.keyDown(window, { key: "?" });
     const help = screen.getByRole("dialog", { name: "Shortcuts" });
     expect(help).toHaveTextContent("Quick open");
     expect(help).toHaveTextContent("Find in note");

@@ -54,7 +54,7 @@ export function EditorRail({
   notesSelected?: boolean;
 } & RailDropActions) {
   return <aside className="collection-rail" aria-label="Collection navigation">
-    <div className="rail-header"><button className="rail-collection-switcher" aria-label={`Switch collection, current collection ${collectionName}`} aria-haspopup="dialog" onClick={onSwitch}><Wordmark app="editor" /><span className="rail-current-collection">{collectionName}<ChevronDown aria-hidden="true" /></span></button>{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
+    <div className="rail-header"><button className="rail-collection-switcher" aria-label={`Switch collection, current collection ${collectionName}`} aria-haspopup="dialog" onClick={onSwitch}><Wordmark app="editor" /><span className="rail-current-collection"><span>{collectionName}</span><ChevronDown aria-hidden="true" /></span></button>{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
     <nav>
       {mobileReturn && <a className="mobile-editor-return" href={mobileReturn.href} onClick={mobileReturn.onClick}><span><ArrowLeft aria-hidden="true" />{mobileReturn.label}</span></a>}
       <RailDropTarget folder="" onMoveNotes={onMoveNotes} onMoveFolder={onMoveFolder}><RailLink destination={notes} selected={notesSelected ?? surface === "notes"} label="All notes" ariaLabel={noteCount === undefined ? "All notes" : `All notes, ${noteCount.toLocaleString()} total`} icon={<Notebook aria-hidden="true" />} count={noteCount} /></RailDropTarget>

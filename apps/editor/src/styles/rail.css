@@ -34,6 +34,7 @@
   color: var(--ink);
 }
 
+.rail-current-collection > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-current-collection svg { width: 12px; height: 12px; flex: 0 0 auto; }
 .rail-collection-switcher .wordmark { white-space: nowrap; }
 .rail-collection-switcher:hover .rail-current-collection { color: var(--accent); }

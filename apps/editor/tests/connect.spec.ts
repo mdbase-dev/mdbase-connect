@@ -58,7 +58,7 @@ test("condenses the shared editor shell on mobile", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Garden notes" })).toBeVisible();
   await expect(collectionRail).toHaveCSS("height", "58px");
   await expect(collectionRail.getByRole("link", { name: "Back to editor" })).toBeVisible();
-  await expect(collectionRail.getByRole("button", { name: /Switch collection/ })).toBeHidden();
+  await expect(collectionRail.getByRole("button", { name: /Switch collection/ })).toBeVisible();
   const menu = page.getByRole("button", { name: /Overview.*Open menu/ });
   await expect(menu).toBeVisible();
   await expect(page.getByRole("link", { name: "All collections" })).toBeHidden();

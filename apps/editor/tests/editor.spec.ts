@@ -641,6 +641,28 @@ test("previews sidebar notes and internal editor links on hover", async ({ page 
   await expect(preview).toContainText("Journal/garden-notes-2.md");
 });
 
+test("renames a folder with one link-aware confirmation and supports folder drops", async ({ page }) => {
+  await page.goto("?demo=12");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+  const row = page.getByRole("button", { name: /^Show notes in Notes,/ });
+  await row.focus(); await page.keyboard.press("F2");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: "Folder name" }).fill("Writing notes");
+  await dialog.getByRole("button", { name: "Review changes" }).click();
+  await expect(dialog).toHaveAccessibleName("Rename ‘Notes’ and move 3 notes and update 1 link?");
+  await dialog.getByRole("button", { name: "Rename folder" }).click();
+  await expect(dialog).toContainText("3 notes moved. Links were updated.");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByTitle("Rename Markdown path")).toContainText("Writing notes/the-shape-of-useful-tools.md");
+  await page.getByRole("button", { name: /^Show notes in Journal,/ }).dragTo(page.getByRole("button", { name: /^Show notes in Archive,/ }));
+  const move = page.getByRole("dialog", { name: "Move ‘Journal’" });
+  await expect(move.getByRole("combobox", { name: "Destination folder" })).toHaveValue("Archive");
+  await move.getByRole("button", { name: "Review changes" }).click();
+  await expect(move).toHaveAccessibleName("Move 3 notes?");
+  await move.getByRole("button", { name: "Move folder" }).click();
+  await expect(move).toContainText("3 notes moved.");
+});
+
 test("filters collection facets, follows backlinks, and completes wikilinks", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
