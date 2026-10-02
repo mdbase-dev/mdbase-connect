@@ -28,6 +28,16 @@ const operationIndex = args.indexOf("operation");
 const operation = operationIndex === -1 ? null : args[operationIndex + 2];
 if (mode === "timeout") await new Promise((resolve) => setTimeout(resolve, 10000));
 if (mode === "cli-failure") { process.stderr.write("${SECRET}\\n"); process.exit(1); }
+if (mode.startsWith("cli-error:") && operation === "describe") {
+  process.stderr.write(JSON.stringify({error:{code:mode.slice(10),message:"${SECRET}",details:{credential:"${SECRET}"}}}));
+  process.stdout.write(JSON.stringify({secret:"${SECRET}"}));
+  process.exit(1);
+}
+if (mode === "signal") process.kill(process.pid, "SIGTERM");
+if (mode === "output-limit") {
+  await new Promise((resolve) => process.stderr.write("${SECRET}".repeat(30000), resolve));
+  process.exit(1);
+}
 if (mode === "malformed" && operation === "describe") { process.stdout.write("${SECRET} not-json"); process.exit(0); }
 if (args.includes("connections")) {
   const operations = mode === "broad-grant" ? ["describe", "read", "query"] : ["describe", "read"];
@@ -223,6 +233,53 @@ test("accepts all non-secret inputs from the documented environment variables", 
   });
   assert.equal(exitCode, 0);
   assert.equal(result.environment, "staging");
+});
+
+test("classifies fixed CLI error codes without reflecting private error details", async (t) => {
+  const options = await fixture(t);
+  for (const code of ["daemon_unavailable", "hosted_http_error", "authorization_changed", "internal_error"]) {
+    const result = await invoke(options, {}, { FAKE_CLI_MODE: `cli-error:${code}` });
+    assert.equal(result.code, 1);
+    assert.deepEqual(result.json.error, { stage: "describe", code });
+    assert.deepEqual(result.json.stages.map(({ name, status }) => ({ name, status })), [
+      { name: "config", status: "operational" },
+      { name: "registration", status: "operational" },
+      { name: "connections", status: "operational" },
+      { name: "describe", status: "failed" }
+    ]);
+    assert.doesNotMatch(result.stdout + result.stderr, new RegExp(SECRET, "u"));
+  }
+});
+
+test("does not accept arbitrary syntactically safe CLI error codes", async (t) => {
+  const options = await fixture(t);
+  for (const code of [SECRET, "customer_identifier", "http_500"]) {
+    const result = await invoke(options, {}, { FAKE_CLI_MODE: `cli-error:${code}` });
+    assert.deepEqual(result.json.error, { stage: "describe", code: "cli_failed" });
+    assert.doesNotMatch(result.stdout + result.stderr, new RegExp(code, "u"));
+  }
+});
+
+test("classifies process signals and output exhaustion without reflecting stderr", async (t) => {
+  const options = await fixture(t);
+  for (const [mode, code] of [["signal", "cli_signaled"], ["output-limit", "output_limit"]]) {
+    const result = await invoke(options, {}, { FAKE_CLI_MODE: mode });
+    assert.deepEqual(result.json.error, { stage: "connections", code });
+    assert.doesNotMatch(result.stdout + result.stderr, new RegExp(SECRET, "u"));
+  }
+});
+
+test("classifies a CLI removed after configuration as unavailable", async (t) => {
+  const options = await fixture(t);
+  const result = await invoke(options, {}, {}, {
+    fetchImpl: async () => {
+      await rm(options.cli);
+      return Response.json({ application: {
+        id: "01900000-0000-7000-8000-000000000001", manifest_digest: "a".repeat(64)
+      } });
+    }
+  });
+  assert.deepEqual(result.json.error, { stage: "connections", code: "cli_unavailable" });
 });
 
 test("never reflects CLI response bodies, diagnostics, or stderr", async (t) => {
