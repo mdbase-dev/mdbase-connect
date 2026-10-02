@@ -1058,7 +1058,8 @@ describe("mdbase editor", () => {
       render(<App gateway={callbackGateway} />);
       expect(await screen.findByRole("heading", { name: "Your person record" })).toBeInTheDocument();
       expect(screen.getByRole("main", { name: "Editor settings" })).toBeInTheDocument();
-      expect(screen.getByRole("region", { name: "Your person record" })).toHaveFocus();
+      // The lazy panel's mount effect focuses it after its heading commits.
+      await waitFor(() => expect(screen.getByRole("region", { name: "Your person record" })).toHaveFocus());
     } finally {
       history.replaceState(null, "", previousUrl);
     }
