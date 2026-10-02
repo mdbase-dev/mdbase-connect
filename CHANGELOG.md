@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Migration note for SDK consumers: the client's `queryPages` gains an overload
+  for `output: "metadata"` rows. Test doubles that implement the connection's
+  `queryPages` structurally must accept the metadata overload (TypeScript
+  reports TS2322 otherwise). Runtime behaviour is unchanged for ordinary queries.
+
 - Hosted required links to ordinary files (including Reader's HTML, PDF and
   EPUB documents) now validate against committed file metadata from the same
   authority snapshot. Writes and explicit validation no longer report an
