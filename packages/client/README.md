@@ -769,8 +769,15 @@ opt-in total cap; `limit` remains a page-size fallback. `pageSize` sets the init
 cursor size unless `firstPageSize` overrides it; cursor continuations use that
 pinned size. Abort releases even a paused iterator's cursor without needing
 `return()`. `readMany(paths, { includeBody, frontmatterMode, types })` provides
-ordered found/missing/error entries over bounded independent path-query batches.
-It has **no authoritative revisions today**; keep `read()` for editing revisions.
+ordered found/missing/error entries over bounded independent batches. When
+`read-many-documents-v1` is advertised it uses revision-bearing document reads;
+otherwise it retains typed path queries without sending extended inputs. The
+signature and query-shaped result stay unchanged (`includeBody` defaults false,
+`frontmatterMode` defaults effective). A `types` filter is evaluated by an
+authority query before hydration; selection and reads are not one snapshot.
+Qualified reads require existing `read` approval, plus `query` for type selection.
+Legacy revisions remain optional; never infer them from mtime/size or combine a
+query token with later content. Keep `read()` for exact Markdown/full documents.
 `linksTo(field, path)` builds a guarded server-side `asFile()` predicate (use
 `{multiple: true}` for a link list), not a client resolver. See
 [query helper contracts and consumer migration notes](../../docs/sdk-query-helpers.md).

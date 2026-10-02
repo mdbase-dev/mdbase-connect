@@ -1,7 +1,9 @@
 # Client query helpers
 
-These helpers use existing query operations; no authority/protocol upgrade is required.
-Collection semantics and authorization remain owned by the authority.
+These helpers use existing operations. Query/link helpers and readMany's legacy
+path require no authority upgrade; revision-bearing readMany uses an explicitly
+advertised extension of `read`. Collection semantics and authorization remain
+owned by the authority.
 
 ## Page sizes, total caps and cancellation
 
@@ -54,14 +56,22 @@ newer authorities that support variable sizes are deliberately used in their
 portable pinned-size mode. The existing automatic first-page cursor/legacy offset
 fallback is unchanged; explicit cursor requests stay strict.
 
-## `readMany(paths, options)` — stage 1
+## `readMany(paths, options)` — negotiated revision-bearing batches
 
 Available on both `MdbaseConnection<Frontmatter>` and
-`MdbaseCollectionClient<Frontmatter>` (`/advanced`). It performs exact raw-path
-queries using escaped `file.path in [...]` CEL. It does not interpret wikilinks,
-normalize paths, resolve IDs, map contract fields, or circumvent query grants.
-A semantic-only grant may reject these raw queries; there is no silent contract
-fallback.
+`MdbaseCollectionClient<Frontmatter>` (`/advanced`), with the same signature and
+query-shaped result on both paths. It discovers `read-many-documents-v1` through
+B1's connection-owned helper. Advertised producers receive bounded `read` requests
+with `paths`; unsupported producers receive only the original escaped
+`file.path in [...]` queries. No errors or query revision fields are support probes.
+There is no document/contract/exact-source overload in this signature.
+
+Qualified document reads require existing `read` approval. If `types` is supplied,
+query preselection evaluates membership on the authority before reading matching
+paths; it also requires `query`. Selection and hydration are separate reads, not
+one pinned snapshot. The SDK does not copy type semantics, interpret wikilinks,
+normalize paths, resolve IDs or map contract fields. Semantic-only grants may
+reject raw queries/reads; there is no silent contract or permission fallback.
 
 ```ts
 const outcome = await connection.readMany(paths, {
@@ -86,21 +96,33 @@ Contract:
 - One result per input path in input order, including duplicates. Unique paths
   are queried once; duplicate found entries share the same record object. No
   request is made for empty input. Paths are compared exactly as supplied.
-- `found` contains a typed `ReadManyRecord<Frontmatter>` with the query's
-  frontmatter/file/types and optional body. `includeBody` defaults to the
-  authority's query default (omitted); `frontmatterMode` is effective, persisted,
-  or both, exactly as for `query`. These are not exact Markdown documents.
+- `found` contains a typed `ReadManyRecord<Frontmatter>` with
+  frontmatter/file/types and optional body. Qualified document batches supply an
+  exact-source `revision`; legacy query rows may omit it. `includeBody` defaults
+  false and `frontmatterMode` defaults effective, retaining query semantics.
+  Persisted/effective/both controls which returned frontmatter members are
+  exposed, not their evaluation. These projections are not full record documents
+  or exact Markdown; use point `read()` for those.
 - `missing` means no matching row under the supplied `types` and grant. It does
   not prove deletion outside that selection.
-- `error` references a zero-based batch in `errors`, each containing the queried
-  unique paths and the original typed failure/diagnostics. If any page fails,
-  the entire batch is an error, including paths already seen on earlier pages;
-  partial data is never mistaken for missing records. Other batches continue.
-  A successful outer outcome can contain batch errors; callers must check them.
-- `batchSize` defaults to 100 (valid range 1..1000); `concurrency` defaults to 4
-  (1..4). Only independent batches overlap; each batch drains its cursor serially.
-  `latestWins` coordination is rejected because sibling batches would cancel
-  one another. Identical page requests are never coalesced as reusable cursors.
+- `error` references a zero-based batch in `errors`. Transport, authorization,
+  capacity or malformed-response failures cover all unique paths in that batch;
+  partial data is never mistaken for missing records. This also applies when any
+  legacy query page fails. Native semantic item failures cover only their failed
+  paths, preserving other found/missing items. Their diagnostic codes/messages
+  and paths are in `failure.problem.details.diagnostics`; several item errors
+  share one batch failure. Other batches continue. A successful outer outcome
+  can contain errors; callers must check them. Admission discovery failures stay
+  outer failures; discovery failure after selection is a batch failure. Neither
+  is evidence for a legacy fallback.
+- `batchSize` defaults to 100 (valid range 1..1000); qualified document reads cap
+  each request at the wire maximum of 100. `concurrency` defaults to 4 (1..4).
+  Only independent batches overlap; query cursors remain serial. Support is
+  rechecked from connection-lifetime evidence at every admission, including
+  after route/authorization changes. `latestWins` is rejected because sibling
+  batches would cancel one another. Identical page requests are never coalesced
+  as reusable cursors. An 8-MiB document-response capacity failure remains
+  explicit; choose smaller batches rather than silently truncating or probing.
 - One total `timeoutMs` budget covers queued batches and all their pages.
   Cancellation/timeout stops launching batches and returns an outer failure,
   not a partially successful/missing result. Successful batch diagnostics are
@@ -108,16 +130,24 @@ Contract:
 - Independent batches are **not** one atomic collection snapshot. Concurrent
   edits can be observed at different generations across batches.
 
-**Revision information today:** `ReadManyRecord.revision?: string` is absent on
-current query authorities. File `mtime`/size are metadata, not revisions. No
-revision is synthesized and no hidden per-path `read()` is issued. Continue to
-use `read()` for authoritative revisions, exact Markdown, and conditional writes.
-The signature/result envelope reserves optional revision information so a future
-negotiated revision-bearing authority implementation can replace path queries
-without changing caller signatures. Stage 2 protocol/capability work is deferred.
-In particular, Reader cannot yet delete revision-bearing hydration; TaskNotes
-must keep its editing revision re-read. Writer/TaskNotes/Reader can replace only
-revisionless path-query builders/batch loops now.
+**Migration:** `ReadManyRecord.revision?: string` remains optional because the
+same signature must work with late-updated connectors. Qualified batches always
+return it from the same version as their content. File mtime/size are not tokens;
+none is synthesized, and there are no hidden per-path reads. Writer, Reader,
+TaskNotes and editor may remove redundant revision hydration on the qualified
+path, but retain it for legacy rows without revisions. Check support/revision
+before deleting those fallbacks; B1 removal requires the coordinator's minimum
+supported authority/provider, all consumer pins, and closed N-1/rollback and
+connection-cache windows. Standalone providers without a discovery callback
+remain conservative legacy providers.
+
+Never attach a preselection/query token to subsequent body data. If discovery and
+hydration differ, install the returned content and revision together, invalidate
+derived indexes and re-evaluate membership as needed. A source token does not
+certify schema/default/computed-value freshness; semantic caches also require
+catalog invalidation. Keep TaskNotes' RMW locks and bounded cache, and editor's
+open-session write queues. `read()` remains necessary for exact Markdown or a
+full `RecordDocument`; a readMany projection must not be cast into one.
 
 ## `linksTo(field, path, { multiple? })`
 

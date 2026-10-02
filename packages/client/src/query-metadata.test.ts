@@ -110,7 +110,7 @@ describe("negotiated metadata output", () => {
     expect(pages.every(page => page.output === "metadata")).toBe(true);
     expect(calls).toEqual([
       { output: "metadata", limit: 200, offset: 0, pagination: "cursor" },
-      { output: "metadata", cursor: "next", limit: 1000 },
+      { output: "metadata", cursor: "next" },
       { output: "metadata", release_cursor: "next" }
     ]);
     const all = await client.queryAll({ output: "metadata", pagination: "cursor" });

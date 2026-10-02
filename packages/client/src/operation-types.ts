@@ -83,18 +83,15 @@ export interface QueryRecord<Frontmatter extends JsonObject = JsonObject> {
   contract?: DataContractViewIdentity;
 }
 
-/** Query-shaped batched record today; a future authority may supply a revision. */
-export interface ReadManyRecord<Frontmatter extends JsonObject = JsonObject> extends QueryRecord<Frontmatter> {
-  /** Absent on current query authorities. Never synthesized from timestamps or content. */
-  revision?: string;
-}
+/** Query-shaped projection; qualified document batches supply exact-source revisions. */
+export type ReadManyRecord<Frontmatter extends JsonObject = JsonObject> = QueryRecord<Frontmatter>;
 
 export interface ReadManyOptions extends ConnectRequestOptions {
   includeBody?: boolean;
   frontmatterMode?: QueryInput["frontmatterMode"];
   /** Restrict matching records to these raw collection types, not a contract view. */
   types?: string[];
-  /** Unique paths per independent query, default 100; range 1..1,000. */
+  /** Unique paths per batch, default 100; range 1..1,000. Document authorities cap at 100. */
   batchSize?: number;
   /** Independent batches in flight, default 4; range 1..4. Cursor pages stay serial. */
   concurrency?: number;
@@ -114,7 +111,7 @@ export interface ReadManyBatchError {
 export interface ReadManyResult<Frontmatter extends JsonObject = JsonObject> {
   /** One entry per input path, in input order, including duplicates. */
   results: ReadManyEntry<Frontmatter>[];
-  /** A failed batch is not proof of missing records; its entries are errors. */
+  /** Batch failures cover the entire batch; semantic item failures cover only their paths. */
   errors: ReadManyBatchError[];
 }
 

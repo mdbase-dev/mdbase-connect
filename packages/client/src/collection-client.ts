@@ -15,6 +15,7 @@ import type {
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,
   RecordDocument as WireRecordDocument,
+  ReadManyDocumentsResult as WireReadManyDocumentsResult,
   SavedViewExecution as WireSavedViewExecution,
   SavedViewList as WireSavedViewList,
   SavedViewSourceDocument as WireSavedViewSourceDocument,
@@ -25,7 +26,7 @@ import { abortableDelay } from "./async.js";
 import { invalidatesDescription, normalizeChangesPage } from "./change-events.js";
 import { CollectionDescriptionCache } from "./description-cache.js";
 import { coordinatedQueryPages } from "./query-pagination.js";
-import { queryReadMany } from "./read-many.js";
+import { readMany as readManyRecords } from "./read-many.js";
 import { wireDataContractIdentity, wireQueryInput, wireQueryRecord, wireQueryResult, type WireQueryResult } from "./query-wire.js";
 import { coordinatedSavedViewPages } from "./saved-view-pagination.js";
 import {
@@ -178,7 +179,13 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
   }
 
   readMany(paths: readonly string[], options: ReadManyOptions = {}): Promise<ConnectOutcome<ReadManyResult<Frontmatter>, CollectionQueryProblemCode>> {
-    return queryReadMany((input, requestOptions) => this.queryAll(input, requestOptions), paths, options, this.requestTimeoutMs);
+    return readManyRecords(
+      (input, requestOptions) => this.queryAll(input, requestOptions),
+      (selected, includeBody, requestOptions) => this.envelopeOperation<WireReadManyDocumentsResult<Frontmatter>, CollectionReadProblemCode>(
+        "read", { paths: selected, include_body: includeBody, include_document: false }, COLLECTION_READ_PROBLEM_CODES, requestOptions
+      ),
+      this.supportsAuthorityFeature, paths, options, this.requestTimeoutMs
+    );
   }
 
   query(input: QueryMetadataInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<QueryMetadataResult, CollectionQueryProblemCode>>;

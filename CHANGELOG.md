@@ -8,6 +8,15 @@
   and current assessment failures remain visible. No public API or
   authority protocol changes.
 
+- `readMany(paths, options)` now uses revision-bearing document batches when
+  `read-many-documents-v1` is advertised, retaining typed path queries otherwise
+  with zero extended requests to unsupported authorities. Signature, ordering,
+  duplicates, body/frontmatter options and bounded scheduling remain unchanged.
+  Type filtering stays authority-owned via query preselection; subsequent reads
+  return their own content+revision pair, not a discovery token. Qualified reads
+  require existing read approval. Legacy consumers still need revision reads;
+  exact Markdown and full record documents remain the point-read API.
+
 - Record-session watch following bounds refresh admission to four sessions and
   coalesces event bursts, so a change gap across 1,000 open records no longer
   leaves most records silently stale. Transient read failures retry with

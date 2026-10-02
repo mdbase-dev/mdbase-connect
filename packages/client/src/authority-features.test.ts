@@ -164,6 +164,25 @@ describe("connection-owned authority feature discovery", () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
+  it.each([undefined, [], ["future-feature"], ["read-many-documents-v1"]])("readMany dispatches no extended requests without a known advertisement: %j", async flags => {
+    const native = flags?.includes("read-many-documents-v1") === true;
+    const request = vi.spyOn(ConnectionTransport.prototype, "performOperation").mockImplementation(async (operation, input) => {
+      if (operation === "describe") return wireDescription(flags);
+      if (operation === "read") {
+        expect(native).toBe(true);
+        expect(input).toEqual({ paths: ["a.md"], include_body: false, include_document: false });
+        return { valid: true, diagnostics: [], result: { items: [{ path: "a.md", status: "found", record: {
+          path: "a.md", revision: "source-token", types: [], frontmatter: {}, effective_frontmatter: {}, file: { path: "a.md" }
+        } }] } };
+      }
+      expect(operation).toBe("query"); expect(native).toBe(false); expect(input).not.toHaveProperty("paths");
+      return { valid: true, diagnostics: [], result: { results: [], meta: { has_more: false } } };
+    });
+    const { connection } = fixture();
+    expect(await connection.readMany(["a.md"], { concurrency: 1 })).toMatchObject({ ok: true, value: { results: [{ status: native ? "found" : "missing" }] } });
+    expect(request.mock.calls.map(call => call[0])).toEqual(["describe", native ? "read" : "query"]);
+  });
+
   it("never persists discovery or borrows another connection's cached evidence", async () => {
     const request = vi.spyOn(ConnectionTransport.prototype, "performOperation")
       .mockResolvedValueOnce(wireDescription(["query-metadata-v1"]))
