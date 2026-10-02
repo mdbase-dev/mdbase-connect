@@ -2162,7 +2162,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
             <div><strong>Rename this note?</strong><span>{renamePlan.affectedPaths.length.toLocaleString()} {renamePlan.affectedPaths.length === 1 ? "note contains" : "notes contain"} links that will change.{renamePlan.warnings.length > 0 ? ` ${renamePlan.warnings.length.toLocaleString()} ${renamePlan.warnings.length === 1 ? "link needs" : "links need"} attention and won’t be changed automatically.` : ""}</span></div>
             <button onClick={cancelRename}>Cancel</button>
             <button onClick={() => void performRename(renamePlan, false)}>Rename only</button>
-            <button className="primary-confirm-action" onClick={() => void performRename(renamePlan, true)}>Rename and update links</button>
+            <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}>Rename and update links</button>
           </div>}
           {deletePlan && deletePlan.session === noteSessions.current.active && <div className="delete-confirm" role="alert"><div><strong>Delete this note?</strong><span>{deletePlan.brokenLinkPaths.length > 0 ? `${deletePlan.brokenLinkPaths.length.toLocaleString()} ${deletePlan.brokenLinkPaths.length === 1 ? "note will keep a broken link" : "notes will keep broken links"}. ` : ""}You can undo the note deletion.</span></div><button onClick={() => setDeletePlan(undefined)}>Keep note</button><button className="danger-action" onClick={() => void deleteNote(deletePlan)}>Delete</button></div>}
           <MarkdownNoteEditor editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}

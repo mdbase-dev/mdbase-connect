@@ -219,9 +219,9 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
       {error && <p className="new-note-error" role="alert">{error}</p>}
       <div className="new-note-actions">
         <span id="new-note-status" className={incompleteReason && !creating ? "blocked" : undefined}>{incompleteReason && !creating ? incompleteReason : folderCreation ? "" : "Draft stays here until the note is created."}</span>
-        <button type="button" onClick={() => onCancel(hasDraft)}>Cancel</button>
+        <button className="mdbase-button is-tertiary" type="button" onClick={() => onCancel(hasDraft)}>Cancel</button>
         <button
-          className="create-note-button"
+          className="create-note-button mdbase-button is-primary"
           disabled={!complete || creating}
           aria-describedby="new-note-status"
           aria-keyshortcuts={folderCreation ? undefined : "Control+Enter Meta+Enter"}

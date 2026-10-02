@@ -260,7 +260,7 @@ export function PropertiesPanel({
             : sourceChanged
               ? "Source saves when focus leaves the editor"
               : "Source saved"}</p>
-          <button className="property-save" disabled={readOnly || !sourceChanged || saving} onClick={() => void saveSource(true)}>{saving ? "Saving…" : "Save source"}</button>
+          <button className="property-save mdbase-button is-primary" disabled={readOnly || !sourceChanged || saving} onClick={() => void saveSource(true)}>{saving ? "Saving…" : "Save source"}</button>
         </div>
         : <p className="property-save-state" aria-live="polite">{rawError
           ? "Fix the JSON to continue saving"
