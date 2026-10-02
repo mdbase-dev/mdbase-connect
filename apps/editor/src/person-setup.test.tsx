@@ -21,7 +21,7 @@ function assessment(): TypePackAssessment {
   return {
     applicable: true, status: "install", assessmentDigest: "reviewed-digest",
     resources: bundled.manifest.resources.map((resource) => ({ ...resource, action: "create" })),
-    desired: { id: "mdbase.contact", version: "1.2.0", digest: "digest", installedBy: "dev.mdbase.editor", resources: [] },
+    desired: { id: "mdbase.contact", version: "1.3.0", digest: "digest", installedBy: "dev.mdbase.editor", resources: [] },
     lock: { target: "mdbase.lock.yaml", action: "create", digest: "lock-digest" },
     contractSetups: { choices: [], resources: [] }
   } as TypePackAssessment;

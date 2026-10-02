@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The editor's guided person setup installs `mdbase.contact` 1.3.0, whose
+  Person v3 starter neither declares nor requires `type`. People created in
+  collections whose `settings.explicit_type_keys` is not `[type]` (such as
+  `[mdbase_type]`) no longer fail validation with `schema_required: type`.
+  Person v3 carries `upgrade_from` the 1.2.0 Person v2 seed; an installed v2
+  seed still stops the guided flow for review in Types. No API changes.
+
 - Application-session startup no longer tears down replacement verification
   when a route or selection refresh cancels an obsolete setup assessment.
   Only that generation's expected cancellation is ignored; genuine exceptions
