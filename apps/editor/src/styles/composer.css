@@ -22,6 +22,13 @@
   max-width: 620px;
 }
 
+.new-folder-form h1 {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.025em;
+}
+
 .new-note-intro {
   max-width: 50ch;
   margin: 14px 0 0;
@@ -54,7 +61,11 @@
 }
 
 .new-folder-form .new-note-fields {
-  grid-template-columns: minmax(0, 1.5fr) minmax(130px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.new-folder-form .new-note-fields input {
+  min-height: 40px;
 }
 
 .new-note-fields label > small {
@@ -225,17 +236,16 @@
   font-size: var(--font-size-ui);
 }
 
-.new-folder-path output {
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--canvas);
+.new-folder-path {
+  display: grid;
+  gap: var(--space-1);
   color: var(--muted);
-  font-family: var(--mono);
   font-size: var(--font-size-ui);
+}
+
+.new-folder-path output {
+  font-family: var(--mono);
+  font-size: var(--font-size-caption);
   overflow-wrap: anywhere;
 }
 
@@ -292,6 +302,10 @@
   flex: 1;
   color: var(--faint);
   font-size: var(--font-size-ui);
+}
+
+.new-note-actions > span:empty {
+  display: none;
 }
 
 .new-note-actions > span.blocked {

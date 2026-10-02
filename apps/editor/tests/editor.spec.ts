@@ -267,6 +267,7 @@ test("renders linked collection images inline and in the file preview", async ({
     width: (element as HTMLImageElement).naturalWidth
   }))).toEqual({ complete: true, width: 960 });
 
+  await page.locator(".cm-file-embed").hover();
   await page.getByRole("button", { name: "Open frontmatter.svg" }).click();
   const preview = page.getByRole("dialog", { name: "Preview frontmatter.svg" });
   await expect(preview.getByRole("img", { name: "frontmatter.svg" })).toBeVisible();
@@ -318,6 +319,7 @@ test("transcludes Markdown notes and opens the source note", async ({ page }) =>
   const transclusion = page.getByRole("region", { name: "Transclusion of Garden notes 2" });
   await expect(transclusion).toBeVisible();
   await expect(transclusion).toContainText("A generated note used to test a large collection.");
+  await transclusion.hover(); // Quiet embed actions reveal on hover or focus.
   await transclusion.getByRole("button", { name: "Open Garden notes 2" }).click();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
 });
@@ -711,7 +713,8 @@ for (const trigger of ["@", "[["] as const) {
     const editor = page.getByRole("main", { name: "Note editor" });
     const body = page.getByRole("textbox", { name: "Note body" });
     const saveState = editor.locator(".mdbase-save-notice");
-    await body.click();
+    // Embeds now take focus to reveal their actions; start typing in prose.
+    await body.locator(".cm-line").first().click();
     await page.keyboard.press("Control+End");
     await page.keyboard.type(`\n\n${trigger}the shape`);
 
@@ -1354,7 +1357,7 @@ test("uses the native caret in Vim insert mode", async ({ page }) => {
   await page.goto("?demo=12");
 
   const body = page.getByRole("textbox", { name: "Note body" });
-  await body.click();
+  await body.locator(".cm-line").first().click();
   const scroller = page.locator(".body-editor .cm-scroller");
   const blockCursor = page.locator(".body-editor .cm-vimCursorLayer .cm-fat-cursor");
   await expect(scroller).toHaveClass(/cm-vimMode/);
@@ -1416,18 +1419,21 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await expect(panel).not.toBeVisible();
 
   await page.getByRole("button", { name: "Note properties" }).click();
-  await panel.getByRole("tab", { name: "Source" }).click();
+  await panel.getByRole("button", { name: "Property options" }).click();
+  await page.getByRole("menuitem", { name: "Edit as source" }).click();
   const source = panel.getByRole("textbox", { name: "Complete record source" });
   await expect(source).toContainText("title: Source-backed title");
   const original = await source.textContent();
   await source.fill(`${original ?? ""}\nSource tail.\n`);
-  await panel.getByRole("tab", { name: "Source" }).click();
-  await expect(panel.getByText("Source saved")).toBeVisible();
+  await panel.getByRole("heading", { name: "Properties" }).click();
+  await expect(panel.getByRole("button", { name: "Save source" })).toBeDisabled();
+  await expect(panel.locator(".property-save-state")).toBeEmpty();
   await expect(panel).toBeVisible();
   await panel.getByRole("button", { name: "Close properties" }).click();
   await expect(panel).not.toBeVisible();
   await page.getByRole("button", { name: "Note properties" }).click();
-  await panel.getByRole("tab", { name: "Source" }).click();
+  await panel.getByRole("button", { name: "Property options" }).click();
+  await page.getByRole("menuitem", { name: "Edit as source" }).click();
   await expect(panel.getByRole("textbox", { name: "Complete record source" })).toContainText("Source tail.");
 });
 
@@ -1530,7 +1536,7 @@ test("keeps every editor action reachable at the minimum mobile width", async ({
   expect(bounds.actionRight).toBeLessThanOrEqual(bounds.viewportWidth);
   expect(bounds.surfaceRight).toBeLessThanOrEqual(bounds.viewportWidth);
 
-  await body.click();
+  await body.locator(".cm-line").first().click();
   await page.keyboard.press("Control+f");
   const searchBounds = await page.locator(".body-editor .cm-search").evaluate((search) => ({
     right: search.getBoundingClientRect().right,
@@ -1564,14 +1570,20 @@ test("keeps type field names styled and inside their grid columns", async ({ pag
           const kind = input.closest(".visual-field-row")!.querySelector(".visual-field-kind")!.getBoundingClientRect();
           return {
             left: bounds.left, right: bounds.right, height: bounds.height,
-            labelLeft: label.left, labelRight: label.right, kindLeft: kind.left
+            labelLeft: label.left, labelRight: label.right, kindLeft: kind.left,
+            bottom: bounds.bottom, kindTop: kind.top
           };
         });
         const context = `${colorScheme}/${width}`;
         expect(layout.height, context).toBeGreaterThanOrEqual(34);
         expect(layout.left, context).toBeGreaterThanOrEqual(layout.labelLeft);
         expect(layout.right, context).toBeLessThanOrEqual(layout.labelRight);
-        expect(layout.right, context).toBeLessThanOrEqual(layout.kindLeft - 5);
+        if (width <= 760) {
+          // Mobile gives the name a complete row and puts kind/required below it.
+          expect(layout.bottom, context).toBeLessThanOrEqual(layout.kindTop - 5);
+        } else {
+          expect(layout.right, context).toBeLessThanOrEqual(layout.kindLeft - 5);
+        }
       }
     }
   }

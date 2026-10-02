@@ -150,6 +150,12 @@
   background: var(--white);
 }
 
+.action-menu-separator {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--line);
+}
+
 .action-menu button {
   width: 100%;
   min-height: 34px;

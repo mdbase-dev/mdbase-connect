@@ -6,6 +6,8 @@ import {
   FolderIcon as Folder,
   KeyboardIcon as Keyboard,
   ListBulletsIcon as ListBullets,
+  FilePlusIcon as FilePlus2,
+  MagnifyingGlassIcon as Search,
   InfoIcon as Info,
   LinkIcon as Link2,
   PencilSimpleIcon as Pencil,
@@ -284,7 +286,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
   const attachments = useAttachmentUpload({ gateway, inventory: fileController, scope: mutationScope.current,
-    inventoryFiles: fileInventory.files, activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
+    activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
@@ -1904,6 +1906,17 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     {layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
     <PaneControl pane="list" label={`Show ${listName} sidebar`} action="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
   </> : undefined;
+  const notePathControl = document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
+    <label className="sr-only" htmlFor="note-path">Markdown path</label>
+    <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
+  </form> : mobileLayout ? <p className="mobile-note-path" title={document.path}>{document.path}</p>
+    : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>);
+  const noteSaveIndicator = <SaveIndicator
+    state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
+    activity={noteSessions.current.active?.activity}
+    detail={noteSessions.current.active?.activityDetail}
+    onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
+  />;
   const noteStatuses = new Map<string, NoteRowStatus>();
   for (const session of noteSessions.current.values()) {
     const status = noteRowStatus(session);
@@ -2034,32 +2047,27 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
                 onClick={() => navigateNoteHistory(1)}
               ><ArrowRight aria-hidden="true" /></button>
             </div>
-            <div className="path-wrap">
-              {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
-                <label className="sr-only" htmlFor="note-path">Markdown path</label>
-                <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
-              </form> : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
-            </div>
-            {noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
-            {!canEditNotes && <span className="connect-muted">Read only</span>}
-            <SaveIndicator
-              state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
-              activity={noteSessions.current.active?.activity}
-              detail={noteSessions.current.active?.activityDetail}
-              onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
-            />
-            {<button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => {
+            {!mobileLayout && <div className="path-wrap">{notePathControl}</div>}
+            {!mobileLayout && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
+            {!mobileLayout && !canEditNotes && <span className="connect-muted">Read only</span>}
+            {!mobileLayout && noteSaveIndicator}
+            {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => {
               setPropertiesOpen((value) => {
                 if (!value) setBacklinksOpen(false);
                 return !value;
               });
             }}><Info aria-hidden="true" /></button>}
             <ActionMenu label="More note actions" items={[
-              ...noteActions(document.path),
-              { label: "Document outline", icon: <ListBullets aria-hidden="true" />, onSelect: () => setOutlineOpen(true) },
+              ...(mobileLayout ? [
+                ...(canCreateNotes ? [{ label: "New note", icon: <FilePlus2 aria-hidden="true" />, disabled: mutationsFrozen, onSelect: beginCreate }] : []),
+                { label: "Quick open", icon: <Search aria-hidden="true" />, onSelect: () => setQuickOpen(true) }
+              ] : []),
+              ...noteActions(document.path).map((item) => mobileLayout && item.label === "Rename" ? { ...item, label: "Rename path" } : item),
+              { label: "Document outline", icon: <ListBullets aria-hidden="true" />, separatorBefore: true, onSelect: () => setOutlineOpen(true) },
               { label: "Linked from", icon: <Link2 aria-hidden="true" />, onSelect: () => { setBacklinksOpen(true); window.document.getElementById("linked-from")?.focus(); } },
-              { label: "Keyboard shortcuts", icon: <Keyboard aria-hidden="true" />, onSelect: () => setShortcutsOpen(true) },
-              attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error)))),
+              ...(mobileLayout ? [{ label: "Note properties", icon: <Info aria-hidden="true" />, onSelect: () => { setBacklinksOpen(false); setPropertiesOpen(true); } }] : []),
+              { ...attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error)))), separatorBefore: true },
+              { label: "Keyboard shortcuts", icon: <Keyboard aria-hidden="true" />, separatorBefore: true, onSelect: () => setShortcutsOpen(true) },
               { label: "Check note", icon: <Check aria-hidden="true" />, disabled: mutationsFrozen, onSelect: () => void validateNote() }
             ]} />
           </header>
@@ -2100,9 +2108,16 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           </div>}
           <MarkdownNoteEditor footer={<BacklinksPanel notes={backlinkNotes} types={typeDescriptors} loading={contentIndexing} error={contentError} onFind={!contentComplete && !contentIndexing && !contentError ? () => setBacklinksOpen(true) : undefined} onRetry={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
             draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey} readOnly={noteReadOnly}
+            provenance={mobileLayout ? <>
+              {notePathControl}
+              {!canEditNotes && <span className="connect-muted">Read only</span>}
+              {noteSaveIndicator}
+              {noteLoading && <span role="status" className="note-opening-status">Opening “{pendingNotePath}”…</span>}
+            </> : undefined}
             remoteApplyToken={remoteApplyToken} autoFocus={editorAutoFocus}
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
+            onUploadAttachment={canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
             insertion={attachments.insertion} onTitleChange={(title) => changeActiveDraft((current) => ({ ...current, title }))}
             onBodyChange={(body) => changeActiveDraft((current) => ({ ...current, body }))} onOpenLink={navigateToNote}
             onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}

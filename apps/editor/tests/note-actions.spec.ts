@@ -34,6 +34,37 @@ test("note menus move with links, delete immediately, restore, and filter by tag
   await expect(page.getByRole("heading", { name: "All notes", exact: true })).toBeVisible();
 });
 
+for (const width of [1440, 390]) {
+  test(`one grouped More menu keeps all actions and the document footer at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 640 });
+    await page.goto("?demo=300");
+    await expect(page.getByRole("textbox", { name: "Note body" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "More note actions" })).toHaveCount(1);
+    if (width === 390) await expect(page.locator(".editor-bar button:visible")).toHaveCount(2);
+    await page.getByRole("button", { name: "More note actions" }).click();
+    const menu = page.getByRole("menu", { name: "More note actions" });
+    await expect(menu.getByRole("separator")).toHaveCount(3);
+    await expect(menu.getByRole("menuitem", { name: /Attach file/ })).toHaveCount(1);
+    await expect(menu.getByRole("menuitem", { name: /Rename/ })).toHaveCount(1);
+    const groupStarts = await menu.getByRole("separator").evaluateAll((separators) => separators.map((separator) => separator.nextElementSibling?.textContent));
+    expect(groupStarts).toEqual(["Document outline", "Attach file…", "Keyboard shortcuts"]);
+    if (width === 390) {
+      await expect(menu.getByRole("menuitem", { name: "New note", exact: true })).toHaveCount(1);
+      await expect(menu.getByRole("menuitem", { name: "Quick open", exact: true })).toHaveCount(1);
+      await expect(menu.getByRole("menuitem", { name: "Rename path", exact: true })).toHaveCount(1);
+    }
+    await page.keyboard.press("End");
+    await expect(menu.getByRole("menuitem", { name: "Check note" })).toBeFocused();
+    const bounds = await menu.boundingBox();
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(640);
+    await page.screenshot({ path: test.info().outputPath(`grouped-more-${width}.png`) });
+    await menu.getByRole("menuitem", { name: "Linked from" }).click();
+    await expect(page.locator(".cm-scroller #linked-from")).toBeFocused();
+    await expect(menu).not.toBeAttached();
+  });
+}
+
 for (const [theme, width, height] of [["light", 1440, 1000], ["dark", 1440, 1000], ["light", 390, 844]] as const) {
   test(`all note row variants fit their fixed height in ${theme} at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height });

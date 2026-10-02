@@ -58,9 +58,13 @@ describe("new note schema fields", () => {
   it("creates a folder through a normalized first-note path", async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn(async () => undefined);
-    render(<NewNoteComposer purpose="folder" types={[]} onCreate={onCreate} onCancel={() => undefined} />);
+    render(<NewNoteComposer purpose="folder" types={[eventType]} defaultType="event" onCreate={onCreate} onCancel={() => undefined} />);
 
+    expect(screen.getByRole("heading", { name: "New folder" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveFocus();
+    expect(screen.queryByRole("combobox", { name: "Type" })).not.toBeInTheDocument();
     const create = screen.getByRole("button", { name: "Create folder" });
+    expect(create).toHaveClass("mdbase-button", "is-primary");
     expect(create).toBeDisabled();
     await user.type(screen.getByRole("textbox", { name: "Folder name" }), "/Research/Ideas/");
     await user.type(screen.getByRole("textbox", { name: "First note" }), "Reading list");
