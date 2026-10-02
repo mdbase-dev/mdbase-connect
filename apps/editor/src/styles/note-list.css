@@ -152,7 +152,6 @@
   overflow: hidden;
   color: var(--faint);
   font-size: var(--font-size-ui);
-  letter-spacing: 0.015em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

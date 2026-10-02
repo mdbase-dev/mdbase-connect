@@ -341,7 +341,6 @@
   align-items: center;
   gap: 5px;
   color: var(--faint);
-  letter-spacing: 0.04em;
   text-transform: none;
 }
 

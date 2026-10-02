@@ -1047,7 +1047,6 @@
   align-self: center;
   color: var(--faint);
   font-size: var(--font-size-ui);
-  letter-spacing: 0.08em;
 }
 
 .type-explicit-only {
