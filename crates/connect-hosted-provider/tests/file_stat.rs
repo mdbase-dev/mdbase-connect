@@ -1,3 +1,5 @@
+// Shared lifecycle fixtures also expose race helpers unused by point stat.
+#[allow(dead_code, unused_imports)]
 mod support;
 #[path = "support/test_postgres.rs"]
 mod test_postgres;
