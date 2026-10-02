@@ -3,9 +3,7 @@ mod support;
 mod test_postgres;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use mdbase_connect_hosted_provider::{
-    app, AppState, RegisterReplica, ReplicaPurpose, StatFileRequest,
-};
+use mdbase_connect_hosted_provider::{app, AppState, RegisterReplica, ReplicaPurpose};
 use mdbase_connect_protocol::*;
 use p256::ecdsa::{signature::Signer, Signature, SigningKey};
 use serde_json::{json, Value};

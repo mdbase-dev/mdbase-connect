@@ -6,7 +6,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use index::{
     descriptor_from_index_row, persist_indexed_file, query_indexed_files, read_indexed_files,
 };
-use mdbase_connect_protocol::{CollectionFileDescriptor, FileMediaClass};
+use mdbase_connect_protocol::{CollectionFileDescriptor, FileMediaClass, StatFileRequest};
 use rusqlite::Transaction;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -335,10 +335,10 @@ impl CollectionRegistry {
     pub fn stat_file(
         &self,
         id: Uuid,
-        request: &crate::file_stat::StatFileRequest,
+        request: &StatFileRequest,
         visible: impl Fn(&str) -> bool,
     ) -> Result<Option<CollectionFileDescriptor>, ConnectError> {
-        request.validate()?;
+        crate::collection_files::validate_file_stat_request(request)?;
         let registered = self.get(id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(

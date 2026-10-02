@@ -568,9 +568,7 @@ impl AgentState {
         if let Some(problem) = owner_only_operation_problem(&envelope.operation) {
             return encrypted_problem_response(&keys, metadata, problem);
         }
-        if let Err(message) =
-            files::validate_local_operation_discriminators(&envelope.operation, &input)
-        {
+        if let Err(message) = validate_operation_discriminators(&envelope.operation, &input) {
             return encrypted_problem_response(
                 &keys,
                 metadata,

@@ -1,53 +1,5 @@
 use super::*;
 
-// Temporary wire adapter until wb-protocol's Wave B types land. Delete these
-// declarations and use connect-protocol's StatFileRequest/FileStat at integration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StatFileRequest {
-    pub protocol_version: u32,
-    #[serde(rename = "type")]
-    pub message_type: StatFileRequestKind,
-    #[serde(
-        default,
-        deserialize_with = "present_target",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub path: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "present_target",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub file_id: Option<Uuid>,
-}
-
-fn present_target<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
-    deserializer: D,
-) -> Result<Option<T>, D::Error> {
-    T::deserialize(deserializer).map(Some)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StatFileRequestKind {
-    StatFile,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileStat {
-    pub protocol_version: u32,
-    #[serde(rename = "type")]
-    pub message_type: FileStatKind,
-    pub file: Option<CollectionFileDescriptor>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FileStatKind {
-    FileStat,
-}
-
 impl HostedProvider {
     pub async fn stat_file(
         &self,

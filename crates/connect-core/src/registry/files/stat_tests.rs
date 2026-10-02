@@ -1,6 +1,6 @@
 use super::tests::registered;
 use super::*;
-use crate::file_stat::{StatFileRequest, StatFileRequestKind};
+use mdbase_connect_protocol::{StatFileRequest, StatFileRequestKind};
 
 fn request(path: Option<&str>, file_id: Option<Uuid>) -> StatFileRequest {
     StatFileRequest {

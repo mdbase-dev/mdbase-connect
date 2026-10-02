@@ -3,8 +3,8 @@ use axum::body::Body;
 use axum::response::Response;
 use futures_util::{stream, Stream, StreamExt};
 use mdbase_connect_protocol::{
-    CommitFileUploadReceipt, CommitFileUploadRequest, FileTransferSession,
-    PrepareFileUploadPartRequest, PreparedFilePart,
+    CommitFileUploadReceipt, CommitFileUploadRequest, FileStat, FileTransferSession,
+    PrepareFileUploadPartRequest, PreparedFilePart, StatFileRequest,
 };
 use serde::de::DeserializeOwned;
 
@@ -93,10 +93,10 @@ async fn stat_file(
     OriginalUri(uri): OriginalUri,
     Path(collection_id): Path<Uuid>,
     body: Bytes,
-) -> ApiResult<Json<crate::provider::FileStat>> {
+) -> ApiResult<Json<FileStat>> {
     let token =
         authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
-    let request = file_json::<crate::provider::StatFileRequest>(&body)?;
+    let request = file_json::<StatFileRequest>(&body)?;
     Ok(Json(
         state
             .provider

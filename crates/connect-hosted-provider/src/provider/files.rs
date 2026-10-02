@@ -3,11 +3,12 @@ use crate::blob_store::{BlobByteStream, UploadedPart as BlobUploadedPart};
 use mdbase_connect_protocol::{
     AbortFileTransferRequest, CollectionFileDescriptor, CommitFileUploadReceipt,
     CommitFileUploadReceiptKind, CommitFileUploadRequest, DeleteFileReceipt, DeleteFileRequest,
-    FileMediaClass, FileTransferDirection, FileTransferProtection, FileTransferSession,
-    FileTransferSessionKind, FileTransferState, FileTransferStatus, FileTransferStatusKind,
-    FileTransferStrategy, ListFilesPage, ListFilesPageKind, ListFilesRequest, MoveFileReceipt,
-    MoveFileRequest, OpenFileDownloadRequest, OpenFileUploadRequest, PrepareFileUploadPartRequest,
-    PreparedFilePart, PreparedFilePartKind, UploadedFilePart, FILE_TRANSFER_PROTOCOL_VERSION,
+    FileMediaClass, FileStat, FileStatKind, FileTransferDirection, FileTransferProtection,
+    FileTransferSession, FileTransferSessionKind, FileTransferState, FileTransferStatus,
+    FileTransferStatusKind, FileTransferStrategy, ListFilesPage, ListFilesPageKind,
+    ListFilesRequest, MoveFileReceipt, MoveFileRequest, OpenFileDownloadRequest,
+    OpenFileUploadRequest, PrepareFileUploadPartRequest, PreparedFilePart, PreparedFilePartKind,
+    StatFileRequest, UploadedFilePart, FILE_TRANSFER_PROTOCOL_VERSION,
 };
 
 const TRANSFER_LIFETIME_HOURS: i64 = 24;
@@ -98,7 +99,6 @@ mod maintenance;
 mod persistence;
 mod stat;
 mod upload;
-pub use stat::{FileStat, StatFileRequest, StatFileRequestKind};
 
 impl HostedProvider {
     async fn cleanup_after_failed_finalization(&self, transfer: &HostedFileTransfer) {

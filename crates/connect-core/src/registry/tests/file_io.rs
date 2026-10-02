@@ -1,8 +1,9 @@
 //! Synthetic file-I/O workloads and thread-local work accounting, test builds only.
 use super::*;
 use mdbase_connect_protocol::{
-    FileTransferStrategy, OpenFileDownloadRequest, OpenFileDownloadRequestKind,
-    OpenFileUploadRequest, OpenFileUploadRequestKind, FILE_PROTOCOL_VERSION,
+    FileStat, FileStatKind, FileTransferStrategy, OpenFileDownloadRequest,
+    OpenFileDownloadRequestKind, OpenFileUploadRequest, OpenFileUploadRequestKind, StatFileRequest,
+    StatFileRequestKind, FILE_PROTOCOL_VERSION,
 };
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -129,9 +130,9 @@ fn stat_reads_only_one_target_without_warming_unrelated_files() {
         registry
             .stat_file(
                 id,
-                &crate::file_stat::StatFileRequest {
+                &StatFileRequest {
                     protocol_version: 1,
-                    message_type: crate::file_stat::StatFileRequestKind::StatFile,
+                    message_type: StatFileRequestKind::StatFile,
                     path: Some("file-0.bin".into()),
                     file_id: None,
                 },
@@ -185,6 +186,7 @@ fn benchmark_file_stat_5k() {
                 });
                 after = files.last().map(|file| file.path.clone());
                 let response = mdbase_connect_protocol::ListFilesPage {
+                    authority_capabilities: None,
                     protocol_version: 1,
                     message_type: mdbase_connect_protocol::ListFilesPageKind::FilesPage,
                     files,
@@ -206,9 +208,9 @@ fn benchmark_file_stat_5k() {
         let file = registry
             .stat_file(
                 id,
-                &crate::file_stat::StatFileRequest {
+                &StatFileRequest {
                     protocol_version: 1,
-                    message_type: crate::file_stat::StatFileRequestKind::StatFile,
+                    message_type: StatFileRequestKind::StatFile,
                     path: Some("file-4999.bin".into()),
                     file_id: None,
                 },
@@ -216,7 +218,11 @@ fn benchmark_file_stat_5k() {
             )
             .unwrap()
             .unwrap();
-        let response = crate::file_stat::FileStat::new(Some(file.clone()));
+        let response = FileStat {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: FileStatKind::FileStat,
+            file: Some(file.clone()),
+        };
         println!(
             "FILE_STAT_BENCH {}",
             json!({"mode":"after","calls":1,"response_bytes":serde_json::to_vec(&response).unwrap().len()})

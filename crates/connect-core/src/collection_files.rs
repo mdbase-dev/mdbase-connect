@@ -170,6 +170,40 @@ pub(crate) fn discover_collection_file(
     Ok(inventory.files.pop())
 }
 
+/// Validate direct Rust callers as well as deserialized requests. Wire decoding
+/// checks the target discriminator; local path safety remains authority-owned.
+pub(crate) fn validate_file_stat_request(
+    request: &mdbase_connect_protocol::StatFileRequest,
+) -> Result<(), ConnectError> {
+    if request.protocol_version != mdbase_connect_protocol::FILE_PROTOCOL_VERSION {
+        return Err(ConnectError::File {
+            code: "unsupported_protocol_version".into(),
+            message: "The file control protocol version is unsupported.".into(),
+        });
+    }
+    if request.path.is_some() == request.file_id.is_some()
+        || request.file_id.is_some_and(|id| id.is_nil())
+    {
+        return Err(ConnectError::File {
+            code: "invalid_file_request".into(),
+            message: "File stat requires exactly one path or non-nil file ID.".into(),
+        });
+    }
+    if let Some(path) = &request.path {
+        validate_portable_path(path).map_err(|message| ConnectError::File {
+            code: "unsafe_file_path".into(),
+            message,
+        })?;
+        if path.len() > 1_024 {
+            return Err(ConnectError::File {
+                code: "unsafe_file_path".into(),
+                message: "The file path exceeds 1024 bytes.".into(),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Resolve a stat path by its portable key, without visiting unrelated subtrees.
 /// Eligibility still comes exclusively from the engine and ordinary discovery.
 pub(crate) fn resolve_file_stat_path(

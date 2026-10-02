@@ -1,12 +1,12 @@
 use super::*;
 use mdbase_connect_protocol::{
     AbortFileTransferRequest, CommitFileUploadRequest, DeleteFileRequest, FileAction, FileFrame,
-    FileFrameHeader, FileFrameKind, FileScope, FileTransferBinding, FileTransferCipher,
-    FileTransferDirection, FileTransferProtection, FileTransferStrategy,
+    FileFrameHeader, FileFrameKind, FileScope, FileStat, FileStatKind, FileTransferBinding,
+    FileTransferCipher, FileTransferDirection, FileTransferProtection, FileTransferStrategy,
     GetFileTransferStatusRequest, ListFilesPage, ListFilesPageKind, ListFilesRequest,
     MoveFileRequest, OpenFileDownloadRequest, OpenFileUploadRequest, RelayFileFrame,
-    RelayFileHeader, RelayFileKind, FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
-    RELAY_FILE_PROTOCOL_VERSION,
+    RelayFileHeader, RelayFileKind, StatFileRequest, FILE_PROTOCOL_VERSION,
+    FILE_TRANSFER_PROTOCOL_VERSION, RELAY_FILE_PROTOCOL_VERSION,
 };
 
 impl AgentState {
@@ -108,9 +108,7 @@ impl AgentState {
                 .map_err(ConnectError::from)
             }
             "stat_file" => {
-                let request: mdbase_connect_core::file_stat::StatFileRequest =
-                    parse_file_control(input)?;
-                request.validate()?;
+                let request: StatFileRequest = parse_file_control(input)?;
                 let capability = require_file_action(grant, FileAction::List)?;
                 if let Some(path) = &request.path {
                     require_visible_path(capability, path)?;
@@ -120,8 +118,12 @@ impl AgentState {
                     .stat_file(grant.collection_id, &request, |path| {
                         file_visible(capability, path)
                     })?;
-                serde_json::to_value(mdbase_connect_core::file_stat::FileStat::new(file))
-                    .map_err(ConnectError::from)
+                serde_json::to_value(FileStat {
+                    protocol_version: FILE_PROTOCOL_VERSION,
+                    message_type: FileStatKind::FileStat,
+                    file,
+                })
+                .map_err(ConnectError::from)
             }
             "open_file_upload" => {
                 let request: OpenFileUploadRequest = parse_file_control(input)?;
@@ -523,22 +525,6 @@ impl AgentState {
             ),
         };
         require_visible_path(require_file_action(grant, action)?, &path)
-    }
-}
-
-// Temporary B4 adapter until wb-protocol adds stat_file to the canonical
-// discriminator catalog. Delete this function and restore the canonical call
-// in operations.rs with that wire commit. Dispatch still strictly parses stat.
-pub(super) fn validate_local_operation_discriminators(
-    operation: &str,
-    input: &serde_json::Value,
-) -> Result<(), &'static str> {
-    if operation == "file_control"
-        && input.get("type").and_then(serde_json::Value::as_str) == Some("stat_file")
-    {
-        Ok(())
-    } else {
-        validate_operation_discriminators(operation, input)
     }
 }
 
