@@ -155,16 +155,17 @@ async fn execute_direct_semantic(
     // missing; the final plan's verdict is then the collection's.
     let mut context_ids = before_records.keys().copied().collect::<BTreeSet<_>>();
     let mut exact_projections = None;
+    let mut existing_file_paths = Vec::new();
     let mut plan_attempts = 0;
     let plan = loop {
         plan_attempts += 1;
         let plan = catalog
-            .plan_hosted_mutation_typed(&mdbase::runtime::HostedMutationRequest {
+            .plan_hosted_mutation_with_files_typed(&mdbase::runtime::HostedMutationRequest {
                 operation: operation.to_string(),
                 primary_stable_id: primary_record_id.to_string(),
                 input: Value::Object(input.clone()),
                 records: records.clone(),
-            })
+            }, &existing_file_paths)
             .map_err(hosted_mutation_semantic_error)?;
         let missing = write_context_candidate_ids(
             transaction,
@@ -180,7 +181,16 @@ async fn execute_direct_semantic(
         .into_iter()
         .filter(|record_id| !context_ids.contains(record_id))
         .collect::<Vec<_>>();
-        if missing.is_empty() {
+        let files = super::files::load_file_link_context(
+            transaction, &provider.crypto, data_key, collection_id, &catalog,
+            &plan.context_requirements.resolution_lookups,
+        ).await?;
+        let previous_file_count = existing_file_paths.len();
+        existing_file_paths.extend(files);
+        existing_file_paths.sort();
+        existing_file_paths.dedup();
+        let file_context_changed = existing_file_paths.len() != previous_file_count;
+        if missing.is_empty() && !file_context_changed {
             break plan;
         }
         if plan_attempts == MAX_UNIQUENESS_PLAN_ATTEMPTS {
