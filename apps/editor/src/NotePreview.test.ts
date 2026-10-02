@@ -55,7 +55,7 @@ describe("note previews", () => {
     act(() => result.current.request(
       note.path,
       { left: 1, right: 2, top: 3, bottom: 4 },
-      "sidebar"
+      "editor"
     ));
     await waitFor(() => expect(result.current.preview?.path).toBe(note.path), { timeout: 1_000 });
     act(() => result.current.dismiss());

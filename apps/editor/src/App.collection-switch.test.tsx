@@ -227,19 +227,10 @@ describe("App collection switch ownership", () => {
     expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body"); expect(screen.queryByText(/Updating 9 linked notes/)).not.toBeInTheDocument();
   });
 
-  it("drains A delete preflight before switching and does not publish its confirmation in B", async () => {
-    const { gateway, user } = await hostileHarness();
-    await user.click(screen.getByRole("button", { name: "More note actions" })); await user.click(screen.getByRole("menuitem", { name: "Delete note" }));
-    await waitFor(() => expect(gateway.operationOwners).toContain("delete-preflight:a"));
-    await requestSavedSwitch(user); expect(gateway.current).toBe("a"); expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    gateway.deletePreflightGate.resolve(); await finishSavedSwitch(gateway);
-    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body"); expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
-  });
-
   it("drains A delete apply and ignores its completion and late progress in B", async () => {
-    const { gateway, user } = await hostileHarness(); gateway.deletePreflightGate.resolve();
-    await user.click(screen.getByRole("button", { name: "More note actions" })); await user.click(screen.getByRole("menuitem", { name: "Delete note" }));
-    await user.click(await screen.findByRole("button", { name: "Delete" })); await waitFor(() => expect(gateway.operationOwners).toContain("delete:a"));
+    const { gateway, user } = await hostileHarness();
+    await user.click(screen.getByRole("button", { name: "More note actions" })); await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await waitFor(() => expect(gateway.operationOwners).toContain("delete:a"));
     await requestSavedSwitch(user); expect(gateway.current).toBe("a");
     gateway.deleteGate.resolve(); await finishSavedSwitch(gateway);
     act(() => gateway.deleteProgress?.({ operation: "delete", state: "applying", elapsedMs: 50, cancellable: false, resumed: false, completedUnits: 0, estimate: { affectedRecords: 9, totalUnits: 10, warnings: 0 } }));
@@ -247,9 +238,9 @@ describe("App collection switch ownership", () => {
   });
 
   it("drains A restore from the public Undo action before switching to B", async () => {
-    const { gateway, user } = await hostileHarness(); gateway.deletePreflightGate.resolve(); gateway.deleteGate.resolve();
-    await user.click(screen.getByRole("button", { name: "More note actions" })); await user.click(screen.getByRole("menuitem", { name: "Delete note" }));
-    await user.click(await screen.findByRole("button", { name: "Delete" })); await user.click(await screen.findByRole("button", { name: "Undo" }));
+    const { gateway, user } = await hostileHarness(); gateway.deleteGate.resolve();
+    await user.click(screen.getByRole("button", { name: "More note actions" })); await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
     await waitFor(() => expect(gateway.operationOwners).toContain("restore:a")); await requestSavedSwitch(user);
     expect(gateway.current).toBe("a"); gateway.restoreGate.resolve(); await finishSavedSwitch(gateway);
     expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body"); expect(screen.queryByText(/restored/i)).not.toBeInTheDocument();
@@ -340,7 +331,7 @@ describe("App collection switch ownership", () => {
     expect(gateway.events.indexOf("update:end")).toBeLessThan(gateway.events.indexOf("authorize"));
     expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body");
     act(() => gateway.emitSnapshot({ status: "ready", connection: connection("a"), connections: [connection("a"), connection("b")] }));
-    expect(screen.getByRole("heading", { name: "Collection B" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /current collection Collection B/ })).toBeInTheDocument();
   });
 
   it("keeps the existing saved-selection path explicit and serializes it behind registered A work", async () => {
@@ -392,7 +383,7 @@ describe("App collection switch ownership", () => {
     expect(gateway.current).toBe("b"); expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Alpha note");
     gateway.authorizeGate.resolve(); await finishSavedSwitch(gateway);
     expect(gateway.authorizeTargets).toEqual([{ target: "selected", selected: "b" }]);
-    expect(screen.getByRole("heading", { name: "Collection B" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /current collection Collection B/ })).toBeInTheDocument();
   });
 
   it("forgets active A only after its drain and rejects stale A completion and events from the ownerless snapshot", async () => {
@@ -409,7 +400,7 @@ describe("App collection switch ownership", () => {
     expect(gateway.sessionSnapshot()).toEqual({ status: "unselected", connections: [connection("b"), connection("c")] });
     act(() => gateway.emitSnapshot({ status: "ready", connection: connection("a"), connections: [connection("a"), connection("b")] }));
     expect(screen.getByRole("button", { name: "Connect another collection" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Collection A" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /current collection Collection A/ })).not.toBeInTheDocument();
   });
 
   it("serializes an active forget, overlapping reconnect event, and the next public saved selection to exact C", async () => {
@@ -448,7 +439,7 @@ describe("App collection switch ownership", () => {
     ];
     for (const snapshot of stale) {
       act(() => gateway.emitSnapshot(snapshot));
-      expect(screen.getByRole("heading", { name: "Collection B" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /current collection Collection B/ })).toBeInTheDocument();
       expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Bravo note");
     }
     gateway.updateGate = deferred<void>();

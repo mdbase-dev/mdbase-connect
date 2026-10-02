@@ -55,7 +55,7 @@ async function switchTo(gateway: TypeSwitchGateway, user: ReturnType<typeof user
   const confirm = await screen.findByRole("button", { name: "Switch collection" }, { timeout: 300 }).catch(() => undefined); if (confirm) await user.click(confirm);
   await waitFor(() => expect(gateway.current).toBe(owner));
   await waitFor(() => expect(gateway.calls).toContainEqual({ operation: "describe", owner }));
-  await screen.findByRole("heading", { name: names[owner] });
+  await screen.findByRole("button", { name: new RegExp(`current collection ${names[owner]}`) });
   const readyRail = screen.getByRole("complementary", { name: "Collection navigation" });
   await waitFor(() => expect(within(readyRail).getByRole("button", { name: "Types (1)" })).toBeEnabled());
   await user.click(within(readyRail).getByRole("button", { name: "Types (1)" }));

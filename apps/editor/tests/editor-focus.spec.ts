@@ -12,7 +12,7 @@ test("a delayed CodeEditor chunk does not steal sidebar search typing", async ({
   });
   try {
     await page.goto("?demo=12", { waitUntil: "domcontentloaded" });
-    const search = page.getByRole("textbox", { name: "Search notes and files" });
+    const search = page.getByRole("combobox", { name: "Search notes and files" });
     await search.focus();
     await requested;
     await expect(search).toBeFocused();
