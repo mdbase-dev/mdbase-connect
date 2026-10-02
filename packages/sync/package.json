@@ -56,7 +56,7 @@
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/cli.js',0o755)\"",
     "check:mobile": "node scripts/check-mobile.mjs",
-    "test": "vitest run",
+    "test": "node ../../scripts/ci/vitest.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

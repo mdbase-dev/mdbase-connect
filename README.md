@@ -212,6 +212,9 @@ notification catalog, authorization hook, action provider, runtime, and store
 through the spec-owned `runtime.application-execution` black-box scenario. It
 is verification plumbing only and is never published as a Connect API.
 
+See the [CI flake policy](docs/ci-flakes.md) for bounded, recorded per-test
+retries and the retry-free nightly stress workflow.
+
 The end-to-end suites cover local authorization, the encrypted relay, hosted
 replication, and the production hosted provider:
 
