@@ -4,6 +4,18 @@
  * inverted app marks share every animation.
  */
 
+/* Each segment's place in reading order, and where assemble scatters it from. */
+.mdbase-mark-segment-1 { --step: 0; --scatter: translate(-18px, -22px) rotate(-24deg); }
+.mdbase-mark-segment-2 { --step: 1; --scatter: translate(6px, -30px) rotate(18deg); }
+.mdbase-mark-segment-3 { --step: 2; --scatter: translate(26px, -18px) rotate(-12deg); }
+.mdbase-mark-segment-4 { --step: 3; --scatter: translate(-30px, 4px) rotate(30deg); }
+.mdbase-mark-segment-5 { --step: 4; --scatter: translate(34px, 6px) rotate(-20deg); }
+.mdbase-mark-segment-6 { --step: 5; --scatter: translate(-24px, 26px) rotate(16deg); }
+.mdbase-mark-segment-7 { --step: 6; --scatter: translate(22px, 30px) rotate(-28deg); }
+.mdbase-mark-segment-8 { --step: 7; --scatter: translate(-14px, 34px) rotate(22deg); }
+.mdbase-mark-segment-9 { --step: 8; --scatter: translate(8px, 40px) rotate(-16deg); }
+.mdbase-mark-segment-10 { --step: 9; --scatter: translate(30px, 24px) rotate(26deg); }
+
 /* ---------- Loops ---------- */
 
 /* Orbit: the fences run in opposite directions, so the mark reads as turning. */
@@ -179,18 +191,8 @@
 
 /* Drop: segments fall into place in reading order with a little overshoot. */
 .mdbase-motion-drop .mdbase-mark-segment {
-  animation: mdbase-drop 560ms cubic-bezier(0.34, 1.56, 0.64, 1) 1 both;
+  animation: mdbase-drop 560ms cubic-bezier(0.34, 1.56, 0.64, 1) calc(var(--step) * 45ms) 1 both;
 }
-
-.mdbase-motion-drop .mdbase-mark-segment-2 { animation-delay: 45ms; }
-.mdbase-motion-drop .mdbase-mark-segment-3 { animation-delay: 90ms; }
-.mdbase-motion-drop .mdbase-mark-segment-4 { animation-delay: 135ms; }
-.mdbase-motion-drop .mdbase-mark-segment-5 { animation-delay: 180ms; }
-.mdbase-motion-drop .mdbase-mark-segment-6 { animation-delay: 225ms; }
-.mdbase-motion-drop .mdbase-mark-segment-7 { animation-delay: 270ms; }
-.mdbase-motion-drop .mdbase-mark-segment-8 { animation-delay: 315ms; }
-.mdbase-motion-drop .mdbase-mark-segment-9 { animation-delay: 360ms; }
-.mdbase-motion-drop .mdbase-mark-segment-10 { animation-delay: 405ms; }
 
 @keyframes mdbase-drop {
   from { opacity: 0; transform: translateY(-12px); }
@@ -199,19 +201,8 @@
 
 /* Assemble: scattered pieces settle into the record. */
 .mdbase-motion-assemble .mdbase-mark-segment {
-  animation: mdbase-assemble 900ms cubic-bezier(0.16, 1, 0.3, 1) 1 both;
+  animation: mdbase-assemble 900ms cubic-bezier(0.16, 1, 0.3, 1) calc(var(--step) * 28ms + 28ms) 1 both;
 }
-
-.mdbase-motion-assemble .mdbase-mark-segment-1 { --scatter: translate(-18px, -22px) rotate(-24deg); animation-delay: 28ms; }
-.mdbase-motion-assemble .mdbase-mark-segment-2 { --scatter: translate(6px, -30px) rotate(18deg); animation-delay: 56ms; }
-.mdbase-motion-assemble .mdbase-mark-segment-3 { --scatter: translate(26px, -18px) rotate(-12deg); animation-delay: 84ms; }
-.mdbase-motion-assemble .mdbase-mark-segment-4 { --scatter: translate(-30px, 4px) rotate(30deg); animation-delay: 112ms; }
-.mdbase-motion-assemble .mdbase-mark-segment-5 { --scatter: translate(34px, 6px) rotate(-20deg); animation-delay: 140ms; }
-.mdbase-motion-assemble .mdbase-mark-segment-6 { --scatter: translate(-24px, 26px) rotate(16deg); animation-delay: 168ms; }
-.mdbase-motion-assemble .mdbase-mark-segment-7 { --scatter: translate(22px, 30px) rotate(-28deg); animation-delay: 196ms; }
-.mdbase-motion-assemble .mdbase-mark-segment-8 { --scatter: translate(-14px, 34px) rotate(22deg); animation-delay: 224ms; }
-.mdbase-motion-assemble .mdbase-mark-segment-9 { --scatter: translate(8px, 40px) rotate(-16deg); animation-delay: 252ms; }
-.mdbase-motion-assemble .mdbase-mark-segment-10 { --scatter: translate(30px, 24px) rotate(26deg); animation-delay: 280ms; }
 
 @keyframes mdbase-assemble {
   from { opacity: 0; transform: var(--scatter) scale(0.7); }
@@ -289,18 +280,8 @@
 
 /* Wave: one ripple runs through the resting mark in reading order. */
 :is(.mdbase-app-switcher, .mdbase-mark-hover-host):hover .mdbase-mark-at-rest .mdbase-mark-segment {
-  animation: mdbase-wave 420ms cubic-bezier(0.45, 0, 0.55, 1) 1 both;
+  animation: mdbase-wave 420ms cubic-bezier(0.45, 0, 0.55, 1) calc(var(--step) * 30ms) 1 both;
 }
-
-:is(.mdbase-app-switcher, .mdbase-mark-hover-host):hover .mdbase-mark-at-rest .mdbase-mark-segment-2 { animation-delay: 30ms; }
-:is(.mdbase-app-switcher, .mdbase-mark-hover-host):hover .mdbase-mark-at-rest .mdbase-mark-segment-3 { animation-delay: 60ms; }
-:is(.mdbase-app-switcher, .mdbase-mark-hover-host):hover .mdbase-mark-at-rest .mdbase-mark-segment-4 { animation-delay: 90ms; }
-:is(.mdbase-app-switcher, .mdbase-mark-hover-host):hover .mdbase-mark-at-rest .mdbase-mark-segment-5 { animation-delay: 120ms; }
-:is(.mdbase-app-switcher, .mdbase-mark-hover-host):hover .mdbase-mark-at-rest .mdbase-mark-segment-6 { animation-delay: 150ms; }
-:is(.mdbase-app-switcher, .mdbase-mark-hover-host):hover .mdbase-mark-at-rest .mdbase-mark-segment-7 { animation-delay: 180ms; }
-:is(.mdbase-app-switcher, .mdbase-mark-hover-host):hover .mdbase-mark-at-rest .mdbase-mark-segment-8 { animation-delay: 210ms; }
-:is(.mdbase-app-switcher, .mdbase-mark-hover-host):hover .mdbase-mark-at-rest .mdbase-mark-segment-9 { animation-delay: 240ms; }
-:is(.mdbase-app-switcher, .mdbase-mark-hover-host):hover .mdbase-mark-at-rest .mdbase-mark-segment-10 { animation-delay: 270ms; }
 
 @keyframes mdbase-wave {
   50% { transform: translateY(-3px); }
