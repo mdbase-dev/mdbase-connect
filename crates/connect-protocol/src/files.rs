@@ -33,23 +33,6 @@ pub enum FileMediaClass {
     Other,
 }
 
-/// Device-local projection of a hosted collection. Folder exclusions apply to
-/// Markdown and files; hidden and reserved paths are independently mandatory.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SelectiveSyncPolicy {
-    #[serde(default)]
-    pub file_classes: Vec<FileMediaClass>,
-    #[serde(default)]
-    pub excluded_folders: Vec<String>,
-}
-
-impl SelectiveSyncPolicy {
-    pub fn includes(&self, media_class: FileMediaClass) -> bool {
-        self.file_classes.contains(&media_class)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileAction {
@@ -180,9 +163,9 @@ struct StatFileRequestWire {
     protocol_version: u32,
     #[serde(rename = "type")]
     message_type: StatFileRequestKind,
-    #[serde(default, deserialize_with = "crate::records::present_value")]
+    #[serde(default, deserialize_with = "crate::collections::present_value")]
     path: Option<String>,
-    #[serde(default, deserialize_with = "crate::records::present_value")]
+    #[serde(default, deserialize_with = "crate::collections::present_value")]
     file_id: Option<Uuid>,
 }
 

@@ -45,6 +45,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "file_changed_during_move": { category: "conflict", recovery: "refresh" },
   "file_changed_during_read": { category: "conflict", recovery: "refresh" },
   "file_index_warming": { category: "availability", recovery: "retry" },
+  "file_list_changed": { category: "conflict", recovery: "refresh" },
   "file_move_failed": { category: "internal", recovery: "contact_support" },
   "file_mutation_conflict": { category: "conflict", recovery: "resolve_conflict" },
   "file_not_found": { category: "conflict", recovery: "refresh" },
@@ -219,6 +220,7 @@ export interface ConnectProblemDetailsByCode {
   "file_changed_during_move": undefined;
   "file_changed_during_read": undefined;
   "file_index_warming": undefined;
+  "file_list_changed": undefined;
   "file_move_failed": undefined;
   "file_mutation_conflict": undefined;
   "file_not_found": undefined;
@@ -573,6 +575,12 @@ export interface ConnectProblemByCode {
     code: "file_index_warming";
     category: "availability";
     recovery: "retry";
+    details?: never;
+  };
+  "file_list_changed": ConnectProblemBase & {
+    code: "file_list_changed";
+    category: "conflict";
+    recovery: "refresh";
     details?: never;
   };
   "file_move_failed": ConnectProblemBase & {
