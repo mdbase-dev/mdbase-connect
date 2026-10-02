@@ -13,7 +13,7 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
   parent?: string;
   mode: "rename" | "move";
   folders: string[];
-  onClose: () => void;
+  onClose: (focusPath: string) => void;
 }) {
   const id = useId();
   const [value, setValue] = useState(mode === "rename" ? from.split("/").at(-1)! : parent ?? "");
@@ -30,6 +30,7 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
   }, [plan, result]);
   const basename = from.split("/").at(-1)!;
   const to = mode === "rename" ? [...from.split("/").slice(0, -1), value.trim()].join("/") : [value, basename].filter(Boolean).join("/");
+  const close = () => onClose(result && !result.failures.length ? to : from);
 
   async function review() {
     if (!onPlanFolderChange || busy) return;
@@ -48,14 +49,14 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
     finally { setBusy(false); }
   }
 
-  return <Dialog titleId={id} className="confirm-dialog folder-change-dialog" onClose={() => { if (!busy) onClose(); }}>
+  return <Dialog titleId={id} className="confirm-dialog folder-change-dialog" onClose={() => { if (!busy) close(); }}>
     <div className="confirm-dialog-copy">
       <h2 id={id}>{result ? result.failures.length || result.warnings?.length ? "Folder change needs attention" : "Folder change complete" : plan
         ? `${mode === "rename" ? `Rename ‘${basename}’ and move` : "Move"} ${plan.moves.length.toLocaleString()} ${plan.moves.length === 1 ? "note" : "notes"}${plan.referenceCount ? ` and update ${plan.referenceCount.toLocaleString()} ${plan.referenceCount === 1 ? "link" : "links"}` : ""}?`
         : `${mode === "rename" ? "Rename" : "Move"} ‘${basename}’`}</h2>
       {!plan && <form id={`${id}-form`} onSubmit={(event) => { event.preventDefault(); void review(); }}>
         <label htmlFor={`${id}-value`}>{mode === "rename" ? "Folder name" : "Destination folder"}</label>
-        {mode === "rename" ? <input id={`${id}-value`} value={value} onChange={(event) => setValue(event.target.value)} disabled={busy} data-autofocus />
+        {mode === "rename" ? <input className="mdbase-field" id={`${id}-value`} value={value} onChange={(event) => setValue(event.target.value)} disabled={busy} data-autofocus />
           : <Select id={`${id}-value`} aria-label="Destination folder" value={value} onChange={setValue} disabled={busy} data-autofocus options={[
             { value: "", label: "All notes (collection root)" },
             ...folders.filter((path) => path !== from && !path.startsWith(`${from}/`)).map((path) => ({ value: path, label: path }))
@@ -74,9 +75,9 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
       {error && <p role="alert">{error}</p>}
     </div>
     <footer>
-      <button ref={cancel} disabled={busy} onClick={onClose}>{result ? "Done" : "Cancel"}</button>
-      {!result && (plan ? <button className="confirm-primary" disabled={busy} onClick={() => void apply()}>{busy ? "Moving…" : mode === "rename" ? "Rename folder" : "Move folder"}</button>
-        : <button className="confirm-primary" form={`${id}-form`} type="submit" disabled={busy}>{busy ? "Checking notes and links…" : "Review changes"}</button>)}
+      <button className="mdbase-button is-tertiary" ref={cancel} disabled={busy} onClick={close}>{result ? "Done" : "Cancel"}</button>
+      {!result && (plan ? <button className="mdbase-button is-primary confirm-primary" disabled={busy} onClick={() => void apply()}>{busy ? "Moving…" : mode === "rename" ? "Rename folder" : "Move folder"}</button>
+        : <button className="mdbase-button is-primary confirm-primary" form={`${id}-form`} type="submit" disabled={busy}>{busy ? "Checking notes and links…" : "Review changes"}</button>)}
     </footer>
   </Dialog>;
 }

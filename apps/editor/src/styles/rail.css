@@ -238,15 +238,6 @@
 .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--faint); }
 
 .folder-change-dialog form { display: grid; gap: var(--space-3); }
-.folder-change-dialog input {
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--white);
-  color: var(--ink);
-  font: inherit;
-}
 .folder-change-dialog .mdbase-select { width: 100%; }
 .folder-change-dialog .confirm-dialog-copy { max-height: 65vh; overflow-y: auto; }
 .folder-change-dialog code { overflow-wrap: anywhere; }

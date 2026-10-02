@@ -29,6 +29,8 @@ describe("collection-wide folder changes", () => {
     await screen.findByRole("textbox", { name: "Note title" });
     const dialog = await renameFolder(user, "Notes", "Writing notes");
     await waitFor(() => expect(dialog).toHaveAccessibleName("Rename ‘Notes’ and move 3 notes and update 1 link?"));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus());
+    expect(within(dialog).getByRole("button", { name: "Rename folder" })).toHaveClass("mdbase-button", "is-primary");
     expect(rename).not.toHaveBeenCalled(); expect(preflight).toHaveBeenCalledTimes(3);
     await user.click(within(dialog).getByRole("button", { name: "Rename folder" }));
     await waitFor(() => expect(dialog).toHaveTextContent("3 notes moved. Links were updated."));
@@ -36,6 +38,8 @@ describe("collection-wide folder changes", () => {
     for (const call of rename.mock.calls) { expect(call[2]).toBeTruthy(); expect(call[3]).toBe(true); }
     expect((await gateway.read("Journal/garden-notes-2.md")).body).toContain("Writing notes/the-shape-of-useful-tools");
     expect(screen.getByTitle("Rename Markdown path")).toHaveTextContent("Writing notes/the-shape-of-useful-tools.md");
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Show notes in Writing notes,/ })).toHaveFocus());
   });
 
   it("provides keyboard Move to and preserves subfolders", async () => {

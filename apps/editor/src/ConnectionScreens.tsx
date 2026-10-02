@@ -91,8 +91,8 @@ export function CollectionSwitcher({ activeCollectionId, connections, displayNam
     </div>
     <footer>
       <button className="collection-connect-another mdbase-button" onClick={onConnect}><FilePlus2 aria-hidden="true" />Connect another collection</button>
-      {connectHref && <a className="collection-connect-workspace" href={connectHref}>Connect workspace</a>}
-      {feedback.enabled && <button className="mdbase-feedback-trigger" onClick={() => { onClose(); requestAnimationFrame(() => requestAnimationFrame(() => feedback.open())); }}><FeedbackBug wiggle={feedback.wiggle} />Send feedback</button>}
+      {connectHref && <a className="collection-connect-workspace mdbase-button is-tertiary" href={connectHref}>Connect workspace</a>}
+      {feedback.enabled && <button className="mdbase-feedback-trigger mdbase-button is-tertiary" onClick={() => { onClose(); requestAnimationFrame(() => requestAnimationFrame(() => feedback.open())); }}><FeedbackBug wiggle={feedback.wiggle} />Send feedback</button>}
     </footer>
   </Dialog>;
 }

@@ -90,7 +90,21 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     folders={allFolderPaths(collectionFolders)}
     onPlanFolderChange={onPlanFolderChange}
     onChangeFolder={onChangeFolder}
-    onClose={() => setFolderChange(undefined)}
+    onClose={(focusPath) => {
+      setFolderChange(undefined);
+      // A successful path change removes the old trigger. Restore to its new
+      // row (or its visible ancestor) after the dialog's normal focus cleanup.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const rows = [...document.querySelectorAll<HTMLButtonElement>(".collection-rail [data-folder-path]")];
+        let path = focusPath;
+        while (path) {
+          const target = rows.find((row) => row.dataset.folderPath === path);
+          if (target) { target.focus(); return; }
+          path = path.split("/").slice(0, -1).join("/");
+        }
+        document.querySelector<HTMLButtonElement>('.collection-rail button[aria-label^="All notes,"]')?.focus();
+      }));
+    }}
   />}</>;
 }
 
@@ -217,6 +231,7 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
         className={`rail-row-action${activeFilter?.kind === "folder" && activeFilter.value === node.path ? " selected" : ""}`}
         aria-current={activeFilter?.kind === "folder" && activeFilter.value === node.path ? "page" : undefined}
         aria-label={`Show notes in ${node.path}, ${node.count}${loading ? " or more" : ""} ${node.count === 1 && !loading ? "note" : "notes"}`}
+        data-folder-path={node.path}
         draggable={Boolean(folderActions.onMoveFolder)}
         onDragStart={(event) => { event.dataTransfer.setData(FOLDER_PATH_MIME, node.path); event.dataTransfer.effectAllowed = "move"; }}
         onClick={() => onFilter({ kind: "folder", value: node.path })}
