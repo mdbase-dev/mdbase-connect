@@ -25,10 +25,34 @@ success, warning, and danger roles rather than fixed palette values.
 
 ## Typography
 
-Atkinson Hyperlegible carries prose and controls. Azeret Mono is reserved for
-the lowercase mdbase wordmark, paths, types, and compact state labels. Note
-content is 17px with a relaxed 1.7 line height and a maximum readable measure.
-Interface text is never smaller than 11px.
+Locally packaged Atkinson Hyperlegible Next Variable carries prose and controls,
+with real regular/medium/semibold/bold weights (400/500/600/700). Azeret Mono is
+reserved for paths, source/code and the canonical lowercase mdbase wordmark,
+not field names, types or state labels. Counts, dates, sizes and versions use
+tabular numerals in the primary family. The shared six-step type scale is
+12/13/15/17/24/34px: interface chrome defaults to 13px, captions are 12px, and
+nothing is smaller. Note content is 17px with a relaxed 1.7 line height and a
+maximum readable measure. Labels use sentence case without uppercase tracking.
+
+## Controls
+
+Use `@mdbase-dev/ui/controls.css`: `.mdbase-button.is-primary` is the filled
+accent committing action; the default button is tonal secondary;
+`.is-tertiary` is quiet text; `.is-danger` carries destructive intent. Disabled
+buttons visibly lose their accent. Fields and menus use the shared corner,
+elevation and motion tokens, not local values.
+
+Settings use `.mdbase-switch` with native button activation, `role="switch"`
+and `aria-checked`. Native property/type checkboxes use `.mdbase-checkbox`;
+Markdown tasks use the same visual treatment with their existing checkbox-role
+button. Check marks, thumb positions and focus outlines communicate state
+without relying only on color. Preserve labels, keyboard operation,
+indeterminate and disabled states, forced colors, touch targets and reduced motion.
+
+Editor styles live under `src/styles/`; `src/styles.css` imports them in cascade
+order. `pnpm check:styles` checks editor and shared UI CSS for raw pixel type,
+corner radii and ad-hoc shadows outside the canonical tokens file. It runs in
+both tests and builds.
 
 ## Identity
 
