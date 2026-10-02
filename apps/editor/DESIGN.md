@@ -45,7 +45,8 @@ states, or collection controls.
 
 The desktop app uses three persistent panes: a 176px collection rail, a 304px
 virtualized note list, and the editor. A properties inspector appears only when
-requested. Between 761px and 1120px the collection rail starts hidden until
+requested, overlaying the workspace so opening it never moves or rewraps the
+writing column. Between 761px and 1120px the collection rail starts hidden until
 someone opens it. Note rows keep one fixed height and read title, a one-line
 excerpt (the type's declared description field, else the opening prose), then
 time and folder; a declared type appears as a small badge, never in place of
@@ -104,8 +105,13 @@ of browser datalists. Action choices continue to use menu semantics, while
 schema date and date-time fields retain platform pickers with shared input
 styling.
 
+Routine autosaves stay silent and note rows retain their timestamps while typing.
+Only saves lasting more than 1.5 seconds show “Saving…”; failures and conflicts
+remain visible with recovery actions. Word count lives in Properties, not the bar.
+Ctrl/⌘P opens quick open everywhere; Ctrl/⌘K inserts a link only in note text.
+
 ## Signature
 
-The current Markdown path sits quietly above the title. It can be renamed in
-place, making the relationship between the calm note and its durable file
+The current Markdown path sits quietly above the title, with the directory
+truncated before the filename. It can be renamed in place, making the relationship between the calm note and its durable file
 visible without turning the app into a file manager.

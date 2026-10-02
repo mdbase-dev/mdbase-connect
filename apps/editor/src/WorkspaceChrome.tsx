@@ -15,23 +15,33 @@ import type { NoteSummary } from "./model";
 import { noteTitle, type NoteHeading } from "./note";
 import type { NoteActivity, SaveState } from "./note-session";
 import { SaveNotice, type SaveTone } from "@mdbase-dev/ui/save-notice";
+import { useDelayedBusy } from "./use-delayed-busy";
 
-export function SaveIndicator({ state, activity, detail, onCancel }: { state: SaveState; activity?: NoteActivity; detail?: string; onCancel?: () => void }) {
+export function PathLabel({ path }: { path: string }) {
+  const slash = path.lastIndexOf("/");
+  return <span className="path-label" title={path}>
+    {slash >= 0 && <span className="path-directory">{path.slice(0, slash + 1)}</span>}
+    <span className="path-filename">{path.slice(slash + 1)}</span>
+  </span>;
+}
+
+export function SaveIndicator({ state, activity, detail, identity, onCancel, onRetry }: { state: SaveState; activity?: NoteActivity; detail?: string; identity?: string; onCancel?: () => void; onRetry?: () => void }) {
+  const attention = state === "conflict" || state === "error";
+  const routineSave = !attention && state !== "recovery" && (activity === "saving" || activity === "properties" || (!activity && state === "saving"));
+  const slow = useDelayedBusy(routineSave, identity);
+  if (routineSave ? !slow : !activity && (state === "saved" || state === "waiting")) return null;
   const activityLabels: Record<NoteActivity, string> = {
-    saving: "Saving",
-    properties: "Updating",
+    saving: "Saving…",
+    properties: "Saving…",
     renaming: "Renaming links",
     moving: "Moving",
     deleting: "Deleting",
     validating: "Checking"
   };
-  const label = detail ?? (activity
-    ? activityLabels[activity]
-    : state === "saving" ? "Saving" : state === "waiting" ? "Unsaved" : state === "recovery" ? "Recovery pending" : state === "conflict" || state === "error" ? "Needs attention" : "Saved");
-  const tone: SaveTone = activity || state === "saving" ? "saving"
-    : state === "saved" ? "saved"
-      : state === "conflict" || state === "error" ? "attention" : "pending";
-  return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{onCancel && <button className="cancel-operation" onClick={onCancel}>Cancel</button>}</div>;
+  const label = attention ? "Needs attention" : state === "recovery" ? "Recovery pending"
+    : detail ?? (activity ? activityLabels[activity] : "Saving…");
+  const tone: SaveTone = attention ? "attention" : state === "recovery" ? "pending" : "saving";
+  return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{state === "error" && onRetry && <button className="cancel-operation" onClick={onRetry}>Retry save</button>}{onCancel && <button className="cancel-operation" onClick={onCancel}>Cancel</button>}</div>;
 }
 export function BacklinksPanel({ notes, types, loading, error, onRetry, onClose, onOpen }: {
   notes: NoteSummary[];

@@ -8,11 +8,14 @@ import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import { CodeEditor } from "./CodeEditor";
 import type { NoteDocument } from "./model";
 import { composeRecordSource, parseRecordSource } from "./record-source";
+import { noteWordCount } from "./note";
+import { useDelayedBusy } from "./use-delayed-busy";
 import { propertyValidationErrors, StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
 
 interface PropertiesPanelProps {
   note: NoteDocument;
   types: CollectionTypeDescriptor[];
+  wordCount?: number;
   recordPaths?: string[];
   error?: string;
   readOnly?: boolean;
@@ -24,6 +27,7 @@ interface PropertiesPanelProps {
 export function PropertiesPanel({
   note,
   types,
+  wordCount = noteWordCount(note.body ?? ""),
   recordPaths = [],
   error,
   readOnly = false,
@@ -50,6 +54,11 @@ export function PropertiesPanel({
   const [structuredFieldsValid, setStructuredFieldsValid] = useState(true);
   const [autoSaveState, setAutoSaveState] = useState<"saved" | "waiting" | "saving">("saved");
   const [saving, setSaving] = useState(false);
+  const slowFieldsSave = useDelayedBusy(autoSaveState === "saving", note.path);
+  const slowSourceSave = useDelayedBusy(saving, note.path);
+  const [autoSaveError, setAutoSaveError] = useState<string>();
+  const [sourceSaveError, setSourceSaveError] = useState<string>();
+  const [retry, setRetry] = useState(0);
   const changed = JSON.stringify(draft) !== JSON.stringify(persistedFrontmatter);
   const sourceChanged = source !== persistedDocument;
   const initialFingerprint = JSON.stringify(persistedFrontmatter);
@@ -101,18 +110,22 @@ export function PropertiesPanel({
       return;
     }
     setAutoSaveState("waiting");
+    setAutoSaveError(undefined);
     const generation = ++saveGeneration.current;
     const timer = window.setTimeout(() => {
       lastSubmitted.current = draftFingerprint;
       setAutoSaveState("saving");
       void Promise.resolve(saveCallback.current(note.path, draft)).then(() => {
         if (generation === saveGeneration.current) setAutoSaveState("saved");
-      }).catch(() => {
-        if (generation === saveGeneration.current) setAutoSaveState("waiting");
+      }).catch((failure: unknown) => {
+        if (generation === saveGeneration.current) {
+          setAutoSaveState("waiting");
+          setAutoSaveError(failure instanceof Error ? failure.message : "Properties could not be saved.");
+        }
       });
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [changed, draft, draftFingerprint, fieldsInvalid, note.path, readOnly, validationFingerprint]);
+  }, [changed, draft, draftFingerprint, fieldsInvalid, note.path, readOnly, retry, validationFingerprint]);
   useEffect(() => () => {
     const latest = latestDraft.current;
     const fingerprint = JSON.stringify(latest);
@@ -165,6 +178,7 @@ export function PropertiesPanel({
     const baseline = sourceBaseline.current;
     lastSourceSubmitted.current = next;
     setSaving(true);
+    setSourceSaveError(undefined);
     const pending: Promise<NoteDocument | false> = onSaveDocument
       ? Promise.resolve(onSaveDocument(next, baseline))
         .catch(() => false as const)
@@ -174,6 +188,7 @@ export function PropertiesPanel({
     sourceSavePromise.current = undefined;
     setSaving(false);
     if (!saved) {
+      setSourceSaveError("Source could not be saved. Your edits are still here.");
       lastSourceSubmitted.current = baseline;
       return;
     }
@@ -215,6 +230,7 @@ export function PropertiesPanel({
     </header>
 
     <dl className="file-facts">
+      <div><dt>Words</dt><dd>{wordCount.toLocaleString()}</dd></div>
       <div><dt>Size</dt><dd>{formatBytes(note.file?.size)}</dd></div>
       <div><dt>Modified</dt><dd>{formatDate(note.file?.mtime)}</dd></div>
     </dl>
@@ -252,25 +268,23 @@ export function PropertiesPanel({
     </div>}
 
     <div className="property-footer">
-      {error && <p className="property-error" role="alert">{error}</p>}
+      {(error || (mode === "source" ? sourceSaveError : autoSaveError)) && <p className="property-error" role="alert">{error || (mode === "source" ? sourceSaveError : autoSaveError)}{mode !== "source" && autoSaveError && <button className="property-save" onClick={() => setRetry((value) => value + 1)}>Retry save</button>}</p>}
       {mode === "source"
         ? <div className="source-save-actions">
-          <p className="property-save-state" aria-live="polite">{saving
-            ? "Saving source…"
+          <p className="property-save-state" aria-live="polite">{slowSourceSave
+            ? "Saving…"
             : sourceChanged
               ? "Source saves when focus leaves the editor"
-              : "Source saved"}</p>
-          <button className="property-save" disabled={readOnly || !sourceChanged || saving} onClick={() => void saveSource(true)}>{saving ? "Saving…" : "Save source"}</button>
+              : ""}</p>
+          <button className="property-save" disabled={readOnly || !sourceChanged || saving} onClick={() => void saveSource(true)}>{slowSourceSave ? "Saving…" : "Save source"}</button>
         </div>
         : <p className="property-save-state" aria-live="polite">{rawError
           ? "Fix the JSON to continue saving"
           : fieldsInvalid
             ? "Fix invalid fields to continue saving"
-            : autoSaveState === "saving"
-              ? "Saving changes…"
-              : autoSaveState === "waiting"
-                ? "Changes save automatically"
-                : ""}</p>}
+            : slowFieldsSave
+              ? "Saving…"
+              : ""}</p>}
     </div>
   </aside>;
 }

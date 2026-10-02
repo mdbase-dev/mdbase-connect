@@ -119,6 +119,7 @@ import {
   PaneResizeHandle,
   PaneSkeleton,
   SaveIndicator,
+  PathLabel,
   TypeAccessPrompt
 } from "./WorkspaceChrome";
 const TypeList = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeList })));
@@ -1720,7 +1721,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         setShortcutsOpen(false);
         return;
       }
-      if (modifier && (key === "p" || (key === "k" && !isEditableTarget(event.target)))) {
+      if (modifier && !event.altKey && !event.shiftKey && key === "p") {
         event.preventDefault();
         setShortcutsOpen(false);
         setQuickOpen(true);
@@ -1765,8 +1766,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         setShortcutsOpen(true);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [creationDirty, creationMode, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
@@ -1820,14 +1821,13 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       : viewportWidth - editorMinimum
   ));
   const inspectorTrack = Math.min(layout.inspectorWidth, inspectorResizeMax);
-  const reservedInspectorWidth = inspectorVisible && viewportWidth > 1120 ? inspectorTrack : 0;
   const collectionResizeMax = Math.max(COLLECTION_WIDTH.min, Math.min(
     COLLECTION_WIDTH.max,
-    viewportWidth - preferredListTrack - editorMinimum - reservedInspectorWidth
+    viewportWidth - preferredListTrack - editorMinimum
   ));
   const listResizeMax = Math.max(LIST_WIDTH.min, Math.min(
     LIST_WIDTH.max,
-    viewportWidth - preferredCollectionTrack - editorMinimum - reservedInspectorWidth
+    viewportWidth - preferredCollectionTrack - editorMinimum
   ));
   const collectionTrack = Math.min(preferredCollectionTrack, collectionResizeMax);
   const listTrack = Math.min(preferredListTrack, listResizeMax);
@@ -1973,7 +1973,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         onCreate={createNote}
         onCancel={cancelCreation}
         onDraftChange={setCreationDirty}
-      /></Suspense> : <main className="editor-pane" aria-label="Note editor">
+      /></Suspense> : <main className="editor-pane" aria-label="Note editor" data-save-state={saveState}>
         {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar mdbase-settle-host">
             <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
@@ -1998,14 +1998,15 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
               {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
                 <label className="sr-only" htmlFor="note-path">Markdown path</label>
                 <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
-              </form> : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
+              </form> : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path" aria-label={document.path}><PathLabel path={document.path} /><Pencil aria-hidden="true" /></button>}
             </div>
             {noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
-            {!mobileLayout && <span className="word-count" aria-label={`${wordCount.toLocaleString()} words`}>{wordCount.toLocaleString()} {wordCount === 1 ? "word" : "words"}</span>}
             {preferences.vim && <span className="vim-label">vim</span>}
             {!canEditNotes && <span className="connect-muted">Read only</span>}
             <SaveIndicator
+              identity={noteSessions.current.active?.editorSessionKey ?? document.path}
               state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
+              onRetry={canEditNotes ? () => { void noteSessions.current.active?.record.save(); } : undefined}
               activity={noteSessions.current.active?.activity}
               detail={noteSessions.current.active?.activityDetail}
               onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
@@ -2091,6 +2092,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         <PropertiesPanel
           key={document.path}
           note={document}
+          wordCount={wordCount}
           types={description.types}
           recordPaths={allNotes.map((note) => note.path)}
           error={propertiesError}

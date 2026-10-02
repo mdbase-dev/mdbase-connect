@@ -101,7 +101,7 @@ describe("App detached type-save collection ownership", () => {
     const paths = aPath ? { a: aPath, b: aPath === "_types/shared.md" ? aPath : "_types/b-only.md" } : {};
     const revisions = aRevision ? { a: aRevision, b: aRevision === "shared" ? aRevision : "b-only" } : {};
     const gateway = new TypeSwitchGateway(paths, revisions); const user = userEvent.setup(); render(<App gateway={gateway} />); const yaml = await openType(user); if (saveA) await save(yaml, "a", "A completed", user);
-    if (saveA) await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument()); await switchTo(gateway, user, "b"); expect(await visible("b")).toHaveValue(source("b"));
+    if (saveA) await waitFor(() => expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled()); await switchTo(gateway, user, "b"); expect(await visible("b")).toHaveValue(source("b"));
   });
 
   it("survives hostile A to B to C while A remains pending", async () => {
@@ -113,6 +113,6 @@ describe("App detached type-save collection ownership", () => {
     const gateway = new TypeSwitchGateway(); const a = deferred<TypeDocument>(), b = deferred<TypeDocument>(); gateway.saveGates = { a, b }; const user = userEvent.setup(); render(<App gateway={gateway} />);
     await save(await openType(user), "a", "A pending", user); await switchTo(gateway, user, "b"); const yamlB = await visible("b"); await save(yamlB, "b", "B pending", user); expect(screen.getByText("Saving…")).toBeInTheDocument();
     await act(async () => a.resolve(gateway.stores.a)); expect(screen.getByText("Saving…")).toBeInTheDocument(); expect(screen.queryByText(/Saved type/)).not.toBeInTheDocument();
-    await act(async () => b.resolve(gateway.stores.b)); await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument()); expect(screen.queryByText("Saving…")).not.toBeInTheDocument();
+    await act(async () => b.resolve(gateway.stores.b)); await waitFor(() => expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled()); expect(screen.queryByText("Saving…")).not.toBeInTheDocument();
   });
 });

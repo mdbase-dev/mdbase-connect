@@ -125,15 +125,6 @@
     grid-template-columns: var(--collection-display) var(--list-display) minmax(320px, 1fr);
   }
 
-  .app-shell.inspector-visible .properties-panel,
-  .app-shell.inspector-visible .backlinks-panel {
-    position: absolute;
-    z-index: 20;
-    top: 0;
-    right: 0;
-    width: var(--inspector-display);
-    height: 100%;
-  }
 }
 
 @media (min-width: 761px) {
