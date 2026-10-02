@@ -251,6 +251,7 @@
 
 .connect-section-title span {
   color: var(--muted);
+  font-family: var(--sans);
   font-size: var(--font-size-ui);
   font-variant-numeric: tabular-nums;
 }
