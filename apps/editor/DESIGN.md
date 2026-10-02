@@ -90,7 +90,11 @@ CodeMirror provides Markdown behavior without introducing IDE chrome. Its
 focus state uses the normal caret and selection only: the editor surface never
 gains a border, outline, or glow. Vim bindings are optional and loaded only
 when enabled. Frontmatter opens as typed rows first, with JSON available as an
-escape hatch for nested or unfamiliar values.
+escape hatch for nested or unfamiliar values. The inspector offers quiet Fields
+and JSON tabs; complete Markdown source lives behind the property options menu,
+not a third primary tab. Sizes and dates use the UI family at the normal chrome
+size. An empty inspector explains what properties are useful for, with a direct
+Add property action.
 Open-ended object properties use compact key/value rows with an explicit empty
 state; an empty object should not become a miniature code editor. A schema
 field named `name` only doubles as the note title when it is textual, so
@@ -115,6 +119,13 @@ then becomes usable in the three-pane workspace while the remaining index
 continues in the note list. A newly created note is adopted from the create
 response, so the editor never waits for a collection-wide refresh or a redundant
 read.
+
+New folder is a short two-field flow: folder name and the title of its first
+general note. Empty folders are not persisted, so that fact is explained once;
+a file path preview appears only after both names are entered. Typed creation
+remains in New note, where required fields are available before committing.
+Committing actions use the shared filled primary control, and redundant draft
+reminders and decorative folder-name placeholders are omitted.
 
 Type editing uses the same quiet document grammar. Field names are inline
 editable in the UI family, with compact kind selects, labelled shared Required

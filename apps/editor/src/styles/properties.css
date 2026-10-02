@@ -103,7 +103,7 @@
 
 .file-facts dt {
   color: var(--faint);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-ui);
 }
 
 .file-facts dd {
@@ -111,20 +111,27 @@
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--muted);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-ui);
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
 
-.panel-tabs {
+.property-view-controls {
   display: flex;
-  gap: 2px;
-  margin-bottom: 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
   border-bottom: 1px solid var(--line);
 }
 
+.panel-tabs {
+  display: flex;
+  gap: var(--space-2);
+}
+
 .panel-tabs button {
-  min-height: 31px;
+  min-height: 36px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -139,12 +146,10 @@
   color: var(--ink);
 }
 
-.panel-tabs svg {
-  width: 12px;
-  height: 12px;
-}
-
 .property-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
   border: 0;
 }
 

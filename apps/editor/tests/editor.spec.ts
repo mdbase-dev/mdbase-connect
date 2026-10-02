@@ -1425,18 +1425,21 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await expect(panel).not.toBeVisible();
 
   await page.getByRole("button", { name: "Note properties" }).click();
-  await panel.getByRole("tab", { name: "Source" }).click();
+  await panel.getByRole("button", { name: "Property options" }).click();
+  await page.getByRole("menuitem", { name: "Edit as source" }).click();
   const source = panel.getByRole("textbox", { name: "Complete record source" });
   await expect(source).toContainText("title: Source-backed title");
   const original = await source.textContent();
   await source.fill(`${original ?? ""}\nSource tail.\n`);
-  await panel.getByRole("tab", { name: "Source" }).click();
-  await expect(panel.getByText("Source saved")).toBeVisible();
+  await panel.getByRole("heading", { name: "Properties" }).click();
+  await expect(panel.getByRole("button", { name: "Save source" })).toBeDisabled();
+  await expect(panel.locator(".property-save-state")).toBeEmpty();
   await expect(panel).toBeVisible();
   await panel.getByRole("button", { name: "Close properties" }).click();
   await expect(panel).not.toBeVisible();
   await page.getByRole("button", { name: "Note properties" }).click();
-  await panel.getByRole("tab", { name: "Source" }).click();
+  await panel.getByRole("button", { name: "Property options" }).click();
+  await page.getByRole("menuitem", { name: "Edit as source" }).click();
   await expect(panel.getByRole("textbox", { name: "Complete record source" })).toContainText("Source tail.");
 });
 
