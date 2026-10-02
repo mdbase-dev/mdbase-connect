@@ -75,8 +75,10 @@ someone opens it. Note rows keep one fixed height and read title, a one-line
 excerpt (the type's declared description field, else the opening prose), then
 time and folder; a declared type appears as a small badge, never in place of
 the folder. Search results are ordered by relevance without date groups.
-Types reuse the list-and-document rhythm; settings become one quiet
-document rather than a dashboard, with technical facts behind Details. In the collection rail, All notes, Types, and
+Types reuse the list-and-document rhythm; settings are one quiet document
+rather than a dashboard. Section headings sit above their content; preference
+rows share a steady rhythm, collection facts stay compact, and technical facts
+live behind Details. In the collection rail, All notes, Types, and
 Settings remain the primary editing group. Connect sits in a bottom-aligned
 Manage group above connection and account status, visibly secondary until a
 pending authorization count requires attention. Mobile presents each level as
@@ -114,7 +116,13 @@ continues in the note list. A newly created note is adopted from the create
 response, so the editor never waits for a collection-wide refresh or a redundant
 read.
 
-Type editing uses the same quiet document grammar. Application compatibility
+Type editing uses the same quiet document grammar. Field names are inline
+editable in the UI family, with compact kind selects, labelled shared Required
+checkboxes, and removal in each row's options menu. Row details and YAML remain
+available without surrounding every field name in a permanent input box. The
+path takes the flexible space in the type bar; its save notice stays at the
+trailing edge, never stretched into the centre. The redundant Type definition
+eyebrow and table-like column headers are omitted. Application compatibility
 appears as a disclosure within the type, not as a separate dashboard. Each
 contract implementation keeps its direct field mapping, JSON Schema-driven
 behavior settings, and normalized application view together. Contract IDs,

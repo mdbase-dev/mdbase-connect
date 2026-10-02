@@ -31,7 +31,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
     <header className="settings-mobile-bar"><button className="mobile-back icon-button" aria-label="Back to collection" onClick={onBack}><ArrowLeft aria-hidden="true" /></button><span>Settings</span></header>
     {leadingActions && <div className="settings-pane-actions">{leadingActions}</div>}
     <div className="settings-document">
-      <header><p className="eyebrow">mdbase editor</p><h1>Settings</h1></header>
+      <header><h1>Settings</h1></header>
       <section>
         <div className="settings-intro"><h2>Editing</h2><p>Preferences stay in this browser.</p></div>
         <SettingRow title="Vim key bindings" description="Use normal, insert, visual, and command modes in the note editor.">
@@ -52,15 +52,15 @@ export function SettingsView({ description, connection, noteCount, preferences, 
       </section>
 
       <section>
-        <div className="settings-intro"><h2>Collection</h2><p>The collection you chose in mdbase connect.</p></div>
+        <div className="settings-intro"><h2>Collection</h2></div>
         <FactRow label="Name" value={description.displayName} />
         <FactRow label="Notes" value={noteCount.toLocaleString()} />
         <FactRow label="Types" value={String(description.types.length)} />
         <details className="settings-details">
           <summary><span>Details</span><ChevronRight aria-hidden="true" /></summary>
           <FactRow label="Specification" value={description.specVersion} />
-          <FactRow label="Types folder" value={stringValue(settings.types_folder, "_types")} />
-          <FactRow label="Explicit type keys" value={explicitTypeKeys.length ? explicitTypeKeys.join(", ") : "Disabled"} mono />
+          <FactRow label="Types folder" value={stringValue(settings.types_folder, "_types")} mono />
+          <FactRow label="Explicit type keys" value={explicitTypeKeys.length ? explicitTypeKeys.join(", ") : "Disabled"} />
           <FactRow label="Validation" value={stringValue(settings.validation, "error")} />
           <FactRow label="Runtime" value={runtime.enabled === true ? `Enabled · ${stringValue(runtime.profile_version, "0.1.0")}` : "Disabled"} />
         </details>
@@ -69,7 +69,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
       {gateway?.peopleDirectory && <Suspense fallback={null}><YourPersonPanel key={description.collectionId} gateway={gateway} description={description} canInstall={connection?.operations.includes("apply_type_pack") ?? false} onRefreshDescription={onRefreshDescription} canCreate={connection?.operations.includes("create") ?? false} canEdit={connection?.operations.includes("update") ?? false} /></Suspense>}
 
       <section>
-        <div className="settings-intro"><h2>Connection</h2><p>Collection-wide access through mdbase connect. Storage remains local or hosted according to the collection you chose.</p></div>
+        <div className="settings-intro"><h2>Connection</h2></div>
         <FactRow label="Route" value={connectionRouteLabel(connection)} />
         <DirectAccessRow connection={connection} busy={directAccessBusy} onRequest={onRequestDirectAccess} />
         <div className="setting-row connection-action">
@@ -78,8 +78,8 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         </div>
         <details className="settings-details">
           <summary><span>Details</span><ChevronRight aria-hidden="true" /></summary>
-          <FactRow label="Operations" value={description.operations.join(", ")} mono />
-          <FactRow label="Collection ID" value={description.collectionId} mono />
+          <FactRow label="Operations" value={description.operations.join(", ")} />
+          <FactRow label="Collection ID" value={description.collectionId} />
         </details>
       </section>
     </div>
