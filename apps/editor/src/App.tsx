@@ -2,6 +2,8 @@ import {
   ArrowLeftIcon as ArrowLeft,
   ArrowRightIcon as ArrowRight,
   CheckIcon as Check,
+  FilePlusIcon as FilePlus2,
+  MagnifyingGlassIcon as Search,
   InfoIcon as Info,
   LinkIcon as Link2,
   PencilSimpleIcon as Pencil,
@@ -1865,6 +1867,17 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     {layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
     <PaneControl pane="list" label={`Show ${listName} sidebar`} action="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
   </> : undefined;
+  const notePathControl = document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
+    <label className="sr-only" htmlFor="note-path">Markdown path</label>
+    <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
+  </form> : mobileLayout ? <p className="mobile-note-path" title={document.path}>{document.path}</p>
+    : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>);
+  const noteSaveIndicator = <SaveIndicator
+    state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
+    activity={noteSessions.current.active?.activity}
+    detail={noteSessions.current.active?.activityDetail}
+    onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
+  />;
   const noteStatuses = new Map<string, NoteRowStatus>();
   for (const session of noteSessions.current.values()) {
     const status = noteRowStatus(session);
@@ -1994,22 +2007,12 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
                 onClick={() => navigateNoteHistory(1)}
               ><ArrowRight aria-hidden="true" /></button>
             </div>
-            <div className="path-wrap">
-              {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
-                <label className="sr-only" htmlFor="note-path">Markdown path</label>
-                <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
-              </form> : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
-            </div>
-            {noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
+            {!mobileLayout && <div className="path-wrap">{notePathControl}</div>}
+            {!mobileLayout && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
             {!mobileLayout && <span className="word-count" aria-label={`${wordCount.toLocaleString()} words`}>{wordCount.toLocaleString()} {wordCount === 1 ? "word" : "words"}</span>}
-            {preferences.vim && <span className="vim-label">vim</span>}
-            {!canEditNotes && <span className="connect-muted">Read only</span>}
-            <SaveIndicator
-              state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
-              activity={noteSessions.current.active?.activity}
-              detail={noteSessions.current.active?.activityDetail}
-              onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
-            />
+            {!mobileLayout && preferences.vim && <span className="vim-label">vim</span>}
+            {!mobileLayout && !canEditNotes && <span className="connect-muted">Read only</span>}
+            {!mobileLayout && noteSaveIndicator}
             {!mobileLayout && <OutlineMenu headings={noteHeadings(draft.body)} onReveal={(line) => revealMarkdownLine(noteSessions.current.active?.editorSessionKey ?? document.path, line)} />}
             {!mobileLayout && <button className={`icon-button backlink-button${backlinksOpen ? " active" : ""}`} aria-label="Backlinks" aria-pressed={backlinksOpen} onClick={() => {
               setBacklinksOpen((value) => {
@@ -2025,6 +2028,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
             }}><Info aria-hidden="true" /></button>}
             <ActionMenu label="More note actions" items={[
               ...(mobileLayout ? [
+                ...(canCreateNotes ? [{ label: "New note", icon: <FilePlus2 aria-hidden="true" />, disabled: mutationsFrozen, onSelect: beginCreate }] : []),
+                { label: "Rename path", icon: <Pencil aria-hidden="true" />, disabled: mutationsFrozen || !canRenameNotes, onSelect: () => setEditingPath(true) },
+                { label: "Quick open", icon: <Search aria-hidden="true" />, onSelect: () => setQuickOpen(true) },
                 { label: "Backlinks", icon: <Link2 aria-hidden="true" />, onSelect: () => { setPropertiesOpen(false); setBacklinksOpen(true); } },
                 { label: "Note properties", icon: <Info aria-hidden="true" />, onSelect: () => { setBacklinksOpen(false); setPropertiesOpen(true); } }
               ] : []),
@@ -2072,6 +2078,12 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           {deletePlan && deletePlan.session === noteSessions.current.active && <div className="delete-confirm" role="alert"><div><strong>Delete this note?</strong><span>{deletePlan.brokenLinkPaths.length > 0 ? `${deletePlan.brokenLinkPaths.length.toLocaleString()} ${deletePlan.brokenLinkPaths.length === 1 ? "note will keep a broken link" : "notes will keep broken links"}. ` : ""}You can undo the note deletion.</span></div><button onClick={() => setDeletePlan(undefined)}>Keep note</button><button className="danger-action" onClick={() => void deleteNote(deletePlan)}>Delete</button></div>}
           <MarkdownNoteEditor editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
             draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey} readOnly={noteReadOnly}
+            provenance={mobileLayout ? <>
+              {notePathControl}
+              {!canEditNotes && <span className="connect-muted">Read only</span>}
+              {noteSaveIndicator}
+              {noteLoading && <span role="status" className="note-opening-status">Opening “{pendingNotePath}”…</span>}
+            </> : undefined}
             remoteApplyToken={remoteApplyToken} autoFocus={editorAutoFocus}
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}

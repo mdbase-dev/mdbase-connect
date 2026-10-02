@@ -20,6 +20,10 @@ test("a delayed CodeEditor chunk does not steal sidebar search typing", async ({
     releaseChunk();
     const body = page.getByRole("textbox", { name: "Note body", exact: true });
     await expect(body).toBeVisible();
+    // Asset loading legitimately replaces its status with a caption/actions.
+    // Compare the settled document, not “Opening…” against the ready widget.
+    await expect(page.getByRole("img", { name: "A durable piece of frontmatter" })).toBeVisible();
+    await expect(page.locator(".cm-file-embed")).toHaveClass(/ready/);
     const originalBody = await body.innerText();
     // Cross the mount's autofocus frame before typing, without refocusing search.
     await page.evaluate(() => new Promise<void>((resolve) => {
