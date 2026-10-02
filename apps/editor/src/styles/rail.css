@@ -29,8 +29,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
   color: var(--ink);
 }
 
@@ -209,14 +209,14 @@
   margin-top: 6px;
 }
 
-.rail-bottom-spacer { margin-top: auto; min-height: 24px; }
+.rail-bottom-spacer { margin-top: auto; min-height: var(--space-6); }
 
-.rail-drop-target { position: relative; border-radius: 4px; }
+.rail-drop-target { position: relative; border-radius: var(--radius-sm); }
 .rail-drop-target.drop-ready { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--selected); }
-.rail-drop-hint { position: absolute; right: 6px; bottom: 0; font-size: 11px; color: var(--ink); background: var(--paper); pointer-events: none; }
+.rail-drop-hint { position: absolute; right: var(--space-1); bottom: 0; font-size: var(--font-size-caption); color: var(--ink); background: var(--white); pointer-events: none; }
 
-.collection-rail nav .rail-new-folder { font-size: 12px; }
-.collection-rail nav small { opacity: 0; font-family: var(--sans); font-variant-numeric: tabular-nums; }
+.collection-rail nav .rail-new-folder { font-size: var(--font-size-ui); }
+.collection-rail nav small { opacity: 0; font-family: var(--sans); font-variant-numeric: tabular-nums; transition: opacity var(--motion-fast) var(--ease-standard); }
 .collection-rail nav button:hover small,
 .collection-rail nav a:hover small,
 .collection-rail nav button:focus-visible small,
@@ -226,13 +226,13 @@
 .collection-rail nav .context-menu-target:hover small,
 .collection-rail nav .context-menu-target:focus-within small { opacity: 1; }
 
-.folder-change-dialog form { display: grid; gap: 10px; }
-.folder-change-dialog input,
-.folder-change-dialog select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); font: inherit; }
+.folder-change-dialog form { display: grid; gap: var(--space-3); }
+.folder-change-dialog input { width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white); color: var(--ink); font: inherit; }
+.folder-change-dialog .mdbase-select { width: 100%; }
 .folder-change-dialog .confirm-dialog-copy { max-height: 65vh; overflow-y: auto; }
 .folder-change-dialog code { overflow-wrap: anywhere; }
-.folder-change-dialog p + p { margin-top: 10px; }
-.collection-connect-workspace { display: inline-flex; padding: 10px; color: var(--muted); text-decoration: none; }
+.folder-change-dialog p + p { margin-top: var(--space-2); }
+.collection-connect-workspace { display: inline-flex; padding: var(--space-2); color: var(--muted); text-decoration: none; }
 .collection-connect-workspace:hover { color: var(--ink); background: var(--hover); }
 
 .collection-rail nav .rail-section-toggle {
