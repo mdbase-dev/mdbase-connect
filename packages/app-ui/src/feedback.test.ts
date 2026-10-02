@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { feedbackApplication, feedbackDiagnostics, feedbackEvents, readFeedbackScreenshot, resolveFeedbackEndpoint, sendFeedback } from "./feedback.js";
+import { readdirSync } from "node:fs";
+import { feedbackApplication, feedbackDiagnostics, feedbackEvents, readFeedbackScreenshot, resolveFeedbackEndpoint, sendFeedback } from "./feedback-data.js";
 
 afterEach(() => vi.unstubAllGlobals());
 describe("shared feedback data boundary", () => {
+  it("emits unique module paths on case-insensitive filesystems", () => {
+    const modules = readdirSync(new URL(".", import.meta.url)).filter((file) => /\.tsx?$/.test(file) && !file.includes(".test.")).map((file) => file.replace(/\.tsx?$/, "").toLowerCase());
+    expect(new Set(modules).size).toBe(modules.length);
+  });
   it("accepts only configured HTTPS or local HTTP destinations", () => {
     expect(resolveFeedbackEndpoint(undefined)).toBeNull();
     expect(resolveFeedbackEndpoint(undefined, true)).toBe("http://127.0.0.1:8790/v1/feedback");

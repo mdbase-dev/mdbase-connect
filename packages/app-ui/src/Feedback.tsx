@@ -5,15 +5,15 @@ import {
   FEEDBACK_ERROR_CODES, FEEDBACK_MAX_MESSAGE_LENGTH, captureFeedbackScreenshot, feedbackDiagnostics, feedbackEvents, feedbackTopics,
   readFeedbackScreenshot, resolveFeedbackEndpoint, screenshotUrl, sendFeedback,
   type FeedbackApplication, type FeedbackDiagnosticEvent, type FeedbackFailure, type FeedbackScreenshot, type FeedbackSubmission, type FeedbackTopic
-} from "./feedback.js";
-export { feedbackApplication, resolveFeedbackEndpoint } from "./feedback.js";
-export type { FeedbackApplication, FeedbackFailure, FeedbackErrorCode, FeedbackTopic } from "./feedback.js";
+} from "./feedback-data.js";
+export { feedbackApplication, resolveFeedbackEndpoint } from "./feedback-data.js";
+export type { FeedbackApplication, FeedbackFailure, FeedbackErrorCode, FeedbackTopic } from "./feedback-data.js";
 
 interface FeedbackControls {
   enabled: boolean;
-  open(topic?: FeedbackTopic): void;
+  open: (topic?: FeedbackTopic) => void;
   /** Call only for a user-visible failure, never background retries. Pass codes, not raw exceptions. */
-  reportError(failure: FeedbackFailure): void;
+  reportError: (failure: FeedbackFailure) => void;
   wiggle: number;
 }
 const FeedbackContext = createContext<FeedbackControls | null>(null);

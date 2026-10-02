@@ -21,7 +21,7 @@ Optional variables:
 - `TURNSTILE_SECRET`: when present, every submission must carry a valid `turnstile_token`;
 - `MDBASE_REVISION`: exact 40-character product source commit exposed by `GET /health`.
 
-The current browser schema (v2) is defined in `packages/app-ui/src/feedback.ts`.
+The current browser schema (v2) is defined in `packages/app-ui/src/feedback-data.ts`.
 It includes bounded application identity for Editor, Reader, Writer, or Connect,
 and topics `problem`, `idea`, or `appreciation`. Private email subjects use the
 product and `[Problem]`, `[Idea]`, or `[Appreciation]`. The service still accepts

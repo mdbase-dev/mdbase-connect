@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Dialog } from "./Dialog.js";
-import { screenshotFromCanvas, screenshotUrl, type FeedbackScreenshot } from "./feedback.js";
+import { screenshotFromCanvas, screenshotUrl, type FeedbackScreenshot } from "./feedback-data.js";
 
 type Point = { x: number; y: number };
 type Tool = "draw" | "highlight" | "blackout";
