@@ -32,6 +32,9 @@ export function folderChangeMoves(from: string, to: string, paths: readonly stri
     .map((path) => ({ from: path, to: `${to}${path.slice(from.length)}` }));
   if (!moves.length) throw new Error("There are no notes to move in this folder.");
   const occupied = new Set([...paths, ...filePaths]);
+  if (occupied.has(to) || [...occupied].some((path) => path.startsWith(`${to}/`) && !path.startsWith(`${from}/`))) {
+    throw new Error(`The destination folder “${to}” already exists. Choose another name or move its notes individually; folders are not merged automatically.`);
+  }
   for (const move of moves) {
     if (occupied.has(move.to)) throw new Error(`A note or file already uses “${move.to}”. Nothing has moved.`);
   }
@@ -46,7 +49,7 @@ export function validFolderPath(path: string): boolean {
 export function readNoteDragPaths(value: string): string[] {
   try {
     const paths: unknown = JSON.parse(value);
-    return Array.isArray(paths) && paths.length > 0 && paths.every((path) => typeof path === "string" && path.endsWith(".md") && validFolderPath(path))
+    return Array.isArray(paths) && paths.length > 0 && paths.every((path) => typeof path === "string" && path.toLocaleLowerCase().endsWith(".md") && validFolderPath(path))
       ? [...new Set(paths as string[])] : [];
   } catch { return []; }
 }

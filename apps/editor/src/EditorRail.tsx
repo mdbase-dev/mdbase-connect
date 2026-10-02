@@ -63,7 +63,7 @@ export function EditorRail({
       <RailLink destination={settings} selected={surface === "settings"} label="Settings" icon={<Settings aria-hidden="true" />} />
       <div className="rail-bottom-spacer" />
       <a className={`editor-rail-link${surface === "connect" ? " selected" : ""}`} href={connectHref} aria-current={surface === "connect" ? "page" : undefined}>
-        <span><Link aria-hidden="true" />Connect</span>{connectCount !== undefined && <small>{connectCount}</small>}
+        <span><Link aria-hidden="true" /><span className="rail-row-label">Connect</span></span>{connectCount !== undefined && <small>{connectCount}</small>}
       </a>
     </nav>
     <footer className="connection-footer">{footer}</footer>
@@ -78,7 +78,7 @@ function RailLink({ destination, selected, label, ariaLabel, icon, count }: {
   icon: ReactNode;
   count?: number;
 }) {
-  const content = <><span>{icon}{label}</span>{count !== undefined && <small>{count.toLocaleString()}</small>}</>;
+  const content = <><span>{icon}<span className="rail-row-label">{label}</span></span>{count !== undefined && <small>{count.toLocaleString()}</small>}</>;
   if (destination.href) {
     return <a className={`editor-rail-link${selected ? " selected" : ""}`} href={destination.href} aria-label={ariaLabel} aria-current={selected ? "page" : undefined}>{content}</a>;
   }

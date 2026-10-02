@@ -50,7 +50,7 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
 
   return <Dialog titleId={id} className="confirm-dialog folder-change-dialog" onClose={() => { if (!busy) onClose(); }}>
     <div className="confirm-dialog-copy">
-      <h2 id={id}>{result ? "Folder change complete" : plan
+      <h2 id={id}>{result ? result.failures.length || result.warnings?.length ? "Folder change needs attention" : "Folder change complete" : plan
         ? `${mode === "rename" ? `Rename ‘${basename}’ and move` : "Move"} ${plan.moves.length.toLocaleString()} ${plan.moves.length === 1 ? "note" : "notes"}${plan.referenceCount ? ` and update ${plan.referenceCount.toLocaleString()} ${plan.referenceCount === 1 ? "link" : "links"}` : ""}?`
         : `${mode === "rename" ? "Rename" : "Move"} ‘${basename}’`}</h2>
       {!plan && <form id={`${id}-form`} onSubmit={(event) => { event.preventDefault(); void review(); }}>
@@ -67,7 +67,7 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
       </div>}
       {progress && busy && <p role="status">Moved {progress.completed} of {progress.total} notes. {progress.path}{progress.detail ? ` — ${progress.detail}` : ""}</p>}
       {result && <div role={result.failures.length ? "alert" : "status"}>
-        <p>{result.moved.toLocaleString()} {result.moved === 1 ? "note moved" : "notes moved"}.{result.failures.length ? ` ${result.failures.length.toLocaleString()} ${result.failures.length === 1 ? "note could" : "notes could"} not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back.` : " Links were updated."}</p>
+        <p>{result.moved.toLocaleString()} {result.moved === 1 ? "note moved" : "notes moved"}.{result.failures.length ? ` ${result.failures.length.toLocaleString()} ${result.failures.length === 1 ? "note could" : "notes could"} not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.` : " Links were updated."}</p>
         {result.failures.length > 0 && <ul>{result.failures.map((failure) => <li key={failure.path}><code>{failure.path}</code>: {failure.message}</li>)}</ul>}
       </div>}
       {result?.warnings && <div role="alert">{result.warnings.map((warning) => <p key={warning}>{warning}</p>)}</div>}
