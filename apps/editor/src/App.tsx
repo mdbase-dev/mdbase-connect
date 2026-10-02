@@ -1155,6 +1155,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     if (mutationScope.current.isFrozen || !canRenameNotes || token.epoch !== plan.epoch || token.collectionId !== plan.collectionId) {
       throw new Error("The collection changed. Review the folder change again.");
     }
+    if (!structureComplete || foldersLoading || structureError || fileInventory.loading || fileInventory.error) {
+      throw new Error("The note or attachment index is refreshing. Wait for it to finish, then review the folder change again.");
+    }
     const latestMoves = folderChangeMoves(plan.from, plan.to, allNotes.map((note) => note.path), fileInventory.files.map((file) => file.path));
     if (JSON.stringify(latestMoves) !== JSON.stringify(plan.moves)) throw new Error("The folder’s notes changed. Review the folder change again.");
     return mutationScope.current.register(token, (async () => {
