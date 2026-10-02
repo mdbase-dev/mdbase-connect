@@ -115,7 +115,8 @@ size does not translate directly into DOM size.
 navigation, active editing commands, and composition. Self-contained UI lives
 outside it:
 
-- `CollectionRail.tsx` owns folder expansion persistence and collection facets;
+- `CollectionRail.tsx` owns folder expansion persistence;
+- `NoteSearchField.tsx` owns tag/type filter suggestions and chips;
 - `NoteList.tsx` owns list virtualization, search result rendering, and list
   status copy;
 - `TypeBrowser.tsx`, `PropertiesPanel.tsx`, and `NewNoteComposer.tsx` own their

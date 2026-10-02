@@ -27,7 +27,7 @@ test("chooses a remote authority collection and performs CRUD through its provid
   await popup.getByRole("button", { name: "Allow access" }).click();
   await popupClosed;
 
-  await expect(page.getByRole("heading", { name: "Hosted writing" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Switch collection, current collection Hosted writing" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Welcome to hosted writing");
 
   await page.getByRole("button", { name: "New note" }).click();
@@ -46,9 +46,7 @@ test("chooses a remote authority collection and performs CRUD through its provid
   await expect(page.getByRole("button", { name: "Writing/A hosted draft.md" })).toBeVisible();
 
   await page.getByLabel("More note actions").click();
-  await page.getByRole("menuitem", { name: "Delete note" }).click();
-  const confirmation = page.getByRole("alert");
-  await confirmation.getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Welcome to hosted writing");
   await expect(page.getByRole("option", { name: /A hosted draft/ })).toHaveCount(0);
 
@@ -77,7 +75,7 @@ test("returns to the newly chosen remote authority when switching collections", 
   const firstPopupClosed = firstPopup.waitForEvent("close");
   await firstPopup.getByRole("button", { name: "Allow access" }).click();
   await firstPopupClosed;
-  await expect(page.getByRole("heading", { name: "Hosted writing" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Switch collection, current collection Hosted writing" })).toBeVisible();
 
   await page.getByRole("button", {
     name: "Switch collection, current collection Hosted writing"
@@ -94,7 +92,7 @@ test("returns to the newly chosen remote authority when switching collections", 
   await secondPopupClosed;
 
   await expect(page).toHaveURL(new RegExp(`collection=${secondCollectionId}`));
-  await expect(page.getByRole("heading", { name: "Research" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Switch collection, current collection Research" })).toBeVisible();
 });
 
 interface AuthorityRecord {

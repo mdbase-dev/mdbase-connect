@@ -9,6 +9,27 @@
   width: 100%;
 }
 
+.note-row-context {
+  position: absolute;
+  inset: 0 0 auto;
+  width: 100%;
+}
+
+.note-row-context > .note-row {
+  position: static;
+  height: 100%;
+}
+
+.note-scroll .note-row.selected {
+  background: var(--selected);
+  box-shadow: inset 3px 0 var(--line-strong);
+}
+
+.note-scroll:focus-within .note-row.selected {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 var(--accent);
+}
+
 .note-group-header {
   position: absolute;
   top: 0;
@@ -121,21 +142,14 @@
   min-width: 0;
   max-width: 40%;
   margin-left: auto;
-  padding: 1px 5px;
+  padding: 0;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  color: var(--faint);
+  color: var(--muted);
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-medium);
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.note-row.selected .note-type-badge {
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
-  color: var(--accent);
 }
 
 .note-title mark,

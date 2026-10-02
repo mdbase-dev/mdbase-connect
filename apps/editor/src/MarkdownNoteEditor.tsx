@@ -1,4 +1,4 @@
-import { lazy, Suspense, type CSSProperties } from "react";
+import { lazy, Suspense, type CSSProperties, type ReactNode } from "react";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import type { LinkSuggestion } from "./links";
 import type { CollectionFile, NoteSummary } from "./model";
@@ -12,6 +12,7 @@ const CodeEditor = lazy(() => import("./CodeEditor").then((module) => ({ default
 
 interface MarkdownNoteEditorProps {
   editorKey: string;
+  footer?: ReactNode;
   draft: Draft;
   preferences: EditorPreferences;
   documentId?: string;
@@ -42,7 +43,7 @@ interface MarkdownNoteEditorProps {
 export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, currentPath, recentPaths,
   linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, remoteApplyToken, onTitleChange, onBodyChange,
   onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
-  onVisibleFileEmbeds, onVisibleNoteEmbeds, autoFocus = true, readOnly = false }: MarkdownNoteEditorProps) {
+  onVisibleFileEmbeds, onVisibleNoteEmbeds, footer, autoFocus = true, readOnly = false }: MarkdownNoteEditorProps) {
   return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
     <label className="sr-only" htmlFor="note-title">Note title</label>
     <div className="note-title-field">
@@ -61,7 +62,7 @@ export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, 
         onDismissLinkPreview={onDismissLinkPreview} embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes}
         onOpenFile={onOpenFile} files={files} notes={notes} onOpenFileLink={onOpenFileLink}
         onVisibleFileEmbeds={onVisibleFileEmbeds} onVisibleNoteEmbeds={onVisibleNoteEmbeds} insertion={insertion}
-        remoteApplyToken={remoteApplyToken} />
+        remoteApplyToken={remoteApplyToken} footer={footer} />
     </Suspense>
   </article>;
 }

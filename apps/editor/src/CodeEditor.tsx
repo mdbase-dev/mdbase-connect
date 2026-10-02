@@ -27,7 +27,8 @@ import {
   type ViewUpdate
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { parseDocument as parseYamlDocument } from "yaml";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import type { ResolvedFileReference } from "./use-file-assets";
@@ -80,6 +81,7 @@ interface CodeEditorProps {
   insertion?: { id: number; text: string; block?: boolean };
   onBlur?: () => void;
   remoteApplyToken?: number;
+  footer?: ReactNode;
 }
 
 interface RememberedEditor {
@@ -142,9 +144,11 @@ export function CodeEditor({
   onVisibleNoteEmbeds,
   insertion,
   onBlur,
-  remoteApplyToken
+  remoteApplyToken,
+  footer
 }: CodeEditorProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const [footerHost, setFooterHost] = useState<HTMLDivElement>();
   const viewRef = useRef<EditorView | undefined>(undefined);
   const appliedRemoteToken = useRef<number | null>(null);
   const onChangeRef = useRef(onChange);
@@ -210,7 +214,7 @@ export function CodeEditor({
     const extensions: Extension[] = [
       vimMode.current.of([]),
       historyMode.current.of([history()]),
-      editorSetup(variant),
+      editorSetup(variant, Boolean(footer)),
       syntaxHighlighting(mdbaseHighlightStyle),
       mdbasePopupTheme,
       variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
@@ -273,6 +277,12 @@ export function CodeEditor({
     const focusBeforeMount = parentRef.current.ownerDocument.activeElement;
     const view = new EditorView({ parent: parentRef.current, state });
     viewRef.current = view;
+    if (variant === "writer" && footer) {
+      const host = view.dom.ownerDocument.createElement("div");
+      host.className = "note-footer";
+      view.scrollDOM.append(host);
+      setFooterHost(host);
+    }
     if (documentId) registerActiveEditor(documentId, view);
     requestAnimationFrame(() => {
       if (viewRef.current !== view) return;
@@ -496,13 +506,13 @@ export function CodeEditor({
 
   return <div
     ref={parentRef}
-    className={`code-editor code-editor-${variant} ${className}`.trim()}
+    className={`code-editor code-editor-${variant}${footer ? " has-note-footer" : ""} ${className}`.trim()}
     onBlur={(event) => {
       const next = event.relatedTarget;
       if (next instanceof Node && event.currentTarget.contains(next)) return;
       onBlur?.();
     }}
-  />;
+  >{footerHost && footer && createPortal(footer, footerHost)}</div>;
 }
 
 export function lineSeparatorFor(value: string): "\n" | "\r\n" {
@@ -548,12 +558,12 @@ export function markdownEdit(doc: string, from: number, to: number, format: Mark
   };
 }
 
-const editorSetup = (variant: EditorVariant): Extension => [
+const editorSetup = (variant: EditorVariant, hasFooter = false): Extension => [
   highlightSpecialChars(),
   search({ top: true }),
   highlightSelectionMatches({ minSelectionLength: 2 }),
   bracketMatching(),
-  variant === "writer" ? [scrollPastEnd(), pasteURLAsLink] : [
+  variant === "writer" ? [hasFooter ? [] : scrollPastEnd(), pasteURLAsLink] : [
     lineNumbers(),
     indentOnInput(),
     closeBrackets(),

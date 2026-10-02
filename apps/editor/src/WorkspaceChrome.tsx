@@ -1,12 +1,11 @@
 import { useRef, type ReactNode } from "react";
-import { MenuPopover, useMenuTrigger } from "./ActionMenu";
+import { Dialog } from "./Dialog";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   ArrowLeftIcon as ArrowLeft,
   ArrowLineLeftIcon as ArrowLineLeft,
   BracketsCurlyIcon as Braces,
   LinkIcon as Link2,
-  ListBulletsIcon as ListBullets,
   SidebarSimpleIcon as Sidebar,
   WarningCircleIcon as CircleAlert,
   XIcon as X
@@ -33,29 +32,27 @@ export function SaveIndicator({ state, activity, detail, onCancel }: { state: Sa
       : state === "conflict" || state === "error" ? "attention" : "pending";
   return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{onCancel && <button className="cancel-operation" onClick={onCancel}>Cancel</button>}</div>;
 }
-export function BacklinksPanel({ notes, types, loading, error, onRetry, onClose, onOpen }: {
+export function BacklinksPanel({ notes, types, loading, error, onFind, onRetry, onOpen }: {
   notes: NoteSummary[];
   types: CollectionTypeDescriptor[];
   loading: boolean;
   error?: string;
   onRetry?: () => void;
-  onClose: () => void;
+  onFind?: () => void;
   onOpen: (path: string) => void;
 }) {
-  return <aside className="backlinks-panel" aria-label="Backlinks" aria-busy={loading}>
-    <header className="panel-header">
-      <div><h2>Backlinks</h2><p>{error ? "References are incomplete" : loading ? "Finding references" : `${notes.length} ${notes.length === 1 ? "note" : "notes"} link here`}</p></div>
-      <button className="icon-button" aria-label="Close backlinks" onClick={onClose}><X aria-hidden="true" /></button>
-    </header>
+  return <section id="linked-from" tabIndex={-1} className="linked-from" aria-label="Linked from" aria-busy={loading}>
+    <h2>Linked from</h2>
+    {onFind && <button onClick={onFind}>Find linked notes</button>}
     {error && <p role="alert">{error} {onRetry && <button onClick={onRetry}>Retry backlinks</button>}</p>}
     <div className="backlink-list">
       {notes.map((note) => <button key={note.path} onClick={() => onOpen(note.path)}>
         <Link2 aria-hidden="true" />
         <span><strong>{noteTitle(note, types)}</strong><small>{note.path}</small></span>
       </button>)}
-      {!notes.length && <p className="quiet-empty">{error ? "References could not finish loading." : loading ? "Reading collection links…" : "No notes link here yet."}</p>}
+      {!notes.length && !onFind && <p className="quiet-empty">{error ? "References could not finish loading." : loading ? "Reading collection links…" : "No notes link here yet."}</p>}
     </div>
-  </aside>;
+  </section>;
 }
 
 export function NoteSkeleton({ leadingActions }: { leadingActions?: ReactNode }) {
@@ -69,29 +66,13 @@ export function PaneSkeleton({ label, leadingActions, variant = "document" }: { 
   return <main className="editor-pane" aria-label={label}><NoteSkeleton leadingActions={leadingActions} /></main>;
 }
 
-export function OutlineMenu({ headings, onReveal }: { headings: NoteHeading[]; onReveal: (line: number) => void }) {
-  const { open, close, trigger, triggerProps } = useMenuTrigger();
-  return <div className="note-actions outline-root">
-    <button
-      {...triggerProps}
-      className="icon-button"
-      aria-label="Document outline"
-      title="Document outline"
-      disabled={!headings.length}
-    ><ListBullets aria-hidden="true" /></button>
-    {open && <MenuPopover label="Document outline" className="outline-menu" triggerRef={trigger} onClose={close}>
-      {headings.length ? headings.map((heading, index) => <button
-        key={`${heading.line}:${index}`}
-        role="menuitem"
-        className={`outline-level-${heading.level}`}
-        title={heading.text}
-        onClick={() => {
-          close(true);
-          onReveal(heading.line);
-        }}
-      ><span className="outline-hash">{"#".repeat(heading.level)}</span><span className="outline-text">{heading.text}</span></button>) : <p className="outline-empty">No headings yet.</p>}
-    </MenuPopover>}
-  </div>;
+export function OutlinePanel({ headings, onReveal, onClose }: { headings: NoteHeading[]; onReveal: (line: number) => void; onClose: () => void }) {
+  return <Dialog titleId="outline-title" className="confirm-dialog outline-panel" onClose={onClose}>
+    <header className="panel-header"><h2 id="outline-title">Document outline</h2><button className="icon-button" aria-label="Close outline" onClick={onClose}><X aria-hidden="true" /></button></header>
+    <nav aria-label="Document outline">
+      {headings.length ? headings.map((heading, index) => <button key={`${heading.line}:${index}`} className={`outline-level-${heading.level}`} onClick={() => { onClose(); onReveal(heading.line); }}><span className="outline-hash">{"#".repeat(heading.level)}</span><span className="outline-text">{heading.text}</span></button>) : <p className="outline-empty">No headings yet.</p>}
+    </nav>
+  </Dialog>;
 }
 
 export function InspectorPanelLoading({ label }: { label: "Note properties" | "Backlinks" }) {

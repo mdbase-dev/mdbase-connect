@@ -73,8 +73,10 @@ virtualized note list, and the editor. A properties inspector appears only when
 requested. Between 761px and 1120px the collection rail starts hidden until
 someone opens it. Note rows keep one fixed height and read title, a one-line
 excerpt (the type's declared description field, else the opening prose), then
-time and folder; a declared type appears as a small badge, never in place of
-the folder. Search results are ordered by relevance without date groups.
+time and folder; a declared type appears as muted plain text, never in place of
+the folder. Selection has a persistent edge marker: accent-tinted while the list
+has focus, neutral while writing. Rows never open a hover preview; their excerpt
+remains available to assistive technology. Search results are ordered by relevance without date groups.
 Types reuse the list-and-document rhythm; settings become one quiet
 document rather than a dashboard, with technical facts behind Details. In the collection rail, All notes, Types, and
 Settings remain the primary editing group. One header trigger combines the brand
@@ -149,3 +151,24 @@ styling.
 The current Markdown path sits quietly above the title. It can be renamed in
 place, making the relationship between the calm note and its durable file
 visible without turning the app into a file manager.
+
+## Note actions and discovery
+
+The list header names the current scope, not the collection again. Tags and types
+are search filters, suggested by `#` and `type:` or browsed with Search filters.
+The active scope is a removable chip in the search field; folders remain in the
+rail. New notes inherit the active scope.
+
+Note rows and the document’s More menu share Rename, Move to…, Duplicate, Copy
+link, Copy path, and Delete. F2 renames; Ctrl/⌘+Backspace deletes in the list.
+Context-menu and Shift+F10 keys open row actions. Moving notes rewrites incoming
+links and offers Undo, as does renaming. Deletion is immediate, with a six-second
+Undo notification that recreates the same path, frontmatter, and body. Undo
+notifications announce their result, pause expiry while hovered/focused, and
+support Escape to dismiss.
+
+The document bar keeps history, path, Properties, and More. Outline and keyboard
+help live in More; `?` opens help outside text inputs. Backlinks are a quiet
+Linked from section after the document text, not a competing inspector. Its
+lookup remains lazy for large collections. Link previews inside Markdown remain
+available; list-row previews do not.

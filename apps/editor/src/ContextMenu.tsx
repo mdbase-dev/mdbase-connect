@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type ReactNode
 } from "react";
@@ -17,11 +18,13 @@ interface MenuPosition {
 
 const VIEWPORT_MARGIN = 8;
 
-export function ContextMenu({ label, items, children, className = "" }: {
+export function ContextMenu({ label, items, children, className = "", style, showTrigger = true }: {
   label: string;
   items: ActionMenuItem[];
   children: ReactNode;
   className?: string;
+  style?: CSSProperties;
+  showTrigger?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -103,6 +106,7 @@ export function ContextMenu({ label, items, children, className = "" }: {
   return <div
     ref={root}
     className={`context-menu-target ${className}`.trim()}
+    style={style}
     onContextMenu={(event) => {
       event.preventDefault();
       const keyboardInvocation = event.clientX === 0 && event.clientY === 0;
@@ -128,7 +132,7 @@ export function ContextMenu({ label, items, children, className = "" }: {
     }}
   >
     {children}
-    <button
+    {showTrigger && <button
       ref={trigger}
       className="rail-row-menu"
       tabIndex={-1}
@@ -137,7 +141,7 @@ export function ContextMenu({ label, items, children, className = "" }: {
       aria-haspopup="menu"
       aria-expanded={Boolean(position)}
       onClick={() => position ? close(true) : openBeside(trigger.current!)}
-    ><MoreHorizontal aria-hidden="true" /></button>
+    ><MoreHorizontal aria-hidden="true" /></button>}
     {position && createPortal(
       <div
         ref={menu}

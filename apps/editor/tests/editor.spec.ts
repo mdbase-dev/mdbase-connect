@@ -254,7 +254,7 @@ test("shows an explicit status while a collection opens", async ({ page }) => {
   await expect(opening).toHaveAttribute("data-loading-state", "opening");
   await expect(page.getByText("Reading its notes and types")).toBeVisible();
   await expect(opening.locator(".opening-rail, .opening-list")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
   await expect(opening).not.toBeAttached();
 });
 
@@ -340,7 +340,7 @@ test("uses one fixed-choice control across settings, note creation, and type edi
 
 test("edits and autosaves a Markdown note", async ({ page }) => {
   await page.goto("?demo=240");
-  await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
   const title = page.getByRole("textbox", { name: "Note title" });
   await expect(title).toHaveValue("The shape of useful tools");
   await title.fill("Useful tools, revised");
@@ -616,17 +616,11 @@ test("moves backward and forward through opened notes", async ({ page }) => {
   await expect(forward).toBeDisabled();
 });
 
-test("previews sidebar notes and internal editor links on hover", async ({ page }) => {
+test("previews internal editor links on hover, but not sidebar rows", async ({ page }) => {
   await page.goto("?demo=12");
-
   const gardenRow = page.getByRole("option").filter({ hasText: "Garden notes 2" });
   await gardenRow.hover();
   const preview = page.getByRole("tooltip");
-  await expect(preview).toBeVisible({ timeout: 1_500 });
-  await expect(preview).toHaveAccessibleName("Preview of Garden notes 2");
-  await expect(preview).toContainText("Journal/garden-notes-2.md");
-
-  await page.getByRole("textbox", { name: "Search notes and files" }).hover();
   await expect(preview).not.toBeVisible();
 
   const body = page.getByRole("textbox", { name: "Note body" });
@@ -671,16 +665,16 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   await expect(folders.getByRole("button", { name: "Folders" })).toHaveCount(0);
   await expect(folders.getByRole("button", { name: "New folder" })).toBeVisible();
 
-  const tags = page.getByRole("group", { name: "Tags" });
-  await tags.getByRole("button", { name: "Tags" }).click();
-  await tags.getByRole("button", { name: /^Show notes tagged #ideas,/ }).click();
+  await page.getByRole("combobox", { name: "Search notes and files" }).fill("#ideas");
+  await page.getByRole("combobox", { name: "Search notes and files" }).press("Enter");
   await expect(page.getByRole("heading", { name: "#ideas" })).toBeVisible();
   await expect(page.getByRole("option")).toHaveCount(4);
 
   await page.getByRole("button", { name: /^All notes, / }).click();
-  await page.getByRole("button", { name: "Backlinks" }).click();
-  const backlinks = page.getByRole("complementary", { name: "Backlinks" });
-  await expect(backlinks.getByText("1 note link here")).toBeVisible();
+  await page.getByRole("button", { name: "More note actions" }).click();
+  await page.getByRole("menuitem", { name: "Linked from" }).click();
+  const backlinks = page.getByRole("region", { name: "Linked from" });
+  await expect(backlinks.getByRole("button", { name: /Garden notes 2/ })).toBeVisible();
   await backlinks.getByRole("button", { name: /Garden notes 2/ }).click();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
 
@@ -812,7 +806,7 @@ test("shows the matching note text in sidebar and quick-open search results", as
   // A visible title proves only that the structural page is installed. Search
   // for it and wait for the non-progress result label so the content page is
   // also hydrated before issuing the body-only query.
-  const sidebarSearch = page.getByRole("textbox", { name: "Search notes and files" });
+  const sidebarSearch = page.getByRole("combobox", { name: "Search notes and files" });
   await sidebarSearch.fill("Reading list 4");
   await expect(page.locator(".list-header p")).toHaveText("1 found · relevance", {
     timeout: 15_000,
@@ -839,25 +833,22 @@ test("sorts notes and clears the active scope from view options", async ({ page 
   await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files · modified newest");
 
   await page.getByRole("button", { name: "View options" }).click();
-  let menu = page.getByRole("menu", { name: "Note view options" });
+  const menu = page.getByRole("menu", { name: "Note view options" });
   await expect(menu.getByRole("menuitemradio", { name: "Modified newest" })).toHaveAttribute("aria-checked", "true");
   await menu.getByRole("menuitemradio", { name: "Title A–Z" }).click();
   await expect(page.locator(".note-row").first().locator(".note-title")).toHaveText("A quiet interface 3");
   await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files · title A–Z");
   expect(await page.evaluate(() => localStorage.getItem("mdbase-editor:note-sort"))).toBe("title-asc");
 
-  await page.getByRole("textbox", { name: "Search notes and files" }).fill("quiet interface");
+  await page.getByRole("combobox", { name: "Search notes and files" }).fill("quiet interface");
   await expect(page.locator(".list-header p")).toHaveText("1 found · relevance");
   await page.getByRole("button", { name: "Clear search" }).click();
 
   await page.getByRole("group", { name: "Folders" }).getByRole("button", { name: /^Show notes in Notes,/ }).click();
   await expect(page.getByRole("heading", { name: "Notes" })).toBeVisible();
-  await page.getByRole("button", { name: "View options" }).click();
-  menu = page.getByRole("menu", { name: "Note view options" });
-  await expect(menu.getByRole("menuitemradio", { name: "Folder · Notes" })).toHaveAttribute("aria-checked", "true");
-  await menu.getByRole("menuitemradio", { name: "All notes" }).click();
+  await page.getByRole("button", { name: "Remove folder filter Notes" }).click();
 
-  await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
   await expect(page.locator(".note-row")).toHaveCount(6);
 });
 
@@ -1224,7 +1215,7 @@ test("builds and saves a recursive list-of-objects field", async ({ page }) => {
 
 test("resizes, collapses, and restores the desktop sidebars", async ({ page }) => {
   await page.goto("?demo=12");
-  await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Note body" })).toBeFocused();
 
   const collectionResize = page.getByRole("separator", { name: "Resize collections sidebar" });
@@ -1372,6 +1363,8 @@ test("keeps dense collection counts and footer controls inside the minimum rail"
   const [statusBox, railBox] = await Promise.all([statusLabel.boundingBox(), rail.boundingBox()]);
   if (!statusBox || !railBox) throw new Error("Collection footer status is not visible.");
   expect(statusBox.x + statusBox.width).toBeLessThanOrEqual(railBox.x + railBox.width);
+  await page.keyboard.press("?");
+  await expect(page.getByRole("dialog", { name: "Shortcuts" })).toBeVisible();
 });
 
 test("uses the native caret in Vim insert mode", async ({ page }) => {
@@ -1476,12 +1469,12 @@ test("keeps a ten-thousand-note collection responsive and virtualized", async ({
   expect(renderedRows).toBeLessThan(40);
 
   const searchStarted = Date.now();
-  await page.getByRole("textbox", { name: "Search notes and files" }).fill("quiet interface 51");
+  await page.getByRole("combobox", { name: "Search notes and files" }).fill("quiet interface 51");
   await expect(page.locator(".list-header p")).not.toHaveText("10,000 notes");
   const searchReadyMs = Date.now() - searchStarted;
   expect(searchReadyMs).toBeLessThan(900);
 
-  const inputLatency = await page.getByRole("textbox", { name: "Search notes and files" }).evaluate((input) => {
+  const inputLatency = await page.getByRole("combobox", { name: "Search notes and files" }).evaluate((input) => {
     const samples: number[] = [];
     for (let index = 0; index < 30; index += 1) {
       const start = performance.now();
@@ -1501,7 +1494,7 @@ test("uses one navigable pane at mobile width", async ({ page }) => {
   await page.goto("?demo=80");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   await page.getByRole("button", { name: "Back to notes" }).click();
-  await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
   await page.getByRole("option").first().click();
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   await page.getByRole("button", { name: "Back to notes" }).click();
