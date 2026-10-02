@@ -1,0 +1,21 @@
+.quick-open-command > kbd { margin-left: auto; flex-shrink: 0; color: var(--color-text-muted); font: inherit; font-size: var(--font-size-caption); padding: 2px 6px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.note-pin { display: inline-flex; color: var(--color-text-muted); }
+.note-pin svg { width: 14px; height: 14px; }
+.unlinked-mentions { margin-top: var(--space-4); color: var(--color-text-soft); font-size: var(--font-size-ui); }
+.unlinked-mentions > summary { cursor: pointer; padding: var(--space-3) 0; }
+.unlinked-mention { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; }
+.unlinked-mention > button:first-child { display: flex; flex-direction: column; align-items: start; gap: var(--space-1); text-align: left; flex: 1; min-width: 0; color: var(--color-text-soft); }
+.unlinked-mention strong { font-weight: var(--font-weight-medium); }
+.unlinked-mention small { color: var(--color-text-muted); font-size: var(--font-size-caption); overflow-wrap: anywhere; }
+.focus-mode .editor-bar { justify-content: flex-end; border-color: transparent; }
+.focus-mode .editor-bar > :not(.note-actions):not(.focus-exit):not(.save-indicator):not(.note-opening-status) { display: none; }
+.focus-mode .editor-pane { grid-column: 3; }
+.focus-mode .mobile-note-path { display: none; }
+.typewriter-mode .code-editor-writer .cm-content { padding-top: 40vh; padding-bottom: 50vh; }
+@media (max-width: 760px) {
+  .focus-mode .editor-pane { grid-column: 1; display: grid; }
+  .unlinked-mention > button { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell.focus-mode { transition: none; }
+}

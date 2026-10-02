@@ -16,7 +16,7 @@ describe("quiet settings document", () => {
       onBack={vi.fn()} onForget={vi.fn()} onRequestDirectAccess={vi.fn()} />);
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getAllByRole("switch")).toHaveLength(3);
+    expect(screen.getAllByRole("switch")).toHaveLength(4);
     const vim = screen.getByRole("switch", { name: "Vim key bindings" });
     expect(vim).toHaveClass("mdbase-switch");
     expect(vim).toHaveAttribute("aria-checked", "false");

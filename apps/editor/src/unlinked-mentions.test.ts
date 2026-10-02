@@ -1,0 +1,33 @@
+import { describe, expect, it } from "vitest";
+import { buildNoteSearchIndex } from "./note-search";
+import { linkMention, unlinkedMentions } from "./unlinked-mentions";
+import type { NoteSummary } from "./model";
+const note = (path: string, body?: string): NoteSummary => ({ path, body, types: [], frontmatter: {}, effectiveFrontmatter: {}, file: { path, name: path, folder: "", size: body?.length ?? 0, mtime: "" } });
+
+describe("unlinked mentions", () => {
+  it("reuses hydrated search bodies, matches case-insensitive word boundaries, and excludes self and links", () => {
+    const index = buildNoteSearchIndex([
+      note("Atlas.md", "Atlas"), note("other.md", "atlas and ATLAS"),
+      note("words.md", "Atlases preAtlas Atlas_Atlas"), note("linked.md", "[[Atlas]] [Atlas](Atlas.md) ![[Atlas]]"),
+      note("empty.md"), note("code.md", "`Atlas`\n\n```md\nAtlas\n```"),
+      note("mixed.md", "[[Atlas]] then atlas.")
+    ]);
+    const matches = unlinkedMentions(index, "Atlas.md", "Atlas");
+    expect(matches.map((mention) => mention.note.path)).toEqual(["other.md", "mixed.md"]);
+    expect(matches[0]).toMatchObject({ from: 0, to: 5, snippet: "atlas and ATLAS" });
+    expect(matches[1].body.slice(matches[1].from, matches[1].to)).toBe("atlas");
+  });
+  it("escapes title punctuation, handles Unicode boundaries, and supplies a bounded snippet", () => {
+    const index = buildNoteSearchIndex([note("other.md", `${"x ".repeat(100)}Été (2026) — été (2026)! ${"y ".repeat(100)}`), note("word.md", "préÉté (2026)")]);
+    const mentions = unlinkedMentions(index, "target.md", "Été (2026)");
+    expect(mentions).toHaveLength(1);
+    expect(mentions[0].snippet.length).toBeLessThan(120);
+    expect(mentions[0].snippet).toContain("Été (2026)");
+    expect(unlinkedMentions(index, "target.md", "")).toEqual([]);
+  });
+  it("converts only the selected occurrence, preserves spelling, and refuses stale bodies", () => {
+    const [mention] = unlinkedMentions(buildNoteSearchIndex([note("other.md", "An atlas, then Atlas.")]), "Notes/Atlas.md", "Atlas");
+    expect(linkMention(mention, "Notes/Atlas.md", mention.body)).toEqual({ body: "An [[Notes/Atlas|atlas]], then Atlas.", inserted: "[[Notes/Atlas|atlas]]" });
+    expect(() => linkMention(mention, "Notes/Atlas.md", "A changed Atlas.")).toThrow("That note changed");
+  });
+});

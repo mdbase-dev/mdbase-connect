@@ -43,6 +43,7 @@ import { markdownReferences } from "./markdown-references";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 import type { CollectionFile, NoteSummary } from "./model";
+import { typewriterScrolling } from "./code-editor-typewriter";
 import { mdbasePopupTheme } from "@mdbase-dev/ui/codemirror";
 
 type EditorLanguage = "markdown" | "json" | "yaml" | "yaml-frontmatter" | "plain";
@@ -59,6 +60,7 @@ interface CodeEditorProps {
   readOnly?: boolean;
   vimEnabled?: boolean;
   lineWrapping?: boolean;
+  typewriter?: boolean;
   autoFocus?: boolean;
   quietMarkdown?: boolean;
   className?: string;
@@ -124,6 +126,7 @@ export function CodeEditor({
   readOnly = false,
   vimEnabled = false,
   lineWrapping = true,
+  typewriter = false,
   autoFocus = false,
   quietMarkdown = true,
   className = "",
@@ -159,6 +162,7 @@ export function CodeEditor({
   const historyMode = useRef(new Compartment());
   const vimMode = useRef(new Compartment());
   const wrapping = useRef(new Compartment());
+  const typewriterMode = useRef(new Compartment());
   const completions = useRef(new Compartment());
   const languageMode = useRef(new Compartment());
   const writerPresentation = useRef(new Compartment());
@@ -226,6 +230,7 @@ export function CodeEditor({
       variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
       languageMode.current.of(language === "markdown" ? markdown() : []),
       wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),
+      typewriterMode.current.of([]),
       completions.current.of(variant === "writer" && language === "markdown" ? writerAutocomplete(
         () => linkSuggestionsRef.current,
         () => linkTypesRef.current,
@@ -316,6 +321,10 @@ export function CodeEditor({
     // Runtime preferences are reconfigured by the effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: typewriterMode.current.reconfigure(typewriter && variant === "writer" ? typewriterScrolling : []) });
+  }, [typewriter, variant]);
 
   useEffect(() => {
     const view = viewRef.current;

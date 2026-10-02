@@ -13,6 +13,20 @@ describe("keyboard discovery", () => {
     expect(screen.queryByText("Quick open, outside the note text")).not.toBeInTheDocument();
   });
 
+  it("opens command mode directly, fuzzy matches actions and displays shortcut chips", () => {
+    const run = vi.fn(), close = vi.fn();
+    render(<QuickOpen index={[]} recentPaths={[]} types={[]} initialCommandMode commands={[{ id: "focus", label: "Focus mode", shortcut: "Mod Shift F", run }, { id: "copy-path", label: "Copy path", run }]} onSelect={() => {}} onClose={close} />);
+    const input = screen.getByRole("combobox");
+    expect(input).toHaveValue(">");
+    expect(screen.getByText(/Shift F/, { selector: "kbd" })).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: ">fcs md" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(run).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    expect(localStorage.getItem("mdbase-editor:recent-commands")).toContain("focus");
+  });
+
   it("keeps keyboard selection visible and never selects -1 on empty results", () => {
     const scrollIntoView = vi.fn();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });

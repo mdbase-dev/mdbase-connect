@@ -43,6 +43,9 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         <SettingRow title="Quiet Markdown" description="Soften punctuation away from the active line and make tasks checkable.">
           <Toggle checked={preferences.quietMarkdown} label="Quiet Markdown" onChange={(quietMarkdown) => onChange({ ...preferences, quietMarkdown })} />
         </SettingRow>
+        <SettingRow title="Typewriter scrolling" description="Keep the caret line centred while writing in focus mode.">
+          <Toggle checked={preferences.typewriterScrolling} label="Typewriter scrolling" onChange={(typewriterScrolling) => onChange({ ...preferences, typewriterScrolling })} />
+        </SettingRow>
         <SettingRow title="Text size" description="Change note text without changing the surrounding interface.">
           <Select aria-label="Editor text size" value={String(preferences.fontSize)} options={[{ value: "16", label: "Compact" }, { value: "17", label: "Comfortable" }, { value: "19", label: "Large" }]} onChange={(next) => onChange({ ...preferences, fontSize: Number(next) as EditorPreferences["fontSize"] })} />
         </SettingRow>

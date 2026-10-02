@@ -401,8 +401,9 @@ describe("mdbase editor", () => {
     await user.click(within(collection).getByRole("button", { name: /^All notes, / }));
     await user.click(screen.getByText("The shape of useful tools", { selector: ".note-title" }));
     const backlinks = screen.getByRole("region", { name: "Linked from" });
-    expect(within(backlinks).getAllByRole("button")).toHaveLength(1);
-    await user.click(within(backlinks).getByRole("button", { name: /Garden notes 2/ }));
+    const linkedNotes = within(backlinks.querySelector<HTMLElement>(".backlink-list")!);
+    expect(linkedNotes.getAllByRole("button")).toHaveLength(1);
+    await user.click(linkedNotes.getByRole("button", { name: /Garden notes 2/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
     expect(screen.getByRole("region", { name: "Linked from" })).toBeInTheDocument();
   });

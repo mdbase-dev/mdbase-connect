@@ -183,7 +183,16 @@ styling.
 Routine autosaves stay silent and note rows retain their timestamps while typing.
 Only saves lasting more than 1.5 seconds show “Saving…”; failures and conflicts
 remain visible with recovery actions. Word count lives in Properties, not the bar.
-Ctrl/⌘P opens quick open everywhere; Ctrl/⌘K inserts a link only in note text.
+Ctrl/⌘P opens quick open everywhere; `>` switches to commands, and
+Ctrl/⌘Shift+P opens commands directly. Commands use the same registry as note
+menus and shortcut help, with fuzzy matching, shortcut chips and recent commands
+first. Ctrl/⌘K inserts a link only in note text.
+
+Focus mode (Ctrl/⌘Shift+F, Escape to exit) temporarily hides the rail, note list
+and properties without changing their saved layout. Its minimal bar keeps Exit
+focus mode and More, plus save failures when needed. Focus mode stays in this
+browser. Optional typewriter scrolling in Settings centres the caret line only
+while writing in focus mode; it does not animate scrolling or alter undo history.
 
 ## Embeds and file viewers
 
@@ -224,5 +233,11 @@ support Escape to dismiss.
 The document bar keeps history, path, Properties, and More. Outline and keyboard
 help live in More; `?` opens help outside text inputs. Backlinks are a quiet
 Linked from section after the document text, not a competing inspector. Its
-lookup remains lazy for large collections. Link previews inside Markdown remain
+lookup remains lazy for large collections. A collapsed Unlinked mentions
+count beneath it uses hydrated search text, ignoring linked and code occurrences.
+Each source note offers a snippet and Link action for its first plain-text title
+mention; conversion preserves the occurrence's spelling and offers Undo. Both
+writes check revisions and refuse to overwrite a changed occurrence or newer text.
+Pinned notes stay at the top of the list and quick open within this browser and
+collection. Link previews inside Markdown remain
 available; list-row previews do not.

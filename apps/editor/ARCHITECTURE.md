@@ -114,7 +114,11 @@ the summary on failure.
 The full-text search index normalizes titles, paths, metadata, and bodies once
 per changed record. `IncrementalNoteSearchIndex` reuses entries whose record
 identity and type context are unchanged, and removes entries for deleted paths.
-Search never performs a remote query. The list is virtualized so collection
+Search never performs a remote query. Unlinked mentions reuse the hydrated
+search entries, caching syntax exclusions by entry identity. Only an explicit
+Link action reads its source note, then flushes and writes through the same
+revision-aware session operation queue. Undo refuses changed text rather than
+replacing newer edits. The list is virtualized so collection
 size does not translate directly into DOM size.
 
 ## UI boundaries
@@ -123,6 +127,8 @@ size does not translate directly into DOM size.
 navigation, active editing commands, and composition. Self-contained UI lives
 outside it:
 
+- `editor-commands.ts` owns canonical command labels and shortcuts; menus,
+  shortcut matching/help, and QuickOpen bind the same definitions;
 - `CollectionRail.tsx` owns folder expansion persistence;
 - `NoteSearchField.tsx` owns tag/type filter suggestions and chips;
 - `NoteList.tsx` owns list virtualization, search result rendering, and list

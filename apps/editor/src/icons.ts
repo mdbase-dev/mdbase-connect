@@ -26,6 +26,7 @@ export { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 export { NotebookIcon } from "@phosphor-icons/react/Notebook";
 export { PackageIcon } from "@phosphor-icons/react/Package";
 export { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
+export { PushPinIcon } from "@phosphor-icons/react/PushPin";
 export { PlusIcon } from "@phosphor-icons/react/Plus";
 export { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 export { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
