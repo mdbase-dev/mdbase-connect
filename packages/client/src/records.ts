@@ -29,7 +29,8 @@ export interface MdbaseRecordLease<Frontmatter extends JsonObject = JsonObject> 
   readonly session: MdbaseRecordSession<RecordDocument<Frontmatter>>;
   /**
    * Stop using the session from this view. Idempotent. Local changes are
-   * still saved; the session is dropped once no view holds it and it is saved.
+   * still saved; the session is dropped once no view holds it and it has
+   * nothing left to save.
    */
   release(): void;
 }
@@ -50,6 +51,18 @@ interface Entry<Frontmatter extends JsonObject> {
   stopRetiring?: () => void;
 }
 
+interface Refresh<Frontmatter extends JsonObject> {
+  entry: Entry<Frontmatter>;
+  dirty: boolean;
+  attempts: number;
+  timer?: ReturnType<typeof setTimeout>;
+  stopWaiting?: () => void;
+}
+
+// Match the coordinator's four foreground slots, never its 32-slot backlog.
+const REFRESH_CONCURRENCY = 4;
+const REFRESH_ATTEMPTS = 4;
+
 type Opened<Frontmatter extends JsonObject> = ConnectOutcome<Entry<Frontmatter>, CollectionReadProblemCode>;
 
 /**
@@ -60,6 +73,10 @@ type Opened<Frontmatter extends JsonObject> = ConnectOutcome<Entry<Frontmatter>,
 export class MdbaseRecords<Frontmatter extends JsonObject = JsonObject> {
   private readonly entries = new Map<string, Entry<Frontmatter>>();
   private readonly opening = new Map<string, Promise<Opened<Frontmatter>>>();
+  private readonly refreshes = new Map<Entry<Frontmatter>, Refresh<Frontmatter>>();
+  private readonly refreshQueue = new Set<Refresh<Frontmatter>>();
+  private activeRefreshes = 0;
+  private followers = 0;
 
   constructor(
     private readonly connection: RecordConnection<Frontmatter>,
@@ -96,18 +113,103 @@ export class MdbaseRecords<Frontmatter extends JsonObject = JsonObject> {
   /**
    * Keep open sessions current from a collection watch: changed records are
    * refreshed, renamed records are followed and deleted records are marked.
-   * Returns a function that stops following.
+   * Refreshes are bounded and coalesced per session, with three backed-off
+   * retries for transient/not-sent reads. Failures remain in the snapshot.
+   * Stopping the last follower drops queued work; admitted reads still settle.
    */
   follow(watch: Pick<MdbaseWatchSubscription, "subscribe">): () => void {
-    return watch.subscribe(
+    this.followers += 1;
+    const unsubscribe = watch.subscribe(
       (change) => this.apply(change),
       (status) => {
         // Changes were missed: every open record may be stale.
         if (status.state === "reset_required") {
-          for (const entry of this.entries.values()) void entry.session.refresh();
+          for (const entry of this.entries.values()) this.refresh(entry);
         }
       }
     );
+    let stopped = false;
+    return () => {
+      if (stopped) return;
+      stopped = true;
+      unsubscribe();
+      if (--this.followers === 0) {
+        for (const refresh of this.refreshes.values()) {
+          clearTimeout(refresh.timer);
+          refresh.stopWaiting?.();
+        }
+        this.refreshes.clear();
+        this.refreshQueue.clear();
+      }
+    };
+  }
+
+  /** One invalidation owner per entry, including while it waits behind a write. */
+  private refresh(entry: Entry<Frontmatter>): void {
+    const existing = this.refreshes.get(entry);
+    if (existing) {
+      existing.dirty = true;
+      return;
+    }
+    const refresh = { entry, dirty: false, attempts: 0 };
+    this.refreshes.set(entry, refresh);
+    this.enqueueRefresh(refresh);
+  }
+
+  /** Exact recovery must settle before refresh() can read the authoritative record. */
+  private enqueueRefresh(refresh: Refresh<Frontmatter>): void {
+    if (refresh.entry.session.snapshot.pendingRequestId) {
+      refresh.stopWaiting = refresh.entry.session.subscribe(() => {
+        if (refresh.entry.session.snapshot.pendingRequestId) return;
+        refresh.stopWaiting?.();
+        refresh.stopWaiting = undefined;
+        this.enqueueRefresh(refresh);
+      });
+    } else {
+      this.refreshQueue.add(refresh);
+      this.pumpRefreshes();
+    }
+  }
+
+  private pumpRefreshes(): void {
+    while (this.activeRefreshes < REFRESH_CONCURRENCY && this.refreshQueue.size > 0) {
+      const refresh = this.refreshQueue.values().next().value!;
+      this.refreshQueue.delete(refresh);
+      refresh.dirty = false;
+      this.activeRefreshes += 1;
+      void this.runRefresh(refresh);
+    }
+  }
+
+  private async runRefresh(refresh: Refresh<Frontmatter>): Promise<void> {
+    try {
+      refresh.attempts += 1;
+      const outcome = await refresh.entry.session.refresh();
+      if (this.refreshes.get(refresh.entry) !== refresh) return;
+      // A queued write may have entered recovery before refresh() could run.
+      if (refresh.entry.session.snapshot.pendingRequestId) {
+        refresh.attempts -= 1;
+        this.enqueueRefresh(refresh);
+        return;
+      }
+      // Cancellation is deliberate, not an availability failure. Never retry
+      // authorization/input failures merely because they were not sent.
+      const retry = !outcome.ok && outcome.problem.code !== "operation_cancelled"
+        && (outcome.problem.recovery === "retry"
+          || (outcome.problem.operation_outcome === "not_sent" && outcome.problem.category === "availability"));
+      if (retry && refresh.attempts < REFRESH_ATTEMPTS) {
+        refresh.timer = setTimeout(() => this.enqueueRefresh(refresh), 100 * 2 ** (refresh.attempts - 1));
+      } else if (refresh.dirty) {
+        // Any number of invalidations during a read needs just one follow-up.
+        refresh.attempts = 0;
+        this.enqueueRefresh(refresh);
+      } else {
+        this.refreshes.delete(refresh.entry);
+      }
+    } finally {
+      this.activeRefreshes -= 1;
+      this.pumpRefreshes();
+    }
   }
 
   private async load(path: string, options: MdbaseRecordOpenOptions): Promise<Opened<Frontmatter>> {
@@ -167,11 +269,18 @@ export class MdbaseRecords<Frontmatter extends JsonObject = JsonObject> {
   private retire(entry: Entry<Frontmatter>): void {
     if (entry.leases > 0) return;
     const drop = () => {
-      const { state } = entry.session.snapshot;
-      if (state !== "saved" && state !== "deleted") return false;
+      const { state, dirty } = entry.session.snapshot;
+      if (state !== "saved" && state !== "deleted" && !(state === "error" && !dirty)) return false;
       entry.stopRetiring?.();
       entry.stopRetiring = undefined;
       if (this.entries.get(entry.path) === entry) this.entries.delete(entry.path);
+      const refresh = this.refreshes.get(entry);
+      if (refresh) {
+        clearTimeout(refresh.timer);
+        refresh.stopWaiting?.();
+        this.refreshQueue.delete(refresh);
+        this.refreshes.delete(entry);
+      }
       return true;
     };
     if (!drop()) entry.stopRetiring = entry.session.subscribe(() => void drop());
@@ -185,13 +294,13 @@ export class MdbaseRecords<Frontmatter extends JsonObject = JsonObject> {
       this.entries.delete(entry.path);
       entry.path = payload.to;
       this.entries.set(entry.path, entry);
-      void entry.session.refresh();
+      this.refresh(entry);
       return;
     }
     if (change.type !== "mdbase.record.modified" && change.type !== "mdbase.record.deleted") return;
     const entry = typeof payload.path === "string" ? this.entries.get(payload.path) : undefined;
     // The echo of this session's own acknowledged write needs no read.
     if (!entry || payload.revision === entry.session.snapshot.record.revision) return;
-    void entry.session.refresh();
+    this.refresh(entry);
   }
 }

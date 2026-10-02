@@ -104,6 +104,46 @@ a `ConnectOutcome` with an existing catalogue code, every async method takes
 `ConnectRequestOptions`, and an adapter that throws is a programming error that
 propagates (the queue stays usable).
 
+## Follow refresh reconciliation
+
+`records.follow(watch)` owns refresh admission, replacing the unbounded
+fire-and-forget fan-out after changes and watch resets. At most four sessions
+refresh concurrently, within the connection coordinator's admission budget.
+Each session has at most one queued invalidation; events during a refresh set
+a dirty bit and cause exactly one follow-up. Already acknowledged own revision
+echoes still skip reads. Renames rekey the same entry, including queued work.
+Refreshes remain behind the session's writes, and missed changes wait for exact
+recovery of an unsettled write before being read.
+
+Transient/not-sent availability failures get three retries, delayed by
+100/200/400 ms. Cancellation and authorization/validation failures are not
+retried. Exhausted failures remain visible in the existing snapshot vocabulary:
+`error` with `problem` for a clean session, or the existing higher-priority
+`conflict`, `recovery`, or `deleted` state. The last accepted record and local
+changes are retained. Local editing or discarding cannot clear a failed read;
+a successful authoritative read (including an unchanged revision), `accept()`,
+or acknowledged write establishes freshness again. A read's success does not
+hide an unrelated failed write with outstanding local changes.
+
+Stopping the last follower cancels queued work, retry timers and recovery
+subscriptions; already admitted reads settle normally. Releasing an unheld
+clean session drops its refresh work, including a session with only a read
+failure. Sessions with unsaved edits or pending writes retain the existing
+retirement behavior.
+
+**Consumer migration:** no API signatures, state variants, persisted data or
+protocol capabilities change. Upgrade the SDK and allow the existing `error`
+UI to show refresh failures as well as save failures. Direct `refresh()` remains
+a single outcome-returning read in the session queue; automatic scheduling and
+retry belong only to `follow()`.
+
+Regressions use the supported `packages/testing` authority through the public
+records/watch API, with the real coordinator as the wire admission fixture:
+1,000 open sessions reset without rejected reads, and 1,000 events during a
+read produce two reads rather than 1,000. Other regressions cover foreground
+contention, backoff/exhaustion, cancellation, release, save ordering and exact
+recovery.
+
 ## Record groups (open question, not built)
 
 Nothing in either app needs grouping. Per-record sessions plus an app-level

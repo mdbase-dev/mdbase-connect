@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Record-session watch following bounds refresh admission to four sessions and
+  coalesces event bursts, so a change gap across 1,000 open records no longer
+  leaves most records silently stale. Transient read failures retry with
+  backoff; failed refreshes remain visible through the existing `error` and
+  `problem` snapshot fields. Reconciliation preserves write ordering and waits
+  for exact recovery. No consumer API changes are required; existing error UI
+  should handle read failures as well as write failures.
+
 - Directory mirrors (`@mdbase-dev/connect-sync`) recover from routine local
   interference without a person: a scoped blocking issue (an obstruction,
   divergent or unreadable file) fences only its own path and connected path

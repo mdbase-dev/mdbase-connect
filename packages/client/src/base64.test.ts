@@ -12,7 +12,9 @@ describe("base64url", () => {
     const encoded = bytesToBase64Url(bytes);
     expect(encoded).toBe(reference(bytes));
     expect(encoded).not.toMatch(/[+/=]/);
-    expect(base64UrlBytes(encoded)).toEqual(bytes);
+    // Compare every byte and the length without deep equality enumerating a
+    // million indexed properties (and allocating their keys) on CI runners.
+    expect(Buffer.compare(base64UrlBytes(encoded), bytes)).toBe(0);
   });
 
   it("uses the URL-safe alphabet", () => {

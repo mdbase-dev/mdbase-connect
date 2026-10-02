@@ -312,6 +312,41 @@ describe("acknowledgements and external changes", () => {
     expect(session.snapshot).toMatchObject({ body: "First", state: "saved" });
   });
 
+  it("keeps a refresh failure visible through local edits and discard until an authoritative read succeeds", async () => {
+    const read = vi.fn(async () => fail(offline));
+    const session = new MdbaseRecordSession(original, adapter({ read }), { autosave: false });
+    await expect(session.refresh()).resolves.toMatchObject({ ok: false, problem: offline });
+    expect(session.snapshot).toMatchObject({ state: "error", problem: offline, record: original, dirty: false });
+    session.setBody("Local");
+    session.discard();
+    expect(session.snapshot).toMatchObject({ state: "error", problem: offline });
+    read.mockResolvedValueOnce(ok(original));
+    await session.refresh();
+    expect(session.snapshot).toMatchObject({ state: "saved", problem: null });
+  });
+
+  it("clears a refresh failure when a write is acknowledged or an authoritative result is accepted", async () => {
+    const session = new MdbaseRecordSession(original, adapter({ read: async () => fail(offline) }), { autosave: false });
+    await session.refresh();
+    session.setBody("Mine");
+    await session.save();
+    expect(session.snapshot).toMatchObject({ state: "saved", problem: null, body: "Mine" });
+    await session.refresh();
+    expect(session.snapshot.state).toBe("error");
+    session.accept(doc("Accepted", "3"));
+    expect(session.snapshot).toMatchObject({ state: "saved", problem: null, body: "Accepted" });
+  });
+
+  it("does not clear a failed write merely because a refresh of the unchanged record succeeds", async () => {
+    const transport = adapter({ read: async () => ok(original) });
+    transport.write.mockResolvedValueOnce(fail(offline));
+    const session = new MdbaseRecordSession(original, transport, { autosave: false });
+    session.setBody("Local");
+    await session.save();
+    await session.refresh();
+    expect(session.snapshot).toMatchObject({ state: "error", problem: offline, body: "Local" });
+  });
+
   it("marks the session deleted when a refresh finds no record", async () => {
     const session = new MdbaseRecordSession(original, adapter({ read: async () => fail(missing) }), { autosave: false });
     session.setBody("Keep me");
