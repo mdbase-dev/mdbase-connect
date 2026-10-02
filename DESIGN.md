@@ -23,8 +23,8 @@ Role values for light, dark and system themes live in
 Editor's quiet treatment is the canonical palette; do not restate values here.
 
 Use a restrained monochrome strategy in both themes. The canvas is the only
-major surface. Controls stay on that surface and use fine neutral outlines
-rather than contrasting fills. Green indicates verified connection or
+major surface. Secondary controls stay on that surface with fine neutral outlines. The one
+committing action uses a filled accent; quiet actions remain text led. Green indicates verified connection or
 completion. Amber indicates pending attention. Red indicates revocation,
 disconnection, or destructive local administration. Semantic color should
 occupy as little space as possible.
@@ -45,7 +45,9 @@ values so both themes preserve the same hierarchy.
 - Technical data: Azeret Mono for origins, paths, versions, IDs, operation
   names, and the mdbase wordmark.
 - Product headings use compact fixed sizes and strong weight contrast.
-- Body copy is 12 to 14px at 1.45 to 1.55 line height, capped near 70ch.
+- Dense body copy is 12 to 14px at 1.45 to 1.55 line height, capped near 70ch.
+  Account authentication uses 16px body copy and a centered, mobile-safe column;
+  Connect management uses 15px body copy.
 
 The product name is always written as `mdbase connect`. The wordmark pairs a
 20px Frontmatter mark with lowercase `mdbase`; `connect` remains a quiet

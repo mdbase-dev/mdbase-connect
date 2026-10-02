@@ -57,6 +57,20 @@ Manage group above connection and account status, visibly secondary until a
 pending authorization count requires attention. Mobile presents each level as
 a separate navigable screen.
 
+## Connect account screens
+
+Authentication, account setup, and password recovery share one centered,
+mobile-safe column with the `mdbase connect` lockup and editor typeface. One
+heading and short explanation introduce the task. The committing action is a
+filled accent button; recovery, account switching, and legal links remain quiet
+and theme-aware. Email and identity providers are separated by one “or” divider,
+never by rules between providers. Provider controls reserve their space while
+loading and offer retry on failure. Native form constraints surface inline with
+visible focus and screen-reader descriptions.
+
+Connect management retains its existing document layout, with sentence-case
+navigation, proportional counts, and the same primary-action hierarchy.
+
 ## Editing
 
 CodeMirror provides Markdown behavior without introducing IDE chrome. Its
