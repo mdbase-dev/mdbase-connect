@@ -70,6 +70,39 @@ The Connect grant may be narrower than the MCP OAuth scope. In that case the
 gateway rejects an unavailable operation and tells the user to reconnect with
 broader collection access; it never expands the upstream grant itself.
 
+### Narrow output, file metadata and changes
+
+`query_records` accepts `output: "metadata"`: supporting authorities return path,
+types, revision and selected `values`, without full frontmatter/file/body fields.
+Do not combine it with `include_body: true`. The gateway discovers both
+`query-metadata-v1` and `query-record-revisions-v1` through that connection's
+approved `describe`, never through relay/control-plane advertisements. Missing
+support fails before any extended query; use an ordinary query on old authorities.
+Discovery failures are errors, not evidence of missing support. Cursor output is
+pinned by the authority; do not switch mode mid-cursor.
+
+`read_record` with `output: "file_metadata"` accepts exactly one `path` or UUID
+`file_id`. It returns an SDK file descriptor (camelCase members) or `result: null`
+for a missing/invisible file, not record contents or file bytes. This requires
+separate file **list** approval, not record read or file read. The application
+manifest now requests list-only file access; existing grants must reconnect for
+explicit approval. The gateway uses SDK `files.stat`, discovers `files-stat-v1`
+from an authenticated files page, and uses the SDK's scoped paginated-listing
+fallback on old authorities. That fallback is neither point-cost nor an atomic
+inventory snapshot. No new tool, file transfer, or byte permission is introduced.
+
+Feature evidence is request-local to the selected tenant+connection and credentials;
+there is no persistent/global capability cache. Authentication renewal repeats
+lookup/discovery, so evidence is not borrowed across a refreshed route or grant.
+Ordinary query/read calls are unchanged. Old-authority choices retire only after
+B1's minimum-authority, consumer-pin, N-1/rollback and connection-cache gates close.
+
+`list_changes` preserves raw `events` and adds `typed_events` using the public SDK
+normalizer. Record revisions, previous revisions/types, changed fields and
+`bodyChanged` appear only when the authority supplied them. Unknown/malformed event
+payloads stay `kind: "unknown"` with raw data, never guessed updates. A reset page
+still requires rebuilding from current state; it is not a sequence of edits.
+
 ## Local development
 
 Run both TypeScript services directly on the host so each loopback origin can

@@ -39,6 +39,7 @@ export async function buildApp(options: BuildOptions) {
     requirements: {
       access: "full_collection",
       contracts: [],
+      files: { required: ["list"], scope: { kind: "collection" } },
       capabilities: {
         contract_version: 2,
         required: ["collection.read"],

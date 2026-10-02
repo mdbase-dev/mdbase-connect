@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { randomUUID } from "node:crypto";
-import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
+import type { CollectionChangesPage, CollectionOperation } from "@mdbase-dev/connect-protocol";
+import { normalizeCollectionChange } from "@mdbase-dev/connect";
 import { z } from "zod";
 import { ConnectGateway, GatewayOperationError } from "./connect.js";
 import { OAuthService, type McpAuthContext } from "./oauth.js";
@@ -61,7 +62,7 @@ export function createMcpServer(
 
   server.registerTool("list_changes", {
     title: "List collection changes",
-    description: "List changes after an optional collection change cursor.",
+    description: "List changes after an optional collection change cursor. Includes typed_events with record revisions, changed fields and body-change hints when supplied by the authority; unknown events retain their raw payload.",
     inputSchema: {
       connection_id: connectionId,
       after: z.number().int().nonnegative().optional(),
@@ -72,7 +73,7 @@ export function createMcpServer(
 
   server.registerTool("query_records", {
     title: "Query mdbase records",
-    description: "Query records in one approved collection. Filters use the collection's native mdbase query format.",
+    description: "Query records in one approved collection. Filters use native mdbase query format. Optional output:metadata returns only path, types, revision and selected values on supporting authorities; default output is unchanged.",
     inputSchema: {
       connection_id: connectionId,
       types: z.array(z.string().min(1).max(200)).max(50).optional(),
@@ -90,6 +91,7 @@ export function createMcpServer(
       pagination: z.literal("cursor").optional(),
       cursor: queryCursor.optional(),
       snapshot: z.string().min(1).max(10_000).optional(),
+      output: z.literal("metadata").optional(),
       include_body: z.boolean().optional(),
       frontmatter_mode: z.enum(["effective", "persisted", "both"]).optional(),
       contract: z.unknown().optional()
@@ -113,10 +115,20 @@ export function createMcpServer(
 
   server.registerTool("read_record", {
     title: "Read an mdbase record",
-    description: "Read one record by its collection-relative path.",
-    inputSchema: { connection_id: connectionId, path },
+    description: "Read one record by path. Use output:file_metadata with path or file_id for a binary file descriptor (no bytes); requires separately approved file-list access. Missing/invisible files return null. Older authorities use scoped listing, not point lookup.",
+    inputSchema: z.object({
+      connection_id: connectionId,
+      path: path.optional(),
+      file_id: z.uuid().optional(),
+      output: z.literal("file_metadata").optional()
+    }).refine(input => input.output === "file_metadata"
+      ? (input.path !== undefined) !== (input.file_id !== undefined)
+      : input.path !== undefined && input.file_id === undefined,
+    { message: "Supply one path or file_id for file metadata; record reads require path." }),
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, path }, { signal }) => operationTool(gateway, context, connection_id, "read", { path }, { signal }));
+  }, ({ connection_id, path, file_id, output }, { signal }) => output === "file_metadata"
+    ? actionTool(() => gateway.statFile(context.connectionSetId, connection_id, path !== undefined ? { path } : { fileId: file_id! }, signal))
+    : operationTool(gateway, context, connection_id, "read", { path }, { signal }));
 
   server.registerTool("validate_collection", {
     title: "Validate an mdbase collection",
@@ -266,7 +278,7 @@ async function operationTool(
   input: unknown,
   options: { signal?: AbortSignal; requestId?: string; mutationReceipt?: boolean } = {}
 ) {
-  try {
+  return actionTool(async () => {
     const value = await gateway.operation(
       context.connectionSetId,
       connectionId,
@@ -274,13 +286,24 @@ async function operationTool(
       input,
       { signal: options.signal, requestId: options.requestId }
     );
-    return toolResult(options.mutationReceipt ? {
+    if (operation === "changes") {
+      const page = value as CollectionChangesPage;
+      if (!Array.isArray(page?.events)) throw new GatewayOperationError("invalid_operation_response", "Invalid changes page.");
+      return { ...page, typed_events: page.events.map(normalizeCollectionChange) };
+    }
+    return options.mutationReceipt ? {
       mutation_receipt: {
         request_id: options.requestId,
         retry: "Reuse this request_id as mutation_id when retrying the exact mutation."
       },
       outcome: value
-    } : value);
+    } : value;
+  }, options);
+}
+
+async function actionTool(action: () => Promise<unknown>, options: { mutationReceipt?: boolean; requestId?: string } = {}) {
+  try {
+    return toolResult(await action());
   } catch (error) {
     const value = error instanceof GatewayOperationError
       ? {
