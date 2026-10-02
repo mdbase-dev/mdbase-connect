@@ -25,6 +25,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
 import { coordinatedQueryPages } from "./query-pagination.js";
+import { queryReadMany } from "./read-many.js";
 import { coordinatedSavedViewPages } from "./saved-view-pagination.js";
 import {
   MdbaseConnectError,
@@ -84,6 +85,8 @@ import type {
   QueryPagesOptions,
   QueryResult,
   ReadInput,
+  ReadManyOptions,
+  ReadManyResult,
   ReadTypeInput,
   ReadViewSourceInput,
   RenameInput,
@@ -150,6 +153,10 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     return mapOutcome(outcome, wireRecordDocument);
   }
 
+  readMany(paths: readonly string[], options: ReadManyOptions = {}): Promise<ConnectOutcome<ReadManyResult<Frontmatter>, CollectionQueryProblemCode>> {
+    return queryReadMany((input, requestOptions) => this.queryAll(input, requestOptions), paths, options, this.requestTimeoutMs);
+  }
+
   async query(
     input: QueryInput = {},
     options?: ConnectRequestOptions
@@ -203,6 +210,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
       for await (const outcome of this.queryPages(input, {
         firstPageSize: options.firstPageSize,
         pageSize: options.pageSize,
+        maxResults: options.maxResults,
         signal: budget.signal,
         pageTimeoutMs: null,
         coordination: options.coordination,
@@ -217,11 +225,14 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
       if (budget.signal.aborted) throw requestAbortReason(budget.signal);
       return connectSuccess({
         results,
-        meta: {
-          totalCount: finalPage?.meta?.totalCount ?? results.length,
-          hasMore: finalPage ? !finalPage.complete : false,
-          ...(finalPage?.snapshot ? { snapshot: finalPage.snapshot } : {})
-        }
+        ...(finalPage ? { meta: {
+          ...(finalPage.meta?.totalCount === undefined
+            ? (!finalPage.meta?.hasMore ? { totalCount: results.length } : {})
+            : { totalCount: finalPage.meta.totalCount }),
+          ...(finalPage.meta?.hasMore && finalPage.meta.totalCountOutcome ? { totalCountOutcome: finalPage.meta.totalCountOutcome } : {}),
+          hasMore: finalPage.meta?.hasMore ?? false,
+          ...(finalPage.snapshot ? { snapshot: finalPage.snapshot } : {})
+        } } : {})
       }, diagnostics);
     } catch (error) {
       if (error instanceof MdbaseConnectError) {

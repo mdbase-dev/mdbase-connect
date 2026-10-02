@@ -639,7 +639,19 @@ Large hosted pages may omit `meta.totalCount` and return
 so page latency is not coupled to a collection-wide count. `meta.hasMore` and the
 opaque cursor remain authoritative for paging. `queryAll()` reports the exact
 number of returned records after it has intentionally consumed the complete
-sequence.
+sequence (unless an explicit `maxResults` cap ends it early).
+
+`queryPages()`, `queryAll()` and `executeViewPages()` accept `maxResults` as an
+opt-in total cap; `limit` remains a page-size fallback. `pageSize` sets the initial
+cursor size unless `firstPageSize` overrides it; cursor continuations use that
+pinned size. Abort releases even a paused iterator's cursor without needing
+`return()`. `readMany(paths, { includeBody, frontmatterMode, types })` provides
+ordered found/missing/error entries over bounded independent path-query batches.
+It has **no authoritative revisions today**; keep `read()` for editing revisions.
+`linksTo(field, path)` builds a guarded server-side `asFile()` predicate (use
+`{multiple: true}` for a link list), not a client resolver. See
+[query helper contracts and consumer migration notes](../../docs/sdk-query-helpers.md).
+
 `preflightRename()` and `preflightDelete()` run the canonical collection
 operation without changing records or advancing the change cursor, so an app
 can show authoritative reference impact before asking for confirmation.

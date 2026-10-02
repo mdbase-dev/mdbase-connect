@@ -218,6 +218,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   /** Editable record sessions shared by every view of this connection. */
   readonly records: MdbaseRecords<Frontmatter>;
   readonly people: MdbasePeopleClient;
+  readonly readMany: MdbaseCollectionClient<Frontmatter>["readMany"];
   private readonly connectionListeners = new Set<(connection: MdbaseConnectionInfo | null) => void>();
 
   constructor(
@@ -269,6 +270,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       operation: (operation, input, requestOptions) =>
         this.transport.performOperation(operation, input, requestOptions)
     }, internals.timeouts.requestMs), internals.timeouts.requestMs);
+    this.readMany = this.collectionClient.readMany.bind(this.collectionClient);
     this.notifications = new ConnectionNotifications({
       serverUrl: internals.serverUrl,
       storage: internals.storage,

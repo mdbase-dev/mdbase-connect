@@ -79,6 +79,41 @@ export interface QueryRecord<Frontmatter extends JsonObject = JsonObject> {
   contract?: DataContractViewIdentity;
 }
 
+/** Query-shaped batched record today; a future authority may supply a revision. */
+export interface ReadManyRecord<Frontmatter extends JsonObject = JsonObject> extends QueryRecord<Frontmatter> {
+  /** Absent on current query authorities. Never synthesized from timestamps or content. */
+  revision?: string;
+}
+
+export interface ReadManyOptions extends ConnectRequestOptions {
+  includeBody?: boolean;
+  frontmatterMode?: QueryInput["frontmatterMode"];
+  /** Restrict matching records to these raw collection types, not a contract view. */
+  types?: string[];
+  /** Unique paths per independent query, default 100; range 1..1,000. */
+  batchSize?: number;
+  /** Independent batches in flight, default 4; range 1..4. Cursor pages stay serial. */
+  concurrency?: number;
+}
+
+export type ReadManyEntry<Frontmatter extends JsonObject = JsonObject> =
+  | { status: "found"; path: string; record: ReadManyRecord<Frontmatter> }
+  | { status: "missing"; path: string }
+  | { status: "error"; path: string; batch: number };
+
+export interface ReadManyBatchError {
+  batch: number;
+  paths: string[];
+  failure: import("./outcomes.js").ConnectFailure<import("./outcomes.js").CollectionQueryProblemCode>;
+}
+
+export interface ReadManyResult<Frontmatter extends JsonObject = JsonObject> {
+  /** One entry per input path, in input order, including duplicates. */
+  results: ReadManyEntry<Frontmatter>[];
+  /** A failed batch is not proof of missing records; its entries are errors. */
+  errors: ReadManyBatchError[];
+}
+
 export interface RecordDocument<Frontmatter extends JsonObject = JsonObject> {
   path: string;
   revision: string;
@@ -209,10 +244,12 @@ export interface QueryResult<Record extends JsonObject = JsonObject> {
 }
 
 export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
-  /** Initial page size. Cursor authorities pin this size for the query lifetime. */
+  /** Initial page size. Cursor continuations use this pinned size. */
   firstPageSize?: number;
-  /** Also sets the initial size unless firstPageSize is explicit; authorities may cap it. */
+  /** Initial cursor size (default 200), unless firstPageSize is set. Offset continuations use this size (default 1,000). Authorities may cap it. */
   pageSize?: number;
+  /** Total rows to deliver, not a page size. Zero makes no data requests. */
+  maxResults?: number;
   signal?: AbortSignal;
   /** Independent budget for each page requested by this caller-driven iterator. */
   pageTimeoutMs?: number | null;
@@ -222,10 +259,12 @@ export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
 
 export interface QueryAllOptions<Record extends JsonObject = JsonObject>
   extends ConnectRequestOptions {
-  /** Initial page size. Cursor authorities pin this size for the query lifetime. */
+  /** Initial page size. Cursor continuations use this pinned size. */
   firstPageSize?: number;
-  /** Also sets the initial size unless firstPageSize is explicit; authorities may cap it. */
+  /** Initial cursor size (default 200), unless firstPageSize is set. Offset continuations use this size (default 1,000). Authorities may cap it. */
   pageSize?: number;
+  /** Total rows to return, independent of page size. */
+  maxResults?: number;
   onProgress?: (page: QueryPage<Record>) => void;
 }
 
@@ -438,8 +477,12 @@ export interface ExecuteViewInput {
 }
 
 export interface SavedViewPagesOptions<Frontmatter extends JsonObject = JsonObject> {
+  /** Initial page size, pinned for cursor continuations. */
   firstPageSize?: number;
+  /** Initial cursor size (default 200), unless firstPageSize is set. Offset continuations use this size (default 1,000). Authorities may cap it. */
   pageSize?: number;
+  /** Total rows to deliver, not a page size. Zero makes no data requests. */
+  maxResults?: number;
   signal?: AbortSignal;
   /** Independent budget for each page requested by this caller-driven iterator. */
   pageTimeoutMs?: number | null;

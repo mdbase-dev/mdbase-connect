@@ -530,7 +530,6 @@ describe("provider-neutral collection client", () => {
         input: {
           path: "views/tasks.base",
           view: "all",
-          limit: 2,
           cursor: "saved-view-page-2"
         }
       },
@@ -782,7 +781,7 @@ describe("provider-neutral collection client", () => {
     });
     expect(calls).toEqual([
       { limit: 256, offset: 0, pagination: "cursor" },
-      { cursor: "next", limit: 256 },
+      { cursor: "next" },
       { release_cursor: "next" }
     ]);
     await vi.advanceTimersByTimeAsync(2_000);
