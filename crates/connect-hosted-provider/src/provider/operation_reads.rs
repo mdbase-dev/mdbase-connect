@@ -437,6 +437,8 @@ impl HostedProvider {
         let batch = input
             .get("paths")
             .map(|_| {
+                serde_json::from_value::<mdbase_connect_protocol::ReadInput>(input.clone())
+                    .map_err(|error| ApiError::bad_request("invalid_request", error.to_string()))?;
                 mdbase::api::ReadManyRequest::parse(input)
                     .map_err(|message| ApiError::bad_request("invalid_request", message))
             })

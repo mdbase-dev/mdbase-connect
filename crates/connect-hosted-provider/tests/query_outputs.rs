@@ -100,6 +100,10 @@ async fn hosted_revisioned_documents_and_metadata_qualify_all_query_paths() {
             let narrow = operation("query", query).await;
             assert_eq!(normal["valid"], true, "{normal}");
             assert_eq!(narrow["valid"], true, "{narrow}");
+            serde_json::from_value::<mdbase_connect_protocol::QueryMetadataResult>(
+                narrow["result"].clone(),
+            )
+            .unwrap();
             assert_eq!(narrow["result"]["output"], "metadata");
             let a = normal["result"]["results"].as_array().unwrap();
             let b = narrow["result"]["results"].as_array().unwrap();
@@ -127,6 +131,10 @@ async fn hosted_revisioned_documents_and_metadata_qualify_all_query_paths() {
         json!({"paths":["a.md","missing.md","a.md"],"include_document":true}),
     )
     .await;
+    serde_json::from_value::<mdbase_connect_protocol::ReadManyDocumentsResult>(
+        batch["result"].clone(),
+    )
+    .unwrap();
     assert_eq!(batch["valid"], true, "{batch}");
     assert_eq!(batch["result"]["items"][0], batch["result"]["items"][2]);
     assert_eq!(batch["result"]["items"][1]["status"], "missing");

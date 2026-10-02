@@ -312,6 +312,13 @@ fn engine_collection_setup(
     })
 }
 
+const _: () = {
+    assert!(mdbase_connect_protocol::MAX_READ_MANY_PATHS == mdbase::api::READ_MANY_MAX_PATHS);
+    assert!(
+        mdbase_connect_protocol::MAX_READ_MANY_RESPONSE_BYTES == mdbase::api::READ_MANY_MAX_BYTES
+    );
+};
+
 pub(super) fn runtime_operation_request(
     operation: &str,
     input: &Value,
@@ -320,6 +327,13 @@ pub(super) fn runtime_operation_request(
         .parse::<mdbase::runtime::OperationKind>()
         .map_err(|_| ConnectError::UnsupportedOperation(operation.to_string()))?;
     let input = match operation {
+        "read" if input.get("paths").is_some() => {
+            // The protocol owns the closed transport shape; mdbase-rs owns
+            // canonical path validation and the document-batch semantics.
+            serde_json::from_value::<mdbase_connect_protocol::ReadInput>(input.clone())
+                .map_err(|error| ConnectError::InvalidInput(error.to_string()))?;
+            input.clone()
+        }
         "assess_collection_setup" => {
             let request = serde_json::from_value::<AssessCollectionSetupInput>(input.clone())
                 .map_err(|error| {

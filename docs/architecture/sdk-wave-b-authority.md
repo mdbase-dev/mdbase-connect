@@ -35,9 +35,15 @@ storage inputs, binds cursors and transports the canonical result.
   These additions do not narrow collection authorization.
 
 Wire types, SDK overloads, old-authority fallbacks and B1 discovery are owned by
-`wb-protocol`; qualification is coordinated in `sdk-review/fleet/WIRE.md`. Do not
-infer capabilities from failed requests. Only qualified **v0.3** native producers
-may advertise `query-record-revisions-v1`, `read-many-documents-v1`, and
+`wb-protocol`; qualification is coordinated in `sdk-review/fleet/WIRE.md`. The
+canonical wire commit `c40fc15d` is adopted; batch input is checked against its
+closed `ReadInput` before engine semantics, and producer tests decode its batch
+and metadata results. Local **v0.3 descriptions** advertise the qualified native
+features below; v0.2 descriptions omit them. Hosted advertisement remains off
+until the guarded PostgreSQL integration test passes (disposable Docker startup
+is currently blocked). File-page feature publication remains the files owner's
+integration boundary. Do not infer capabilities from failed requests. Only
+qualified **v0.3** native producers may advertise `query-record-revisions-v1`, `read-many-documents-v1`, and
 `query-metadata-v1`. v0.2 compatibility rejects the new request modes.
 
 ## Release and rollback: projection 9 / hosted plan 13
@@ -52,6 +58,9 @@ may advertise `query-record-revisions-v1`, `read-many-documents-v1`, and
    workflow, after predecessor provider/indexer processes stop serving. New
    generations activate atomically. No SQL schema migration, record rewriting,
    key rotation or control-plane payload migration is introduced by B3/B2.
+   This refers to hosted SQL: private local SQLite file caches gain a
+   `source_revision` column, and legacy empty-token rows are reindexed before
+   revision-bearing query execution. Older engines can ignore that extra column.
 3. During transition, existing online-v1 behavior bypasses an incompatible active
    generation for exact fallback. A write unbinds an incompatible generation
    rather than maintaining it with the wrong engine; existing generation data is

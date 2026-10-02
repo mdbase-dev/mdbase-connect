@@ -9,6 +9,18 @@ fn revisioned_documents_and_metadata_rows_use_the_shared_engine() {
         .create(parent.path().join("notes"), Some("Notes"), "UTC")
         .unwrap();
     let scope = GrantScope::full_collection();
+    assert_eq!(
+        registry
+            .describe(collection.id)
+            .unwrap()
+            .authority_capabilities
+            .unwrap(),
+        [
+            "query-record-revisions-v1",
+            "read-many-documents-v1",
+            "query-metadata-v1"
+        ]
+    );
     let created = registry.operation(collection.id,"create",&json!({"path":"a.md","frontmatter":{"title":"One","unused":"wide"},"body":"Body 🦀\n"})).unwrap();
     let query = registry
         .scoped_operation(
@@ -18,6 +30,14 @@ fn revisioned_documents_and_metadata_rows_use_the_shared_engine() {
             &scope,
         )
         .unwrap();
+    let decoded = serde_json::from_value::<mdbase_connect_protocol::QueryMetadataResult>(
+        query["result"].clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        decoded.output,
+        mdbase_connect_protocol::QueryMetadataOutput::Metadata
+    );
     assert_eq!(query["result"]["output"], "metadata");
     let row = &query["result"]["results"][0];
     assert_eq!(
@@ -38,6 +58,13 @@ fn revisioned_documents_and_metadata_rows_use_the_shared_engine() {
             &scope,
         )
         .unwrap();
+    let decoded = serde_json::from_value::<mdbase_connect_protocol::ReadManyDocumentsResult>(
+        batch["result"].clone(),
+    )
+    .unwrap();
+    assert!(
+        matches!(&decoded.items[0], mdbase_connect_protocol::ReadManyDocumentItem::Found { record, .. } if record.body.as_deref() == Some("Body 🦀\n"))
+    );
     assert_eq!(batch["valid"], true);
     assert_eq!(batch["result"]["items"][0], batch["result"]["items"][2]);
     assert_eq!(
@@ -63,6 +90,16 @@ fn revisioned_documents_and_metadata_rows_use_the_shared_engine() {
     assert!(omitted["result"]["items"][0]["record"]
         .get("document")
         .is_none());
+    for input in [
+        json!({"paths":["a.md"],"extra":true}),
+        json!({"paths":["a.md"],"path":"a.md"}),
+        json!({"paths":["a.md"],"include_body":null}),
+    ] {
+        assert!(registry.operation(collection.id, "read", &input).is_err());
+        assert!(registry
+            .scoped_operation(collection.id, "read", &input, &scope)
+            .is_err());
+    }
     let invalid = registry
         .operation(
             collection.id,
@@ -71,6 +108,31 @@ fn revisioned_documents_and_metadata_rows_use_the_shared_engine() {
         )
         .unwrap();
     assert_eq!(invalid["valid"], false);
+}
+
+#[test]
+fn legacy_authorities_do_not_advertise_or_silently_accept_new_shapes() {
+    let state = tempdir().unwrap();
+    let root = tempdir().unwrap();
+    fs::write(root.path().join("mdbase.yaml"), "spec_version: 0.2.0\n").unwrap();
+    fs::write(root.path().join("a.md"), "---\ntitle: Old\n---\nBody\n").unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry.add(root.path()).unwrap();
+    assert!(registry
+        .describe(collection.id)
+        .unwrap()
+        .authority_capabilities
+        .is_none());
+    for (operation, input) in [
+        ("query", json!({"output":"metadata"})),
+        ("read", json!({"paths":["a.md"]})),
+        ("read", json!({"path":"a.md", "paths":["a.md"]})),
+    ] {
+        let result = registry
+            .operation(collection.id, operation, &input)
+            .unwrap();
+        assert_eq!(result["valid"], false, "{result}");
+    }
 }
 
 #[test]
