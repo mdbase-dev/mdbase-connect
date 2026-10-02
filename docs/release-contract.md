@@ -168,6 +168,117 @@ main commit through the same checks. Do not publish an arbitrary old branch or
 replace an existing backend tag. If the backend-facing inputs changed meanwhile,
 stop for coordinated release review.
 
+## Consumer SDK canary (before version tag and ops preparation)
+
+`consumer-canary.yml` directly checks out the public `main` branches of
+`callumalpass/tasknotes-app`, `mdbase-dev/mdbase-writer`, and
+`mdbase-dev/mdbase-reader`. All three are publicly readable across organization
+boundaries; no new secret, GitHub App, reusable workflow, dispatch receiver, or
+cross-repository write permission is needed. Checkout credentials are not
+persisted and consumer jobs have read-only permissions, no deployment secrets,
+and no production mutation. If a consumer becomes private, stop and review a
+read-only GitHub App installation token; do not silently skip it.
+
+For every coordinated SDK release, **before creating its version tag or
+accepting the ops preparation PR**:
+
+1. Let full Server CI qualify the exact version-prepared candidate on `main`.
+2. Dispatch the canary from that exact candidate ref (normally `main`, only
+   while it still resolves to that SHA):
+
+   ```sh
+   gh workflow run consumer-canary.yml --repo mdbase-dev/mdbase-connect --ref main
+   ```
+
+3. Require a successful **Consumer canary gate** for that exact SHA. Retain the
+   run ID/attempt and all three `consumer-canary-*` reports. Use the existing
+   `scripts/ci/verify-qualified-commit "$candidate_sha"` with
+   `GITHUB_REPOSITORY=mdbase-dev/mdbase-connect` and a `GITHUB_OUTPUT` file to
+   obtain `artifact_run_id`, then run:
+
+   ```sh
+   GITHUB_REPOSITORY=mdbase-dev/mdbase-connect \
+     scripts/ci/verify-consumer-canary "$candidate_sha" "$artifact_run_id"
+   ```
+
+   The verifier rejects PR/advisory runs, incomplete/failed/cancelled runs,
+   mismatched candidate/artifact identities, missing reports, and different
+   tarball bytes. Requalification that changes the package-producing run ID
+   requires a new canary. `publish-npm.yml` repeats this check before publication;
+   there is no skip input. A failed canary requires a reviewed SDK or consumer
+   correction and another exact run, not an emergency patch in the canary.
+
+Release dispatches download `qualified-npm-packages` through the same full
+qualification verifier and `artifact_run_id` used by npm publication; they do
+not rebuild or test already-published npm versions. PRs touching `packages/client`
+(and canary implementation files) build/pack once and run the same suites as an
+**advisory** check. Do not make this check required for ordinary PRs during the
+initial rollout, and never use its synthetic-merge result as release evidence.
+The release dispatch and publication check are strict regardless of that PR
+branch-protection choice. No workflow creates a tag or deploys a consumer.
+
+`scripts/ci/consumer-canary.mjs CONSUMER DISPOSABLE_CHECKOUT TARBALL_DIRECTORY`
+requires a clean disposable checkout, installs the consumer's locked tooling,
+replaces direct and transitive `@mdbase-dev/*` pins with `file:` tarballs, removes
+SDK patches from both pnpm configuration locations, and checks the resulting
+lockfile for non-candidate SDK resolution. Other dependencies and patches remain
+locked. Each report records the consumer's actual full commit, candidate package
+version and SHA-256 hashes; the workflow adds the SDK commit and qualification,
+artifact and canary run identities. The suites are:
+
+- TaskNotes: run its deterministic
+  `src/cloud/startup-reconciliation.test.ts` regression with Vitest, then
+  `build:e2e` and `test:e2e --project=desktop` against its local built preview.
+  The regression forces the #557 supersession race; the browser assertion alone
+  is timing-sensitive and can pass a broken SDK. This is
+  `production-smoke.yml`'s desktop lane, including
+  `e2e/cloud-connection.spec.ts`'s ordinary encrypted relay startup test that
+  caught #537/#557. Its live production HTTP checks are not candidate SDK tests
+  and are not substituted for this browser lane.
+- Writer: start its Vite dev server on loopback port 5320, then
+  `apps/writer`'s `test:browser` (`browser-test.mjs` and
+  `browser-reliability-test.mjs`), using the isolated `?demo` collection. Set
+  `CHROME` to the installed Playwright browser, overriding the current
+  workstation-specific reliability-suite default.
+- Reader: start its Vite dev server on loopback port 5193, then
+  `apps/reader`'s `test:browser` (`scripts/audit-reader.mjs`) with
+  `READER_AUDIT_ORIGIN` set to that origin. Its fixture/source routes require a
+  dev server, not a production preview. This compatibility check does not
+  authorize Reader's semantic-v2 enablement or change its rollout exclusion.
+
+These are consumer-owned isolated browser fixtures, not LAB or a live daemon;
+no Docker or production collection is required. For a focused local TaskNotes
+reproduction, append `--grep 'opens an ordinary relay collection without requiring
+hosted sync'` and use `CANARY_PORT=54273` if the default port is occupied;
+release workflow runs never narrow the desktop suite.
+
+### Coordinator follow-ups and consumer ownership
+
+No consumer workflow addition is required for this direct-checkout design. Keep
+these entry points runnable without deployment credentials. Precisely:
+
+- TaskNotes: retain the desktop project, its ordinary-relay startup assertion
+  in `e2e/cloud-connection.spec.ts`, and the deterministic cancellation/error
+  distinction in `src/cloud/startup-reconciliation.test.ts` (already present
+  after its emergency-patch commit). No new workflow receiver is needed.
+- Writer: preferably replace the hardcoded `/home/calluma/...` fallback in
+  `apps/writer/scripts/browser-reliability-test.mjs` with
+  `chromium.launch({ executablePath: process.env.CHROME })`, matching
+  `browser-test.mjs`. The canary's `CHROME` setting makes this non-blocking.
+- Reader: retain `apps/reader/package.json`'s `test:browser` entry point and
+  loopback `READER_AUDIT_ORIGIN` support; no new receiver is needed.
+- All consumers: remove their beta.123 emergency `@mdbase-dev/connect` pnpm
+  patches on the normal upgrade past beta.123. The canary removes these only in
+  its disposable checkout so a patch cannot mask a broken release candidate.
+- Private ops coordinator: add the exact-SHA/package-run verifier above to the
+  guarded preparation workflow **before generating/accepting the release PR**,
+  and record the canary run ID/attempt with preparation evidence. That private
+  workflow change is outside this repository. Until it lands, the release owner
+  must enforce the pre-tag/preparation command; npm publication is already
+  machine-enforced here. GitHub cannot prohibit a human creating a tag using a
+  workflow check alone. No repository settings or new secrets are required for
+  the initial optional-PR rollout.
+
 ## Public client release publication
 
 The explicitly dispatched `desktop-release.yml` workflow owns the public desktop
@@ -193,7 +304,8 @@ For coordinated client releases (including Editor deployments from version
 tags), and for semantic-v2 enablement, use this order:
 
 1. Qualify the exact candidate with full Server CI and retain the build-once
-   signed image bundle. Create the matching immutable annotated version tag;
+   signed image bundle. Require the exact qualified-package consumer canary
+   described above before creating the matching immutable annotated version tag;
    ops preparation still requires that tag. Tag creation publishes no npm,
    desktop release/feed, or production Editor.
 2. Prepare and promote those signed digests through the existing guarded ops
