@@ -1,6 +1,7 @@
 import document from "./person-setup.pack.json?raw";
 import { afterEach, expect, it, vi } from "vitest";
-import { loadPersonSetup } from "./person-setup";
+import type { CollectionContractImplementationDescriptor } from "@mdbase-dev/connect";
+import { loadPersonSetup, outdatedPersonStarter } from "./person-setup";
 
 const bytes = new TextEncoder().encode(document);
 afterEach(() => vi.unstubAllGlobals());
@@ -15,6 +16,12 @@ it("loads the exact SHA-pinned canonical People/Contact provision without a cata
   expect(provision.manifest.resources.filter(({ kind }) => kind === "type").map(({ target }) => target)).toEqual(["_types/person.md"]);
   const person = provision.resources.find(({ source }) => source === "types/person/3.md")?.document;
   expect(person).toContain("no first/last-name split is required");
+  // Settings offers the reviewed upgrade only to older starters at the bundled seed's path.
+  const version = Number(/^version: (\d+)$/m.exec(person!)?.[1]);
+  const starter = (typeVersion: number, typePath = "_types/person.md") => [{ typeName: "person", typeVersion, typePath, digest: "", fields: {} }] as CollectionContractImplementationDescriptor[];
+  expect(outdatedPersonStarter(starter(version - 1))).toBeDefined();
+  expect(outdatedPersonStarter(starter(version))).toBeUndefined();
+  expect(outdatedPersonStarter(starter(version - 1, "_types/people.md"))).toBeUndefined();
   // Collections record a note's type under settings.explicit_type_keys, which need
   // not be `type`; the Person starter must neither declare nor require it.
   expect(person).toContain("    required: [name]\n");

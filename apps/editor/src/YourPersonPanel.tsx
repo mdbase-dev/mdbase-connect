@@ -4,7 +4,7 @@ import type { CollectionGateway, CreateNoteInput } from "./model";
 import { NewNoteComposer } from "./NewNoteComposer";
 import { claimedByAnotherAccount, contactCandidates, contactPersonPatch, identityPatch, newPersonProperties, personImplementations, writablePersonImplementation, type ContactCandidate } from "./person-records";
 
-import { loadPersonSetup, requireAdditivePersonSetup } from "./person-setup";
+import { loadPersonSetup, outdatedPersonStarter, requireGuidedPersonSetup } from "./person-setup";
 import { Select } from "@mdbase-dev/ui/select";
 import { CaretRightIcon as ChevronRight } from "./icons";
 
@@ -32,7 +32,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   // The grant predates People consent or the optional identity permission was declined.
   const [identityDenied, setIdentityDenied] = useState(false);
   const [revision, setRevision] = useState(0);
-  const [setup, setSetup] = useState<{ provision: TypePackProvision; assessment: TypePackAssessment; controller: AbortController }>();
+  const [setup, setSetup] = useState<{ provision: TypePackProvision; assessment: TypePackAssessment; upgrade?: ReturnType<typeof requireGuidedPersonSetup>["upgrade"]; controller: AbortController }>();
   const setupPanel = useRef<HTMLElement>(null);
   const setupButton = useRef<HTMLButtonElement>(null);
   const wasReviewing = useRef(false);
@@ -45,6 +45,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   const lifecycle = useRef<AbortController | null>(null);
   const implementations = personImplementations(description).filter((candidate) => ["name", "identities"].every((field) => candidate.fields[field] || candidate.fields[`/${field}`]));
   const implementation = implementations.find((candidate) => candidate.typeName === typeName) ?? implementations[0];
+  const outdatedStarter = canInstall ? outdatedPersonStarter(implementations) : undefined;
   const identity = directory?.account;
   const records = directory?.people;
   const linked = directory?.me.status === "linked" ? directory.me.person : undefined;
@@ -103,8 +104,8 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       const assessment = await gateway.assessTypePack(provision);
       if (controller.signal.aborted) return;
       assertCurrent();
-      requireAdditivePersonSetup(assessment);
-      setSetup({ provision, assessment, controller });
+      const { upgrade } = requireGuidedPersonSetup(provision, assessment);
+      setSetup({ provision, assessment, upgrade, controller });
     } catch (reason) {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not review person setup.");
     } finally { setBusy(false); }
@@ -216,14 +217,24 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       {selectedIsClaimed && <p className="settings-note settings-warning" role={confirmClaimed ? "alert" : undefined}>This record is already linked to another account. Linking it to yours means you will both see its assignments as your own. Only continue if this record really represents you.</p>}
       {conversion && <div className="settings-review" role="region" aria-label="Review contact conversion"><p>This changes only <code>{conversion.path}</code> to the <strong>{conversion.typeName}</strong> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed.</p><details className="settings-details"><summary><span>Review fields to write</span><ChevronRight aria-hidden="true" /></summary><pre>{JSON.stringify(conversion.patch, null, 2)}</pre></details><div className="settings-review-actions"><button className="settings-secondary-action" type="button" disabled={busy || !canEdit} onClick={() => void convertContact()}>Convert and link this contact</button><button className="settings-quiet-action" type="button" disabled={busy} onClick={() => setConversion(undefined)}>Cancel conversion</button></div></div>}
       {!canEdit && <p className="settings-note">Ask a collection editor to link your person record.</p>}
-      {implementations.length === 0 && <>
-        <div className="setting-row"><div><h3>Person definitions needed</h3><p>This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval.</p></div>{!setup && <button ref={setupButton} className="settings-secondary-action" type="button" disabled={busy || !canInstall || !onRefreshDescription} onClick={() => void reviewSetup()}>{busy ? "Checking person setup…" : "Set up person records"}</button>}</div>
+      {(implementations.length === 0 || outdatedStarter) && <>
+        <div className="setting-row">{implementations.length === 0
+          ? <div><h3>Person definitions needed</h3><p>This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval.</p></div>
+          : <div><h3>Person type update available</h3><p>The <strong>{outdatedStarter!.typeName}</strong> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval.</p></div>}
+          {!setup && <button ref={setupButton} className="settings-secondary-action" type="button" disabled={busy || !canInstall || !onRefreshDescription} onClick={() => void reviewSetup()}>{busy ? "Checking person setup…" : implementations.length === 0 ? "Set up person records" : "Review Person type update"}</button>}</div>
         {!canInstall && <p className="settings-note">Adding definitions requires permission to manage this collection's types.</p>}
         {setup && <section ref={setupPanel} className="settings-review" tabIndex={-1} aria-label="Review person setup">
-          <h3>Allow person records in this collection?</h3>
-          <p>Add one Person type, with optional contact details, and its supporting definitions. Existing notes, customized definitions, and access permissions will not be changed.</p>
-          <details className="settings-details"><summary><span>Review definition files</span><ChevronRight aria-hidden="true" /></summary><ul className="settings-list">{setup.assessment.resources.map((resource) => <li key={resource.target}>{resource.action}: <code>{resource.target}</code></li>)}<li>{setup.assessment.lock.action}: <code>{setup.assessment.lock.target}</code> (setup receipt)</li></ul></details>
-          <div className="settings-review-actions"><button className="settings-secondary-action" type="button" disabled={busy || !canInstall} onClick={() => void approveSetup()}>{busy ? "Adding definitions…" : "Add definitions and continue"}</button><button className="settings-quiet-action" type="button" disabled={busy} onClick={() => setSetup(undefined)}>Not now</button></div>
+          {setup.upgrade ? <>
+            <h3>Update the Person type?</h3>
+            <p>Upgrade <code>{setup.upgrade.target}</code> to the current Person starter. {setup.upgrade.merged
+              ? "Your edits to this type are kept; only the starter's own changes are merged in."
+              : "It has not been edited since it was added, so it is replaced with the new starter."} Existing notes, other definitions, and access permissions will not be changed.</p>
+          </> : <>
+            <h3>Allow person records in this collection?</h3>
+            <p>Add one Person type, with optional contact details, and its supporting definitions. Existing notes, customized definitions, and access permissions will not be changed.</p>
+          </>}
+          <details className="settings-details"><summary><span>Review definition files</span><ChevronRight aria-hidden="true" /></summary><ul className="settings-list">{setup.assessment.resources.map((resource) => <li key={resource.target}>{resource.target === setup.upgrade?.target ? "upgrade" : resource.action}: <code>{resource.target}</code></li>)}<li>{setup.assessment.lock.action}: <code>{setup.assessment.lock.target}</code> (setup receipt)</li></ul></details>
+          <div className="settings-review-actions"><button className="settings-secondary-action" type="button" disabled={busy || !canInstall} onClick={() => void approveSetup()}>{busy ? (setup.upgrade ? "Updating definitions…" : "Adding definitions…") : setup.upgrade ? "Update definitions and continue" : "Add definitions and continue"}</button><button className="settings-quiet-action" type="button" disabled={busy} onClick={() => setSetup(undefined)}>Not now</button></div>
         </section>}
       </>}
       {implementations.length > 0 && !creating && (canCreate || (canEdit && implementations.length > 1)) && <div className="setting-row person-choice"><div><h3>{canCreate ? "New person record" : "Person type"}</h3><p>{canCreate ? "Create a note for yourself, starting from your account name." : "The type used when linking a record to you."}</p></div><div className="setting-controls">{implementations.length > 1 && <Select aria-label="Person type" value={implementation?.typeName ?? ""} options={implementations.map((item) => ({ value: item.typeName, label: item.typeName }))} onChange={(next) => { setTypeName(next); setConversion(undefined); }} />}{canCreate && <button className="settings-secondary-action" type="button" onClick={() => setCreating(true)}>Create my person record</button>}</div></div>}

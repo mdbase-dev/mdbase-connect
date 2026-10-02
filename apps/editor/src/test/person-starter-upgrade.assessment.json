@@ -1,0 +1,402 @@
+{
+  "unedited": {
+    "status": "upgrade",
+    "applicable": true,
+    "assessmentDigest": "sha256:43970fddacb2bed6c9007587ef27bb72b734e55da867cf2c576f5082dd11579d",
+    "current": {
+      "id": "mdbase.contact",
+      "version": "1.2.0",
+      "digest": "sha256:486280774dc8e18f28cd314cc6fe3336ed9b923224050fa4dd76a34b0f157249",
+      "installedBy": "dev.mdbase.editor",
+      "resources": [
+        {
+          "source": "schemas/mdbase.person/1.0.0.schema.json",
+          "target": "schemas/mdbase.person/1.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:3254afaa98c895e84fdc0aba299e67a0f3b594681c5581313ece5fcf4e2c6d93"
+        },
+        {
+          "source": "contracts/mdbase.person/1.0.0.md",
+          "target": "_contracts/mdbase.person/1.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:e2a9435ad01a2c06c151bf6af62a9d04aa30faa8e6128e4b5fe39378c767465c"
+        },
+        {
+          "source": "schemas/mdbase.person/2.0.0.schema.json",
+          "target": "schemas/mdbase.person/2.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:f9705e5869a2814086b907323749f63dce60de535728d6725601f02901ae60ac"
+        },
+        {
+          "source": "contracts/mdbase.person/2.0.0.md",
+          "target": "_contracts/mdbase.person/2.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:2899b149b1602bd4e51ff8e87c82dc92da3f690f4e89b1a6caf5b2b555540fe5"
+        },
+        {
+          "source": "schemas/mdbase.contact/1.0.0.schema.json",
+          "target": "schemas/mdbase.contact/1.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:bd8a011d18c71164b633f4e82cb33faa5b658cdba4f89312a34c13bf46a350d2"
+        },
+        {
+          "source": "contracts/mdbase.contact/1.0.0.md",
+          "target": "_contracts/mdbase.contact/1.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:e3634a35737ada5eb62e3e15f1c0c9d2e27c55a3f98dfab94bbc14c40404903d"
+        },
+        {
+          "source": "types/person/2.md",
+          "target": "_types/person.md",
+          "kind": "type",
+          "mode": "seed",
+          "digest": "sha256:aa81c2964285ecc69fcb96bca4b6ae80bbddeb648908d840d7c7be50df15b362"
+        }
+      ]
+    },
+    "desired": {
+      "id": "mdbase.contact",
+      "version": "1.3.0",
+      "digest": "sha256:5f1e399c1802c89bd0ac14f49570ce9ce70a9cb2fe6e396551bfab2a93b970b4",
+      "installedBy": "dev.mdbase.editor",
+      "resources": [
+        {
+          "source": "schemas/mdbase.person/1.0.0.schema.json",
+          "target": "schemas/mdbase.person/1.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:3254afaa98c895e84fdc0aba299e67a0f3b594681c5581313ece5fcf4e2c6d93"
+        },
+        {
+          "source": "contracts/mdbase.person/1.0.0.md",
+          "target": "_contracts/mdbase.person/1.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:e2a9435ad01a2c06c151bf6af62a9d04aa30faa8e6128e4b5fe39378c767465c"
+        },
+        {
+          "source": "schemas/mdbase.person/2.0.0.schema.json",
+          "target": "schemas/mdbase.person/2.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:f9705e5869a2814086b907323749f63dce60de535728d6725601f02901ae60ac"
+        },
+        {
+          "source": "contracts/mdbase.person/2.0.0.md",
+          "target": "_contracts/mdbase.person/2.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:2899b149b1602bd4e51ff8e87c82dc92da3f690f4e89b1a6caf5b2b555540fe5"
+        },
+        {
+          "source": "schemas/mdbase.contact/1.0.0.schema.json",
+          "target": "schemas/mdbase.contact/1.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:bd8a011d18c71164b633f4e82cb33faa5b658cdba4f89312a34c13bf46a350d2"
+        },
+        {
+          "source": "contracts/mdbase.contact/1.0.0.md",
+          "target": "_contracts/mdbase.contact/1.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:e3634a35737ada5eb62e3e15f1c0c9d2e27c55a3f98dfab94bbc14c40404903d"
+        },
+        {
+          "source": "types/person/3.md",
+          "target": "_types/person.md",
+          "kind": "type",
+          "mode": "seed",
+          "digest": "sha256:e74ebbce6c67e195a52d005c29ad63f93ae044800a857d33fb3bbc73135adb72"
+        }
+      ]
+    },
+    "resources": [
+      {
+        "source": "schemas/mdbase.person/1.0.0.schema.json",
+        "target": "schemas/mdbase.person/1.0.0.schema.json",
+        "kind": "schema",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:3254afaa98c895e84fdc0aba299e67a0f3b594681c5581313ece5fcf4e2c6d93",
+        "currentDigest": "sha256:3254afaa98c895e84fdc0aba299e67a0f3b594681c5581313ece5fcf4e2c6d93",
+        "installedDigest": "sha256:3254afaa98c895e84fdc0aba299e67a0f3b594681c5581313ece5fcf4e2c6d93"
+      },
+      {
+        "source": "contracts/mdbase.person/1.0.0.md",
+        "target": "_contracts/mdbase.person/1.0.0.md",
+        "kind": "contract",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:e2a9435ad01a2c06c151bf6af62a9d04aa30faa8e6128e4b5fe39378c767465c",
+        "currentDigest": "sha256:e2a9435ad01a2c06c151bf6af62a9d04aa30faa8e6128e4b5fe39378c767465c",
+        "installedDigest": "sha256:e2a9435ad01a2c06c151bf6af62a9d04aa30faa8e6128e4b5fe39378c767465c"
+      },
+      {
+        "source": "schemas/mdbase.person/2.0.0.schema.json",
+        "target": "schemas/mdbase.person/2.0.0.schema.json",
+        "kind": "schema",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:f9705e5869a2814086b907323749f63dce60de535728d6725601f02901ae60ac",
+        "currentDigest": "sha256:f9705e5869a2814086b907323749f63dce60de535728d6725601f02901ae60ac",
+        "installedDigest": "sha256:f9705e5869a2814086b907323749f63dce60de535728d6725601f02901ae60ac"
+      },
+      {
+        "source": "contracts/mdbase.person/2.0.0.md",
+        "target": "_contracts/mdbase.person/2.0.0.md",
+        "kind": "contract",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:2899b149b1602bd4e51ff8e87c82dc92da3f690f4e89b1a6caf5b2b555540fe5",
+        "currentDigest": "sha256:2899b149b1602bd4e51ff8e87c82dc92da3f690f4e89b1a6caf5b2b555540fe5",
+        "installedDigest": "sha256:2899b149b1602bd4e51ff8e87c82dc92da3f690f4e89b1a6caf5b2b555540fe5"
+      },
+      {
+        "source": "schemas/mdbase.contact/1.0.0.schema.json",
+        "target": "schemas/mdbase.contact/1.0.0.schema.json",
+        "kind": "schema",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:bd8a011d18c71164b633f4e82cb33faa5b658cdba4f89312a34c13bf46a350d2",
+        "currentDigest": "sha256:bd8a011d18c71164b633f4e82cb33faa5b658cdba4f89312a34c13bf46a350d2",
+        "installedDigest": "sha256:bd8a011d18c71164b633f4e82cb33faa5b658cdba4f89312a34c13bf46a350d2"
+      },
+      {
+        "source": "contracts/mdbase.contact/1.0.0.md",
+        "target": "_contracts/mdbase.contact/1.0.0.md",
+        "kind": "contract",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:e3634a35737ada5eb62e3e15f1c0c9d2e27c55a3f98dfab94bbc14c40404903d",
+        "currentDigest": "sha256:e3634a35737ada5eb62e3e15f1c0c9d2e27c55a3f98dfab94bbc14c40404903d",
+        "installedDigest": "sha256:e3634a35737ada5eb62e3e15f1c0c9d2e27c55a3f98dfab94bbc14c40404903d"
+      },
+      {
+        "source": "types/person/3.md",
+        "target": "_types/person.md",
+        "kind": "type",
+        "mode": "seed",
+        "action": "update",
+        "digest": "sha256:35ac054e30e2f5c22c2af19e821ea4477e714741f8763e32e778cb4139ed6c37",
+        "currentDigest": "sha256:aa81c2964285ecc69fcb96bca4b6ae80bbddeb648908d840d7c7be50df15b362",
+        "installedDigest": "sha256:aa81c2964285ecc69fcb96bca4b6ae80bbddeb648908d840d7c7be50df15b362"
+      }
+    ],
+    "lock": {
+      "action": "update",
+      "digest": "sha256:cfaf68f3e5f3efa4a8edd7be7c9a791e868f52aa5aa5db2d19de1b7ea37e7ece",
+      "target": "mdbase.lock.yaml"
+    },
+    "contractSetups": {
+      "choices": [],
+      "resources": []
+    }
+  },
+  "merged": {
+    "status": "upgrade",
+    "applicable": true,
+    "assessmentDigest": "sha256:77846d4fa09cd09d7432690240f2213c2a372aa88c4351aed824b531f8dab54a",
+    "current": {
+      "id": "mdbase.contact",
+      "version": "1.2.0",
+      "digest": "sha256:486280774dc8e18f28cd314cc6fe3336ed9b923224050fa4dd76a34b0f157249",
+      "installedBy": "dev.mdbase.editor",
+      "resources": [
+        {
+          "source": "schemas/mdbase.person/1.0.0.schema.json",
+          "target": "schemas/mdbase.person/1.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:3254afaa98c895e84fdc0aba299e67a0f3b594681c5581313ece5fcf4e2c6d93"
+        },
+        {
+          "source": "contracts/mdbase.person/1.0.0.md",
+          "target": "_contracts/mdbase.person/1.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:e2a9435ad01a2c06c151bf6af62a9d04aa30faa8e6128e4b5fe39378c767465c"
+        },
+        {
+          "source": "schemas/mdbase.person/2.0.0.schema.json",
+          "target": "schemas/mdbase.person/2.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:f9705e5869a2814086b907323749f63dce60de535728d6725601f02901ae60ac"
+        },
+        {
+          "source": "contracts/mdbase.person/2.0.0.md",
+          "target": "_contracts/mdbase.person/2.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:2899b149b1602bd4e51ff8e87c82dc92da3f690f4e89b1a6caf5b2b555540fe5"
+        },
+        {
+          "source": "schemas/mdbase.contact/1.0.0.schema.json",
+          "target": "schemas/mdbase.contact/1.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:bd8a011d18c71164b633f4e82cb33faa5b658cdba4f89312a34c13bf46a350d2"
+        },
+        {
+          "source": "contracts/mdbase.contact/1.0.0.md",
+          "target": "_contracts/mdbase.contact/1.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:e3634a35737ada5eb62e3e15f1c0c9d2e27c55a3f98dfab94bbc14c40404903d"
+        },
+        {
+          "source": "types/person/2.md",
+          "target": "_types/person.md",
+          "kind": "type",
+          "mode": "seed",
+          "digest": "sha256:aa81c2964285ecc69fcb96bca4b6ae80bbddeb648908d840d7c7be50df15b362"
+        }
+      ]
+    },
+    "desired": {
+      "id": "mdbase.contact",
+      "version": "1.3.0",
+      "digest": "sha256:5f1e399c1802c89bd0ac14f49570ce9ce70a9cb2fe6e396551bfab2a93b970b4",
+      "installedBy": "dev.mdbase.editor",
+      "resources": [
+        {
+          "source": "schemas/mdbase.person/1.0.0.schema.json",
+          "target": "schemas/mdbase.person/1.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:3254afaa98c895e84fdc0aba299e67a0f3b594681c5581313ece5fcf4e2c6d93"
+        },
+        {
+          "source": "contracts/mdbase.person/1.0.0.md",
+          "target": "_contracts/mdbase.person/1.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:e2a9435ad01a2c06c151bf6af62a9d04aa30faa8e6128e4b5fe39378c767465c"
+        },
+        {
+          "source": "schemas/mdbase.person/2.0.0.schema.json",
+          "target": "schemas/mdbase.person/2.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:f9705e5869a2814086b907323749f63dce60de535728d6725601f02901ae60ac"
+        },
+        {
+          "source": "contracts/mdbase.person/2.0.0.md",
+          "target": "_contracts/mdbase.person/2.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:2899b149b1602bd4e51ff8e87c82dc92da3f690f4e89b1a6caf5b2b555540fe5"
+        },
+        {
+          "source": "schemas/mdbase.contact/1.0.0.schema.json",
+          "target": "schemas/mdbase.contact/1.0.0.schema.json",
+          "kind": "schema",
+          "mode": "managed",
+          "digest": "sha256:bd8a011d18c71164b633f4e82cb33faa5b658cdba4f89312a34c13bf46a350d2"
+        },
+        {
+          "source": "contracts/mdbase.contact/1.0.0.md",
+          "target": "_contracts/mdbase.contact/1.0.0.md",
+          "kind": "contract",
+          "mode": "managed",
+          "digest": "sha256:e3634a35737ada5eb62e3e15f1c0c9d2e27c55a3f98dfab94bbc14c40404903d"
+        },
+        {
+          "source": "types/person/3.md",
+          "target": "_types/person.md",
+          "kind": "type",
+          "mode": "seed",
+          "digest": "sha256:e74ebbce6c67e195a52d005c29ad63f93ae044800a857d33fb3bbc73135adb72"
+        }
+      ]
+    },
+    "resources": [
+      {
+        "source": "schemas/mdbase.person/1.0.0.schema.json",
+        "target": "schemas/mdbase.person/1.0.0.schema.json",
+        "kind": "schema",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:3254afaa98c895e84fdc0aba299e67a0f3b594681c5581313ece5fcf4e2c6d93",
+        "currentDigest": "sha256:3254afaa98c895e84fdc0aba299e67a0f3b594681c5581313ece5fcf4e2c6d93",
+        "installedDigest": "sha256:3254afaa98c895e84fdc0aba299e67a0f3b594681c5581313ece5fcf4e2c6d93"
+      },
+      {
+        "source": "contracts/mdbase.person/1.0.0.md",
+        "target": "_contracts/mdbase.person/1.0.0.md",
+        "kind": "contract",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:e2a9435ad01a2c06c151bf6af62a9d04aa30faa8e6128e4b5fe39378c767465c",
+        "currentDigest": "sha256:e2a9435ad01a2c06c151bf6af62a9d04aa30faa8e6128e4b5fe39378c767465c",
+        "installedDigest": "sha256:e2a9435ad01a2c06c151bf6af62a9d04aa30faa8e6128e4b5fe39378c767465c"
+      },
+      {
+        "source": "schemas/mdbase.person/2.0.0.schema.json",
+        "target": "schemas/mdbase.person/2.0.0.schema.json",
+        "kind": "schema",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:f9705e5869a2814086b907323749f63dce60de535728d6725601f02901ae60ac",
+        "currentDigest": "sha256:f9705e5869a2814086b907323749f63dce60de535728d6725601f02901ae60ac",
+        "installedDigest": "sha256:f9705e5869a2814086b907323749f63dce60de535728d6725601f02901ae60ac"
+      },
+      {
+        "source": "contracts/mdbase.person/2.0.0.md",
+        "target": "_contracts/mdbase.person/2.0.0.md",
+        "kind": "contract",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:2899b149b1602bd4e51ff8e87c82dc92da3f690f4e89b1a6caf5b2b555540fe5",
+        "currentDigest": "sha256:2899b149b1602bd4e51ff8e87c82dc92da3f690f4e89b1a6caf5b2b555540fe5",
+        "installedDigest": "sha256:2899b149b1602bd4e51ff8e87c82dc92da3f690f4e89b1a6caf5b2b555540fe5"
+      },
+      {
+        "source": "schemas/mdbase.contact/1.0.0.schema.json",
+        "target": "schemas/mdbase.contact/1.0.0.schema.json",
+        "kind": "schema",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:bd8a011d18c71164b633f4e82cb33faa5b658cdba4f89312a34c13bf46a350d2",
+        "currentDigest": "sha256:bd8a011d18c71164b633f4e82cb33faa5b658cdba4f89312a34c13bf46a350d2",
+        "installedDigest": "sha256:bd8a011d18c71164b633f4e82cb33faa5b658cdba4f89312a34c13bf46a350d2"
+      },
+      {
+        "source": "contracts/mdbase.contact/1.0.0.md",
+        "target": "_contracts/mdbase.contact/1.0.0.md",
+        "kind": "contract",
+        "mode": "managed",
+        "action": "unchanged",
+        "digest": "sha256:e3634a35737ada5eb62e3e15f1c0c9d2e27c55a3f98dfab94bbc14c40404903d",
+        "currentDigest": "sha256:e3634a35737ada5eb62e3e15f1c0c9d2e27c55a3f98dfab94bbc14c40404903d",
+        "installedDigest": "sha256:e3634a35737ada5eb62e3e15f1c0c9d2e27c55a3f98dfab94bbc14c40404903d"
+      },
+      {
+        "source": "types/person/3.md",
+        "target": "_types/person.md",
+        "kind": "type",
+        "mode": "seed",
+        "action": "update",
+        "digest": "sha256:0d6734dd763d1b4836ec9f45664bf10998eb35a696c62efcdc24ab0ac43f4259",
+        "currentDigest": "sha256:717ce99eb0dd296d96b956e907b780b8adef0d5dc896115aec213e9eb33a52ef",
+        "installedDigest": "sha256:aa81c2964285ecc69fcb96bca4b6ae80bbddeb648908d840d7c7be50df15b362"
+      }
+    ],
+    "lock": {
+      "action": "update",
+      "digest": "sha256:cfaf68f3e5f3efa4a8edd7be7c9a791e868f52aa5aa5db2d19de1b7ea37e7ece",
+      "target": "mdbase.lock.yaml"
+    },
+    "contractSetups": {
+      "choices": [],
+      "resources": []
+    }
+  }
+}
