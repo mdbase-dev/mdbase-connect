@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="The adopted motion system for the mdbase Frontmatter mark.">
   <title>mdbase icon motion system</title>
-  <link rel="stylesheet" href="../../packages/ui/motion.css">
+  <link rel="stylesheet" href="../../packages/app-ui/css/tokens.css">
+  <link rel="stylesheet" href="../../packages/app-ui/css/brand.css">
+  <link rel="stylesheet" href="../../packages/app-ui/css/motion.css">
   <script>
     (() => {
       const saved = localStorage.getItem("mdbase:theme");
@@ -282,46 +284,87 @@
   <main>
     <section class="intro">
       <h1>Motion with a job.</h1>
-      <p>Four adopted behaviors for the Frontmatter mark. They identify mdbase while clarifying opening, structural preparation, or active machine work; they never replace status text.</p>
+      <p>The Frontmatter mark loops while work runs, plays an entrance when it first appears, reacts once when a write succeeds or fails, and fills with known progress. It never replaces status text.</p>
+      <p>Apps rarely set these directly. <code>AppSwitcher</code> reads the page-wide store in <code>@mdbase-dev/ui/mark-activity</code>, <code>SaveNotice</code> reports saves and problems to it, and apps call <code>trackMdbaseMarkProgress</code>, <code>signalMdbaseMark</code> or <code>holdMdbaseMarkBusy</code> for work that has no notice.</p>
     </section>
 
     <table class="usage">
       <thead><tr><th>Motion</th><th>Approved use</th><th>Production integration</th></tr></thead>
       <tbody>
-        <tr><td>Trace → conveyor</td><td>Initial Connect and portal bootstrap loading.</td><td><code>motion="bootstrap"</code></td></tr>
-        <tr><td>Unfold</td><td>Opening a collection in the editor.</td><td><code>motion="unfold"</code></td></tr>
-        <tr><td>Field rebalance</td><td>Preparing a real type-contract setup.</td><td><code>motion="rebalance"</code></td></tr>
-        <tr><td>Gap conveyor</td><td>Indeterminate machine work with no meaningful progress count.</td><td><code>motion="conveyor"</code></td></tr>
+        <tr><td>Orbit</td><td>Connect and portal loading.</td><td><code>motion="orbit"</code></td></tr>
+        <tr><td>Scan</td><td>Opening a collection (the shared OpeningScreen).</td><td><code>motion="scan"</code></td></tr>
+        <tr><td>Bounce</td><td>A save still running after 600ms; busy portal forms.</td><td><code>motion="bounce"</code></td></tr>
+        <tr><td>Stream</td><td>Sync and export in progress; connecting an application.</td><td><code>motion="stream"</code></td></tr>
+        <tr><td>Sort</td><td>Preparing structure: onboarding, type setup for an application.</td><td><code>motion="sort"</code></td></tr>
+        <tr><td>Hop</td><td>Available; no production use yet.</td><td><code>motion="hop"</code></td></tr>
+        <tr><td>Keys first</td><td>The app switcher's first appearance on a page.</td><td><code>motion="keys-first"</code></td></tr>
+        <tr><td>Drop</td><td>Portal sign-in and sign-up pages.</td><td><code>motion="drop"</code></td></tr>
+        <tr><td>Assemble</td><td>The connect screen before a collection is open.</td><td><code>motion="assemble"</code></td></tr>
+        <tr><td>Saved</td><td>A save, upload or other write the person made completes.</td><td><code>signal kind="saved"</code></td></tr>
+        <tr><td>Error</td><td>A write fails or a problem appears.</td><td><code>signal kind="error"</code></td></tr>
+        <tr><td>Progress</td><td>Uploads, imports, bulk updates and reading a large collection, whenever the total is known.</td><td><code>progress={0..1}</code></td></tr>
       </tbody>
     </table>
 
     <section class="studies" aria-label="Adopted motion previews">
       <article class="study">
-        <button class="stage" type="button" data-motion="bootstrap" aria-label="Replay trace into gap conveyor"></button>
-        <div class="study-copy"><h2>Trace → gap conveyor</h2><p>The record draws once in reading order. If loading continues, the fixed fence bounds become a continuous conveyor while the key-value rows remain stable.</p><code>720ms trace · conveyor begins at 1.12s · 900ms linear loop</code></div>
+        <button class="stage" type="button" data-motion="orbit" aria-label="Replay orbit"></button>
+        <div class="study-copy"><h2>Orbit</h2><p>The fences run in opposite directions, so the mark reads as turning.</p><code>1.3s · linear loop</code></div>
       </article>
       <article class="study">
-        <button class="stage" type="button" data-motion="unfold" aria-label="Replay unfold"></button>
-        <div class="study-copy"><h2>Unfold</h2><p>The frontmatter fences open to reveal the two structured rows. This runs once when the editor opens a collection.</p><code>760ms · ease-out · one shot</code></div>
+        <button class="stage" type="button" data-motion="scan" aria-label="Replay scan"></button>
+        <div class="study-copy"><h2>Scan</h2><p>A brightness band reads the record line by line.</p><code>1.6s · staggered loop</code></div>
       </article>
       <article class="study">
-        <button class="stage" type="button" data-motion="rebalance" aria-label="Replay field rebalance"></button>
-        <div class="study-copy"><h2>Field rebalance</h2><p>The upper divider moves right while the lower divider moves left. Both row bounds and both 8px gaps remain exact.</p><code>1.8s · opposing structure loop</code></div>
+        <button class="stage" type="button" data-motion="bounce" aria-label="Replay bounce"></button>
+        <div class="study-copy"><h2>Bounce</h2><p>The fence dashes hop like a typing indicator, the bottom fence mirrored.</p><code>1.2s · staggered loop</code></div>
       </article>
       <article class="study">
-        <button class="stage" type="button" data-motion="conveyor" aria-label="Replay gap conveyor"></button>
-        <div class="study-copy"><h2>Gap conveyor</h2><p>Repeated fence segments travel left beneath two exact 76 × 10 clips. Nothing overflows the canonical fence bounds.</p><code>900ms · linear · continuous only while work is active</code></div>
+        <button class="stage" type="button" data-motion="stream" aria-label="Replay stream"></button>
+        <div class="study-copy"><h2>Stream</h2><p>Records leave on the left and arrive from the right while the fences hold.</p><code>2.2s · loop, rows clipped to the frame</code></div>
+      </article>
+      <article class="study">
+        <button class="stage" type="button" data-motion="sort" aria-label="Replay sort"></button>
+        <div class="study-copy"><h2>Sort</h2><p>The two fields swap places, one passing behind the other.</p><code>3s · loop</code></div>
+      </article>
+      <article class="study">
+        <button class="stage" type="button" data-motion="hop" aria-label="Replay hop"></button>
+        <div class="study-copy"><h2>Hop</h2><p>The highlight moves from one value to the other and back.</p><code>2.6s · loop</code></div>
+      </article>
+      <article class="study">
+        <button class="stage" type="button" data-motion="keys-first" aria-label="Replay keys first"></button>
+        <div class="study-copy"><h2>Keys first</h2><p>The fences open from their middle dash, keys appear, values extend, and the highlight lands last.</p><code>about 1.2s · once</code></div>
+      </article>
+      <article class="study">
+        <button class="stage" type="button" data-motion="drop" aria-label="Replay drop"></button>
+        <div class="study-copy"><h2>Drop</h2><p>Segments fall into place in reading order with a little overshoot.</p><code>about 1s · once</code></div>
+      </article>
+      <article class="study">
+        <button class="stage" type="button" data-motion="assemble" aria-label="Replay assemble"></button>
+        <div class="study-copy"><h2>Assemble</h2><p>Scattered pieces settle into the record.</p><code>about 1.2s · once</code></div>
+      </article>
+      <article class="study">
+        <button class="stage" type="button" data-motion="signal:saved" aria-label="Replay saved"></button>
+        <div class="study-copy"><h2>Saved</h2><p>The fences press in and the highlight flashes success while it stretches.</p><code>640ms · one shot, signal</code></div>
+      </article>
+      <article class="study">
+        <button class="stage" type="button" data-motion="signal:error" aria-label="Replay error"></button>
+        <div class="study-copy"><h2>Error</h2><p>The fields shake once and the highlight turns to danger before recovering.</p><code>520ms shake, 1.4s colour · one shot, signal</code></div>
+      </article>
+      <article class="study">
+        <button class="stage" type="button" data-motion="progress" aria-label="Replay progress"></button>
+        <div class="study-copy"><h2>Progress</h2><p>Each line fills in reading order over a faint copy of the mark.</p><code>follows the operation · prop</code></div>
       </article>
     </section>
 
     <footer>
-      <p>Use the static mark for errors, completion, connection health, approval, revocation, routine saves, and any reduced-motion preference.</p>
-      <p>The previews load <code>packages/ui/motion.css</code>, the same motion implementation used by the product.</p>
+      <p>Hovering the app switcher runs one wave through a resting mark. With reduced motion everything holds still, except that an error keeps its danger colour.</p>
+      <p>The previews load <code>packages/app-ui/css</code>, the same styles the product uses. Click a preview to replay it.</p>
     </footer>
   </main>
 
   <script>
-    const xs = [-6, 22, 50, 78, 106];
+    const orbitXs = [-34, -6, 22, 50, 78, 106];
     const segments = [
       [22, 22, 20, 10], [50, 22, 20, 10], [78, 22, 20, 10],
       [22, 44, 12, 10], [42, 44, 56, 10],
@@ -331,24 +374,49 @@
 
     function rect([x, y, width, height], index) {
       const tone = index === 4 ? "mdbase-mark-accent" : "mdbase-mark-ink";
-      return `<rect class="mdbase-mark-segment mdbase-mark-segment-${index + 1} ${tone}" x="${x}" y="${y}" width="${width}" height="${height}" pathLength="1"/>`;
+      return `<rect class="mdbase-mark-segment mdbase-mark-segment-${index + 1} ${tone}" x="${x}" y="${y}" width="${width}" height="${height}"/>`;
     }
 
+    function lines(clip) {
+      const rows = `<g class="mdbase-mark-row mdbase-mark-row-top">${segments.slice(3, 5).map((value, index) => rect(value, index + 3)).join("")}</g>
+        <g class="mdbase-mark-row mdbase-mark-row-bottom">${segments.slice(5, 7).map((value, index) => rect(value, index + 5)).join("")}</g>`;
+      return `<g class="mdbase-mark-fence mdbase-mark-fence-top">${segments.slice(0, 3).map((value, index) => rect(value, index)).join("")}</g>
+        ${clip ? `<g clip-path="url(#${clip})">${rows}</g>` : rows}
+        <g class="mdbase-mark-fence mdbase-mark-fence-bottom">${segments.slice(7).map((value, index) => rect(value, index + 7)).join("")}</g>`;
+    }
+
+    // Mirrors MdbaseMark in packages/app-ui/src/brand.tsx.
     function mark(motion, id) {
-      const conveyor = xs.flatMap((x) => [22, 88].map((y) => `<rect x="${x}" y="${y}" width="20" height="10"/>`)).join("");
-      return `<svg class="mdbase-motion-mark mdbase-motion-${motion}" viewBox="18 18 84 84" aria-hidden="true" focusable="false">
-        <defs><clipPath id="fences-${id}"><rect x="22" y="22" width="76" height="10"/><rect x="22" y="88" width="76" height="10"/></clipPath></defs>
-        <g class="mdbase-mark-fence mdbase-mark-fence-top">${segments.slice(0, 3).map((value, index) => rect(value, index)).join("")}</g>
-        <g class="mdbase-mark-row mdbase-mark-row-top">${segments.slice(3, 5).map((value, index) => rect(value, index + 3)).join("")}</g>
-        <g class="mdbase-mark-row mdbase-mark-row-bottom">${segments.slice(5, 7).map((value, index) => rect(value, index + 5)).join("")}</g>
-        <g class="mdbase-mark-fence mdbase-mark-fence-bottom">${segments.slice(7).map((value, index) => rect(value, index + 7)).join("")}</g>
-        <g clip-path="url(#fences-${id})"><g class="mdbase-mark-conveyor-track">${conveyor}</g></g>
-      </svg>`;
+      if (motion === "progress") {
+        return `<svg class="mdbase-mark mdbase-motion-mark mdbase-mark-progress" viewBox="18 18 84 84" aria-hidden="true" focusable="false">
+          <defs><clipPath id="progress-${id}">${[22, 44, 66, 88].map((y) => `<rect class="mdbase-mark-progress-fill" x="22" y="${y - 1}" height="12" style="width:0px"/>`).join("")}</clipPath></defs>
+          <g class="mdbase-mark-progress-ghost">${lines()}</g><g clip-path="url(#progress-${id})">${lines()}</g></svg>`;
+      }
+      const name = motion.startsWith("signal:") ? `mdbase-signal-${motion.slice(7)}` : `mdbase-motion-${motion}`;
+      const defs = motion === "stream" ? `<clipPath id="rows-${id}"><rect x="22" y="40" width="76" height="40"/></clipPath>`
+        : motion === "orbit" ? `<clipPath id="top-${id}"><rect x="22" y="22" width="76" height="10"/></clipPath><clipPath id="bottom-${id}"><rect x="22" y="88" width="76" height="10"/></clipPath>` : "";
+      const tracks = motion !== "orbit" ? "" : ["top", "bottom"].map((side) => `<g clip-path="url(#${side}-${id})"><g class="mdbase-mark-track mdbase-mark-track-${side}">${orbitXs.map((x) => `<rect x="${x}" y="${side === "top" ? 22 : 88}" width="20" height="10"/>`).join("")}</g></g>`).join("");
+      return `<svg class="mdbase-mark mdbase-motion-mark ${name}" viewBox="18 18 84 84" aria-hidden="true" focusable="false">
+        <defs>${defs}</defs>${lines(motion === "stream" ? `rows-${id}` : "")}${tracks}</svg>`;
+    }
+
+    // Progress previews fill over 2.4s, the way an upload reports.
+    function runProgress(stage) {
+      const fills = [...stage.querySelectorAll(".mdbase-mark-progress-fill")];
+      const started = performance.now();
+      const step = (now) => {
+        if (!stage.isConnected || !stage.contains(fills[0])) return;
+        const done = Math.min(1, (now - started) / 2400);
+        fills.forEach((fill, line) => { fill.style.width = `${76 * Math.min(1, Math.max(0, done * 4 - line))}px`; });
+        if (done < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
     }
 
     const stages = [...document.querySelectorAll("[data-motion]")];
     function renderStage(stage, index) {
       stage.innerHTML = mark(stage.dataset.motion, index);
+      if (stage.dataset.motion === "progress") runProgress(stage);
     }
     stages.forEach(renderStage);
     stages.forEach((stage, index) => stage.addEventListener("click", () => renderStage(stage, index)));

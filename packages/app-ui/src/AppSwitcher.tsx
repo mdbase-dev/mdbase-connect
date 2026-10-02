@@ -2,11 +2,18 @@ import { useId, useRef, useState, type JSX, type RefObject } from "react";
 
 import { mdbaseAppHref, withAppUrls, type MdbaseApp, type MdbaseAppId } from "./apps.js";
 import { MdbaseAppMark, Wordmark, type MdbaseMarkMotion } from "./brand.js";
+import { useMdbaseMarkActivity } from "./mark-activity.js";
 import { moveMenuFocus, useMenuPopover } from "./popover.js";
+
+/** The switcher plays its entrance once per page, not every time it remounts. */
+let entrancePlayed = false;
 
 /**
  * The product wordmark as a menu for opening the current collection in the other mdbase apps.
  * Each opens in a new tab so the current app stays where it is.
+ *
+ * Its mark shows the page's activity (see `mark-activity`): progress, then a held loop,
+ * then `motion`. Without a `motion` it plays `keys-first` the first time it appears.
  */
 export function AppSwitcher({ current, urls = {}, motion }: {
   readonly current: MdbaseAppId;
@@ -17,6 +24,12 @@ export function AppSwitcher({ current, urls = {}, motion }: {
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const [entrance] = useState<MdbaseMarkMotion | undefined>(() => {
+    if (motion || entrancePlayed || typeof window === "undefined") return undefined;
+    entrancePlayed = true;
+    return "keys-first";
+  });
+  const activity = useMdbaseMarkActivity();
   const close = (refocus: boolean): void => {
     setOpen(false);
     if (refocus) triggerRef.current?.focus();
@@ -39,7 +52,7 @@ export function AppSwitcher({ current, urls = {}, motion }: {
         }
       }}
     >
-      <Wordmark app={current} motion={motion} />
+      <Wordmark app={current} motion={activity.busy ?? motion ?? entrance} signal={activity.signal} progress={activity.progress} />
       <svg className="mdbase-app-switcher-chevron" viewBox="0 0 24 24" aria-hidden="true">
         <path d="m7 10 5 5 5-5" />
       </svg>

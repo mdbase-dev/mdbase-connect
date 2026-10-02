@@ -10,7 +10,7 @@ describe("AppSwitcher", () => {
     expect(markup).toContain('aria-label="mdbase writer: open this collection in another app"');
     expect(markup).toContain('aria-haspopup="menu"');
     expect(markup).toContain('aria-expanded="false"');
-    expect(markup).toContain('class="mdbase-app-mark is-writer wordmark-mark"');
+    expect(markup).toContain('class="mdbase-mark mdbase-app-mark is-writer wordmark-mark mdbase-mark-at-rest"');
     expect(markup).not.toContain('role="menu"');
   });
 });
