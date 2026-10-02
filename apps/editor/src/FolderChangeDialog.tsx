@@ -60,7 +60,7 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
       </div>}
       {progress && busy && <p role="status">Moved {progress.completed} of {progress.total} notes. {progress.path}{progress.detail ? ` — ${progress.detail}` : ""}</p>}
       {result && <div role={result.failures.length ? "alert" : "status"}>
-        <p>{result.moved.toLocaleString()} {result.moved === 1 ? "note moved" : "notes moved"}.{result.failures.length ? ` ${result.failures.length.toLocaleString()} ${result.failures.length === 1 ? "note could" : "notes could"} not move; they remain at their original paths. Successful moves were not rolled back.` : " Links were updated."}</p>
+        <p>{result.moved.toLocaleString()} {result.moved === 1 ? "note moved" : "notes moved"}.{result.failures.length ? ` ${result.failures.length.toLocaleString()} ${result.failures.length === 1 ? "note could" : "notes could"} not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back.` : " Links were updated."}</p>
         {result.failures.length > 0 && <ul>{result.failures.map((failure) => <li key={failure.path}><code>{failure.path}</code>: {failure.message}</li>)}</ul>}
       </div>}
       {error && <p role="alert">{error}</p>}

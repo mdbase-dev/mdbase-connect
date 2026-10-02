@@ -68,7 +68,7 @@ describe("collection-wide folder changes", () => {
     const dialog = await renameFolder(user, "Journal", "Daily");
     await within(dialog).findByRole("button", { name: "Rename folder" });
     await user.click(within(dialog).getByRole("button", { name: "Rename folder" }));
-    await waitFor(() => expect(dialog).toHaveTextContent("2 notes moved. 1 note could not move"));
+    await waitFor(() => expect(dialog).toHaveTextContent("2 notes moved. 1 note could not be confirmed as moved"));
     expect(within(dialog).getByRole("alert")).toHaveTextContent("Journal/garden-notes-2.md: Permission changed");
     expect((await gateway.read("Daily/questions-worth-keeping-7.md")).path).toBe("Daily/questions-worth-keeping-7.md");
     expect((await gateway.read("Journal/garden-notes-2.md")).path).toBe("Journal/garden-notes-2.md");

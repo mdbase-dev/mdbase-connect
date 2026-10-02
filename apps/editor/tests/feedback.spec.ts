@@ -10,6 +10,7 @@ test("form-first feedback is accessible in light/dark and mobile, and sends only
     return route.fulfill({ status: 202, contentType: "application/json", body: '{"ok":true}' });
   });
   await page.goto("?demo=4");
+  await page.getByRole("button", { name: /Switch collection/ }).click();
   await page.getByRole("button", { name: "Send feedback", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Send feedback", exact: true });
   await expect(dialog.getByRole("textbox", { name: /What happened/ })).toBeFocused();
@@ -47,6 +48,7 @@ test("native dialog closes before capture permissions and preserves the draft on
     } });
   });
   await page.goto("?demo=4");
+  await page.getByRole("button", { name: /Switch collection/ }).click();
   await page.getByRole("button", { name: "Send feedback", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Send feedback" });
   await dialog.getByRole("textbox", { name: /What happened/ }).fill("Preserve my draft.");
@@ -73,6 +75,7 @@ test("screenshot redaction flattens opaque pixels and sends only the resulting i
     return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
   });
   await page.goto("?demo=4");
+  await page.getByRole("button", { name: /Switch collection/ }).click();
   await page.getByRole("button", { name: "Send feedback", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Send feedback" });
   const original = await page.evaluate(() => {
