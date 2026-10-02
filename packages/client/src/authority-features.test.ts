@@ -183,6 +183,16 @@ describe("connection-owned authority feature discovery", () => {
     expect(request.mock.calls.map(call => call[0])).toEqual(["describe", native ? "read" : "query"]);
   });
 
+  it("does not borrow the catalog TTL cache as authority feature evidence", async () => {
+    const request = vi.spyOn(ConnectionTransport.prototype, "performOperation")
+      .mockResolvedValueOnce(wireDescription(["read-many-documents-v1"]))
+      .mockResolvedValueOnce(wireDescription());
+    const { connection } = fixture();
+    expect(await connection.describe()).toMatchObject({ ok: true, value: { authorityCapabilities: ["read-many-documents-v1"] } });
+    expect(await connection.supportsAuthorityFeature("read-many-documents-v1")).toMatchObject({ ok: true, value: false });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("never persists discovery or borrows another connection's cached evidence", async () => {
     const request = vi.spyOn(ConnectionTransport.prototype, "performOperation")
       .mockResolvedValueOnce(wireDescription(["query-metadata-v1"]))

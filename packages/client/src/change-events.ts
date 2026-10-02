@@ -8,7 +8,7 @@ import {
   type FileChangePayload
 } from "@mdbase-dev/connect-protocol";
 import type { CollectionChange, CollectionChangesPage, RecordChangeMetadata } from "./operation-types.js";
-import { clientFileDescriptor } from "./file-descriptor.js";
+import { clientFileDescriptor, validFileDescriptor } from "./file-descriptor.js";
 
 const RECORD_FIELDS = Object.entries({
   path: string, from: string, to: string, revision: string, previous_revision: string,
@@ -51,7 +51,7 @@ export function normalizeCollectionChange(raw: WireChange): CollectionChange {
     }
   }
   if (kind === "file.put") {
-    return clientFileDescriptorIsValid(p.file)
+    return validFileDescriptor(p.file)
       ? { ...base, kind, file: clientFileDescriptor(p.file) }
       : unknown("invalid_payload");
   }
@@ -99,11 +99,4 @@ function strings(value: unknown): value is string[] { return Array.isArray(value
 function object(value: unknown): value is JsonObject { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function validFields(value: JsonObject, fields: [string, (value: unknown) => boolean][]): boolean {
   return fields.every(([key, valid]) => value[key] == null || valid(value[key]));
-}
-function clientFileDescriptorIsValid(value: unknown): value is import("@mdbase-dev/connect-protocol").CollectionFileDescriptor {
-  return object(value) && string(value.file_id) && string(value.path) && string(value.revision)
-    && string(value.content_digest) && value.content_digest.startsWith("sha256:")
-    && typeof value.size === "number" && Number.isSafeInteger(value.size) && value.size >= 0
-    && ["image", "audio", "video", "pdf", "other"].includes(value.media_class as string)
-    && string(value.modified_at) && (value.media_type == null || string(value.media_type));
 }

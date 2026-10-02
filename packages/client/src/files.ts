@@ -11,8 +11,8 @@ import type {
   UploadedFilePart
 } from "@mdbase-dev/connect-protocol";
 import { FILE_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
-import { clientFileDescriptor, listFiles, statFile, type FileControlRequest, type CollectionFileDescriptor, type MdbaseFileListOptions, type MdbaseFileStatTarget } from "./file-metadata.js";
-export type { CollectionFileDescriptor, MdbaseFileListOptions, MdbaseFileStatTarget } from "./file-metadata.js";
+import { listFiles, statFile, type FileControlRequest, type MdbaseFileListOptions, type MdbaseFileStatTarget } from "./file-metadata.js";
+export type { MdbaseFileListOptions, MdbaseFileStatTarget } from "./file-metadata.js";
 import { connectSuccess, type ConnectOutcome } from "./outcomes.js";
 import { MdbaseConnectError, connectError } from "./errors.js";
 import { IncrementalSha256 } from "./file-sha256.js";

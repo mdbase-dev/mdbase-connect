@@ -1,25 +1,13 @@
-import type { CollectionFileDescriptor as WireDescriptor, FileCapability, FileStat, ListFilesPage } from "@mdbase-dev/connect-protocol";
+import type { FileCapability, FileStat, ListFilesPage } from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
 import { authorityCapabilities } from "./authority-features.js";
 import { connectError, MdbaseConnectError } from "./errors.js";
-import { normalizeFileError, SHA256_DIGEST, throwIfAborted, validPageSize } from "./file-transfer-internals.js";
+import { normalizeFileError, throwIfAborted, validPageSize } from "./file-transfer-internals.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
 import { ALL_CONNECT_PROBLEM_CODES, captureConnectOutcome, type ConnectOutcome } from "./outcomes.js";
 import { createRequestBudget, withRequestBudget } from "./request-budget.js";
 
-// Match files.v1's UUID format (including nil), not crypto transfer-version rules.
-const FILE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-
-export interface CollectionFileDescriptor {
-  fileId: string;
-  path: string;
-  revision: string;
-  contentDigest: `sha256:${string}`;
-  size: number;
-  mediaType?: string;
-  mediaClass: import("@mdbase-dev/connect-protocol").FileMediaClass;
-  modifiedAt: string;
-}
+import { clientFileDescriptor, FILE_ID, type CollectionFileDescriptor } from "./file-descriptor.js";
 
 export interface MdbaseFileListOptions extends ConnectRequestOptions {
   folder?: string;
@@ -143,22 +131,4 @@ function portableKey(path: string): string {
   // Match Connect's NFC + per-Unicode-scalar lowercase + NFC key, not JS's
   // context-sensitive whole-string lowercase (e.g. Greek final sigma).
   return Array.from(path.normalize("NFC"), scalar => scalar.toLowerCase()).join("").normalize("NFC");
-}
-
-export function clientFileDescriptor(file: WireDescriptor): CollectionFileDescriptor {
-  if (!file || typeof file.file_id !== "string" || !FILE_ID.test(file.file_id)
-      || typeof file.path !== "string" || typeof file.revision !== "string"
-      || typeof file.content_digest !== "string" || !SHA256_DIGEST.test(file.content_digest)
-      || !Number.isSafeInteger(file.size) || file.size < 0
-      || !["image", "audio", "video", "pdf", "other"].includes(file.media_class)
-      || typeof file.modified_at !== "string"
-      || (file.media_type !== undefined && typeof file.media_type !== "string")) {
-    throw connectError("invalid_operation_response", "The authority returned an invalid file descriptor.");
-  }
-  return {
-    fileId: file.file_id, path: file.path, revision: file.revision,
-    contentDigest: file.content_digest, size: file.size,
-    ...(file.media_type ? { mediaType: file.media_type } : {}),
-    mediaClass: file.media_class, modifiedAt: file.modified_at
-  };
 }
