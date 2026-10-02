@@ -8,6 +8,7 @@ import {
   type ConnectOutcome
 } from "./outcomes.js";
 import { withRequestBudget } from "./request-budget.js";
+import { wireCollectionDescription } from "./query-wire.js";
 
 /** One collection's description lifecycle; no background observer or persisted schema state. */
 export class CollectionDescriptionCache {
@@ -49,33 +50,4 @@ export class CollectionDescriptionCache {
       return this.describing;
     }), COLLECTION_DESCRIPTION_PROBLEM_CODES).then((outcome) => outcome.ok ? outcome.value : outcome);
   }
-}
-
-function wireCollectionDescription(value: WireDescription): CollectionDescription {
-  return {
-    protocolVersion: value.protocol_version,
-    collectionId: value.collection_id,
-    displayName: value.display_name,
-    specVersion: value.spec_version,
-    operations: value.operations,
-    changeCursor: value.change_cursor,
-    types: value.types,
-    contracts: value.contracts.map((contract) => ({
-      contractType: contract.contract_type,
-      id: contract.id,
-      version: contract.version,
-      digest: contract.digest,
-      schema: contract.schema,
-      ...(contract.binding_schema ? { bindingSchema: contract.binding_schema } : {}),
-      implementations: contract.implementations.map((implementation) => ({
-        typeName: implementation.type_name,
-        typeVersion: implementation.type_version,
-        ...(implementation.type_path ? { typePath: implementation.type_path } : {}),
-        digest: implementation.digest,
-        fields: implementation.fields,
-        ...(implementation.binding ? { binding: implementation.binding } : {})
-      }))
-    })),
-    ...(value.configuration ? { configuration: value.configuration } : {})
-  };
 }

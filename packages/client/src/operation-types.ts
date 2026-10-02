@@ -71,6 +71,8 @@ export interface DataContractViewIdentity {
 
 export interface QueryRecord<Frontmatter extends JsonObject = JsonObject> {
   path: string;
+  /** Exact-source token when the authority supports query-record-revisions-v1. */
+  revision?: string;
   frontmatter?: Frontmatter;
   effectiveFrontmatter?: Frontmatter;
   body?: string;
@@ -161,6 +163,8 @@ export interface CollectionContractDescriptor {
 }
 
 export interface CollectionDescription {
+  /** Immutable authority implementation features; never a permission claim. */
+  authorityCapabilities?: readonly string[];
   protocolVersion: 1;
   collectionId: string;
   displayName: string;
@@ -198,6 +202,7 @@ export interface QuerySummary {
 
 /** Application-facing form of the canonical mdbase v0.3 query schema. */
 export interface QueryInput {
+  output?: never;
   /**
    * Queries using a semantic contract view accept only `types`, `timezone`,
    * pagination, `frontmatterMode`, and `contract`; filter normalized fields in
@@ -228,8 +233,25 @@ export interface QueryInput {
   contract?: DataContractSelector;
 }
 
-export interface QueryResult<Record extends JsonObject = JsonObject> {
-  results: Array<QueryRecord<Record>>;
+export type QueryMetadataInput = Omit<QueryInput, "output" | "includeBody"> & {
+  output: "metadata";
+  includeBody?: false;
+};
+
+/** Partial metadata is not a record document; revision and selected values are required. */
+export interface QueryMetadataRecord {
+  path: string;
+  types: string[];
+  revision: string;
+  values: JsonObject;
+  contract?: DataContractViewIdentity;
+}
+
+export type QueryMetadataResult = QueryResult<JsonObject, QueryMetadataRecord> & { output: "metadata" };
+export type QueryMetadataPage = QueryPage<JsonObject, QueryMetadataRecord> & { output: "metadata" };
+
+export interface QueryResult<Record extends JsonObject = JsonObject, Row = QueryRecord<Record>> {
+  results: Row[];
   meta?: {
     /** Exact total when it is available within the page summary budget. */
     totalCount?: number;
@@ -245,7 +267,7 @@ export interface QueryResult<Record extends JsonObject = JsonObject> {
   };
 }
 
-export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
+export interface QueryPagesOptions<Record extends JsonObject = JsonObject, Row = QueryRecord<Record>> {
   /** Initial page size. Cursor continuations use this pinned size. */
   firstPageSize?: number;
   /** Initial cursor size (default 200), unless firstPageSize is set. Offset continuations use this size (default 1,000). Authorities may cap it. */
@@ -256,10 +278,10 @@ export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
   /** Independent budget for each page requested by this caller-driven iterator. */
   pageTimeoutMs?: number | null;
   coordination?: RequestCoordinationOptions;
-  onProgress?: (page: QueryPage<Record>) => void;
+  onProgress?: (page: QueryPage<Record, Row>) => void;
 }
 
-export interface QueryAllOptions<Record extends JsonObject = JsonObject>
+export interface QueryAllOptions<Record extends JsonObject = JsonObject, Row = QueryRecord<Record>>
   extends ConnectRequestOptions {
   /** Initial page size. Cursor continuations use this pinned size. */
   firstPageSize?: number;
@@ -267,11 +289,11 @@ export interface QueryAllOptions<Record extends JsonObject = JsonObject>
   pageSize?: number;
   /** Total rows to return, independent of page size. */
   maxResults?: number;
-  onProgress?: (page: QueryPage<Record>) => void;
+  onProgress?: (page: QueryPage<Record, Row>) => void;
 }
 
-export interface QueryPage<Record extends JsonObject = JsonObject> {
-  results: QueryResult<Record>["results"];
+export interface QueryPage<Record extends JsonObject = JsonObject, Row = QueryRecord<Record>> {
+  results: QueryResult<Record, Row>["results"];
   meta?: QueryResult<Record>["meta"];
   page: number;
   offset: number;

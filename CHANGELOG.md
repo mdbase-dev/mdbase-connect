@@ -38,6 +38,16 @@
   use `kind` and typed fields instead of raw-ID heuristics; normalize custom test
   events and pass `fresh: true` when every description must reach the authority.
 
+- The SDK discovers authority-local implementation features through approved
+  descriptions or file listings, sharing in-flight discovery and caching only
+  for the current connection/route lifetime. `files.stat({path}|{fileId})`
+  returns typed metadata/null outcomes with a capability-gated legacy listing
+  fallback. Metadata query output is opt-in and revision-required; unsupported
+  authorities receive no extended requests. Existing query/list callers are
+  unchanged; metadata consumers must retain their ordinary-query branch until
+  minimum-authority, consumer-adoption and rollback gates close. No authority
+  capability is advertised by this SDK change.
+
 - Directory mirrors (`@mdbase-dev/connect-sync`) recover from routine local
   interference without a person: a scoped blocking issue (an obstruction,
   divergent or unreadable file) fences only its own path and connected path

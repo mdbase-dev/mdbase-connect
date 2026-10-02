@@ -1,6 +1,7 @@
 import { MdbasePeopleClient, requestPeople } from "./people-client.js";
 import type {
   CollectionOperation,
+  CollectionDescription as WireCollectionDescription,
   CollectionTypeDocument,
   FileCapability,
   GrantScope,
@@ -17,6 +18,10 @@ import {
   type MdbaseApplicationCapabilityId as ApplicationCapabilityId
 } from "./application-contract.js";
 import { MdbaseCollectionClient } from "./collection-client.js";
+import { AuthorityFeatures, authorityCapabilities } from "./authority-features.js";
+import { filePage } from "./file-metadata.js";
+import { wireCollectionDescription } from "./query-wire.js";
+import { CollectionWatchSubscription } from "./watch-policy.js";
 import {
   ConnectionNotifications
 } from "./connection-notifications.js";
@@ -91,6 +96,10 @@ import type {
   PendingMutation,
   QueryAllOptions,
   QueryInput,
+  QueryMetadataInput,
+  QueryMetadataRecord,
+  QueryMetadataResult,
+  QueryMetadataPage,
   QueryPage,
   QueryPagesOptions,
   QueryResult,
@@ -113,8 +122,7 @@ import type {
   UpdateTypeInput,
   UpdateViewSourceInput,
   MdbaseWatchSubscription,
-  WatchInput,
-  WatchStatus
+  WatchInput
 } from "./operation-types.js";
 import {
   AUTHORIZATION_PROBLEM_CODES,
@@ -215,6 +223,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   private readonly collectionClient: MdbaseCollectionClient<Frontmatter>;
   private readonly notifications: ConnectionNotifications;
   private readonly transport: ConnectionTransport;
+  private readonly authorityFeatures: AuthorityFeatures;
   readonly files: MdbaseFileClient;
   /** Editable record sessions shared by every view of this connection. */
   readonly records: MdbaseRecords<Frontmatter>;
@@ -235,8 +244,34 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       collectionId,
       internals,
       timeouts: internals.timeouts,
-      onChange: () => this.emitConnection()
+      onChange: () => {
+        this.authorityFeatures.refreshLifetime();
+        this.emitConnection();
+      }
     });
+    this.authorityFeatures = new AuthorityFeatures({
+      lifetime: () => {
+        const token = this.transport.currentToken();
+        return JSON.stringify([token?.savedAt, token?.grantId, token?.keyHandle,
+          token?.authority?.operationsUrl, token?.authority?.filesUrl, token?.authority?.replicaId,
+          token?.authority?.proofPublicKey, token?.clientId, token?.applicationOrigin,
+          token?.encryption, token?.scope, token?.operations, token?.fileCapability, this.transport.route]);
+      },
+      operations: () => this.operations,
+      fileCapability: () => this.fileCapability,
+      // Catalog TTL/in-flight loads are not evidence for a new authority route.
+      // B1 owns this authenticated baseline's sharing, deadline and lifetime.
+      describe: async options => {
+        const value = wireCollectionDescription(await this.transport.performOperation<WireCollectionDescription>("describe", {}, options));
+        if (value.collectionId.toLowerCase() !== this.collectionId.toLowerCase()) throw connectError("invalid_operation_response", "The authority described a different collection.");
+        return connectSuccess(value);
+      },
+      filesPage: async (folder, signal) => {
+        const page = await filePage((method, path, input, signal) => this.transport.files.control(method, path, input, signal),
+          new URLSearchParams({ protocol_version: "1", limit: "1", ...(folder ? { folder } : {}) }), signal);
+        return authorityCapabilities(page.authority_capabilities);
+      }
+    }, internals.timeouts.requestMs);
     this.people = new MdbasePeopleClient({
       request: (resource, options) => requestPeople(resource, options ?? {}, {
         serverUrl: internals.serverUrl, collectionId, requestMs: internals.timeouts.requestMs,
@@ -264,13 +299,15 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
             signal
           )
       },
-      internals.timeouts
+      internals.timeouts,
+      (id, options) => this.supportsAuthorityFeature(id, options)
     );
     this.records = new MdbaseRecords(this, (path) => this.transport.pendingUpdate(path));
     this.collectionClient = new MdbaseCollectionClient(new CollectionRequestCoordinator({
       operation: (operation, input, requestOptions) =>
         this.transport.performOperation(operation, input, requestOptions)
-    }, internals.timeouts.requestMs), internals.timeouts.requestMs);
+    }, internals.timeouts.requestMs), internals.timeouts.requestMs,
+      (id, options) => this.supportsAuthorityFeature(id, options));
     this.readMany = this.collectionClient.readMany.bind(this.collectionClient);
     this.notifications = new ConnectionNotifications({
       serverUrl: internals.serverUrl,
@@ -307,6 +344,13 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   get route(): MdbaseConnectionRoute {
     return this.transport.route;
   }
+
+  /** Implementation support for this connection lifetime; not an authorization check. */
+  supportsAuthorityFeature(id: string, options?: ConnectRequestOptions): Promise<ConnectOutcome<boolean>> {
+    return this.authorityFeatures.supports(id, options);
+  }
+
+  get authorityCapabilities(): readonly string[] { return this.authorityFeatures.capabilities; }
 
   register(options?: ConnectRequestOptions): Promise<ConnectOutcome<Application, RegistrationProblemCode>> {
     return captureConnectOutcome(
@@ -423,6 +467,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   }
 
   notifyStorageChanged(): void {
+    this.authorityFeatures.invalidate();
     this.transport.notifyStorageChanged();
   }
 
@@ -558,7 +603,13 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   }
 
   get schemaGeneration(): number { return this.collectionClient.schemaGeneration; }
-  describe(options?: DescribeOptions): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> { return this.collectionClient.describe(options); }
+  async describe(options?: DescribeOptions): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
+    const outcome = await this.collectionClient.describe(options);
+    if (outcome.ok && outcome.value.collectionId.toLowerCase() !== this.collectionId.toLowerCase()) {
+      return connectFailure(connectProblem("invalid_operation_response", "The authority described a different collection."));
+    }
+    return outcome;
+  }
 
   changes(input: ChangesInput = {}, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionChangesPage, CollectionChangesProblemCode>> {
     return this.collectionClient.changes(input, options);
@@ -568,16 +619,26 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.read(input, options);
   }
 
-  query(input: QueryInput = {}, options?: ConnectRequestOptions): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
+  query(input: QueryMetadataInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<QueryMetadataResult, CollectionQueryProblemCode>>;
+  query(input?: QueryInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>>;
+  query(input: QueryInput | QueryMetadataInput = {}, options?: ConnectRequestOptions): Promise<ConnectOutcome<QueryResult<Frontmatter> | QueryMetadataResult, CollectionQueryProblemCode>> {
     return this.collectionClient.query(input, options);
   }
 
-  queryPages(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): AsyncGenerator<ConnectOutcome<QueryPage<Frontmatter>, CollectionQueryProblemCode>> {
-    return this.collectionClient.queryPages(input, options);
+  queryPages(input: QueryMetadataInput, options?: QueryPagesOptions<JsonObject, QueryMetadataRecord>): AsyncGenerator<ConnectOutcome<QueryMetadataPage, CollectionQueryProblemCode>>;
+  queryPages(input?: QueryInput, options?: QueryPagesOptions<Frontmatter>): AsyncGenerator<ConnectOutcome<QueryPage<Frontmatter>, CollectionQueryProblemCode>>;
+  queryPages(input: QueryInput | QueryMetadataInput = {}, options: QueryPagesOptions<Frontmatter> | QueryPagesOptions<JsonObject, QueryMetadataRecord> = {}) {
+    return input.output === "metadata"
+      ? this.collectionClient.queryPages(input, options as QueryPagesOptions<JsonObject, QueryMetadataRecord>)
+      : this.collectionClient.queryPages(input, options as QueryPagesOptions<Frontmatter>);
   }
 
-  queryAll(input: QueryInput = {}, options: QueryAllOptions<Frontmatter> = {}): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
-    return this.collectionClient.queryAll(input, options);
+  queryAll(input: QueryMetadataInput, options?: QueryAllOptions<JsonObject, QueryMetadataRecord>): Promise<ConnectOutcome<QueryMetadataResult, CollectionQueryProblemCode>>;
+  queryAll(input?: QueryInput, options?: QueryAllOptions<Frontmatter>): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>>;
+  queryAll(input: QueryInput | QueryMetadataInput = {}, options: QueryAllOptions<Frontmatter> | QueryAllOptions<JsonObject, QueryMetadataRecord> = {}): Promise<ConnectOutcome<QueryResult<Frontmatter> | QueryMetadataResult, CollectionQueryProblemCode>> {
+    return input.output === "metadata"
+      ? this.collectionClient.queryAll(input, options as QueryAllOptions<JsonObject, QueryMetadataRecord>)
+      : this.collectionClient.queryAll(input, options as QueryAllOptions<Frontmatter>);
   }
 
   listViews(options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewList, CollectionReadProblemCode>> {
@@ -861,7 +922,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
           ));
         }
         return new CollectionWatchSubscription(
-          this.collectionClient,
+          options => this.collectionClient.watch(options),
           initial.value.cursor,
           input,
           input.cursor === undefined ? [] : initial.value.events,
@@ -875,113 +936,6 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   private emitConnection(): void {
     const connection = this.info();
     for (const listener of this.connectionListeners) listener(connection);
-  }
-}
-
-class CollectionWatchSubscription implements MdbaseWatchSubscription {
-  private readonly changes = new Set<(change: CollectionChange) => void>();
-  private readonly statuses = new Set<(status: WatchStatus) => void>();
-  private readonly problems = new Set<(problem: import("@mdbase-dev/connect-protocol").ConnectProblem) => void>();
-  private readonly controller = new AbortController();
-  private removeLifetimeAbort?: () => void;
-  private currentStatus: WatchStatus;
-  private currentProblem: import("@mdbase-dev/connect-protocol").ConnectProblem | null = null;
-  private pendingChanges: CollectionChange[];
-
-  constructor(
-    private readonly client: MdbaseCollectionClient,
-    cursor: number,
-    private readonly input: WatchInput,
-    pendingChanges: CollectionChange[],
-    private readonly watchStartTimeoutMs: number | null
-  ) {
-    this.pendingChanges = [...pendingChanges];
-    this.currentStatus = { state: "connected", cursor, recovered: false };
-    const lifetimeSignal = input.lifetimeSignal;
-    if (lifetimeSignal?.aborted) this.close();
-    else if (lifetimeSignal) {
-      const close = () => this.close();
-      lifetimeSignal.addEventListener("abort", close, { once: true });
-      this.removeLifetimeAbort = () => lifetimeSignal.removeEventListener("abort", close);
-    }
-    if (!this.controller.signal.aborted) void this.run(cursor);
-  }
-
-  get status(): WatchStatus {
-    return this.currentStatus;
-  }
-
-  get problem(): import("@mdbase-dev/connect-protocol").ConnectProblem | null {
-    return this.currentProblem;
-  }
-
-  subscribe(
-    listener: (change: CollectionChange) => void,
-    onStatus?: (status: WatchStatus) => void,
-    onProblem?: (problem: import("@mdbase-dev/connect-protocol").ConnectProblem) => void
-  ): () => void {
-    this.changes.add(listener);
-    if (onStatus) {
-      this.statuses.add(onStatus);
-      onStatus(this.currentStatus);
-    }
-    if (onProblem) {
-      this.problems.add(onProblem);
-      if (this.currentProblem) onProblem(this.currentProblem);
-    }
-    for (const change of this.pendingChanges) listener(change);
-    this.pendingChanges = [];
-    return () => {
-      this.changes.delete(listener);
-      if (onStatus) this.statuses.delete(onStatus);
-      if (onProblem) this.problems.delete(onProblem);
-    };
-  }
-
-  close(): void {
-    if (this.controller.signal.aborted) return;
-    this.controller.abort();
-    this.removeLifetimeAbort?.();
-    this.removeLifetimeAbort = undefined;
-    const cursor = "cursor" in this.currentStatus ? this.currentStatus.cursor : undefined;
-    this.publishStatus({ state: "closed", ...(cursor === undefined ? {} : { cursor }) });
-  }
-
-  private async run(cursor: number): Promise<void> {
-    let firstStatus = true;
-    const iterator = this.client.watch({
-      cursor,
-      pollIntervalMs: this.input.pollIntervalMs,
-      retry: this.input.retry,
-      signal: this.controller.signal,
-      timeoutMs: this.watchStartTimeoutMs,
-      onStatus: (status) => {
-        if (firstStatus && status.state === "connecting") {
-          firstStatus = false;
-          return;
-        }
-        firstStatus = false;
-        this.publishStatus(status);
-      }
-    });
-    try {
-      for await (const outcome of iterator) {
-        if (this.controller.signal.aborted) return;
-        if (!outcome.ok) {
-          this.currentProblem = outcome.problem;
-          for (const listener of this.problems) listener(outcome.problem);
-          return;
-        }
-        for (const listener of this.changes) listener(outcome.value);
-      }
-    } finally {
-      if (!this.controller.signal.aborted) this.close();
-    }
-  }
-
-  private publishStatus(status: WatchStatus): void {
-    this.currentStatus = status;
-    for (const listener of this.statuses) listener(status);
   }
 }
 

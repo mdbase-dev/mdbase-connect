@@ -1,19 +1,19 @@
 import { clientFileDescriptor, type CollectionFileDescriptor } from "./file-descriptor.js";
 export type { CollectionFileDescriptor } from "./file-descriptor.js";
 import type {
-  CollectionFileDescriptor as WireCollectionFileDescriptor,
   CommitFileUploadReceipt,
   DeleteFileReceipt as WireDeleteFileReceipt,
   FileCapability,
   FileTransferSession,
   FileTransferStatus,
-  ListFilesPage,
   MoveFileReceipt,
   PreparedFilePart,
   UploadedFilePart
 } from "@mdbase-dev/connect-protocol";
 import { FILE_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
-import { abortableDelay } from "./async.js";
+import { clientFileDescriptor, listFiles, statFile, type FileControlRequest, type CollectionFileDescriptor, type MdbaseFileListOptions, type MdbaseFileStatTarget } from "./file-metadata.js";
+export type { CollectionFileDescriptor, MdbaseFileListOptions, MdbaseFileStatTarget } from "./file-metadata.js";
+import { connectSuccess, type ConnectOutcome } from "./outcomes.js";
 import { MdbaseConnectError, connectError } from "./errors.js";
 import { IncrementalSha256 } from "./file-sha256.js";
 import { BinaryPartReader } from "./file-stream-source.js";
@@ -36,13 +36,11 @@ import {
   uploadBodyBytes,
   uploadBodyLength,
   validConcurrency,
-  validPageSize,
   type FileSource,
   type UploadPartBody
 } from "./file-transfer-internals.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
 import {
-  createRequestBudget,
   resolveConnectTimeouts,
   type ResolvedConnectTimeouts,
   withCooperativeRequestBudget
@@ -76,13 +74,6 @@ export interface MdbaseFileProgress {
   phase: "hashing" | "uploading" | "downloading";
   transferredBytes: number;
   totalBytes: number;
-}
-
-export interface MdbaseFileListOptions extends ConnectRequestOptions {
-  folder?: string;
-  pageSize?: number;
-  /** Called while a cold or changed collection builds its verified binary index. */
-  onIndexing?: () => void;
 }
 
 export interface MdbaseFileUploadOptions extends ConnectRequestOptions {
@@ -141,66 +132,25 @@ export interface MdbaseHostedFileTransport {
   ): Promise<ReadableStream<Uint8Array>>;
 }
 
-type ControlRequest = <Result>(
-  method: "GET" | "POST" | "DELETE",
-  path?: string,
-  input?: unknown,
-  signal?: AbortSignal
-) => Promise<Result>;
-
 /** Ergonomic facade over resumable, authority-specific file delivery. */
 export class MdbaseFileClient {
   constructor(
     private readonly capability: () => FileCapability | null,
-    private readonly request: ControlRequest,
+    private readonly request: FileControlRequest,
     private readonly framed?: MdbaseFramedFileTransport,
     private readonly hosted?: MdbaseHostedFileTransport,
-    private readonly timeouts: ResolvedConnectTimeouts = resolveConnectTimeouts()
+    private readonly timeouts: ResolvedConnectTimeouts = resolveConnectTimeouts(),
+    private readonly supportsAuthorityFeature: (id: string, options?: ConnectRequestOptions) => Promise<ConnectOutcome<boolean>> = async () => connectSuccess(false)
   ) {}
 
-  async *list(options: MdbaseFileListOptions = {}): AsyncGenerator<CollectionFileDescriptor> {
-    const budget = createRequestBudget(options, this.timeouts.fileIndexMs);
-    const signal = budget.signal;
-    try {
-    this.requireAction("list");
-    let after: string | undefined;
-    do {
-      throwIfAborted(signal);
-      const query = new URLSearchParams({
-        protocol_version: String(FILE_PROTOCOL_VERSION),
-        ...(options.folder ? { folder: options.folder } : {}),
-        ...(after ? { after } : {}),
-        ...(options.pageSize ? { limit: String(validPageSize(options.pageSize)) } : {})
-      });
-      let page: ListFilesPage;
-      while (true) {
-        try {
-          page = await this.request<ListFilesPage>(
-            "GET",
-            `?${query.toString()}`,
-            undefined,
-            signal
-          );
-          break;
-        } catch (error) {
-          const normalized = normalizeFileError(error);
-          if (normalized.code !== "file_index_warming") throw normalized;
-          options.onIndexing?.();
-          await abortableDelay(500, signal);
-        }
-      }
-      if (page.protocol_version !== 1 || page.type !== "files_page" || !Array.isArray(page.files)) {
-        throw connectError("invalid_operation_response", "The authority returned an invalid file page.");
-      }
-      for (const file of page.files) {
-        throwIfAborted(signal);
-        yield clientFileDescriptor(file);
-      }
-      after = page.next;
-    } while (after);
-    } finally {
-      budget.dispose();
-    }
+  list(options: MdbaseFileListOptions = {}): AsyncGenerator<CollectionFileDescriptor> {
+    return listFiles(this.capability, this.request, options, this.timeouts.fileIndexMs);
+  }
+
+  /** Current metadata lookup; requires file list approval, not file byte access. */
+  stat(target: MdbaseFileStatTarget, options: ConnectRequestOptions = {}): Promise<ConnectOutcome<CollectionFileDescriptor | null>> {
+    return statFile(this.capability, this.request, this.supportsAuthorityFeature,
+      options => this.list(options), target, options, this.timeouts.fileIndexMs);
   }
 
   async upload(
