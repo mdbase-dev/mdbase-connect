@@ -1,0 +1,322 @@
+.new-note-composer {
+  grid-column: 3;
+  display: grid;
+  grid-template-rows: 52px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.new-note-composer > form {
+  width: min(100%, 760px);
+  display: flex;
+  flex-direction: column;
+  padding: clamp(34px, 6vh, 64px) 42px 0;
+  margin: 0 auto;
+  overflow-y: auto;
+}
+
+.new-note-composer > form > * {
+  flex: 0 0 auto;
+}
+
+.new-folder-form {
+  max-width: 620px;
+}
+
+.new-note-intro {
+  max-width: 50ch;
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+  line-height: 1.55;
+}
+
+.new-note-title input {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.035em;
+}
+
+.new-note-title input::placeholder {
+  color: var(--color-placeholder);
+}
+
+.new-note-fields {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.65fr) minmax(0, 1.35fr);
+  gap: 18px 14px;
+  align-items: start;
+  margin-top: 24px;
+}
+
+.new-folder-form .new-note-fields {
+  grid-template-columns: minmax(0, 1.5fr) minmax(130px, 0.75fr);
+}
+
+.new-note-fields label > small {
+  margin-top: 5px;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  line-height: 1.4;
+}
+
+.new-note-fields label:nth-child(n + 3) {
+  grid-column: 1 / -1;
+}
+
+.new-note-fields > .schema-value {
+  grid-column: 1 / -1;
+}
+
+.new-note-path {
+  min-width: 0;
+  padding-top: 18px;
+}
+
+.new-note-path summary {
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  color: var(--faint);
+  cursor: pointer;
+  font-size: var(--font-size-ui);
+  list-style: none;
+}
+
+.new-note-path summary::-webkit-details-marker {
+  display: none;
+}
+
+.new-note-path summary:hover {
+  border-color: var(--line-strong);
+  background: var(--white);
+}
+
+.new-note-path summary:focus-visible {
+  border-color: var(--line-strong);
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 1px;
+}
+
+.new-note-path summary > span {
+  white-space: nowrap;
+}
+
+.new-note-path summary output {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--font-size-ui);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.new-note-path summary svg {
+  width: 11px;
+  height: 11px;
+  color: var(--faint);
+  transition: transform var(--motion-quick) var(--ease-out);
+}
+
+.new-note-path[open] summary svg {
+  transform: rotate(90deg);
+}
+
+.new-note-path[open] summary {
+  margin-bottom: 8px;
+}
+
+.new-note-path > label {
+  display: block;
+}
+
+.new-note-fields .schema-value > input,
+.new-note-fields .schema-value > .mdbase-select {
+  width: 100%;
+}
+
+.new-note-fields .schema-object,
+.new-note-fields .schema-array {
+  padding-top: 16px;
+}
+
+.new-note-type-help,
+.new-folder-help,
+.new-note-error {
+  margin: 18px 0 0;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+}
+
+.new-note-required-properties {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.new-note-required-properties .property-row {
+  padding-right: 0;
+}
+
+.new-note-properties {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.new-note-properties > summary {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
+  list-style: none;
+}
+
+.new-note-properties > summary::-webkit-details-marker {
+  display: none;
+}
+
+.new-note-properties > summary:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+
+.new-note-properties > summary small {
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  text-align: right;
+}
+
+.new-note-properties > summary svg {
+  width: 11px;
+  height: 11px;
+  color: var(--faint);
+  transition: transform var(--motion-quick) var(--ease-out);
+}
+
+.new-note-properties[open] > summary svg {
+  transform: rotate(90deg);
+}
+
+.new-note-properties > .structured-properties-editor {
+  padding: 0 0 10px;
+}
+
+.new-note-properties .quiet-empty {
+  margin: 8px 0;
+  font-size: var(--font-size-ui);
+}
+
+.new-folder-path output {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--font-size-ui);
+  overflow-wrap: anywhere;
+}
+
+.new-note-error {
+  color: var(--danger);
+}
+
+.new-note-composer > form > .new-note-body-editor {
+  flex: 1 1 auto;
+}
+
+.new-note-body-editor {
+  width: 100%;
+  height: auto;
+  min-height: 260px;
+  margin-top: 30px;
+  overflow: hidden;
+}
+
+.new-note-body-editor .cm-scroller {
+  overflow: auto;
+}
+
+.new-note-body-editor .cm-content {
+  min-height: 100%;
+  padding: 0;
+  color: var(--color-editor-text);
+  font-family: var(--sans);
+  font-size: var(--editor-font-size, var(--font-size-prose));
+  line-height: 1.7;
+  letter-spacing: 0.002em;
+}
+
+.new-note-body-editor .cm-line {
+  padding: 0;
+}
+
+/* Pinned to the bottom of the pane so the draft's actions stay in reach as it grows. */
+.new-note-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 14px 0 20px;
+  border-top: 1px solid var(--line);
+  background: var(--white);
+}
+
+.new-note-actions > span {
+  min-width: 0;
+  flex: 1;
+  color: var(--faint);
+  font-size: var(--font-size-ui);
+}
+
+.new-note-actions > span.blocked {
+  color: var(--muted);
+}
+
+.new-note-actions .create-note-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.new-note-actions .create-note-button kbd {
+  color: inherit;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}
+
+.new-note-path summary output .path-pending {
+  color: var(--faint);
+  font-style: italic;
+}
+
+.new-note-actions button {
+  min-height: 36px;
+  padding: 0 11px;
+}
+
