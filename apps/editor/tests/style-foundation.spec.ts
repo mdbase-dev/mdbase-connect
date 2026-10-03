@@ -18,6 +18,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(toggle).toHaveAttribute("aria-checked", "false");
 
     await page.getByRole("button", { name: "Types (1)" }).click();
+    await expect(page.locator("small").first()).toHaveCSS("font-variant-numeric", "tabular-nums");
     const review = page.getByRole("button", { name: "Review changes" });
     await expect(review).toBeDisabled();
     const disabledBackground = await review.evaluate((element) => getComputedStyle(element).backgroundColor);

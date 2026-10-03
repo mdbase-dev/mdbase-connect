@@ -109,6 +109,11 @@ button {
 
 /* Counts align without making the interface look like source code. */
 
+/* Counts align without making the interface look like source code. */
+:where(small, time, .file-workspace-size, .schema-item-number) {
+  font-variant-numeric: tabular-nums;
+}
+
 button:not(:disabled),
 summary {
   cursor: pointer;
