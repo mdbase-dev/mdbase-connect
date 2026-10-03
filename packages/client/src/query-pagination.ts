@@ -99,7 +99,7 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject, Row
             offset
           }, pageRequestOptions);
         }
-        lease.finishRequest(queried.ok ? queried.value.meta?.cursor : undefined);
+        lease.finishRequest(queried.ok ? queried.value.meta?.cursor : undefined, queried.ok);
         if (options.signal?.aborted) return;
         if (!queried.ok) {
           lease.dispose();

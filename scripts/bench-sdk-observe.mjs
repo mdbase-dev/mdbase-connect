@@ -19,8 +19,9 @@ async function measure(module, mode, repeat) {
   global.gc(); const heap = process.memoryUsage().heapUsed;
   let cursor = 0, requests = 0, bytes = 0, active = 0, maximum = 0, token = 0, events = [];
   const pages = new Map();
+  let byOperation = {};
   const client = new MdbaseCollectionClient({ async operation(op, input) {
-    requests++; active++; maximum = Math.max(maximum, active);
+    requests++; byOperation[op] = (byOperation[op] ?? 0) + 1; active++; maximum = Math.max(maximum, active);
     try {
       await sleep(2);
       let result;
@@ -64,7 +65,7 @@ async function measure(module, mode, repeat) {
       return JSON.parse(encoded);
     } finally { active--; }
   } }, null, async () => ({ ok: true, value: true, diagnostics: [] }));
-  const metrics = () => ({ requests, responseBytes: bytes, maximumOutstanding: maximum });
+  const metrics = () => ({ requests, byOperation, responseBytes: bytes, maximumOutstanding: maximum });
   let observer, index;
   try {
     const initial = performance.now();
@@ -78,7 +79,7 @@ async function measure(module, mode, repeat) {
       index = new Map(loaded.value.results.map(row => [row.path, row]));
     }
     const initialMs = performance.now() - initial, initialMetrics = metrics();
-    requests = bytes = 0; maximum = active;
+    requests = bytes = 0; byOperation = {}; maximum = active;
     let updates = 0, notifications = 0;
     observer?.subscribe((snapshot, delta) => { notifications++; if (delta.reason === "changes") updates += delta.upserts.length; });
     const start = performance.now();
@@ -116,7 +117,7 @@ if (process.env.SDK_OBSERVE_BENCH_MODULE) {
       })));
     }
     const output = { node: process.version, head: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(), records: count, events: 1000, uniqueChangedPaths: changed, latencyMs: 2, repeats: results,
-      caveat: "Synthetic authority/2ms latency; responses JSON round-trip; isolated processes retain both indexes for post-GC measurements. Serial comparator models the deleted worker and excludes feed polling (observe includes it). No browser rendering or real CEL/index/network costs. Observed heap growth is not peak. Initial observe discovers metadata then reads full projections; it is not a bandwidth-saving claim." };
+      caveat: "Synthetic authority/2ms latency; responses JSON round-trip; isolated processes retain both indexes for post-GC measurements. Serial comparator models the deleted worker and excludes feed polling (observe includes it). No browser rendering or real CEL/index/network costs. Observed heap growth is not peak. Initial observe uses full-row pages; metadata/document batches are delta-only. Observe captures a change cursor before scanning and starts watch after ready; feed polling is charged to the burst. Successful terminal pages consume cursor leases without another release RPC." };
     console.log(JSON.stringify(output, null, 2));
     if (process.argv[2]) await writeFile(resolve(process.argv[2]), JSON.stringify(output, null, 2) + "\n");
   } finally { await rm(scratch, { recursive: true, force: true }); }

@@ -64,6 +64,88 @@ function authority(metadata = true) {
 }
 
 describe("observe", () => {
+  it.each([true, false])("loads full-row pages without discovery/document RPCs (metadata support: %s)", async metadata => {
+    const f = authority(metadata), original = { ...row("a.md"), frontmatter: { nested: { tags: ["input"] } } };
+    f.records.set(original.path, original);
+    const o = f.client.observe({ includeBody: true, frontmatterMode: "both", limit: 1 }, { mode: "manual" });
+    const pages: Array<ReturnType<typeof o.getSnapshot>> = [];
+    o.subscribe((snapshot, delta) => {
+      if (delta.reason === "page") {
+        pages.push(snapshot);
+        expect(delta.upserts).toHaveLength(1);
+        expect(delta.removed).toEqual([]);
+        expect(Object.isFrozen(delta.upserts)).toBe(true);
+      } else expect(delta.upserts).toEqual([]);
+    });
+    expect((await o.ready).ok).toBe(true);
+    expect(f.request.mock.calls.map(([op]) => op)).toEqual(["query", "query"]);
+    for (const [, input] of f.request.mock.calls) expect(input).toMatchObject({ include_body: true, frontmatter_mode: "both" });
+    expect(pages.map(page => page.records.length)).toEqual([1, 2]);
+    expect(pages[0]!.records[0]).toBe(o.getSnapshot().records[0]);
+    expect(o.getSnapshot().records[0]).toMatchObject({ revision: "a.md", body: "a.md", effectiveFrontmatter: { title: "a.md" } });
+    original.frontmatter.nested.tags.push("external mutation");
+    expect(pages[0]!.records[0]!.frontmatter).toEqual({ nested: { tags: ["input"] } });
+    expect(Object.isFrozen((pages[0]!.records[0]!.frontmatter as any).nested.tags)).toBe(true);
+    o.close();
+  });
+
+  it("bounds read-ahead to one page and cancels that page when a subscriber closes", async () => {
+    const f = authority(), original = f.request.getMockImplementation()!;
+    let waiting = false, cancelled = false;
+    f.request.mockImplementation(async (op, input, options) => {
+      if (op === "query" && (input as any).offset === 1) {
+        waiting = true;
+        await new Promise<void>((_, reject) => options!.signal!.addEventListener("abort", () => {
+          cancelled = true; reject(connectError("operation_cancelled", "Closed"));
+        }, { once: true }));
+      }
+      return original(op, input, options);
+    });
+    const o = f.client.observe({}, { mode: "manual", pageSize: 1 });
+    o.subscribe((snapshot, delta) => {
+      if (delta.reason !== "page") return;
+      expect(waiting).toBe(true);
+      expect(f.request.mock.calls).toHaveLength(2);
+      expect(snapshot.records).toHaveLength(1);
+      o.close();
+    });
+    expect(await o.ready).toMatchObject({ ok: false, problem: { code: "operation_cancelled" } });
+    expect(cancelled).toBe(true);
+    expect(o.getSnapshot()).toMatchObject({ state: "closed", records: [{ path: "a.md" }] });
+    expect(f.request.mock.calls).toHaveLength(2);
+  });
+
+  it("keeps page deltas relative to visible rows through overlays, replacement and hydration", async () => {
+    const f = authority(), o = f.client.observe({}, { mode: "manual", pageSize: 1 }); await o.ready;
+    const visible = new Map(o.getSnapshot().records.map(row => [row.path, row]));
+    o.subscribe((snapshot, delta) => {
+      for (const path of delta.removed) visible.delete(path);
+      for (const row of delta.upserts) visible.set(row.path, row);
+      expect([...visible.keys()].sort()).toEqual(snapshot.records.map(row => row.path).sort());
+      for (const row of snapshot.records) expect(visible.get(row.path)).toBe(row);
+    });
+    const overlay = o.optimistic([row("b.md", "local")], ["a.md"]);
+    f.records.delete("a.md"); f.records.set("b.md", row("b.md", "remote")); f.records.set("c.md", row("c.md"));
+    await o.refresh();
+    expect(o.getSnapshot().records[0]?.revision).toBe("local");
+    overlay.rollback();
+    expect(o.getSnapshot().records[0]?.revision).toBe("remote");
+    f.records.delete("c.md"); await o.hydrate();
+    expect(o.getSnapshot().records.map(row => row.path)).toEqual(["b.md"]);
+    expect(o.getSnapshot().records[0]?.body).toBe("remote"); o.close();
+  });
+
+  it("starts a replacement watch without waiting for a retired initial ready promise", async () => {
+    const f = authority(); let release!: () => void;
+    f.hold(() => new Promise<void>(resolve => { release = resolve; }));
+    const o = f.observe(); await until(() => !!release);
+    f.hold(); await o.refresh();
+    f.records.set("a.md", row("a.md", "replacement-watch")); f.emit();
+    await until(() => o.getSnapshot().records[0]?.revision === "replacement-watch");
+    release(); expect(await o.ready).toMatchObject({ ok: false, problem: { code: "operation_cancelled" } });
+    expect(o.getSnapshot().records[0]?.revision).toBe("replacement-watch"); o.close();
+  });
+
   it("loads progressive immutable pages, then coalesces a continuous burst into readMany", async () => {
     const f = authority();
     const observation = f.client.observe({}, { pageSize: 1, coalesceMs: 10, watch: { pollIntervalMs: 100 } });
@@ -206,7 +288,7 @@ describe("observe", () => {
     await new Promise(resolve => setTimeout(resolve, 110));
     f.hold(); release();
     await until(() => o.getSnapshot().records[0]?.revision === "second");
-    expect(f.request.mock.calls.filter(([op]) => op === "read").length).toBeGreaterThanOrEqual(3); // initial + two drains
+    expect(f.request.mock.calls.filter(([op]) => op === "read").length).toBeGreaterThanOrEqual(2); // two drains; initial pages need no reads
     o.close();
   });
 

@@ -21,8 +21,10 @@ export function queryCursorLease(
   signal?.addEventListener("abort", abort, { once: true });
   return {
     startRequest() { inFlight = true; },
-    finishRequest(nextCursor?: string) {
-      if (nextCursor) cursor = nextCursor;
+    finishRequest(nextCursor: string | undefined, succeeded: boolean) {
+      // A successful continuation consumes the previous token, including on the
+      // terminal page. Failures retain it for best-effort cleanup.
+      if (succeeded) cursor = nextCursor;
       inFlight = false;
       if (signal?.aborted) close();
     },

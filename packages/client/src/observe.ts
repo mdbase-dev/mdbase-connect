@@ -1,13 +1,12 @@
 import type { ConnectProblem, JsonObject } from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError, connectProblem, connectError } from "./errors.js";
 import { connectFailure, connectSuccess, type ConnectOutcome } from "./outcomes.js";
-import type { CollectionChange, CollectionChangesPage, ChangesInput, ConnectRequestOptions, QueryInput, QueryRecord, QueryPage, QueryPagesOptions, QueryMetadataInput, QueryMetadataPage, QueryMetadataRecord, QueryMetadataResult, QueryAllOptions, QueryResult, ReadManyOptions, ReadManyResult, WatchOptions, WatchStatus } from "./operation-types.js";
+import type { CollectionChange, CollectionChangesPage, ChangesInput, ConnectRequestOptions, QueryInput, QueryRecord, QueryPage, QueryPagesOptions, QueryMetadataInput, QueryMetadataRecord, QueryMetadataResult, QueryAllOptions, QueryResult, ReadManyOptions, ReadManyResult, WatchOptions, WatchStatus } from "./operation-types.js";
 
 interface ObserveSource<F extends JsonObject> {
   changes(input?: ChangesInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionChangesPage>>;
   watch(options?: WatchOptions): AsyncIterable<ConnectOutcome<CollectionChange>>;
   readMany(paths: readonly string[], options?: ReadManyOptions): Promise<ConnectOutcome<ReadManyResult<F>>>;
-  queryPages(input: QueryMetadataInput, options?: QueryPagesOptions<JsonObject, QueryMetadataRecord>): AsyncIterable<ConnectOutcome<QueryMetadataPage>>;
   queryPages(input: QueryInput, options?: QueryPagesOptions<F>): AsyncIterable<ConnectOutcome<QueryPage<F>>>;
   queryAll(input: QueryMetadataInput, options?: QueryAllOptions<JsonObject, QueryMetadataRecord>): Promise<ConnectOutcome<QueryMetadataResult>>;
   queryAll(input: QueryInput, options?: QueryAllOptions<F>): Promise<ConnectOutcome<QueryResult<F>>>;
@@ -47,7 +46,6 @@ export interface ObserveOverlay {
 /** Collection-owned query synchronization. No drafts, domain indexes or persistence. */
 export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
   private records = new Map<string, QueryRecord<F>>();
-  private published = this.records;
   private overlays = new Map<string, { token: object; record: QueryRecord<F> | null; committed: boolean }>();
   private pending = new Set<string>();
   private listeners = new Set<(snapshot: ObserveSnapshot<F>, delta: ObserveDelta<F>) => void>();
@@ -94,10 +92,7 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
   }
 
   /** Upgrade this observer to body-bearing rows, retaining one synchronization owner. */
-  hydrate(): Promise<ConnectOutcome<void>> {
-    this.query.includeBody = true;
-    return this.load(true);
-  }
+  hydrate(): Promise<ConnectOutcome<void>> { this.query.includeBody = true; return this.load(true); }
 
   refresh(): Promise<ConnectOutcome<void>> { return this.load(); }
 
@@ -116,27 +111,30 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
       // Capture BEFORE querying. Watch catches up mutations during every page.
       const baseline = this.options.mode === "manual" ? null : unwrap(await this.client.changes({}, { signal }));
       const accepted = new Map([...this.overlays].filter(([, overlay]) => overlay.committed));
-      const metadata = !this.fullReloadRequired() && this.supports ? unwrap(await this.supports("query-metadata-v1", { signal })) : false;
       const loaded = new Map<string, QueryRecord<F>>();
       let stableScan = true;
       const pageOptions = { signal, firstPageSize: this.options.firstPageSize, pageSize: this.options.pageSize };
-      const pages = metadata ? this.client.queryPages({ ...this.query, select: fileSelections, pagination: "cursor", includeBody: false, output: "metadata" }, pageOptions) : this.client.queryPages(this.query, pageOptions);
-      for await (const page of pages) {
-        if (!page.ok) throw new MdbaseConnectError(page.problem);
-        const value = page.value;
-        if (value.page === 0) stableScan = !value.meta?.hasMore || !!(value.cursor || value.snapshot);
-        if (!current()) return cancelled();
-        const rows = metadata ? unwrap(await this.client.readMany(value.results.map(row => row.path), {
-          signal, includeBody: this.query.includeBody, frontmatterMode: this.query.frontmatterMode
-        })) : null;
-        if (!current()) return cancelled();
-        if (rows?.errors.length) throw new MdbaseConnectError(rows.errors[0]!.failure.problem);
-        const membership = new Map(value.results.map(row => [row.path, row]));
-        const records = rows ? rows.results.flatMap(entry => entry.status === "found" ? [withQueryFile(entry.record, membership.get(entry.path)!)] : []) : value.results as QueryRecord<F>[];
-        for (const row of records) loaded.set(row.path, immutable(row));
-        this.records = preserve ? new Map([...this.records, ...loaded]) : new Map(loaded);
-        this.publish("page", { total: value.meta?.totalCount });
-      }
+      // Full-row pages already carry file facts and qualified revisions.
+      const pages = this.client.queryPages(this.query, pageOptions)[Symbol.asyncIterator]();
+      try {
+        for (let next = pages.next(), step = await next; !step.done; step = await next) {
+          const page = step.value;
+          // One page ahead overlaps transport latency with immutable publication.
+          next = pages.next();
+          void next.catch(() => undefined); // Also observed by the loop unless cancelled.
+          if (!page.ok) throw new MdbaseConnectError(page.problem);
+          const value = page.value;
+          if (value.page === 0) stableScan = !value.meta?.hasMore || !!(value.cursor || value.snapshot);
+          if (!current()) return cancelled();
+          const rows = immutable(value.results);
+          for (const row of rows) loaded.set(row.path, row);
+          const removed = value.page === 0 && !preserve ? this.snapshot.records
+            .filter(row => !loaded.has(row.path) && !this.overlays.get(row.path)?.record).map(row => row.path) : [];
+          if (value.page === 0 && !preserve) this.records = loaded;
+          if (preserve) for (const row of rows) this.records.set(row.path, row);
+          this.publish("page", { total: value.meta?.totalCount }, { upserts: rows.filter(row => !this.overlays.has(row.path)), removed });
+        }
+      } finally { await pages.return?.(); }
       if (!current()) return cancelled();
       this.records = loaded;
       for (const [path, overlay] of accepted) if (this.overlays.get(path) === overlay) this.overlays.delete(path);
@@ -196,6 +194,8 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
   }
 
   private async follow(cursor: number, signal: AbortSignal, stableScan: boolean): Promise<void> {
+    // Initial ready waiters run before watch; replacements never wait on old ready.
+    if (this.snapshot.generation === 1) await this.ready;
     if (signal.aborted) return;
     try {
       for await (const outcome of this.client.watch({ ...this.options.watch, cursor, signal, onStatus: status => {
@@ -254,7 +254,7 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
       // Editor/Writer/TaskNotes on pre-wave-B authorities use ordinary discovery.
       // Remove when minimum supported authorities all advertise query-metadata-v1.
       const membership = support
-        ? unwrap(await this.client.queryAll({ ...input, select: fileSelections, includeBody: false, output: "metadata" }, { signal })).results
+        ? unwrap(await this.client.queryAll({ ...input, select: fileFields.map(field => `file.${field}`), includeBody: false, output: "metadata" }, { signal })).results
         : unwrap(await this.client.queryAll(input, { signal })).results;
       const matches = new Map(membership.map(row => [row.path, row]));
       const mode = this.query.frontmatterMode ?? "effective";
@@ -272,7 +272,6 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
       if (result.errors.length) throw new MdbaseConnectError(result.errors[0]!.failure.problem);
       const found = new Map([...cached, ...result.results.flatMap(entry => entry.status === "found" ? [[entry.path, entry.record] as const] : [])]
         .map(([path, record]) => [path, immutable(withQueryFile(record, matches.get(path)!))] as const));
-      this.records = new Map(this.records);
       for (const path of paths) if (!matches.has(path)) this.records.delete(path);
       for (const entry of result.results) {
         if (entry.status === "found") this.records.set(entry.path, found.get(entry.path)!);
@@ -297,15 +296,17 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
     this.publish("status", { state: "error", problem: immutable(problem) });
     return connectFailure(problem);
   }
-  private publish(reason: ObserveDelta<F>["reason"], patch: Partial<ObserveSnapshot<F>> = {}): void {
+  private publish(reason: ObserveDelta<F>["reason"], patch: Partial<ObserveSnapshot<F>> = {}, changed?: Pick<ObserveDelta<F>, "upserts" | "removed">): void {
     const visible = this.overlays.size ? new Map(this.records) : this.records;
     for (const [path, overlay] of this.overlays) {
       if (overlay.record) visible.set(path, overlay.record); else visible.delete(path);
     }
-    const previous = this.published;
-    const records = visible === previous ? this.snapshot.records : Object.freeze([...visible.values()]);
-    this.published = visible;
-    const delta = Object.freeze({ reason, upserts: Object.freeze(records.filter(row => previous.get(row.path) !== row)), removed: Object.freeze([...previous.keys()].filter(path => !visible.has(path))) });
+    const previous = this.snapshot.records;
+    const records = reason === "status" ? previous : Object.freeze([...visible.values()]);
+    const before = new Map(changed || records === previous ? [] : previous.map(row => [row.path, row]));
+    const delta = Object.freeze({ reason,
+      upserts: Object.freeze(changed?.upserts ?? (records === previous ? [] : records.filter(row => before.get(row.path) !== row))),
+      removed: Object.freeze(changed?.removed ?? (records === previous ? [] : previous.filter(row => !visible.has(row.path)).map(row => row.path))) });
     this.snapshot = Object.freeze({ ...this.snapshot, ...patch, records,
       ...((patch.state ?? this.snapshot.state) === "ready" ? { total: records.length } : {}) });
     for (const listener of this.listeners) listener(this.snapshot, delta);
@@ -315,7 +316,6 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
 // Document reads carry scalar file facts, not query-derived link/tag metadata.
 // Select those facts at the authority; do not reimplement Markdown semantics.
 const fileFields = ["tags", "links", "embeds"] as const;
-const fileSelections = fileFields.map(field => `file.${field}`);
 function withQueryFile<F extends JsonObject>(record: QueryRecord<F>, membership: QueryRecord<F> | QueryMetadataRecord): QueryRecord<F> {
   const file = "file" in membership ? membership.file : Object.fromEntries(fileFields.map(field => {
     const value = membership.values[field];
@@ -335,12 +335,10 @@ function changedPaths(change: CollectionChange): string[] {
   return [];
 }
 function immutable<T>(value: T): T {
-  const copy = structuredClone(value);
-  const freeze = (item: unknown): void => {
-    if (!item || typeof item !== "object" || Object.isFrozen(item)) return;
-    for (const child of Object.values(item)) freeze(child);
-    Object.freeze(item);
-  };
-  freeze(copy);
-  return copy;
+  // Copy/freeze JSON containers once; strings already have immutable ownership.
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) return Object.freeze(value.map(immutable)) as T;
+  const copy = { ...(value as Record<string, unknown>) };
+  for (const key in copy) if (Object.hasOwn(copy, key) && copy[key] && typeof copy[key] === "object") copy[key] = immutable(copy[key]);
+  return Object.freeze(copy) as T;
 }

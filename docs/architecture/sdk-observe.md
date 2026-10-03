@@ -55,9 +55,12 @@ full query, rather than claiming a resumable cursor on authorities without watch
   membership depends only on the changed record (for example a local title
   predicate); `"collection"` forces full invalidation even for type-only queries.
   The SDK never evaluates CEL, types, contracts or mdbase semantics locally.
+- Initial loads, refreshes and body hydration use full-row `queryPages` directly,
+  honoring the query's page limit. Qualified full-row queries already carry exact
+  source revisions (`query-record-revisions-v1`); no document reread is needed.
 - Targeted discovery applies the original criteria AND the changed-path scope.
-  `query-metadata-v1` enables narrow membership pages, including the initial list
-  pass for path-local queries; otherwise ordinary queries are used explicitly.
+  `query-metadata-v1` enables narrow membership pages for change deltas only;
+  otherwise ordinary queries are used explicitly.
   The metadata pass selects authority-derived file tags/links/embeds, which
   document batches omit. These are preserved without client-side Markdown parsing.
   Metadata discovery explicitly requests generation-pinned cursor pages. Legacy
@@ -92,6 +95,12 @@ full reconciliation instead of discarding events. Subscriber callbacks are
 synchronous: consumers must keep them short and not throw. There is no buffered
 snapshot/delta history. Storage is O(current rows + one reload's rows + pending
 paths + active overlays), and transient publication work is O(current rows).
+Progressive pages grow a private scan map and publish immutable array prefixes;
+page deltas contain only that page's visible rows, not a repeated full-prefix diff.
+JSON containers are copied/frozen in one traversal without recopying strings.
+One-page read-ahead overlaps transport with publication; it uses the same abort
+signal and closes its iterator on completion, cancellation or error. The frozen
+snapshot itself is the publication baseline, not a second persistent row map.
 A full collection/body observer intentionally retains the full result; there is
 no implicit LRU that would silently change membership. Applications bound their
 query scope and the number/lifetime of outstanding local writes.

@@ -29,8 +29,11 @@ Manual observers use `{ mode: "manual" }` and perform no watch/changes requests;
 refresh from your visibility/timer policy. Refresh currently scans again, rather
 than doing incremental cursor polling.
 
-Metadata membership and revision-bearing document batches are explicitly
-capability-gated; document hydrations require existing query **and read** approval.
+Initial loads, refreshes and body hydration use full-row query pages directly.
+Full-row queries carry exact source revisions on qualified authorities; no initial
+metadata discovery or document rereads are needed. Metadata membership and
+revision-bearing document batches are reserved for change deltas and explicitly
+capability-gated; these document reads require existing query **and read** approval.
 Older authorities use ordinary queries, never error probing. The observer retains
 authority-computed file links, embeds and tags: it does not parse Markdown itself.
 Ordered, offset, selected/projected and contract queries reload on changes.
@@ -40,8 +43,7 @@ membership depends on the changed record alone.
 
 `ready` means the scan completed, not an atomic watch high-water mark. Problems
 are visible in snapshot state; failed reads are never treated as deletions.
-The full result set is retained. Metadata discovery followed by full-row hydration
-can cost more on first load than a single ordinary query; benchmark your scope.
+The full result set is retained; benchmark your query scope and body requirements.
 
 Migration: replace collection load/watch/reset workers with one observer; consume
 `delta.upserts` and `delta.removed` in existing domain indexes. Keep drafts,
