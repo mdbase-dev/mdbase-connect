@@ -84,6 +84,29 @@ emits a flushed, payload-free stderr status after `CollectionWatcher::open`
 returns, and the test waits for it before writing. Stdout remains event-only;
 no engine re-pin, startup sleep or increased timeout was needed.
 
+The desktop Docker E2E (`System suite (desktop)`) waited for the pairing
+restart notice ("mdbase connect is restarting with the new secure connection.").
+Runs 37120603942 and 37064096156 timed out there while the window already showed
+the collections dashboard. The renderer rendered `PairingPanel` only while
+`cloud.configured` was false, and pairing configures the account *before*
+reporting `paired`, so the next 5 s refresh unmounted the notice and switched
+route; the notice lived 0–5 s depending on phase, and `locator.waitFor` polls at
+500 ms. Looping the pairing phase against one Docker stack, with random offsets
+on the pairing start (0–1 s) and approval (0–5 s), missed the notice 5/40
+times (it was rendered for 80–236 ms); after the fix, 0/80, with the notice
+still shown 8 s later. In production the window showed that dashboard briefly before the
+relaunch. Issue #580's fix keeps the notice until the main process relaunches,
+and the E2E and `renderer-ux.test.mjs` assert it survives a configured refresh.
+Waiting for that refresh means the pairing profile's restarted daemon, which
+outlives Electron, now owns the shared loopback port, so the E2E stops it
+explicitly (`connect daemon stop` waits for exit) before the next profile starts.
+The `connect:hosted:snapshot` "Connect this computer to a portal first" lines
+come from the unpaired renderer's routine hosted poll (the agent has no cloud
+client yet). They are printed only with failure diagnostics. `migrate Error pull
+access denied` is Compose probing a locally built image and also appears in
+passing runs. Runs 37097993240 and 37100144131 failed earlier, on the portal's
+"Continue" button changed by PR #572 in that queue entry, not on this race.
+
 Both repositories prebuild their testbed adapters before entering the unchanged
 protocol-response deadline. Cold compilation is setup, not a timed semantic
 operation; compiler errors still fail the build.

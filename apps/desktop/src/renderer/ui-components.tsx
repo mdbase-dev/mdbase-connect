@@ -12,7 +12,16 @@ import { defaultConnectServerUrl } from "./runtime-config";
 import { message, type Route } from "./view-model";
 import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
 
-export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorization?: boolean }) {
+/**
+ * Pairing ends in an application relaunch owned by the main process. The parent
+ * keeps `completing` until then, so a refresh that already sees the new account
+ * cannot replace the restart notice with a dashboard that is about to vanish.
+ */
+export function PairingPanel({ resumeAuthorization = false, completing, onPaired }: {
+  resumeAuthorization?: boolean;
+  completing: boolean;
+  onPaired(): void;
+}) {
   const [serverUrl, setServerUrl] = useState(() => defaultConnectServerUrl(
     import.meta.env.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL
   ));
@@ -22,7 +31,6 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
   const [expired, setExpired] = useState(false);
   const [pairError, setPairError] = useState("");
   const [starting, setStarting] = useState(false);
-  const [completing, setCompleting] = useState(false);
 
   useEffect(() => {
     if (!pairing) return;
@@ -36,7 +44,7 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
         setPairError("");
         if (result.status === "paired") {
           markPairingCompleted(localStorage);
-          setCompleting(true);
+          onPaired();
           return;
         }
       } catch (error) {
@@ -55,7 +63,7 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
     }
     void poll();
     return () => { active = false; window.clearTimeout(timer); };
-  }, [pairing, retry]);
+  }, [pairing, retry, onPaired]);
 
   async function begin(event: React.FormEvent) {
     event.preventDefault();

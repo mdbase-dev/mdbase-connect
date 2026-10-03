@@ -115,6 +115,9 @@ function App() {
   const [transferReceipt, setTransferReceipt] = useState<TransferReceipt | null>(() => readTransferReceipt(localStorage));
   const [initialRefreshComplete, setInitialRefreshComplete] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
+  // Set once pairing configures the account; the main process then relaunches.
+  const [pairingRestart, setPairingRestart] = useState(false);
+  const onPaired = useCallback(() => setPairingRestart(true), []);
 
   // Each source coalesces on its own: a slow one (the hosted snapshot may take
   // 30 s) keeps its request in flight without delaying the connection status.
@@ -212,10 +215,11 @@ function App() {
   }, [refresh]);
 
   useEffect(() => {
-    if (!initialRefreshComplete || !cloud?.configured || !consumePairingCompleted(localStorage)) return;
+    // The relaunched window consumes the post-pairing route, not this one.
+    if (pairingRestart || !initialRefreshComplete || !cloud?.configured || !consumePairingCompleted(localStorage)) return;
     if (authorizationTarget) setRoute("access");
     else setRoute("collections");
-  }, [authorizationTarget, cloud?.configured, initialRefreshComplete]);
+  }, [authorizationTarget, cloud?.configured, initialRefreshComplete, pairingRestart]);
 
   useEffect(() => {
     if (cloud?.configured && route === "access" && authorizationTarget) {
@@ -433,8 +437,8 @@ function App() {
           onDismiss={dismissTransferReceipt}
         />}
 
-        {cloud !== null && !cloud.configured && <div hidden={!["overview", "access", "settings"].includes(route)}>
-          <PairingPanel resumeAuthorization={authorizationTarget !== null} />
+        {cloud !== null && (!cloud.configured || pairingRestart) && <div hidden={!["overview", "access", "settings"].includes(route)}>
+          <PairingPanel resumeAuthorization={authorizationTarget !== null} completing={pairingRestart} onPaired={onPaired} />
         </div>}
 
         {cloud === null ? <ConnectionProgress /> : route === "overview" ? (
