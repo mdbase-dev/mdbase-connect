@@ -38,7 +38,7 @@ function authority(metadata = true) {
       const offset = input.offset ?? 0;
       const page = selected.slice(offset, offset + (input.limit ?? 1000));
       const results = input.output === "metadata" ? page.map(r => ({ path: r.path, types: r.types, revision: r.revision,
-        values: Object.fromEntries((input.select ?? []).map((field: string) => [field, r.file[field.slice(5)] ?? []]))
+        values: Object.fromEntries((input.select ?? []).map((field: string) => [field.slice(5), r.file[field.slice(5)] ?? []]))
       })) : page.map(r => ({ ...r, body: input.include_body ? r.body : undefined, effective_frontmatter: r.effectiveFrontmatter }));
       const result = { ...(input.output ? { output: input.output } : {}), results, meta: { has_more: offset + page.length < selected.length } };
       await hold?.();
@@ -210,6 +210,19 @@ describe("observe", () => {
     o.close();
   });
 
+  it("confirms a write whose echo was already being read before acceptance", async () => {
+    const f = authority(), o = f.observe(); await o.ready;
+    let release!: () => void;
+    f.request.mockClear(); f.hold(() => new Promise<void>(resolve => { release = resolve; })); f.emit();
+    await until(() => !!release);
+    const accepted = row("a.md", "accepted-after-echo");
+    f.records.set("a.md", { ...accepted, file: { tags: ["confirmed"] } });
+    o.optimistic([accepted]).commit(); f.hold(); release();
+    await until(() => o.getSnapshot().records[0]?.file.tags?.[0] === "confirmed");
+    expect(f.request.mock.calls.filter(([op]) => op === "query").length).toBeGreaterThanOrEqual(2);
+    o.close();
+  });
+
   it("does not retire an overlay accepted after an older reload started", async () => {
     const f = authority(false); const o = f.client.observe({}, { mode: "manual" }); await o.ready;
     let release!: () => void;
@@ -272,6 +285,30 @@ describe("observe", () => {
     expect(o.getSnapshot().records).toHaveLength(2);
     expect(o.getSnapshot().problem?.code).toBe("access_denied");
     f.request.mockImplementation(original); expect((await o.refresh()).ok).toBe(true); o.close();
+  });
+
+  it("rejects malformed derived file facts without installing partial upserts or deletions", async () => {
+    const f = authority(), o = f.observe(); await o.ready;
+    const original = f.request.getMockImplementation()!, before = o.getSnapshot().records;
+    f.records.delete("a.md"); f.records.set("b.md", row("b.md", "new"));
+    f.request.mockImplementation(async (op, input, options) => {
+      const value = await original(op, input, options);
+      if (op === "query" && (input as any).output === "metadata") (value as any).result.results[0].values["links"] = null;
+      return value;
+    });
+    f.emit(); f.emit("mdbase.record.modified", { path: "b.md" });
+    await until(() => o.getSnapshot().state === "error");
+    expect(o.getSnapshot().problem?.code).toBe("invalid_operation_response");
+    expect(o.getSnapshot().records).toEqual(before); o.close();
+  });
+
+  it("does not start a watch when a subscriber closes the completed scan", async () => {
+    const f = authority(), watch = vi.spyOn(f.client, "watch"), o = f.observe();
+    o.subscribe(snapshot => { if (snapshot.state === "ready") o.close(); });
+    expect((await o.ready).ok).toBe(true);
+    expect(o.getSnapshot()).toMatchObject({ state: "closed" });
+    expect(o.getSnapshot().records).toHaveLength(2);
+    expect(watch).not.toHaveBeenCalled();
   });
 
   it("rejects invalid budgets/aggregate queries before dispatch and honors an already aborted signal", async () => {

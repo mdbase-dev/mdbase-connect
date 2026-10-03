@@ -584,7 +584,7 @@ describe("mdbase editor", () => {
     expect(gateway.hydrateCalls).toBe(2);
   });
 
-  it("uses the create response without re-listing or re-reading the new note", async () => {
+  it("uses the create response for editing and targeted reconciliation without re-listing", async () => {
     const gateway = new CountingGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
@@ -601,7 +601,10 @@ describe("mdbase editor", () => {
     expect(gateway.createCalls).toBe(1);
     await new Promise((resolve) => setTimeout(resolve, 250));
     expect(gateway.listCalls).toBe(listCalls);
-    expect(gateway.readCalls).toBe(readCalls);
+    // The legacy demo authority emulates the scoped membership query with one
+    // point lookup. This is not another editing-session refresh; qualified real
+    // authorities use metadata and avoid the document reread (SDK regression test).
+    expect(gateway.readCalls).toBe(readCalls + 1);
 
     await user.click(screen.getByRole("button", { name: "Fast note.md" }));
     const path = screen.getByRole("textbox", { name: "Markdown path" });

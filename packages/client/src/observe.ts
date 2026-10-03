@@ -1,5 +1,5 @@
 import type { ConnectProblem, JsonObject } from "@mdbase-dev/connect-protocol";
-import { MdbaseConnectError, connectProblem } from "./errors.js";
+import { MdbaseConnectError, connectProblem, connectError } from "./errors.js";
 import { connectFailure, connectSuccess, type ConnectOutcome } from "./outcomes.js";
 import type { CollectionChange, CollectionChangesPage, ChangesInput, ConnectRequestOptions, QueryInput, QueryRecord, QueryPage, QueryPagesOptions, QueryMetadataInput, QueryMetadataPage, QueryMetadataRecord, QueryMetadataResult, QueryAllOptions, QueryResult, ReadManyOptions, ReadManyResult, WatchOptions, WatchStatus } from "./operation-types.js";
 
@@ -141,7 +141,10 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
       this.records = loaded;
       for (const [path, overlay] of accepted) if (this.overlays.get(path) === overlay) this.overlays.delete(path);
       this.publish("reload", { state: "ready", total: loaded.size, problem: null });
-      if (baseline) void this.follow(baseline.cursor, signal, stableScan);
+      if (baseline) {
+        void this.follow(baseline.cursor, signal, stableScan);
+        if (this.pending.size) void this.drain(signal);
+      }
       return connectSuccess(undefined);
     } catch (error) {
       if (!current()) return cancelled();
@@ -161,7 +164,11 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
       commit: () => {
         for (const path of paths) {
           const overlay = this.overlays.get(path);
-          if (overlay?.token === token) overlay.committed = true;
+          if (overlay?.token === token) {
+            overlay.committed = true;
+            // An echo may already be in a read begun before this acceptance.
+            if (this.draining) this.pending.add(path);
+          }
         }
       },
       rollback: () => this.retire(paths, token)
@@ -234,7 +241,7 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
     } finally {
       this.draining = false;
       // A reset can replace the generation while this read is in flight.
-      if (!this.request.signal.aborted && this.pending.size) void this.drain(this.request.signal);
+      if (!this.request.signal.aborted && this.snapshot.state !== "loading" && this.pending.size) void this.drain(this.request.signal);
     }
   }
 
@@ -242,7 +249,7 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
     const overlays = new Map([...this.overlays].filter(([path, overlay]) => paths.includes(path) && overlay.committed));
     try {
       const where = `file.path in ${JSON.stringify(paths)}`;
-      const input: QueryInput = { ...this.query, where: this.query.where ? `(${this.query.where}) && (${where})` : where, includeBody: false };
+      const input: QueryInput = { ...this.query, where: this.query.where ? `(${this.query.where}) && (${where})` : where, includeBody: this.query.includeBody };
       const support = this.supports ? unwrap(await this.supports("query-metadata-v1", { signal })) : false;
       // Editor/Writer/TaskNotes on pre-wave-B authorities use ordinary discovery.
       // Remove when minimum supported authorities all advertise query-metadata-v1.
@@ -255,18 +262,23 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
         && (!this.query.includeBody || record.body !== undefined)
         && (mode === "effective" || record.frontmatter !== undefined) && (mode === "persisted" || record.effectiveFrontmatter !== undefined)
         ? [[path, record] as const] : []));
-      const result = unwrap(await this.client.readMany(paths.filter(path => matches.has(path) && !cached.has(path)), {
+      const documents = support || (this.supports ? unwrap(await this.supports("read-many-documents-v1", { signal })) : false);
+      // Ordinary discovery already contains full query rows. Without document
+      // support, do not repeat the same query through readMany's legacy path.
+      const result = documents ? unwrap(await this.client.readMany(paths.filter(path => matches.has(path) && !cached.has(path)), {
         signal, includeBody: this.query.includeBody, frontmatterMode: this.query.frontmatterMode
-      }));
+      })) : { results: (membership as QueryRecord<F>[]).map(record => ({ status: "found" as const, path: record.path, record })), errors: [] };
       if (signal.aborted || this.lifetime.signal.aborted) return cancelled();
       if (result.errors.length) throw new MdbaseConnectError(result.errors[0]!.failure.problem);
+      const found = new Map([...cached, ...result.results.flatMap(entry => entry.status === "found" ? [[entry.path, entry.record] as const] : [])]
+        .map(([path, record]) => [path, immutable(withQueryFile(record, matches.get(path)!))] as const));
       this.records = new Map(this.records);
       for (const path of paths) if (!matches.has(path)) this.records.delete(path);
-      for (const [path, record] of cached) this.records.set(path, immutable(withQueryFile(record, matches.get(path)!)));
       for (const entry of result.results) {
-        if (entry.status === "found") this.records.set(entry.path, immutable(withQueryFile(entry.record, matches.get(entry.path)!)));
+        if (entry.status === "found") this.records.set(entry.path, found.get(entry.path)!);
         else if (entry.status === "missing") this.records.delete(entry.path);
       }
+      for (const [path] of cached) this.records.set(path, found.get(path)!);
       for (const [path, overlay] of overlays) if (overlay?.committed && this.overlays.get(path) === overlay) this.overlays.delete(path);
       this.publish("changes", { state: "ready", problem: null });
       return connectSuccess(undefined);
@@ -305,7 +317,11 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
 const fileFields = ["tags", "links", "embeds"] as const;
 const fileSelections = fileFields.map(field => `file.${field}`);
 function withQueryFile<F extends JsonObject>(record: QueryRecord<F>, membership: QueryRecord<F> | QueryMetadataRecord): QueryRecord<F> {
-  const file = "file" in membership ? membership.file : Object.fromEntries(fileFields.map(field => [field, membership.values[`file.${field}`]]));
+  const file = "file" in membership ? membership.file : Object.fromEntries(fileFields.map(field => {
+    const value = membership.values[field];
+    if (!Array.isArray(value) || (field === "tags" && value.some(tag => typeof tag !== "string"))) throw connectError("invalid_operation_response", "Invalid authority-derived file metadata.");
+    return [field, value];
+  }));
   return { ...record, file: "file" in membership ? { ...file, ...record.file } : { ...record.file, ...file } };
 }
 function unwrap<T>(outcome: ConnectOutcome<T>): T {

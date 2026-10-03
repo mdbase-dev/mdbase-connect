@@ -1102,7 +1102,9 @@ implements:
         const snapshot = observed.getSnapshot();
         if (snapshot.state !== "ready" || snapshot.records.length !== 1
           || snapshot.records[0].revision !== row.revision || snapshot.records[0].body !== item.record.body
-          || !Object.isFrozen(snapshot.records[0].frontmatter) || connection.route !== route) {
+          || !Object.isFrozen(snapshot.records[0].frontmatter)
+          || !["tags", "links", "embeds"].every(field => Array.isArray(snapshot.records[0].file[field]))
+          || connection.route !== route) {
           throw new Error(`SDK observe native membership/document load failed on ${route}`);
         }
         requireConnectSuccess(await observed.refresh());
