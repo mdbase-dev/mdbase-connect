@@ -109,7 +109,7 @@ import { forgetRecentPath, loadRecentPaths, rememberRecentPath } from "./recent-
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { buildEditorCommands, command, formatShortcut, matchesCommandShortcut, type CommandId } from "./editor-commands";
 import { linkMention, unlinkedMentions, type UnlinkedMention } from "./unlinked-mentions";
-import { applyThemePreference, loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
+import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 import { SettingsView } from "./SettingsView";
 import { buildToastItems, ToastStack, type ToastTone } from "./Toasts";
@@ -884,7 +884,6 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     const current = loadThemePreference();
     const next = current === "system" ? "light" : current === "light" ? "dark" : "system";
     saveThemePreference(next);
-    applyThemePreference(next);
   }
 
   const runNoteOperation = useCallback(async <Result,>(

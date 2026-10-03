@@ -51,6 +51,10 @@ describe("workspace commands", () => {
     expect(screen.queryByText("Pinned")).not.toBeInTheDocument();
     await runCommand("open settings");
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    await runCommand("switch theme");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Color theme" })).toHaveTextContent("Light"));
+    await runCommand("switch theme");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Color theme" })).toHaveTextContent("Dark"));
   });
 
   it("finds mentions from the index without reads, links with a revision, and undoes without changing properties", async () => {

@@ -3,7 +3,7 @@ import type { CollectionDescription } from "@mdbase-dev/connect";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import type { CollectionGateway, ConnectionSummary } from "./model";
 import type { EditorPreferences } from "./preferences";
-import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase-dev/ui/theme";
+import { applyThemePreference, loadThemePreference, observeTheme, saveThemePreference, type ThemePreference } from "@mdbase-dev/ui/theme";
 import { Select } from "@mdbase-dev/ui/select";
 import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
 
@@ -91,6 +91,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
 
 function ThemePreferenceSetting() {
   const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
+  useEffect(() => observeTheme(() => setPreference(loadThemePreference())), []);
   useEffect(() => {
     applyThemePreference(preference);
     if (preference !== "system" || typeof window.matchMedia !== "function") return;
