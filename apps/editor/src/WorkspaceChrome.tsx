@@ -1,12 +1,12 @@
-import { useRef, type ReactNode } from "react";
-import { MenuPopover, useMenuTrigger } from "./ActionMenu";
+import { useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Dialog } from "./Dialog";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   ArrowLeftIcon as ArrowLeft,
   ArrowLineLeftIcon as ArrowLineLeft,
   BracketsCurlyIcon as Braces,
+  CaretRightIcon as ChevronRight,
   LinkIcon as Link2,
-  ListBulletsIcon as ListBullets,
   SidebarSimpleIcon as Sidebar,
   WarningCircleIcon as CircleAlert,
   XIcon as X
@@ -15,47 +15,79 @@ import type { NoteSummary } from "./model";
 import { noteTitle, type NoteHeading } from "./note";
 import type { NoteActivity, SaveState } from "./note-session";
 import { SaveNotice, type SaveTone } from "@mdbase-dev/ui/save-notice";
+import type { UnlinkedMention } from "./unlinked-mentions";
+import { useDelayedBusy } from "./use-delayed-busy";
+import { SearchMatchText } from "./SearchMatchText";
 
-export function SaveIndicator({ state, activity, detail, onCancel }: { state: SaveState; activity?: NoteActivity; detail?: string; onCancel?: () => void }) {
+export function PathLabel({ path }: { path: string }) {
+  const slash = path.lastIndexOf("/");
+  return <span className="path-label" title={path}>
+    {slash >= 0 && <span className="path-directory">{path.slice(0, slash + 1)}</span>}
+    <span className="path-filename">{path.slice(slash + 1)}</span>
+  </span>;
+}
+
+export function SaveIndicator({ state, activity, detail, identity, onCancel, onRetry }: { state: SaveState; activity?: NoteActivity; detail?: string; identity?: string; onCancel?: () => void; onRetry?: () => void }) {
+  const attention = state === "conflict" || state === "error";
+  const routineSave = !attention && state !== "recovery" && (activity === "saving" || activity === "properties" || (!activity && state === "saving"));
+  const slow = useDelayedBusy(routineSave, identity);
+  if (routineSave ? !slow : !activity && (state === "saved" || state === "waiting")) return null;
   const activityLabels: Record<NoteActivity, string> = {
-    saving: "Saving",
-    properties: "Updating",
+    saving: "Saving…",
+    properties: "Saving…",
     renaming: "Renaming links",
     moving: "Moving",
     deleting: "Deleting",
     validating: "Checking"
   };
-  const label = detail ?? (activity
-    ? activityLabels[activity]
-    : state === "saving" ? "Saving" : state === "waiting" ? "Unsaved" : state === "recovery" ? "Recovery pending" : state === "conflict" || state === "error" ? "Needs attention" : "Saved");
-  const tone: SaveTone = activity || state === "saving" ? "saving"
-    : state === "saved" ? "saved"
-      : state === "conflict" || state === "error" ? "attention" : "pending";
-  return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{onCancel && <button className="cancel-operation" onClick={onCancel}>Cancel</button>}</div>;
+  const label = attention ? "Needs attention" : state === "recovery" ? "Recovery pending"
+    : detail ?? (activity ? activityLabels[activity] : "Saving…");
+  const tone: SaveTone = attention ? "attention" : state === "recovery" ? "pending" : "saving";
+  return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{state === "error" && onRetry && <button className="cancel-operation mdbase-button is-secondary" onClick={onRetry}>Retry save</button>}{onCancel && <button className="cancel-operation mdbase-button is-secondary" onClick={onCancel}>Cancel</button>}</div>;
 }
-export function BacklinksPanel({ notes, types, loading, error, onRetry, onClose, onOpen }: {
+export function BacklinksPanel({ notes, types, loading, error, onFind, onRetry, onOpen, mentions = [], onLinkMention, linking }: {
   notes: NoteSummary[];
   types: CollectionTypeDescriptor[];
   loading: boolean;
   error?: string;
   onRetry?: () => void;
-  onClose: () => void;
+  onFind?: () => void;
   onOpen: (path: string) => void;
+  mentions?: UnlinkedMention[];
+  onLinkMention?: (mention: UnlinkedMention) => void;
+  linking?: boolean;
 }) {
-  return <aside className="backlinks-panel" aria-label="Backlinks" aria-busy={loading}>
-    <header className="panel-header">
-      <div><h2>Backlinks</h2><p>{error ? "References are incomplete" : loading ? "Finding references" : `${notes.length} ${notes.length === 1 ? "note" : "notes"} link here`}</p></div>
-      <button className="icon-button" aria-label="Close backlinks" onClick={onClose}><X aria-hidden="true" /></button>
-    </header>
+  const [expanded, setExpanded] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const visibleMentions = showAll ? mentions : mentions.slice(0, 5);
+  return <section id="linked-from" tabIndex={-1} className="linked-from" aria-label="Linked from" aria-busy={loading}>
+    <h2>Linked from</h2>
+    {onFind && <button onClick={onFind}>Find linked notes</button>}
     {error && <p role="alert">{error} {onRetry && <button onClick={onRetry}>Retry backlinks</button>}</p>}
     <div className="backlink-list">
       {notes.map((note) => <button key={note.path} onClick={() => onOpen(note.path)}>
         <Link2 aria-hidden="true" />
         <span><strong>{noteTitle(note, types)}</strong><small>{note.path}</small></span>
       </button>)}
-      {!notes.length && <p className="quiet-empty">{error ? "References could not finish loading." : loading ? "Reading collection links…" : "No notes link here yet."}</p>}
+      {!notes.length && !onFind && <p className="quiet-empty">{error ? "References could not finish loading." : loading ? "Reading collection links…" : "No notes link here yet."}</p>}
     </div>
-  </aside>;
+    <details className="unlinked-mentions settings-details" onToggle={(event) => {
+      const open = event.currentTarget.open;
+      setExpanded(open);
+      if (open) onFind?.();
+      else setShowAll(false);
+    }}>
+      <summary><span>Unlinked mentions ({mentions.length})</span><ChevronRight aria-hidden="true" /></summary>
+      {expanded && <>
+        {visibleMentions.map((mention) => <div className="unlinked-mention" key={mention.note.path}>
+          <button onClick={() => onOpen(mention.note.path)}><strong>{noteTitle(mention.note, types)}</strong><small><SearchMatchText text={mention.snippet} ranges={mention.snippetRanges} /></small></button>
+          {onLinkMention && <button className="mdbase-button is-tertiary" aria-label={`Link mention in ${noteTitle(mention.note, types)}`} disabled={linking} onClick={() => onLinkMention(mention)}>Link</button>}
+        </div>)}
+        {mentions.length > 5 && <button className="mdbase-button is-tertiary" onClick={() => setShowAll((current) => !current)}>{showAll ? "Show fewer" : `Show all ${mentions.length}`}</button>}
+        {!mentions.length && <p className="quiet-empty">{loading ? "Reading collection text…" : onFind ? "Open to find mentions." : "No unlinked mentions."}</p>}
+      </>}
+    </details>
+  </section>;
 }
 
 export function NoteSkeleton({ leadingActions }: { leadingActions?: ReactNode }) {
@@ -69,29 +101,35 @@ export function PaneSkeleton({ label, leadingActions, variant = "document" }: { 
   return <main className="editor-pane" aria-label={label}><NoteSkeleton leadingActions={leadingActions} /></main>;
 }
 
-export function OutlineMenu({ headings, onReveal }: { headings: NoteHeading[]; onReveal: (line: number) => void }) {
-  const { open, close, trigger, triggerProps } = useMenuTrigger();
-  return <div className="note-actions outline-root">
-    <button
-      {...triggerProps}
-      className="icon-button"
-      aria-label="Document outline"
-      title="Document outline"
-      disabled={!headings.length}
-    ><ListBullets aria-hidden="true" /></button>
-    {open && <MenuPopover label="Document outline" className="outline-menu" triggerRef={trigger} onClose={close}>
-      {headings.length ? headings.map((heading, index) => <button
-        key={`${heading.line}:${index}`}
-        role="menuitem"
-        className={`outline-level-${heading.level}`}
-        title={heading.text}
-        onClick={() => {
-          close(true);
-          onReveal(heading.line);
-        }}
-      ><span className="outline-hash">{"#".repeat(heading.level)}</span><span className="outline-text">{heading.text}</span></button>) : <p className="outline-empty">No headings yet.</p>}
-    </MenuPopover>}
-  </div>;
+export function OutlinePanel({ headings, onReveal, onClose }: { headings: NoteHeading[]; onReveal: (line: number) => void; onClose: () => void }) {
+  return <Dialog titleId="outline-title" className="confirm-dialog outline-panel" onClose={onClose}>
+    <header className="panel-header"><h2 id="outline-title">Document outline</h2><button className="icon-button" aria-label="Close outline" onClick={onClose}><X aria-hidden="true" /></button></header>
+    <nav aria-label="Document outline">
+      {headings.length ? headings.map((heading, index) => <button key={`${heading.line}:${index}`} className={`outline-level-${heading.level}`} onClick={() => { onClose(); onReveal(heading.line); }}><span className="outline-hash">{"#".repeat(heading.level)}</span><span className="outline-text">{heading.text}</span></button>) : <p className="outline-empty">No headings yet.</p>}
+    </nav>
+  </Dialog>;
+}
+
+export function InspectorFrame({ overlay, label, width, onClose, children }: {
+  overlay: boolean;
+  label: "Note properties" | "Backlinks";
+  width: number;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const titleId = useId();
+  const content = useRef<HTMLDivElement>(null);
+  if (!overlay) return <div className="inspector-dock">{children}</div>;
+  return <Dialog titleId={titleId} className="inspector-overlay" scrimClassName="inspector-scrim" onClose={() => {
+    // Source editing may need to finish a save before closing. Use the same
+    // close action for Escape/the scrim as for the panel's own close button.
+    const close = content.current?.querySelector<HTMLButtonElement>("[data-inspector-close]");
+    if (close) close.click();
+    else onClose();
+  }}>
+    <h2 id={titleId} className="sr-only">{label}</h2>
+    <div ref={content} className="inspector-content" style={{ "--inspector-width": `${width}px` } as CSSProperties}>{children}</div>
+  </Dialog>;
 }
 
 export function InspectorPanelLoading({ label }: { label: "Note properties" | "Backlinks" }) {

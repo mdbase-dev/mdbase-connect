@@ -11,7 +11,7 @@ export interface NotePreviewAnchor {
   bottom: number;
 }
 
-export type NotePreviewSource = "sidebar" | "editor";
+export type NotePreviewSource = "editor";
 
 interface NotePreviewState {
   path: string;
@@ -146,7 +146,7 @@ export function NotePreviewCard({ preview }: { preview?: NotePreviewState }) {
   if (!preview) return null;
   const excerpt = notePreviewExcerpt(preview.body ?? "", preview.title);
   const properties = previewProperties(preview.frontmatter);
-  const style = previewPosition(preview.anchor, preview.source);
+  const style = previewPosition(preview.anchor);
 
   return createPortal(
     <aside
@@ -207,10 +207,6 @@ export function previewProperties(frontmatter: Record<string, unknown>): Array<[
     .slice(0, 3);
 }
 
-export function notePreviewPopoverId(): string {
-  return previewId;
-}
-
 function cleanMarkdown(value: string): string {
   return value
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
@@ -231,26 +227,14 @@ function compactValue(value: string): string {
   return compact.length > 72 ? `${compact.slice(0, 69).trimEnd()}…` : compact;
 }
 
-function previewPosition(
-  anchor: NotePreviewAnchor,
-  source: NotePreviewSource
-): CSSProperties {
+function previewPosition(anchor: NotePreviewAnchor): CSSProperties {
   const gap = 12;
   const margin = 12;
   const width = Math.min(336, window.innerWidth - margin * 2);
   const estimatedHeight = 310;
-  let left: number;
-  let top: number;
-
-  if (source === "sidebar") {
-    left = anchor.right + gap;
-    if (left + width > window.innerWidth - margin) left = anchor.left - width - gap;
-    top = anchor.top - 10;
-  } else {
-    left = anchor.left;
-    top = anchor.bottom + gap;
-    if (top + estimatedHeight > window.innerHeight - margin) top = anchor.top - estimatedHeight - gap;
-  }
+  const left = anchor.left;
+  let top = anchor.bottom + gap;
+  if (top + estimatedHeight > window.innerHeight - margin) top = anchor.top - estimatedHeight - gap;
 
   return {
     left: Math.max(margin, Math.min(left, window.innerWidth - width - margin)),

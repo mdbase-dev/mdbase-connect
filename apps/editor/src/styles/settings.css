@@ -1,0 +1,216 @@
+.settings-view {
+  position: relative;
+  grid-column: 2 / -1;
+  overflow-y: auto;
+}
+
+.empty-pane-actions,
+.settings-pane-actions {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 14px;
+  display: flex;
+  gap: var(--space-1);
+}
+
+.settings-mobile-bar {
+  display: none;
+}
+
+.settings-document {
+  width: min(100%, 760px);
+  padding: 62px 54px 80px;
+  margin: 0 auto;
+}
+
+.settings-document > section {
+  margin-top: var(--space-12);
+}
+
+.settings-intro {
+  display: grid;
+  gap: var(--space-1);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.settings-intro h2 {
+  margin: 0;
+  font-size: var(--font-size-section);
+}
+
+.settings-intro p {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+}
+
+.settings-details > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-details > summary:hover {
+  color: var(--ink);
+}
+
+.settings-details > summary svg {
+  width: 11px;
+  height: 11px;
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+.settings-details[open] > summary svg {
+  transform: rotate(90deg);
+}
+
+.setting-row,
+.fact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.setting-row {
+  min-height: 64px;
+}
+
+.fact-row {
+  min-height: 44px;
+  padding: var(--space-2) 0;
+}
+
+.setting-row h3 {
+  margin: 0;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+}
+
+.setting-row p {
+  margin: var(--space-1) 0 0;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  line-height: 1.4;
+}
+
+.setting-row .mdbase-select {
+  width: 126px;
+}
+
+.connection-action {
+  align-items: center;
+}
+
+.settings-danger-action {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--space-2);
+}
+
+.settings-danger-action svg {
+  width: 13px;
+  height: 13px;
+}
+
+.settings-secondary-action {
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.settings-quiet-action {
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.setting-controls,
+.settings-review-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-review-actions {
+  margin-top: var(--space-3);
+}
+
+.person-choice .mdbase-select {
+  width: 240px;
+}
+
+.settings-note,
+.settings-review > p,
+.settings-list {
+  margin: 10px 0;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+}
+
+.settings-note p {
+  margin: 0;
+}
+
+.settings-alert {
+  color: var(--danger);
+}
+
+.settings-warning {
+  color: var(--warning);
+}
+
+.settings-review {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-review h3 {
+  margin: 0;
+  font-size: var(--font-size-ui);
+}
+
+.settings-review pre,
+#your-person code {
+  font-family: var(--mono);
+  font-size: var(--font-size-caption);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fact-row > span {
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+}
+
+.fact-row strong {
+  max-width: 420px;
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-regular);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.fact-row .mono {
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+}
+

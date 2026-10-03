@@ -17,6 +17,7 @@ const browser = await chromium.launch({ headless: true });
 try {
   await auditPortalLoading();
   await auditPortalLogin();
+  await auditPortalDevLogin();
   await auditPortalSignup();
   await auditPortalRecovery();
   await auditPortalUnsubscribe();
@@ -132,19 +133,13 @@ async function auditPortalLogin() {
     return [element === document.activeElement, style.outlineWidth, style.outlineStyle, style.outlineColor === accent];
   }), [true, "2px", "solid", true], "password keyboard focus has an accent ring");
   await auditPage(page, "portal login", { keyboard: true });
+  await assertAuthDesign(page, "portal login");
   assert.equal(await page.getByRole("link", { name: "Privacy" }).count(), 1, "portal login: privacy link is present");
   await page.goto(`${servers[0].origin}/signup`);
   await page.getByRole("heading", { name: "Create an account" }).waitFor();
   await page.getByRole("button", { name: "Send verification link" }).waitFor();
   await auditPage(page, "portal signup", { keyboard: true });
-  const authFontSizes = await page.locator(".minimal-auth-page :is(h1, p, label, input, button, a, span)").evaluateAll(
-    (elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontSize))]
-  );
-  assert.deepEqual(authFontSizes, ["17px"], "portal signup: visible copy uses one font size");
-  const authFontWeights = await page.locator(".minimal-auth-page :is(h1, p, label, input, button, a, span, strong)").evaluateAll(
-    (elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontWeight))]
-  );
-  assert.deepEqual(authFontWeights, ["400"], "portal signup: visible copy uses one font weight");
+  await assertAuthDesign(page, "portal signup", { divider: false });
   assert.equal(await page.locator("html").getAttribute("data-theme"), null, "portal signup: theme follows the operating system");
   assert.equal(await page.getByRole("combobox", { name: "Color theme" }).count(), 1, "portal signup: System/Light/Dark remains available");
   const authAlignment = await page.locator(".page-brand-row, .minimal-auth-footer").evaluateAll(
@@ -157,6 +152,95 @@ async function auditPortalLogin() {
     errors.filter((error) => !error.includes("status of 401")),
     []
   );
+  await page.close();
+}
+
+async function assertAuthDesign(page, label, { divider = true } = {}) {
+  const design = await page.locator(".minimal-auth-shell").evaluate((shell) => {
+    const visible = (element) => element.checkVisibility() && element.getClientRects().length > 0;
+    const copy = [...shell.querySelectorAll("h1, p, label, input, button, a, span, strong")].filter(visible);
+    // Resolve the shared properties through computed CSS, including non-px units.
+    const probe = document.createElement("span");
+    shell.append(probe);
+    const token = (property, name) => {
+      if (!getComputedStyle(shell).getPropertyValue(`--${name}`).trim()) throw new Error(`Missing shared token: --${name}`);
+      probe.style.setProperty(property, `var(--${name})`);
+      return getComputedStyle(probe).getPropertyValue(property);
+    };
+    const sizes = Object.fromEntries(["caption", "ui", "section", "prose", "heading", "title"]
+      .map((name) => [name, token("font-size", `font-size-${name}`)]));
+    const weights = Object.fromEntries(["regular", "medium", "semibold", "bold"]
+      .map((name) => [name, token("font-weight", `font-weight-${name}`)]));
+    const accent = token("background-color", "color-accent");
+    const onAccent = token("color", "color-on-accent");
+    probe.remove();
+    const styles = (selector) => [...shell.querySelectorAll(selector)].filter(visible)
+      .map((element) => {
+        const style = getComputedStyle(element);
+        return { size: style.fontSize, weight: style.fontWeight };
+      });
+    const primary = [...shell.querySelectorAll(".auth-panel .is-primary")].filter(visible);
+    const actions = [...shell.querySelectorAll(".auth-panel button, .auth-panel a")].filter(visible);
+    return {
+      sizes, weights,
+      copy: copy.map((element) => ({ tag: element.tagName, size: getComputedStyle(element).fontSize, weight: getComputedStyle(element).fontWeight })),
+      heading: styles("h1"),
+      body: styles(".auth-panel > p:not(.auth-footnote)"),
+      fields: styles('.auth-panel input:not([type="checkbox"]):not([type="hidden"])'),
+      labels: styles(".auth-panel label:not(.auth-agreement) > span:not(.auth-field-error)"),
+      primary: primary.map((element) => ({ filled: getComputedStyle(element).backgroundColor === accent, onAccent: getComputedStyle(element).color === onAccent })),
+      filledActions: actions.filter((element) => getComputedStyle(element).backgroundColor === accent).length,
+      dividers: [...shell.querySelectorAll(".provider-divider")].filter(visible).map((element) => element.textContent.trim())
+    };
+  });
+  assert.deepEqual(design.copy.filter(({ size }) => !Object.values(design.sizes).includes(size)), [], `${label}: visible sizes use shared type tokens`);
+  assert.deepEqual(design.copy.filter(({ weight }) => !Object.values(design.weights).includes(weight)), [], `${label}: visible weights use shared weight tokens`);
+  assert.deepEqual(design.heading, [{ size: design.sizes.heading, weight: design.weights.semibold }], `${label}: one token-sized, semibold heading`);
+  assert.deepEqual(design.copy.filter(({ tag, size }) => tag !== "H1" && parseFloat(size) >= parseFloat(design.sizes.heading)), [], `${label}: heading is uniquely largest`);
+  for (const role of ["body", "fields"]) {
+    assert.ok(design[role].length > 0, `${label}: ${role} are present`);
+    assert.ok(design[role].every(({ size, weight }) => size === design.sizes.prose && weight === design.weights.regular), `${label}: ${role} share the regular prose base`);
+  }
+  // Field labels deliberately use the smaller section token; legal copy uses UI.
+  assert.ok(design.labels.length > 0 && design.labels.every(({ size, weight }) => size === design.sizes.section && weight === design.weights.medium), `${label}: field labels use medium section type`);
+  assert.deepEqual(design.primary, [{ filled: true, onAccent: true }], `${label}: one filled primary action with on-accent text`);
+  assert.equal(design.filledActions, 1, `${label}: providers and quiet links are not primary actions`);
+  assert.deepEqual(design.dividers, divider ? ["or"] : [], `${label}: one divider only when email and providers coexist`);
+}
+
+async function auditPortalDevLogin() {
+  const page = await localPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  let submitted;
+  const pairingPath = "/pair/11111111-1111-4111-8111-111111111111";
+  const pairingEndpoint = pairingPath.replace("/pair/", "/v1/pairing-requests/");
+  await page.route("**/v1/**", (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === "/v1/me" || (pathname === pairingEndpoint && !submitted)) return route.fulfill({ status: 401, json: { error: "not_authenticated" } });
+    if (pathname === pairingEndpoint) return route.fulfill({ json: { pairing: { connector_name: "Test computer", approved_at: null } } });
+    if (pathname === `${pairingEndpoint}/approve`) return route.fulfill({ json: { deep_link: "mdbase-connect://paired?fixture=1" } });
+    if (pathname === "/v1/auth/config") return route.fulfill({ json: { provider: "dev", providers: [], registration: "closed" } });
+    if (pathname === "/v1/dev/session") {
+      submitted = route.request().postDataJSON();
+      return route.fulfill({ json: {} });
+    }
+    return route.fulfill({ status: 404, json: { error: "not_found" } });
+  });
+  await page.goto(`${servers[0].origin}${pairingPath}`);
+  // Stable selectors consumed by portal-smoke, Docker E2E, and portal-lifecycle.
+  await page.getByRole("heading", { name: "Open your account", exact: true }).waitFor();
+  await auditPage(page, "portal development login", { keyboard: true });
+  await page.getByLabel("Name", { exact: true }).fill("Portal Test");
+  await page.getByLabel("Email", { exact: true }).fill("portal-test@example.com");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("heading", { name: "Test computer", exact: true }).waitFor();
+  assert.deepEqual(submitted, { name: "Portal Test", email: "portal-test@example.com" });
+  await auditPage(page, "portal development pairing", { keyboard: true });
+  await page.getByRole("button", { name: "Approve computer", exact: true }).click();
+  await page.getByRole("heading", { name: "Return to mdbase connect.", exact: true }).waitFor();
+  await auditPage(page, "portal development pairing approved", { keyboard: true });
+  assert.deepEqual(errors, []);
   await page.close();
 }
 
@@ -213,6 +297,7 @@ async function auditPortalSignup() {
   await page.getByRole("button", { name: "Continue with Google" }).waitFor();
   const github = new URL(await page.getByRole("link", { name: "Continue with GitHub" }).getAttribute("href"), servers[0].origin);
   assert.equal(new URL(github.searchParams.get("return_to"), servers[0].origin).pathname, returnTo.split("?")[0]);
+  await page.emulateMedia({ reducedMotion: "reduce" });
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
     for (const width of [320, 390, 742, 1280]) {
@@ -222,11 +307,11 @@ async function auditPortalSignup() {
           const { left, width } = document.querySelector(selector).getBoundingClientRect();
           return { left, width };
         };
-        const label = document.querySelector(".auth-panel > .provider-divider > span");
+        const label = document.querySelector(".auth-providers > .provider-divider > span");
         const range = document.createRange();
         range.selectNodeContents(label);
         return {
-          edges: [".page-brand-row", ".auth-providers", ".google-provider", ".github-button", ".auth-panel > .provider-divider", ".password-auth-form", ".minimal-auth-footer"].map(bounds),
+          edges: [".page-brand-row", ".auth-providers", ".google-provider", ".github-button", ".auth-providers > .provider-divider", ".password-auth-form", ".minimal-auth-footer"].map(bounds),
           labelLines: range.getClientRects().length,
           googleScheme: getComputedStyle(document.querySelector(".google-provider")).colorScheme,
           overflow: document.documentElement.scrollWidth > innerWidth
@@ -239,6 +324,7 @@ async function auditPortalSignup() {
       assert.equal(layout.labelLines, 1, `signup ${colorScheme}/${width}: email divider stays on one line`);
       assert.equal(layout.googleScheme, "light", "Google iframe uses its native color scheme");
       assert.equal(layout.overflow, false, `signup ${colorScheme}/${width}: no horizontal overflow`);
+      await assertAuthDesign(page, `signup ${colorScheme}/${width}`);
     }
   }
   await page.setViewportSize({ width: 390, height: 844 });
@@ -248,6 +334,7 @@ async function auditPortalSignup() {
   await page.waitForTimeout(100);
   assert.equal(googleStarts, startsBeforeTyping);
   await auditPage(page, "public signup choices", { keyboard: true });
+  await assertAuthDesign(page, "public signup choices");
   await page.getByRole("button", { name: "Continue with Google" }).click();
   await page.getByRole("textbox", { name: "Name", exact: true }).waitFor();
   assert.equal(await page.getByLabel("Email", { exact: true }).inputValue(), "person@example.com");
@@ -294,6 +381,9 @@ async function auditPortalRecovery() {
     await theme.click();
     await page.getByRole("option", { name: "System", exact: true }).click();
     assert.equal(await page.locator("html").getAttribute("data-theme"), null);
+    await page.goto(`${servers[0].origin}/login?auth_error=cancelled`);
+    await page.getByRole("heading", { name: "Sign in", exact: true }).waitFor();
+    assert.match(await page.getByRole("alert").innerText(), /Sign-in was cancelled/, "successful config preserves authentication return errors");
     configFails = true;
     await page.reload();
     await page.getByRole("alert").waitFor();
@@ -728,11 +818,15 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   const approvalTextFamilies = await page.locator(
     ".approval-page .authorization-panel :is(h1, h2, p, small, strong, label, button, summary, li, span)"
   ).evaluateAll((elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontFamily))]);
-  assert.deepEqual(
-    approvalTextFamilies,
-    ["\"Atkinson Hyperlegible\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"],
-    "portal authorization: nontechnical copy uses only Atkinson Hyperlegible"
-  );
+  const sharedFamily = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.fontFamily = "var(--sans)";
+    document.body.append(probe);
+    const family = getComputedStyle(probe).fontFamily;
+    probe.remove();
+    return family;
+  });
+  assert.deepEqual(approvalTextFamilies, [sharedFamily], "portal authorization: nontechnical copy uses only the shared UI family");
   const approvalFontWeights = await page.locator(".approval-page .authorization-panel").evaluateAll((elements) => {
     const copy = elements[0].querySelectorAll("h1, h2, p, small, strong, label, button, summary, li, span, code");
     return [...new Set([...copy].map((element) => getComputedStyle(element).fontWeight))].sort();

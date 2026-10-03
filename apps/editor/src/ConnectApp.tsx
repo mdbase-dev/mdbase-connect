@@ -33,12 +33,15 @@ import { FeedbackPage } from "./FeedbackPage";
 import { FeedbackButton, FeedbackProvider, feedbackApplication, useFeedback, type FeedbackFailure } from "@mdbase-dev/ui/feedback";
 import { feedbackEndpoint as configuredFeedbackEndpoint, turnstileSiteKey } from "./feedback";
 import {
-  BracketsCurlyIcon as Braces,
-  GearSixIcon as Settings,
+  DesktopIcon as Desktop,
+  FolderIcon as Folder,
+  HardDrivesIcon as HardDrives,
   InfoIcon as Info,
+  KeyIcon as Key,
   NotebookIcon as Notebook,
   PackageIcon as Package,
   PlusIcon as Plus,
+  UserCircleIcon as Account,
   WarningCircleIcon as Warning
 } from "./icons";
 import "./connect.css";
@@ -287,15 +290,15 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         {selectedCollection && <section className="connect-nav-group" aria-labelledby="current-collection-navigation">
           <p id="current-collection-navigation">{selectedCollection.name}</p>
           <NavLink label="Overview" icon={<Info />} selected={activeView === "overview"} view="overview" collectionId={selectedCollection.id} navigate={navigate} />
-          <NavLink label="Storage & sync" icon={<Notebook />} selected={activeView === "storage"} view="storage" collectionId={selectedCollection.id} navigate={navigate} />
-          <NavLink label="App access" icon={<Package />} selected={activeView === "access"} view="access" collectionId={selectedCollection.id} navigate={navigate} />
+          <NavLink label="Storage & sync" icon={<HardDrives />} selected={activeView === "storage"} view="storage" collectionId={selectedCollection.id} navigate={navigate} />
+          <NavLink label="App access" icon={<Key />} selected={activeView === "access"} view="access" collectionId={selectedCollection.id} navigate={navigate} />
         </section>}
         <section className="connect-nav-group" aria-labelledby="account-navigation">
           <p id="account-navigation">Account</p>
-          <NavLink label="All collections" icon={<Notebook />} selected={activeView === "collections"} view="collections" collectionId={selectedCollection?.id} navigate={navigate} />
+          <NavLink label="All collections" icon={<Folder />} selected={activeView === "collections"} view="collections" collectionId={selectedCollection?.id} navigate={navigate} />
           <NavLink label="Applications" icon={<Package />} selected={activeView === "applications"} view="applications" collectionId={selectedCollection?.id} navigate={navigate} />
-          <NavLink label="Computers" icon={<Braces />} selected={activeView === "computers"} view="computers" collectionId={selectedCollection?.id} navigate={navigate} />
-          <NavLink label="Account & sessions" icon={<Settings />} selected={activeView === "account"} view="account" collectionId={selectedCollection?.id} navigate={navigate} />
+          <NavLink label="Computers" icon={<Desktop />} selected={activeView === "computers"} view="computers" collectionId={selectedCollection?.id} navigate={navigate} />
+          <NavLink label="Account & sessions" icon={<Account />} selected={activeView === "account"} view="account" collectionId={selectedCollection?.id} navigate={navigate} />
           <FeedbackButton className="connect-feedback-mobile-link" />
         </section>
       </nav>
@@ -331,7 +334,7 @@ function CollectionInvitationBanner({ busy, onAccept, onDismiss }: {
   return <div className="connect-pending-banner connect-sharing-banner" role="status">
     <Notebook aria-hidden="true" />
     <span><strong>A collection was shared with you</strong><small>Accept to add it to your collections. The invitation is bound to this account. Your account name and stable identifier can be shared with other members’ apps when they approve People access.</small></span>
-    <span className="connect-banner-actions"><button disabled={busy} onClick={onDismiss}>Not now</button><button className="connect-primary-action" disabled={busy} onClick={onAccept}>{busy ? "Accepting…" : "Accept"}</button></span>
+    <span className="connect-banner-actions"><button disabled={busy} onClick={onDismiss}>Not now</button><button className="connect-primary-action mdbase-button is-primary" disabled={busy} onClick={onAccept}>{busy ? "Accepting…" : "Accept"}</button></span>
   </div>;
 }
 
@@ -475,7 +478,7 @@ function CollectionSharingPanel({ collection, busy, perform, sharingAvailable }:
       <label><span>{targetMode === "email" ? "Email address" : "Sharing code"}</span><input autoFocus type={targetMode === "email" ? "email" : "text"} maxLength={targetMode === "email" ? 320 : 32} value={target} onChange={(event) => setTarget(event.target.value)} placeholder={targetMode === "email" ? "person@example.com" : "ABCD-EFGH"} /></label>
       <label><span>Role</span><Select aria-label="Role" value={role} options={memberRoles} onChange={setRole} /></label>
       <p>{role === "viewer" ? "Can read this collection and connect read-only apps or folders." : "Can edit notes, manage types, rename this collection, and connect apps."}</p>
-      <div><button type="button" onClick={() => setInviting(false)}>Cancel</button><button className="connect-primary-action" disabled={!target.trim() || busy.has(`sharing-invite-${collection.id}`)}>{busy.has(`sharing-invite-${collection.id}`) ? "Creating…" : "Create invitation"}</button></div>
+      <div><button type="button" onClick={() => setInviting(false)}>Cancel</button><button className="connect-primary-action mdbase-button is-primary" disabled={!target.trim() || busy.has(`sharing-invite-${collection.id}`)}>{busy.has(`sharing-invite-${collection.id}`) ? "Creating…" : "Create invitation"}</button></div>
     </form>}
     {shareLink && <div className="connect-sharing-link" role="status"><div><strong>Invitation ready</strong><small>Send this private link to the invited person. Email invitations require an already registered, verified account. If they have just signed up, create a new invitation.</small></div><input aria-label="Collection invitation link" readOnly value={shareLink} onFocus={(event) => event.currentTarget.select()} /><button onClick={() => void copyLink()}>{copied ? "Copied" : "Copy link"}</button></div>}
     {members?.map((member) => <div className="connect-row connect-member-row" key={member.id ?? "owner"}>
@@ -574,7 +577,7 @@ function Collections({ data, busy, perform, navigate }: {
       <SectionTitle title="All collections" count={rows.length} action={data.hosted_collections_available !== false && <button onClick={() => setCreating(true)}><Plus aria-hidden="true" />New hosted collection</button>} />
       {creating && <form className="connect-inline-form" onSubmit={(event) => void create(event)}>
         <label><span>Collection name</span><input autoFocus maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <div><button type="button" onClick={() => setCreating(false)}>Cancel</button><button className="connect-primary-action" disabled={busy.has("create-collection") || !name.trim()}>{busy.has("create-collection") ? "Creating…" : "Create"}</button></div>
+        <div><button type="button" onClick={() => setCreating(false)}>Cancel</button><button className="connect-primary-action mdbase-button is-primary" disabled={busy.has("create-collection") || !name.trim()}>{busy.has("create-collection") ? "Creating…" : "Create"}</button></div>
       </form>}
       {rows.map((collection) => collection.kind === "hosted"
         ? <HostedCollectionRow key={collection.id} collection={collection.source} busy={busy} perform={perform} manage={{ collectionId: collection.id, navigate }} />
@@ -655,10 +658,10 @@ function GrantEditor({ grant, busy, perform }: {
     <summary><span><strong>{grant.collection_name}</strong><small>{grant.operations.length} permissions · {host(grant.homepage)}</small></span><b>Permissions</b></summary>
     <div className="connect-grant-body">
       {needsReview && <p role="status">Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></p>}
-      <div className="connect-permissions">{ordered.map((operation) => <label key={operation}><input type="checkbox" checked={operations.has(operation)} onChange={() => setSelected((current) => current.includes(operation)
+      <div className="connect-permissions">{ordered.map((operation) => <label key={operation}><input className="mdbase-checkbox" type="checkbox" checked={operations.has(operation)} onChange={() => setSelected((current) => current.includes(operation)
         ? current.filter((value) => value !== operation) : [...current, operation])} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div>
       <div className="connect-grant-meta"><span>Scope</span><strong>Entire collection</strong><span>Origin</span><strong>{grant.application_origin}</strong></div>
-      <div className="connect-row-actions"><button className="connect-primary-action" disabled={needsReview || !changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => management.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}>Save narrower access</button><ConfirmAction className="danger" label="Revoke" question={`Revoke access to ${grant.collection_name}?`} confirmLabel="Revoke" busy={busy.has(`grant-${grant.id}`)} onConfirm={() => void perform(`grant-${grant.id}`, (options) => management.revokeGrant(grant.id, options))} /></div>
+      <div className="connect-row-actions"><button className="connect-primary-action mdbase-button is-primary" disabled={needsReview || !changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => management.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}>Save narrower access</button><ConfirmAction className="danger" label="Revoke" question={`Revoke access to ${grant.collection_name}?`} confirmLabel="Revoke" busy={busy.has(`grant-${grant.id}`)} onConfirm={() => void perform(`grant-${grant.id}`, (options) => management.revokeGrant(grant.id, options))} /></div>
     </div>
   </details>;
 }

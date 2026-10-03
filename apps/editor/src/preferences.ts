@@ -2,6 +2,8 @@ export interface EditorPreferences {
   vim: boolean;
   lineWrapping: boolean;
   quietMarkdown: boolean;
+  focusMode: boolean;
+  typewriterScrolling: boolean;
   fontSize: 16 | 17 | 19;
 }
 
@@ -11,6 +13,8 @@ export const defaultPreferences: EditorPreferences = {
   vim: false,
   lineWrapping: true,
   quietMarkdown: true,
+  focusMode: false,
+  typewriterScrolling: false,
   fontSize: 17
 };
 
@@ -21,6 +25,8 @@ export function loadPreferences(): EditorPreferences {
       vim: typeof value?.vim === "boolean" ? value.vim : defaultPreferences.vim,
       lineWrapping: typeof value?.lineWrapping === "boolean" ? value.lineWrapping : defaultPreferences.lineWrapping,
       quietMarkdown: typeof value?.quietMarkdown === "boolean" ? value.quietMarkdown : defaultPreferences.quietMarkdown,
+      focusMode: value?.focusMode === true,
+      typewriterScrolling: value?.typewriterScrolling === true,
       fontSize: value?.fontSize === 16 || value?.fontSize === 19 ? value.fontSize : defaultPreferences.fontSize
     };
   } catch {

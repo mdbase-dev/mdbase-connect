@@ -1,0 +1,156 @@
+.note-search-root {
+  position: relative;
+  min-width: 0;
+}
+
+.search-field {
+  flex-wrap: wrap;
+}
+
+.search-field input {
+  flex: 1;
+  min-width: 40px;
+}
+
+.search-field .search-filter-chip {
+  display: inline-flex;
+  width: auto;
+  max-width: 100%;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: var(--font-size-ui);
+  text-align: left;
+}
+
+.search-filter-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-filter-chip svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.search-filter-suggestions {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--white);
+  box-shadow: var(--elevation-low);
+}
+
+.search-filter-suggestions button {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-size: var(--font-size-ui);
+}
+
+.search-filter-suggestions button:hover,
+.search-filter-suggestions button[aria-selected="true"] {
+  background: var(--accent-soft);
+}
+
+.search-filter-suggestions small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.search-filter-suggestions p {
+  padding: var(--space-2) var(--space-3);
+  color: var(--muted);
+}
+
+.outline-panel nav {
+  display: grid;
+  gap: var(--space-1);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.outline-panel nav button {
+  display: flex;
+  gap: var(--space-2);
+  min-height: 40px;
+  text-align: left;
+}
+
+.move-note-dialog label {
+  display: block;
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.has-note-footer .cm-scroller {
+  flex-direction: column;
+}
+
+.body-editor.has-note-footer .cm-content {
+  flex-shrink: 0;
+  width: 100%;
+  min-height: auto;
+}
+
+.note-footer {
+  /* The document and its footer remain successive, non-shrinking blocks.
+     Expanding references must not move the browser's scroll anchor into them. */
+  flex-shrink: 0;
+  overflow-anchor: none;
+  width: 100%;
+  padding: var(--space-6) max(var(--writing-gutter), calc((100% - var(--writing-measure)) / 2)) var(--space-12);
+}
+
+.linked-from {
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-4);
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+}
+
+.linked-from h2 {
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+  margin: 0 0 var(--space-3);
+}
+
+.linked-from .backlink-list button {
+  width: auto;
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  text-align: left;
+}
+
+.linked-from .backlink-list strong {
+  font-weight: var(--font-weight-medium);
+}
+
+.linked-from .backlink-list small {
+  display: none;
+}
+
+.linked-from .backlink-list svg {
+  width: 16px;
+  height: 16px;
+}
+
+.linked-from .quiet-empty {
+  margin: 0;
+}

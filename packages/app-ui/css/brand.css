@@ -38,7 +38,7 @@
 }
 
 .mdbase-mark .mdbase-mark-progress-fill {
-  transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: width var(--motion-slow) var(--ease-out);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -53,8 +53,8 @@
   gap: 8px;
   color: var(--color-text);
   font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
   line-height: 1;
   letter-spacing: -0.02em;
 }
@@ -72,19 +72,19 @@
   gap: 0.65ch;
   white-space: nowrap;
   transition:
-    opacity 140ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
-    display 140ms allow-discrete;
+    opacity var(--motion-quick) var(--ease-out),
+    transform var(--motion-quick) var(--ease-out),
+    display var(--motion-quick) allow-discrete;
 }
 
 .wordmark strong {
   display: inline-block;
   color: var(--color-text-muted);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   transition:
-    opacity 140ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
-    display 140ms allow-discrete;
+    opacity var(--motion-quick) var(--ease-out),
+    transform var(--motion-quick) var(--ease-out),
+    display var(--motion-quick) allow-discrete;
 }
 
 @starting-style {

@@ -27,12 +27,14 @@ import {
   type ViewUpdate
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { parseDocument as parseYamlDocument } from "yaml";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import type { ResolvedFileReference } from "./use-file-assets";
 import { writerAutocomplete } from "./code-editor-completions";
-import { fileEmbedPresentation } from "./code-editor-file-embeds";
+import { attachmentCapture, blockAttachmentInsertion, fileEmbedPresentation } from "./code-editor-file-embeds";
+import type { AttachmentUploader } from "./AttachmentUpload";
 import { noteEmbedPresentation } from "./code-editor-note-embeds";
 import { referenceDiagnostics } from "./code-editor-reference-diagnostics";
 import { writerInteractions } from "./code-editor-writer-interactions";
@@ -41,6 +43,7 @@ import { markdownReferences } from "./markdown-references";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 import type { CollectionFile, NoteSummary } from "./model";
+import { typewriterScrolling } from "./code-editor-typewriter";
 import { mdbasePopupTheme } from "@mdbase-dev/ui/codemirror";
 
 type EditorLanguage = "markdown" | "json" | "yaml" | "yaml-frontmatter" | "plain";
@@ -57,6 +60,7 @@ interface CodeEditorProps {
   readOnly?: boolean;
   vimEnabled?: boolean;
   lineWrapping?: boolean;
+  typewriter?: boolean;
   autoFocus?: boolean;
   quietMarkdown?: boolean;
   className?: string;
@@ -78,8 +82,10 @@ interface CodeEditorProps {
   onVisibleFileEmbeds?: (keys: string[]) => void;
   onVisibleNoteEmbeds?: (keys: string[]) => void;
   insertion?: { id: number; text: string; block?: boolean };
+  onUploadAttachment?: AttachmentUploader;
   onBlur?: () => void;
   remoteApplyToken?: number;
+  footer?: ReactNode;
 }
 
 interface RememberedEditor {
@@ -120,6 +126,7 @@ export function CodeEditor({
   readOnly = false,
   vimEnabled = false,
   lineWrapping = true,
+  typewriter = false,
   autoFocus = false,
   quietMarkdown = true,
   className = "",
@@ -141,10 +148,13 @@ export function CodeEditor({
   onVisibleFileEmbeds,
   onVisibleNoteEmbeds,
   insertion,
+  onUploadAttachment,
   onBlur,
-  remoteApplyToken
+  remoteApplyToken,
+  footer
 }: CodeEditorProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const [footerHost, setFooterHost] = useState<HTMLDivElement>();
   const viewRef = useRef<EditorView | undefined>(undefined);
   const appliedRemoteToken = useRef<number | null>(null);
   const onChangeRef = useRef(onChange);
@@ -152,6 +162,7 @@ export function CodeEditor({
   const historyMode = useRef(new Compartment());
   const vimMode = useRef(new Compartment());
   const wrapping = useRef(new Compartment());
+  const typewriterMode = useRef(new Compartment());
   const completions = useRef(new Compartment());
   const languageMode = useRef(new Compartment());
   const writerPresentation = useRef(new Compartment());
@@ -184,6 +195,8 @@ export function CodeEditor({
   const onVisibleFileEmbedsRef = useRef(onVisibleFileEmbeds);
   const onVisibleNoteEmbedsRef = useRef(onVisibleNoteEmbeds);
   const appliedInsertion = useRef<number | undefined>(undefined);
+  const onUploadAttachmentRef = useRef(onUploadAttachment);
+  onUploadAttachmentRef.current = variant === "writer" && language === "markdown" ? onUploadAttachment : undefined;
   const lineSeparator = useRef(lineSeparatorFor(value));
 
   linkSuggestionsRef.current = linkSuggestions;
@@ -210,12 +223,14 @@ export function CodeEditor({
     const extensions: Extension[] = [
       vimMode.current.of([]),
       historyMode.current.of([history()]),
-      editorSetup(variant),
+      Prec.highest(attachmentCapture(() => onUploadAttachmentRef.current)),
+      editorSetup(variant, Boolean(footer)),
       syntaxHighlighting(mdbaseHighlightStyle),
       mdbasePopupTheme,
       variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
       languageMode.current.of(language === "markdown" ? markdown() : []),
       wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),
+      typewriterMode.current.of([]),
       completions.current.of(variant === "writer" && language === "markdown" ? writerAutocomplete(
         () => linkSuggestionsRef.current,
         () => linkTypesRef.current,
@@ -273,6 +288,12 @@ export function CodeEditor({
     const focusBeforeMount = parentRef.current.ownerDocument.activeElement;
     const view = new EditorView({ parent: parentRef.current, state });
     viewRef.current = view;
+    if (variant === "writer" && footer) {
+      const host = view.dom.ownerDocument.createElement("div");
+      host.className = "note-footer";
+      view.scrollDOM.append(host);
+      setFooterHost(host);
+    }
     if (documentId) registerActiveEditor(documentId, view);
     requestAnimationFrame(() => {
       if (viewRef.current !== view) return;
@@ -287,6 +308,7 @@ export function CodeEditor({
       // but before this frame, and keep dialogs in charge of their own focus.
       if (autoFocus && activeElement === focusBeforeMount
           && (!editableOwner || view.dom.contains(activeElement))
+          && !activeElement?.matches("[role='listbox']")
           && !activeElement?.closest("[role='dialog'], [role='alertdialog'], [role='combobox']")) view.focus();
     });
     return () => {
@@ -300,6 +322,10 @@ export function CodeEditor({
     // Runtime preferences are reconfigured by the effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: typewriterMode.current.reconfigure(typewriter && variant === "writer" ? typewriterScrolling : []) });
+  }, [typewriter, variant]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -481,10 +507,8 @@ export function CodeEditor({
     if (!view || readOnly || !insertion || appliedInsertion.current === insertion.id) return;
     appliedInsertion.current = insertion.id;
     const selection = view.state.selection.main;
-    const before = selection.from > 0 ? view.state.doc.sliceString(selection.from - 1, selection.from) : "";
-    const after = selection.to < view.state.doc.length ? view.state.doc.sliceString(selection.to, selection.to + 1) : "";
     const insert = insertion.block
-      ? `${before && before !== "\n" ? "\n\n" : ""}${insertion.text}${after && after !== "\n" ? "\n\n" : ""}`
+      ? blockAttachmentInsertion(view.state.doc, selection.from, selection.to, insertion.text)
       : insertion.text;
     view.dispatch({
       changes: { from: selection.from, to: selection.to, insert },
@@ -496,13 +520,13 @@ export function CodeEditor({
 
   return <div
     ref={parentRef}
-    className={`code-editor code-editor-${variant} ${className}`.trim()}
+    className={`code-editor code-editor-${variant}${footer ? " has-note-footer" : ""} ${className}`.trim()}
     onBlur={(event) => {
       const next = event.relatedTarget;
       if (next instanceof Node && event.currentTarget.contains(next)) return;
       onBlur?.();
     }}
-  />;
+  >{footerHost && footer && createPortal(footer, footerHost)}</div>;
 }
 
 export function lineSeparatorFor(value: string): "\n" | "\r\n" {
@@ -548,12 +572,18 @@ export function markdownEdit(doc: string, from: number, to: number, format: Mark
   };
 }
 
-const editorSetup = (variant: EditorVariant): Extension => [
+const editorSetup = (variant: EditorVariant, hasFooter = false): Extension => [
   highlightSpecialChars(),
   search({ top: true }),
+  // Sentence case belongs in the label, not a CSS transform ("Replace all", not "Replace All").
+  EditorState.phrases.of({
+    next: "Next", previous: "Previous", all: "All", replace: "Replace",
+    "replace all": "Replace all", "match case": "Match case", regexp: "Regular expression",
+    "by word": "Whole words", close: "Close", go: "Go"
+  }),
   highlightSelectionMatches({ minSelectionLength: 2 }),
   bracketMatching(),
-  variant === "writer" ? [scrollPastEnd(), pasteURLAsLink] : [
+  variant === "writer" ? [hasFooter ? [] : scrollPastEnd(), pasteURLAsLink] : [
     lineNumbers(),
     indentOnInput(),
     closeBrackets(),
@@ -615,6 +645,7 @@ const writerHighlightStyle = HighlightStyle.define([
 
 function markdownFormatCommand(format: MarkdownFormat) {
   return (view: EditorView) => {
+    if (view.state.readOnly) return true;
     const transaction = view.state.changeByRange((range) => {
       const edit = markdownEdit(view.state.doc.toString(), range.from, range.to, format);
       return {
@@ -659,13 +690,12 @@ class TaskCheckboxWidget extends WidgetType {
   toDOM() {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "cm-task-checkbox";
+    button.className = "cm-task-checkbox mdbase-checkbox";
     button.dataset.taskFrom = String(this.from);
     button.setAttribute("role", "checkbox");
     button.setAttribute("aria-checked", String(this.checked));
     button.setAttribute("aria-label", this.checked ? "Mark task incomplete" : "Mark task complete");
     button.title = this.checked ? "Mark task incomplete" : "Mark task complete";
-    button.textContent = this.checked ? "✓" : "";
     return button;
   }
 

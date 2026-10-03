@@ -1,0 +1,35 @@
+:root {
+  color: var(--ink);
+  background: var(--canvas);
+  font-family: var(--sans);
+  /* Preserve rem-based geometry; UI chrome uses its own body size token. */
+  font-size: 100%;
+  font-weight: var(--font-weight-regular);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --color-diff-local: oklch(98% 0.012 28);
+  --color-diff-local-mark: oklch(91% 0.04 28);
+  --color-diff-remote: oklch(98% 0.014 153);
+  --color-diff-remote-mark: oklch(91% 0.045 153);
+  --scrollbar-thumb-current: var(--scrollbar-thumb-rest);
+  --scrollbar-size: 2px;
+  --canvas: var(--color-canvas);
+  --white: var(--color-surface);
+  --ink: var(--color-text);
+  --muted: var(--color-text-soft);
+  --faint: var(--color-text-muted);
+  --line: var(--color-border);
+  --line-strong: var(--color-border-strong);
+  --hover: var(--color-surface-subtle);
+  --selected: var(--color-selected);
+  --accent: var(--color-accent);
+  --accent-strong: var(--color-accent-strong);
+  --accent-soft: var(--color-accent-soft);
+  --success: var(--color-success);
+  --warning: var(--color-warning-text);
+  --warning-soft: var(--color-warning-surface);
+  --danger: var(--color-danger);
+  --danger-soft: var(--color-danger-soft);
+  --skeleton: var(--color-skeleton);
+}
+

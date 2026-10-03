@@ -1,16 +1,65 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CollectionContractDescriptor, CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContractCatalog } from "./contract-catalog";
 import type { NoteSummary, TypeDocument } from "./model";
 import { TypeInspector, TypePackBrowser } from "./TypeBrowser";
-import { NEW_TYPE_SOURCE } from "./type-constants";
+import { NEW_TYPE_SOURCE } from "./type-presentation";
 import { readVisualType } from "./type-schema";
 import { chooseOption, optionsOf } from "./test/select";
 
+afterEach(() => vi.useRealTimers());
+
 describe("recursive type builder", () => {
+  it("does not mistake an unread definition for invalid YAML, but reports invalid loaded source", () => {
+    const props = {
+      type: { name: "note", schema: {}, extensions: {} },
+      source: "", notes: [], creating: false, loading: true, saving: false,
+      onSourceChange: vi.fn(), onSave: vi.fn(), onRevert: vi.fn(), onCancel: vi.fn(), onBack: vi.fn()
+    };
+    const view = render(<TypeInspector {...props} />);
+    expect(screen.getByRole("status", { name: "Loading type definition" })).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    view.rerender(<TypeInspector {...props} loading={false} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Type definitions need YAML frontmatter");
+  });
+
+  it("keeps the type save notice silent until slow and surfaces failure immediately", () => {
+    vi.useFakeTimers();
+    const props = {
+      type: { name: "note", schema: {}, extensions: {} },
+      document: { name: "note", path: "_types/note.md", revision: "one", document: NEW_TYPE_SOURCE },
+      source: NEW_TYPE_SOURCE, notes: [], creating: false, loading: false, saving: false,
+      onSourceChange: vi.fn(), onSave: vi.fn(), onRevert: vi.fn(), onCancel: vi.fn(), onBack: vi.fn()
+    };
+    const view = render(<TypeInspector {...props} />);
+    expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toBeNull();
+    view.rerender(<TypeInspector {...props} saving />);
+    act(() => vi.advanceTimersByTime(1_499));
+    expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toBeNull();
+    act(() => vi.advanceTimersByTime(1));
+    expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toHaveTextContent("Saving…");
+    view.rerender(<TypeInspector {...props} error="Offline" />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Offline");
+    expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toHaveTextContent("Needs attention");
+    view.rerender(<TypeInspector {...props} />);
+    expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toBeNull();
+  });
+
+  it("moves field deletion into a keyboard-accessible row menu", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness />);
+    const options = screen.getByRole("button", { name: "title field options" });
+    options.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "Remove title field" })).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.queryByDisplayValue("title")).not.toBeInTheDocument();
+    expect(screen.getByTestId("source")).not.toHaveTextContent("title:");
+  });
+
   it("summarises secondary type settings behind quiet disclosures", async () => {
     const user = userEvent.setup();
     render(<InspectorHarness source={collectionSource} contracts={[personContract]} />);
@@ -35,11 +84,8 @@ describe("recursive type builder", () => {
     const user = userEvent.setup();
     render(<InspectorHarness />);
 
-    expect(screen.getByRole("button", { name: "Remove title field" })).toHaveClass(
-      "icon-button",
-      "inline-remove-button",
-      "remove-type-field"
-    );
+    expect(screen.queryByRole("button", { name: "Remove title field" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "title field options" })).toHaveAttribute("aria-haspopup", "menu");
     await user.click(screen.getByRole("button", { name: "Expand profile field" }));
     expect(screen.getByDisplayValue("display_name")).toBeInTheDocument();
     const nestedGroup = screen.getByText("Nested fields").closest<HTMLElement>(".nested-field-group")!;

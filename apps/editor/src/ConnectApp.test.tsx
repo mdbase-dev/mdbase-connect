@@ -97,7 +97,7 @@ describe("ConnectApp", () => {
     expect(collectionNavigation).toHaveTextContent("All notes");
     expect(collectionNavigation).toHaveTextContent("Types");
     expect(collectionNavigation).toHaveTextContent("Settings");
-    expect(collectionNavigation).toHaveTextContent("Manage");
+    expect(collectionNavigation).not.toHaveTextContent("Manage");
     expect(screen.getByRole("link", { name: /Connect/ })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByRole("complementary", { name: "Product navigation" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Garden notes" })).toBeInTheDocument();

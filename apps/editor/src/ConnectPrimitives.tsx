@@ -80,6 +80,6 @@ export function InlineRename({ value, label, inputLabel, busy = false, onSubmit 
   return <form className="connect-inline-rename" onSubmit={(event) => void submit(event)}>
     <label><span className="sr-only">{inputLabel}</span><input autoFocus maxLength={200} value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
     <button type="button" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
-    <button className="connect-primary-action" disabled={busy || !draft.trim() || draft.trim() === value}>{busy ? "Saving…" : "Save"}</button>
+    <button className="connect-primary-action mdbase-button is-primary" disabled={busy || !draft.trim() || draft.trim() === value}>{busy ? "Saving…" : "Save"}</button>
   </form>;
 }

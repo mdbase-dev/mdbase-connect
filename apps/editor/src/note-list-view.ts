@@ -2,6 +2,28 @@ import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { NoteSummary } from "./model";
 import { noteTitle } from "./note";
 
+export const NOTE_PATHS_MIME = "application/x-mdbase-note-paths";
+export type NoteFilter = { kind: "folder" | "tag" | "type"; value: string };
+export interface SearchFacet { name: string; count: number }
+export interface NoteRowStatus {
+  label?: string;
+  tone: "quiet" | "busy" | "error";
+  busy: boolean;
+  disabled?: boolean;
+}
+
+export function filterLabel(filter: NoteFilter | undefined, fallback: string): string {
+  if (!filter) return fallback || "All notes";
+  return filter.kind === "tag" ? `#${filter.value}` : filter.value;
+}
+
+export function filterScopeLabel(filter: NoteFilter | undefined): string | undefined {
+  if (!filter) return undefined;
+  if (filter.kind === "folder") return `Folder · ${filter.value}`;
+  if (filter.kind === "tag") return `Tag · #${filter.value}`;
+  return `Type · ${filter.value}`;
+}
+
 export const noteSorts = ["modified-desc", "modified-asc", "title-asc", "path-asc"] as const;
 export type NoteSort = (typeof noteSorts)[number];
 
@@ -74,6 +96,42 @@ function compareModified(left: NoteSummary, right: NoteSummary, direction: -1 | 
 function modifiedTime(note: NoteSummary): number | undefined {
   const value = Date.parse(note.file?.mtime ?? "");
   return Number.isFinite(value) ? value : undefined;
+}
+
+export interface NoteSelection {
+  paths: string[];
+  /** Range origin and the note kept open in the editor. */
+  anchor?: string;
+  /** Keyboard focus may travel independently from the open note. */
+  focus?: string;
+}
+
+export function selectNote(selection: NoteSelection, path: string, visiblePaths: string[], mode: "single" | "toggle" | "range"): NoteSelection {
+  if (mode === "single") return { paths: [path], anchor: path, focus: path };
+  const anchor = selection.anchor && visiblePaths.includes(selection.anchor) ? selection.anchor : path;
+  if (mode === "range") {
+    const start = visiblePaths.indexOf(anchor);
+    const end = visiblePaths.indexOf(path);
+    return { paths: visiblePaths.slice(Math.min(start, end), Math.max(start, end) + 1), anchor, focus: path };
+  }
+  return {
+    paths: selection.paths.includes(path) ? selection.paths.filter((value) => value !== path) : [...selection.paths, path],
+    anchor, focus: path
+  };
+}
+
+const pinStorageKey = (collectionId: string) => `mdbase-editor:pins:${collectionId}`;
+
+export function loadPinnedNotes(collectionId: string): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(pinStorageKey(collectionId)) ?? "[]");
+    return Array.isArray(value) ? [...new Set(value.filter((path): path is string => typeof path === "string"))] : [];
+  } catch { return []; }
+}
+
+export function savePinnedNotes(collectionId: string, paths: string[]): void {
+  try { localStorage.setItem(pinStorageKey(collectionId), JSON.stringify(paths)); }
+  catch { /* Pins remain usable for this session when storage is unavailable. */ }
 }
 
 export type ListNavigationKey = "ArrowDown" | "ArrowUp" | "Home" | "End" | "PageDown" | "PageUp";

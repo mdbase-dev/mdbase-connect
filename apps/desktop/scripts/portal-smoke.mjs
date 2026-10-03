@@ -11,22 +11,22 @@ const pairingResponse = await fetch(`${portalUrl}/v1/pairing-requests`, {
 });
 if (!pairingResponse.ok) throw new Error(`Could not start pairing: HTTP ${pairingResponse.status}`);
 const pairing = await pairingResponse.json();
+const pairingUrl = new URL(`/pair/${pairing.pairing_id}`, portalUrl).href;
 const electronApp = await electron.launch({
   args: [shell],
-  env: { ...process.env, MDBASE_CONNECT_PORTAL_URL: portalUrl }
+  // The portal owns transactions; its root now redirects to the editor.
+  env: { ...process.env, MDBASE_CONNECT_PORTAL_URL: pairingUrl }
 });
 
 try {
   const page = await electronApp.firstWindow();
-  await page.locator("h1").first().waitFor();
+  await page.getByRole("heading", { name: /^(Open your account|Test computer)$/ }).waitFor();
   const loginHeading = page.getByRole("heading", { name: "Open your account" });
   if (await loginHeading.isVisible()) {
     await page.getByLabel("Name").fill("Portal Test");
     await page.getByLabel("Email").fill("portal-test@example.com");
     await page.getByRole("button", { name: "Continue" }).click();
   }
-  await page.getByRole("heading", { name: "Computers and recovery." }).waitFor();
-  await page.goto(`${portalUrl}/pair/${pairing.pairing_id}`);
   await page.getByRole("heading", { name: "Test computer" }).waitFor();
   await page.getByRole("button", { name: "Approve computer" }).click();
   await page.getByRole("heading", { name: "Return to mdbase connect." }).waitFor();

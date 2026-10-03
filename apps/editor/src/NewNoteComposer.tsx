@@ -37,11 +37,11 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
   onDraftChange?: (hasDraft: boolean) => void;
 }) {
   const folderCreation = purpose === "folder";
-  const initialType = types.find((candidate) => candidate.name === defaultType);
+  const initialType = folderCreation ? undefined : types.find((candidate) => candidate.name === defaultType);
   const [title, setTitle] = useState(initialTitle);
   const [body, setBody] = useState("");
   const [folderName, setFolderName] = useState("");
-  const [typeName, setTypeName] = useState(defaultType ?? "");
+  const [typeName, setTypeName] = useState(folderCreation ? "" : defaultType ?? "");
   const [path, setPath] = useState(() => suggestedPath(initialTitle, defaultFolder ?? typeFolder(initialType)));
   const [pathEdited, setPathEdited] = useState(false);
   const [properties, setProperties] = useState<JsonObject>(() => ({ ...seededProperties(initialType, defaultTag), ...initialProperties }));
@@ -154,22 +154,21 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
     <header className="editor-bar"><button className="mobile-back icon-button" aria-label={folderCreation ? "Cancel new folder" : "Cancel new note"} onClick={() => onCancel(hasDraft)}><ArrowLeft aria-hidden="true" /></button>{leadingActions}<span>{folderCreation ? "New folder" : "New note"}</span></header>
     <form className={folderCreation ? "new-folder-form" : "new-note-form"} onSubmit={(event) => void submit(event)} onKeyDown={createWithShortcut}>
       {folderCreation
-        ? <label className="new-note-title"><span className="sr-only">Folder name</span><input autoFocus value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="Folder name" spellCheck="false" /></label>
+        ? <><h1>New folder</h1><p className="new-note-intro">Create it with a first note. Empty folders aren’t stored.</p></>
         : <label className="new-note-title"><span className="sr-only">{primaryLabel}</span><input autoFocus value={title} onChange={(event) => changeTitle(event.target.value)} placeholder={displayField ? primaryLabel : "Untitled"} /></label>}
-      {folderCreation && <p className="new-note-intro">A folder appears when its first note is created.</p>}
       <div className="new-note-fields">
         {folderCreation
-          ? <label><span>First note</span><input value={title} onChange={(event) => changeTitle(event.target.value)} placeholder="Untitled" /></label>
+          ? <><label><span>Folder name</span><input autoFocus value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="e.g. Research" spellCheck="false" /></label><label><span>First note</span><input value={title} onChange={(event) => changeTitle(event.target.value)} placeholder="e.g. Reading list" /></label></>
           : null}
-        <label><span>Type</span><Select aria-label="Type" value={typeName} options={[
+        {!folderCreation && <label><span>Type</span><Select aria-label="Type" value={typeName} options={[
           { value: "", label: "General note" },
           ...types.map((candidate) => ({ value: candidate.name, label: candidate.name }))
-        ]} onChange={selectType} /></label>
+        ]} onChange={selectType} /></label>}
         {!folderCreation && <details className="new-note-path">
           <summary aria-label="Edit file path"><span>File path</span><output aria-label="Suggested path">{!pathEdited && !title.trim() ? <>{pathFolderPrefix(path)}<span className="path-pending">‹title›</span>.md</> : path}</output><ChevronRight aria-hidden="true" /></summary>
-          <label><span className="sr-only">File path</span><input aria-label="Path" value={path} onChange={(event) => { setPathEdited(true); setPath(event.target.value); }} spellCheck="false" /><small>Where this Markdown file will live in the collection.</small></label>
+          <label><span className="sr-only">File path</span><input aria-label="Path" value={path} onChange={(event) => { setPathEdited(true); setPath(event.target.value); }} spellCheck="false" /></label>
         </details>}
-        {folderCreation && <label className="new-folder-path"><span>Path</span><output>{resolvedPath}</output></label>}
+        {folderCreation && folderName.trim() && title.trim() && <div className="new-folder-path"><span>File path</span><output>{resolvedPath}</output></div>}
       </div>
       {type?.description && <p className="new-note-type-help">{type.description}</p>}
       {!folderCreation && required.length > 0 && <section className="new-note-required-properties" aria-label="Required properties">
@@ -218,10 +217,10 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
       />}
       {error && <p className="new-note-error" role="alert">{error}</p>}
       <div className="new-note-actions">
-        <span id="new-note-status" className={incompleteReason && !creating ? "blocked" : undefined}>{incompleteReason && !creating ? incompleteReason : folderCreation ? "" : "Draft stays here until the note is created."}</span>
-        <button type="button" onClick={() => onCancel(hasDraft)}>Cancel</button>
+        <span id="new-note-status" className={incompleteReason && !creating ? "blocked" : undefined}>{incompleteReason && !creating ? incompleteReason : ""}</span>
+        <button className="mdbase-button is-tertiary" type="button" onClick={() => onCancel(hasDraft)}>Cancel</button>
         <button
-          className="create-note-button"
+          className="create-note-button mdbase-button is-primary"
           disabled={!complete || creating}
           aria-describedby="new-note-status"
           aria-keyshortcuts={folderCreation ? undefined : "Control+Enter Meta+Enter"}

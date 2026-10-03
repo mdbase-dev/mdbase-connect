@@ -54,6 +54,12 @@ direct-provider CRUD, the real CodeMirror integration, creation and frontmatter
 flows, type inspection, settings, responsive navigation, accessibility, and a
 10,000-record performance case.
 
+`tests/screens.spec.ts` also checks nine views in light/dark desktop and 390px
+layouts for loaded fonts/images, settled controls and no horizontal page overflow.
+Connect sign-in uses the shared local portal and hermetic API/Google fixtures,
+never a real account. These are non-pixel checks in the normal browser suite;
+there are no screenshot baselines to update and no container is required.
+
 ## Deployment
 
 The production application is configured for
