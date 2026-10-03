@@ -108,9 +108,6 @@ button {
 }
 
 /* Counts align without making the interface look like source code. */
-:where(small, time, .contract-count, .file-workspace-size, .schema-item-number) {
-  font-variant-numeric: tabular-nums;
-}
 
 button:not(:disabled),
 summary {

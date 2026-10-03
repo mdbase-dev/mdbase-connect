@@ -279,13 +279,6 @@
   border-bottom-color: var(--danger);
 }
 
-
-.vim-label {
-  padding: 0 2px;
-  color: var(--faint);
-  font-size: var(--font-size-ui);
-}
-
 .note-skeleton {
   min-height: 0;
   grid-row: 1 / -1;
@@ -302,45 +295,14 @@
   border-bottom: 1px solid var(--line);
 }
 
-.skeleton-bar span,
-.skeleton-document span {
+.skeleton-bar span {
   display: block;
   border-radius: var(--radius-sm);
-  background: var(--skeleton);
-  animation: skeleton-pulse 1.4s ease-in-out infinite alternate;
 }
 
 .skeleton-document {
   width: min(760px, calc(100% - clamp(28px, 8vw, 110px) * 2));
   padding: clamp(36px, 7vh, 78px) 0;
   margin: 0 auto;
-}
-
-.skeleton-document span {
-  width: 76%;
-  height: 11px;
-  margin-bottom: 18px;
-}
-
-.skeleton-document .skeleton-title {
-  width: 48%;
-  height: 40px;
-  margin-bottom: 30px;
-}
-
-.skeleton-canvas-pill {
-  width: min(320px, 60%);
-  height: 10px;
-  border-radius: var(--radius-sm);
-  background: var(--skeleton);
-  animation: skeleton-pulse 1.4s ease-in-out infinite alternate;
-}
-
-.skeleton-document .short {
-  width: 41%;
-}
-
-@keyframes skeleton-pulse {
-  to { opacity: 0.55; }
 }
 

@@ -286,8 +286,7 @@
     width: 100vw;
   }
 
-  .properties-panel,
-  .backlinks-panel {
+  .properties-panel {
     padding: max(20px, env(safe-area-inset-top)) 18px max(20px, env(safe-area-inset-bottom));
     border: 0;
   }
@@ -730,7 +729,7 @@
   .search-field input { min-height: 44px; }
   .search-field button { min-width: 44px; min-height: 44px; }
   .setting-row { gap: 12px; }
-  .person-choice, .person-current { flex-wrap: wrap; min-width: 0; }
+  .person-choice { flex-wrap: wrap; min-width: 0; }
   .setting-row > div, .fact-row strong { min-width: 0; overflow-wrap: anywhere; }
   .properties-panel button:not(.mdbase-switch),
   .properties-panel summary,
@@ -774,38 +773,33 @@
   }
 
   .notice,
-  .rename-confirm,
-  .delete-confirm {
+.rename-confirm {
     align-items: flex-start;
     padding: 10px 12px;
   }
 
-  .rename-confirm > div,
-  .delete-confirm > div {
+  .rename-confirm > div {
     min-width: 100%;
   }
 
   .rename-confirm button,
-  .delete-confirm button,
-  .notice button {
+.notice button {
     min-height: 40px;
     padding-inline: 10px;
   }
 
   .type-row small,
-  .type-inspector-bar,
-  .type-change-scope,
-  .type-view-switch button,
-  .visual-type-fields-heading p,
-  .type-membership-guide strong,
-  .type-membership-guide p,
-  .advanced-match-note strong,
-  .advanced-match-note p,
-  .visual-type-footnote,
-  .type-definition-changes strong,
-  .type-definition-changes p,
-  .type-change-review .type-review-scope,
-  .type-change-review > details > summary {
+.type-inspector-bar,
+.type-change-scope,
+.type-view-switch button,
+.visual-type-fields-heading p,
+.advanced-match-note strong,
+.advanced-match-note p,
+.visual-type-footnote,
+.type-definition-changes strong,
+.type-definition-changes p,
+.type-change-review .type-review-scope,
+.type-change-review > details > summary {
     font-size: var(--font-size-caption);
   }
 

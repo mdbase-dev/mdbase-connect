@@ -1,6 +1,8 @@
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import type { HTMLAttributes } from "react";
 import { PHOSPHOR_ICON_NAMES } from "./phosphor-icon-names.generated";
+// Only the lazy Types workspace renders metadata icon glyphs or the icon picker.
+import "./phosphor-icons.generated.css";
 
 const PHOSPHOR_ICON_NAME_SET = new Set<string>(PHOSPHOR_ICON_NAMES);
 const ICON_ALIASES: Record<string, string> = {

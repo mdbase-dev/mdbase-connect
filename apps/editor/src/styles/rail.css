@@ -85,7 +85,6 @@
   justify-content: space-between;
   gap: var(--space-2);
   padding: 7px var(--space-2);
-  border-radius: var(--radius-sm);
   color: var(--muted);
   font-size: var(--font-size-ui);
   text-align: left;
@@ -115,8 +114,6 @@
 
 .collection-rail nav button.selected,
 .collection-rail nav .editor-rail-link.selected {
-  background: var(--selected);
-  color: var(--ink);
   font-weight: var(--font-weight-semibold);
 }
 

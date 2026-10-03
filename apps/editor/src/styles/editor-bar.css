@@ -201,45 +201,6 @@
   color: var(--muted);
 }
 
-.outline-menu {
-  width: min(320px, calc(100vw - 48px));
-  max-height: min(46vh, 380px);
-  overflow: auto;
-}
-
-.outline-menu button {
-  gap: 7px;
-  min-height: 30px;
-}
-
-.outline-menu button.outline-level-1 { padding-left: 8px; }
-.outline-menu button.outline-level-2 { padding-left: 20px; }
-.outline-menu button.outline-level-3 { padding-left: 32px; }
-.outline-menu button.outline-level-4,
-.outline-menu button.outline-level-5,
-.outline-menu button.outline-level-6 { padding-left: 44px; }
-
-.outline-menu button > strong,
-.outline-menu .outline-hash {
-  flex: 0 0 auto;
-  color: var(--faint);
-  font-size: var(--font-size-ui);
-}
-
-.outline-menu .outline-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.outline-menu .outline-empty {
-  margin: 0;
-  padding: 8px;
-  color: var(--faint);
-  font-size: var(--font-size-ui);
-}
-
 .action-menu svg {
   width: 14px;
   height: 14px;
@@ -291,8 +252,7 @@
 }
 
 .notice,
-.rename-confirm,
-.delete-confirm {
+.rename-confirm {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -311,8 +271,7 @@
   color: var(--accent);
 }
 
-.notice span,
-.delete-confirm span {
+.notice span {
   flex: 1;
 }
 
@@ -342,28 +301,24 @@
   background: var(--accent);
 }
 
-.rename-confirm,
-.delete-confirm {
+.rename-confirm {
   flex-wrap: wrap;
   background: var(--canvas);
 }
 
-.rename-confirm > div,
-.delete-confirm > div {
+.rename-confirm > div {
   min-width: 220px;
   flex: 1;
   display: grid;
   gap: 2px;
 }
 
-.rename-confirm strong,
-.delete-confirm strong {
+.rename-confirm strong {
   color: var(--ink);
   font-size: var(--font-size-ui);
 }
 
-.rename-confirm span,
-.delete-confirm span {
+.rename-confirm span {
   color: var(--muted);
   font-size: var(--font-size-ui);
 }
@@ -568,21 +523,6 @@
   color: var(--faint);
 }
 
-.delete-confirm {
-  background: var(--danger-soft);
-}
-
-.delete-confirm button {
-  padding: 5px 7px;
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
-
-.delete-confirm .danger-action {
-  color: var(--danger);
-}
-
 .toast-stack {
   position: fixed;
   z-index: 90;
@@ -643,11 +583,6 @@
 .toast .icon-button {
   width: 26px;
   height: 26px;
-}
-
-@keyframes toast-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 @media (max-width: 760px) {

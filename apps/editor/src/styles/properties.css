@@ -1,5 +1,4 @@
-.properties-panel,
-.backlinks-panel {
+.properties-panel {
   grid-column: 4;
   display: flex;
   flex-direction: column;
@@ -19,8 +18,7 @@
   flex: 1;
 }
 
-.properties-panel h2,
-.backlinks-panel h2 {
+.properties-panel h2 {
   margin: 2px 0 0;
   font-size: var(--font-size-section);
   letter-spacing: -0.01em;
@@ -212,7 +210,6 @@
 
 .property-row > input,
 .property-row .schema-value > input,
-.add-property-row input,
 .new-note-fields input:not([type="checkbox"]) {
   width: 100%;
   min-height: 34px;
@@ -226,7 +223,6 @@
 
 .property-row > input:focus,
 .property-row .schema-value > input:focus,
-.add-property-row input:focus,
 .new-note-fields input:focus {
   border-color: var(--line-strong);
   background: var(--white);
@@ -755,15 +751,6 @@ label.schema-value {
   font-size: var(--font-size-ui);
 }
 
-.add-property-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 78px auto auto;
-  align-items: end;
-  gap: 5px;
-  padding-top: 12px;
-}
-
-.add-property-row label > span,
 .new-note-fields label > span {
   display: block;
   margin-bottom: 5px;

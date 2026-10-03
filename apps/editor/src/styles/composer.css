@@ -164,7 +164,6 @@
 }
 
 .new-note-type-help,
-.new-folder-help,
 .new-note-error {
   margin: 18px 0 0;
   color: var(--faint);

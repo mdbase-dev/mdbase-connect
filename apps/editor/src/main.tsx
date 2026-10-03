@@ -13,7 +13,6 @@ import { DemoCollectionGateway } from "./demo-gateway";
 import { ConnectCollectionGateway } from "./gateway";
 import { EnvironmentBadge } from "./EnvironmentBadge";
 import "@mdbase-dev/ui/motion.css";
-import "./phosphor-icons.generated.css";
 import "./styles.css";
 import "./environment-badge.css";
 

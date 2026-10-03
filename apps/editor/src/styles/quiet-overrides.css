@@ -156,8 +156,6 @@
   align-items: center;
 }
 
-.skeleton-document span,
-.skeleton-canvas-pill,
 .properties-panel-loading > div,
 .properties-panel-loading > span,
 .contract-catalog-loading span,
@@ -165,12 +163,10 @@
   display: none;
 }
 
-.file-viewer-backdrop,
 .note-preview,
 .toast,
 .folder-loading i,
-.status-dot.reconnecting,
-.file-loading-mark {
+.status-dot.reconnecting {
   animation: none;
 }
 

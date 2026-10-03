@@ -138,20 +138,6 @@
   stroke-width: 1.65;
 }
 
-.backlink-button {
-  width: auto;
-  min-width: 32px;
-  display: inline-flex;
-  gap: 3px;
-  padding: 0 5px;
-}
-
-.backlink-button > span {
-  color: var(--faint);
-  font-size: var(--font-size-ui);
-  line-height: 1;
-}
-
 .desktop-pane-control {
   width: 28px;
   height: 28px;
