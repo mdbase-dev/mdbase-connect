@@ -357,6 +357,27 @@ test("pending computer approval survives navigation without creating another req
   } finally { await page.close(); }
 });
 
+test("pairing restart notice survives a refresh that sees the configured account", async () => {
+  const { page, errors } = await desktop({ configured: false });
+  try {
+    await beginPairing(page);
+    await page.evaluate(() => {
+      window.fixture.approved = true;
+      // Pairing configured the account before reporting "paired" (#580).
+      window.mdbaseConnect.getCloudConfig = async () => ({ configured: true, serverUrl: "http://127.0.0.1:42391" });
+      window.mdbaseConnect.accessSnapshot = async () => ({ configured: true, online: true, account: { connector_name: "Paired computer" }, grants: [], pending_authorizations: [], authority_conflicts: [] });
+    });
+    await page.clock.runFor(2_000);
+    const notice = page.getByText("mdbase connect is restarting with the new secure connection.", { exact: true });
+    await notice.waitFor();
+    await page.clock.runFor(5_000);
+    await page.getByText("Paired computer ·").waitFor();
+    assert.equal(await notice.isVisible(), true);
+    assert.equal(await page.getByRole("heading", { name: "Your collections." }).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test("authoritatively expired pairing stops retrying and offers a fresh request", async () => {
   const { page, errors } = await desktop({ configured: false });
   try {

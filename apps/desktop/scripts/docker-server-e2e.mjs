@@ -112,6 +112,17 @@ try {
       .waitFor(),
     restarting
   ]);
+  // A later refresh observes the configured account (the sidebar names the
+  // computer). The restart notice must survive it until the main process
+  // relaunches, rather than being replaced by the dashboard (#580).
+  await pairingWindow.getByText("Docker test computer ·").waitFor();
+  assert.equal(
+    await pairingWindow
+      .getByText("mdbase connect is restarting with the new secure connection.")
+      .isVisible(),
+    true,
+    "A refresh replaced the pairing restart notice"
+  );
   const sessionCookie = (await portalContext.cookies(environment.serverUrl))
     .find((candidate) => candidate.name === "mdbase_session");
   assert.ok(sessionCookie, "Portal login did not retain a session cookie");
@@ -131,6 +142,16 @@ try {
   assert.match(connectorToken, /^con_/);
   await closeDesktop(pairingApp);
   pairingApp = undefined;
+  // The connector daemon outlives Electron, and the refresh awaited above came
+  // from its restarted instance. Both profiles share the loopback port, so stop
+  // it (the command waits for exit) before the connected profile starts.
+  await run(executable, [
+    "--state-dir",
+    resolve(pairingData, "connect-home"),
+    "connect",
+    "daemon",
+    "stop"
+  ]);
 
   phase("running the real connector against the disposable credential");
   connectedApp = await launchDesktop(connectedData, connectorToken);
