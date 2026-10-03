@@ -91,9 +91,13 @@ Settings remain the primary editing group. One header trigger combines the brand
 lockup and current collection and opens the collection switcher; it includes
 recent collections, connecting another collection, the Connect workspace, and
 Send feedback. Feedback is not squeezed beside the connection status.
-Folders follow All notes directly, without a section heading, with a quiet New
-folder action. Connect sits at the bottom above connection status, visibly
-secondary until a pending authorization count requires attention. Counts use
+The independently scrolling middle contains All notes, the folder tree without
+a section heading, and a quiet New folder action. Types, Settings, and Connect
+form a fixed bottom group above connection status, so large folder trees never
+push them out of reach. Keyboard order follows the visual order: header, note
+and folder navigation, New folder, Types, Settings, Connect, then status actions.
+Connect remains visibly secondary until a pending authorization count requires
+attention. Counts use
 UI text with tabular numerals and appear only on hover, focus, or the selected
 row; accessible names always include them.
 
