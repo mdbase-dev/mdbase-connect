@@ -125,6 +125,14 @@ test("seed upgrades accept a non-empty list of distinct earlier starters", () =>
   assert.ok(issuesOf(upgradeManifest([])).some((entry) => entry.startsWith("minItems ")));
 });
 
+test("seed upgrade baselines may use YAML anchors without alias expansion", () => {
+  // TaskNotes' first task starter reuses an enum through an anchor.
+  const anchored = starter(1, "schema:\n  value:\n    properties:\n      status: { enum: &a1 [open, done] }\n      next: { enum: *a1 }\n");
+  const value = upgradeManifest([anchored, starter(2)]);
+  assert.deepEqual(validateAppManifest(value), { valid: true, issues: [] });
+  assert.deepEqual(issuesOf(upgradeManifest([{ ...anchored, version: 2 }])), [`seedUpgrade ${upgradePath}/0/version`]);
+});
+
 test("seed upgrade baselines are rejected with the offending baseline's path", () => {
   const first = starter(1);
   const second = starter(2);

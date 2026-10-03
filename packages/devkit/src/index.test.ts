@@ -382,6 +382,11 @@ describe("canonical developer validation", () => {
     });
     expect(pack.resources).toEqual([{ source: "_types/task.md", document: starter(3) }]);
 
+    // A starter that reuses values through YAML anchors still declares its version.
+    const anchored = starter(1, "schema:\n  value:\n    properties:\n      status: { enum: &a1 [open, done] }\n      next: { enum: *a1 }\n");
+    expect(defineTypePack(seed([{ document: anchored }])).manifest.resources[0].upgrade_from)
+      .toEqual([{ digest: digest(anchored), document: anchored, version: 1 }]);
+
     const path = "/manifest/resources/0/upgrade_from";
     const rejected = (definition: ReturnType<typeof seed>) => {
       try {

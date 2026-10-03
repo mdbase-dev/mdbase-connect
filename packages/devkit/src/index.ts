@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
-import { parseDocument } from "yaml";
+import { isMap, parseDocument } from "yaml";
 import {
   connectError,
   MdbaseCollectionClient,
@@ -186,8 +186,9 @@ function upgradeBaseline({ document, version }: { document: string; version?: nu
 function declaredTypeVersion(document: string): number | undefined {
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(document)?.[1];
   const parsed = frontmatter === undefined ? undefined : parseDocument(frontmatter, { uniqueKeys: true });
-  if (!parsed || parsed.errors.length > 0) return undefined;
-  const version = (parsed.toJS({ maxAliasCount: 0 }) as { version?: unknown } | null)?.version;
+  if (!parsed || parsed.errors.length > 0 || !isMap(parsed.contents)) return undefined;
+  // Read only `version`, so anchors elsewhere in a starter need no alias expansion.
+  const version = parsed.get("version");
   return Number.isInteger(version) && Number(version) > 0 ? Number(version) : undefined;
 }
 
