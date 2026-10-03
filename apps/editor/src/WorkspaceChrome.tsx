@@ -1,10 +1,11 @@
-import { useId, useRef, type CSSProperties, type ReactNode } from "react";
+import { useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Dialog } from "./Dialog";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   ArrowLeftIcon as ArrowLeft,
   ArrowLineLeftIcon as ArrowLineLeft,
   BracketsCurlyIcon as Braces,
+  CaretRightIcon as ChevronRight,
   LinkIcon as Link2,
   SidebarSimpleIcon as Sidebar,
   WarningCircleIcon as CircleAlert,
@@ -16,6 +17,7 @@ import type { NoteActivity, SaveState } from "./note-session";
 import { SaveNotice, type SaveTone } from "@mdbase-dev/ui/save-notice";
 import type { UnlinkedMention } from "./unlinked-mentions";
 import { useDelayedBusy } from "./use-delayed-busy";
+import { SearchMatchText } from "./SearchMatchText";
 
 export function PathLabel({ path }: { path: string }) {
   const slash = path.lastIndexOf("/");
@@ -55,6 +57,9 @@ export function BacklinksPanel({ notes, types, loading, error, onFind, onRetry, 
   onLinkMention?: (mention: UnlinkedMention) => void;
   linking?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const visibleMentions = showAll ? mentions : mentions.slice(0, 5);
   return <section id="linked-from" tabIndex={-1} className="linked-from" aria-label="Linked from" aria-busy={loading}>
     <h2>Linked from</h2>
     {onFind && <button onClick={onFind}>Find linked notes</button>}
@@ -66,13 +71,21 @@ export function BacklinksPanel({ notes, types, loading, error, onFind, onRetry, 
       </button>)}
       {!notes.length && !onFind && <p className="quiet-empty">{error ? "References could not finish loading." : loading ? "Reading collection links…" : "No notes link here yet."}</p>}
     </div>
-    <details className="unlinked-mentions" onToggle={(event) => { if (event.currentTarget.open) onFind?.(); }}>
-      <summary>Unlinked mentions ({mentions.length})</summary>
-      {mentions.map((mention) => <div className="unlinked-mention" key={mention.note.path}>
-        <button onClick={() => onOpen(mention.note.path)}><strong>{noteTitle(mention.note, types)}</strong><small>{mention.snippet}</small></button>
-        {onLinkMention && <button className="mdbase-button is-tertiary" aria-label={`Link mention in ${noteTitle(mention.note, types)}`} disabled={linking} onClick={() => onLinkMention(mention)}>Link</button>}
-      </div>)}
-      {!mentions.length && <p className="quiet-empty">{loading ? "Reading collection text…" : onFind ? "Open to find mentions." : "No unlinked mentions."}</p>}
+    <details className="unlinked-mentions settings-details" onToggle={(event) => {
+      const open = event.currentTarget.open;
+      setExpanded(open);
+      if (open) onFind?.();
+      else setShowAll(false);
+    }}>
+      <summary><span>Unlinked mentions ({mentions.length})</span><ChevronRight aria-hidden="true" /></summary>
+      {expanded && <>
+        {visibleMentions.map((mention) => <div className="unlinked-mention" key={mention.note.path}>
+          <button onClick={() => onOpen(mention.note.path)}><strong>{noteTitle(mention.note, types)}</strong><small><SearchMatchText text={mention.snippet} ranges={mention.snippetRanges} /></small></button>
+          {onLinkMention && <button className="mdbase-button is-tertiary" aria-label={`Link mention in ${noteTitle(mention.note, types)}`} disabled={linking} onClick={() => onLinkMention(mention)}>Link</button>}
+        </div>)}
+        {mentions.length > 5 && <button className="mdbase-button is-tertiary" onClick={() => setShowAll((current) => !current)}>{showAll ? "Show fewer" : `Show all ${mentions.length}`}</button>}
+        {!mentions.length && <p className="quiet-empty">{loading ? "Reading collection text…" : onFind ? "Open to find mentions." : "No unlinked mentions."}</p>}
+      </>}
     </details>
   </section>;
 }

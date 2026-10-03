@@ -1,5 +1,6 @@
 import { markdownLanguage } from "@codemirror/lang-markdown";
-import type { NoteSearchEntry } from "./note-search";
+import type { NoteSearchEntry, SearchTextRange } from "./note-search";
+import { markdownPlainText } from "./note";
 import type { NoteSummary } from "./model";
 
 export interface UnlinkedMention {
@@ -8,42 +9,67 @@ export interface UnlinkedMention {
   from: number;
   to: number;
   snippet: string;
+  snippetRanges: SearchTextRange[];
 }
-const exclusions = new WeakMap<NoteSearchEntry, Array<{ from: number; to: number }>>();
-function excludedRanges(entry: NoteSearchEntry) {
-  const cached = exclusions.get(entry);
+type TextRange = { from: number; to: number };
+const contexts = new WeakMap<NoteSearchEntry, { excluded: TextRange[]; paragraphs: TextRange[] }>();
+function mentionContext(entry: NoteSearchEntry) {
+  const cached = contexts.get(entry);
   if (cached) return cached;
-  const ranges: Array<{ from: number; to: number }> = [];
+  const excluded: TextRange[] = [];
+  const paragraphs: TextRange[] = [];
   markdownLanguage.parser.parse(entry.bodyText).iterate({ enter(node) {
-    if (["Link", "Image", "Autolink", "InlineCode", "FencedCode", "CodeBlock", "HTMLBlock", "LinkReference"].includes(node.name)) {
+    if (node.name === "Paragraph") paragraphs.push({ from: node.from, to: node.to });
+    if (["ATXHeading1", "SetextHeading1", "Link", "Image", "Autolink", "InlineCode", "FencedCode", "CodeBlock", "HTMLBlock", "LinkReference"].includes(node.name)) {
       // Wiki syntax is an inner Link in CommonMark. Exclude the outer brackets too.
       const wiki = node.name === "Link" && entry.bodyText[node.from - 1] === "[" && entry.bodyText[node.to] === "]";
-      ranges.push({ from: wiki ? node.from - 1 : node.from, to: wiki ? node.to + 1 : node.to });
+      excluded.push({ from: wiki ? node.from - 1 : node.from, to: wiki ? node.to + 1 : node.to });
       return false;
     }
   } });
-  exclusions.set(entry, ranges);
-  return ranges;
+  const context = { excluded, paragraphs };
+  contexts.set(entry, context);
+  return context;
 }
+const escapePattern = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const wordEnd = "(?![\\p{L}\\p{N}_])";
 
 /** Uses hydrated search entries only: discovery never issues collection reads. */
 export function unlinkedMentions(index: NoteSearchEntry[], targetPath: string, title: string): UnlinkedMention[] {
   if (!title.trim()) return [];
-  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, "giu");
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escapePattern(title)}${wordEnd}`, "giu");
   return index.flatMap((entry) => {
     if (entry.note.path === targetPath || !entry.bodyText) return [];
     pattern.lastIndex = 0;
     if (!pattern.test(entry.bodyText)) return [];
-    const ranges = excludedRanges(entry);
+    const { excluded, paragraphs } = mentionContext(entry);
+    const sourceTitle = markdownPlainText(entry.titleText);
+    const longerSourceTitle = sourceTitle.length > title.length && new RegExp(`^${escapePattern(title)}${wordEnd}`, "iu").test(sourceTitle)
+      ? new RegExp(`^${escapePattern(sourceTitle)}${wordEnd}`, "iu") : undefined;
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(entry.bodyText))) {
       const from = match.index, to = from + match[0].length;
-      if (ranges.some((range) => from < range.to && to > range.from)) continue;
-      const start = Math.max(0, from - 40), end = Math.min(entry.bodyText.length, to + 65);
-      return [{ note: entry.note, body: entry.bodyText, from, to,
-        snippet: `${start ? "…" : ""}${entry.bodyText.slice(start, end).replace(/\s+/g, " ")}${end < entry.bodyText.length ? "…" : ""}` }];
+      if (excluded.some((range) => from < range.to && to > range.from)) continue;
+      // Clean the complete paragraph before excerpting so clipped Markdown
+      // destinations/emphasis never leak into the snippet. Source offsets stay raw.
+      const paragraph = paragraphs.find((range) => from >= range.from && to <= range.to) ?? { from, to };
+      const raw = entry.bodyText.slice(paragraph.from, paragraph.to);
+      // Temporary delimiters let the shared Markdown cleaner project the exact
+      // occurrence into display offsets (including emphasis and Unicode). They
+      // never enter persisted text, and cannot collide with source content.
+      let marker: string;
+      do { marker = `\uE000${crypto.randomUUID()}\uE001`; } while (raw.includes(marker));
+      const marked = markdownPlainText(`${raw.slice(0, from - paragraph.from)}${marker}${match[0]}${marker}${raw.slice(to - paragraph.from)}`);
+      const anchor = marked.indexOf(marker), endMarker = marked.indexOf(marker, anchor + marker.length);
+      const phrase = marked.slice(anchor + marker.length, endMarker);
+      const plain = marked.replaceAll(marker, "");
+      if (anchor < 0 || endMarker < 0 || !phrase || longerSourceTitle?.test(plain.slice(anchor))) continue;
+      const start = Math.max(0, anchor - 40), end = Math.min(plain.length, anchor + phrase.length + 65);
+      const leading = start ? "…" : "";
+      const snippet = `${leading}${plain.slice(start, end)}${end < plain.length ? "…" : ""}`;
+      return [{ note: entry.note, body: entry.bodyText, from, to, snippet,
+        snippetRanges: [{ from: leading.length + anchor - start, to: leading.length + anchor - start + phrase.length }] }];
     }
     return [];
   });

@@ -75,6 +75,11 @@ export function noteExcerpt(note: NoteSummary, types: CollectionTypeDescriptor[]
 }
 
 function markdownExcerpt(body: string, title = "", maximumLength = 160): string {
+  return markdownPlainText(body, title, maximumLength);
+}
+
+/** Readable prose for excerpts/snippets, without Markdown presentation syntax. */
+export function markdownPlainText(body: string, title = "", maximumLength = Number.POSITIVE_INFINITY): string {
   const lines: string[] = [];
   let length = 0;
   let fenced = false;

@@ -277,9 +277,11 @@ The document bar keeps history, path, Properties, and More. Outline and keyboard
 help live in More; `?` opens help outside text inputs. Backlinks are a quiet
 Linked from section after the document text, not a competing inspector. Its
 lookup remains lazy for large collections. A collapsed Unlinked mentions
-count beneath it uses hydrated search text, ignoring linked and code occurrences.
-Each source note offers a snippet and Link action for its first plain-text title
-mention; conversion preserves the occurrence's spelling and offers Undo. Both
+count beneath it uses hydrated search text, ignoring linked/code occurrences,
+source H1 titles and prefixes of longer phrases equal to the source title. Its
+shared chevron disclosure initially shows five results, with Show all N. Each
+source note offers a plain-text snippet emphasising its matched phrase and a
+Link action for its first eligible title mention; conversion preserves the occurrence's spelling and offers Undo. Both
 writes check revisions and refuse to overwrite a changed occurrence or newer text.
 Pinned notes stay at the top of the list and quick open within this browser and
 collection. Link previews inside Markdown remain

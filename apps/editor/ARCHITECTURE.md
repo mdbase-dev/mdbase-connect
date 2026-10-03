@@ -115,8 +115,12 @@ The full-text search index normalizes titles, paths, metadata, and bodies once
 per changed record. `IncrementalNoteSearchIndex` reuses entries whose record
 identity and type context are unchanged, and removes entries for deleted paths.
 Search never performs a remote query. Unlinked mentions reuse the hydrated
-search entries, caching syntax exclusions by entry identity. Only an explicit
-Link action reads its source note, then flushes and writes through the same
+search entries (including their original display titles), caching syntax
+exclusions and paragraph bounds by entry identity. Snippets reuse the shared
+Markdown-to-prose cleaner; display emphasis offsets remain separate from raw
+source mutation offsets. Discovery excludes H1 titles and longer source-title
+phrases, and its collapsed footer renders only five results until Show all N.
+Only an explicit Link action reads its source note, then flushes and writes through the same
 revision-aware session operation queue. Undo refuses changed text rather than
 replacing newer edits. The list is virtualized so collection
 size does not translate directly into DOM size.

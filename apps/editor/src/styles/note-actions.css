@@ -109,6 +109,10 @@
 }
 
 .note-footer {
+  /* The document and its footer remain successive, non-shrinking blocks.
+     Expanding references must not move the browser's scroll anchor into them. */
+  flex-shrink: 0;
+  overflow-anchor: none;
   width: 100%;
   padding: var(--space-6) max(var(--writing-gutter), calc((100% - var(--writing-measure)) / 2)) var(--space-12);
 }

@@ -52,11 +52,57 @@ test("unlinked mentions link the source occurrence and Undo restores it", async 
   const disclosure = page.getByText("Unlinked mentions (1)", { exact: true });
   await expect(disclosure.locator("..")).not.toHaveAttribute("open");
   await disclosure.click();
-  await expect(page.getByText("I like the shape of useful tools. A plain-text mention.", { exact: true })).toBeVisible();
+  await expect(page.locator(".unlinked-mention small")).toHaveText("I like the shape of useful tools. A plain-text mention.");
   await page.getByRole("button", { name: "Link mention in Garden notes 2" }).click();
   await expect(page.getByText("Unlinked mentions (0)", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.getByText("Unlinked mentions (1)", { exact: true })).toBeVisible();
+});
+
+test("unlinked mentions stay below visible body text, use plain highlighted snippets, and cap their disclosure", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("?demo=10");
+  const body = page.getByRole("textbox", { name: "Note body", exact: true });
+  await expect(body).toBeVisible();
+  const open = async (title: string) => {
+    await page.keyboard.press("Control+P");
+    const input = page.getByRole("combobox", { name: "Find a note or action" });
+    await input.fill(title); await input.press("Enter");
+    await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(title);
+  };
+  for (const title of ["Garden notes 2", "A quiet interface 3", "Reading list 4", "Ideas for Sunday 5", "Release notes 6", "Questions worth keeping 7"]) {
+    await open(title);
+    await body.fill("I keep **the shape of useful tools** beside [my notes](https://example.org).");
+    await expect(page.locator(".editor-pane")).toHaveAttribute("data-save-state", "saved");
+  }
+  await open("The shape of useful tools");
+  await body.fill("Body text stays above linked references.\n\nThe last paragraph is still visible before Linked from.");
+  await expect(page.locator(".editor-pane")).toHaveAttribute("data-save-state", "saved");
+  const scroller = page.locator(".body-editor .cm-scroller");
+  const summary = page.getByText("Unlinked mentions (6)", { exact: true });
+  await expect(summary).toBeInViewport();
+  const before = await scroller.evaluate((element) => element.scrollTop);
+  await summary.click();
+  await expect(page.locator(".unlinked-mention")).toHaveCount(5);
+  await expect(page.getByRole("button", { name: "Show all 6", exact: true })).toBeVisible();
+  await expect(page.locator(".unlinked-mention mark")).toHaveCount(5);
+  await expect(page.locator(".unlinked-mention small").first()).toHaveText("I keep the shape of useful tools beside my notes.");
+  await expect(page.locator(".unlinked-mentions summary")).toHaveCSS("list-style-type", "none");
+  await expect(page.locator(".unlinked-mentions summary svg")).toBeVisible();
+  expect(await scroller.evaluate((element) => element.scrollTop)).toBe(before);
+  const positions = await scroller.evaluate((element) => {
+    const content = element.querySelector(".cm-content")!;
+    const footer = element.querySelector(".note-footer")!;
+    return { ordered: Boolean(content.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING), bodyBottom: content.getBoundingClientRect().bottom, footerTop: footer.getBoundingClientRect().top };
+  });
+  expect(positions.ordered).toBe(true);
+  expect(positions.bodyBottom).toBeLessThanOrEqual(positions.footerTop);
+  await expect(page.getByText("The last paragraph is still visible before Linked from.", { exact: true })).toBeInViewport();
+  await page.screenshot({ path: test.info().outputPath("mentions-body-before-footer.png") });
+  await page.getByRole("button", { name: "Show all 6", exact: true }).click();
+  await expect(page.locator(".unlinked-mention")).toHaveCount(6);
+  await page.getByRole("button", { name: "Show fewer", exact: true }).click();
+  await expect(page.locator(".unlinked-mention")).toHaveCount(5);
 });
 
 test("selection commands reuse bulk forms, moves and deletion Undo", async ({ page }) => {
