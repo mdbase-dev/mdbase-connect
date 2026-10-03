@@ -80,6 +80,9 @@ export function Login() {
         }
         try {
           setConfig(await api<AuthConfig>("/v1/auth/config"));
+          // Successful configuration supersedes a failed session lookup, but
+          // an authentication return error still needs to be shown.
+          setError(authenticationFlowError());
         } catch (configError) {
           setError(message(configError));
         }
@@ -154,7 +157,7 @@ export function Login() {
   return (
     <MinimalAuthPage>
       <form className="auth-panel" aria-busy={busy} onSubmit={(event) => void signIn(event)}>
-        <h1>Sign in</h1>
+        <h1>Open your account</h1>
         <p>Development authentication is enabled.</p>
         {error && <div className="message error" role="alert">{error}</div>}
         <AuthInput label="Name" autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />
