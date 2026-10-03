@@ -1,4 +1,5 @@
 import { normalizeCollectionChange } from "@mdbase-dev/connect";
+import { observeDemo } from "./demo-observe";
 import type {
   CollectionChange,
   CollectionContractDescriptor,
@@ -125,6 +126,10 @@ export class DemoCollectionGateway implements CollectionGateway {
   protected emitSessionChange(): void {
     const snapshot = this.sessionSnapshot();
     for (const listener of this.sessionListeners) listener(snapshot);
+  }
+
+  observe(options: import("@mdbase-dev/connect").ObserveOptions = {}) {
+    return observeDemo(this, options);
   }
 
   async list({ signal, onProgress }: NoteIndexRequest = {}): Promise<NoteIndexResult> {

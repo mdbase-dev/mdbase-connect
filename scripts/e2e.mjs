@@ -1094,6 +1094,22 @@ implements:
         || batch.results[1].status !== "missing" || batch.results[2] !== item || connection.route !== route) {
         throw new Error(`SDK native metadata/document coherence failed on ${route}`);
       }
+      const observed = connection.observe({
+        where: `file.path == ${JSON.stringify(batchPath)}`, includeBody: true, frontmatterMode: "both"
+      }, { mode: "manual", invalidation: "paths", firstPageSize: 1 });
+      try {
+        requireConnectSuccess(await observed.ready);
+        const snapshot = observed.getSnapshot();
+        if (snapshot.state !== "ready" || snapshot.records.length !== 1
+          || snapshot.records[0].revision !== row.revision || snapshot.records[0].body !== item.record.body
+          || !Object.isFrozen(snapshot.records[0].frontmatter) || connection.route !== route) {
+          throw new Error(`SDK observe native membership/document load failed on ${route}`);
+        }
+        requireConnectSuccess(await observed.refresh());
+        if (observed.getSnapshot().generation !== 2) throw new Error("SDK observe did not reconcile its generation");
+      } finally {
+        observed.close();
+      }
     }
   } finally {
     globalThis.fetch = browserFetch;

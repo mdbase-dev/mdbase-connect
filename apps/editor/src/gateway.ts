@@ -12,7 +12,6 @@ import {
   type MdbaseApplicationSessionSnapshot,
   type JsonObject,
   type MdbaseDiagnostic,
-  type QueryRecord,
   type QueryResult,
   type CollectionFileDescriptor,
   type TypePackAssessment,
@@ -33,14 +32,10 @@ import type {
   ConnectionSummary,
   CreateNoteInput,
   NoteDocument,
-  NoteContentRequest,
-  NoteIndexRequest,
-  NoteIndexResult,
   NoteFrontmatter,
   FileListRequest,
   FileReadRequest,
   FileUploadRequest,
-  NoteSummary,
   RenamePreflight,
   DeletePreflight,
   MutationOperationOptions,
@@ -182,54 +177,10 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return requireOutcome(await this.requireConnection().describe(options));
   }
 
-  async list({ signal, onProgress }: NoteIndexRequest = {}): Promise<NoteIndexResult> {
-    const notes: NoteSummary[] = [];
-    let snapshot: string | undefined;
-    for await (const outcome of this.requireConnection().queryPages({
-        orderBy: [{ field: "file.mtime", direction: "desc" }],
-        includeBody: false,
-        frontmatterMode: "both"
-      }, { firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE, signal })) {
-      const page = requireOutcome(outcome);
-      notes.push(...page.results.map(completeSummary));
-      snapshot = page.snapshot;
-      onProgress?.({
-        notes: [...notes],
-        snapshot,
-        structureComplete: page.complete,
-        complete: page.complete,
-        contentComplete: notes.length === 0,
-        contentLoaded: 0,
-        total: page.meta?.totalCount
-      });
-    }
-
-    return { notes, snapshot };
-  }
-
-  async hydrateContent({ snapshot: requestedSnapshot, signal, onProgress }: NoteContentRequest = {}): Promise<NoteIndexResult> {
-    const notes: NoteSummary[] = [];
-    let snapshot = requestedSnapshot;
-    for await (const outcome of this.requireConnection().queryPages({
-        orderBy: [{ field: "file.mtime", direction: "desc" }],
-        ...(snapshot ? { snapshot } : {}),
-        includeBody: true,
-        frontmatterMode: "both"
-      }, { firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE, signal })) {
-      const page = requireOutcome(outcome);
-      notes.push(...page.results.map(completeSummary));
-      snapshot = page.snapshot;
-      onProgress?.({
-        notes: [...notes],
-        snapshot,
-        structureComplete: true,
-        complete: page.complete,
-        contentComplete: page.complete,
-        contentLoaded: notes.length,
-        total: page.meta?.totalCount
-      });
-    }
-    return { notes, snapshot };
+  observe(options: import("@mdbase-dev/connect").ObserveOptions = {}) {
+    return this.requireConnection().observe({ frontmatterMode: "both" }, {
+      firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE, ...options
+    });
   }
 
   async read(path: string): Promise<NoteDocument> {
@@ -251,7 +202,11 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async readFile(file: CollectionFileDescriptor, options: FileReadRequest = {}): Promise<Blob> {
-    return this.requireConnection().files.download(file, options);
+    const connection = this.requireConnection();
+    const current = requireOutcome(await connection.files.stat({ fileId: file.fileId }, options));
+    if (!current) throw new Error("This file no longer exists.");
+    if (current.revision !== file.revision) throw new Error("This file changed. Reload its preview.");
+    return connection.files.download(current, options);
   }
 
   async uploadFile(path: string, source: import("@mdbase-dev/connect").MdbaseFileSource, options: FileUploadRequest = {}): Promise<CollectionFile> {
@@ -442,30 +397,6 @@ export class ConnectCollectionGateway implements CollectionGateway {
     }));
   }
 
-  async watch(onChange: (change: import("@mdbase-dev/connect").CollectionChange) => void, signal: AbortSignal, onStatus?: (status: import("@mdbase-dev/connect").WatchStatus) => void): Promise<void> {
-    const opened = requireOutcome(await this.requireConnection().watch({
-      pollIntervalMs: 1_500,
-      lifetimeSignal: signal
-    }));
-    if (signal.aborted) return;
-    await new Promise<void>((resolve, reject) => {
-      let stop: () => void = () => undefined;
-      stop = opened.subscribe(
-        onChange,
-        onStatus,
-        (problem) => {
-          stop();
-          if (signal.aborted) resolve();
-          else reject(new MdbaseConnectError(problem));
-        }
-      );
-      signal.addEventListener("abort", () => {
-        stop();
-        resolve();
-      }, { once: true });
-    });
-  }
-
   private activeConnection(): MdbaseConnection<NoteFrontmatter> | null {
     return this.session.connection();
   }
@@ -531,19 +462,6 @@ function uniquePaths(values: Array<{ path: string }> | undefined): string[] {
 
 function mutationKey(from: string, to: string, revision: string): string {
   return JSON.stringify([from, to, revision]);
-}
-
-function completeSummary(record: QueryRecord<NoteFrontmatter>): NoteSummary {
-  if (!record.frontmatter || !record.effectiveFrontmatter) {
-    throw new Error(
-      `Query result ${record.path} did not include both frontmatter projections.`
-    );
-  }
-  return {
-    ...record,
-    frontmatter: record.frontmatter,
-    effectiveFrontmatter: record.effectiveFrontmatter
-  };
 }
 
 export function gatewayError(error: unknown): string {

@@ -188,7 +188,6 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const [connectionState, setConnectionState] = useState<ConnectionState>("connected");
   const [connectionIssue, setConnectionIssue] = useState<string>();
   const [directAccessBusy, setDirectAccessBusy] = useState(false);
-  const [connectionRetry, setConnectionRetry] = useState(0);
   const [selectedPath, setSelectedPath] = useState<string>();
   const [selection, setSelection] = useState<NoteSelection>();
   const [pinnedPaths, setPinnedPaths] = useState<string[]>([]);
@@ -394,7 +393,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     setConnectionIssue("Refreshing collection state before reconnecting.");
     try {
       await Promise.all([loadIndex(), fileController.reload(), refreshDescription()]);
-      setConnectionRetry((value) => value + 1);
+      setConnectionState("connected");
+      setConnectionIssue(undefined);
     } catch (error) {
       setConnectionIssue(gatewayError(error));
     }
@@ -536,9 +536,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     activateSession(createSession(next));
   }, [activateSession, createSession]);
 
-  const refreshCachedNote = useCallback(async (path: string) => {
+  const refreshCachedNote = useCallback(async (path: string, revision?: string) => {
     const session = noteSessions.current.get(path);
-    if (!session || session.deleted) return;
+    if (!session || session.deleted || (revision !== undefined && session.document.revision === revision)) return;
     // Read behind this note's own writes; the session classifies the result.
     requireSaved(await session.record.refresh());
   }, []);
@@ -693,8 +693,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       .catch(() => undefined);
   }, [connectionSummary?.collectionId, gateway, phase]);
 
-  useCollectionWatch({ phase, connectionRetry, gateway, index: indexController, files: fileController, assets: fileAssetStore,
-    loadIndex, refreshChangedNote, refreshDescription, refreshAfterConnectionGap, setConnectionState, setConnectionIssue, setNotice });
+  useCollectionWatch({ phase, index: indexController, files: fileController, assets: fileAssetStore,
+    refreshCachedNote, refreshDescription, setConnectionState, setConnectionIssue, setNotice });
 
   const flushSession = useCallback(
     async (session: NoteSession) => { requireSaved(await session.record.flush()); },

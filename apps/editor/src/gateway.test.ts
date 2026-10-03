@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   MdbaseConnectError,
-  normalizeCollectionChange,
   type MdbaseApplicationSessionSnapshot,
   type DirectAccessStatus,
   type MdbaseConnection,
@@ -10,7 +9,7 @@ import {
 import { connectFailure, connectProblem, connectSuccess } from "@mdbase-dev/connect-testing";
 import { MdbaseCollectionClient } from "@mdbase-dev/connect/advanced";
 import { ConnectCollectionGateway, gatewayError, missingCoreCapabilities, missingTypeCapabilities } from "./gateway";
-import type { NoteDocument, NoteListProgress, NoteSummary } from "./model";
+import type { NoteDocument, NoteSummary } from "./model";
 
 const TEST_OPERATIONS = [
   "describe", "changes", "read", "query", "validate", "create", "update",
@@ -37,26 +36,14 @@ describe("ConnectCollectionGateway typed changes", () => {
     await gateway.describe({ fresh: true });
     expect(describeCollection).toHaveBeenCalledExactlyOnceWith({ fresh: true });
   });
-  it("forwards schema, contract, configuration and unknown events without raw-ID filtering", async () => {
-    const events = ["mdbase.type.changed", "mdbase.config.changed", "mdbase.contract.changed", "future.event"].map((type, cursor) =>
-      normalizeCollectionChange({ cursor, type, occurred_at: "now", payload: { path: "schema.yaml" } }));
-    const stop = vi.fn();
-    const watch = vi.fn(async () => connectSuccess({
-      subscribe(onChange: (event: typeof events[number]) => void) {
-        events.forEach(onChange);
-        return stop;
-      }
-    }));
+  it("delegates observation ownership to the SDK with editor paging and both projections", () => {
+    const observe = vi.fn();
     const gateway = new ConnectCollectionGateway("https://connect.example");
-    injectConnection(gateway, { watch });
-    const controller = new AbortController();
-    const onChange = vi.fn();
-    const pending = gateway.watch(onChange, controller.signal);
-    await vi.waitFor(() => expect(onChange).toHaveBeenCalledTimes(4));
-    expect(onChange.mock.calls.map(([event]) => event.kind)).toEqual(["schema.changed", "config.changed", "contract.changed", "unknown"]);
-    controller.abort();
-    await pending;
-    expect(stop).toHaveBeenCalledOnce();
+    injectConnection(gateway, { observe });
+    gateway.observe({ mode: "manual" });
+    expect(observe).toHaveBeenCalledExactlyOnceWith({ frontmatterMode: "both" }, {
+      firstPageSize: 200, pageSize: 1000, mode: "manual"
+    });
   });
 });
 
@@ -81,40 +68,37 @@ describe("ConnectCollectionGateway collection index", () => {
           return await query(input as { include_body: boolean; offset: number; snapshot?: string }) as Result;
         }
       }));
-    const structureProgress: NoteListProgress[] = [];
-    const contentProgress: NoteListProgress[] = [];
-
-    const structure = await gateway.list({ onProgress: (update) => { structureProgress.push(update); } });
-
-    expect(query.mock.calls.map(([input]) => [input.include_body, input.offset])).toEqual([
-      [false, 0],
-      [false, 1]
+    const observation = gateway.observe({ mode: "manual" });
+    const lengths: number[] = [];
+    observation.subscribe(snapshot => lengths.push(snapshot.records.length));
+    expect((await observation.ready).ok).toBe(true);
+    expect(lengths).toContain(1);
+    expect(observation.getSnapshot().records.every(note => note.body === undefined)).toBe(true);
+    expect((await observation.hydrate()).ok).toBe(true);
+    expect(query.mock.calls.map(([input]) => [Boolean(input.include_body), input.offset])).toEqual([
+      [false, 0], [false, 1], [true, 0], [true, 1]
     ]);
-    expect(structureProgress[0]).toMatchObject({ structureComplete: false, complete: false, contentComplete: false, total: 2 });
-    expect(structureProgress[1]).toMatchObject({ structureComplete: true, complete: true, contentComplete: false, total: 2 });
-    expect(structure.notes.map((note) => note.path)).toEqual(["Notes/one.md", "Archive/two.md"]);
-    expect(structure.notes.every((note) => note.body === undefined)).toBe(true);
+    expect(observation.getSnapshot().records.map(note => note.body)).toEqual(["Body 1", "Body 2"]);
+    observation.close();
+  });
+});
 
-    const notes = await gateway.hydrateContent({
-      snapshot: structure.snapshot,
-      onProgress: (update) => { contentProgress.push(update); }
-    });
-
-    expect(query.mock.calls.map(([input]) => [input.include_body, input.offset])).toEqual([
-      [false, 0],
-      [false, 1],
-      [true, 0],
-      [true, 1]
-    ]);
-    expect(query.mock.calls.map(([input]) => input.snapshot)).toEqual([
-      undefined,
-      "stable-index",
-      "stable-index",
-      "stable-index"
-    ]);
-    expect(contentProgress[0]).toMatchObject({ structureComplete: true, complete: false, contentComplete: false, contentLoaded: 1, total: 2 });
-    expect(contentProgress.at(-1)).toMatchObject({ structureComplete: true, complete: true, contentComplete: true, contentLoaded: 2, total: 2 });
-    expect(notes.notes.map((note) => note.body)).toEqual(["Body 1", "Body 2"]);
+describe("ConnectCollectionGateway asset lookups", () => {
+  const file = { fileId: "01911111-1111-7111-8111-111111111111", path: "Assets/image.png", revision: "r1", contentDigest: "sha256:x" as const, size: 10, mediaClass: "image" as const, modifiedAt: "now" };
+  it("stats the exact file identity before downloading its current revision", async () => {
+    const blob = new Blob(["image"]), stat = vi.fn(async () => connectSuccess(file)), download = vi.fn(async () => blob);
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, { files: { stat, download } as unknown as MdbaseConnection["files"] });
+    const options = { signal: new AbortController().signal };
+    expect(await gateway.readFile(file, options)).toBe(blob);
+    expect(stat).toHaveBeenCalledExactlyOnceWith({ fileId: file.fileId }, options);
+    expect(download).toHaveBeenCalledExactlyOnceWith(file, options);
+  });
+  it.each([null, { ...file, revision: "r2" }])("does not download a missing or changed descriptor: %j", async current => {
+    const download = vi.fn(), gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, { files: { stat: async () => connectSuccess(current), download } as unknown as MdbaseConnection["files"] });
+    await expect(gateway.readFile(file)).rejects.toThrow(current ? "This file changed" : "This file no longer exists");
+    expect(download).not.toHaveBeenCalled();
   });
 });
 

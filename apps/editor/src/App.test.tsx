@@ -236,7 +236,7 @@ describe("mdbase editor", () => {
     const diff = screen.getByRole("table", { name: "Body differences" });
     expect(within(diff).getByText(/A local sentence/)).toBeInTheDocument();
     expect(within(diff).getByText("The remote version is current.")).toBeInTheDocument();
-    expect(screen.getByText("Changed on another device")).toBeInTheDocument();
+    expect(screen.getAllByText("Changed on another device")).toHaveLength(2); // remote index title and conflict preview
     await new Promise((resolve) => setTimeout(resolve, 750));
     expect(gateway.updateCalls).toBe(0);
 
@@ -1509,6 +1509,7 @@ class SlowDescriptionGateway extends DemoCollectionGateway {
 class ProgressiveListGateway extends DemoCollectionGateway {
   private releaseStructurePage?: () => void;
   private releaseContentPage?: () => void;
+  private content: NoteSummary[] = [];
   listCalls = 0;
 
   override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
@@ -1519,11 +1520,16 @@ class ProgressiveListGateway extends DemoCollectionGateway {
     options.onProgress?.({ notes: structure.slice(0, 1), snapshot: result.snapshot, structureComplete: false, complete: false, total: notes.length });
     await new Promise<void>((resolve) => { this.releaseStructurePage = resolve; });
     options.signal?.throwIfAborted();
-    options.onProgress?.({ notes: structure, snapshot: result.snapshot, structureComplete: true, complete: false, total: notes.length });
+    this.content = notes;
+    options.onProgress?.({ notes: structure, snapshot: result.snapshot, structureComplete: true, complete: true, total: notes.length });
+    return { notes: structure, snapshot: result.snapshot };
+  }
+
+  override async hydrateContent(options: NoteContentRequest = {}): Promise<NoteIndexResult> {
+    options.onProgress?.({ notes: [], structureComplete: true, complete: false, total: this.content.length });
     await new Promise<void>((resolve) => { this.releaseContentPage = resolve; });
     options.signal?.throwIfAborted();
-    options.onProgress?.({ notes, snapshot: result.snapshot, structureComplete: true, complete: true, total: notes.length });
-    return { notes, snapshot: result.snapshot };
+    return { notes: this.content };
   }
 
   releaseStructure() {
@@ -1562,7 +1568,7 @@ class CountingGateway extends DemoCollectionGateway {
     const created = await super.create(input);
     this.listener?.(normalizeCollectionChange({
       cursor: 1, type: "mdbase.record.created", occurred_at: new Date().toISOString(),
-      payload: { path: created.path, types: created.types }
+      payload: { path: created.path, types: created.types, revision: created.revision }
     }));
     return created;
   }

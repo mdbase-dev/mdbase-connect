@@ -1,21 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+
+const EMPTY: ReadonlySet<string> = new Set();
 
 export function useVisibleEmbedKeys(documentPath?: string) {
-  const [files, setFiles] = useState<ReadonlySet<string>>(() => new Set());
-  const [notes, setNotes] = useState<ReadonlySet<string>>(() => new Set());
-  const updateFiles = useCallback((keys: string[]) => {
-    setFiles((current) => sameStringSet(current, keys) ? current : new Set(keys));
-  }, []);
-  const updateNotes = useCallback((keys: string[]) => {
-    setNotes((current) => sameStringSet(current, keys) ? current : new Set(keys));
-  }, []);
-  useEffect(() => {
-    setFiles(new Set());
-    setNotes(new Set());
+  const [visible, setVisible] = useState<{ path?: string; files: ReadonlySet<string>; notes: ReadonlySet<string> }>(() => ({ path: documentPath, files: EMPTY, notes: EMPTY }));
+  const update = useCallback((kind: "files" | "notes", keys: string[]) => {
+    setVisible(current => {
+      const owned = current.path === documentPath ? current : { path: documentPath, files: EMPTY, notes: EMPTY };
+      return owned[kind].size === keys.length && keys.every(key => owned[kind].has(key)) ? owned : { ...owned, [kind]: new Set(keys) };
+    });
   }, [documentPath]);
-  return { files, notes, updateFiles, updateNotes };
-}
-
-function sameStringSet(current: ReadonlySet<string>, next: readonly string[]): boolean {
-  return current.size === next.length && next.every((value) => current.has(value));
+  const updateFiles = useCallback((keys: string[]) => update("files", keys), [update]);
+  const updateNotes = useCallback((keys: string[]) => update("notes", keys), [update]);
+  // Derive the empty view immediately. A parent reset effect must not erase a
+  // new document's visibility notification from a child effect in the same commit.
+  return { files: visible.path === documentPath ? visible.files : EMPTY,
+    notes: visible.path === documentPath ? visible.notes : EMPTY, updateFiles, updateNotes };
 }
