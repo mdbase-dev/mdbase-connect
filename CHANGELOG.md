@@ -4,6 +4,52 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.126
+
+### Added
+
+- Note context menus (rename, move, duplicate, copy link or path, pin, delete
+  with Undo), drag notes onto folders, multi-select with bulk move, tag,
+  property and delete actions, and pinned notes.
+- Paste or drop images and files into a note to upload them in place.
+- Commands in quick open (`>` or Ctrl/⌘+Shift+P), focus mode with optional
+  typewriter scrolling, and unlinked mentions under "Linked from".
+
+### Changed
+
+- Editor browser qualification uses responsive light/dark readiness, font/image loading and overflow checks instead of platform-specific PNG screenshot baselines. Local runs no longer require baseline updates or a matching container.
+
+- The editor has a calmer, more consistent design: Atkinson Hyperlegible Next
+  with a shared type scale, filled primary buttons, proper switches and
+  checkboxes, sentence-case labels, and less monospace. Saving is silent unless
+  it is slow or fails, Properties docks without covering or rewrapping note
+  text, and paths keep their filename visible.
+- The rail has one collection menu, folder rename and move with a confirmation
+  that counts affected notes and links, and Types, Settings and Connect pinned
+  below the folders. Tags and types are search filters (`#tag`, `type:`).
+- Image and file embeds, Types, Settings, note creation and the mobile layout
+  are quieter, with larger touch targets. Connect sign-in, sign-up and password
+  reset use one centred layout with a primary action and a single divider.
+
+### Fixed
+
+- Authentication accessibility checks now enforce the shared typography tokens,
+  heading hierarchy, filled primary action, and email/provider divider without
+  requiring the previous uniform type treatment. Development sign-in preserves
+  its system-test accessible names; successful auth configuration clears obsolete
+  session-lookup errors without hiding authentication return errors.
+
+- Prevent local CLI batches from timing out with `outcome_unknown` when background
+  filesystem ingestion overlaps durable settlement. Runtime background writes now
+  share the collection mutation permit; exact revisions, recovery behavior, and
+  operation deadlines are unchanged.
+
+### Security
+
+- Update MCP HTTP framework and server IP address parsing dependencies to published
+  security fixes. Also refresh affected glob expansion, date parsing, and test
+  tooling dependencies without changing Connect's protocol or authorization model.
+
 ## 0.1.0-beta.125
 
 ### Changed

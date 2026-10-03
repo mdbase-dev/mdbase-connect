@@ -1,9 +1,0 @@
-{
-  "reason": "Editor polish adds five focused controls (bulk properties, folder change, move, facet search and rail drop targets), six feature logic/adapters (bulk actions, folder planning, unlinked mentions, embed actions, typewriter scrolling and delayed busy feedback), one cohesive note-actions/Undo owner extracted from App, and one enforced style-token checker: 13 net production files, all in apps/editor. The one-line note-drag module was folded into the existing list leaf; filter/facet/status types and scope labels now live there rather than creating another model or retaining a view cycle. Type field labels reuse the renamed, existing draft-template module. The 56 net relative imports and 64 counted TypeScript export declarations connect these focused views, typed models, action adapters and shared editor/UI controls instead of growing App or duplicating implementations. The new action owner consumes the existing authoritative session store, collection index, mutation scope and serialized operation seam; navigation, history, pins and view composition remain in App. It adds no second record store, write queue, collection policy or public SDK API. All allowances are the measured branch delta from the merge base with main, with no speculative headroom. Per-file limits, cycle checks, bundle/CSP/style/visual guards and global checker policy remain unchanged.",
-  "growth": {
-    "productionFiles": 13,
-    "relativeImports": 56,
-    "typeScriptExportDeclarations": 64,
-    "apps/editor": 13
-  }
-}
