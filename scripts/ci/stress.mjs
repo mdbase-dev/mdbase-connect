@@ -13,7 +13,7 @@ const run = (args, cwd = root, env = process.env) => new Promise((done, reject) 
 // Keep the harness's parallelism: stress selects full names with libtest's
 // union of exact filters, rather than serializing each individual test.
 let passed = await run(["scripts/ci/cargo-test.mjs", "--stress", String(iterations), "--match",
-  "stress|concurrent|claim_recovery|durab|lifecycle|recovery|restart|cancellation|replay",
+  "stress|concurrent|claim_recovery|batch_settlement|durab|lifecycle|recovery|restart|cancellation|replay",
   "--locked", "-p", "mdbase-connect-core", "-p", "mdbase-connect-daemon", "-p", "mdbase-connect-hosted-provider"]);
 // unified_cli.rs is cfg(unix). Run its whole lifecycle harness so the watch
 // regression competes with daemon/mirror startup as it does in workspace CI.

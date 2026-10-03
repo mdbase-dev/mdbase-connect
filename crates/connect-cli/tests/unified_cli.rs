@@ -847,6 +847,99 @@ fn deterministic_profilers_are_built_into_the_final_executable() {
 }
 
 #[test]
+fn concurrent_cli_batch_settlement_preserves_exact_bytes_beyond_claim_capacity() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path().join("notes");
+    let state = scratch.path().join("state");
+    let endpoint = scratch.path().join("control.sock");
+    let log = scratch.path().join("daemon.log");
+    let child = Command::new(binary())
+        .args([
+            "--state-dir",
+            state.to_str().unwrap(),
+            "--endpoint",
+            endpoint.to_str().unwrap(),
+            "connect",
+            "daemon",
+            "run",
+            "--loopback-port",
+            "0",
+        ])
+        .env("MDBASE_CONNECT_ENV", "test")
+        .env("MDBASE_CONNECT_SECRET_BACKEND", "insecure-test-file")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(std::fs::File::create(&log).unwrap())
+        .spawn()
+        .expect("start daemon");
+    let _daemon = Daemon { child };
+    wait_for_daemon(&endpoint);
+    let target = [
+        "--state-dir",
+        state.to_str().unwrap(),
+        "--endpoint",
+        endpoint.to_str().unwrap(),
+        "--json",
+    ];
+    let created = run(&[
+        target.as_slice(),
+        &["connect", "collection", "create", root.to_str().unwrap()],
+    ]
+    .concat());
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let id = json(&created)["id"].as_str().unwrap().to_owned();
+    let record = root.join("note.md");
+    std::fs::write(
+        &record,
+        "---\ntitle: Keep\ncounter: 0\n---\nunchanged body\n",
+    )
+    .unwrap();
+    let request = scratch.path().join("batch.json");
+    // Match the local-relay E2E regression: a raw file write wakes background
+    // ingestion, then atomic CLI batches must exceed the 128 retained-claim cap.
+    for counter in 1..=140 {
+        let before = std::fs::read(&record).unwrap();
+        std::fs::write(
+            &request,
+            serde_json::to_vec(&serde_json::json!({
+                "operations": [{"kind": "update", "input": {
+                    "path": "note.md", "patch": {"counter": counter},
+                    "if_revision": mdbase::api::Revision::from_document(&before)
+                }}]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let result = run(&[
+            target.as_slice(),
+            &[
+                "--collection",
+                &id,
+                "batch",
+                "--request",
+                request.to_str().unwrap(),
+            ],
+        ]
+        .concat());
+        assert!(
+            result.status.success(),
+            "batch {counter}: stderr={}\ndaemon={}",
+            String::from_utf8_lossy(&result.stderr),
+            std::fs::read_to_string(&log).unwrap()
+        );
+        assert_eq!(json(&result)["valid"], true);
+        assert_eq!(
+            std::fs::read_to_string(&record).unwrap(),
+            format!("---\ntitle: Keep\ncounter: {counter}\n---\nunchanged body\n")
+        );
+    }
+}
+
+#[test]
 fn direct_watch_rejects_invalid_options_without_announcing_readiness() {
     for arguments in [
         vec!["watch", "--debounce-ms", "0"],
