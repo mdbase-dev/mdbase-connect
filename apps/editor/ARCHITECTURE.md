@@ -140,11 +140,17 @@ outside it:
   pure filter/facet/status types, scope labels, selection/sort/drag vocabulary,
   and browser-local, collection-scoped pin persistence. Both list and search
   controls consume that leaf model; it never imports a view;
-- selection lives in App independently of the open note session. Batch actions
-  reuse the operation coordinator and collection mutation scope, collecting
-  successful inverse operations for one Undo and preserving partial failures
-  for retry. Property Undo checks the written revision, not a freshly fetched
-  revision, so it cannot overwrite later changes;
+- selection and its inline property form live in App independently of the open
+  note session. `use-note-actions.ts` owns explicit note mutation orchestration
+  (duplicate, rename/move, delete, property/source updates, validation, mention
+  linking), request guards, action errors and single/batch Undo state. It consumes
+  the existing session store, collection index, mutation scope and serialized
+  operation seam; it creates no second record store or write queue. App supplies
+  navigation/history/pin and active-view updates, and resets action state at the
+  existing collection-transition boundary. Batch actions collect successful
+  inverse operations for one Undo and preserve partial failures for retry.
+  Property Undo checks the written revision, not a freshly fetched revision, so
+  it cannot overwrite later changes;
 - `TypeBrowser.tsx`, `PropertiesPanel.tsx`, and `NewNoteComposer.tsx` own their
   feature workspaces;
 - `Brand.tsx` and the dialog/menu components are reusable presentation.
