@@ -1,42 +1,10 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+import { authentication, googleFixture, installAuthRoutes, test } from "./auth-portal";
 import { chooseOption } from "./select";
 
-// /connect intentionally redirects unauthenticated accounts to the transactional
-// portal. Exercise that boundary with a local portal and hermetic API/GSI fixtures.
-const portalPort = Number(process.env.MDBASE_EDITOR_E2E_PORT ?? 42_873) + 1;
-const portalOrigin = `http://127.0.0.1:${portalPort}`;
-let portal: ChildProcess;
-const authentication = {
-  provider: "session",
-  providers: [
-    { id: "google", label: "Continue with Google", login_url: "/auth/google" },
-    { id: "github", label: "Continue with GitHub", login_url: "/auth/github" }
-  ],
-  registration: "open",
-  password_login: true,
-  password_recovery: true,
-  password_public_registration: true,
-  external_public_registration: true,
-  agreements: {
-    terms: { version: "1", url: "https://mdbase.dev/terms/" },
-    privacy: { version: "1", url: "https://mdbase.dev/privacy/" }
-  }
-};
-const googleFixture = `window.google = { accounts: { id: {
-  initialize(config) { window.googleFixtureConfig = config; },
-  renderButton(element, config) {
-    element.dataset.theme = config.theme;
-    const button = document.createElement('button');
-    button.type = 'button'; button.className = 'mdbase-button provider-button';
-    button.style.width = config.width + 'px';
-    button.textContent = 'Continue with Google';
-    button.onclick = () => window.googleFixtureConfig.callback({credential:'fixture-credential'});
-    element.append(button);
-  }
-} } };`;
+// /connect redirects unauthenticated accounts to the transactional portal.
+let portalOrigin: string;
 
 async function expectAccessible(page: Page) {
   // Audit settled control states, not interpolated theme/disabled colors.
@@ -49,41 +17,9 @@ async function expectAccessible(page: Page) {
   expect(accessibility.violations).toEqual([]);
 }
 
-test.beforeAll(async () => {
-  portal = spawn(process.execPath, [
-    fileURLToPath(new URL("../../portal/node_modules/vite/bin/vite.js", import.meta.url)),
-    "--host", "127.0.0.1", "--port", String(portalPort), "--strictPort"
-  ], { cwd: fileURLToPath(new URL("../../portal", import.meta.url)), stdio: "ignore" });
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (portal.exitCode !== null) throw new Error("Local auth portal exited before becoming ready.");
-    try { if ((await fetch(portalOrigin)).ok) return; } catch { /* wait for Vite */ }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("Local auth portal did not become ready.");
-});
-
-test.afterAll(async () => {
-  if (portal && portal.exitCode === null) {
-    const stopped = new Promise((resolve) => portal.once("exit", resolve));
-    portal.kill("SIGTERM");
-    await stopped;
-  }
-});
-
-test.beforeEach(async ({ page }) => {
-  await page.route(`${portalOrigin}/v1/**`, (route) => {
-    const path = new URL(route.request().url()).pathname;
-    return route.fulfill({
-      status: path === "/v1/me" ? 401 : 200,
-      json: path === "/v1/auth/config" ? authentication : {}
-    });
-  });
-  await page.route(`${portalOrigin}/auth/google?**`, (route) => route.fulfill({
-    json: { client_id: "fixture-client", nonce: "fixture-nonce" }
-  }));
-  await page.route("https://accounts.google.com/**", (route) => route.fulfill({
-    contentType: "application/javascript", body: googleFixture
-  }));
+test.beforeEach(async ({ page, authPortal }) => {
+  portalOrigin = authPortal;
+  await installAuthRoutes(page, authPortal);
 });
 
 test("Connect opens one themed, accessible auth column at desktop and 390px", async ({ page }) => {
