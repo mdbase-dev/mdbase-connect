@@ -527,7 +527,7 @@ describe("mdbase editor", () => {
     expect(within(folderNavigation).getByLabelText("3 notes in Notes")).toHaveTextContent("3");
 
     await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "Record 3 remains");
-    expect(await screen.findByText("Searching")).toBeInTheDocument();
+    expect(await screen.findByText(/searching 0 of 12/)).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
     gateway.releaseContent();
     expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();

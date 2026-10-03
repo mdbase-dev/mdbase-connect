@@ -1096,7 +1096,7 @@ implements:
       }
       const observed = connection.observe({
         where: `file.path == ${JSON.stringify(batchPath)}`, includeBody: true, frontmatterMode: "both"
-      }, { mode: "manual", invalidation: "paths", firstPageSize: 1 });
+      }, { invalidation: "paths", firstPageSize: 1 });
       try {
         requireConnectSuccess(await observed.ready);
         const snapshot = observed.getSnapshot();
@@ -1109,6 +1109,25 @@ implements:
         }
         requireConnectSuccess(await observed.refresh());
         if (observed.getSnapshot().generation !== 2) throw new Error("SDK observe did not reconcile its generation");
+        // Exercise the native targeted confirmation path, including scalar file
+        // facts, not just full-row scans. The supplied row is already authoritative.
+        let timeout, unsubscribe;
+        try {
+          const confirmation = new Promise((resolve, reject) => {
+            timeout = setTimeout(() => reject(new Error(`SDK observe confirmation timed out on ${route}`)), 5_000);
+            unsubscribe = observed.subscribe((snapshot, delta) => {
+              if (snapshot.state === "error") reject(new Error(snapshot.problem.message));
+              else if (delta.reason === "changes") resolve(snapshot);
+            });
+          });
+          observed.optimistic(observed.getSnapshot().records).commit();
+          const confirmed = await confirmation;
+          if (confirmed.records[0].revision !== row.revision || confirmed.records[0].body !== item.record.body
+            || confirmed.records[0].file.path !== batchPath
+            || !["name", "folder", "size", "mtime", "ctime", "tags", "links", "embeds"].every(field => field in confirmed.records[0].file)) {
+            throw new Error(`SDK observe native confirmation lost record/file facts on ${route}`);
+          }
+        } finally { clearTimeout(timeout); unsubscribe?.(); }
       } finally {
         observed.close();
       }

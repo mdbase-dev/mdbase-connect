@@ -270,14 +270,17 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
         : unwrap(await this.client.queryAll(input, { signal })).results;
       const matches = new Map(membership.map(row => [row.path, row]));
       const mode = this.query.frontmatterMode ?? "effective";
-      const cached = new Map([...overlays].flatMap(([path, { record }]) => support && record?.revision && record.revision === matches.get(path)?.revision
+      // Confirmed rows remain revision-qualified after their overlay retires.
+      const cached = new Map(paths.flatMap(path => {
+        const record = overlays.get(path)?.record ?? this.records.get(path);
+        return support && record?.revision && record.revision === matches.get(path)?.revision
         && (!this.query.includeBody || record.body !== undefined)
         && (mode === "effective" || record.frontmatter !== undefined) && (mode === "persisted" || record.effectiveFrontmatter !== undefined)
-        ? [[path, record] as const] : []));
-      const documents = support || (this.supports ? unwrap(await this.supports("read-many-documents-v1", { signal })) : false);
-      // Ordinary discovery already contains full query rows. Without document
-      // support, do not repeat the same query through readMany's legacy path.
-      const result = documents ? unwrap(await this.client.readMany(paths.filter(path => matches.has(path) && !cached.has(path)), {
+        ? [[path, record] as const] : [];
+      }));
+      // Ordinary discovery already contains full rows; only metadata discovery
+      // needs documents. readMany owns its own native/legacy capability gate.
+      const result = support ? unwrap(await this.client.readMany(paths.filter(path => matches.has(path) && !cached.has(path)), {
         signal, includeBody: this.query.includeBody, frontmatterMode: this.query.frontmatterMode
       })) : { results: (membership as QueryRecord<F>[]).map(record => ({ status: "found" as const, path: record.path, record })), errors: [] };
       if (signal.aborted || this.lifetime.signal.aborted) return cancelled();
@@ -285,11 +288,8 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
       const found = new Map([...cached, ...result.results.flatMap(entry => entry.status === "found" ? [[entry.path, entry.record] as const] : [])]
         .map(([path, record]) => [path, immutable(withQueryFile(record, matches.get(path)!))] as const));
       for (const path of paths) if (!matches.has(path)) this.records.delete(path);
-      for (const entry of result.results) {
-        if (entry.status === "found") this.records.set(entry.path, found.get(entry.path)!);
-        else if (entry.status === "missing") this.records.delete(entry.path);
-      }
-      for (const [path] of cached) this.records.set(path, found.get(path)!);
+      for (const entry of result.results) if (entry.status === "missing") this.records.delete(entry.path);
+      for (const [path, record] of found) this.records.set(path, record);
       for (const [path, overlay] of overlays) if (overlay?.committed && this.overlays.get(path) === overlay) this.overlays.delete(path);
       this.publish("changes", { state: "ready", problem: null });
       return connectSuccess(undefined);
@@ -332,15 +332,15 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
   }
 }
 
-// Document reads carry scalar file facts, not query-derived link/tag metadata.
-// Select those facts at the authority; do not reimplement Markdown semantics.
-const fileFields = ["tags", "links", "embeds"] as const;
+// Refresh authority file facts even when an unchanged revision reuses its row.
+// Do not reimplement Markdown semantics or infer timestamps from document bytes.
+const fileFields = ["path", "name", "folder", "size", "mtime", "ctime", "tags", "links", "embeds"] as const;
 function withQueryFile<F extends JsonObject>(record: QueryRecord<F>, membership: QueryRecord<F> | QueryMetadataRecord): QueryRecord<F> {
-  const file = "file" in membership ? membership.file : Object.fromEntries(fileFields.map(field => {
-    const value = membership.values[field];
+  const file = "file" in membership ? membership.file : membership.values;
+  if (!("file" in membership)) for (const field of ["tags", "links", "embeds"]) {
+    const value = file[field];
     if (!Array.isArray(value) || (field === "tags" && value.some(tag => typeof tag !== "string"))) throw connectError("invalid_operation_response", "Invalid authority-derived file metadata.");
-    return [field, value];
-  }));
+  }
   return { ...record, file: "file" in membership ? { ...file, ...record.file } : { ...record.file, ...file } };
 }
 function unwrap<T>(outcome: ConnectOutcome<T>): T {

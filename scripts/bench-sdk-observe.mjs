@@ -47,7 +47,7 @@ async function measure(module, mode, repeat) {
           result = { valid: true, diagnostics: [], result: {
             ...(input.output ? { output: input.output } : {}),
             results: input.output === "metadata"
-              ? page.map(row => ({ path: row.path, revision: row.revision, types: row.types, values: Object.fromEntries((input.select ?? []).map(field => [field.slice(5), row.file[field.slice(5)]])) }))
+              ? page.map(row => ({ path: row.path, revision: row.revision, types: row.types, values: Object.fromEntries((input.select ?? []).map(field => [field.slice(5), ({ path: row.path, name: row.path, folder: "", size: row.body.length, mtime: null, ctime: null, ...row.file })[field.slice(5)]])) }))
               : page.map(({ body, ...row }) => input.include_body ? { ...row, body } : row),
             meta: { has_more: hasMore, total_count: selected.length, ...(next ? { cursor: next } : {}) }
           } };

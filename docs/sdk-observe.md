@@ -26,6 +26,11 @@ legacy authorities are confirmed with reads. Newer local overlays survive older
 remote work. In watch mode, acceptance queues confirmation even if the echo
 already finished; manual mode confirms accepted overlays on its next full scan.
 
+Matching qualified revisions reuse complete confirmed base rows as well as
+accepted overlays, so an echo arriving after confirmation does not reread the
+document. Membership and file facts still come from authority metadata queries;
+missing required body/frontmatter projections require a document read.
+
 Manual observers use `{ mode: "manual" }` and perform no watch/changes requests;
 refresh from your visibility/timer policy. Refresh currently scans again, rather
 than doing incremental cursor polling.

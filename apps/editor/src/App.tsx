@@ -644,7 +644,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       // Open the remembered note alongside description; otherwise query the newest.
       const rememberedNote = remembered ? openNote(remembered, {}, descriptionLoad) : Promise.resolve(false);
       const [nextDescription, newestPath] = await Promise.all([
-        descriptionLoad, remembered ? undefined : gateway.mostRecentNote()
+        descriptionLoad, remembered ? undefined : gateway.mostRecentNote().catch(() => undefined)
       ]);
       if (!current() || !nextDescription) return;
       descriptionLoaded = true;
@@ -654,7 +654,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       if (!current() || navigation !== navigationGeneration.current) return;
       if (!opened) {
         setNoteLoading(true);
-        const initial = remembered ? await gateway.mostRecentNote() : newestPath;
+        const initial = remembered ? await gateway.mostRecentNote().catch(() => undefined) : newestPath;
         if (!current() || navigation !== navigationGeneration.current) return;
         if (initial) opened = await openNote(initial);
       }

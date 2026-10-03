@@ -113,8 +113,11 @@ Overlays are token-owned and outlive older reads. `commit` marks accepted writes
 only a read begun after acceptance can retire that token. Watched commits always
 queue coalesced confirmation, even if their echo was already reconciled; stopped
 observers retain accepted overlays for the explicit replacement scan. A qualified metadata
-revision matching a complete accepted row avoids a redundant document reread,
-while still checking membership and refreshing derived file metadata. A newer
+revision matching a complete accepted or confirmed base row avoids a redundant
+document reread, while still checking membership and refreshing authority file
+facts, including timestamps and derived tags/links/embeds. Later polled echoes
+retain that eligibility after the overlay retires. No extra confirmation timer
+or receipt cache is introduced. A newer
 overlay always wins. Uncommitted overlays remain until rollback/acceptance/close. The caller
 supplies query-shaped rows and executes writes; the SDK does not infer optimistic
 query membership or compare opaque revisions as clocks. Legacy echoes without
@@ -130,7 +133,9 @@ previews, not query membership. When there is no remembered note, a single
 `query({ orderBy: [{ field: "file.mtime", direction: "desc" }], limit: 1 })`
 selects the startup note in parallel with the observer and description. This
 preserves newest-note startup without imposing globally invalidating ordering
-on the live query. The former first-page startup promise is deleted. A stopped
+on the live query. Failure of that auxiliary selection returns no initial path,
+not a disconnected collection; notes remain browsable. The former first-page
+startup promise is deleted. A stopped
 generation shows `Sync stopped` and connection retry, not `Connected` alongside
 `Retry notes`. Lazy body hydration, search/backlinks, navigation,
 Markdown drafts, recovery and conflicts remain app policies. File inventory is

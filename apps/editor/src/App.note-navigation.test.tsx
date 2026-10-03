@@ -66,6 +66,21 @@ describe("note navigation ownership and recovery", () => {
     } finally { await act(async () => gate.resolve()); unmount(); }
   });
 
+  it.each([false, true])("keeps startup connected when newest-note selection fails (remembered: %s)", async remembered => {
+    const gateway = new DemoCollectionGateway(1);
+    if (remembered) {
+      localStorage.setItem("mdbase-editor:last-note", "missing.md");
+      vi.spyOn(gateway, "read").mockRejectedValueOnce(new Error("Remembered note missing"));
+    }
+    const newest = vi.spyOn(gateway, "mostRecentNote").mockRejectedValue(new Error("Newest query unavailable"));
+    render(<App gateway={gateway} />);
+    await screen.findByRole("status", { name: "Collection connected" });
+    expect(newest).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Newest query unavailable")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("option", { name: /The shape of useful tools/ }));
+    await screen.findByDisplayValue("The shape of useful tools");
+  });
+
   it("reads the remembered note while the collection description is pending", async () => {
     const gateway = new DemoCollectionGateway(1);
     const { notes } = await gateway.list();

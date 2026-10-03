@@ -38,7 +38,7 @@ function authority(metadata = true) {
       const offset = input.offset ?? 0;
       const page = selected.slice(offset, offset + (input.limit ?? 1000));
       const results = input.output === "metadata" ? page.map(r => ({ path: r.path, types: r.types, revision: r.revision,
-        values: Object.fromEntries((input.select ?? []).map((field: string) => [field.slice(5), r.file[field.slice(5)] ?? []]))
+        values: Object.fromEntries((input.select ?? []).map((field: string) => [field.slice(5), ({ path: r.path, name: r.path, folder: "", size: 0, mtime: null, ctime: null, tags: [], links: [], embeds: [], ...r.file } as any)[field.slice(5)]]))
       })) : page.map(r => ({ ...r, body: input.include_body ? r.body : undefined, effective_frontmatter: r.effectiveFrontmatter }));
       const result = { ...(input.output ? { output: input.output } : {}), results, meta: { has_more: offset + page.length < selected.length } };
       await hold?.();
@@ -307,7 +307,8 @@ describe("observe", () => {
     await new Promise(resolve => setTimeout(resolve, 110));
     f.hold(); release();
     await until(() => o.getSnapshot().records[0]?.revision === "second");
-    expect(f.request.mock.calls.filter(([op]) => op === "read").length).toBeGreaterThanOrEqual(2); // two drains; initial pages need no reads
+    expect(f.request.mock.calls.filter(([op]) => op === "query").length).toBeGreaterThanOrEqual(2);
+    expect(f.request.mock.calls.filter(([op]) => op === "read")).toHaveLength(1); // the unchanged first revision reuses its row
     o.close();
   });
 
@@ -348,6 +349,50 @@ describe("observe", () => {
     expect(o.getSnapshot().records[0]?.file).toMatchObject({ tags: ["tag"], embeds: ["asset.png"] });
     expect(f.request.mock.calls.some(([op]) => op === "read")).toBe(false);
     expect(o.getSnapshot().records[0]?.revision).toBe("accepted"); o.close();
+  });
+
+  it("reuses the confirmed qualified row when commit precedes the polled echo", async () => {
+    const f = authority(), o = f.observe({ includeBody: true, frontmatterMode: "both" }); await o.ready;
+    const accepted = row("a.md", "saved");
+    f.records.set(accepted.path, { ...accepted, file: { links: ["confirmed.md"], mtime: "2026-01-01T00:00:00Z" } });
+    f.request.mockClear();
+    try {
+      o.optimistic([accepted]).commit();
+      await until(() => o.getSnapshot().records[0]?.file.links?.[0] === "confirmed.md");
+      expect(f.request.mock.calls.filter(([op]) => op === "query")).toHaveLength(1);
+      f.records.set(accepted.path, { ...accepted, file: { links: ["echo.md"], mtime: "2026-01-02T00:00:00Z" } });
+      f.emit("mdbase.record.modified", { path: accepted.path, revision: accepted.revision! });
+      await until(() => o.getSnapshot().records[0]?.file.links?.[0] === "echo.md");
+      expect(f.request.mock.calls.filter(([op]) => op === "query")).toHaveLength(2);
+      expect(f.request.mock.calls.some(([op]) => op === "read")).toBe(false);
+      expect(o.getSnapshot().records[0]).toMatchObject({ body: "saved", frontmatter: { title: "saved" }, effectiveFrontmatter: { title: "saved" }, file: { mtime: "2026-01-02T00:00:00Z" } });
+    } finally { o.close(); }
+  });
+
+  it.each(["body", "frontmatter", "effectiveFrontmatter"] as const)("reads an accepted row missing required %s despite a matching revision", async field => {
+    const f = authority(), o = f.observe({ includeBody: true, frontmatterMode: "both" }); await o.ready;
+    const complete = row("a.md", "saved"), partial = { ...complete };
+    delete partial[field]; f.records.set(complete.path, complete); f.request.mockClear();
+    try {
+      o.optimistic([partial]).commit();
+      await until(() => o.getSnapshot().records[0]?.[field] !== undefined);
+      expect(f.request.mock.calls.filter(([op]) => op === "read")).toHaveLength(1);
+      expect(o.getSnapshot().records[0]?.[field]).toEqual(complete[field]);
+    } finally { o.close(); }
+  });
+
+  it("reuses ordinary discovery rows even when only native document batches are advertised", async () => {
+    const f = authority();
+    const client = new MdbaseCollectionClient({ operation: f.request as any }, null, async id => connectSuccess(id === "read-many-documents-v1"));
+    const o = client.observe({ includeBody: true, frontmatterMode: "both" }, { coalesceMs: 5, watch: { pollIntervalMs: 100 } });
+    await o.ready; f.request.mockClear();
+    try {
+      f.records.set("a.md", row("a.md", "changed")); f.emit();
+      await until(() => o.getSnapshot().records[0]?.revision === "changed");
+      expect(f.request.mock.calls.filter(([op]) => op === "query")).toHaveLength(1);
+      expect(f.request.mock.calls.some(([op]) => op === "read")).toBe(false);
+      expect(o.getSnapshot().records[0]?.body).toBe("changed");
+    } finally { o.close(); }
   });
 
   it("cancels a stale targeted read across reset reconciliation", async () => {
@@ -457,7 +502,8 @@ describe("observe", () => {
       if (op === "read") throw connectError("access_denied", "Record denied");
       return original(op, input, options);
     });
-    f.emit(); await until(() => o.getSnapshot().state === "error");
+    f.records.set("a.md", row("a.md", "changed")); f.emit();
+    await until(() => o.getSnapshot().state === "error");
     expect(o.getSnapshot().records).toHaveLength(2);
     expect(o.getSnapshot().problem?.code).toBe("access_denied");
     f.request.mockImplementation(original); expect((await o.refresh()).ok).toBe(true); o.close();

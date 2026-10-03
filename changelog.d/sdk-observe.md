@@ -9,4 +9,5 @@
   deltas. Terminal pages no longer release an already consumed query/view cursor.
   Errors stop synchronization until explicit reconciliation; accepted writes
   always queue confirmation in watch mode, and initial readiness follows any
-  superseding refresh or hydration.
+  superseding refresh or hydration. Later qualified echoes reuse confirmed base
+  rows without another document read, while authority metadata refreshes file facts.
