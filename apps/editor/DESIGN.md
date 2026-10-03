@@ -33,7 +33,9 @@ tabular numerals in the primary family. The shared six-step type scale is
 12/13/15/17/24/34px: interface chrome defaults to 13px, captions are 12px, and
 nothing is smaller. Mobile document titles use the 24px heading step instead
 of introducing a seventh size. Note content is 17px with a relaxed 1.7 line
-height and a maximum readable measure. Labels use sentence case without uppercase tracking.
+height and a maximum readable measure. Labels use sentence case without uppercase tracking
+or CSS capitalization; CodeMirror search labels use phrases such as “Replace all”.
+Quick-open action hints use the primary family; only actual path results use mono.
 
 ## Controls
 
@@ -41,7 +43,10 @@ Use `@mdbase-dev/ui/controls.css`: `.mdbase-button.is-primary` is the filled
 accent committing action; the default button is tonal secondary;
 `.is-tertiary` is quiet text; `.is-danger` carries destructive intent. Disabled
 buttons visibly lose their accent. Fields and menus use the shared corner,
-elevation and motion tokens, not local values.
+elevation and motion tokens, not local values. Trigger and context menus share one
+surface and row treatment. Persistent list selection is neutral with an edge cue;
+keyboard-active note/type/quick-open rows use the accent tint and edge. Counts
+and dates remain tabular primary-family text.
 
 Settings use `.mdbase-switch` with native button activation, `role="switch"`
 and `aria-checked`. Native property/type checkboxes use `.mdbase-checkbox`;
@@ -52,7 +57,8 @@ indeterminate and disabled states, forced colors, touch targets and reduced moti
 
 Editor styles live under `src/styles/`; `src/styles.css` imports them in cascade
 order. `pnpm check:styles` checks editor and shared UI CSS for raw pixel type,
-corner radii and ad-hoc shadows outside the canonical tokens file. It runs in
+corner radii and ad-hoc shadows outside the canonical tokens file, plus forced
+uppercase/title-case transforms. It runs in
 both tests and builds.
 
 ## Identity

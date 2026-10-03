@@ -232,8 +232,12 @@
 
 .quick-open-results small {
   color: var(--faint);
-  font-family: var(--mono);
+  font-family: inherit;
   font-size: var(--font-size-caption);
+}
+
+.quick-open-results .search-result-context.path {
+  font-family: var(--mono);
 }
 
 .quick-open-results > p {

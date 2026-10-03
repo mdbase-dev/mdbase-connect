@@ -40,8 +40,8 @@
 }
 
 .note-row.selected .note-title,
-.type-row.selected,
-.type-pack-entry.selected {
+.type-row.selected strong,
+.type-pack-entry.selected strong {
   font-weight: var(--font-weight-semibold);
 }
 
