@@ -61,7 +61,19 @@
   display: flex;
   flex-direction: column;
   margin-top: var(--space-6);
+}
+
+.rail-scroll {
+  min-height: 0;
+  flex: 1;
   overflow-y: auto;
+}
+
+.rail-bottom-group {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--space-6);
 }
 
 .collection-rail nav button,
@@ -130,7 +142,6 @@
 
 .rail-filter-section { margin-top: var(--space-1); }
 .rail-filter-items { display: grid; }
-.rail-bottom-spacer { margin-top: auto; min-height: var(--space-6); }
 .collection-rail nav .rail-new-folder { color: var(--muted); }
 
 .folder-tree ul { margin: 0; padding: 0; list-style: none; }
@@ -251,6 +262,7 @@
 .compatibility-help p { max-width: 47ch; margin: var(--space-2) 0 0; line-height: 1.55; }
 
 @media (max-width: 760px) {
+  .collection-rail nav .editor-rail-link { min-height: 44px; }
   .collection-rail nav .rail-tree-row { grid-template-columns: 28px minmax(0, 1fr); }
   .collection-rail nav .rail-tree-row .rail-row-action,
   .collection-rail nav .rail-tree-row .folder-disclosure,

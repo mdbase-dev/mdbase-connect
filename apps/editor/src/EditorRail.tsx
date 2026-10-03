@@ -57,14 +57,17 @@ export function EditorRail({
     <div className="rail-header"><button className="rail-collection-switcher" aria-label={`Switch collection, current collection ${collectionName}`} aria-haspopup="dialog" onClick={onSwitch}><Wordmark app="editor" /><span className="rail-current-collection"><span>{collectionName}</span><ChevronDown aria-hidden="true" /></span></button>{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
     <nav>
       {mobileReturn && <a className="mobile-editor-return" href={mobileReturn.href} onClick={mobileReturn.onClick}><span><ArrowLeft aria-hidden="true" />{mobileReturn.label}</span></a>}
-      <RailDropTarget folder="" onMoveNotes={onMoveNotes} onMoveFolder={onMoveFolder}><RailLink destination={notes} selected={notesSelected ?? surface === "notes"} label="All notes" ariaLabel={noteCount === undefined ? "All notes" : `All notes, ${noteCount.toLocaleString()} total`} icon={<Notebook aria-hidden="true" />} count={noteCount} /></RailDropTarget>
-      {children}
-      <RailLink destination={types} selected={surface === "types"} label="Types" ariaLabel={typeCount === undefined ? "Types" : `Types (${typeCount})`} icon={<Braces aria-hidden="true" />} count={typeCount} />
-      <RailLink destination={settings} selected={surface === "settings"} label="Settings" icon={<Settings aria-hidden="true" />} />
-      <div className="rail-bottom-spacer" />
-      <a className={`editor-rail-link${surface === "connect" ? " selected" : ""}`} href={connectHref} aria-current={surface === "connect" ? "page" : undefined}>
-        <span><Link aria-hidden="true" /><span className="rail-row-label">Connect</span></span>{connectCount !== undefined && <small>{connectCount}</small>}
-      </a>
+      <div className="rail-scroll">
+        <RailDropTarget folder="" onMoveNotes={onMoveNotes} onMoveFolder={onMoveFolder}><RailLink destination={notes} selected={notesSelected ?? surface === "notes"} label="All notes" ariaLabel={noteCount === undefined ? "All notes" : `All notes, ${noteCount.toLocaleString()} total`} icon={<Notebook aria-hidden="true" />} count={noteCount} /></RailDropTarget>
+        {children}
+      </div>
+      <div className="rail-bottom-group" role="group" aria-label="Collection tools">
+        <RailLink destination={types} selected={surface === "types"} label="Types" ariaLabel={typeCount === undefined ? "Types" : `Types (${typeCount})`} icon={<Braces aria-hidden="true" />} count={typeCount} />
+        <RailLink destination={settings} selected={surface === "settings"} label="Settings" icon={<Settings aria-hidden="true" />} />
+        <a className={`editor-rail-link${surface === "connect" ? " selected" : ""}`} href={connectHref} aria-current={surface === "connect" ? "page" : undefined}>
+          <span><Link aria-hidden="true" /><span className="rail-row-label">Connect</span></span>{connectCount !== undefined && <small>{connectCount}</small>}
+        </a>
+      </div>
     </nav>
     <footer className="connection-footer">{footer}</footer>
   </aside>;
