@@ -45,10 +45,12 @@ The curated inventory in `scripts/ci/stress.mjs` covers:
 
 - core/daemon/hosted-provider Rust names containing stress, concurrent, claim_recovery, durability,
   lifecycle, recovery, restart, cancellation or replay (including the Windows
-  registry burst and claim-recovery regressions);
+  registry burst, claim-recovery and batch-settlement regressions);
 - the CLI's full `unified_cli` lifecycle harness on Linux/macOS, including
   `direct_watch_streams_one_portable_event_and_exits_at_the_requested_count`
-  under daemon/mirror startup contention (Unix-only; PR #559, run 37017183238);
+  under daemon/mirror startup contention (Unix-only; PR #559, run 37017183238),
+  plus 140 exact-revision CLI batches during background filesystem ingestion
+  (local-relay failure in PR #560, run 37062508709/job 111022335299);
 - client base64/crypto, request coordination, startup, session startup and leases;
 - editor lazy-mount focus, session lifecycle and type-definition lifecycle;
 - sync mirror/promotion fault injection and materialization;
@@ -90,6 +92,22 @@ That editor's one-shot autofocus deliberately yields only to editable controls,
 so when it mounted after Escape it moved focus off the restored feedback
 trigger (about 5% of 200 local repeats). The test now waits for that initial
 autofocus (`Note body` focused) before interacting.
+
+The CLI batch settlement failure was a local runtime lock inversion, not relay
+acknowledgement or a test delay. Connect admitted background feed ingestion and
+foreground mutations through independent permits. The engine transfers a
+held durable write lock to its settlement worker before that worker acquires
+the provider gate; an overlapping background writer could hold the provider
+gate while waiting for the durable lock. Both operations then hit the existing
+30-second bound. Background ingestion, acknowledgement and reconciliation now
+share the existing mutation permit. The old independent background permit now
+belongs only to sync snapshot/receipt orchestration, which enters scoped writes
+and subsequent feed finalization separately. Foreground reads retain their
+separate capacity, and idle polling still does not touch residency. A
+scheduling-invariant regression fails with the old pool, and the full CLI
+harness repeats 140 exact-revision batches under background
+watcher activity. Actual ambiguous outcomes and cancellation remain errors;
+this does not retry a write or increase a deadline.
 
 Both repositories prebuild their testbed adapters before entering the unchanged
 protocol-response deadline. Cold compilation is setup, not a timed semantic

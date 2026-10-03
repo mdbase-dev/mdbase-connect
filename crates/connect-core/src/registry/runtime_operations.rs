@@ -697,7 +697,7 @@ impl CollectionRegistry {
         let provider = executor.provider();
         let context = operation_context(cancellation);
         if action == "mutate" {
-            return executor.with_background(&context, |_| {
+            return executor.with_sync(&context, |_| {
                 cancellation
                     .check()
                     .map_err(|_| ConnectError::OperationCancelled)?;
@@ -822,7 +822,7 @@ impl CollectionRegistry {
             }
             result
         };
-        executor.with_background(&context, |_| provider.with_collection_read(execute))
+        executor.with_sync(&context, |_| provider.with_collection_read(execute))
     }
 }
 
