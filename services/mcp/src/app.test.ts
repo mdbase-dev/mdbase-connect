@@ -40,7 +40,6 @@ describe("mdbase MCP gateway", () => {
     expect(manifest.statusCode).toBe(200);
     expect(parseVersionedAppManifest(manifest.json()).contractVersion).toBe(2);
     expect(manifest.json().requirements).toEqual({
-      files: { required: ["list"], scope: { kind: "collection" } },
       access: "full_collection",
       contracts: [],
       capabilities: MCP_CAPABILITIES
@@ -323,6 +322,11 @@ describe("mdbase MCP gateway", () => {
     expect(tools.tools.map((tool) => tool.name)).toContain("reconnect_collection");
     expect(tools.tools.map((tool) => tool.name)).toContain("create_record");
     expect(tools.tools.map((tool) => tool.name)).toContain("release_query_cursor");
+    const readRecord = tools.tools.find((tool) => tool.name === "read_record")!;
+    expect(readRecord.inputSchema.required).toContain("path");
+    expect(readRecord.inputSchema.properties).not.toHaveProperty("output");
+    expect(readRecord.inputSchema.properties).not.toHaveProperty("file_id");
+    expect(upstream.authorizationProofs.every(proof => proof.binding.requested_files === undefined)).toBe(true);
     const createRecord = tools.tools.find((tool) => tool.name === "create_record")!;
     expect((createRecord.inputSchema.required as string[])).not.toContain("frontmatter");
     const listed = await client.callTool({ name: "list_connections", arguments: {} });
@@ -379,30 +383,22 @@ describe("mdbase MCP gateway", () => {
       expect(result.isError).toBe(true);
       expect(upstream.hostedInputs.slice(before)).toEqual([{}]);
     }
-    upstream.features.hosted = ["query-metadata-v1", "query-record-revisions-v1", "files-stat-v1"];
+    upstream.features.hosted = ["query-metadata-v1", "query-record-revisions-v1"];
     const invalidMetadata = await client.callTool({ name: "query_records", arguments: { connection_id: connections[1].id, output: "metadata", include_body: true } });
     expect(invalidMetadata.structuredContent).toMatchObject({ error: { code: "invalid_request" } });
+    // Existing record-only grants (no file capability) keep read and query tools.
     for (const connection of connections) {
-      const file = await client.callTool({ name: "read_record", arguments: { connection_id: connection.id, path: "assets/test.pdf", output: "file_metadata" } });
-      expect(file.isError).not.toBe(true);
-      expect(file.structuredContent).toMatchObject({ fileId: fileDescriptor.file_id, path: "assets/test.pdf", revision: "file-r1" });
-      const missing = await client.callTool({ name: "read_record", arguments: { connection_id: connection.id, file_id: "01911111-1111-7111-8111-111111111112", output: "file_metadata" } });
-      expect(missing.structuredContent).toEqual({ result: null });
+      const record = await client.callTool({ name: "read_record", arguments: { connection_id: connection.id, path: "notes/test.md" } });
+      expect(record.isError).not.toBe(true);
+      expect(record.structuredContent).toMatchObject({ valid: true, result: { path: "notes/test.md" } });
     }
-    expect(upstream.localInputs).toContainEqual({ protocol_version: 1, type: "stat_file", path: "assets/test.pdf" });
-    expect(upstream.fileRequests).toContainEqual({ protocol_version: 1, type: "stat_file", path: "assets/test.pdf" });
-    upstream.features.hosted = [];
-    const statCount = upstream.fileRequests.length;
-    const legacyFile = await client.callTool({ name: "read_record", arguments: { connection_id: connections[1].id, path: "assets/test.pdf", output: "file_metadata" } });
-    expect(legacyFile.structuredContent).toMatchObject({ path: "assets/test.pdf" });
-    expect(upstream.fileRequests.slice(statCount)).toEqual(["?protocol_version=1&limit=1", "?protocol_version=1&folder=assets"]);
     const changes = await client.callTool({ name: "list_changes", arguments: { connection_id: connections[1].id } });
     expect(changes.structuredContent).toMatchObject({ events: [changedEvent], typed_events: [
       { kind: "record.updated", revision: "r2", previousRevision: "r1", bodyChanged: false, changedFields: ["/title"], raw: changedEvent }
     ] });
-    const fileCalls = upstream.fileRequests.length;
-    await expect(gateway.statFile("90000000-0000-4000-8000-000000000001", connections[1].id, { path: "assets/test.pdf" })).rejects.toMatchObject({ code: "connection_not_found" });
-    expect(upstream.fileRequests).toHaveLength(fileCalls);
+    const hostedCalls = upstream.hostedInputs.length;
+    await expect(gateway.operation("90000000-0000-4000-8000-000000000001", connections[1].id, "query", {})).rejects.toMatchObject({ code: "connection_not_found" });
+    expect(upstream.hostedInputs).toHaveLength(hostedCalls);
 
     const released = await client.callTool({
       name: "release_query_cursor",
@@ -545,8 +541,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
   const localInputs: unknown[] = [];
   const hostedInputs: unknown[] = [];
   const hostedRequestIds: string[] = [];
-  const fileRequests: unknown[] = [];
-  const features: { hosted: unknown } = { hosted: ["query-metadata-v1", "query-record-revisions-v1", "files-stat-v1"] };
+  const features: { hosted: unknown } = { hosted: ["query-metadata-v1", "query-record-revisions-v1"] };
   const connectorKeys = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
     true,
@@ -600,7 +595,6 @@ async function fakeUpstream(realFetch: typeof fetch) {
         collection_name: second ? "Second collection" : "First collection",
         operations: authorizationProofs[second ? 1 : 0]!.binding.requested_operations,
         scope: { contracts: [], access: "full_collection" },
-        file_capability: { kind: "files", protocol_version: 1, actions: ["list"], scope: { kind: "collection" } },
         grant_id: second ? secondGrantId : firstGrantId,
         encryption: second ? null : {
           protocol_version: 1,
@@ -615,22 +609,11 @@ async function fakeUpstream(realFetch: typeof fetch) {
         ...(second ? { authority: {
           operations_url: `https://sync.example/v1/authorities/${secondCollectionId}/operations`,
           sync_url: `https://sync.example/v1/authorities/${secondCollectionId}/sync`,
-          files_url: `https://sync.example/v1/authorities/${secondCollectionId}/files`,
           replica_id: "40000000-0000-4000-8000-000000000002",
           access_token: refreshing ? "hosted-access-two-refreshed" : "hosted-access-two",
           proof_public_key: applicationSigningPublicKeys[1]
         } } : {})
       });
-    }
-    if (url.origin === "https://sync.example" && url.pathname.includes("/files")) {
-      operationProofs.push(proofHeaders(init));
-      if (url.pathname.endsWith("/stat")) {
-        const target = JSON.parse(String(init?.body));
-        fileRequests.push(target);
-        return Response.json({ protocol_version: 1, type: "file_stat", file: target.path === fileDescriptor.path || target.file_id === fileDescriptor.file_id ? fileDescriptor : null });
-      }
-      fileRequests.push(url.search);
-      return Response.json({ protocol_version: 1, type: "files_page", files: [fileDescriptor], authority_capabilities: features.hosted });
     }
     if (url.origin === "https://connect.example" && url.pathname.includes("/operations/")) {
       const headers = new Headers(init?.headers);
@@ -644,11 +627,8 @@ async function fakeUpstream(realFetch: typeof fetch) {
       );
       localInputs.push(input);
       const operation = url.pathname.split("/").at(-1);
-      const control = input as any;
       const result = operation === "describe" ? { protocol_version: 1, collection_id: firstCollectionId }
-        : operation === "file_control" ? (control.type === "list_files"
-          ? { protocol_version: 1, type: "files_page", files: [], authority_capabilities: ["files-stat-v1"] }
-          : { protocol_version: 1, type: "file_stat", file: control.path === fileDescriptor.path || control.file_id === fileDescriptor.file_id ? fileDescriptor : null })
+        : operation === "read" ? { valid: true, diagnostics: [], result: { path: (input as any).path, revision: "r1", frontmatter: {} } }
         : { valid: true, result: { results: [{ path: "notes/local.md", frontmatter: { title: "Local" }, types: ["note"] }] }, diagnostics: [] };
       const responseEnvelope = await encryptConnectorResponse(connectorKeys.privateKey, applicationAgreementPublicKeys[0], envelope, result);
       return Response.json({ envelope: responseEnvelope });
@@ -665,6 +645,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
       const operation = url.pathname.split("/").at(-1);
       const result = operation === "describe" ? { protocol_version: 1, collection_id: secondCollectionId, authority_capabilities: features.hosted }
         : operation === "changes" ? { events: [changedEvent], cursor: 2, has_more: false, reset: false }
+        : operation === "read" ? { valid: true, diagnostics: [], result: { path: request.input.path, revision: "r1", frontmatter: {} } }
         : operation === "query" && request.input.output === "metadata" ? { valid: true, diagnostics: [], result: { output: "metadata", results: [{ path: "notes/second.md", types: ["note"], revision: "r1", values: { title: "Second" } }] } }
         : operation === "create"
         ? {
@@ -712,12 +693,10 @@ async function fakeUpstream(realFetch: typeof fetch) {
     localInputs,
     hostedInputs,
     hostedRequestIds,
-    fileRequests,
     features
   };
 }
 
-const fileDescriptor = { file_id: "01911111-1111-7111-8111-111111111111", path: "assets/test.pdf", revision: "file-r1", content_digest: `sha256:${"a".repeat(64)}`, size: 10, media_class: "pdf", modified_at: "2026-08-04T00:00:00Z" };
 const changedEvent = { cursor: 2, type: "mdbase.record.modified", occurred_at: "2026-08-04T00:00:00Z", payload: { path: "note.md", revision: "r2", previous_revision: "r1", changed_fields: ["/title"], body_changed: false } };
 
 interface AuthorityProofHeaders {

@@ -1,5 +1,4 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { MdbaseConnectError, MdbaseFileClient, type MdbaseFileStatTarget } from "@mdbase-dev/connect";
 import {
   applicationInstallationId,
   decryptRelayResponse,
@@ -13,11 +12,8 @@ import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
   applicationFileRequest,
-  normalizeConnectProblem,
   authorizationContractRequirements,
   type CollectionOperation,
-  type EncryptedOperation,
-  type FileCapability,
   type EncryptedRelayOperationResponse,
   type GrantEncryption,
   type GrantScope,
@@ -54,18 +50,9 @@ const tokenResponseSchema = z.object({
   }),
   grant_id: z.uuid(),
   encryption: grantEncryptionSchema.nullable(),
-  file_capability: z.object({
-    kind: z.literal("files"), protocol_version: z.literal(1),
-    actions: z.array(z.enum(["list", "read", "add", "replace", "move", "delete"])),
-    scope: z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("collection") }),
-      z.object({ kind: z.literal("selected_folders"), folders: z.array(z.string()) })
-    ])
-  }).nullish(),
   authority: z.object({
     operations_url: z.url(),
     sync_url: z.url(),
-    files_url: z.url().optional(),
     replica_id: z.uuid(),
     access_token: z.string().min(1),
     proof_public_key: z.string().min(80).max(200)
@@ -77,10 +64,8 @@ type ConnectTokenResponse = z.infer<typeof tokenResponseSchema>;
 interface StoredCredentials {
   accessToken: string;
   refreshToken: string;
-  fileCapability?: FileCapability;
   authority?: {
     operationsUrl: string;
-    filesUrl?: string;
     replicaId: string;
     accessToken: string;
     proofPublicKey: string;
@@ -356,64 +341,9 @@ export class ConnectGateway {
     }
   }
 
-  async statFile(setId: string, connectionId: string, target: MdbaseFileStatTarget, signal?: AbortSignal) {
-    for (const force of [false, true]) {
-      const connection = await this.freshConnection(setId, connectionId, force, signal);
-      const credentials = this.credentials(connection);
-      let authenticationExpired = false;
-      const rawRequest = async <Result>(method: "GET" | "POST" | "DELETE", path = "", input?: unknown, requestSignal?: AbortSignal): Promise<Result> => {
-        if (credentials.authority) {
-          if (!credentials.authority.filesUrl) throw new GatewayOperationError("insufficient_collection_access", "Reconnect with file-list access.");
-          const url = `${credentials.authority.filesUrl}${path.startsWith("?") ? path : `/${path}`}`;
-          const body = input === undefined ? "" : JSON.stringify(input);
-          const proof = await this.authorityProof(connection, credentials.authority.proofPublicKey, method, url, body, credentials.authority.accessToken);
-          const response = await fetch(url, {
-            method, headers: { authorization: `Bearer ${credentials.authority.accessToken}`, origin: this.applicationOrigin, "content-type": "application/json", ...proof },
-            ...(body ? { body } : {}), signal: requestSignal
-          });
-          if (response.status === 401) throw new GatewayOperationError("file_authentication_expired", "File authentication expired.");
-          const result = await response.json();
-          if (!response.ok) throw upstreamError(result, "File metadata lookup failed.");
-          return result as Result;
-        }
-        const query = new URLSearchParams(path.startsWith("?") ? path.slice(1) : "");
-        const control = method === "GET" ? {
-          protocol_version: 1, type: "list_files",
-          ...(query.has("folder") ? { folder: query.get("folder") } : {}),
-          ...(query.has("after") ? { after: query.get("after") } : {}),
-          ...(query.has("limit") ? { limit: Number(query.get("limit")) } : {})
-        } : input;
-        const id = randomUUID();
-        const attempt = await this.sendOperation(connection, "file_control", control, id, requestSignal);
-        if (attempt.status === 401) throw new GatewayOperationError("file_authentication_expired", "File authentication expired.");
-        return this.operationResult<Result>(connection, attempt, id);
-      };
-      const request: typeof rawRequest = async (...args) => {
-        try { return await rawRequest(...args); }
-        catch (error) {
-          if (!(error instanceof GatewayOperationError)) throw error;
-          authenticationExpired = error.code === "file_authentication_expired";
-          throw new MdbaseConnectError(normalizeConnectProblem(error.code, error.message));
-        }
-      };
-      const files = new MdbaseFileClient(() => credentials.fileCapability ?? null, request, undefined, undefined, undefined, async (_feature, options) => {
-        const page = await request<{ protocol_version: number; type: string; files: unknown[]; authority_capabilities?: unknown }>("GET", "?protocol_version=1&limit=1", undefined, options?.signal);
-        if (page?.protocol_version !== 1 || page.type !== "files_page" || !Array.isArray(page.files)) throw new GatewayOperationError("invalid_operation_response", "Invalid file discovery page.");
-        return { ok: true, value: capabilityFlags(page.authority_capabilities).includes("files-stat-v1"), diagnostics: [] };
-      });
-      const outcome = await files.stat(target, { signal });
-      // Renewal retries the whole lookup, including discovery; no evidence is
-      // reused across changed credentials or authority routes.
-      if (authenticationExpired && !force) continue;
-      if (!outcome.ok) throw new GatewayOperationError(outcome.problem.code, outcome.problem.message);
-      return outcome.value;
-    }
-    throw new Error("Unreachable file authentication retry.");
-  }
-
   private async sendOperation<Result>(
     connection: ConnectionRow,
-    operation: EncryptedOperation,
+    operation: CollectionOperation,
     input: unknown,
     requestId: string,
     signal?: AbortSignal
@@ -715,11 +645,9 @@ function credentialsFromToken(token: ConnectTokenResponse): StoredCredentials {
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
-    ...(token.file_capability ? { fileCapability: token.file_capability } : {}),
     ...(token.authority ? {
       authority: {
         operationsUrl: token.authority.operations_url,
-        ...(token.authority.files_url ? { filesUrl: token.authority.files_url } : {}),
         replicaId: token.authority.replica_id,
         accessToken: token.authority.access_token,
         proofPublicKey: token.authority.proof_public_key

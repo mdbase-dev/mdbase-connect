@@ -115,20 +115,10 @@ export function createMcpServer(
 
   server.registerTool("read_record", {
     title: "Read an mdbase record",
-    description: "Read one record by path. Use output:file_metadata with path or file_id for a binary file descriptor (no bytes); requires separately approved file-list access. Missing/invisible files return null. Older authorities use scoped listing, not point lookup.",
-    inputSchema: z.object({
-      connection_id: connectionId,
-      path: path.optional(),
-      file_id: z.uuid().optional(),
-      output: z.literal("file_metadata").optional()
-    }).refine(input => input.output === "file_metadata"
-      ? (input.path !== undefined) !== (input.file_id !== undefined)
-      : input.path !== undefined && input.file_id === undefined,
-    { message: "Supply one path or file_id for file metadata; record reads require path." }),
+    description: "Read one record by its collection-relative path.",
+    inputSchema: { connection_id: connectionId, path },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, path, file_id, output }, { signal }) => output === "file_metadata"
-    ? actionTool(() => gateway.statFile(context.connectionSetId, connection_id, path !== undefined ? { path } : { fileId: file_id! }, signal))
-    : operationTool(gateway, context, connection_id, "read", { path }, { signal }));
+  }, ({ connection_id, path }, { signal }) => operationTool(gateway, context, connection_id, "read", { path }, { signal }));
 
   server.registerTool("validate_collection", {
     title: "Validate an mdbase collection",
@@ -278,7 +268,7 @@ async function operationTool(
   input: unknown,
   options: { signal?: AbortSignal; requestId?: string; mutationReceipt?: boolean } = {}
 ) {
-  return actionTool(async () => {
+  try {
     const value = await gateway.operation(
       context.connectionSetId,
       connectionId,
@@ -289,21 +279,15 @@ async function operationTool(
     if (operation === "changes") {
       const page = value as CollectionChangesPage;
       if (!Array.isArray(page?.events)) throw new GatewayOperationError("invalid_operation_response", "Invalid changes page.");
-      return { ...page, typed_events: page.events.map(normalizeCollectionChange) };
+      return toolResult({ ...page, typed_events: page.events.map(normalizeCollectionChange) });
     }
-    return options.mutationReceipt ? {
+    return toolResult(options.mutationReceipt ? {
       mutation_receipt: {
         request_id: options.requestId,
         retry: "Reuse this request_id as mutation_id when retrying the exact mutation."
       },
       outcome: value
-    } : value;
-  }, options);
-}
-
-async function actionTool(action: () => Promise<unknown>, options: { mutationReceipt?: boolean; requestId?: string } = {}) {
-  try {
-    return toolResult(await action());
+    } : value);
   } catch (error) {
     const value = error instanceof GatewayOperationError
       ? {

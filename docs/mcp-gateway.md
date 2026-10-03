@@ -70,7 +70,7 @@ The Connect grant may be narrower than the MCP OAuth scope. In that case the
 gateway rejects an unavailable operation and tells the user to reconnect with
 broader collection access; it never expands the upstream grant itself.
 
-### Narrow output, file metadata and changes
+### Narrow output and typed changes
 
 `query_records` accepts `output: "metadata"`: supporting authorities return path,
 types, revision and selected `values`, without full frontmatter/file/body fields.
@@ -81,19 +81,14 @@ support fails before any extended query; use an ordinary query on old authoritie
 Discovery failures are errors, not evidence of missing support. Cursor output is
 pinned by the authority; do not switch mode mid-cursor.
 
-`read_record` with `output: "file_metadata"` accepts exactly one `path` or UUID
-`file_id`. It returns an SDK file descriptor (camelCase members) or `result: null`
-for a missing/invisible file, not record contents or file bytes. This requires
-separate file **list** approval, not record read or file read. The application
-manifest now requests list-only file access; existing grants must reconnect for
-explicit approval. The gateway uses SDK `files.stat`, discovers `files-stat-v1`
-from an authenticated files page, and uses the SDK's scoped paginated-listing
-fallback on old authorities. That fallback is neither point-cost nor an atomic
-inventory snapshot. No new tool, file transfer, or byte permission is introduced.
+MCP does not expose file stat or request file permissions. `read_record` remains
+record-only, with its original required `path`. The application declaration and
+its permissions are unchanged; metadata queries and typed changes use existing
+query/describe/changes approvals and require no new consent.
 
 Feature evidence is request-local to the selected tenant+connection and credentials;
 there is no persistent/global capability cache. Authentication renewal repeats
-lookup/discovery, so evidence is not borrowed across a refreshed route or grant.
+query discovery, so evidence is not borrowed across a refreshed route or grant.
 Ordinary query/read calls are unchanged. Old-authority choices retire only after
 B1's minimum-authority, consumer-pin, N-1/rollback and connection-cache gates close.
 
