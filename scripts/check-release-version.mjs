@@ -1,26 +1,10 @@
 import { readFile } from "node:fs/promises";
 
-const packagePaths = [
-  "package.json",
-  "apps/desktop/package.json",
-  "apps/portal/package.json",
-  "packages/app-ui/package.json",
-  "packages/client/package.json",
-  "packages/devkit/package.json",
-  "packages/management/package.json",
-  "packages/pickle/package.json",
-  "packages/protocol/package.json",
-  "packages/sync/package.json",
-  "packages/testing/package.json",
-  "packages/ui/package.json",
-  "packages/webhooks/package.json",
-  "services/mcp/package.json",
-  "services/server/package.json"
-];
+import { packagePaths, lockPaths, betaVersion, versionedCrateNames } from "./lib/release-version.mjs";
 
 const root = JSON.parse(await readFile("package.json", "utf8"));
 const version = root.version;
-if (!/^0\.1\.0-beta\.[1-9][0-9]*$/.test(version)) {
+if (!betaVersion.test(version)) {
   throw new Error(
     `Development releases must use 0.1.0-beta.N before 0.1.0; found ${version}.`
   );
@@ -41,21 +25,11 @@ if (cargoVersion !== version) {
   throw new Error(`Cargo.toml has ${cargoVersion ?? "no workspace version"}; expected ${version}.`);
 }
 
-const memberBlock = cargoManifest.match(/members\s*=\s*\[([\s\S]*?)\]/)?.[1];
-if (!memberBlock) throw new Error("Cargo.toml has no explicit workspace members.");
-const versionedCrates = new Set();
-for (const [, member] of memberBlock.matchAll(/"([^"]+)"/g)) {
-  const manifest = await readFile(`${member}/Cargo.toml`, "utf8");
-  if (/^version\.workspace\s*=\s*true\s*$/m.test(manifest)) {
-    const name = manifest.match(/^name\s*=\s*"([^"]+)"/m)?.[1];
-    if (!name) throw new Error(`${member}/Cargo.toml has no package name.`);
-    versionedCrates.add(name);
-  }
-}
+const versionedCrates = await versionedCrateNames(process.cwd(), cargoManifest);
 
 // The release image uses its own pinned-engine lock, not the development lock.
 // Both must track the workspace version before a --locked Docker build starts.
-for (const lockPath of ["Cargo.lock", "deploy/docker/Cargo.lock.hosted-provider"]) {
+for (const lockPath of lockPaths) {
   const lock = await readFile(lockPath, "utf8");
   for (const entry of lock.split("[[package]]").slice(1)) {
     const name = entry.match(/^name = "([^"]+)"/m)?.[1];

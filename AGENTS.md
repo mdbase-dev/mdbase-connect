@@ -45,4 +45,16 @@ explicit failure over silent recovery, and simplification over expansion.
 - Use `pnpm test:fast`, `pnpm test:integration`, and the narrowest registered
   `pnpm test:system -- --suite ...` selection for test-infrastructure changes;
   use `pnpm test:all` only when every local system boundary is required.
+- Add release notes as `changelog.d/<pr-or-slug>.md`, not shared
+  `CHANGELOG.md` edits. Use one `## Breaking|Added|Changed|Fixed|Removed|Security`
+  section and Markdown bullets; run `pnpm check:changelog`.
+- Architecture growth compares against the merge base. Reduce it or justify exact
+  maximum deltas in `architecture.d/<pr-or-slug>.json`; do not edit shared
+  package/public-surface counters in ordinary PRs. Hard architecture gates remain.
+- Regenerate public API/protocol inventories after resolving source conflicts;
+  never hand-merge generated outputs. Keep the client README for onboarding;
+  change-specific SDK/migration documentation belongs in fragments/topic pages.
+- Prepare betas with `pnpm version:set 0.1.0-beta.N` (supports `--dry-run`), which
+  updates release versions, assembles notes and refreshes architecture counters.
+  See `CONTRIBUTING.md` for formats, generator commands, and release-prep checks.
 - `MDBASE_CONNECT_DEV_AUTH=1` is for local development only.
