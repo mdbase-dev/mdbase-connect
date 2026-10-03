@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
-import { NOTE_PATHS_MIME } from "./note-drag";
+import { NOTE_PATHS_MIME } from "./note-list-view";
 import { chooseOption } from "./test/select";
 
 vi.mock("./CodeEditor", () => ({

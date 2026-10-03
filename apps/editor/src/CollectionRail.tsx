@@ -15,7 +15,7 @@ import { RailDropTarget } from "./RailDropTarget";
 import { EditorRail } from "./EditorRail";
 import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
 import { folderTree, type FolderTreeNode } from "./note";
-import type { NoteFilter } from "./NoteList";
+import type { NoteFilter } from "./note-list-view";
 
 
 export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, onSwitch, onCollapse, onPlanFolderChange, onChangeFolder }: {

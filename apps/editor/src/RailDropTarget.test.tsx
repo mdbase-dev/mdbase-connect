@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FOLDER_PATH_MIME } from "./folder-change";
-import { NOTE_PATHS_MIME } from "./note-drag";
+import { NOTE_PATHS_MIME } from "./note-list-view";
 import { RailDropTarget } from "./RailDropTarget";
 
 function transfer(type: string, value: string) {

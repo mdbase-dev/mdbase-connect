@@ -137,7 +137,9 @@ outside it:
 - `NoteSearchField.tsx` owns tag/type filter suggestions and chips;
 - `NoteList.tsx` owns list virtualization, keyboard focus, selection gestures,
   search result rendering, and list status copy. `note-list-view.ts` holds the
-  pure selection model and browser-local, collection-scoped pin persistence;
+  pure filter/facet/status types, scope labels, selection/sort/drag vocabulary,
+  and browser-local, collection-scoped pin persistence. Both list and search
+  controls consume that leaf model; it never imports a view;
 - selection lives in App independently of the open note session. Batch actions
   reuse the operation coordinator and collection mutation scope, collecting
   successful inverse operations for one Undo and preserving partial failures

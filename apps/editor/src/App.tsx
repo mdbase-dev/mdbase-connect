@@ -92,8 +92,8 @@ import {
   type NoteActivity,
   type SaveState
 } from "./note-session";
-import { loadNoteSort, saveNoteSort, sortNotes, loadPinnedNotes, savePinnedNotes, type NoteSelection, type NoteSort } from "./note-list-view";
-import { filterLabel, filterScopeLabel, NoteList, type NoteFilter, type NoteRowStatus } from "./NoteList";
+import { filterLabel, filterScopeLabel, loadNoteSort, saveNoteSort, sortNotes, loadPinnedNotes, savePinnedNotes, type NoteFilter, type NoteRowStatus, type NoteSelection, type NoteSort } from "./note-list-view";
+import { NoteList } from "./NoteList";
 import { noteRowStatus, updateMutationActivity } from "./note-mutation-presentation";
 import {
   NotePreviewCard,

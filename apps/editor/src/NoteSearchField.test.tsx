@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { NoteSearchField } from "./NoteSearchField";
-import type { NoteFilter } from "./NoteList";
+import type { NoteFilter } from "./note-list-view";
 
 function SearchHarness() {
   const [search, onSearch] = useState("");

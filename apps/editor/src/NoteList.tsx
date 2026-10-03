@@ -4,26 +4,16 @@ import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { FilePlusIcon as FilePlus2, SidebarSimpleIcon as PanelLeft } from "./icons";
 import { ContextMenu } from "./ContextMenu";
 import type { ActionMenuItem } from "./ActionMenu";
-import { NOTE_PATHS_MIME } from "./note-drag";
-import { NoteSearchField, type SearchFacet } from "./NoteSearchField";
+import { NoteSearchField } from "./NoteSearchField";
 import type { CollectionFile } from "./model";
 import { folder, noteExcerpt, noteTimestamp, noteTitle } from "./note";
-import { noteSortSummary, moveListIndex, selectNote, type NoteSelection, type NoteSort, type ListNavigationKey } from "./note-list-view";
+import { NOTE_PATHS_MIME, noteSortSummary, moveListIndex, selectNote, type NoteFilter, type NoteRowStatus, type SearchFacet, type NoteSelection, type NoteSort, type ListNavigationKey } from "./note-list-view";
 import { NoteListViewOptions } from "./NoteListViewOptions";
 import { searchTextRanges, type NoteSearchContext, type NoteSearchResult, type SearchTextRange } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
 import { browserListItems, collectionFileFormat, collectionFileTitle, formatFileSize, type CollectionBrowserEntry } from "./collection-browser";
 
-export type NoteFilter = { kind: "folder" | "tag" | "type"; value: string };
-
 const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: true, Home: true, End: true, PageDown: true, PageUp: true };
-
-export interface NoteRowStatus {
-  label?: string;
-  tone: "quiet" | "busy" | "error";
-  busy: boolean;
-  disabled?: boolean;
-}
 
 import { matchesCommandShortcut } from "./editor-commands";
 
@@ -236,16 +226,4 @@ function fileTimestamp(file: CollectionFile): string {
 
 function fileFolder(file: CollectionFile): string {
   return file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "Collection root";
-}
-
-export function filterLabel(filter: NoteFilter | undefined, fallback: string): string {
-  if (!filter) return fallback || "All notes";
-  return filter.kind === "tag" ? `#${filter.value}` : filter.value;
-}
-
-export function filterScopeLabel(filter: NoteFilter | undefined): string | undefined {
-  if (!filter) return undefined;
-  if (filter.kind === "folder") return `Folder · ${filter.value}`;
-  if (filter.kind === "tag") return `Tag · #${filter.value}`;
-  return `Type · ${filter.value}`;
 }

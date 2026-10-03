@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FOLDER_PATH_MIME, readNoteDragPaths, validFolderPath } from "./folder-change";
-import { NOTE_PATHS_MIME } from "./note-drag";
+import { NOTE_PATHS_MIME } from "./note-list-view";
 
 export interface RailDropActions {
   onMoveNotes?: (paths: string[], folder: string) => void;

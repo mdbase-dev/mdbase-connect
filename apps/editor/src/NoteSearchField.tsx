@@ -1,10 +1,8 @@
 import { useRef, useState } from "react";
 import { MagnifyingGlassIcon as Search, TagIcon as Filters, XIcon as X } from "./icons";
-import type { NoteFilter } from "./NoteList";
+import type { NoteFilter, SearchFacet } from "./note-list-view";
 import { shortcutModifier } from "./QuickOpen";
 import "./styles/note-actions.css";
-
-export interface SearchFacet { name: string; count: number }
 
 export function NoteSearchField({ search, filter, tags, types, onSearch, onFilter, onQuickOpen }: {
   search: string;

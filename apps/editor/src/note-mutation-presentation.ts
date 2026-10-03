@@ -1,5 +1,5 @@
 import type { MutationProgress } from "@mdbase-dev/connect";
-import type { NoteRowStatus } from "./NoteList";
+import type { NoteRowStatus } from "./note-list-view";
 import type { NoteActivity, NoteSession } from "./note-session";
 
 export function updateMutationActivity(

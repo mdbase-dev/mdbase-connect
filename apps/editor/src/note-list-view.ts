@@ -2,6 +2,28 @@ import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { NoteSummary } from "./model";
 import { noteTitle } from "./note";
 
+export const NOTE_PATHS_MIME = "application/x-mdbase-note-paths";
+export type NoteFilter = { kind: "folder" | "tag" | "type"; value: string };
+export interface SearchFacet { name: string; count: number }
+export interface NoteRowStatus {
+  label?: string;
+  tone: "quiet" | "busy" | "error";
+  busy: boolean;
+  disabled?: boolean;
+}
+
+export function filterLabel(filter: NoteFilter | undefined, fallback: string): string {
+  if (!filter) return fallback || "All notes";
+  return filter.kind === "tag" ? `#${filter.value}` : filter.value;
+}
+
+export function filterScopeLabel(filter: NoteFilter | undefined): string | undefined {
+  if (!filter) return undefined;
+  if (filter.kind === "folder") return `Folder · ${filter.value}`;
+  if (filter.kind === "tag") return `Tag · #${filter.value}`;
+  return `Type · ${filter.value}`;
+}
+
 export const noteSorts = ["modified-desc", "modified-asc", "title-asc", "path-asc"] as const;
 export type NoteSort = (typeof noteSorts)[number];
 
