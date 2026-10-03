@@ -81,16 +81,6 @@
   height: 100%;
 }
 
-.note-scroll .note-row.selected {
-  background: var(--selected);
-  border-left-color: var(--line-strong);
-}
-
-.note-scroll:focus-within .note-row.selected {
-  background: var(--accent-soft);
-  border-left-color: var(--accent);
-}
-
 .note-group-header {
   position: absolute;
   top: 0;
@@ -122,7 +112,7 @@
   align-items: stretch;
   justify-content: center;
   gap: 3px;
-  padding: var(--space-2) 16px var(--space-2) 15px;
+  padding: var(--space-2) var(--space-4) var(--space-2) 15px;
   border-left: 3px solid transparent;
   border-bottom: 1px solid var(--line);
   text-align: left;
@@ -167,7 +157,7 @@
 
 .note-detail {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   overflow: hidden;
   color: var(--faint);
   font-size: var(--font-size-caption);
@@ -251,7 +241,7 @@
   z-index: 80;
   max-height: 310px;
   overflow: hidden;
-  padding: 15px 16px 14px;
+  padding: 15px var(--space-4) 14px;
   border: 1px solid var(--line-strong);
   background: var(--white);
   color: var(--ink);
@@ -390,7 +380,7 @@
 .type-access-message > svg {
   width: 22px;
   height: 22px;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
   color: var(--accent);
 }
 
@@ -426,7 +416,7 @@
   max-width: 420px;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
-  gap: 8px 10px;
+  gap: var(--space-2) 10px;
   color: var(--danger);
 }
 

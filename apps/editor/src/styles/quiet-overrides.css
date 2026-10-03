@@ -11,9 +11,10 @@
   border-radius: var(--radius-sm);
 }
 
+/* Persistent selection is neutral; a keyboard-active selection uses the accent. */
 .collection-rail nav button.selected,
 .collection-rail nav .editor-rail-link.selected,
-.note-row.selected,
+.note-scroll .note-row.selected,
 .type-row.selected,
 .type-pack-entry.selected,
 .collection-switcher-list > button.current,
@@ -21,6 +22,21 @@
 .connect-nav > nav > .connect-nav-group > a.selected {
   background: var(--selected);
   color: var(--ink);
+}
+
+.note-scroll .note-row.selected,
+.type-row.selected,
+.type-pack-entry.selected,
+.quick-open-results > button.selected {
+  border-left-color: var(--line-strong);
+}
+
+.note-scroll:focus-within .note-row.selected,
+.type-list:focus-within .type-row.selected,
+.type-resource-nav:focus-within .type-pack-entry.selected,
+.quick-open:focus-within .quick-open-results > button.selected {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
 }
 
 .note-row.selected .note-title,
@@ -102,7 +118,7 @@
   width: auto;
   height: auto;
   display: block;
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
   background: transparent;
   font-size: var(--font-size-section);
   animation: none;
@@ -122,7 +138,7 @@
 .skeleton-bar span {
   width: auto;
   height: auto;
-  margin-left: 8px;
+  margin-left: var(--space-2);
   background: transparent;
   animation: none;
 }
@@ -133,7 +149,7 @@
 }
 
 .properties-panel-loading {
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .properties-panel-loading > strong {

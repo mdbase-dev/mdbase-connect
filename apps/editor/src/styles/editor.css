@@ -160,7 +160,7 @@
 
 .code-editor-source .cm-lineNumbers .cm-gutterElement {
   min-width: 28px;
-  padding: 0 8px 0 4px;
+  padding: 0 var(--space-2) 0 var(--space-1);
 }
 
 .code-editor-source .cm-lint-marker {
@@ -203,7 +203,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 7px 8px;
+  padding: 7px var(--space-2);
 }
 
 .code-editor .cm-search br {
@@ -212,7 +212,7 @@
 
 .code-editor .cm-search input {
   height: 28px;
-  padding: 4px 7px;
+  padding: var(--space-1) 7px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: var(--white);
@@ -226,13 +226,12 @@
 
 .code-editor .cm-search button {
   min-height: 28px;
-  padding: 4px 7px;
+  padding: var(--space-1) 7px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: var(--white);
   color: var(--muted);
   font: inherit;
-  text-transform: capitalize;
 }
 
 .code-editor .cm-search button:hover {
@@ -290,8 +289,8 @@
 .skeleton-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 24px;
+  gap: var(--space-2);
+  padding: 0 var(--space-6);
   border-bottom: 1px solid var(--line);
 }
 

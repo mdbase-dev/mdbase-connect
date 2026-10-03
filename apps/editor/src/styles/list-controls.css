@@ -10,7 +10,7 @@
 
 .type-workspace-loading {
   align-content: start;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .list-header {
@@ -62,7 +62,7 @@
 
 .collection-rail .reconnect-action {
   flex: 0 0 auto;
-  padding: 4px 5px;
+  padding: var(--space-1) 5px;
   border-radius: var(--radius-sm);
   color: var(--color-warning-text, oklch(43% 0.055 69));
   font-size: var(--font-size-ui);
@@ -216,8 +216,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) 32px;
   align-items: flex-start;
-  gap: 4px;
-  margin: 0 12px 8px;
+  gap: var(--space-1);
+  margin: 0 var(--space-3) var(--space-2);
 }
 
 .note-list-controls .search-field {
@@ -229,8 +229,8 @@
   height: 37px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 12px 8px;
+  gap: var(--space-2);
+  margin: 0 var(--space-3) var(--space-2);
   padding: 0 9px;
   border: 1px solid var(--line);
 }
@@ -308,7 +308,7 @@
 }
 
 .view-options-heading {
-  margin: 7px 8px 3px;
+  margin: 7px var(--space-2) 3px;
   color: var(--faint);
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-bold);

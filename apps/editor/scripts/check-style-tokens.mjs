@@ -15,7 +15,7 @@ export function checkStyleTokens(css, filename) {
     const line = source.slice(0, match.index).split("\n").length;
     errors.push(`${filename}:${line}: malformed custom-property reference (${match[0]}).`);
   }
-  const declarations = /(?:^|[;{}])\s*((?:--[\w-]*font-size)|font-size|font|border(?:-(?:top|bottom)-(?:left|right))?-radius|box-shadow)\s*:\s*([^;{}]*)/g;
+  const declarations = /(?:^|[;{}])\s*((?:--[\w-]*font-size)|font-size|font|border(?:-(?:top|bottom)-(?:left|right))?-radius|box-shadow|text-transform)\s*:\s*([^;{}]*)/g;
   for (const match of source.matchAll(declarations)) {
     const [, property, value] = match;
     const rawPixels = /(?:\d*\.)?\d+px\b/i.test(value);
@@ -23,9 +23,11 @@ export function checkStyleTokens(css, filename) {
     const rawRadius = property.endsWith("radius") && !/^(?:(?:0|50%|inherit|initial|unset|revert(?:-layer)?)(?:\s+|$))*$/.test(
       value.replace(/var\(--[\w-]+\)|\s*!important/g, "").trim()
     );
-    if (rawPixels || rawShadow || rawRadius) {
+    const forcedCase = property === "text-transform" && /\b(?:uppercase|capitalize)\b/.test(value);
+    if (rawPixels || rawShadow || rawRadius || forcedCase) {
       const line = source.slice(0, match.index + match[0].indexOf(property)).split("\n").length;
-      errors.push(`${filename}:${line}: ${property} must use shared tokens (${value.trim()}).`);
+      const requirement = forcedCase ? "must preserve sentence-case content" : "must use shared tokens";
+      errors.push(`${filename}:${line}: ${property} ${requirement} (${value.trim()}).`);
     }
   }
   return errors;

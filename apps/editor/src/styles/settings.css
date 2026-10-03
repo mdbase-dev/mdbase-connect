@@ -11,7 +11,7 @@
   top: 12px;
   left: 14px;
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .settings-mobile-bar {
@@ -103,7 +103,7 @@
 }
 
 .setting-row p {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--faint);
   font-size: var(--font-size-caption);
   line-height: 1.4;
@@ -122,7 +122,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
 }
 
 .settings-danger-action svg {
@@ -144,11 +144,11 @@
 .settings-review-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .settings-review-actions {
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 .person-choice .mdbase-select {

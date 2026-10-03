@@ -575,6 +575,12 @@ export function markdownEdit(doc: string, from: number, to: number, format: Mark
 const editorSetup = (variant: EditorVariant, hasFooter = false): Extension => [
   highlightSpecialChars(),
   search({ top: true }),
+  // Sentence case belongs in the label, not a CSS transform ("Replace all", not "Replace All").
+  EditorState.phrases.of({
+    next: "Next", previous: "Previous", all: "All", replace: "Replace",
+    "replace all": "Replace all", "match case": "Match case", regexp: "Regular expression",
+    "by word": "Whole words", close: "Close", go: "Go"
+  }),
   highlightSelectionMatches({ minSelectionLength: 2 }),
   bracketMatching(),
   variant === "writer" ? [hasFooter ? [] : scrollPastEnd(), pasteURLAsLink] : [

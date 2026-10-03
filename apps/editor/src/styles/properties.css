@@ -2,7 +2,7 @@
   grid-column: 4;
   display: flex;
   flex-direction: column;
-  padding: 18px 16px 16px;
+  padding: 18px var(--space-4) var(--space-4);
   border-left: 1px solid var(--line);
   overflow: hidden;
 }
@@ -10,7 +10,7 @@
 .panel-header {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .panel-header > div {
@@ -27,7 +27,7 @@
 .backlink-list {
   min-height: 0;
   flex: 1;
-  margin-top: 24px;
+  margin-top: var(--space-6);
   overflow-y: auto;
 }
 
@@ -79,7 +79,7 @@
 }
 
 .panel-header p {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   overflow: hidden;
   color: var(--faint);
   font-size: var(--font-size-caption);
@@ -88,13 +88,13 @@
 }
 
 .file-facts {
-  margin: 24px 0 18px;
+  margin: var(--space-6) 0 18px;
 }
 
 .file-facts div {
   display: grid;
   grid-template-columns: 66px minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--space-2);
   padding: 7px 0;
   border-bottom: 1px solid var(--line);
 }
@@ -133,7 +133,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   border-bottom: 1px solid transparent;
   color: var(--faint);
   font-size: var(--font-size-ui);
@@ -169,7 +169,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   margin-bottom: 6px;
 }
 
@@ -195,7 +195,7 @@
 }
 
 .property-description {
-  margin: -1px 0 8px;
+  margin: -1px 0 var(--space-2);
   color: var(--faint);
   font-size: var(--font-size-caption);
   line-height: 1.4;
@@ -213,7 +213,7 @@
 .new-note-fields input:not([type="checkbox"]) {
   width: 100%;
   min-height: 34px;
-  padding: 6px 8px;
+  padding: 6px var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   outline: 0;
@@ -268,7 +268,7 @@ input:is([type="date"], [type="datetime-local"])::-webkit-calendar-picker-indica
   min-height: 34px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--muted);
   font-size: var(--font-size-ui);
 }
@@ -278,7 +278,7 @@ input:is([type="date"], [type="datetime-local"])::-webkit-calendar-picker-indica
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--faint);
   font-size: var(--font-size-ui);
 }
@@ -378,7 +378,7 @@ label.schema-value {
   min-height: 34px;
   display: flex;
   align-items: center;
-  padding: 6px 8px;
+  padding: 6px var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--canvas);
@@ -398,7 +398,7 @@ label.schema-value {
 .schema-object,
 .schema-array {
   min-width: 0;
-  padding: 12px 0 4px;
+  padding: var(--space-3) 0 var(--space-1);
   border: 0;
   border-top: 1px solid var(--line);
 }
@@ -416,8 +416,8 @@ label.schema-value {
 .schema-array-items,
 .schema-map-entries {
   display: grid;
-  gap: 12px;
-  margin-top: 12px;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
 }
 
 .schema-nested-value {
@@ -441,7 +441,7 @@ label.schema-value {
   display: grid;
   grid-template-columns: minmax(88px, 0.34fr) minmax(0, 1fr) 32px;
   align-items: start;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 10px 0 0;
   border-top: 1px solid var(--line);
 }
@@ -449,7 +449,7 @@ label.schema-value {
 .schema-map-key input {
   width: 100%;
   min-height: 34px;
-  padding: 6px 8px;
+  padding: 6px var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   outline: 0;
@@ -547,7 +547,7 @@ label.schema-value {
 }
 
 .schema-json-value .cm-content {
-  padding: 8px;
+  padding: var(--space-2);
   font-family: var(--mono);
   font-size: var(--font-size-caption);
 }
@@ -561,7 +561,7 @@ label.schema-value {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 12px;
+  margin-top: var(--space-3);
   padding: 5px 0;
   color: var(--muted);
   font-size: var(--font-size-ui);
@@ -588,7 +588,7 @@ label.schema-value {
 
 .missing-properties > p,
 .effective-properties > div > p {
-  margin: 3px 0 8px;
+  margin: 3px 0 var(--space-2);
   color: var(--faint);
   font-size: var(--font-size-caption);
   line-height: 1.4;
@@ -600,8 +600,8 @@ label.schema-value {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 7px 4px;
+  gap: var(--space-2);
+  padding: 7px var(--space-1);
   color: var(--muted);
   text-align: left;
 }
@@ -635,7 +635,7 @@ label.schema-value {
 }
 
 .property-picker {
-  margin-top: 12px;
+  margin-top: var(--space-3);
   padding: 9px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -646,7 +646,7 @@ label.schema-value {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--white);
@@ -674,7 +674,7 @@ label.schema-value {
 }
 
 .property-options > p {
-  margin: 14px 4px;
+  margin: 14px var(--space-1);
   color: var(--faint);
   font-size: var(--font-size-caption);
 }
@@ -694,7 +694,7 @@ label.schema-value {
 .custom-property-trigger,
 .property-picker-close {
   width: 100%;
-  padding: 7px 4px;
+  padding: 7px var(--space-1);
   color: var(--muted);
   font-size: var(--font-size-ui);
   text-align: left;
@@ -718,7 +718,7 @@ label.schema-value {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 88px;
   gap: 7px;
-  padding-top: 8px;
+  padding-top: var(--space-2);
 }
 
 .custom-property label > span {
@@ -731,7 +731,7 @@ label.schema-value {
 .custom-property input {
   width: 100%;
   min-height: 34px;
-  padding: 6px 8px;
+  padding: 6px var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--white);
@@ -747,7 +747,7 @@ label.schema-value {
 
 .custom-property > div button {
   min-height: 30px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   font-size: var(--font-size-ui);
 }
 
@@ -760,7 +760,7 @@ label.schema-value {
 
 .small-button {
   min-height: 34px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-caption);
@@ -791,7 +791,7 @@ label.schema-value {
 .raw-properties-note,
 .record-source > p {
   margin: 0;
-  padding: 8px 10px;
+  padding: var(--space-2) 10px;
   border-bottom: 1px solid var(--line);
   color: var(--faint);
   font-size: var(--font-size-caption);
@@ -817,7 +817,7 @@ label.schema-value {
 }
 
 .record-source .cm-content {
-  padding: 10px 12px 80px;
+  padding: 10px var(--space-3) 80px;
   font-family: var(--mono);
   font-size: var(--font-size-caption);
   line-height: 1.55;
@@ -831,12 +831,12 @@ label.schema-value {
 .property-string-list > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 32px;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .property-string-list input {
   min-height: 32px;
-  padding: 5px 8px;
+  padding: 5px var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   outline: 0;
@@ -874,15 +874,15 @@ label.schema-value {
 
 .effective-properties {
   margin-top: 22px;
-  padding-top: 12px;
+  padding-top: var(--space-3);
   border-top: 1px solid var(--line-strong);
 }
 
 .effective-property {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-  gap: 8px;
-  padding: 8px 0;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -925,7 +925,7 @@ label.schema-value {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 
@@ -945,7 +945,7 @@ label.schema-value {
 }
 
 .property-error {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--danger);
   font-size: var(--font-size-caption);
   line-height: 1.4;

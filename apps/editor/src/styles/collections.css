@@ -1,6 +1,6 @@
 .saved-collections {
   display: grid;
-  margin-top: 32px;
+  margin-top: var(--space-8);
   border-top: 1px solid var(--line);
 }
 
@@ -24,7 +24,7 @@
   min-height: 58px;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 9px 3px;
   color: var(--muted);
   text-align: left;

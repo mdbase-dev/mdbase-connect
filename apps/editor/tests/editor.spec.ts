@@ -531,6 +531,8 @@ test("formats, finds, and checks Markdown without adding permanent editor chrome
 
   await page.keyboard.press("Control+f");
   const search = page.locator(".body-editor .cm-search");
+  await expect(search.getByRole("button", { name: "Replace all", exact: true })).toHaveText("Replace all");
+  await expect(search.getByRole("checkbox", { name: "Whole words", exact: true })).toBeVisible();
   await expect(search).toBeVisible();
   await search.locator('input[name="search"]').fill("beta");
   await expect(page.locator(".body-editor .cm-searchMatch")).toHaveCount(1);

@@ -9,7 +9,7 @@
   width: min(100%, 760px);
   display: flex;
   flex-direction: column;
-  padding: clamp(34px, 6vh, 64px) 42px 0;
+  padding: clamp(34px, 6vh, var(--space-16)) 42px 0;
   margin: 0 auto;
   overflow-y: auto;
 }
@@ -57,7 +57,7 @@
   grid-template-columns: minmax(150px, 0.65fr) minmax(0, 1.35fr);
   gap: 18px 14px;
   align-items: start;
-  margin-top: 24px;
+  margin-top: var(--space-6);
 }
 
 .new-folder-form .new-note-fields {
@@ -93,7 +93,7 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 0 9px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -146,7 +146,7 @@
 }
 
 .new-note-path[open] summary {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .new-note-path > label {
@@ -160,7 +160,7 @@
 
 .new-note-fields .schema-object,
 .new-note-fields .schema-array {
-  padding-top: 16px;
+  padding-top: var(--space-4);
 }
 
 .new-note-type-help,
@@ -191,7 +191,7 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--muted);
   cursor: pointer;
   font-size: var(--font-size-ui);
@@ -231,7 +231,7 @@
 }
 
 .new-note-properties .quiet-empty {
-  margin: 8px 0;
+  margin: var(--space-2) 0;
   font-size: var(--font-size-ui);
 }
 
@@ -289,7 +289,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   margin-top: 20px;
   padding: 14px 0 20px;
   border-top: 1px solid var(--line);
@@ -314,7 +314,7 @@
 .new-note-actions .create-note-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .new-note-actions .create-note-button kbd {

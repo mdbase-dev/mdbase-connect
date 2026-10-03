@@ -3,7 +3,7 @@
   z-index: 10000;
   top: 5px;
   right: 5px;
-  padding: 4px 7px 3px;
+  padding: var(--space-1) 7px 3px;
   border: 1px solid currentColor;
   background: #f4f7f7;
   box-shadow: var(--elevation-low);

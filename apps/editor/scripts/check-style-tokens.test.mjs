@@ -27,6 +27,12 @@ test("rejects malformed easing references and reports the declaration line", () 
   assert.match(check(".a {\n  font-size: 11px;\n}")[0], /fixture\.css:2:/);
 });
 
+test("rejects forced uppercase/title case but allows the lowercase wordmark", () => {
+  assert.equal(check(".a { text-transform: uppercase; } .b { text-transform: capitalize; }").length, 2);
+  assert.deepEqual(check(".wordmark { text-transform: lowercase; } .label { text-transform: none; }"), []);
+  assert.match(check(".a { text-transform: uppercase; }")[0], /sentence-case/);
+});
+
 test("ignores comments and string content, but not later declarations", () => {
   assert.equal(check(`/* font-size: 9px; */ .a {
     content: "font-size: 9px; border-radius: 9px";

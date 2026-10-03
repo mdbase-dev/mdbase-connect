@@ -19,7 +19,7 @@
   min-height: 64px;
   display: flex;
   align-items: center;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--line);
 }
 
@@ -36,7 +36,7 @@
   flex: 1;
   display: grid;
   align-content: start;
-  gap: 24px;
+  gap: var(--space-6);
   padding: 18px 10px;
   overflow-y: auto;
 }
@@ -101,7 +101,7 @@
 .connect-shell .collection-rail .connection-footer {
   display: grid;
   gap: 10px;
-  padding-top: 12px;
+  padding-top: var(--space-3);
 }
 
 .connect-shell .collection-rail .wordmark-label strong {
@@ -120,7 +120,7 @@
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 5px 3px;
   border-radius: var(--radius-sm);
   color: inherit;
@@ -167,9 +167,9 @@
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  margin: 32px auto -22px;
-  padding: 13px 16px;
+  gap: var(--space-3);
+  margin: var(--space-8) auto -22px;
+  padding: 13px var(--space-4);
   border: 1px solid var(--color-warning-border);
   background: var(--warning-soft);
   color: var(--warning);
@@ -232,7 +232,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding-bottom: 12px;
+  padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--line-strong);
 }
 
@@ -291,8 +291,8 @@
   display: grid;
   grid-template-columns: minmax(190px, 1fr) auto auto;
   align-items: center;
-  gap: 24px;
-  padding: 13px 4px;
+  gap: var(--space-6);
+  padding: 13px var(--space-1);
   border-bottom: 1px solid var(--line);
 }
 
@@ -349,7 +349,7 @@
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  gap: var(--space-2) var(--space-3);
   color: var(--muted);
   font-size: var(--font-size-ui);
 }
@@ -363,7 +363,7 @@
 .connect-inline-rename {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .connect-inline-rename input {
@@ -412,7 +412,7 @@ button.danger:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 12px;
+  padding: 6px var(--space-3);
   text-decoration: none;
 
 }
@@ -426,7 +426,7 @@ button.danger:disabled {
   align-items: end;
   justify-content: space-between;
   gap: 20px;
-  padding: 16px 4px;
+  padding: var(--space-4) var(--space-1);
   border-bottom: 1px solid var(--line);
 }
 
@@ -470,7 +470,7 @@ button.danger:disabled {
   grid-template-columns: minmax(180px, 0.7fr) minmax(240px, 1fr) auto;
   align-items: center;
   gap: 14px;
-  padding: 14px 4px;
+  padding: 14px var(--space-1);
   border-bottom: 1px solid var(--line);
 }
 .connect-sharing-link > div { display: grid; gap: 2px; }
@@ -482,7 +482,7 @@ button.danger:disabled {
 
 .connect-inline-form > div {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .connect-collection-row {
@@ -492,7 +492,7 @@ button.danger:disabled {
 .connect-row-detail {
   grid-column: 1 / -1;
   width: 100%;
-  padding: 4px 0 0;
+  padding: var(--space-1) 0 0;
   color: var(--muted);
   font-size: var(--font-size-ui);
 }
@@ -507,7 +507,7 @@ button.danger:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 0 8px 18px;
+  padding: var(--space-2) 0 var(--space-2) 18px;
   border-top: 1px solid var(--line);
 }
 
@@ -523,7 +523,7 @@ button.danger:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 12px 4px;
+  padding: var(--space-3) var(--space-1);
   list-style: none;
 }
 
@@ -557,8 +557,8 @@ button.danger:disabled {
 .connect-grant-body {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(200px, 0.7fr);
-  gap: 24px;
-  padding: 4px 4px 22px;
+  gap: var(--space-6);
+  padding: var(--space-1) var(--space-1) 22px;
 }
 
 .connect-permissions {
@@ -570,7 +570,7 @@ button.danger:disabled {
 .connect-permissions label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--muted);
   font-size: var(--font-size-ui);
 }
@@ -579,7 +579,7 @@ button.danger:disabled {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-content: start;
-  gap: 8px 12px;
+  gap: var(--space-2) var(--space-3);
   font-size: var(--font-size-ui);
 }
 
@@ -634,12 +634,12 @@ button.danger:disabled {
 }
 
 .connect-sign-out {
-  margin-top: 24px;
+  margin-top: var(--space-6);
   color: var(--danger);
 }
 
 .connect-account-message {
-  padding: 12px 14px;
+  padding: var(--space-3) 14px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-ui);
@@ -659,7 +659,7 @@ button.danger:disabled {
   display: grid;
   gap: 10px;
   margin: 14px 0 30px;
-  padding: 16px 4px 18px;
+  padding: var(--space-4) var(--space-1) 18px;
   border-bottom: 1px solid var(--line-strong);
 }
 
@@ -667,7 +667,7 @@ button.danger:disabled {
   display: flex;
   align-items: start;
   justify-content: space-between;
-  gap: 24px;
+  gap: var(--space-6);
 }
 
 .connect-subscription-heading > div {
@@ -698,8 +698,8 @@ button.danger:disabled {
   display: grid;
   grid-template-columns: minmax(190px, 1fr) auto;
   align-items: center;
-  gap: 24px;
-  padding: 13px 4px;
+  gap: var(--space-6);
+  padding: 13px var(--space-1);
   border-bottom: 1px solid var(--line);
 }
 
@@ -719,7 +719,7 @@ button.danger:disabled {
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .connect-account-action,
@@ -753,15 +753,15 @@ button.danger:disabled {
   display: grid;
   grid-template-columns: minmax(190px, 1fr) auto;
   align-items: center;
-  gap: 24px;
-  padding: 13px 4px;
+  gap: var(--space-6);
+  padding: 13px var(--space-1);
 }
 
 .connect-account-form {
   max-width: 560px;
   display: grid;
   gap: 14px;
-  padding: 4px 4px 22px;
+  padding: var(--space-1) var(--space-1) 22px;
 }
 
 .connect-account-form label,
@@ -776,7 +776,7 @@ button.danger:disabled {
 .connect-account-form input,
 .connect-account-reauthentication input {
   min-height: 38px;
-  padding: 8px 10px;
+  padding: var(--space-2) 10px;
   border: 1px solid var(--line-strong);
   color: var(--ink);
   font: inherit;
@@ -797,7 +797,7 @@ button.danger:disabled {
 }
 
 .connect-danger-section {
-  padding-top: 4px;
+  padding-top: var(--space-1);
 }
 
 .connect-danger-section .connect-section-title {
@@ -813,12 +813,12 @@ button.danger:disabled {
 }
 
 .connect-deletion-effects p { margin: 0; }
-.connect-deletion-effects ul { margin: 8px 0; padding-left: 20px; }
+.connect-deletion-effects ul { margin: var(--space-2) 0; padding-left: 20px; }
 
 .connect-account-reauthentication {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: var(--space-3);
   padding: 14px;
   border: 1px solid var(--line);
 }
@@ -852,7 +852,7 @@ button.danger:disabled {
   min-height: 100%;
   display: grid;
   place-items: center;
-  padding: 32px;
+  padding: var(--space-8);
   background: var(--canvas);
 }
 
@@ -883,7 +883,7 @@ button.danger:disabled {
 
 .connect-empty div {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .connect-empty strong {
@@ -898,8 +898,8 @@ button.danger:disabled {
 .connect-empty-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  margin-top: 8px;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-2);
 }
 
 .connect-empty-actions a,
@@ -909,7 +909,7 @@ button.danger:disabled {
 
 .connect-desktop-help {
   max-width: 68ch;
-  margin: 16px 4px 0;
+  margin: var(--space-4) var(--space-1) 0;
   color: var(--muted);
   font-size: var(--font-size-ui);
   line-height: 1.5;
@@ -944,7 +944,7 @@ button.danger:disabled {
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 30px;
   background: var(--canvas);
   text-align: center;
@@ -953,7 +953,7 @@ button.danger:disabled {
 .connect-loading .wordmark-mark {
   width: 42px;
   height: 42px;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .connect-loading p {
@@ -1042,7 +1042,7 @@ button.danger:disabled {
 
   .connect-shell > .collection-rail nav {
     flex: 1;
-    margin: 0 4px;
+    margin: 0 var(--space-1);
     overflow: visible;
   }
 
@@ -1056,7 +1056,7 @@ button.danger:disabled {
     align-items: center;
     gap: 6px;
     margin: 0 auto;
-    padding: 8px 2px;
+    padding: var(--space-2) 2px;
     color: var(--accent-strong);
     font-size: var(--font-size-ui);
     font-weight: var(--font-weight-semibold);
@@ -1100,7 +1100,7 @@ button.danger:disabled {
     min-height: 54px;
     display: flex;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--space-4);
     padding: 5px 14px;
   }
 
@@ -1114,7 +1114,7 @@ button.danger:disabled {
     display: grid;
     justify-items: end;
     align-content: center;
-    padding: 4px 0;
+    padding: var(--space-1) 0;
     color: var(--accent-strong);
     text-align: right;
   }
@@ -1135,7 +1135,7 @@ button.danger:disabled {
   .connect-nav > nav {
     display: none;
     gap: 20px;
-    padding: 8px 10px 18px;
+    padding: var(--space-2) 10px 18px;
     border-top: 1px solid var(--line);
   }
 
@@ -1150,7 +1150,7 @@ button.danger:disabled {
   .connect-nav > nav > .connect-nav-group > .connect-feedback-mobile-link {
     display: flex !important;
     align-items: center;
-    padding: 8px 12px;
+    padding: var(--space-2) var(--space-3);
     color: var(--muted);
     font-size: var(--font-size-ui);
     text-decoration: none;
@@ -1162,7 +1162,7 @@ button.danger:disabled {
 
   .connect-page {
     width: calc(100% - 28px);
-    padding: 32px 0 64px;
+    padding: var(--space-8) 0 var(--space-16);
   }
 
   .connect-pending-banner {
@@ -1177,7 +1177,7 @@ button.danger:disabled {
   }
 
   .connect-page > header {
-    margin-bottom: 32px;
+    margin-bottom: var(--space-8);
   }
 
   .connect-permissions {
@@ -1185,7 +1185,7 @@ button.danger:disabled {
   }
 
   .connect-page > section {
-    margin-top: 32px;
+    margin-top: var(--space-8);
   }
 
   .connect-inline-form {
@@ -1200,7 +1200,7 @@ button.danger:disabled {
   .connect-sharing-form > p,
   .connect-sharing-form > div { grid-column: 1; grid-row: auto; }
   .connect-sharing-link { grid-template-columns: 1fr; }
-  .connect-member-row { grid-template-columns: 1fr; gap: 8px; }
+  .connect-member-row { grid-template-columns: 1fr; gap: var(--space-2); }
   .connect-role-select .mdbase-select { min-height: 44px; }
 
 
@@ -1218,7 +1218,7 @@ button.danger:disabled {
   .connect-account-row,
   .connect-account-row-main {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .connect-account-actions { justify-content: flex-start; }

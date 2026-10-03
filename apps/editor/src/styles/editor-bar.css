@@ -13,7 +13,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 14px 0 24px;
+  padding: 0 14px 0 var(--space-6);
   border-bottom: 1px solid var(--line);
 }
 
@@ -156,17 +156,23 @@
   position: relative;
 }
 
-/* Shown in the top layer by MenuPopover, which places it against its trigger. */
-.action-menu {
+/* Trigger and context menus share one surface; positioning remains with their owners. */
+:is(.action-menu, .context-menu) {
   position: fixed;
   inset: auto;
   margin: 0;
-  width: 164px;
+  width: max-content;
+  min-width: 180px;
+  max-width: calc(100vw - var(--space-4));
+  max-height: calc(100dvh - var(--space-4));
   overflow-y: auto;
-  padding: 5px;
+  padding: var(--space-1);
   border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
   background: var(--white);
 }
+
+.context-menu { z-index: 100; }
 
 .action-menu-separator {
   height: 1px;
@@ -174,81 +180,45 @@
   background: var(--line);
 }
 
-.action-menu button {
+:is(.action-menu, .context-menu) button {
   width: 100%;
   min-height: 34px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-sm);
   color: var(--muted);
   font-size: var(--font-size-ui);
   text-align: left;
 }
 
-.action-menu button:hover {
+:is(.action-menu, .context-menu) button:is(:hover, :focus-visible):not(:disabled) {
   background: var(--hover);
   color: var(--ink);
 }
 
-.action-menu button:disabled {
-  cursor: progress;
+:is(.action-menu, .context-menu) button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+:is(.action-menu, .context-menu) button:disabled {
+  cursor: not-allowed;
   opacity: 0.55;
 }
 
-.action-menu button:disabled:hover {
-  background: transparent;
-  color: var(--muted);
-}
-
-.action-menu svg {
-  width: 14px;
-  height: 14px;
-}
-
-.action-menu .danger-action,
-.danger-action {
-  color: var(--danger);
-}
-
-.context-menu {
-  position: fixed;
-  z-index: 100;
-  width: max-content;
-  min-width: 180px;
-  padding: 5px;
-  border: 1px solid var(--line-strong);
-  background: var(--white);
-}
-
-.context-menu button {
-  width: 100%;
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-  text-align: left;
-}
-
-.context-menu button:hover,
-.context-menu button:focus-visible {
-  background: var(--hover);
-  color: var(--ink);
-}
-
-.context-menu button:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
-}
-
-.context-menu svg {
+:is(.action-menu, .context-menu) svg {
   width: 14px;
   height: 14px;
   color: var(--faint);
   stroke-width: 1.6;
+}
+
+:is(.action-menu, .context-menu) .danger-action,
+:is(.action-menu, .context-menu) .danger-action:is(:hover, :focus-visible):not(:disabled),
+.danger-action {
+  color: var(--danger);
 }
 
 .notice,
@@ -257,7 +227,7 @@
   align-items: center;
   gap: 9px;
   min-height: 38px;
-  padding: 7px 18px 7px 24px;
+  padding: 7px 18px 7px var(--space-6);
   border-bottom: 1px solid var(--line);
   background: var(--canvas);
   color: var(--muted);
@@ -324,7 +294,7 @@
 }
 
 .rename-confirm button {
-  padding: 5px 8px;
+  padding: 5px var(--space-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   color: var(--muted);
@@ -365,7 +335,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 18px 7px 24px;
+  padding: 7px 18px 7px var(--space-6);
 }
 
 .conflict-summary > svg {
@@ -396,7 +366,7 @@
 }
 
 .conflict-actions button {
-  padding: 5px 8px;
+  padding: 5px var(--space-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   color: var(--muted);
@@ -415,20 +385,20 @@
 
 .conflict-resolver > details > summary {
   width: max-content;
-  padding: 8px 24px;
+  padding: var(--space-2) var(--space-6);
   color: var(--accent);
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-semibold);
 }
 
 .conflict-diff {
-  padding: 0 24px 14px;
+  padding: 0 var(--space-6) 14px;
 }
 
 .diff-legend {
   display: flex;
-  gap: 16px;
-  margin-bottom: 8px;
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
   font-size: var(--font-size-ui);
 }
 
@@ -456,7 +426,7 @@
   display: grid;
   gap: 2px;
   margin: 0;
-  padding: 8px 10px;
+  padding: var(--space-2) 10px;
 }
 
 .title-diff p + p { border-left: 1px solid var(--line); }
@@ -476,7 +446,7 @@
 }
 
 .line-diff {
-  margin-top: 8px;
+  margin-top: var(--space-2);
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -498,7 +468,7 @@
 
 .diff-marker,
 .diff-line-number {
-  padding-top: 4px;
+  padding-top: var(--space-1);
   text-align: center;
   user-select: none;
 }
@@ -511,7 +481,7 @@
 
 .diff-line code {
   min-width: 0;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   overflow-wrap: anywhere;
   color: var(--ink);
   font: inherit;
@@ -519,7 +489,7 @@
 }
 
 .conflict-no-text-change {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--faint);
 }
 
@@ -529,7 +499,7 @@
   right: 20px;
   bottom: 20px;
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   justify-items: end;
 }
 
@@ -538,7 +508,7 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 8px 8px 8px 13px;
+  padding: var(--space-2) var(--space-2) var(--space-2) 13px;
   border: 1px solid var(--line-strong);
   background: var(--white);
   color: var(--muted);
@@ -565,7 +535,7 @@
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  padding: 5px 8px;
+  padding: 5px var(--space-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   color: var(--accent);

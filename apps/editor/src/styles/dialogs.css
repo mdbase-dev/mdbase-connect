@@ -41,13 +41,13 @@
 .confirm-dialog > footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 24px;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
 }
 
 .confirm-dialog > footer button {
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
 }
 
 .collection-switcher { width: min(520px, 100%); }
@@ -55,8 +55,8 @@
 .collection-switcher > header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 15px 14px 12px 18px;
+  gap: var(--space-4);
+  padding: 15px 14px var(--space-3) 18px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -81,7 +81,7 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 8px 10px;
+  padding: var(--space-2) 10px;
   border-radius: var(--radius-sm);
   color: var(--muted);
   text-align: left;
@@ -145,7 +145,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 12px 0 16px;
+  padding: 0 var(--space-3) 0 var(--space-4);
   border-bottom: 1px solid var(--line);
 }
 
@@ -179,7 +179,7 @@
 }
 
 .quick-open-section {
-  padding: 8px 9px 4px;
+  padding: var(--space-2) 9px var(--space-1);
   color: var(--faint);
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-semibold);
@@ -202,13 +202,13 @@
   min-height: 48px;
   display: flex;
   align-items: center;
-  padding: 7px 9px;
+  padding: 7px 9px 7px 6px;
+  border-left: 3px solid transparent;
   border-radius: var(--radius-sm);
   text-align: left;
 }
 
-.quick-open-results > button:hover,
-.quick-open-results > button.selected {
+.quick-open-results > button:hover {
   background: var(--selected);
 }
 
@@ -237,13 +237,13 @@
 }
 
 .quick-open-results > p {
-  margin: 18px 9px 24px;
+  margin: 18px 9px var(--space-6);
   color: var(--faint);
   text-align: center;
 }
 
 .quick-open > footer {
-  padding: 7px 16px 9px;
+  padding: 7px var(--space-4) 9px;
   border-top: 1px solid var(--line);
   color: var(--faint);
   font-size: var(--font-size-ui);
@@ -276,7 +276,7 @@
 
 .shortcut-help dl {
   margin: 0;
-  padding: 8px 22px 18px;
+  padding: var(--space-2) 22px 18px;
 }
 
 .shortcut-help dl > div {
@@ -284,7 +284,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   border-bottom: 1px solid var(--line);
 }
 

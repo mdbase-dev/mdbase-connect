@@ -64,12 +64,12 @@
 
   .contract-mapping-overview {
     display: grid;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .contract-mapping-row {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .contract-mapping-validation {
@@ -207,7 +207,7 @@
     min-height: calc(52px + env(safe-area-inset-top));
     justify-content: space-between;
     gap: 0;
-    padding: calc(4px + env(safe-area-inset-top)) 8px 4px;
+    padding: calc(var(--space-1) + env(safe-area-inset-top)) var(--space-2) var(--space-1);
   }
 
   .writing-surface {
@@ -218,7 +218,7 @@
 
   .note-provenance {
     min-width: 0;
-    margin: 0 var(--writing-gutter) 12px;
+    margin: 0 var(--writing-gutter) var(--space-3);
     color: var(--muted);
     font-size: var(--font-size-caption);
   }
@@ -307,7 +307,7 @@
   .type-inspector-bar,
   .settings-mobile-bar {
     min-height: 54px;
-    padding: max(4px, env(safe-area-inset-top)) 10px 0 8px;
+    padding: max(var(--space-1), env(safe-area-inset-top)) 10px 0 var(--space-2);
   }
 
   .type-heading {
@@ -327,7 +327,7 @@
   }
 
   .type-heading-title {
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .type-heading-title > .ph {
@@ -343,7 +343,7 @@
   }
 
   .type-pack-document {
-    padding: 22px 18px 64px;
+    padding: 22px 18px var(--space-16);
   }
 
   .type-pack-intro {
@@ -364,7 +364,7 @@
   .type-heading dl {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
+    gap: var(--space-2);
     margin-top: 14px;
   }
 
@@ -408,7 +408,7 @@
   .type-source-context {
     flex-wrap: wrap;
     gap: 10px;
-    padding: 12px 0;
+    padding: var(--space-3) 0;
   }
 
   .type-source-intro {
@@ -486,7 +486,7 @@
   }
   .type-inspector .inline-remove-button { width: 44px; }
   .type-inspector .icon-picker-clear { width: 44px; }
-  .type-inspector .icon-picker-current { padding-right: 48px; }
+  .type-inspector .icon-picker-current { padding-right: var(--space-12); }
   .string-list-item { grid-template-columns: 16px minmax(0, 1fr) 44px; }
 
   .type-field-actions {
@@ -525,12 +525,12 @@
 
   .contract-mapping-overview {
     display: grid;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .contract-mapping-row {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .contract-mapping-validation {
@@ -553,16 +553,16 @@
   }
 
   .contract-catalog-heading {
-    padding: 12px 0;
+    padding: var(--space-3) 0;
   }
 
   .contract-catalog-error {
-    padding: 12px 0;
+    padding: var(--space-3) 0;
   }
 
   .contract-catalog-pack-summary {
     grid-template-columns: 32px minmax(0, 1fr);
-    gap: 9px 12px;
+    gap: 9px var(--space-3);
   }
 
   .contract-catalog-pack-actions {
@@ -661,7 +661,7 @@
   }
 
   .new-note-composer > form {
-    padding: 32px 22px 0;
+    padding: var(--space-8) 22px 0;
   }
 
   .new-note-actions {
@@ -712,13 +712,13 @@
 
   .new-note-actions > span {
     flex-basis: 100%;
-    margin-bottom: 4px;
+    margin-bottom: var(--space-1);
   }
 
 
 
 
-  .dialog-scrim:has(.quick-open) { padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom)); }
+  .dialog-scrim:has(.quick-open) { padding: calc(var(--space-3) + env(safe-area-inset-top)) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom)); }
   .quick-open { max-height: 100%; display: flex; flex-direction: column; }
   .quick-open-search { flex: none; }
   .quick-open-search input { min-height: 52px; }
@@ -728,7 +728,7 @@
   .search-field { min-height: 44px; }
   .search-field input { min-height: 44px; }
   .search-field button { min-width: 44px; min-height: 44px; }
-  .setting-row { gap: 12px; }
+  .setting-row { gap: var(--space-3); }
   .person-choice { flex-wrap: wrap; min-width: 0; }
   .setting-row > div, .fact-row strong { min-width: 0; overflow-wrap: anywhere; }
   .properties-panel button:not(.mdbase-switch),
@@ -775,7 +775,7 @@
   .notice,
 .rename-confirm {
     align-items: flex-start;
-    padding: 10px 12px;
+    padding: 10px var(--space-3);
   }
 
   .rename-confirm > div {
