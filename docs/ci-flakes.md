@@ -84,6 +84,13 @@ emits a flushed, payload-free stderr status after `CollectionWatcher::open`
 returns, and the test waits for it before writing. Stdout remains event-only;
 no engine re-pin, startup sleep or increased timeout was needed.
 
+The Editor feedback Escape/focus e2e (issue #576; PRs #569, #575, run
+37102346644) opened feedback before the lazily mounted note editor had mounted.
+That editor's one-shot autofocus deliberately yields only to editable controls,
+so when it mounted after Escape it moved focus off the restored feedback
+trigger (about 5% of 200 local repeats). The test now waits for that initial
+autofocus (`Note body` focused) before interacting.
+
 Both repositories prebuild their testbed adapters before entering the unchanged
 protocol-response deadline. Cold compilation is setup, not a timed semantic
 operation; compiler errors still fail the build.
