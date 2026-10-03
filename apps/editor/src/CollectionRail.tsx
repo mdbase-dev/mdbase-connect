@@ -14,6 +14,7 @@ import { FOLDER_PATH_MIME } from "./folder-change";
 import { RailDropTarget } from "./RailDropTarget";
 import { EditorRail } from "./EditorRail";
 import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
+import type { ConnectionState } from "./app-state-types";
 import { folderTree, type FolderTreeNode } from "./note";
 import type { NoteFilter } from "./note-list-view";
 
@@ -28,7 +29,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   files: CollectionFile[];
   foldersLoading: boolean;
   surface: "notes" | "types" | "settings";
-  connectionState: "connected" | "reconnecting";
+  connectionState: ConnectionState;
   connectionIssue?: string;
   directAccess?: ConnectionSummary["directAccess"];
   directAccessBusy: boolean;
@@ -65,8 +66,8 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     footer={<>
       {directAccess === "permission_required" && connectionState === "connected"
         ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? "Checking…" : "Use this computer"}</button>
-        : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : "Reconnecting"}</span></p>}
-      {connectionState === "reconnecting" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
+        : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : connectionState === "reconnecting" ? "Reconnecting" : "Sync stopped"}</span></p>}
+      {connectionState !== "connected" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
     </>}
   >
       <FolderFilterSection

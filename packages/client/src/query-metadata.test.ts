@@ -91,7 +91,7 @@ describe("negotiated metadata output", () => {
     const { client } = fixture(result);
     expect(await client.query({ output: "metadata" })).toMatchObject({ ok: false, problem: { code: "invalid_operation_response" } });
   });
-  it("retains metadata output across cursor pages, progress callbacks, queryAll and release", async () => {
+  it("retains metadata output across cursor pages, progress callbacks and queryAll", async () => {
     const calls: any[] = [];
     const pages: QueryMetadataPage[] = [];
     const request = vi.fn(async (_operation, input) => {
@@ -105,13 +105,12 @@ describe("negotiated metadata output", () => {
     })) {
       expect(page.ok).toBe(true); if (page.ok) pages.push(page.value);
     }
-    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    expect(calls).toHaveLength(2);
     expect(pages).toHaveLength(2);
     expect(pages.every(page => page.output === "metadata")).toBe(true);
     expect(calls).toEqual([
       { output: "metadata", limit: 200, offset: 0, pagination: "cursor" },
-      { output: "metadata", cursor: "next" },
-      { output: "metadata", release_cursor: "next" }
+      { output: "metadata", cursor: "next" }
     ]);
     const all = await client.queryAll({ output: "metadata", pagination: "cursor" });
     expect(all).toMatchObject({ ok: true, value: { output: "metadata", results: [row, row] } });

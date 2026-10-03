@@ -1,4 +1,5 @@
 import { normalizeCollectionChange } from "@mdbase-dev/connect";
+import { observeDemo } from "./demo-observe";
 import type {
   CollectionChange,
   CollectionContractDescriptor,
@@ -127,6 +128,10 @@ export class DemoCollectionGateway implements CollectionGateway {
     for (const listener of this.sessionListeners) listener(snapshot);
   }
 
+  observe(options: import("@mdbase-dev/connect").ObserveOptions = {}) {
+    return observeDemo(this, options);
+  }
+
   async list({ signal, onProgress }: NoteIndexRequest = {}): Promise<NoteIndexResult> {
     await delay(4);
     signal?.throwIfAborted();
@@ -182,6 +187,10 @@ export class DemoCollectionGateway implements CollectionGateway {
       total: notes.length
     });
     return { notes, snapshot };
+  }
+
+  async mostRecentNote(): Promise<string | undefined> {
+    return [...this.notes].sort((a, b) => String(b.file.mtime).localeCompare(String(a.file.mtime)))[0]?.path;
   }
 
   async read(path: string): Promise<NoteDocument> {

@@ -502,7 +502,7 @@ describe("provider-neutral collection client", () => {
     ]);
   });
 
-  it("pages a saved view with opaque cursors and releases the final lease", async () => {
+  it("pages a saved view with opaque cursors without releasing a consumed terminal lease", async () => {
     const calls: Array<{ operation: string; input: Record<string, unknown> }> = [];
     const rows = ["one.md", "two.md", "three.md"].map((path) => ({
       path,
@@ -559,8 +559,7 @@ describe("provider-neutral collection client", () => {
           view: "all",
           cursor: "saved-view-page-2"
         }
-      },
-      { operation: "query", input: { release_cursor: "saved-view-page-2" } }
+      }
     ]);
   });
 
@@ -781,7 +780,7 @@ describe("provider-neutral collection client", () => {
     });
   });
 
-  it("delivers completed query data without waiting for cursor cleanup", async () => {
+  it("delivers capped query data without waiting for cursor cleanup", async () => {
     vi.useFakeTimers();
     const calls: Array<Record<string, unknown>> = [];
     const client = new MdbaseCollectionClient({
@@ -801,14 +800,13 @@ describe("provider-neutral collection client", () => {
         } as Result;
       }
     });
-    const pending = client.queryAll({}, { pageSize: 256, timeoutMs: 50 });
+    const pending = client.queryAll({}, { pageSize: 256, maxResults: 1, timeoutMs: 50 });
     await vi.advanceTimersByTimeAsync(0);
     await expect(pending).resolves.toMatchObject({
-      ok: true, value: { results: [{ path: "one.md" }, { path: "two.md" }] }
+      ok: true, value: { results: [{ path: "one.md" }] }
     });
     expect(calls).toEqual([
-      { limit: 256, offset: 0, pagination: "cursor" },
-      { cursor: "next" },
+      { limit: 1, offset: 0, pagination: "cursor" },
       { release_cursor: "next" }
     ]);
     await vi.advanceTimersByTimeAsync(2_000);

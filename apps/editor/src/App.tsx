@@ -188,7 +188,6 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const [connectionState, setConnectionState] = useState<ConnectionState>("connected");
   const [connectionIssue, setConnectionIssue] = useState<string>();
   const [directAccessBusy, setDirectAccessBusy] = useState(false);
-  const [connectionRetry, setConnectionRetry] = useState(0);
   const [selectedPath, setSelectedPath] = useState<string>();
   const [selection, setSelection] = useState<NoteSelection>();
   const [pinnedPaths, setPinnedPaths] = useState<string[]>([]);
@@ -394,8 +393,10 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     setConnectionIssue("Refreshing collection state before reconnecting.");
     try {
       await Promise.all([loadIndex(), fileController.reload(), refreshDescription()]);
-      setConnectionRetry((value) => value + 1);
+      setConnectionState("connected");
+      setConnectionIssue(undefined);
     } catch (error) {
+      setConnectionState("stopped");
       setConnectionIssue(gatewayError(error));
     }
   }, [fileController, loadIndex, refreshDescription]);
@@ -536,9 +537,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     activateSession(createSession(next));
   }, [activateSession, createSession]);
 
-  const refreshCachedNote = useCallback(async (path: string) => {
+  const refreshCachedNote = useCallback(async (path: string, revision?: string) => {
     const session = noteSessions.current.get(path);
-    if (!session || session.deleted) return;
+    if (!session || session.deleted || (revision !== undefined && session.document.revision === revision)) return;
     // Read behind this note's own writes; the session classifies the result.
     requireSaved(await session.record.refresh());
   }, []);
@@ -627,9 +628,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     const epoch = collectionEpoch.current, generation = ++startGeneration.current;
     const navigation = navigationGeneration.current;
     const current = () => epoch === collectionEpoch.current && generation === startGeneration.current;
-    const indexLoad = indexController.beginLoad();
     const fileLoad = fileController.reload().catch(() => []);
-    const indexOutcome = indexLoad.complete.then(
+    const indexOutcome = indexController.reload().then(
       (result) => ({ result } as const),
       (error: unknown) => ({ error } as const)
     );
@@ -641,10 +641,11 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     try {
       const descriptionLoad = refreshDescription(current);
       const remembered = localStorage.getItem("mdbase-editor:last-note");
-      // The session already authorized this collection. Fetch the remembered
-      // note alongside its description instead of paying another relay trip.
+      // Open the remembered note alongside description; otherwise query the newest.
       const rememberedNote = remembered ? openNote(remembered, {}, descriptionLoad) : Promise.resolve(false);
-      const nextDescription = await descriptionLoad;
+      const [nextDescription, newestPath] = await Promise.all([
+        descriptionLoad, remembered ? undefined : gateway.mostRecentNote().catch(() => undefined)
+      ]);
       if (!current() || !nextDescription) return;
       descriptionLoaded = true;
       setNotice(undefined);
@@ -653,7 +654,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       if (!current() || navigation !== navigationGeneration.current) return;
       if (!opened) {
         setNoteLoading(true);
-        const initial = (await indexLoad.firstPage)[0]?.path;
+        const initial = remembered ? await gateway.mostRecentNote().catch(() => undefined) : newestPath;
         if (!current() || navigation !== navigationGeneration.current) return;
         if (initial) opened = await openNote(initial);
       }
@@ -693,8 +694,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       .catch(() => undefined);
   }, [connectionSummary?.collectionId, gateway, phase]);
 
-  useCollectionWatch({ phase, connectionRetry, gateway, index: indexController, files: fileController, assets: fileAssetStore,
-    loadIndex, refreshChangedNote, refreshDescription, refreshAfterConnectionGap, setConnectionState, setConnectionIssue, setNotice });
+  useCollectionWatch({ phase, index: indexController, files: fileController, assets: fileAssetStore,
+    refreshCachedNote, refreshDescription, setConnectionState, setConnectionIssue, setNotice });
 
   const flushSession = useCallback(
     async (session: NoteSession) => { requireSaved(await session.record.flush()); },

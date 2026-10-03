@@ -53,7 +53,7 @@ export async function* coordinatedSavedViewPages<Frontmatter extends JsonObject>
           coordination: { ...options.coordination, coalesce: false }
         }
       );
-      lease.finishRequest(outcome.ok ? outcome.value.meta.cursor : undefined);
+      lease.finishRequest(outcome.ok ? outcome.value.meta.cursor : undefined, outcome.ok);
       if (options.signal?.aborted) return;
       if (!outcome.ok) {
         lease.dispose();

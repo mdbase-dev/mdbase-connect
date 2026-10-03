@@ -1,134 +1,63 @@
 import { useEffect, type Dispatch, type SetStateAction } from "react";
-import type { CollectionChange } from "@mdbase-dev/connect";
 import type { ConnectionState } from "./app-state-types";
 import { isFileChange, reconcileFileChange } from "./file-change-reconciliation";
 import type { FileAssetStore } from "./file-asset-store";
 import type { FileInventoryController } from "./file-inventory-controller";
 import { gatewayError } from "./gateway";
 import type { CollectionIndexController } from "./collection-index-controller";
-import type { CollectionGateway } from "./model";
-import { reconcileStructuralChanges } from "./structural-change-reconciliation";
 
+/** App-owned effects only: file previews, schemas and open editing sessions.
+ * Query membership, rereads and reset/reconnect are owned by observe(). */
 export function useCollectionWatch(input: {
   phase: string;
-  connectionRetry: number;
-  gateway: CollectionGateway;
   index: CollectionIndexController;
   files: FileInventoryController;
   assets: FileAssetStore;
-  loadIndex(): Promise<void>;
-  refreshChangedNote(path: string): Promise<void>;
+  refreshCachedNote(path: string, revision?: string): Promise<void>;
   refreshDescription(): Promise<unknown>;
-  refreshAfterConnectionGap(): Promise<void>;
   setConnectionState: Dispatch<SetStateAction<ConnectionState>>;
   setConnectionIssue: Dispatch<SetStateAction<string | undefined>>;
-  setNotice: (message?: string, tone?: "info" | "success" | "error") => void
+  setNotice: (message?: string, tone?: "info" | "success" | "error") => void;
 }) {
   useEffect(() => {
     if (input.phase !== "ready") return;
-    const controller = new AbortController();
-    let refreshTimer: number | undefined;
-    const changedPaths = new Set<string>();
-    const structuralChanges: CollectionChange[] = [];
-    let filesChanged = false;
-    let typesChanged = false;
-    let indexChanged = false;
-    // One worker for the effect lifetime, not one limiter per debounce batch.
-    // Remove a path before reading so changes during that read enqueue a follow-up.
-    const pendingReads = new Map<string, boolean>();
-    let draining = false;
-    const drainReads = async () => {
-      if (draining || controller.signal.aborted) return;
-      draining = true;
-      try {
-        while (!controller.signal.aborted && pendingReads.size) {
-          const [path, confirmDeletion] = pendingReads.entries().next().value!;
-          pendingReads.delete(path);
-          try {
-            await input.refreshChangedNote(path);
-          } catch (error) {
-            if (controller.signal.aborted) return;
-            if (confirmDeletion) {
-              try {
-                await input.loadIndex();
-              } catch (error) {
-                if (!controller.signal.aborted) input.setConnectionIssue(gatewayError(error));
-              }
-            } else input.setNotice(gatewayError(error));
-          }
-        }
-      } finally {
-        draining = false;
-      }
+    let active = true, timer: ReturnType<typeof setTimeout> | undefined;
+    const paths = new Map<string, string | undefined>();
+    let files = false, description = false;
+    const schedule = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        const report = (error: unknown) => { if (active) input.setNotice(gatewayError(error)); };
+        if (files) { files = false; void input.files.reload().catch(report); }
+        if (description) { description = false; void input.refreshDescription().catch(report); }
+        for (const [path, revision] of paths) void input.refreshCachedNote(path, revision).catch(report);
+        paths.clear();
+      }, 50);
     };
-    const stop = () => {
-      controller.abort();
-      window.clearTimeout(refreshTimer);
-      changedPaths.clear();
-      structuralChanges.length = 0;
-      pendingReads.clear();
-    };
-    const handleChange = (change?: CollectionChange) => {
-      if (controller.signal.aborted) return;
-      if (change && isFileChange(change)) {
-        filesChanged = true;
-        reconcileFileChange(change, input.files, input.assets);
-      } else if (change?.kind === "record.updated") changedPaths.add(change.path);
-      else if (change?.kind === "schema.changed" || change?.kind === "config.changed" || change?.kind === "contract.changed" || change?.kind === "view.changed") {
-        typesChanged = true;
-        indexChanged = true;
-      } else if (change?.kind === "record.created" || change?.kind === "record.deleted" || change?.kind === "record.renamed") structuralChanges.push(change);
-      else {
-        // Unknown events and feed gaps cannot prove which cached model remains valid.
-        typesChanged = true;
-        indexChanged = true;
-        filesChanged = true;
-      }
-
-      window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => {
-        if (controller.signal.aborted) return;
-        const paths = [...changedPaths];
-        changedPaths.clear();
-        const shouldRefreshTypes = typesChanged;
-        typesChanged = false;
-        const currentPaths = new Set(input.index.getSnapshot().notes.map((note) => note.path));
-        const structural = reconcileStructuralChanges(structuralChanges, currentPaths);
-        const shouldRefreshIndex = indexChanged || structural.requiresRefresh;
-        structuralChanges.length = 0;
-        indexChanged = false;
-        const shouldRefreshFiles = filesChanged;
-        filesChanged = false;
-        if (shouldRefreshIndex) void input.loadIndex().catch((error) => {
-          if (!controller.signal.aborted) input.setConnectionIssue(gatewayError(error));
-        });
-        else for (const path of structural.deletedPathsToConfirm) pendingReads.set(path, true);
-        for (const path of paths) pendingReads.set(path, pendingReads.get(path) ?? false);
-        void drainReads();
-        if (shouldRefreshTypes) void input.refreshDescription().catch((error) => {
-          if (!controller.signal.aborted) input.setConnectionIssue(gatewayError(error));
-        });
-        if (shouldRefreshFiles) void input.files.reload().catch(() => undefined);
-      }, 180);
-    };
-    void input.gateway.watch(handleChange, controller.signal, (status) => {
-      if (controller.signal.aborted) return;
+    let lastStatus: unknown;
+    const publishStatus = () => {
+      const status = input.index.getWatchStatus();
+      if (!status || status === lastStatus) return;
+      lastStatus = status;
       if (status.state === "reconnecting") {
-        input.setConnectionState("reconnecting");
-        input.setConnectionIssue(status.problem.message);
+        input.setConnectionState("reconnecting"); input.setConnectionIssue(status.problem.message);
       } else if (status.state === "connected") {
-        input.setConnectionState("connected");
-        input.setConnectionIssue(undefined);
-      } else if (status.state === "reset_required") {
-        stop();
-        void input.refreshAfterConnectionGap();
-      }
-    }).catch((error) => {
-      if (!controller.signal.aborted) {
-        input.setConnectionState("reconnecting");
-        input.setConnectionIssue(gatewayError(error));
-      }
+        input.setConnectionState("connected"); input.setConnectionIssue(undefined);
+      } else if (status.state === "closed" && input.index.getSnapshot().structureError) {
+        input.setConnectionState("stopped"); input.setConnectionIssue(input.index.getSnapshot().structureError);
+      } else if (status.state === "reset_required") { files = description = true; schedule(); }
+    };
+    const statusChanged = input.index.subscribe(publishStatus);
+    publishStatus();
+    const changed = input.index.subscribeChanges(change => {
+      if (isFileChange(change)) { reconcileFileChange(change, input.files, input.assets); files = true; }
+      else if (change.kind === "record.renamed") { paths.set(change.from, undefined); paths.set(change.to, change.revision); }
+      else if (change.kind === "record.created" || change.kind === "record.updated") paths.set(change.path, change.revision);
+      else if (change.kind === "record.deleted") paths.set(change.path, undefined);
+      else { description = true; files = true; }
+      schedule();
     });
-    return stop;
-  }, [input.assets, input.connectionRetry, input.files, input.gateway, input.index, input.loadIndex, input.phase, input.refreshAfterConnectionGap, input.refreshChangedNote, input.refreshDescription, input.setConnectionIssue, input.setConnectionState, input.setNotice]);
+    return () => { active = false; clearTimeout(timer); statusChanged(); changed(); };
+  }, [input.phase, input.index, input.files, input.assets, input.refreshCachedNote, input.refreshDescription, input.setConnectionState, input.setConnectionIssue, input.setNotice]);
 }

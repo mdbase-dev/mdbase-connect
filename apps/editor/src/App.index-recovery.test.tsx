@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
+import type { CollectionChange, WatchStatus } from "@mdbase-dev/connect";
 import type { NoteContentRequest, NoteIndexRequest } from "./model";
 
 vi.mock("./CodeEditor", () => ({
@@ -15,6 +16,28 @@ vi.mock("@tanstack/react-virtual", () => ({
       ({ index, start: index * 76, size: 76 }))
   })
 }));
+
+it("shows a stopped connection and explicit retry after a permanent watch failure", async () => {
+  let rejectWatch!: (error: Error) => void;
+  class FailedWatchGateway extends DemoCollectionGateway {
+    async watch(_onChange: (change?: CollectionChange) => void, signal: AbortSignal, onStatus?: (status: WatchStatus) => void) {
+      onStatus?.({ state: "connected", cursor: 1, recovered: false });
+      await new Promise<void>((resolve, reject) => {
+        rejectWatch = reject;
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    }
+  }
+  const { unmount } = render(<App gateway={new FailedWatchGateway(3)} />);
+  try {
+    await screen.findByRole("textbox", { name: "Note body" });
+    await waitFor(() => expect(rejectWatch).toBeTypeOf("function"));
+    await act(async () => rejectWatch(new Error("Watch access revoked")));
+    expect(await screen.findByRole("status", { name: "Collection stopped" })).toHaveTextContent("Sync stopped");
+    expect(screen.getByRole("button", { name: "Retry connection" })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Collection connected" })).not.toBeInTheDocument();
+  } finally { unmount(); }
+});
 
 it("retries the failed inventory and starts full-text indexing only after all notes load", async () => {
   class InterruptedGateway extends DemoCollectionGateway {

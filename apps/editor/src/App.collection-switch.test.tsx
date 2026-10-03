@@ -57,6 +57,7 @@ class SwitchGateway extends DemoCollectionGateway {
   async describe(): Promise<CollectionDescription> { this.describeCalls += 1; const id = this.current; this.startOwners.push(id); const base = await super.describe(); const names = { a: "Collection A", b: "Collection B", c: "Collection C" }, types = { a: "alpha", b: "bravo", c: "charlie" }; return { ...base, collectionId: id, displayName: names[id], types: base.types.map((type) => ({ ...type, name: types[id] })) }; }
   async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> { const value = this.documents[this.current], { revision: _revision, ...rest } = value, summary = { ...rest, file: { ...value.file, path: value.path } }; options.onProgress?.({ notes: [summary], snapshot: this.current, structureComplete: true, complete: true, contentComplete: true, contentLoaded: 1, total: 1 }); return { notes: [summary], snapshot: this.current }; }
   async hydrateContent(options: NoteIndexRequest = {}) { return this.list(options); }
+  async mostRecentNote() { return this.documents[this.current].path; }
   async read(_path: string) { return structuredClone(this.documents[this.current]); }
   async listFiles(): Promise<CollectionFile[]> { const [file] = await super.listFiles(); return [{ ...file!, path: `${this.current}.txt`, revision: `${this.current}-file` }]; }
   async update(_base: NoteDocument, change: MdbaseRecordChange) { const owner = this.current; this.updateCalls.push(change); this.events.push("update:start"); await this.updateGate.promise; const saved = { ...this.documents[owner], body: change.body ?? this.documents[owner].body, revision: `${owner}-2` }; this.documents[owner] = saved; this.events.push("update:end"); return structuredClone(saved); }
@@ -80,6 +81,7 @@ class EmbedSwitchGateway extends SwitchGateway {
     return { notes: summaries, snapshot: this.current };
   }
   async hydrateContent(options: NoteIndexRequest = {}) { return this.list(options); }
+  async mostRecentNote() { return this.sourcePath; }
   async read(path: string) { if (path === this.targetPath) this.targetReads.push(this.current); return structuredClone(this.ownedDocument(path)); }
 }
 

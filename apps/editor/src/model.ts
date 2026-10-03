@@ -1,7 +1,6 @@
 import type {
   CollectionDescription,
   DescribeOptions,
-  CollectionChange,
   CollectionFileDescriptor,
   CollectionTypeDocument,
   MdbaseFileProgress,
@@ -16,8 +15,7 @@ import type {
   RecordDocument,
   QueryRecord,
   TypePackProvision,
-  TypePackAssessment,
-  WatchStatus
+  TypePackAssessment
 } from "@mdbase-dev/connect";
 
 export type TypePackApplyResult = import("@mdbase-dev/connect").TypePackApplyResult;
@@ -168,8 +166,8 @@ export interface CollectionGateway {
     contract: import("@mdbase-dev/connect").DataContractSelector,
     options?: { signal?: AbortSignal }
   ): Promise<Array<{ path: string; values: import("@mdbase-dev/connect").JsonObject }>>;
-  list(options?: NoteIndexRequest): Promise<NoteIndexResult>;
-  hydrateContent(options?: NoteContentRequest): Promise<NoteIndexResult>;
+  observe(options?: import("@mdbase-dev/connect").ObserveOptions): import("@mdbase-dev/connect").MdbaseQueryObserver<NoteFrontmatter>;
+  mostRecentNote(): Promise<string | undefined>;
   read(path: string): Promise<NoteDocument>;
   listFiles(options?: FileListRequest): Promise<CollectionFile[]>;
   readFile(file: CollectionFile, options?: FileReadRequest): Promise<Blob>;
@@ -197,7 +195,6 @@ export interface CollectionGateway {
     assessment: TypePackAssessment,
     adoptResources?: Record<string, string>,
   ): Promise<TypePackApplyResult>;
-  watch(onChange: (change?: CollectionChange) => void, signal: AbortSignal, onStatus?: (status: WatchStatus) => void): Promise<void>;
 }
 
 export interface CollectionAuthorizationOptions {

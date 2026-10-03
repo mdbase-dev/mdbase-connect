@@ -32,7 +32,8 @@ for (const view of [false, true]) describe(view ? "saved-view paging" : "query p
     expect(calls[0]).toMatchObject({ limit: 2, offset: 0 });
     expect(calls[1]).toHaveProperty("cursor", "next");
     expect(calls[1]).not.toHaveProperty("limit");
-    expect(release).toHaveBeenCalledExactlyOnceWith("next");
+    // The terminal success consumed "next"; there is no lease left to release.
+    expect(release).not.toHaveBeenCalled();
   });
 
   it("releases a paused cursor promptly on abort, without next/return, exactly once", async () => {

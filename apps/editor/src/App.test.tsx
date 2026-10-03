@@ -236,7 +236,7 @@ describe("mdbase editor", () => {
     const diff = screen.getByRole("table", { name: "Body differences" });
     expect(within(diff).getByText(/A local sentence/)).toBeInTheDocument();
     expect(within(diff).getByText("The remote version is current.")).toBeInTheDocument();
-    expect(screen.getByText("Changed on another device")).toBeInTheDocument();
+    expect(screen.getAllByText("Changed on another device")).toHaveLength(2); // remote index title and conflict preview
     await new Promise((resolve) => setTimeout(resolve, 750));
     expect(gateway.updateCalls).toBe(0);
 
@@ -527,7 +527,7 @@ describe("mdbase editor", () => {
     expect(within(folderNavigation).getByLabelText("3 notes in Notes")).toHaveTextContent("3");
 
     await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "Record 3 remains");
-    expect(await screen.findByText("Searching")).toBeInTheDocument();
+    expect(await screen.findByText(/searching 0 of 12/)).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
     gateway.releaseContent();
     expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
@@ -584,7 +584,7 @@ describe("mdbase editor", () => {
     expect(gateway.hydrateCalls).toBe(2);
   });
 
-  it("uses the create response without re-listing or re-reading the new note", async () => {
+  it("uses the create response for editing and targeted reconciliation without re-listing", async () => {
     const gateway = new CountingGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
@@ -601,7 +601,10 @@ describe("mdbase editor", () => {
     expect(gateway.createCalls).toBe(1);
     await new Promise((resolve) => setTimeout(resolve, 250));
     expect(gateway.listCalls).toBe(listCalls);
-    expect(gateway.readCalls).toBe(readCalls);
+    // The legacy demo authority emulates the scoped membership query with one
+    // point lookup. This is not another editing-session refresh; qualified real
+    // authorities use metadata and avoid the document reread (SDK regression test).
+    expect(gateway.readCalls).toBe(readCalls + 1);
 
     await user.click(screen.getByRole("button", { name: "Fast note.md" }));
     const path = screen.getByRole("textbox", { name: "Markdown path" });
@@ -1232,11 +1235,15 @@ describe("mdbase editor", () => {
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("The note index could not be read.");
+    const retry = await screen.findByRole("button", { name: "Retry notes" });
+    expect(retry).toHaveAttribute("title", "The note index could not be read.");
+    expect(await screen.findByRole("status", { name: "Collection stopped" })).toHaveTextContent("Sync stopped");
     expect(gateway.hydrateCalls).toBe(0);
-    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await user.click(retry);
     expect(await screen.findByRole("textbox", { name: "Note title" })).toBeInTheDocument();
-    expect(gateway.listCalls).toBe(2);
+    await waitFor(() => expect(gateway.listCalls).toBe(2));
+    await screen.findByRole("status", { name: "Collection connected" });
+    expect(screen.queryByRole("button", { name: "Retry notes" })).not.toBeInTheDocument();
   });
 });
 
@@ -1509,6 +1516,7 @@ class SlowDescriptionGateway extends DemoCollectionGateway {
 class ProgressiveListGateway extends DemoCollectionGateway {
   private releaseStructurePage?: () => void;
   private releaseContentPage?: () => void;
+  private content: NoteSummary[] = [];
   listCalls = 0;
 
   override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
@@ -1519,11 +1527,16 @@ class ProgressiveListGateway extends DemoCollectionGateway {
     options.onProgress?.({ notes: structure.slice(0, 1), snapshot: result.snapshot, structureComplete: false, complete: false, total: notes.length });
     await new Promise<void>((resolve) => { this.releaseStructurePage = resolve; });
     options.signal?.throwIfAborted();
-    options.onProgress?.({ notes: structure, snapshot: result.snapshot, structureComplete: true, complete: false, total: notes.length });
+    this.content = notes;
+    options.onProgress?.({ notes: structure, snapshot: result.snapshot, structureComplete: true, complete: true, total: notes.length });
+    return { notes: structure, snapshot: result.snapshot };
+  }
+
+  override async hydrateContent(options: NoteContentRequest = {}): Promise<NoteIndexResult> {
+    options.onProgress?.({ notes: [], structureComplete: true, complete: false, total: this.content.length });
     await new Promise<void>((resolve) => { this.releaseContentPage = resolve; });
     options.signal?.throwIfAborted();
-    options.onProgress?.({ notes, snapshot: result.snapshot, structureComplete: true, complete: true, total: notes.length });
-    return { notes, snapshot: result.snapshot };
+    return { notes: this.content };
   }
 
   releaseStructure() {
@@ -1562,7 +1575,7 @@ class CountingGateway extends DemoCollectionGateway {
     const created = await super.create(input);
     this.listener?.(normalizeCollectionChange({
       cursor: 1, type: "mdbase.record.created", occurred_at: new Date().toISOString(),
-      payload: { path: created.path, types: created.types }
+      payload: { path: created.path, types: created.types, revision: created.revision }
     }));
     return created;
   }

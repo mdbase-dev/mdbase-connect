@@ -56,7 +56,8 @@
   text-decoration: underline;
 }
 
-.status-dot.reconnecting {
+.status-dot.reconnecting,
+.status-dot.stopped {
   background: var(--color-warning-text, oklch(43% 0.055 69));
 }
 

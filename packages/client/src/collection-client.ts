@@ -27,6 +27,7 @@ import { invalidatesDescription, normalizeChangesPage } from "./change-events.js
 import { CollectionDescriptionCache } from "./description-cache.js";
 import { coordinatedQueryPages } from "./query-pagination.js";
 import { readMany as readManyRecords } from "./read-many.js";
+import { MdbaseQueryObserver, type ObserveOptions } from "./observe.js";
 import { wireDataContractIdentity, wireQueryInput, wireQueryRecord, wireQueryResult, type WireQueryResult } from "./query-wire.js";
 import { coordinatedSavedViewPages } from "./saved-view-pagination.js";
 import {
@@ -186,6 +187,10 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
       ),
       this.supportsAuthorityFeature, paths, options, this.requestTimeoutMs
     );
+  }
+
+  observe(query: QueryInput = {}, options: ObserveOptions = {}): MdbaseQueryObserver<Frontmatter> {
+    return new MdbaseQueryObserver(this, query, options, this.supportsAuthorityFeature);
   }
 
   query(input: QueryMetadataInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<QueryMetadataResult, CollectionQueryProblemCode>>;

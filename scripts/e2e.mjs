@@ -1094,6 +1094,43 @@ implements:
         || batch.results[1].status !== "missing" || batch.results[2] !== item || connection.route !== route) {
         throw new Error(`SDK native metadata/document coherence failed on ${route}`);
       }
+      const observed = connection.observe({
+        where: `file.path == ${JSON.stringify(batchPath)}`, includeBody: true, frontmatterMode: "both"
+      }, { invalidation: "paths", firstPageSize: 1 });
+      try {
+        requireConnectSuccess(await observed.ready);
+        const snapshot = observed.getSnapshot();
+        if (snapshot.state !== "ready" || snapshot.records.length !== 1
+          || snapshot.records[0].revision !== row.revision || snapshot.records[0].body !== item.record.body
+          || !Object.isFrozen(snapshot.records[0].frontmatter)
+          || !["tags", "links", "embeds"].every(field => Array.isArray(snapshot.records[0].file[field]))
+          || connection.route !== route) {
+          throw new Error(`SDK observe native membership/document load failed on ${route}`);
+        }
+        requireConnectSuccess(await observed.refresh());
+        if (observed.getSnapshot().generation !== 2) throw new Error("SDK observe did not reconcile its generation");
+        // Exercise the native targeted confirmation path, including scalar file
+        // facts, not just full-row scans. The supplied row is already authoritative.
+        let timeout, unsubscribe;
+        try {
+          const confirmation = new Promise((resolve, reject) => {
+            timeout = setTimeout(() => reject(new Error(`SDK observe confirmation timed out on ${route}`)), 5_000);
+            unsubscribe = observed.subscribe((snapshot, delta) => {
+              if (snapshot.state === "error") reject(new Error(snapshot.problem.message));
+              else if (delta.reason === "changes") resolve(snapshot);
+            });
+          });
+          observed.optimistic(observed.getSnapshot().records).commit();
+          const confirmed = await confirmation;
+          if (confirmed.records[0].revision !== row.revision || confirmed.records[0].body !== item.record.body
+            || confirmed.records[0].file.path !== batchPath
+            || !["name", "folder", "size", "mtime", "ctime", "tags", "links", "embeds"].every(field => field in confirmed.records[0].file)) {
+            throw new Error(`SDK observe native confirmation lost record/file facts on ${route}`);
+          }
+        } finally { clearTimeout(timeout); unsubscribe?.(); }
+      } finally {
+        observed.close();
+      }
     }
   } finally {
     globalThis.fetch = browserFetch;

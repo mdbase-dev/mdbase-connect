@@ -3,7 +3,7 @@ import type { ContractCatalog } from "./contract-catalog";
 export type AppPhase = "starting" | "disconnected" | "loading" | "ready";
 export type MobilePane = "collections" | "notes" | "editor";
 export type Surface = "notes" | "types" | "settings";
-export type ConnectionState = "connected" | "reconnecting";
+export type ConnectionState = "connected" | "reconnecting" | "stopped";
 export type ContractCatalogLoadState =
   | { status: "idle" | "loading" }
   | { status: "ready"; catalog: ContractCatalog }

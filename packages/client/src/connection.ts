@@ -229,6 +229,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   readonly records: MdbaseRecords<Frontmatter>;
   readonly people: MdbasePeopleClient;
   readonly readMany: MdbaseCollectionClient<Frontmatter>["readMany"];
+  readonly observe: MdbaseCollectionClient<Frontmatter>["observe"];
   private readonly connectionListeners = new Set<(connection: MdbaseConnectionInfo | null) => void>();
 
   constructor(
@@ -309,6 +310,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     }, internals.timeouts.requestMs), internals.timeouts.requestMs,
       (id, options) => this.supportsAuthorityFeature(id, options));
     this.readMany = this.collectionClient.readMany.bind(this.collectionClient);
+    this.observe = this.collectionClient.observe.bind(this.collectionClient);
     this.notifications = new ConnectionNotifications({
       serverUrl: internals.serverUrl,
       storage: internals.storage,
