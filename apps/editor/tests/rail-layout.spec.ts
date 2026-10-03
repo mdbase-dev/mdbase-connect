@@ -5,6 +5,8 @@ for (const width of [1440, 360, 390]) {
     await page.setViewportSize({ width, height: 640 });
     await page.goto("?demo=12");
     await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
+    // The lazily mounted note editor takes focus once (see feedback.spec.ts); settle it before driving rail focus.
+    if (width > 760) await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeFocused();
     if (width <= 760) {
       await page.getByRole("button", { name: "Back to notes", exact: true }).click();
       await page.getByRole("button", { name: "Collections", exact: true }).click();
