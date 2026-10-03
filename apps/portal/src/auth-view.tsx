@@ -159,7 +159,7 @@ export function Login() {
         {error && <div className="message error" role="alert">{error}</div>}
         <AuthInput label="Name" autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />
         <AuthInput label="Email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
-        <button className="mdbase-button is-primary" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        <button className="mdbase-button is-primary" type="submit" disabled={busy}>Continue</button>
       </form>
     </MinimalAuthPage>
   );
