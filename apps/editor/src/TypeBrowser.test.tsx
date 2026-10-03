@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContractCatalog } from "./contract-catalog";
 import type { NoteSummary, TypeDocument } from "./model";
 import { TypeInspector, TypePackBrowser } from "./TypeBrowser";
-import { NEW_TYPE_SOURCE } from "./type-constants";
+import { NEW_TYPE_SOURCE } from "./type-presentation";
 import { readVisualType } from "./type-schema";
 import { chooseOption, optionsOf } from "./test/select";
 

@@ -26,6 +26,7 @@ import { ComboboxInput } from "./SelectionControls";
 import { SaveNotice } from "@mdbase-dev/ui/save-notice";
 import { PathLabel } from "./WorkspaceChrome";
 import { useDelayedBusy } from "./use-delayed-busy";
+import { kindLabel, kindName } from "./type-presentation";
 import { Select, type SelectItems, type SelectOption } from "@mdbase-dev/ui/select";
 import {
   contractCatalogPackStatus,
@@ -1948,26 +1949,6 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
     <details><summary>Review YAML diff</summary><div className="line-diff" role="table" aria-label="Type source differences">{diff.map((line, index) => <div className={`diff-line ${line.kind}`} role="row" key={`${line.kind}:${index}`}><span className="diff-marker" aria-hidden="true">{line.kind === "local" ? "−" : line.kind === "remote" ? "+" : line.kind === "omitted" ? "···" : " "}</span><span className="diff-line-number" aria-hidden="true">{line.localLine ?? line.remoteLine ?? ""}</span><code role="cell">{line.text || " "}</code></div>)}</div></details>
     <div className="type-review-actions"><button className="mdbase-button is-tertiary" onClick={onBack}>Back to editing</button><button className="confirm-type-button mdbase-button is-primary" disabled={saving} onClick={onConfirm}>{saving ? "Saving…" : creating ? "Create type" : "Confirm update"}</button></div>
   </div>;
-}
-
-function kindLabel(kind: Exclude<TypeFieldKind, "advanced">): string {
-  const labels: Record<Exclude<TypeFieldKind, "advanced">, string> = {
-    string: "text",
-    number: "number",
-    integer: "integer",
-    boolean: "checkbox",
-    array: "a list",
-    object: "an object",
-    date: "a date",
-    datetime: "a date and time"
-  };
-  return labels[kind];
-}
-
-function kindName(kind: TypeFieldKind): string {
-  if (kind === "advanced") return "Advanced";
-  const label = kindLabel(kind);
-  return `${label.charAt(0).toLocaleUpperCase()}${label.slice(1)}`;
 }
 
 function formatList(values: string[]): string {

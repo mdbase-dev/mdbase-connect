@@ -152,7 +152,8 @@ outside it:
   Property Undo checks the written revision, not a freshly fetched revision, so
   it cannot overwrite later changes;
 - `TypeBrowser.tsx`, `PropertiesPanel.tsx`, and `NewNoteComposer.tsx` own their
-  feature workspaces;
+  feature workspaces. `type-presentation.ts` supplies the initial Type draft and
+  readable field-kind labels without moving UI copy into schema mutation policy;
 - `Brand.tsx` and the dialog/menu components are reusable presentation.
 
 Heavy editor and type workspaces are lazy-loaded. The metadata-icon glyph CSS

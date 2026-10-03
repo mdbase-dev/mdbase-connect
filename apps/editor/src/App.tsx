@@ -112,7 +112,7 @@ import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 import { SettingsView } from "./SettingsView";
 import { buildToastItems, ToastStack, type ToastTone } from "./Toasts";
-import { NEW_TYPE_SOURCE } from "./type-constants";
+import { NEW_TYPE_SOURCE } from "./type-presentation";
 import { useCollectionIndex } from "./use-collection-index";
 import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
 import { useCollectionWatch } from "./use-collection-watch";
