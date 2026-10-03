@@ -269,28 +269,41 @@ async fn projection_is_current(fixture: &FileLifecycleFixture) -> bool {
 }
 
 async fn complete_projection(fixture: &FileLifecycleFixture) {
-    let generation = fixture
-        .provider
-        .start_projection_generation(fixture.collection_id)
-        .await
-        .unwrap();
-    for _ in 0..64 {
-        let batch = match fixture
+    // Type-pack installation also schedules recovery, and its projection worker
+    // races this driver: it may supersede or lease the generation started here.
+    // As the provider's own bootstrap does, treat that as a hand-off: accept the
+    // projection the worker made current, or start a fresh generation.
+    for _ in 0..8 {
+        let generation = fixture
             .provider
-            .advance_projection_generation(fixture.collection_id, generation.generation_id)
+            .start_projection_generation(fixture.collection_id)
             .await
-        {
-            Ok(batch) => batch,
-            // Type-pack installation also schedules recovery. Its projection
-            // worker can race this driver; retry only the declared DB conflict.
-            Err(error) if error.code == "provider_database_retryable" => {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                continue;
+            .unwrap();
+        for _ in 0..64 {
+            match fixture
+                .provider
+                .advance_projection_generation(fixture.collection_id, generation.generation_id)
+                .await
+            {
+                Ok(batch) if batch.generation.status == "complete" => return,
+                Ok(_) => {}
+                Err(error) if error.code == "provider_database_retryable" => {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                Err(error)
+                    if matches!(
+                        error.code.as_str(),
+                        "projection_lease_unavailable" | "projection_generation_not_building"
+                    ) =>
+                {
+                    if projection_is_current(fixture).await {
+                        return;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    break;
+                }
+                Err(error) => panic!("projection advance failed: {error:?}"),
             }
-            Err(error) => panic!("projection advance failed: {error:?}"),
-        };
-        if batch.generation.status == "complete" {
-            return;
         }
     }
     panic!("the projection generation did not complete");

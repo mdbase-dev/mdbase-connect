@@ -11,7 +11,7 @@
     "check:csp": "node scripts/check-csp.mjs",
     "check:styles": "node scripts/check-style-tokens.mjs",
     "typecheck": "tsc -b --pretty false",
-    "test": "pnpm check:styles && node --test scripts/write-manifest.test.mjs scripts/check-style-tokens.test.mjs && vitest run",
+    "test": "pnpm check:styles && node --test scripts/write-manifest.test.mjs scripts/check-style-tokens.test.mjs && node ../../scripts/ci/vitest.mjs",
     "test:deployment": "node --test scripts/verify-deployment-manifest.test.mjs",
     "test:e2e": "playwright test",
     "preview": "vite preview --host 127.0.0.1",

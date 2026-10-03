@@ -40,7 +40,7 @@ test("same-configuration Rust checks run once and remain required for qualificat
   const server = workflow("server-ci");
   const rust = server.split("  hosted-provider-rust:\n")[1].split("  binary-transfer-benchmark:\n")[0];
   const shards = server.split("  hosted-provider-system:\n")[1].split("  qualification:\n")[0];
-  for (const command of ["cargo fmt --all --check", "scripts/check-cargo-features", "cargo clippy --locked --workspace --all-targets -- -D warnings", "cargo test --locked --workspace"]) {
+  for (const command of ["cargo fmt --all --check", "scripts/check-cargo-features", "cargo clippy --locked --workspace --all-targets -- -D warnings", "node scripts/ci/cargo-test.mjs --locked --workspace"]) {
     assert.ok(rust.includes(command), command);
     assert.ok(!shards.includes(command), command);
   }

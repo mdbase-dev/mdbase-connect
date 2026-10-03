@@ -99,3 +99,12 @@ use either the argument or its environment variable, never both. A scheduler
 should retain only the one-line JSON result. Exit `0` is operational, `1` is a
 probe failure, and `2` is invalid or unsafe configuration. Re-enrollment is a
 manual keyring-backed action, not part of the scheduled probe.
+
+Failed CLI commands retain only a fixed allowlisted error code from the CLI's
+JSON stderr (for example `daemon_unavailable`, `hosted_http_error`, or
+`authorization_changed`). Process failures are classified as `timeout`,
+`output_limit`, `cli_unavailable`, or `cli_signaled`; unrecognized errors remain
+`cli_failed`. No message, arbitrary code, response body, credential, or path is
+reflected. These codes narrow diagnosis, not root cause: `hosted_http_error`, for
+example, does not identify the HTTP status. Keep both the installed CLI and the
+canary script current; copying a new script does not upgrade the daemon.

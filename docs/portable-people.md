@@ -253,24 +253,35 @@ user profile. Follow the LAB skill before starting a daemon or browser test.
 ### Guided setup when Person definitions are missing
 
 Settings offers **Set up person records** in place. It assesses a bundled,
-SHA-256-pinned copy of canonical `mdbase.contact` 1.2.0 (the People
+SHA-256-pinned copy of canonical `mdbase.contact` 1.3.0 (the People
 pack), shows definition paths and the setup receipt, and writes only after
 **Add definitions and continue**. Catalog availability is not a prerequisite.
-The bundle is byte-identical to `mdbase-contracts/dist/packs/mdbase.contact/1.2.0.json`
-on the contracts `feature/portable-people` branch; updating it requires updating the pinned digest and
-contract references together. This does not publish a public catalog entry.
+The bundle is byte-identical to `mdbase-contracts/dist/packs/mdbase.contact/1.3.0.json`;
+updating it requires updating the pinned digest and contract references
+together. This does not publish a public catalog entry.
 
-Fresh setup adds only the Person v2 type, implementing both contracts with
-optional contact details. Every field, including nested account identity fields,
-has usage guidance; the type body explains links, names, contact details,
-privacy, account associations and collection-owned customisations. These are
+Fresh setup adds only the Person v3 type, implementing both contracts with
+optional contact details. Person v3 neither declares nor requires `type`, so it
+validates in collections whose `settings.explicit_type_keys` record the type
+under another key (such as `[mdbase_type]`); it carries `upgrade_from` the exact
+Person v2 seed from 1.2.0. When a Person implementation is the earlier
+starter at `_types/person.md` (type version below 3) and the user can manage
+types, Settings offers **Review Person type update**. The same review then names
+the upgraded type, says whether it is replaced (unedited seed) or merged with
+the collection's edits (clean three-way merge), and writes only after **Update
+definitions and continue**, with the reviewed assessment digest.
+Every field, including nested account identity fields, has usage guidance; the
+type body explains links, names, contact details, privacy, account associations
+and collection-owned customisations. These are
 documentation improvements, not validation or contract changes. Existing Contact
 and Person types/notes remain untouched; old pack artifacts retain their exact
 bytes. A redundant type chooser is hidden when only one compatible type exists.
 
-The guided flow permits additions, preservation of existing seeds, and ownership
-of identical existing bytes only. Conflicts, replacements, deletions, or an
-incompatible existing Person seed stop for review in Types. Assessment/apply
+The guided flow permits additions, preservation of existing seeds, ownership of
+identical existing bytes, and the upgrade of a seed type whose installed digest
+is the provision's declared `upgrade_from` baseline. Conflicts, downgrades,
+deletions, managed-resource updates, any other seed update, or an incompatible
+existing Person seed stop for review in Types. Assessment/apply
 reuse the existing atomic, digest-guarded engine path, with no auto-adoption of
 changed files, record migration, permission changes, or automatic retry.
 After approval the collection description refreshes and creation opens directly.

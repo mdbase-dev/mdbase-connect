@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+<!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
+
+## 0.1.0-beta.124
+
 - Migration note for SDK consumers: the client's `queryPages` gains an overload
   for `output: "metadata"` rows. Test doubles that implement the connection's
   `queryPages` structurally must accept the metadata overload (TypeScript
@@ -470,8 +474,6 @@ editor authorization redirects.
   finalization is bounded to resident enabled collections.
 - Editor authorization now preserves valid same-origin return targets and uses
   the correct production editor fallback.
-
-## Unreleased
 
 ## 0.1.0-beta.86
 

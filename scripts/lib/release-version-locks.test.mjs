@@ -1,18 +1,16 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import test from 'node:test';
+import { packagePaths, lockPaths } from './release-version.mjs';
 
 const exec = promisify(execFile);
 const checker = fileURLToPath(new URL('../check-release-version.mjs', import.meta.url));
-const source = await readFile(checker, 'utf8');
-const packagePaths = JSON.parse(source.match(/const packagePaths = (\[[\s\S]*?\]);/)[1]);
 const version = '0.1.0-beta.96';
-const lockPaths = ['Cargo.lock', 'deploy/docker/Cargo.lock.hosted-provider'];
 const lock = (value) => `[[package]]\nname = "mdbase-connect-hosted-provider"\nversion = "${value}"\n\n[[package]]\nname = "unrelated-library"\nversion = "1.2.3"\n`;
 
 async function fixture(run) {

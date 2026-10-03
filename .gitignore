@@ -4,6 +4,7 @@
 **/.vite/
 **/out/
 /.tmp/
+/.ci-flakes/
 /.ops/
 /.env
 /.env.*

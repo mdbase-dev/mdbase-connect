@@ -6,7 +6,7 @@
   },
   "productionFileBudgetsByPackage": {
     "apps/desktop": 46,
-    "apps/editor": 112,
+    "apps/editor": 109,
     "apps/portal": 16,
     "crates/connect-agent": 37,
     "crates/connect-cli": 8,
@@ -23,7 +23,7 @@
     "packages/management": 1,
     "packages/pickle": 2,
     "packages/protocol": 15,
-    "packages/sync": 48,
+    "packages/sync": 47,
     "packages/testing": 3,
     "packages/ui": 3,
     "packages/webhooks": 1,
@@ -48,7 +48,7 @@
     "relativeImports": 1630,
     "workspacePackages": 25,
     "rustPublicDeclarations": 3368,
-    "typeScriptExportDeclarations": 2690,
+    "typeScriptExportDeclarations": 2691,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }

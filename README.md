@@ -197,6 +197,9 @@ SDK, managed-service control plane and relay, hosted collection provider, MCP
 gateway, and shared protocols. These products release independently even
 though they share one workspace and lockfile.
 
+See [Contributing](CONTRIBUTING.md) for change fragments, architecture-growth
+review, generated-file rebases, and automated beta version preparation.
+
 Development requires a Rust toolchain, Node.js 24 LTS, and pnpm 11.15.1.
 
 ```bash
@@ -211,6 +214,9 @@ The private `mdbase-connect-testbed-adapter` crate drives the production
 notification catalog, authorization hook, action provider, runtime, and store
 through the spec-owned `runtime.application-execution` black-box scenario. It
 is verification plumbing only and is never published as a Connect API.
+
+See the [CI flake policy](docs/ci-flakes.md) for bounded, recorded per-test
+retries and the retry-free nightly stress workflow.
 
 The end-to-end suites cover local authorization, the encrypted relay, hosted
 replication, and the production hosted provider:

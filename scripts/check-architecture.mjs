@@ -2,7 +2,12 @@
 
 import { checkArchitecture } from "./lib/architecture-check.mjs";
 
-const result = await checkArchitecture(process.cwd());
+import { architectureBase, checkArchitectureGrowth } from "./lib/architecture-growth.mjs";
+
+const root = process.cwd();
+const result = process.argv.includes("--absolute")
+  ? await checkArchitecture(root)
+  : await checkArchitectureGrowth(root, architectureBase(root));
 for (const failure of result.failures) console.error(`- ${failure}`);
 if (result.failures.length > 0) {
   process.exitCode = 1;
