@@ -11,6 +11,29 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT_BYTES = 256 * 1024;
 const REQUIRED_OPERATIONS = ["describe", "read"];
+// Only repository-owned CLI/daemon codes may cross the canary boundary. Never
+// reflect error messages, provider bodies, identifiers, or arbitrary code tokens.
+const CLI_ERROR_CODES = new Set([
+  "daemon_unavailable", "internal_error", "invalid_arguments", "invalid_input",
+  "unsupported_cli_operation", "request_failed", "hosted_http_error",
+  "invalid_hosted_response", "hosted_response_too_large", "invalid_operation_response",
+  "connection_expired", "authorization_changed", "authorization_binding_mismatch",
+  "invalid_token_response", "unauthorized"
+]);
+
+function cliFailureCode(error) {
+  if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return "output_limit";
+  if (error?.killed || error?.code === "ETIMEDOUT") return "timeout";
+  if (error?.code === "ENOENT" || error?.code === "EACCES") return "cli_unavailable";
+  if (error?.signal) return "cli_signaled";
+  try {
+    const code = JSON.parse(error?.stderr)?.error?.code;
+    if (CLI_ERROR_CODES.has(code)) return code;
+  } catch {
+    // Non-JSON stderr is deliberately discarded, not searched for messages.
+  }
+  return "cli_failed";
+}
 const CLI_APPLICATION_MANIFEST = {
   manifest_version: 1,
   distribution: "portable",
@@ -220,11 +243,7 @@ export async function runCanary(
         return parseJson(stdout, stage);
       } catch (error) {
         if (error instanceof CanaryError) throw error;
-        if (error?.killed || error?.code === "ETIMEDOUT") throw new CanaryError(stage, "timeout");
-        if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-          throw new CanaryError(stage, "output_limit");
-        }
-        throw new CanaryError(stage, "cli_failed");
+        throw new CanaryError(stage, cliFailureCode(error));
       }
     };
     await runStage("registration", async () => {

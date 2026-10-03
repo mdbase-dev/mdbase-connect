@@ -10,6 +10,9 @@
     "build": "pnpm -r build",
     "build:packages": "pnpm --filter \"./packages/**\" -r --if-present build",
     "check:architecture": "node scripts/check-architecture.mjs",
+    "check:changelog": "node scripts/check-changelog.mjs",
+    "generate:public-api": "node packages/client/scripts/check-public-api.mjs --write",
+    "check:generated": "node packages/client/scripts/check-public-api.mjs && pnpm check:changes && pnpm check:problems && pnpm check:operations && pnpm check:capabilities",
     "check:cargo-features": "scripts/check-cargo-features",
     "check:npm-bootstrap": "node scripts/check-npm-package-bootstrap.mjs",
     "check:mdbase-rs-pin": "node scripts/mdbase-rs-pin.mjs check-main",
@@ -86,6 +89,7 @@
     "ci:local": "node scripts/ci-local.mjs",
     "pin:mdbase-rs": "node scripts/mdbase-rs-pin.mjs set",
     "version:check": "node scripts/check-release-version.mjs",
+    "version:set": "node scripts/set-release-version.mjs",
     "generate:icons": "node scripts/write-brand-icons.mjs"
   },
   "devDependencies": {

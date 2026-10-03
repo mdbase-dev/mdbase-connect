@@ -2,37 +2,9 @@
 
 ## Unreleased
 
-- Pin mdbase-rs 056db73 (callumalpass/mdbase-rs#108): engines plan seed upgrades
-  from any listed baseline chosen by the lock's `origin_digest`, and report
-  `upgrade_baseline`, which Editor's guided setup relies on.
-- Seed type upgrades follow mdbase-spec 05A's upgrade baselines
-  (mdbase-dev/mdbase-spec#59). A type pack's seed `upgrade_from` may now be one
-  baseline or a non-empty list of `{ digest, document, version? }`; manifest
-  validation (`validateAppManifest`, and the new `validateTypePackProvision`
-  in `@mdbase-dev/connect-protocol/manifest`) rejects baselines on non-seed
-  types, digest mismatches, duplicates, the resource's own digest, a different
-  type kind or name, and a `version` the document does not declare, at the
-  offending baseline's path. The single-object form is unchanged. The SDK's
-  type-pack assessments add `upgradeBaseline` to seed updates, and receipts add
-  `originDigest`. The devkit's `defineTypePack` accepts
-  `upgradeFrom: [{ document, version? }]` on seed types. The editor's guided
-  Person setup accepts a starter upgrade only when the engine reports a
-  baseline the bundled pack declares, and says **Person type kept as it is**
-  when the engine preserves the type with a reason instead of offering the
-  update again. Lists take effect once the engines implementing 05A are pinned;
-  earlier engines reject them.
+<!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
-- The editor's guided person setup installs `mdbase.contact` 1.3.0, whose
-  Person v3 starter neither declares nor requires `type`. People created in
-  collections whose `settings.explicit_type_keys` is not `[type]` (such as
-  `[mdbase_type]`) no longer fail validation with `schema_required: type`.
-  Person v3 carries `upgrade_from` the 1.2.0 Person v2 seed. When a collection
-  has that earlier starter, Settings now offers **Review Person type update**:
-  the guided review names the upgraded type, says whether collection edits are
-  kept by a clean merge, and applies only the reviewed assessment digest.
-  Conflicts, deletions, downgrades, managed-resource updates and seed updates
-  without a matching `upgrade_from` still stop for review in Types. No API
-  changes.
+## 0.1.0-beta.124
 
 - Migration note for SDK consumers: the client's `queryPages` gains an overload
   for `output: "metadata"` rows. Test doubles that implement the connection's
@@ -502,8 +474,6 @@ editor authorization redirects.
   finalization is bounded to resident enabled collections.
 - Editor authorization now preserves valid same-origin return targets and uses
   the correct production editor fallback.
-
-## Unreleased
 
 ## 0.1.0-beta.86
 

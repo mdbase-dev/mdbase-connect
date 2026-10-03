@@ -22,6 +22,12 @@ Production modules are capped at 1,000 lines by `pnpm check:architecture` and
 should usually be 100–600 lines. Crossing the normal range is a design prompt,
 not an invitation to move unrelated functions into another large file.
 
+Package and public-surface growth is checked against the PR/merge-group merge
+base, not shared absolute counters. Reduce growth or add a quantified, justified
+`architecture.d/<pr-or-slug>.json`; release prep refreshes the absolute snapshot.
+See [Contributing](../CONTRIBUTING.md) for counter names and examples. A growth
+declaration cannot waive file-size, cycle, dead-code, or semantic hard gates.
+
 ## Preserve dependency direction
 
 Transport adapters validate and translate. Application use cases coordinate.

@@ -10,6 +10,15 @@ published desktop build. Production and managed test deployments promote the
 signed server image digests built from the exact tag commit and never build
 from a tag, release branch, or Render.
 
+## Prepare release metadata
+
+Use a clean release-prep branch and run `pnpm version:set 0.1.0-beta.N --dry-run`,
+then the same command without `--dry-run`. This updates the release cohort's 19
+version files, assembles `changelog.d` into a versioned changelog section, refreshes
+architecture counters, and consumes changelog/growth fragments. It performs no
+Git or deployment actions. See [Contributing](../CONTRIBUTING.md) for formats and
+conflict-resolution guidance. Do not hand-edit beta versions or shared counters.
+
 ## Local package verification
 
 From the repository root:
@@ -19,7 +28,9 @@ pnpm install --frozen-lockfile
 pnpm version:check
 pnpm check:release-readiness
 pnpm audit:dependencies
-pnpm check:architecture
+pnpm check:changelog
+pnpm check:generated
+pnpm check:architecture --absolute
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
