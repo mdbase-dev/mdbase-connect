@@ -1,3 +1,4 @@
+export { MdbaseQueryObserver, type ObserveOptions, type ObserveSnapshot, type ObserveDelta, type ObserveOverlay } from "./observe.js";
 export { normalizeCollectionChange } from "./change-events.js";
 export {
   MdbaseApplicationSession,
