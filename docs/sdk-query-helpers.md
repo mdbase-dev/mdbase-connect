@@ -60,11 +60,21 @@ fallback is unchanged; explicit cursor requests stay strict.
 
 Available on both `MdbaseConnection<Frontmatter>` and
 `MdbaseCollectionClient<Frontmatter>` (`/advanced`), with the same signature and
-query-shaped result on both paths. It discovers `read-many-documents-v1` through
+query-shaped result on both paths. By default it discovers `read-many-documents-v1` through
 B1's connection-owned helper. Advertised producers receive bounded `read` requests
 with `paths`; unsupported producers receive only the original escaped
 `file.path in [...]` queries. No errors or query revision fields are support probes.
 There is no document/contract/exact-source overload in this signature.
+
+For read-only hydration, use `readMany(paths, { revisions: false, includeBody: true,
+types: ["annotation"] })`. This skips document-feature discovery, preselection and
+document reads even on upgraded authorities. Each batch is one escaped typed path
+query (plus cursor continuations if the authority caps pages). Only `query` approval
+is required. The default batch size is the query page ceiling, 1,000 paths; choose
+`batchSize: 500` for a smaller payload. Ordering, duplicate identity, missing entries,
+batch failures and the total cancellation budget are unchanged. Query rows may
+still contain an authority revision, but this mode promises none: do not use it to
+establish revision-safe write state.
 
 Qualified document reads require existing `read` approval. If `types` is supplied,
 query preselection evaluates membership on the authority before reading matching
@@ -115,7 +125,7 @@ Contract:
   can contain errors; callers must check them. Admission discovery failures stay
   outer failures; discovery failure after selection is a batch failure. Neither
   is evidence for a legacy fallback.
-- `batchSize` defaults to 100 (valid range 1..1000); qualified document reads cap
+- `batchSize` defaults to 100, or 1,000 with `revisions:false` (valid range 1..1000); qualified document reads cap
   each request at the wire maximum of 100. `concurrency` defaults to 4 (1..4).
   Only independent batches overlap; query cursors remain serial. Support is
   rechecked from connection-lifetime evidence at every admission, including
@@ -129,6 +139,13 @@ Contract:
   combined in batch order; failed batch diagnostics stay on their failure.
 - Independent batches are **not** one atomic collection snapshot. Concurrent
   edits can be observed at different generations across batches.
+
+**Read-only migration:** Writer can replace its hand-written 500-path body queries
+(commit `7e95c9b`, `apps/writer/src/backend`) with `readMany(paths, { revisions: false,
+includeBody: true, types, batchSize: 500 })`, checking both the outer outcome and
+batch errors. A 300-path typed hydration fits one query instead of three 100-path
+selection queries plus three document reads. This is an explicit read-only choice,
+not an old-authority fallback; editing callers should retain the default.
 
 **Migration:** `ReadManyRecord.revision?: string` remains optional because the
 same signature must work with late-updated connectors. Qualified batches always

@@ -322,6 +322,11 @@ describe("mdbase MCP gateway", () => {
     expect(tools.tools.map((tool) => tool.name)).toContain("reconnect_collection");
     expect(tools.tools.map((tool) => tool.name)).toContain("create_record");
     expect(tools.tools.map((tool) => tool.name)).toContain("release_query_cursor");
+    const readRecord = tools.tools.find((tool) => tool.name === "read_record")!;
+    expect(readRecord.inputSchema.required).toContain("path");
+    expect(readRecord.inputSchema.properties).not.toHaveProperty("output");
+    expect(readRecord.inputSchema.properties).not.toHaveProperty("file_id");
+    expect(upstream.authorizationProofs.every(proof => proof.binding.requested_files === undefined)).toBe(true);
     const createRecord = tools.tools.find((tool) => tool.name === "create_record")!;
     expect((createRecord.inputSchema.required as string[])).not.toContain("frontmatter");
     const listed = await client.callTool({ name: "list_connections", arguments: {} });
@@ -362,6 +367,38 @@ describe("mdbase MCP gateway", () => {
       "https://mcp.example",
       "https://mcp.example"
     ]);
+
+    const metadata = await client.callTool({ name: "query_records", arguments: { connection_id: connections[1].id, output: "metadata", select: ["title"] } });
+    expect(metadata.isError).not.toBe(true);
+    expect(metadata.structuredContent).toMatchObject({ result: { output: "metadata", results: [{ revision: "r1", values: { title: "Second" } }] } });
+    expect((metadata.structuredContent as any).result.results[0]).not.toHaveProperty("frontmatter");
+    const localBefore = upstream.localInputs.length;
+    const unsupported = await client.callTool({ name: "query_records", arguments: { connection_id: connections[0].id, output: "metadata" } });
+    expect(unsupported.structuredContent).toMatchObject({ error: { code: "unsupported_authority_feature" } });
+    expect(upstream.localInputs.slice(localBefore)).toEqual([{}]); // discovery only; no extended query
+    for (const flags of [[], ["query-metadata-v1"], ["future-feature"], null]) {
+      upstream.features.hosted = flags;
+      const before = upstream.hostedInputs.length;
+      const result = await client.callTool({ name: "query_records", arguments: { connection_id: connections[1].id, output: "metadata" } });
+      expect(result.isError).toBe(true);
+      expect(upstream.hostedInputs.slice(before)).toEqual([{}]);
+    }
+    upstream.features.hosted = ["query-metadata-v1", "query-record-revisions-v1"];
+    const invalidMetadata = await client.callTool({ name: "query_records", arguments: { connection_id: connections[1].id, output: "metadata", include_body: true } });
+    expect(invalidMetadata.structuredContent).toMatchObject({ error: { code: "invalid_request" } });
+    // Existing record-only grants (no file capability) keep read and query tools.
+    for (const connection of connections) {
+      const record = await client.callTool({ name: "read_record", arguments: { connection_id: connection.id, path: "notes/test.md" } });
+      expect(record.isError).not.toBe(true);
+      expect(record.structuredContent).toMatchObject({ valid: true, result: { path: "notes/test.md" } });
+    }
+    const changes = await client.callTool({ name: "list_changes", arguments: { connection_id: connections[1].id } });
+    expect(changes.structuredContent).toMatchObject({ events: [changedEvent], typed_events: [
+      { kind: "record.updated", revision: "r2", previousRevision: "r1", bodyChanged: false, changedFields: ["/title"], raw: changedEvent }
+    ] });
+    const hostedCalls = upstream.hostedInputs.length;
+    await expect(gateway.operation("90000000-0000-4000-8000-000000000001", connections[1].id, "query", {})).rejects.toMatchObject({ code: "connection_not_found" });
+    expect(upstream.hostedInputs).toHaveLength(hostedCalls);
 
     const released = await client.callTool({
       name: "release_query_cursor",
@@ -504,6 +541,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
   const localInputs: unknown[] = [];
   const hostedInputs: unknown[] = [];
   const hostedRequestIds: string[] = [];
+  const features: { hosted: unknown } = { hosted: ["query-metadata-v1", "query-record-revisions-v1"] };
   const connectorKeys = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
     true,
@@ -577,7 +615,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
         } } : {})
       });
     }
-    if (url.origin === "https://connect.example" && url.pathname.endsWith("/operations/query")) {
+    if (url.origin === "https://connect.example" && url.pathname.includes("/operations/")) {
       const headers = new Headers(init?.headers);
       operationAuthorizations.push(headers.get("authorization")!);
       operationOrigins.push(headers.get("origin")!);
@@ -588,11 +626,11 @@ async function fakeUpstream(realFetch: typeof fetch) {
         envelope
       );
       localInputs.push(input);
-      const responseEnvelope = await encryptConnectorResponse(connectorKeys.privateKey, applicationAgreementPublicKeys[0], envelope, {
-        valid: true,
-        result: { results: [{ path: "notes/local.md", frontmatter: { title: "Local" }, types: ["note"] }] },
-        diagnostics: []
-      });
+      const operation = url.pathname.split("/").at(-1);
+      const result = operation === "describe" ? { protocol_version: 1, collection_id: firstCollectionId }
+        : operation === "read" ? { valid: true, diagnostics: [], result: { path: (input as any).path, revision: "r1", frontmatter: {} } }
+        : { valid: true, result: { results: [{ path: "notes/local.md", frontmatter: { title: "Local" }, types: ["note"] }] }, diagnostics: [] };
+      const responseEnvelope = await encryptConnectorResponse(connectorKeys.privateKey, applicationAgreementPublicKeys[0], envelope, result);
       return Response.json({ envelope: responseEnvelope });
     }
     if (url.origin === "https://sync.example" && url.pathname.includes("/operations/")) {
@@ -605,7 +643,11 @@ async function fakeUpstream(realFetch: typeof fetch) {
       hostedInputs.push(request.input);
       hostedRequestIds.push(request.request_id);
       const operation = url.pathname.split("/").at(-1);
-      const result = operation === "create"
+      const result = operation === "describe" ? { protocol_version: 1, collection_id: secondCollectionId, authority_capabilities: features.hosted }
+        : operation === "changes" ? { events: [changedEvent], cursor: 2, has_more: false, reset: false }
+        : operation === "read" ? { valid: true, diagnostics: [], result: { path: request.input.path, revision: "r1", frontmatter: {} } }
+        : operation === "query" && request.input.output === "metadata" ? { valid: true, diagnostics: [], result: { output: "metadata", results: [{ path: "notes/second.md", types: ["note"], revision: "r1", values: { title: "Second" } }] } }
+        : operation === "create"
         ? {
             valid: true,
             result: {
@@ -650,9 +692,12 @@ async function fakeUpstream(realFetch: typeof fetch) {
     operationProofs,
     localInputs,
     hostedInputs,
-    hostedRequestIds
+    hostedRequestIds,
+    features
   };
 }
+
+const changedEvent = { cursor: 2, type: "mdbase.record.modified", occurred_at: "2026-08-04T00:00:00Z", payload: { path: "note.md", revision: "r2", previous_revision: "r1", changed_fields: ["/title"], body_changed: false } };
 
 interface AuthorityProofHeaders {
   version: string | null;

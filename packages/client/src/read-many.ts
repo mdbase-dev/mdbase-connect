@@ -20,7 +20,8 @@ export async function readMany<Frontmatter extends JsonObject>(
   options: ReadManyOptions,
   defaultTimeoutMs: number | null
 ): Promise<ConnectOutcome<ReadManyResult<Frontmatter>, CollectionQueryProblemCode>> {
-  const requestedBatchSize = boundedInteger(options.batchSize ?? 100, 1_000, "batchSize");
+  if (options.revisions !== undefined && typeof options.revisions !== "boolean") throw new TypeError("revisions must be boolean.");
+  const requestedBatchSize = boundedInteger(options.batchSize ?? (options.revisions === false ? 1_000 : 100), 1_000, "batchSize");
   const concurrency = boundedInteger(options.concurrency ?? 4, 4, "concurrency");
   if (options.coordination?.latestWins) throw new TypeError("readMany batches cannot use latestWins coordination.");
   if (options.includeBody !== undefined && typeof options.includeBody !== "boolean") throw new TypeError("includeBody must be boolean.");
@@ -44,7 +45,7 @@ export async function readMany<Frontmatter extends JsonObject>(
         while (!budget.signal.aborted && nextPath < unique.length) {
           // Recheck cached lifetime evidence at each admission: queued work must
           // not borrow a retired route's support after reconnect/reauthorization.
-          const support = await supports?.("read-many-documents-v1", requestOptions);
+          const support = options.revisions === false ? undefined : await supports?.("read-many-documents-v1", requestOptions);
           if (support && !support.ok) {
             nextPath = unique.length;
             throw new MdbaseConnectError(support.problem);

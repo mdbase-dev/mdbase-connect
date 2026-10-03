@@ -253,19 +253,33 @@ export class ConnectGateway {
     options: { requestId?: string; signal?: AbortSignal } = {}
   ): Promise<Result> {
     const requestId = options.requestId ?? randomUUID();
-    let connection = await this.freshConnection(connectionSetId, connectionId, false, options.signal);
-    if (!connection.operations.includes(operation)) {
-      throw new GatewayOperationError(
-        "insufficient_collection_access",
-        `${connection.display_name} was not approved for ${operation}. Reconnect it with broader access.`
-      );
+    for (const force of [false, true]) {
+      const connection = await this.freshConnection(connectionSetId, connectionId, force, options.signal);
+      if (!connection.operations.includes(operation)) {
+        throw new GatewayOperationError(
+          "insufficient_collection_access",
+          `${connection.display_name} was not approved for ${operation}. Reconnect it with broader access.`
+        );
+      }
+      try {
+        await this.requireQueryOutput(connection, operation, input, options.signal);
+        const attempt = await this.sendOperation<Result>(connection, operation, input, requestId, options.signal);
+        if (attempt.status === 401 && !force) continue;
+        return await this.operationResult<Result>(connection, attempt, requestId);
+      } catch (error) {
+        if (!force && error instanceof GatewayOperationError && error.code === "authority_authentication_expired") continue;
+        throw error;
+      }
     }
-    let attempt = await this.sendOperation<Result>(connection, operation, input, requestId, options.signal);
-    if (attempt.status === 401) {
-      connection = await this.freshConnection(connectionSetId, connectionId, true, options.signal);
-      attempt = await this.sendOperation<Result>(connection, operation, input, requestId, options.signal);
-    }
-    if (!attempt.ok) throw upstreamError(attempt.body, `The ${operation} operation failed.`);
+    throw new Error("Unreachable operation authentication retry.");
+  }
+
+  private async operationResult<Result>(
+    connection: ConnectionRow,
+    attempt: Awaited<ReturnType<ConnectGateway["sendOperation"]>>,
+    requestId: string
+  ): Promise<Result> {
+    if (!attempt.ok) throw upstreamError(attempt.body, "The authority operation failed.");
     if (!attempt.request) {
       if (
         attempt.body?.protocol_version !== OPERATION_TRANSPORT_PROTOCOL_VERSION
@@ -305,6 +319,26 @@ export class ConnectGateway {
       );
     }
     return decrypted.result;
+  }
+
+  private async requireQueryOutput(connection: ConnectionRow, operation: CollectionOperation, input: unknown, signal?: AbortSignal): Promise<void> {
+    if (operation !== "query" || !input || typeof input !== "object" || !("output" in input)) return;
+    if (input.output !== "metadata" || ("include_body" in input && input.include_body === true)) {
+      throw new GatewayOperationError("invalid_request", "Metadata output cannot include body hydration.");
+    }
+    // MCP hosts on late-updated authorities keep ordinary queries. Retire this
+    // gate only after B1's minimum-authority, consumer-pin and rollback windows.
+    // No global/persistent cache: evidence belongs to this selected grant/route.
+    if (!connection.operations.includes("describe")) throw new GatewayOperationError("unsupported_authority_feature", "Metadata output requires authenticated describe discovery.");
+    const id = randomUUID();
+    const attempt = await this.sendOperation(connection, "describe", {}, id, signal);
+    if (attempt.status === 401) throw new GatewayOperationError("authority_authentication_expired", "Authority authentication expired.");
+    const description = await this.operationResult<{ protocol_version: number; collection_id: string; authority_capabilities?: unknown }>(connection, attempt, id);
+    if (description?.protocol_version !== 1 || description.collection_id !== connection.collection_id) throw new GatewayOperationError("invalid_operation_response", "Invalid authority description.");
+    const flags = capabilityFlags(description.authority_capabilities);
+    if (!flags.includes("query-metadata-v1") || !flags.includes("query-record-revisions-v1")) {
+      throw new GatewayOperationError("unsupported_authority_feature", "This authority does not advertise metadata query output. Use an ordinary query instead.");
+    }
   }
 
   private async sendOperation<Result>(
@@ -643,6 +677,8 @@ function upstreamError(body: any, fallback: string): GatewayOperationError {
   );
 }
 
-function stripTrailingSlash(value: string): string {
-  return value.replace(/\/$/, "");
+function capabilityFlags(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some(flag => typeof flag !== "string")) throw new GatewayOperationError("invalid_operation_response", "Invalid authority capabilities.");
+  return value;
 }
