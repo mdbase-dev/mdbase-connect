@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import { connectProblem } from "@mdbase-dev/connect/advanced";
 import { bulkFields, runNoteBatch } from "./bulk-note-actions";
 
 const types: CollectionTypeDescriptor[] = [
@@ -18,6 +19,16 @@ describe("bulk property contracts", () => {
     const incompatible = { ...types[1], schema: { properties: { status: { type: "number" } } } };
     expect(bulkFields([{ types: ["one"] }, { types: ["two"] }], [types[0], incompatible]).find((field) => field.name === "status")?.shared).toBe(false);
   });
+});
+
+it("stops on an uncertain outcome and reports unattempted notes instead of issuing more writes", async () => {
+  const seen: string[] = [];
+  const result = await runNoteBatch(["a", "b", "c"], async (path) => {
+    seen.push(path);
+    throw new MdbaseConnectError(connectProblem("operation_outcome_unknown", "Needs recovery", { details: { request_id: "test-request" } }));
+  });
+  expect(seen).toEqual(["a"]);
+  expect(result.failed.map(({ path }) => path)).toEqual(["a", "b", "c"]);
 });
 
 it("runs each note once, reports partial failures, and continues the remainder", async () => {

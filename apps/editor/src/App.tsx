@@ -1228,6 +1228,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           }
           setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.from), renamed.path));
           replaceNoteHistoryPath(move.from, renamed.path);
+          remapPin(move.from, renamed.path);
           touchSession(session);
           result.moved += 1;
         } catch (error) {
@@ -1259,6 +1260,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   async function actionSession(path: string): Promise<NoteSession> {
     const token = mutationScope.current.token();
     const cached = noteSessions.current.get(path);
+    if (cached?.recoveryDraft) throw new Error("Recover the unsaved edits in this note before changing it.");
     if (cached && !cached.deleted) return cached;
     const next = await mutationScope.current.register(token, gateway.read(path));
     if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
@@ -2221,7 +2223,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         selection={listSelection}
         onSelection={setSelection}
         pinnedPaths={pinnedPaths}
-        selectionBar={listSelection.paths.length > 1 && <div className="note-selection" aria-label="Selected notes" aria-busy={bulkBusy}>
+        selectionBar={listSelection.paths.length > 1 && <div className="note-selection" role="group" aria-label="Selected notes" aria-busy={bulkBusy}>
           <div className="note-selection-bar"><span role="status">{listSelection.paths.length} selected</span><ActionMenu label="Selection actions" items={bulkActions(listSelection.paths)} /><button className="mdbase-button is-tertiary" aria-label="Clear selection" onClick={() => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); }}>Clear</button></div>
           {bulkPropertyKind && <Suspense fallback={<p>Loading properties…</p>}><BulkNoteProperties key={bulkPropertyKind} kind={bulkPropertyKind} fields={selectionFields} busy={bulkBusy} onApply={(change) => applyBulkProperties(listSelection.paths, change)} onClose={() => setBulkPropertyKind(undefined)} /></Suspense>}
         </div>}

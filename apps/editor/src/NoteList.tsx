@@ -90,7 +90,7 @@ export function NoteList({ entries: sourceEntries, selection, onSelection, selec
     const next = selectNote(currentSelection, path, selectablePaths, mode);
     onSelection?.(next);
     if (mode === "single" || !currentSelection.anchor || !selectablePaths.includes(currentSelection.anchor)) onSelect(next.anchor!, { keyboard });
-    scrollRef.current?.focus({ preventScroll: true });
+    if (mode !== "single" || keyboard) scrollRef.current?.focus({ preventScroll: true });
   };
   const rowSecondLine = useCallback((entry: CollectionBrowserEntry): { kind: "excerpt" | NoteSearchContext["kind"]; text: string; ranges: SearchTextRange[] } | undefined => {
     if (entry.kind !== "note") return undefined;
@@ -182,7 +182,7 @@ export function NoteList({ entries: sourceEntries, selection, onSelection, selec
       <NoteSearchField search={search} filter={filter} tags={tags} types={filterTypes} onSearch={onSearch} onFilter={onFilter ?? onClearScope} onQuickOpen={onQuickOpen} />
       <NoteListViewOptions sort={sort} scopeLabel={filter ? undefined : scopeLabel} onSort={onSort} onClearScope={onClearScope} />
     </div>
-    {selectionBar}
+    <div className="note-selection-slot">{selectionBar}</div>
     <div className="note-scroll" ref={scrollRef} role="listbox" aria-multiselectable="true" aria-label="Collection notes and files" aria-busy={structureLoading || filesLoading} tabIndex={entries.length ? 0 : undefined} aria-activedescendant={selectedItemId} onKeyDown={handleListKeyDown}>
       {entries.length ? <div className="virtual-list" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map((virtualRow) => {
         const item = listItems[virtualRow.index];

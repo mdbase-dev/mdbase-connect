@@ -1,5 +1,6 @@
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import type { NoteDocument, NoteSummary } from "./model";
+import { pendingNoteRequestId } from "./pending-note-mutation";
 
 export type BulkPropertyChange =
   | { kind: "add-tag" | "remove-tag"; tag: string }
@@ -59,11 +60,18 @@ export interface BatchResult<Value> {
 /** Serial batches respect the existing per-note operation queue; failures don't skip later notes. */
 export async function runNoteBatch<Value>(paths: readonly string[], operation: (path: string) => Promise<Value | undefined>): Promise<BatchResult<Value>> {
   const result: BatchResult<Value> = { succeeded: [], failed: [] };
-  for (const path of new Set(paths)) {
+  const uniquePaths = [...new Set(paths)];
+  for (const [index, path] of uniquePaths.entries()) {
     try {
       const value = await operation(path);
       if (value !== undefined) result.succeeded.push({ path, value });
-    } catch (error) { result.failed.push({ path, error }); }
+    } catch (error) {
+      result.failed.push({ path, error });
+      if (pendingNoteRequestId(error)) {
+        result.failed.push(...uniquePaths.slice(index + 1).map((path) => ({ path, error: new Error("Not attempted because an earlier note needs exact recovery.") })));
+        break;
+      }
+    }
   }
   return result;
 }
