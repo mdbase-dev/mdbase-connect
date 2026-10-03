@@ -291,7 +291,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
           </div></>}
         </div>
       }
-      {(error || visualError || parsed.error) && <p className="type-editor-error" role="alert">{error || visualError || parsed.error}</p>}
+      {(error || visualError || (!loading && parsed.error)) && <p className="type-editor-error" role="alert">{error || visualError || parsed.error}</p>}
       {loading ? <div className="type-source-loading" role="status" aria-label="Loading type definition">Reading type definition…</div>
         : !readOnly && reviewing && impact ? <TypeChangeReview
           previousSource={document?.document}

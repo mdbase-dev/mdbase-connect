@@ -13,6 +13,19 @@ import { chooseOption, optionsOf } from "./test/select";
 afterEach(() => vi.useRealTimers());
 
 describe("recursive type builder", () => {
+  it("does not mistake an unread definition for invalid YAML, but reports invalid loaded source", () => {
+    const props = {
+      type: { name: "note", schema: {}, extensions: {} },
+      source: "", notes: [], creating: false, loading: true, saving: false,
+      onSourceChange: vi.fn(), onSave: vi.fn(), onRevert: vi.fn(), onCancel: vi.fn(), onBack: vi.fn()
+    };
+    const view = render(<TypeInspector {...props} />);
+    expect(screen.getByRole("status", { name: "Loading type definition" })).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    view.rerender(<TypeInspector {...props} loading={false} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Type definitions need YAML frontmatter");
+  });
+
   it("keeps the type save notice silent until slow and surfaces failure immediately", () => {
     vi.useFakeTimers();
     const props = {

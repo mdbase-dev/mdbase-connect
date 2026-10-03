@@ -306,6 +306,16 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     saving: typeSaving, error: typeError, load: loadTypeSource, save: saveType, reset: resetTypeLifecycle,
     clear: clearTypeLifecycle, beginCreate: beginTypeLifecycleCreate, setSource: setTypeSource,
     discardChanges: discardTypeChanges, setError: setTypeError } = typeLifecycle;
+  // A URL-restored Types surface does not go through finishSelectSurface.
+  // Read its selected definition once the collection is ready, without replacing
+  // a loaded/dirty draft or repeatedly retrying a failed request.
+  useEffect(() => {
+    if (phase === "ready" && surface === "types" && typeWorkspace === "definition"
+      && selectedTypeName && !typeDocument && !typeCreating && !typeLoading && !typeError) {
+      void loadTypeSource(selectedTypeName);
+    }
+  }, [loadTypeSource, phase, selectedTypeName, surface, typeCreating, typeDocument, typeError, typeLoading, typeWorkspace]);
+
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
   const fileWorkspace = useFileWorkspace(
     fileAssetStore,
@@ -2545,7 +2555,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         notes={allNotes}
         explicitTypeKeys={collectionExplicitTypeKeys(description.configuration)}
         creating={typeCreating}
-        loading={typeLoading}
+        loading={typeLoading || Boolean(selectedType && !typeDocument && !typeCreating && !typeError)}
         saving={typeSaving}
         error={typeError}
         leadingActions={editorLeadingActions}

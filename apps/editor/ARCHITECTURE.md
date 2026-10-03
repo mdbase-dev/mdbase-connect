@@ -150,7 +150,10 @@ outside it:
 Heavy editor and type workspaces are lazy-loaded. The metadata-icon glyph CSS
 is owned by `PhosphorIcon`, whose only consumer is the lazy Types workspace;
 the writing/loading shell uses SVG icons and does not load the icon-picker font
-or its full glyph catalog. An application error boundary
+or its full glyph catalog. A URL-restored Types surface reads the selected
+source when the collection becomes ready; loaded/dirty drafts and failed reads
+are not automatically replaced or retried. Pending source is a loading state,
+not a YAML validation error. An application error boundary
 contains unexpected render failures and offers recovery.
 
 `ConnectApp.tsx` owns account navigation and control-plane actions. Its client

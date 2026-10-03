@@ -1,6 +1,22 @@
 import { expect, test } from "@playwright/test";
 
 for (const width of [1440, 390]) {
+  test(`direct Types entry loads source and preserves a local draft at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("?demo=300&surface=types");
+    await expect(page.getByRole("textbox", { name: "title field name" })).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole("textbox", { name: "title field name" })).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.getByRole("textbox", { name: "title field name" }).fill("summary");
+    await page.getByRole("heading", { name: "Fields", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "summary field name" })).toHaveValue("summary");
+    await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeEnabled();
+  });
+}
+
+for (const width of [1440, 390]) {
   test(`quiet screen controls stay aligned and operable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("?demo=300&surface=settings");
