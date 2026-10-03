@@ -4,6 +4,61 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.125
+
+### Changed
+
+- Release notes and architecture-growth justifications now use per-change
+  fragments so queued PRs do not edit shared release counters. `pnpm version:set`
+  prepares beta versions, assembles notes, and refreshes architecture snapshots;
+  generated inventories are verified in CI and regenerated after source rebases.
+
+- Seed type upgrades follow mdbase-spec 05A's upgrade baselines
+  (mdbase-dev/mdbase-spec#59), with mdbase-rs 056db73 pinned
+  (callumalpass/mdbase-rs#108). A type pack's seed `upgrade_from` may now be one
+  baseline or a non-empty list of `{ digest, document, version? }`; manifest
+  validation (`validateAppManifest`, and the new `validateTypePackProvision`
+  in `@mdbase-dev/connect-protocol/manifest`) rejects baselines on non-seed
+  types, digest mismatches, duplicates, the resource's own digest, a different
+  frontmatter `kind` or `name`, and a `version` the document does not declare,
+  at the offending baseline's path. The single-object form is unchanged.
+  Engines choose the merge baseline from the lock's seed `origin_digest` and
+  preserve, with a reason, a seed whose origin is unknown or unlisted. The
+  SDK's type-pack assessments add `upgradeBaseline` to seed updates, and
+  receipts add `originDigest`. The devkit's `defineTypePack` accepts
+  `upgradeFrom: [{ document, version? }]` on seed types. The editor's guided
+  Person setup accepts a starter upgrade only when the engine reports a
+  baseline the bundled pack declares, and says **Person type kept as it is**
+  when the engine preserves the type with a reason.
+
+### Fixed
+
+- The editor's guided person setup bundles `mdbase.contact` 1.4.0, whose Person
+  v3 starter lists both earlier starters (Person v2 from 1.2.0 and Person v1
+  from 1.1.0) as `upgrade_from` baselines. Collections still on the Person v1
+  starter, which implements `mdbase.person` 1.0.0, now see **Person type update
+  available** and can review the same in-place upgrade instead of being asked to
+  set up person records. The released Contact seed is left as it is. No API
+  changes.
+
+- Manifest validation and the devkit's `defineTypePack` accept seed upgrade
+  baselines whose frontmatter uses YAML anchors. They now read only a starter's
+  top-level `kind`, `name` and `version`, without alias expansion, instead of
+  rejecting the whole document; TaskNotes' first task starter uses an anchor,
+  so its `tasknotes.task` manifests failed validation.
+
+- The editor's guided person setup installs `mdbase.contact` 1.3.0, whose
+  Person v3 starter neither declares nor requires `type`. People created in
+  collections whose `settings.explicit_type_keys` is not `[type]` (such as
+  `[mdbase_type]`) no longer fail validation with `schema_required: type`.
+  Person v3 carries `upgrade_from` the 1.2.0 Person v2 seed. When a collection
+  has that earlier starter, Settings now offers **Review Person type update**:
+  the guided review names the upgraded type, says whether collection edits are
+  kept by a clean merge, and applies only the reviewed assessment digest.
+  Conflicts, deletions, downgrades, managed-resource updates and seed updates
+  without a matching `upgrade_from` still stop for review in Types. No API
+  changes.
+
 ## 0.1.0-beta.124
 
 - Migration note for SDK consumers: the client's `queryPages` gains an overload

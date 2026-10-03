@@ -120,6 +120,9 @@ test("screenshot redaction flattens opaque pixels and sends only the resulting i
 
 test("feedback keeps application shortcuts out and restores the draft/focus after Escape", async ({ page }) => {
   await page.goto("?demo=4");
+  // The lazily mounted note editor takes focus once unless an editable control owns it (CodeEditor.focus.test.tsx).
+  // Settle that initial autofocus first; otherwise it can land after Escape and move focus off the restored trigger.
+  await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeFocused();
   const switcher = page.getByRole("button", { name: /Switch collection/ });
   await switcher.click();
   const entry = page.getByRole("button", { name: "Send feedback", exact: true });

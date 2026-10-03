@@ -1,6 +1,6 @@
 {
   "name": "@mdbase-dev/connect-testing",
-  "version": "0.1.0-beta.124",
+  "version": "0.1.0-beta.125",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -31,6 +31,6 @@
   },
   "devDependencies": {
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }

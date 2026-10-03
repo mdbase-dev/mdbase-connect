@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
-import { parseDocument } from "yaml";
+import { isMap, parseDocument } from "yaml";
 import appManifestSchema from "../schemas/mdbase-app.schema.json" with { type: "json" };
 import legacyAppManifestSchema from "../schemas/mdbase-app.legacy-v1.schema.json" with { type: "json" };
 import type { LegacyMdbaseAppManifest } from "./index.js";
@@ -509,15 +509,15 @@ function validateSeedUpgrade(
 }
 
 /** Top-level frontmatter of a type document, or undefined when it has none. */
+// The identity a type document declares. Only these top-level keys are read, so
+// anchors and aliases elsewhere in a starter are harmless and alias expansion
+// stays disabled.
 function typeFrontmatter(document: string): Record<string, unknown> | undefined {
   const source = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(document)?.[1];
   if (source === undefined) return undefined;
   const parsed = parseDocument(source, { uniqueKeys: true });
-  if (parsed.errors.length > 0) return undefined;
-  const value = parsed.toJS({ maxAliasCount: 0 }) as unknown;
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
+  if (parsed.errors.length > 0 || !isMap(parsed.contents)) return undefined;
+  return { kind: parsed.get("kind"), name: parsed.get("name"), version: parsed.get("version") };
 }
 
 function sha256(document: string): string {
