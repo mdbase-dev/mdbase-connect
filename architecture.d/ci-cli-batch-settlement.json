@@ -1,6 +1,0 @@
-{
-  "reason": "One crate-private admission method separates sync snapshot/receipt orchestration from runtime writer exclusion. Its nested scoped mutations and subsequent feed finalization must enter the shared writer permit without reentrancy.",
-  "growth": {
-    "rustPublicDeclarations": 1
-  }
-}
