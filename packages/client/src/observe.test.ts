@@ -142,7 +142,7 @@ describe("observe", () => {
     f.hold(); await o.refresh();
     f.records.set("a.md", row("a.md", "replacement-watch")); f.emit();
     await until(() => o.getSnapshot().records[0]?.revision === "replacement-watch");
-    release(); expect(await o.ready).toMatchObject({ ok: false, problem: { code: "operation_cancelled" } });
+    release(); expect(await o.ready).toMatchObject({ ok: true });
     expect(o.getSnapshot().records[0]?.revision).toBe("replacement-watch"); o.close();
   });
 
@@ -265,8 +265,13 @@ describe("observe", () => {
     const f = authority(false); const o = f.client.observe({}, { mode: "manual" }); await o.ready;
     const overlay = o.optimistic([], ["a.md"]); expect(o.getSnapshot().records).toHaveLength(1);
     overlay.rollback(); expect(o.getSnapshot().records).toHaveLength(2);
-    f.records.delete("a.md"); await o.refresh();
+    f.request.mockClear();
+    o.optimistic([row("b.md", "accepted")]).commit(); await tick();
+    expect(f.request).not.toHaveBeenCalled();
+    f.records.delete("a.md"); f.records.set("b.md", row("b.md", "accepted")); await o.refresh();
     expect(o.getSnapshot().records).toHaveLength(1);
+    f.records.set("b.md", row("b.md", "later")); await o.refresh();
+    expect(o.getSnapshot().records[0]?.revision).toBe("later");
     expect(f.request.mock.calls.some(([op]) => op === "changes")).toBe(false); o.close();
   });
 
@@ -276,6 +281,20 @@ describe("observe", () => {
     f.emit(); f.emit("mdbase.record.modified", { path: "b.md" });
     await until(() => o.getSnapshot().generation > 1 && o.getSnapshot().state === "ready");
     expect(o.getSnapshot().records[0]?.revision).toBe("changed"); o.close();
+  });
+
+  it("bounds commit confirmations even while the initial query is paused", async () => {
+    const f = authority(); let release!: () => void;
+    f.hold(() => new Promise<void>(resolve => { release = resolve; }));
+    const o = f.client.observe({}, { maxPendingPaths: 1 });
+    try {
+      await until(() => !!release); f.hold();
+      const accepted = [row("a.md", "accepted-a"), row("b.md", "accepted-b")];
+      for (const record of accepted) f.records.set(record.path, record);
+      o.optimistic(accepted).commit(); await tick();
+      expect(o.getSnapshot().generation).toBe(2);
+      expect(await o.ready).toMatchObject({ ok: true });
+    } finally { release(); o.close(); }
   });
 
   it("queues a follow-up for a path changed while its read is in flight", async () => {
@@ -354,6 +373,81 @@ describe("observe", () => {
     const f = authority(); const o = f.observe({ orderBy: [{ field: "file.mtime" }] }); await o.ready;
     f.emit(); await until(() => o.getSnapshot().generation > 1);
     expect(f.request.mock.calls.some(([op]) => op === "read")).toBe(false); o.close();
+  });
+
+  it.each(["during", "after"])("keeps a failed path and the error visible when unrelated changes arrive %s the failed reread", async arrival => {
+    const f = authority(), o = f.observe(); await o.ready;
+    const original = f.request.getMockImplementation()!;
+    let rejectRead!: () => void, sawB = false;
+    o.subscribeChanges(change => { if (change.kind === "record.updated" && change.path === "b.md") sawB = true; });
+    f.request.mockImplementation(async (op, input, options) => {
+      if (op === "read" && (input as any).paths.includes("a.md")) {
+        await new Promise<void>((_, reject) => { rejectRead = () => reject(connectError("access_denied", "A denied")); });
+      }
+      return original(op, input, options);
+    });
+    try {
+      f.records.set("a.md", row("a.md", "changed-a")); f.emit();
+      await until(() => !!rejectRead);
+      if (arrival === "during") { f.emit("mdbase.record.modified", { path: "b.md" }); await until(() => sawB); }
+      rejectRead(); await until(() => o.getSnapshot().state === "error");
+      f.records.set("b.md", row("b.md", "changed-b"));
+      if (arrival === "after") f.emit("mdbase.record.modified", { path: "b.md" });
+      await new Promise(resolve => setTimeout(resolve, 150));
+      expect(o.getSnapshot()).toMatchObject({ state: "error", problem: { code: "access_denied" } });
+      expect(o.getSnapshot().records.map(row => row.revision)).toEqual(["a.md", "b.md"]);
+      f.request.mockImplementation(original); await o.refresh();
+      expect(o.getSnapshot()).toMatchObject({ state: "ready", problem: null });
+      expect(o.getSnapshot().records.map(row => row.revision)).toEqual(["changed-a", "changed-b"]);
+    } finally { o.close(); }
+  });
+
+  it("confirms a committed overlay after its watch echo has already finished", async () => {
+    const f = authority(), o = f.observe(); await o.ready;
+    let reconciled = false;
+    o.subscribe((_, delta) => { if (delta.reason === "changes") reconciled = true; });
+    const accepted = row("a.md", "accepted-after-drain");
+    const overlay = o.optimistic([accepted]);
+    f.records.set("a.md", { ...accepted, file: { links: ["target.md"], tags: ["tag"], embeds: ["asset.png"] } });
+    f.emit();
+    try {
+      await until(() => reconciled); await tick();
+      expect(o.getSnapshot().records[0]?.file).toEqual({});
+      f.request.mockClear(); overlay.commit();
+      await until(() => o.getSnapshot().records[0]?.file.links?.[0] === "target.md");
+      expect(o.getSnapshot().records[0]?.file).toMatchObject({ tags: ["tag"], embeds: ["asset.png"] });
+      expect(f.request.mock.calls.some(([op]) => op === "read")).toBe(false);
+    } finally { o.close(); }
+  });
+
+  it.each(["refresh", "hydrate"] as const)("settles ready with a superseding initial %s before the retired query settles", async operation => {
+    const f = authority(); let release!: () => void;
+    f.hold(() => new Promise<void>(resolve => { release = resolve; }));
+    const o = f.observe();
+    let ready: Awaited<typeof o.ready> | undefined;
+    void o.ready.then(value => { ready = value; });
+    try {
+      await until(() => !!release);
+      f.hold(); expect((await o[operation]()).ok).toBe(true); await tick();
+      expect(ready).toMatchObject({ ok: true });
+      expect(o.getSnapshot()).toMatchObject({ state: "ready", generation: 2 });
+    } finally { release(); o.close(); }
+  });
+
+  it("marks a permanent watch failure as stopped and ignores later commit work until refresh", async () => {
+    const f = authority(), o = f.observe(); await o.ready;
+    await tick();
+    const original = f.request.getMockImplementation()!;
+    f.request.mockImplementation(async (op, input, options) => {
+      if (op === "changes") throw connectError("access_denied", "Watch denied");
+      return original(op, input, options);
+    });
+    try {
+      await until(() => o.getSnapshot().state === "error");
+      expect(o.getSnapshot()).toMatchObject({ watchStatus: { state: "closed" }, problem: { code: "access_denied" } });
+      o.optimistic([row("a.md", "local")]).commit(); await tick();
+      expect(o.getSnapshot().state).toBe("error");
+    } finally { o.close(); }
   });
 
   it("retains stale rows and reports a failed record batch, not false deletions", async () => {

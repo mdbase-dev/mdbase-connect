@@ -20,7 +20,7 @@ await live.hydrate();            // upgrade to bodies, progressively; same owner
 await live.refresh();            // explicit reconciliation / error recovery
 const write = live.optimistic([queryRow], [previousPath]);
 // Execute the app's own revision-checked write:
-write.commit();                  // accepted; no redundant immediate read
+write.commit();                  // accepted; queue coalesced confirmation
 // or write.rollback();           // discard only this token, not newer edits
 unsubscribe(); live.close();     // or abort the lifetime signal
 ```
@@ -72,7 +72,9 @@ full query, rather than claiming a resumable cursor on authorities without watch
   Metadata pages and subsequent documents are not one authority transaction:
   revisions belong to their own reads; watch catch-up supplies eventual convergence.
 - Pages are progressive and may span revisions. `ready` means a scan completed,
-  **not** that the watch has reached a globally atomic high-water mark. Hydration
+  **not** that the watch has reached a globally atomic high-water mark. If the
+  initial scan is superseded by refresh/hydration, the same `ready` promise follows
+  its replacement, without waiting for a retired request to settle. Hydration
   retains previous rows until replacement pages arrive, then installs the final
   membership. A refresh replaces partial rows progressively. Stable cursor pages
   retain the existing SDK's generation-pinned guarantees, not a reusable body token.
@@ -85,8 +87,10 @@ both and clears timers/listeners. Cancellation returns `operation_cancelled`;
 requests inherit SDK budgets and cursor cleanup. Reconnect uses the existing
 watch retry policy and saved cursor. Permanent failures publish `error` and a
 problem; targeted failures retain previous rows (never reinterpret errors as
-missing). Initial failures may leave explicit partial rows. Recovery is an
-explicit `refresh`, not a silent stale-success fallback.
+missing). Failures abort the generation's watch/rereads and clear queued work,
+with a closed watch status; unrelated successful paths cannot clear the problem.
+Initial failures may leave explicit partial rows. Recovery is an explicit full
+scan via `refresh`, not a silent stale-success fallback.
 
 One fixed-window timer and one drain own remote rereads. Repeated paths coalesce;
 a change during a read schedules a follow-up. `readMany` owns its bounded batches
@@ -106,7 +110,9 @@ no implicit LRU that would silently change membership. Applications bound their
 query scope and the number/lifetime of outstanding local writes.
 
 Overlays are token-owned and outlive older reads. `commit` marks accepted writes;
-only a read begun after acceptance can retire that token. A qualified metadata
+only a read begun after acceptance can retire that token. Watched commits always
+queue coalesced confirmation, even if their echo was already reconciled; stopped
+observers retain accepted overlays for the explicit replacement scan. A qualified metadata
 revision matching a complete accepted row avoids a redundant document reread,
 while still checking membership and refreshing derived file metadata. A newer
 overlay always wins. Uncommitted overlays remain until rollback/acceptance/close. The caller
@@ -120,7 +126,13 @@ accepted overlays on their next refresh.
 The editor's index controller is now presentation-only; structural reconciliation
 and its separate mutation overlay are deleted. Its remaining observation effect
 refreshes **open editing sessions**, schema UI, file descriptors and browser
-previews, not query membership. Lazy body hydration, search/backlinks, navigation,
+previews, not query membership. When there is no remembered note, a single
+`query({ orderBy: [{ field: "file.mtime", direction: "desc" }], limit: 1 })`
+selects the startup note in parallel with the observer and description. This
+preserves newest-note startup without imposing globally invalidating ordering
+on the live query. The former first-page startup promise is deleted. A stopped
+generation shows `Sync stopped` and connection retry, not `Connected` alongside
+`Retry notes`. Lazy body hydration, search/backlinks, navigation,
 Markdown drafts, recovery and conflicts remain app policies. File inventory is
 not a record query: retain its `files.list` ownership rather than masquerading
 file descriptors as records. Preview opens use capability-gated `files.stat`

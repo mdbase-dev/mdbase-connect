@@ -396,6 +396,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       setConnectionState("connected");
       setConnectionIssue(undefined);
     } catch (error) {
+      setConnectionState("stopped");
       setConnectionIssue(gatewayError(error));
     }
   }, [fileController, loadIndex, refreshDescription]);
@@ -627,9 +628,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     const epoch = collectionEpoch.current, generation = ++startGeneration.current;
     const navigation = navigationGeneration.current;
     const current = () => epoch === collectionEpoch.current && generation === startGeneration.current;
-    const indexLoad = indexController.beginLoad();
     const fileLoad = fileController.reload().catch(() => []);
-    const indexOutcome = indexLoad.complete.then(
+    const indexOutcome = indexController.reload().then(
       (result) => ({ result } as const),
       (error: unknown) => ({ error } as const)
     );
@@ -641,10 +641,11 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     try {
       const descriptionLoad = refreshDescription(current);
       const remembered = localStorage.getItem("mdbase-editor:last-note");
-      // The session already authorized this collection. Fetch the remembered
-      // note alongside its description instead of paying another relay trip.
+      // Open the remembered note alongside description; otherwise query the newest.
       const rememberedNote = remembered ? openNote(remembered, {}, descriptionLoad) : Promise.resolve(false);
-      const nextDescription = await descriptionLoad;
+      const [nextDescription, newestPath] = await Promise.all([
+        descriptionLoad, remembered ? undefined : gateway.mostRecentNote()
+      ]);
       if (!current() || !nextDescription) return;
       descriptionLoaded = true;
       setNotice(undefined);
@@ -653,7 +654,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       if (!current() || navigation !== navigationGeneration.current) return;
       if (!opened) {
         setNoteLoading(true);
-        const initial = (await indexLoad.firstPage)[0]?.path;
+        const initial = remembered ? await gateway.mostRecentNote() : newestPath;
         if (!current() || navigation !== navigationGeneration.current) return;
         if (initial) opened = await openNote(initial);
       }

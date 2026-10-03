@@ -49,6 +49,23 @@ async function harness() {
 }
 
 describe("note navigation ownership and recovery", () => {
+  it("opens the authority's newest note independently of the unordered observer's first page", async () => {
+    const gateway = new DemoCollectionGateway(3);
+    const { notes } = await gateway.list();
+    const newest = notes[1]!;
+    const gate = deferred(), list = gateway.list.bind(gateway);
+    vi.spyOn(gateway, "list").mockImplementation(async options => { await gate.promise; return list(options); });
+    const mostRecentNote = vi.fn(async () => newest.path);
+    Object.assign(gateway, { mostRecentNote });
+    const read = vi.spyOn(gateway, "read");
+    const { unmount } = render(<App gateway={gateway} />);
+    try {
+      await screen.findByDisplayValue("Garden notes 2");
+      expect(mostRecentNote).toHaveBeenCalledOnce();
+      expect(read).toHaveBeenCalledExactlyOnceWith(newest.path);
+    } finally { await act(async () => gate.resolve()); unmount(); }
+  });
+
   it("reads the remembered note while the collection description is pending", async () => {
     const gateway = new DemoCollectionGateway(1);
     const { notes } = await gateway.list();
@@ -68,10 +85,12 @@ describe("note navigation ownership and recovery", () => {
       body: "No Markdown heading\n",
       document: "---\ntitle: Frontmatter title\n---\nNo Markdown heading\n"
     });
+    const newest = vi.spyOn(gateway, "mostRecentNote");
     localStorage.setItem("mdbase-editor:last-note", path);
     render(<App gateway={gateway} />);
 
     await waitFor(() => expect(read).toHaveBeenCalledWith(path));
+    expect(newest).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Opening collection")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Note title" })).not.toBeInTheDocument();
     await act(async () => gate.resolve());

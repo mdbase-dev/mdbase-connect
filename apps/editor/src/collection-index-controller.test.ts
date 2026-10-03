@@ -16,9 +16,8 @@ describe("editor observe presentation", () => {
     const index = new CollectionIndexController(source, gatewayError);
     const lengths: number[] = [];
     index.subscribe(() => lengths.push(index.getSnapshot().notes.length));
-    const load = index.beginLoad();
-    expect((await load.firstPage).length).toBe(200);
-    expect((await load.complete).notes).toHaveLength(250);
+    const load = index.reload();
+    expect((await load).notes).toHaveLength(250);
     expect(lengths).toContain(200);
     expect(index.getSnapshot()).toMatchObject({ structureComplete: true, contentComplete: true });
     await index.hydrate();
@@ -44,10 +43,10 @@ describe("editor observe presentation", () => {
     let resolve!: (value: Awaited<ReturnType<typeof source.list>>) => void;
     vi.spyOn(source, "list").mockImplementation(() => new Promise(yes => { resolve = yes; }));
     const index = new CollectionIndexController(source);
-    const load = index.beginLoad();
+    const load = index.reload();
     await until(() => !!resolve);
     index.reset(); resolve({ notes: [] });
-    expect(await load.complete).toMatchObject({ cancelled: true });
+    expect(await load).toMatchObject({ cancelled: true });
     expect(index.getSnapshot().notes).toEqual([]);
   });
 });

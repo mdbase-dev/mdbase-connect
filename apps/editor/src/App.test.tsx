@@ -1235,11 +1235,15 @@ describe("mdbase editor", () => {
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("The note index could not be read.");
+    const retry = await screen.findByRole("button", { name: "Retry notes" });
+    expect(retry).toHaveAttribute("title", "The note index could not be read.");
+    expect(await screen.findByRole("status", { name: "Collection stopped" })).toHaveTextContent("Sync stopped");
     expect(gateway.hydrateCalls).toBe(0);
-    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await user.click(retry);
     expect(await screen.findByRole("textbox", { name: "Note title" })).toBeInTheDocument();
-    expect(gateway.listCalls).toBe(2);
+    await waitFor(() => expect(gateway.listCalls).toBe(2));
+    await screen.findByRole("status", { name: "Collection connected" });
+    expect(screen.queryByRole("button", { name: "Retry notes" })).not.toBeInTheDocument();
   });
 });
 

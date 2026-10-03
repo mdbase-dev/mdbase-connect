@@ -167,6 +167,7 @@ export interface CollectionGateway {
     options?: { signal?: AbortSignal }
   ): Promise<Array<{ path: string; values: import("@mdbase-dev/connect").JsonObject }>>;
   observe(options?: import("@mdbase-dev/connect").ObserveOptions): import("@mdbase-dev/connect").MdbaseQueryObserver<NoteFrontmatter>;
+  mostRecentNote(): Promise<string | undefined>;
   read(path: string): Promise<NoteDocument>;
   listFiles(options?: FileListRequest): Promise<CollectionFile[]>;
   readFile(file: CollectionFile, options?: FileReadRequest): Promise<Blob>;

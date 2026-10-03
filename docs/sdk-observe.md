@@ -23,7 +23,8 @@ execute revision-checked writes yourself, commit only after acceptance. A matchi
 qualified metadata revision avoids a document reread; membership and derived file
 links/tags/embeds are still queried at the authority. Incomplete caller rows and
 legacy authorities are confirmed with reads. Newer local overlays survive older
-remote work.
+remote work. In watch mode, acceptance queues confirmation even if the echo
+already finished; manual mode confirms accepted overlays on its next full scan.
 
 Manual observers use `{ mode: "manual" }` and perform no watch/changes requests;
 refresh from your visibility/timer policy. Refresh currently scans again, rather
@@ -41,8 +42,12 @@ Ordered, offset, selected/projected and contract queries reload on changes.
 collection invalidation; use `invalidation: "paths"` only for criteria whose
 membership depends on the changed record alone.
 
-`ready` means the scan completed, not an atomic watch high-water mark. Problems
-are visible in snapshot state; failed reads are never treated as deletions.
+`ready` follows the active initial scan through refresh/hydration supersession;
+closing before completion cancels it. It does not mean an atomic watch high-water
+mark. A failed read or permanent watch failure stops that generation and exposes
+`state: "error"`, its problem, and a closed watch status. Unrelated changes cannot
+clear the error or leave an unnoticed stale path: call `refresh()` to reconcile
+fully and restart the watch. Failed reads are never treated as deletions.
 The full result set is retained; benchmark your query scope and body requirements.
 
 Migration: replace collection load/watch/reset workers with one observer; consume

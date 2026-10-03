@@ -183,6 +183,10 @@ export class ConnectCollectionGateway implements CollectionGateway {
     });
   }
 
+  async mostRecentNote(): Promise<string | undefined> {
+    return requireOutcome(await this.requireConnection().query({ orderBy: [{ field: "file.mtime", direction: "desc" }], limit: 1 })).results[0]?.path;
+  }
+
   async read(path: string): Promise<NoteDocument> {
     return requireOutcome(await this.requireConnection().read({ path, includeDocument: true }));
   }

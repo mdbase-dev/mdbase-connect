@@ -36,7 +36,7 @@ export function useCollectionWatch(input: {
       }, 50);
     };
     let lastStatus: unknown;
-    const statusChanged = input.index.subscribe(() => {
+    const publishStatus = () => {
       const status = input.index.getWatchStatus();
       if (!status || status === lastStatus) return;
       lastStatus = status;
@@ -44,8 +44,12 @@ export function useCollectionWatch(input: {
         input.setConnectionState("reconnecting"); input.setConnectionIssue(status.problem.message);
       } else if (status.state === "connected") {
         input.setConnectionState("connected"); input.setConnectionIssue(undefined);
+      } else if (status.state === "closed" && input.index.getSnapshot().structureError) {
+        input.setConnectionState("stopped"); input.setConnectionIssue(input.index.getSnapshot().structureError);
       } else if (status.state === "reset_required") { files = description = true; schedule(); }
-    });
+    };
+    const statusChanged = input.index.subscribe(publishStatus);
+    publishStatus();
     const changed = input.index.subscribeChanges(change => {
       if (isFileChange(change)) { reconcileFileChange(change, input.files, input.assets); files = true; }
       else if (change.kind === "record.renamed") { paths.set(change.from, undefined); paths.set(change.to, change.revision); }

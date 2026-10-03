@@ -14,7 +14,6 @@ export interface CollectionIndexState {
   contentError?: string;
 }
 export interface CollectionIndexLoadResult { cancelled: boolean; notes: NoteSummary[] }
-export interface CollectionIndexLoad { firstPage: Promise<NoteSummary[]>; complete: Promise<CollectionIndexLoadResult> }
 const EMPTY_STATE: CollectionIndexState = { notes: [], listLoading: false, structureLoading: false, structureComplete: false, contentComplete: false, contentIndexing: false, contentLoaded: 0 };
 
 /** Editor presentation only. The SDK owns reads, watch, generations and overlays. */
@@ -38,9 +37,7 @@ export class CollectionIndexController {
     return () => { this.changeListeners.delete(listener); };
   };
 
-  beginLoad(): CollectionIndexLoad {
-    let resolveFirst!: (notes: NoteSummary[]) => void;
-    const firstPage = new Promise<NoteSummary[]>(resolve => { resolveFirst = resolve; });
+  reload(): Promise<CollectionIndexLoadResult> {
     if (!this.observation) {
       const observation = this.source.observe();
       this.observation = observation;
@@ -52,24 +49,15 @@ export class CollectionIndexController {
       this.accept(observation.getSnapshot());
     }
     const observation = this.observation;
-    const unsubscribe = observation.subscribe((snapshot, delta) => {
-      if (delta.reason === "page" || snapshot.state !== "loading") {
-        resolveFirst(this.state.notes); unsubscribe();
-      }
-    });
     const load = observation.getSnapshot().generation === 1 && observation.getSnapshot().state === "loading" ? observation.ready : observation.refresh();
-    const complete = load.then(outcome => {
-      unsubscribe();
-      resolveFirst(this.state.notes);
+    return load.then(outcome => {
       if (!outcome.ok) {
         if (outcome.problem.code === "operation_cancelled") return { cancelled: true, notes: [] };
         throw new MdbaseConnectError(outcome.problem);
       }
       return { cancelled: false, notes: this.state.notes };
     });
-    return { firstPage, complete };
   }
-  reload(): Promise<CollectionIndexLoadResult> { return this.beginLoad().complete; }
   hydrate(): Promise<void> {
     if (this.hydration) return this.hydration;
     if (!this.observation) return Promise.resolve();

@@ -48,6 +48,13 @@ describe("ConnectCollectionGateway typed changes", () => {
 });
 
 describe("ConnectCollectionGateway collection index", () => {
+  it("selects the newest startup path with one bounded ordered query, not an ordered observer", async () => {
+    const query = vi.fn(async () => connectSuccess({ results: [summary("newest.md")] }));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, { query });
+    expect(await gateway.mostRecentNote()).toBe("newest.md");
+    expect(query).toHaveBeenCalledExactlyOnceWith({ orderBy: [{ field: "file.mtime", direction: "desc" }], limit: 1 });
+  });
   it("loads the complete structure before hydrating note bodies on demand", async () => {
     const metadata = [summary("Notes/one.md"), summary("Archive/two.md")];
     const hydrated = metadata.map((note, index) => ({ ...note, body: `Body ${index + 1}` }));

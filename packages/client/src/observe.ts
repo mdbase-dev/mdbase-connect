@@ -56,7 +56,8 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
   private draining = false;
   private removeAbort?: () => void;
   private snapshot: ObserveSnapshot<F> = Object.freeze({ records: Object.freeze([]), state: "loading", generation: 0, problem: null, watchStatus: null });
-  readonly ready: Promise<ConnectOutcome<void>>;
+  private settleReady!: (outcome: ConnectOutcome<void>) => void;
+  readonly ready = new Promise<ConnectOutcome<void>>(resolve => { this.settleReady = resolve; });
 
   constructor(
     private readonly client: ObserveSource<F>,
@@ -77,7 +78,7 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
       options.signal.addEventListener("abort", close, { once: true });
       this.removeAbort = () => options.signal?.removeEventListener("abort", close);
     }
-    this.ready = this.refresh();
+    void this.refresh();
   }
 
   getSnapshot = (): ObserveSnapshot<F> => this.snapshot;
@@ -105,7 +106,7 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
     this.pending.clear();
     clearTimeout(this.timer);
     this.timer = undefined;
-    this.publish("status", { state: "loading", generation, problem: null });
+    this.publish("status", { state: "loading", generation, problem: null, watchStatus: null });
     const current = () => !signal.aborted && !this.lifetime.signal.aborted;
     try {
       // Capture BEFORE querying. Watch catches up mutations during every page.
@@ -138,10 +139,11 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
       if (!current()) return cancelled();
       this.records = loaded;
       for (const [path, overlay] of accepted) if (this.overlays.get(path) === overlay) this.overlays.delete(path);
+      this.settleReady(connectSuccess(undefined));
       this.publish("reload", { state: "ready", total: loaded.size, problem: null });
       if (baseline) {
         void this.follow(baseline.cursor, signal, stableScan);
-        if (this.pending.size) void this.drain(signal);
+        this.schedule();
       }
       return connectSuccess(undefined);
     } catch (error) {
@@ -164,10 +166,11 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
           const overlay = this.overlays.get(path);
           if (overlay?.token === token) {
             overlay.committed = true;
-            // An echo may already be in a read begun before this acceptance.
-            if (this.draining) this.pending.add(path);
+            // The echo may have finished before the write response arrived.
+            if (this.options.mode !== "manual" && !this.request.signal.aborted) this.pending.add(path);
           }
         }
+        this.schedule();
       },
       rollback: () => this.retire(paths, token)
     };
@@ -184,6 +187,7 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
     this.overlays.clear();
     this.removeAbort?.();
     this.publish("status", { state: "closed" });
+    this.settleReady(cancelled());
     this.listeners.clear();
     this.changes.clear();
   }
@@ -219,14 +223,22 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
         if (this.fullReloadRequired() || (!stableScan && (change.kind === "record.created" || change.kind === "record.deleted" || change.kind === "record.renamed"))) { void this.refresh(); return; }
         if (!paths.length) continue;
         for (const path of paths) this.pending.add(path);
-        if (this.pending.size > (this.options.maxPendingPaths ?? 1000)) { void this.refresh(); return; }
-        // Fixed window, not trailing debounce: continuous traffic cannot starve reads.
-        if (!this.timer && !this.draining) this.timer = setTimeout(() => {
-          this.timer = undefined;
-          void this.drain(signal);
-        }, this.options.coalesceMs ?? 50);
+        this.schedule();
       }
     } catch (error) { if (!signal.aborted) this.fail(error); }
+  }
+
+  private schedule(): void {
+    const signal = this.request.signal;
+    if (signal.aborted || this.options.mode === "manual" || !this.pending.size) return;
+    if (this.pending.size > (this.options.maxPendingPaths ?? 1000)) { void this.refresh(); return; }
+    if (this.snapshot.state !== "ready") return;
+    if (this.fullReloadRequired()) { void this.refresh(); return; }
+    // Fixed window shared by remote changes and accepted-write confirmations.
+    if (!this.timer && !this.draining) this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.drain(signal);
+    }, this.options.coalesceMs ?? 50);
   }
 
   private async drain(signal: AbortSignal): Promise<void> {
@@ -241,7 +253,7 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
     } finally {
       this.draining = false;
       // A reset can replace the generation while this read is in flight.
-      if (!this.request.signal.aborted && this.snapshot.state !== "loading" && this.pending.size) void this.drain(this.request.signal);
+      this.schedule();
     }
   }
 
@@ -293,8 +305,15 @@ export class MdbaseQueryObserver<F extends JsonObject = JsonObject> {
   }
   private fail(error: unknown): ConnectOutcome<void> {
     const problem = error instanceof MdbaseConnectError ? error.problem : connectProblem("operation_failed", error instanceof Error ? error.message : "Query observation failed.");
-    this.publish("status", { state: "error", problem: immutable(problem) });
-    return connectFailure(problem);
+    // A stopped generation cannot silently recover a stale path via unrelated work.
+    this.request.abort();
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.pending.clear();
+    this.publish("status", { state: "error", problem: immutable(problem), watchStatus: this.options.mode === "manual" ? null : Object.freeze({ state: "closed" }) });
+    const outcome = connectFailure(problem);
+    this.settleReady(outcome);
+    return outcome;
   }
   private publish(reason: ObserveDelta<F>["reason"], patch: Partial<ObserveSnapshot<F>> = {}, changed?: Pick<ObserveDelta<F>, "upserts" | "removed">): void {
     const visible = this.overlays.size ? new Map(this.records) : this.records;

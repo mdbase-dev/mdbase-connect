@@ -189,6 +189,10 @@ export class DemoCollectionGateway implements CollectionGateway {
     return { notes, snapshot };
   }
 
+  async mostRecentNote(): Promise<string | undefined> {
+    return [...this.notes].sort((a, b) => String(b.file.mtime).localeCompare(String(a.file.mtime)))[0]?.path;
+  }
+
   async read(path: string): Promise<NoteDocument> {
     await delay(5);
     return clone(this.required(path));
