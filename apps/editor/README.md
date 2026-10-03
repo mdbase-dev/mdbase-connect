@@ -54,28 +54,11 @@ direct-provider CRUD, the real CodeMirror integration, creation and frontmatter
 flows, type inspection, settings, responsive navigation, accessibility, and a
 10,000-record performance case.
 
-## Visual regression baselines
-
-`tests/visual.spec.ts` checks nine views in light/dark desktop and light/dark
-390px layouts: the note (including its image embed), selected list, rail, Types,
-Settings, composer, Properties (docked on desktop, modal on mobile), quick open,
-and Connect sign-in. Chromium/Linux PNGs live in `tests/visual.spec.ts-snapshots/`.
-The suite fixes Date, locale, timezone and demo data, clears persisted view state,
-reduces motion, waits for fonts/images, hides the caret and allows 0.1% differing
-pixels with a 0.1 per-pixel color threshold. Auth uses a local portal and hermetic API/Google fixtures, never a real
-account. It runs in the normal browser suite; no screenshot assertions are skipped.
-
-```sh
-# Check existing baselines (from the repository root).
-MDBASE_EDITOR_E2E_PORT=6401 pnpm --filter mdbase-editor exec playwright test visual.spec.ts --workers=1
-# Only after an intentional visual change, on Chromium/Linux:
-MDBASE_EDITOR_E2E_PORT=6401 pnpm --filter mdbase-editor exec playwright test visual.spec.ts --workers=1 --update-snapshots=all
-```
-
-Review every changed PNG (and any expected/actual/diff attachments in
-`apps/editor/test-results/`), then rerun **without** `--update-snapshots` before
-committing approved baselines. Do not raise tolerances or update images to hide
-missing fonts, clipped controls, unstable loading states or unintended changes.
+`tests/screens.spec.ts` also checks nine views in light/dark desktop and 390px
+layouts for loaded fonts/images, settled controls and no horizontal page overflow.
+Connect sign-in uses the shared local portal and hermetic API/Google fixtures,
+never a real account. These are non-pixel checks in the normal browser suite;
+there are no screenshot baselines to update and no container is required.
 
 ## Deployment
 
