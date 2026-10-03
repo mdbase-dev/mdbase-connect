@@ -72,7 +72,7 @@
 }
 
 .dialog-scrim {
-  background: color-mix(in srgb, var(--ink) 14%, transparent);
+  background: var(--color-scrim);
 }
 
 .connect-avatar {

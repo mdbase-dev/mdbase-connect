@@ -61,15 +61,15 @@ flows, type inspection, settings, responsive navigation, accessibility, and a
 Settings, composer, Properties (docked on desktop, modal on mobile), quick open,
 and Connect sign-in. Chromium/Linux PNGs live in `tests/visual.spec.ts-snapshots/`.
 The suite fixes Date, locale, timezone and demo data, clears persisted view state,
-reduces motion, waits for fonts/images, hides the caret and uses a 0.1% pixel
-threshold. Auth uses a local portal and hermetic API/Google fixtures, never a real
+reduces motion, waits for fonts/images, hides the caret and allows 0.1% differing
+pixels with a 0.1 per-pixel color threshold. Auth uses a local portal and hermetic API/Google fixtures, never a real
 account. It runs in the normal browser suite; no screenshot assertions are skipped.
 
 ```sh
 # Check existing baselines (from the repository root).
 MDBASE_EDITOR_E2E_PORT=6401 pnpm --filter mdbase-editor exec playwright test visual.spec.ts --workers=1
 # Only after an intentional visual change, on Chromium/Linux:
-MDBASE_EDITOR_E2E_PORT=6401 pnpm --filter mdbase-editor exec playwright test visual.spec.ts --workers=1 --update-snapshots
+MDBASE_EDITOR_E2E_PORT=6401 pnpm --filter mdbase-editor exec playwright test visual.spec.ts --workers=1 --update-snapshots=all
 ```
 
 Review every changed PNG (and any expected/actual/diff attachments in

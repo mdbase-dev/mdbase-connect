@@ -44,7 +44,7 @@ for (const mode of modes) {
       await settle(page);
       // No broad masks: changing labels, missing fonts, controls and embeds are regressions.
       const options = { animations: "disabled" as const, caret: "hide" as const, scale: "css" as const,
-        threshold: 0.2, maxDiffPixelRatio: 0.001 };
+        threshold: 0.1, maxDiffPixelRatio: 0.001 };
       if (target) await expect(target).toHaveScreenshot(`${mode.name}-${view}.png`, options);
       else await expect(page).toHaveScreenshot(`${mode.name}-${view}.png`, options);
     };
