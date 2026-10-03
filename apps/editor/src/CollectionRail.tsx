@@ -1,28 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
-  BracketsCurlyIcon as Braces,
   CaretDownIcon as ChevronDown,
   CaretRightIcon as ChevronRight,
   CopyIcon as Copy,
   FilePlusIcon as FilePlus2,
   FolderIcon as Folder,
   FolderPlusIcon as FolderPlus,
-  KeyboardIcon as Keyboard,
-  NotebookIcon as NotebookPen,
-  TagIcon as Tag
 } from "./icons";
 import { ContextMenu } from "./ContextMenu";
-import { FeedbackButton } from "@mdbase-dev/ui/feedback";
-import "@mdbase-dev/ui/feedback.css";
+import { FolderChangeDialog, type FolderChangeActions } from "./FolderChangeDialog";
+import { FOLDER_PATH_MIME } from "./folder-change";
+import { RailDropTarget } from "./RailDropTarget";
 import { EditorRail } from "./EditorRail";
 import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
-import { folderTree, tags as collectionTags, types as collectionTypes, type FolderTreeNode } from "./note";
-import type { NoteFilter } from "./NoteList";
-import { collectionTypeIcon, isPhosphorIconName, PhosphorIcon } from "./PhosphorIcon";
+import { folderTree, type FolderTreeNode } from "./note";
+import type { NoteFilter } from "./note-list-view";
 
 
-export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onCreateNoteWithTag, onCreateNoteWithType, onOpenType, onCopyFacet, onTypes, onSettings, onShortcuts, onReconnect, onRequestDirectAccess, onSwitch, onCollapse }: {
+export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, onSwitch, onCollapse, onPlanFolderChange, onChangeFolder }: {
   collectionId: string;
   name: string;
   count: number;
@@ -40,27 +36,19 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   onCreateFolder?: () => void;
   onCreateNoteInFolder?: (folder: string) => void;
   onCreateSubfolder?: (parent: string) => void;
-  onCreateNoteWithTag?: (tag: string) => void;
-  onCreateNoteWithType?: (type: string) => void;
-  onOpenType: (type: string) => void;
+  onMoveNotes?: (paths: string[], folder: string) => void;
   onCopyFacet: (value: string, label: string) => void;
   onTypes: () => void;
   onSettings: () => void;
-  onShortcuts: () => void;
   onReconnect: () => void;
   onRequestDirectAccess: () => void;
   onSwitch: () => void;
   onCollapse: () => void;
-}) {
-  const typeKey = types.map((type) => `${type.name}:${collectionTypeIcon(type) ?? ""}`).join("\u0000");
+} & FolderChangeActions) {
+  const [folderChange, setFolderChange] = useState<{ from: string; parent?: string; mode: "rename" | "move" }>();
+  const moveFolder = onPlanFolderChange && onChangeFolder ? (from: string, parent: string) => setFolderChange({ from, parent, mode: "move" }) : undefined;
   const collectionFolders = useMemo(() => folderTree(notes, files.map((file) => file.path)), [files, notes]);
-  const tagFacets = useMemo(() => collectionTags(notes), [notes]);
-  const typeFacets = useMemo(() => {
-    const icons = new Map(types.map((type) => [type.name, collectionTypeIcon(type)]));
-    return collectionTypes(notes, types.map((type) => type.name))
-      .map((item) => ({ ...item, icon: icons.get(item.name) }));
-  }, [notes, typeKey]);
-  return <EditorRail
+  return <><EditorRail
     collectionName={name}
     noteCount={count}
     typeCount={types.length}
@@ -71,13 +59,14 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     connectHref={connectWorkspaceUrl(collectionId)}
     onSwitch={onSwitch}
     onCollapse={onCollapse}
+    onMoveNotes={onMoveNotes}
+    onMoveFolder={moveFolder}
+    notesSelected={surface === "notes" && !activeFilter}
     footer={<>
       {directAccess === "permission_required" && connectionState === "connected"
         ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? "Checking…" : "Use this computer"}</button>
         : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : "Reconnecting"}</span></p>}
       {connectionState === "reconnecting" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
-      <FeedbackButton />
-      <button className="shortcut-action" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onClick={onShortcuts}><Keyboard aria-hidden="true" /><span>Shortcuts</span></button>
     </>}
   >
       <FolderFilterSection
@@ -90,32 +79,36 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
         onCreateNote={onCreateNoteInFolder}
         onCreateSubfolder={onCreateSubfolder}
         onCopy={(path) => onCopyFacet(path, "folder path")}
+        onRename={onPlanFolderChange && onChangeFolder ? (from) => setFolderChange({ from, mode: "rename" }) : undefined}
+        onMove={moveFolder ? (from) => setFolderChange({ from, mode: "move" }) : undefined}
+        onMoveFolder={moveFolder}
+        onMoveNotes={onMoveNotes}
       />
-      <RailFilterSection
-        label="Tags"
-        kind="tag"
-        items={tagFacets}
-        activeFilter={surface === "notes" ? activeFilter : undefined}
-        loading={foldersLoading}
-        onFilter={onFilter}
-        onCreateNote={onCreateNoteWithTag}
-        onCopy={(tag) => onCopyFacet(tag, "tag")}
-      />
-      <RailFilterSection
-        label="By type"
-        kind="type"
-        items={typeFacets}
-        activeFilter={surface === "notes" ? activeFilter : undefined}
-        loading={foldersLoading}
-        onFilter={onFilter}
-        onCreateNote={onCreateNoteWithType}
-        onOpenType={onOpenType}
-        onCopy={(type) => onCopyFacet(type, "type name")}
-      />
-  </EditorRail>;
+  </EditorRail>{folderChange && <FolderChangeDialog
+    key={`${collectionId}:${folderChange.from}:${folderChange.mode}`}
+    {...folderChange}
+    folders={allFolderPaths(collectionFolders)}
+    onPlanFolderChange={onPlanFolderChange}
+    onChangeFolder={onChangeFolder}
+    onClose={(focusPath) => {
+      setFolderChange(undefined);
+      // A successful path change removes the old trigger. Restore to its new
+      // row (or its visible ancestor) after the dialog's normal focus cleanup.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const rows = [...document.querySelectorAll<HTMLButtonElement>(".collection-rail [data-folder-path]")];
+        let path = focusPath;
+        while (path) {
+          const target = rows.find((row) => row.dataset.folderPath === path);
+          if (target) { target.focus(); return; }
+          path = path.split("/").slice(0, -1).join("/");
+        }
+        document.querySelector<HTMLButtonElement>('.collection-rail button[aria-label^="All notes,"]')?.focus();
+      }));
+    }}
+  />}</>;
 }
 
-function FolderFilterSection({ collectionId, items, activeFilter, loading, onFilter, onCreate, onCreateNote, onCreateSubfolder, onCopy }: {
+function FolderFilterSection({ collectionId, items, activeFilter, loading, onFilter, onCreate, onCreateNote, onCreateSubfolder, onCopy, ...folderActions }: {
   collectionId: string;
   items: FolderTreeNode[];
   activeFilter?: NoteFilter;
@@ -125,10 +118,8 @@ function FolderFilterSection({ collectionId, items, activeFilter, loading, onFil
   onCreateNote?: (folder: string) => void;
   onCreateSubfolder?: (parent: string) => void;
   onCopy: (path: string) => void;
-}) {
-  const [open, setOpen] = useState(true);
+} & FolderActions) {
   const [expanded, setExpanded] = useState<Set<string>>(() => loadExpandedFolders(collectionId));
-  const listId = "rail-folder-filters";
 
   useEffect(() => {
     setExpanded(loadExpandedFolders(collectionId));
@@ -164,15 +155,8 @@ function FolderFilterSection({ collectionId, items, activeFilter, loading, onFil
   });
 
   return <div className="rail-filter-section" role="group" aria-label="Folders" aria-busy={loading}>
-    <RailSectionHeader
-      label="Folders"
-      open={open}
-      listId={listId}
-      loading={loading}
-      onToggle={() => setOpen((value) => !value)}
-      onCreate={onCreate}
-    />
-    {open && <div id={listId} className="rail-filter-items folder-tree">
+    {loading && <span className="folder-loading" role="status">Loading folders…</span>}
+    <div className="rail-filter-items folder-tree">
       {items.length > 0 && <ul>
         {items.map((node) => <FolderTreeRow
           key={node.path}
@@ -186,14 +170,23 @@ function FolderFilterSection({ collectionId, items, activeFilter, loading, onFil
           onCreateNote={onCreateNote}
           onCreateSubfolder={onCreateSubfolder}
           onCopy={onCopy}
+          {...folderActions}
         />)}
       </ul>}
       {!items.length && <p className="folder-placeholder">{loading ? "Finding folders…" : "No folders"}</p>}
-    </div>}
+    </div>
+    {onCreate && <button className="rail-new-folder" onClick={onCreate}><span><FolderPlus aria-hidden="true" />New folder</span></button>}
   </div>;
 }
 
-function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onToggle, onSetDescendants, onCreateNote, onCreateSubfolder, onCopy }: {
+interface FolderActions {
+  onRename?: (path: string) => void;
+  onMove?: (path: string) => void;
+  onMoveFolder?: (from: string, parent: string) => void;
+  onMoveNotes?: (paths: string[], folder: string) => void;
+}
+
+function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onToggle, onSetDescendants, onCreateNote, onCreateSubfolder, onCopy, ...folderActions }: {
   node: FolderTreeNode;
   expanded: Set<string>;
   activeFilter?: NoteFilter;
@@ -204,18 +197,20 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
   onCreateNote?: (folder: string) => void;
   onCreateSubfolder?: (parent: string) => void;
   onCopy: (path: string) => void;
-}) {
+} & FolderActions) {
   const hasChildren = node.children.length > 0;
   const isExpanded = expanded.has(node.path);
   const descendantPaths = expandableFolderPaths(node);
   const descendantsExpanded = descendantPaths.length > 0 && descendantPaths.every((path) => expanded.has(path));
   return <li>
-    <ContextMenu
+    <RailDropTarget folder={node.path} onMoveNotes={folderActions.onMoveNotes} onMoveFolder={folderActions.onMoveFolder} onRename={folderActions.onRename ? () => folderActions.onRename?.(node.path) : undefined} onExpand={hasChildren && !isExpanded ? () => onToggle(node.path) : undefined}><ContextMenu
       className="rail-tree-row"
       label={`${node.path} folder actions`}
       items={[
         { label: "New note here", disabled: !onCreateNote, icon: <FilePlus2 aria-hidden="true" />, onSelect: () => onCreateNote?.(node.path) },
         { label: "New subfolder", disabled: !onCreateSubfolder, icon: <FolderPlus aria-hidden="true" />, onSelect: () => onCreateSubfolder?.(node.path) },
+        { label: "Rename folder…", disabled: !folderActions.onRename, icon: <Folder aria-hidden="true" />, onSelect: () => folderActions.onRename?.(node.path) },
+        { label: "Move to…", disabled: !folderActions.onMove, icon: <Folder aria-hidden="true" />, onSelect: () => folderActions.onMove?.(node.path) },
         { label: "Copy path", icon: <Copy aria-hidden="true" />, onSelect: () => onCopy(node.path) },
         ...(hasChildren ? [{
           label: descendantsExpanded ? "Collapse descendants" : "Expand descendants",
@@ -234,13 +229,17 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
         : <span className="folder-disclosure-spacer" aria-hidden="true" />}
       <button
         className={`rail-row-action${activeFilter?.kind === "folder" && activeFilter.value === node.path ? " selected" : ""}`}
+        aria-current={activeFilter?.kind === "folder" && activeFilter.value === node.path ? "page" : undefined}
         aria-label={`Show notes in ${node.path}, ${node.count}${loading ? " or more" : ""} ${node.count === 1 && !loading ? "note" : "notes"}`}
+        data-folder-path={node.path}
+        draggable={Boolean(folderActions.onMoveFolder)}
+        onDragStart={(event) => { event.dataTransfer.setData(FOLDER_PATH_MIME, node.path); event.dataTransfer.effectAllowed = "move"; }}
         onClick={() => onFilter({ kind: "folder", value: node.path })}
       >
         <span><Folder aria-hidden="true" /><span className="rail-row-label">{node.name}</span></span>
         <small aria-label={facetCountLabel("folder", { name: node.path, count: node.count }, loading)}>{node.count}{loading && "+"}</small>
       </button>
-    </ContextMenu>
+    </ContextMenu></RailDropTarget>
     {hasChildren && isExpanded && <ul>
       {node.children.map((child) => <FolderTreeRow
         key={child.path}
@@ -254,83 +253,14 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
         onCreateNote={onCreateNote}
         onCreateSubfolder={onCreateSubfolder}
         onCopy={onCopy}
+        {...folderActions}
       />)}
     </ul>}
   </li>;
 }
 
-function RailFilterSection({ label, kind, items, activeFilter, loading, onFilter, onCreateNote, onOpenType, onCopy }: {
-  label: string;
-  kind: "tag" | "type";
-  items: Array<{ name: string; count: number; icon?: string }>;
-  activeFilter?: NoteFilter;
-  loading: boolean;
-  onFilter: (filter: NoteFilter) => void;
-  onCreateNote?: (value: string) => void;
-  onOpenType?: (type: string) => void;
-  onCopy: (value: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const Icon = kind === "tag" ? Tag : Braces;
-  const listId = `rail-${kind}-filters`;
-  return <div className="rail-filter-section" role="group" aria-label={label} aria-busy={loading}>
-    <RailSectionHeader label={label} open={open} listId={listId} loading={loading} onToggle={() => setOpen((value) => !value)} />
-    {open && <div id={listId} className="rail-filter-items">
-      {items.map((item) => <ContextMenu
-        key={item.name}
-        className="rail-facet-row"
-        label={`${kind === "tag" ? `#${item.name}` : item.name} ${kind} actions`}
-        items={[
-          { label: "Show notes", icon: <NotebookPen aria-hidden="true" />, onSelect: () => onFilter({ kind, value: item.name }) },
-          ...(kind === "type" && onOpenType ? [{
-            label: "Open definition",
-            icon: <Braces aria-hidden="true" />,
-            onSelect: () => onOpenType(item.name)
-          }] : []),
-          {
-            label: kind === "tag" ? "New note with tag" : "New note of type",
-            icon: <FilePlus2 aria-hidden="true" />,
-            disabled: !onCreateNote,
-            onSelect: () => onCreateNote?.(item.name)
-          },
-          {
-            label: kind === "tag" ? "Copy tag" : "Copy type name",
-            icon: <Copy aria-hidden="true" />,
-            onSelect: () => onCopy(item.name)
-          }
-        ]}
-      >
-        <button
-          className={`rail-row-action${activeFilter?.kind === kind && activeFilter.value === item.name ? " selected" : ""}`}
-          aria-label={`${kind === "tag" ? `Show notes tagged #${item.name}` : `Show notes with type ${item.name}`}, ${item.count}${loading ? " or more" : ""} ${item.count === 1 && !loading ? "note" : "notes"}`}
-          onClick={() => onFilter({ kind, value: item.name })}
-        >
-          <span>{kind === "type" && isPhosphorIconName(item.icon)
-            ? <PhosphorIcon name={item.icon} aria-hidden="true" />
-            : <Icon aria-hidden="true" />}<span className="rail-row-label">{kind === "tag" ? `#${item.name}` : item.name}</span></span>
-          <small aria-label={facetCountLabel(kind, item, loading)}>{item.count}{loading && "+"}</small>
-        </button>
-      </ContextMenu>)}
-      {!items.length && <p className="folder-placeholder">{loading ? `Finding ${kind}s…` : `No ${kind}s`}</p>}
-    </div>}
-  </div>;
-}
-
-function RailSectionHeader({ label, open, listId, loading, onToggle, onCreate }: {
-  label: string;
-  open: boolean;
-  listId: string;
-  loading: boolean;
-  onToggle: () => void;
-  onCreate?: () => void;
-}) {
-  return <div className="rail-section-header">
-    <button className="rail-section-toggle" aria-expanded={open} aria-controls={listId} onClick={onToggle}>
-      <span>{open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}{label}</span>
-      {loading && <span className="folder-loading" role="status"><i aria-hidden="true" />Loading</span>}
-    </button>
-    {onCreate && <button className="rail-section-create" aria-label="New folder" title="New folder" onClick={onCreate}><FolderPlus aria-hidden="true" /></button>}
-  </div>;
+function allFolderPaths(nodes: FolderTreeNode[]): string[] {
+  return nodes.flatMap((node) => [node.path, ...allFolderPaths(node.children)]);
 }
 
 function expandedFoldersKey(collectionId: string): string {
@@ -363,7 +293,7 @@ function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: 
 }
 
 
-function connectWorkspaceUrl(collectionId: string): string {
+export function connectWorkspaceUrl(collectionId: string): string {
   const url = new URL("/connect", location.origin);
   const source = new URLSearchParams(location.search);
   const server = source.get("server");

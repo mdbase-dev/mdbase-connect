@@ -1,5 +1,5 @@
 import type { MutationProgress } from "@mdbase-dev/connect";
-import type { NoteRowStatus } from "./NoteList";
+import type { NoteRowStatus } from "./note-list-view";
 import type { NoteActivity, NoteSession } from "./note-session";
 
 export function updateMutationActivity(
@@ -23,6 +23,8 @@ export function noteRowStatus(session: NoteSession): NoteRowStatus | undefined {
   if (session.deleted) return { label: "Deleting", tone: "busy", busy: true, disabled: true };
   if (session.pendingRequestId) return { label: "Recovery pending", tone: "error", busy: false };
   if (session.remoteDocument) return { label: "Changed elsewhere", tone: "error", busy: false };
+  if (session.saveState === "error") return { label: "Save failed", tone: "error", busy: false };
+  if (session.activity === "saving" || session.activity === "properties" || session.saveState === "saving" && !session.activity) return { tone: "busy", busy: true };
   if (session.activity) {
     const labels: Record<NoteActivity, string> = {
       saving: "Saving", properties: "Updating properties", renaming: "Renaming", moving: "Moving",
@@ -30,9 +32,6 @@ export function noteRowStatus(session: NoteSession): NoteRowStatus | undefined {
     };
     return { label: session.activityDetail ?? labels[session.activity], tone: "busy", busy: true };
   }
-  if (session.saveState === "saving") return { label: "Saving", tone: "busy", busy: true };
-  if (session.saveState === "error") return { label: "Save failed", tone: "error", busy: false };
   if (session.error) return { label: "Needs attention", tone: "error", busy: false };
-  if (session.saveState === "waiting") return { label: "Unsaved", tone: "quiet", busy: false };
   return undefined;
 }

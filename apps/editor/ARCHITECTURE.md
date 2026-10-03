@@ -80,10 +80,18 @@ count and byte budgets bound the cache.
 Markdown embed discovery uses the CodeMirror Markdown syntax tree so examples
 inside code are not fetched. One resolver handles standard image destinations,
 relative paths, and wiki embeds with deterministic normalized matching; unsafe
-schemes, traversal, and ambiguous basenames remain unresolved. Uploading an
-attachment commits the file first and only then inserts a Markdown reference
-into the active note. This makes partial failure explicit: a committed file
-survives even if the later note save does not.
+schemes, traversal, and ambiguous basenames remain unresolved. The attachment menu, clipboard images and file drops share one upload pipeline
+and the same note-relative attachment location. Paste/drop uses view-local,
+edit-mapped insertion anchors (drop coordinates, not the current selection).
+Image upload widgets occupy their own block even mid-paragraph; completed image
+references are separated from prose by line breaks. Upload and failure widgets
+never enter the saved Markdown. Errors use plain language and only transient
+failures offer Retry; permanent size/type/permission failures offer Remove.
+The file commits first; only then does the editor insert an independently undoable
+Markdown reference. Navigation, removal, deleted anchors and read-only/frozen
+notes cannot receive late references. This makes partial failure explicit: a
+committed file survives even if insertion is removed or the later note save
+fails. File size/type authorization stays in the collection gateway/SDK.
 
 ## Note editing
 
@@ -106,7 +114,15 @@ the summary on failure.
 The full-text search index normalizes titles, paths, metadata, and bodies once
 per changed record. `IncrementalNoteSearchIndex` reuses entries whose record
 identity and type context are unchanged, and removes entries for deleted paths.
-Search never performs a remote query. The list is virtualized so collection
+Search never performs a remote query. Unlinked mentions reuse the hydrated
+search entries (including their original display titles), caching syntax
+exclusions and paragraph bounds by entry identity. Snippets reuse the shared
+Markdown-to-prose cleaner; display emphasis offsets remain separate from raw
+source mutation offsets. Discovery excludes H1 titles and longer source-title
+phrases, and its collapsed footer renders only five results until Show all N.
+Only an explicit Link action reads its source note, then flushes and writes through the same
+revision-aware session operation queue. Undo refuses changed text rather than
+replacing newer edits. The list is virtualized so collection
 size does not translate directly into DOM size.
 
 ## UI boundaries
@@ -115,14 +131,38 @@ size does not translate directly into DOM size.
 navigation, active editing commands, and composition. Self-contained UI lives
 outside it:
 
-- `CollectionRail.tsx` owns folder expansion persistence and collection facets;
-- `NoteList.tsx` owns list virtualization, search result rendering, and list
-  status copy;
+- `editor-commands.ts` owns canonical command labels and shortcuts; menus,
+  shortcut matching/help, and QuickOpen bind the same definitions;
+- `CollectionRail.tsx` owns folder expansion persistence;
+- `NoteSearchField.tsx` owns tag/type filter suggestions and chips;
+- `NoteList.tsx` owns list virtualization, keyboard focus, selection gestures,
+  search result rendering, and list status copy. `note-list-view.ts` holds the
+  pure filter/facet/status types, scope labels, selection/sort/drag vocabulary,
+  and browser-local, collection-scoped pin persistence. Both list and search
+  controls consume that leaf model; it never imports a view;
+- selection and its inline property form live in App independently of the open
+  note session. `use-note-actions.ts` owns explicit note mutation orchestration
+  (duplicate, rename/move, delete, property/source updates, validation, mention
+  linking), request guards, action errors and single/batch Undo state. It consumes
+  the existing session store, collection index, mutation scope and serialized
+  operation seam; it creates no second record store or write queue. App supplies
+  navigation/history/pin and active-view updates, and resets action state at the
+  existing collection-transition boundary. Batch actions collect successful
+  inverse operations for one Undo and preserve partial failures for retry.
+  Property Undo checks the written revision, not a freshly fetched revision, so
+  it cannot overwrite later changes;
 - `TypeBrowser.tsx`, `PropertiesPanel.tsx`, and `NewNoteComposer.tsx` own their
-  feature workspaces;
+  feature workspaces. `type-presentation.ts` supplies the initial Type draft and
+  readable field-kind labels without moving UI copy into schema mutation policy;
 - `Brand.tsx` and the dialog/menu components are reusable presentation.
 
-Heavy editor and type workspaces are lazy-loaded. An application error boundary
+Heavy editor and type workspaces are lazy-loaded. The metadata-icon glyph CSS
+is owned by `PhosphorIcon`, whose only consumer is the lazy Types workspace;
+the writing/loading shell uses SVG icons and does not load the icon-picker font
+or its full glyph catalog. A URL-restored Types surface reads the selected
+source when the collection becomes ready; loaded/dirty drafts and failed reads
+are not automatically replaced or retried. Pending source is a loading state,
+not a YAML validation error. An application error boundary
 contains unexpected render failures and offers recovery.
 
 `ConnectApp.tsx` owns account navigation and control-plane actions. Its client

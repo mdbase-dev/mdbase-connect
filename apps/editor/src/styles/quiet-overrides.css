@@ -1,0 +1,200 @@
+/* Quiet-instrument treatment: neutral planes, ruled hierarchy, and explicit loading. */
+.collection-rail {
+  background: var(--canvas);
+}
+
+.collection-rail nav button,
+.collection-rail nav .editor-rail-link,
+.icon-button,
+.action-menu button,
+.context-menu button {
+  border-radius: var(--radius-sm);
+}
+
+/* Persistent selection is neutral; a keyboard-active selection uses the accent. */
+.collection-rail nav button.selected,
+.collection-rail nav .editor-rail-link.selected,
+.note-scroll .note-row.selected,
+.type-row.selected,
+.type-pack-entry.selected,
+.collection-switcher-list > button.current,
+.quick-open-results > button.selected,
+.connect-nav > nav > .connect-nav-group > a.selected {
+  background: var(--selected);
+  color: var(--ink);
+}
+
+.note-scroll .note-row.selected,
+.type-row.selected,
+.type-pack-entry.selected,
+.quick-open-results > button.selected {
+  border-left-color: var(--line-strong);
+}
+
+.note-scroll:focus-within .note-row.selected,
+.type-list:focus-within .type-row.selected,
+.type-resource-nav:focus-within .type-pack-entry.selected,
+.quick-open:focus-within .quick-open-results > button.selected {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+
+.note-row.selected .note-title,
+.type-row.selected strong,
+.type-pack-entry.selected strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+.search-field,
+.connect-inline-rename input,
+.connect-inline-form input,
+.connect-feedback-field input,
+.connect-feedback-field textarea,
+.connect-feedback-origin .mdbase-select,
+.connect-account-form input,
+.connect-account-reauthentication input {
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+
+.combobox-popover,
+.quick-open,
+.shortcut-help,
+.confirm-dialog,
+.collection-switcher,
+.action-menu,
+.context-menu,
+.note-preview,
+.toast,
+.icon-picker-popover {
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+
+.dialog-scrim {
+  background: var(--color-scrim);
+}
+
+.connect-avatar {
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+}
+
+.connect-account-message.success {
+  border-color: color-mix(in oklch, var(--success) 42%, var(--line));
+  background: transparent;
+  color: var(--success);
+}
+
+.connect-pending-banner,
+.connect-account-message.error,
+.connect-deletion-effects,
+.connect-account-reauthentication,
+.field-conversion-warning,
+.type-definition-changes {
+  border-radius: var(--radius-sm);
+}
+
+.type-workspace-loading p,
+.list-loading,
+.skeleton-document p,
+.properties-panel-loading p,
+.contract-catalog-loading,
+.code-editor-loading,
+.note-preview-loading {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+}
+
+.type-workspace-loading {
+  display: block;
+  padding: 25px 18px;
+}
+
+.type-workspace-loading > strong {
+  width: auto;
+  height: auto;
+  display: block;
+  margin: 0 0 var(--space-2);
+  background: transparent;
+  font-size: var(--font-size-section);
+  animation: none;
+}
+
+.type-workspace-loading.type-inspector {
+  padding: 76px clamp(28px, 7vw, 82px);
+}
+
+.list-loading {
+  min-height: 152px;
+  display: flex;
+  align-items: flex-start;
+  padding: 20px 18px;
+}
+
+.skeleton-bar span {
+  width: auto;
+  height: auto;
+  margin-left: var(--space-2);
+  background: transparent;
+  animation: none;
+}
+
+.skeleton-document {
+  min-height: 100%;
+  padding-top: clamp(36px, 7vh, 78px);
+}
+
+.properties-panel-loading {
+  gap: var(--space-2);
+}
+
+.properties-panel-loading > strong {
+  margin-top: 2px;
+  font-size: var(--font-size-section);
+}
+
+.contract-catalog-loading {
+  display: block;
+  padding: 18px 0;
+}
+
+.code-editor-loading {
+  padding-top: 6px;
+}
+
+.note-preview-loading {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+}
+
+.properties-panel-loading > div,
+.properties-panel-loading > span,
+.contract-catalog-loading span,
+.note-preview-loading i {
+  display: none;
+}
+
+.note-preview,
+.toast,
+.folder-loading i,
+.status-dot.reconnecting {
+  animation: none;
+}
+
+.code-editor-writer .cm-file-embed.ready:hover,
+.code-editor-writer .cm-file-embed-active,
+.file-workspace-content.file-viewer-image img {
+  box-shadow: none;
+}
+
+@media (max-width: 560px) {
+  .confirm-dialog,
+  .collection-switcher {
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  }
+}

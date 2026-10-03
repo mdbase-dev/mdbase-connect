@@ -2,10 +2,18 @@ import {
   ArrowLeftIcon as ArrowLeft,
   ArrowRightIcon as ArrowRight,
   CheckIcon as Check,
+  CopyIcon as Copy,
+  FolderIcon as Folder,
+  KeyboardIcon as Keyboard,
+  ListBulletsIcon as ListBullets,
+  FilePlusIcon as FilePlus2,
+  MagnifyingGlassIcon as Search,
   InfoIcon as Info,
   LinkIcon as Link2,
   PencilSimpleIcon as Pencil,
-  TrashIcon as Trash2
+  TrashIcon as Trash2,
+  TagIcon as Tag,
+  PushPinIcon as Pin
 } from "./icons";
 import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MdbaseRecordSessionSnapshot } from "@mdbase-dev/connect";
 import {
@@ -21,10 +29,14 @@ import {
   type CSSProperties,
   type ReactNode
 } from "react";
-import { ActionMenu } from "./ActionMenu";
+import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
+import { MoveNoteDialog } from "./MoveNoteDialog";
+import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
+import { useNoteActions } from "./use-note-actions";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
 import { useCollectionBrowserEntries } from "./collection-browser";
-import { CollectionRail } from "./CollectionRail";
+import { CollectionRail, connectWorkspaceUrl } from "./CollectionRail";
+import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
 import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
 import { ConflictResolver } from "./ConflictResolver";
@@ -57,18 +69,19 @@ import type {
   CollectionSessionSnapshot,
   ConnectionSummary,
   CreateNoteInput,
-  NoteDocument,
-  NoteSummary
+  NoteDocument
 } from "./model";
 import {
   editableNote,
   noteHeadings,
+  noteWordCount,
   noteTags,
   noteTitle,
-  noteWordCount,
-  safeRenamePath
+  summaryFromDocument,
+  tags as collectionTags,
+  types as collectionTypes
 } from "./note";
-import { pendingNoteRequestId, pendingNoteToasts, recoverPendingNoteOperation, type RenamePlan, type PendingRenameRecovery } from "./pending-note-mutation";
+import { pendingNoteRequestId, pendingNoteToasts, recoverPendingNoteOperation, type RenamePlan } from "./pending-note-mutation";
 import {
   NoteSession,
   NoteSessionStore,
@@ -79,9 +92,9 @@ import {
   type NoteActivity,
   type SaveState
 } from "./note-session";
-import { loadNoteSort, saveNoteSort, sortNotes, type NoteSort } from "./note-list-view";
-import { filterLabel, filterScopeLabel, NoteList, type NoteFilter, type NoteRowStatus } from "./NoteList";
-import { noteRowStatus, updateMutationActivity } from "./note-mutation-presentation";
+import { filterLabel, filterScopeLabel, loadNoteSort, saveNoteSort, sortNotes, loadPinnedNotes, savePinnedNotes, type NoteFilter, type NoteRowStatus, type NoteSelection, type NoteSort } from "./note-list-view";
+import { NoteList } from "./NoteList";
+import { noteRowStatus } from "./note-mutation-presentation";
 import {
   NotePreviewCard,
   useNotePreview
@@ -93,12 +106,13 @@ import {
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { revealMarkdownLine } from "./code-editor-reveal";
 import { forgetRecentPath, loadRecentPaths, rememberRecentPath } from "./recent-notes";
-import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
-import { buildQuickOpenCommands } from "./editor-commands";
+import { buildEditorCommands, command, formatShortcut, matchesCommandShortcut, type CommandId } from "./editor-commands";
+import { unlinkedMentions } from "./unlinked-mentions";
+import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 import { SettingsView } from "./SettingsView";
 import { buildToastItems, ToastStack, type ToastTone } from "./Toasts";
-import { NEW_TYPE_SOURCE } from "./type-constants";
+import { NEW_TYPE_SOURCE } from "./type-presentation";
 import { useCollectionIndex } from "./use-collection-index";
 import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
 import { useCollectionWatch } from "./use-collection-watch";
@@ -113,14 +127,17 @@ import {
   BacklinksPanel,
   EmptyEditor,
   InspectorPanelLoading,
+  InspectorFrame,
   NoteSkeleton,
-  OutlineMenu,
+  OutlinePanel,
   PaneControl,
   PaneResizeHandle,
   PaneSkeleton,
   SaveIndicator,
+  PathLabel,
   TypeAccessPrompt
 } from "./WorkspaceChrome";
+const BulkNoteProperties = lazy(() => import("./BulkNoteProperties").then((module) => ({ default: module.BulkNoteProperties })));
 const TypeList = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeList })));
 const TypeInspector = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeInspector })));
 const TypePackBrowser = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypePackBrowser })));
@@ -138,15 +155,6 @@ interface Confirmation {
   initialFocus?: "confirm" | "cancel";
   onConfirm: () => void | Promise<void>;
 }
-
-interface DeletePlan {
-  session: NoteSession;
-  brokenLinkPaths: string[];
-}
-
-type RecoveryAction =
-  | { kind: "delete"; document: NoteDocument }
-  | { kind: "rename"; from: string; to: string };
 
 interface NoteNavigationHistory {
   paths: string[];
@@ -182,6 +190,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const [directAccessBusy, setDirectAccessBusy] = useState(false);
   const [connectionRetry, setConnectionRetry] = useState(0);
   const [selectedPath, setSelectedPath] = useState<string>();
+  const [selection, setSelection] = useState<NoteSelection>();
+  const [pinnedPaths, setPinnedPaths] = useState<string[]>([]);
+  const [bulkPropertyKind, setBulkPropertyKind] = useState<BulkPropertyChange["kind"]>();
   const [document, setDocument] = useState<NoteDocument>();
   const [draft, setDraft] = useState<Draft>();
   const [noteLoading, setNoteLoading] = useState(false);
@@ -194,6 +205,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const deferredSearch = useDeferredValue(search);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>();
   const [surface, setSurface] = useState<Surface>(initialEditorSurface);
+  useEffect(() => { setSelection((current) => current?.anchor === selectedPath ? current : undefined); setBulkPropertyKind(undefined); }, [selectedPath]);
+  useEffect(() => { setSelection(undefined); setBulkPropertyKind(undefined); }, [search, noteFilter, surface]);
+  useEffect(() => { setPinnedPaths(description ? loadPinnedNotes(description.collectionId) : []); }, [description?.collectionId]);
   useEffect(() => { onFeedbackContext?.(surface, description?.displayName); }, [surface, description?.displayName, onFeedbackContext]);
   useEffect(() => { if (noteOpenFailure) reportError({ code: "source_open_failed" }); }, [noteOpenFailure, reportError]);
   const [selectedTypeName, setSelectedTypeName] = useState<string>();
@@ -207,15 +221,13 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const [notice, setNoticeState] = useState<{ message: string; tone: ToastTone } | undefined>();
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [backlinksOpen, setBacklinksOpen] = useState(false);
-  const [propertiesError, setPropertiesError] = useState<string>();
   const [editingPath, setEditingPath] = useState(false);
   const [pathDraft, setPathDraft] = useState("");
-  const [deletePlan, setDeletePlan] = useState<DeletePlan>();
+  const [movePaths, setMovePaths] = useState<string[]>();
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const [renamePlan, setRenamePlan] = useState<RenamePlan>();
-  const [pendingRenameRecovery, setPendingRenameRecovery] = useState<PendingRenameRecovery>();
-  const [recoveryAction, setRecoveryAction] = useState<RecoveryAction>();
-  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [quickOpenCommandMode, setQuickOpenCommandMode] = useState(false);
   const [editorAutoFocus, setEditorAutoFocus] = useState(true);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [collectionSwitcherOpen, setCollectionSwitcherOpen] = useState(false);
@@ -245,14 +257,14 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   });
   const noteHistory = useRef<NoteNavigationHistory>({ paths: [], index: -1 });
   const linkCreations = useRef(new Set<string>());
-  const renameRequest = useRef<string | undefined>(undefined);
-  const deleteRequest = useRef<string | undefined>(undefined);
   const searchIndexCache = useRef(new IncrementalNoteSearchIndex());
   useEffect(() => () => noteSessions.current.clear(), []);
   const mobileHistoryInitialized = useRef(false);
   const ignoreNextMobileHistoryPush = useRef(false);
   const mobileLayout = viewportWidth <= 760;
   const typeDescriptors = description?.types ?? emptyTypeDescriptors;
+  const tagFacets = useMemo(() => collectionTags(allNotes), [allNotes]);
+  const typeFacets = useMemo(() => collectionTypes(allNotes, typeDescriptors.map((type) => type.name)), [allNotes, typeDescriptors]);
   const setNotice = useCallback((message?: string, tone: ToastTone = "error") => {
     setNoticeState(message ? { message, tone } : undefined);
     if (message && tone !== "info") signalMdbaseMark(tone === "error" ? "error" : "saved");
@@ -268,6 +280,16 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     saving: typeSaving, error: typeError, load: loadTypeSource, save: saveType, reset: resetTypeLifecycle,
     clear: clearTypeLifecycle, beginCreate: beginTypeLifecycleCreate, setSource: setTypeSource,
     discardChanges: discardTypeChanges, setError: setTypeError } = typeLifecycle;
+  // A URL-restored Types surface does not go through finishSelectSurface.
+  // Read its selected definition once the collection is ready, without replacing
+  // a loaded/dirty draft or repeatedly retrying a failed request.
+  useEffect(() => {
+    if (phase === "ready" && surface === "types" && typeWorkspace === "definition"
+      && selectedTypeName && !typeDocument && !typeCreating && !typeLoading && !typeError) {
+      void loadTypeSource(selectedTypeName);
+    }
+  }, [loadTypeSource, phase, selectedTypeName, surface, typeCreating, typeDocument, typeError, typeLoading, typeWorkspace]);
+
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
   const fileWorkspace = useFileWorkspace(
     fileAssetStore,
@@ -279,7 +301,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
   const attachments = useAttachmentUpload({ gateway, inventory: fileController, scope: mutationScope.current,
-    inventoryFiles: fileInventory.files, activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
+    activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
@@ -556,9 +578,10 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       setPropertiesOpen(false);
       setBacklinksOpen(false);
     }
-    setDeletePlan(undefined);
+    setMovePaths(undefined);
+    setOutlineOpen(false);
     setRenamePlan(undefined);
-    renameRequest.current = undefined;
+    clearRenameRequest();
     setMobilePane("editor");
     try {
       if (cached && !cached.deleted) {
@@ -580,7 +603,10 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       else selectNoteHistoryIndex(options.historyIndex, next.path);
       return true;
     } catch (error) {
-      if (current()) setNoteOpenFailure({ path, options, message: `Couldn’t open “${path}”. ${gatewayError(error)}` });
+      if (current()) {
+        setSelection(undefined);
+        setNoteOpenFailure({ path, options, message: `Couldn’t open “${path}”. ${gatewayError(error)}` });
+      }
       return false;
     } finally {
       if (current()) {
@@ -815,6 +841,12 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   }, [deferredSearch, noteFilter, noteSort, searchedNotes, typeDescriptors]);
   const { visibleFiles, entries: visibleBrowserEntries } = useCollectionBrowserEntries(
     visibleNotes, fileInventory.files, noteFilter, deferredSearch, noteSort, typeDescriptors);
+  const visibleNotePaths = useMemo(() => new Set(visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path)), [visibleBrowserEntries]);
+  const listSelection = useMemo(() => selectedCollectionFile || creationMode ? { paths: [] } : selection ? { ...selection, paths: selection.paths.filter((path) => visibleNotePaths.has(path)) } : { paths: selectedPath && visibleNotePaths.has(selectedPath) ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath }, [creationMode, selectedCollectionFile, selectedPath, selection, visibleNotePaths]);
+  const selectionFields = useMemo(() => {
+    const paths = new Set(listSelection.paths);
+    return bulkFields(allNotes.filter((note) => paths.has(note.path)), typeDescriptors);
+  }, [allNotes, listSelection.paths, typeDescriptors]);
   const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description]);
   const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors]);
   const embeddedNotes = useEmbeddedNoteReferences(
@@ -828,6 +860,15 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     visibleNoteEmbedKeys
   );
   const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes, typeDescriptors) : [], [allNotes, document, typeDescriptors]);
+  const mentions = useMemo(() => document ? unlinkedMentions(searchIndex, document.path, draft?.title ?? noteTitle(document, typeDescriptors)) : [], [searchIndex, document, draft?.title, typeDescriptors]);
+  const focusMode = preferences.focusMode && surface === "notes" && Boolean(document) && !creationMode && !selectedCollectionFile;
+
+  function toggleFocus() { setPreferences((current) => ({ ...current, focusMode: !current.focusMode })); }
+  function switchTheme() {
+    const current = loadThemePreference();
+    const next = current === "system" ? "light" : current === "light" ? "dark" : "system";
+    saveThemePreference(next);
+  }
 
   const runNoteOperation = useCallback(async <Result,>(
     session: NoteSession,
@@ -849,6 +890,19 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       }
     }));
   }, [touchSession]);
+
+  const { renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
+    onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource,
+    validateNote, requestDelete, undoRecovery, propertiesError, setPropertiesError, pendingRenameRecovery,
+    bulkBusy, recoveryAction, setRecoveryAction, recoveryBusy, setRecoveryBusy, linkingMention,
+    clearRenameRequest, resetNoteActions } = useNoteActions({
+    gateway, mutationScope, noteSessions, indexController, allNotes, files: fileInventory.files,
+    typeDescriptors, document, pathDraft, canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes,
+    createSession, flushSession, runNoteOperation, touchSession, updateNoteSummary, refreshCachedNote,
+    openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin,
+    clearSelection: () => { setSelection(undefined); setBulkPropertyKind(undefined); },
+    setDocument, setDraft, setSelectedPath, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths, setNotice
+  });
 
   async function connectCollection() {
     setNotice(undefined);
@@ -923,16 +977,14 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     setCreationDirty(false);
     setPropertiesOpen(false);
     setBacklinksOpen(false);
-    setPropertiesError(undefined);
     setEditingPath(false);
     setPathDraft("");
-    setDeletePlan(undefined);
+    setMovePaths(undefined);
+    setSelection(undefined);
+    setBulkPropertyKind(undefined);
+    resetNoteActions();
+    setOutlineOpen(false);
     setRenamePlan(undefined);
-    setPendingRenameRecovery(undefined);
-    setRecoveryAction(undefined);
-    setRecoveryBusy(false);
-    renameRequest.current = undefined;
-    deleteRequest.current = undefined;
     setQuickOpen(false);
     setConfirmation(undefined);
     setSelectedTypeName(undefined);
@@ -1009,7 +1061,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     setPropertiesOpen(false);
     setBacklinksOpen(false);
     setRenamePlan(undefined);
-    renameRequest.current = undefined;
+    clearRenameRequest();
     setCreationDirty(false);
     setCreationContext(context);
     setCreationMode(mode);
@@ -1041,40 +1093,10 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     beginCreation("folder", { folder: parent });
   }
 
-  function beginNoteWithTag(tag: string) {
-    setNoteFilter({ kind: "tag", value: tag });
-    beginCreation("note", { tag });
-  }
-
-  function beginNoteWithType(type: string) {
-    setNoteFilter({ kind: "type", value: type });
-    beginCreation("note", { type });
-  }
-
   function copyFacet(value: string, label: string) {
     void navigator.clipboard.writeText(value)
       .then(() => setNotice(`Copied ${label}.`, "success"))
       .catch(() => setNotice(`Couldn’t copy ${label}.`));
-  }
-
-  function openTypeFromRail(name: string) {
-    const open = () => {
-      finishSelectSurface("types");
-      setTypeWorkspace("definition");
-      setSelectedTypeName(name);
-      void loadTypeSource(name);
-    };
-    if (typeDraftDirty() && (typeCreating || selectedTypeName !== name)) {
-      setConfirmation({
-        title: "Discard type changes?",
-        body: <p>Your unsaved changes to this type definition won’t be kept.</p>,
-        confirmLabel: "Discard changes",
-        tone: "danger",
-        onConfirm: open
-      });
-      return;
-    }
-    open();
   }
 
   async function createNote(input: CreateNoteInput) {
@@ -1090,7 +1112,6 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     setPropertiesError(undefined);
     setPropertiesOpen(false);
     setBacklinksOpen(false);
-    setDeletePlan(undefined);
     setCreationDirty(false);
     setCreationContext({});
     setMobilePane("editor");
@@ -1128,7 +1149,6 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       if (navigation !== navigationGeneration.current) return;
       documentGeneration.current += 1;
       setPropertiesError(undefined);
-      setDeletePlan(undefined);
       setMobilePane("editor");
       adoptDocument(created);
       recordNoteNavigation(created.path);
@@ -1147,371 +1167,157 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     });
   }
 
-  async function requestRename() {
-    if (mutationScope.current.isFrozen || !canRenameNotes) return;
+  async function planFolderChange(from: string, to: string): Promise<FolderChangePlan> {
+    if (mutationScope.current.isFrozen || !canRenameNotes) throw new Error("Moving notes is not available with this collection’s current access.");
+    if (!structureComplete || foldersLoading || structureError || fileInventory.loading || fileInventory.error) {
+      throw new Error("Wait for the complete note and attachment index before changing a folder.");
+    }
     const token = mutationScope.current.token();
-    const session = noteSessions.current.active;
-    if (!session) return;
-    const nextPath = safeRenamePath(pathDraft);
-    if (!nextPath || !nextPath.toLocaleLowerCase().endsWith(".md")) {
-      setNotice("Use a collection-relative path ending in .md.");
-      return;
-    }
-    if (nextPath === session.document.path) {
-      setEditingPath(false);
-      return;
-    }
-    setEditingPath(false);
-    const requestKey = `${session.document.path}\n${nextPath}`;
-    if (renameRequest.current === requestKey) return;
-    renameRequest.current = requestKey;
-    try {
-      const from = session.document.path;
-      await flushSession(session);
-      if (session.document.path !== from) {
-        throw new Error("This note moved before the rename check could begin.");
+    const moves = folderChangeMoves(from, to, allNotes.map((note) => note.path), fileInventory.files.map((file) => file.path));
+    return mutationScope.current.register(token, (async () => {
+      let referenceCount = 0;
+      const warnings = new Set<string>();
+      for (const move of moves) {
+        let session = noteSessions.current.get(move.from);
+        if (!session) {
+          const note = await gateway.read(move.from);
+          if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+          session = noteSessions.current.get(move.from) ?? createSession(note);
+        }
+        if (session.recoveryDraft) throw new Error(`Recover the unsaved edits in “${move.from}” before moving this folder.`);
+        await flushSession(session);
+        const preview = await runNoteOperation(session, "validating", () => gateway.preflightRename(move.from, move.to, session.document.revision));
+        if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+        referenceCount += preview.operation.referencesAffected?.length ?? preview.affectedPaths.length;
+        preview.warnings.forEach((warning) => warnings.add(warning));
       }
-      const preflight = await runNoteOperation(session, "validating", () => gateway.preflightRename(
-        from,
-        nextPath,
-        session.document.revision
-      ));
-      if (!mutationScope.current.isCurrent(token)) return;
-      if (noteSessions.current.active !== session) {
-        renameRequest.current = undefined;
-        return;
-      }
-      const plan: RenamePlan = {
-        session,
-        from,
-        to: nextPath,
-        affectedPaths: preflight.affectedPaths,
-        warnings: preflight.warnings
-      };
-      if (plan.affectedPaths.length > 0 || plan.warnings.length > 0) {
-        setRenamePlan(plan);
-        return;
-      }
-      await performRename(plan, true);
-    } catch (error) {
-      if (!mutationScope.current.isCurrent(token)) return;
-      const message = gatewayError(error);
-      session.error = message;
-      if (noteSessions.current.active === session) setPathDraft(session.document.path);
-      setNotice(noteSessions.current.active === session
-        ? message
-        : `Couldn’t check the rename for “${session.draft.title || session.document.path}”. ${message}`);
-      renameRequest.current = undefined;
-      touchSession(session);
-    }
+      return { from, to, moves, referenceCount, warnings: [...warnings], ...token };
+    })());
   }
 
-  async function performRename(plan: RenamePlan, updateRefs: boolean, requestId?: string) {
-    if (mutationScope.current.isFrozen) return;
+  async function changeFolder(plan: FolderChangePlan, onProgress: (progress: FolderChangeProgress) => void): Promise<FolderChangeResult> {
     const token = mutationScope.current.token();
-    const { session, from, to } = plan;
-    const controller = new AbortController();
-    setRenamePlan(undefined);
-    session.mutationController = controller;
-    session.mutationCancellable = false;
-    touchSession(session);
-    try {
-      if (!requestId) {
-        await flushSession(session);
-        if (session.document.path !== from) throw new Error("This note moved before the rename could begin.");
-      }
-      const renamed = await runNoteOperation(session, updateRefs ? "renaming" : "moving", (token) => requestId
-        ? gateway.recoverNoteMutation(requestId)
-        : gateway.rename(
-        from,
-        to,
-        session.document.revision,
-        updateRefs,
-        {
-          signal: controller.signal,
-          onProgress: (progress) => {
-            if (mutationScope.current.isCurrent(token)) updateMutationActivity(session, progress, touchSession);
+    if (mutationScope.current.isFrozen || !canRenameNotes || token.epoch !== plan.epoch || token.collectionId !== plan.collectionId) {
+      throw new Error("The collection changed. Review the folder change again.");
+    }
+    if (!structureComplete || foldersLoading || structureError || fileInventory.loading || fileInventory.error) {
+      throw new Error("The note or attachment index is refreshing. Wait for it to finish, then review the folder change again.");
+    }
+    const latestMoves = folderChangeMoves(plan.from, plan.to, allNotes.map((note) => note.path), fileInventory.files.map((file) => file.path));
+    if (JSON.stringify(latestMoves) !== JSON.stringify(plan.moves)) throw new Error("The folder’s notes changed. Review the folder change again.");
+    return mutationScope.current.register(token, (async () => {
+      const result: FolderChangeResult = { moved: 0, failures: [] };
+      for (const [index, move] of plan.moves.entries()) {
+        if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+        onProgress({ completed: index, total: plan.moves.length, path: move.from });
+        try {
+          let session = noteSessions.current.get(move.from);
+          if (!session) session = createSession(await gateway.read(move.from));
+          if (session.recoveryDraft) throw new Error("Recover unsaved edits before moving this note.");
+          await flushSession(session);
+          // Earlier renames may have rewritten this note’s links and revision.
+          await refreshCachedNote(move.from);
+          if (session.document.path !== move.from) throw new Error("This note already moved elsewhere.");
+          const renamed = await runNoteOperation(session, "renaming", () => gateway.rename(move.from, move.to, session!.document.revision, true, {
+            onProgress: (progress) => {
+              if (mutationScope.current.isCurrent(token)) onProgress({ completed: index, total: plan.moves.length, path: move.from,
+                detail: progress.completedUnits === undefined ? undefined : `${progress.completedUnits} changes applied` });
+            }
+          }));
+          if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+          session.record.accept(renamed);
+          noteSessions.current.move(move.from, renamed.path, session);
+          updateNoteSummary(renamed, move.from);
+          if (noteSessions.current.active === session) {
+            setDocument(renamed); setSelectedPath(renamed.path); setPathDraft(renamed.path);
+            localStorage.setItem("mdbase-editor:last-note", renamed.path);
+          }
+          setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.from), renamed.path));
+          replaceNoteHistoryPath(move.from, renamed.path);
+          remapPin(move.from, renamed.path);
+          touchSession(session);
+          result.moved += 1;
+        } catch (error) {
+          if (!mutationScope.current.isCurrent(token)) throw error;
+          result.failures.push({ path: move.from, message: gatewayError(error) });
+          // An uncertain mutation must be recovered before issuing more writes.
+          if (pendingNoteRequestId(error)) {
+            result.failures.at(-1)!.message += " The move may still be applying; recover the pending operation before retrying.";
+            result.failures.push(...plan.moves.slice(index + 1).map((remaining) => ({ path: remaining.from, message: "Not attempted because an earlier move needs recovery." })));
+            break;
           }
         }
-      ));
-      if (!mutationScope.current.isCurrent(token)) return;
-      setPendingRenameRecovery(undefined);
-      session.record.accept(renamed);
-      session.error = undefined;
-      noteSessions.current.move(from, renamed.path, session);
-      updateNoteSummary(renamed, from);
-      if (noteSessions.current.active === session) {
-        setDocument(renamed);
-        setSelectedPath(renamed.path);
-        setPathDraft(renamed.path);
-        localStorage.setItem("mdbase-editor:last-note", renamed.path);
+        onProgress({ completed: index + 1, total: plan.moves.length, path: move.from });
       }
-      setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, from), renamed.path));
-      replaceNoteHistoryPath(from, renamed.path);
-      setRecoveryAction({ kind: "rename", from, to: renamed.path });
-      touchSession(session);
-    } catch (error) {
-      if (!mutationScope.current.isCurrent(token)) return;
-      const message = gatewayError(error);
-      session.error = message;
-      const interruptedRequestId = requestId ?? pendingNoteRequestId(error);
-      if (interruptedRequestId) {
-        setPendingRenameRecovery({ plan, updateRefs, requestId: interruptedRequestId });
-        if (noteSessions.current.active === session) {
-          setPathDraft(to);
-          setEditingPath(true);
-        }
-      } else if (noteSessions.current.active === session) {
-        setPathDraft(session.document.path);
-      }
-      setNotice(noteSessions.current.active === session
-        ? message
-        : `Couldn’t rename “${session.draft.title || session.document.path}”. ${message}`);
-      touchSession(session);
-    } finally {
-      if (!mutationScope.current.isCurrent(token)) return;
-      if (session.mutationController === controller) {
-        session.mutationController = undefined;
-        session.mutationCancellable = false;
-        touchSession(session);
-      }
-      renameRequest.current = undefined;
-    }
+      // Bring rewritten references into both the index and open note sessions.
+      const warnings: string[] = [];
+      await Promise.all([...noteSessions.current.values()].filter((session) => !session.deleted).map(async (session) => {
+        try { await refreshCachedNote(session.document.path); }
+        catch (error) { warnings.push(`Couldn’t reload rewritten links in “${session.document.path}”. ${gatewayError(error)}`); }
+      }));
+      try { await loadIndex(); } catch (error) { warnings.push(`Folder changes were applied, but refreshing the index failed. ${gatewayError(error)}`); }
+      if (warnings.length) result.warnings = warnings;
+      if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
+      if (noteFilter?.kind === "folder" && result.moved > 0) setNoteFilter({ kind: "folder", value: result.failures.length ? plan.from : plan.to });
+      return result;
+    })());
+  }
+
+  function menuCommand(id: CommandId, icon: ReactNode, run: () => void, disabled = false, label?: string): ActionMenuItem {
+    const entry = command(id, run, label);
+    return { label: entry.label, icon, onSelect: entry.run, disabled, title: entry.shortcut ? `${entry.label} · ${formatShortcut(entry.shortcut)}` : undefined };
+  }
+  function togglePin(path: string) {
+    if (!description) return;
+    const next = pinnedPaths.includes(path) ? pinnedPaths.filter((value) => value !== path) : [...pinnedPaths, path];
+    setPinnedPaths(next);
+    savePinnedNotes(description.collectionId, next);
+  }
+  function remapPin(from: string, to: string) {
+    if (!description) return;
+    setPinnedPaths((current) => {
+      const next = [...new Set(current.map((path) => path === from ? to : path))];
+      savePinnedNotes(description.collectionId, next);
+      return next;
+    });
+  }
+  function noteActions(path: string): ActionMenuItem[] {
+    return [
+      menuCommand("rename", <Pencil aria-hidden="true" />, () => void renameNote(path), mutationsFrozen || !canRenameNotes),
+      menuCommand("move", <Folder aria-hidden="true" />, () => setMovePaths([path]), mutationsFrozen || !canRenameNotes),
+      menuCommand("duplicate", <Copy aria-hidden="true" />, () => void duplicateNote(path), mutationsFrozen || !canCreateNotes),
+      menuCommand("copy-link", <Link2 aria-hidden="true" />, () => copyFacet(`[[${path.replace(/\.md$/i, "")}]]`, "note link")),
+      menuCommand("copy-path", <Copy aria-hidden="true" />, () => copyFacet(path, "note path")),
+      menuCommand(pinnedPaths.includes(path) ? "unpin" : "pin", <Pin aria-hidden="true" />, () => togglePin(path)),
+      { ...menuCommand("delete", <Trash2 aria-hidden="true" />, () => void requestDelete(path), mutationsFrozen || !canDeleteNotes || bulkBusy), tone: "danger" }
+    ];
+  }
+  function openBulkProperty(kind: BulkPropertyChange["kind"]) {
+    setBulkPropertyKind(kind);
+    setLayout((current) => ({ ...current, listCollapsed: false }));
+    setMobilePane("notes");
+    if (focusMode) toggleFocus();
+  }
+  function bulkActions(paths: string[]): ActionMenuItem[] {
+    const disabled = mutationsFrozen || bulkBusy || recoveryBusy;
+    return [
+      menuCommand("move-selected", <Folder aria-hidden="true" />, () => setMovePaths(paths), disabled || !canRenameNotes),
+      menuCommand("add-tag", <Tag aria-hidden="true" />, () => openBulkProperty("add-tag"), disabled || !canEditNotes),
+      menuCommand("remove-tag", <Tag aria-hidden="true" />, () => openBulkProperty("remove-tag"), disabled || !canEditNotes),
+      menuCommand("set-property", <Pencil aria-hidden="true" />, () => openBulkProperty("property"), disabled || !canEditNotes || !selectionFields.some((field) => field.shared)),
+      { ...menuCommand("delete-selected", <Trash2 aria-hidden="true" />, () => void deleteSelectedNotes(paths), disabled || !canDeleteNotes), tone: "danger" }
+    ];
   }
 
   const recoverPendingNote = (requestId: string) => recoverPendingNoteOperation(requestId, {
     busy: recoveryBusy, scope: mutationScope.current, sessions: noteSessions.current, gateway,
     save: async (session) => { requireSaved(await session.record.save()); }, rename: pendingRenameRecovery,
-    resumeRename: performRename, refresh: refreshChangedNote, reload: loadIndex,
+    resumeRename: async (...args) => { await performRename(...args); }, refresh: refreshChangedNote, reload: loadIndex,
     setBusy: setRecoveryBusy, onError: (message) => setNotice(message)
   });
 
   function cancelActiveMutation() {
     noteSessions.current.active?.mutationController?.abort("Cancelled in mdbase editor");
-  }
-
-  function cancelRename() {
-    setRenamePlan(undefined);
-    renameRequest.current = undefined;
-    const session = noteSessions.current.active;
-    if (session) setPathDraft(session.document.path);
-  }
-
-  async function saveProperties(path: string, next: Record<string, unknown>) {
-    if (mutationScope.current.isFrozen || !canEditNotes) return;
-    const token = mutationScope.current.token();
-    const session = noteSessions.current.get(path);
-    if (!session) return;
-    setPropertiesError(undefined);
-    try {
-      await flushSession(session);
-      const source = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body ?? "");
-      const updated = await runNoteOperation(session, "properties", () => gateway.updateDocument(
-        session.document.path,
-        replaceDocumentFrontmatter(source, next),
-        session.document.revision
-      ));
-      if (!mutationScope.current.isCurrent(token)) return;
-      session.record.accept(updated);
-      session.error = undefined;
-      touchSession(session);
-    } catch (error) {
-      if (!mutationScope.current.isCurrent(token)) return;
-      const message = gatewayError(error);
-      session.error = message;
-      setPropertiesError(message);
-      setNotice(noteSessions.current.active === session
-        ? message
-        : `Couldn’t update properties for “${session.draft.title || session.document.path}”. ${message}`);
-      touchSession(session);
-      throw error;
-    }
-  }
-
-  async function saveRecordSource(path: string, source: string, previousSource: string): Promise<NoteDocument | false> {
-    if (mutationScope.current.isFrozen || !canEditNotes) return false;
-    const token = mutationScope.current.token();
-    const session = noteSessions.current.get(path);
-    if (!session || session.deleted) return false;
-    if (noteSessions.current.active === session) setPropertiesError(undefined);
-    try {
-      await flushSession(session);
-      if (!mutationScope.current.isCurrent(token)) return false;
-      const currentSource = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body ?? "");
-      if (currentSource !== previousSource) {
-        const message = "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record.";
-        if (noteSessions.current.active === session) setPropertiesError(message);
-        else setNotice(`Couldn’t update source for “${session.draft.title || session.document.path}”. ${message}`);
-        return false;
-      }
-      const updated = await runNoteOperation(session, "properties", () => gateway.updateDocument(
-        session.document.path,
-        source,
-        session.document.revision
-      ));
-      if (!mutationScope.current.isCurrent(token)) return false;
-      session.record.accept(updated);
-      session.error = undefined;
-      touchSession(session);
-      return updated;
-    } catch (error) {
-      if (!mutationScope.current.isCurrent(token)) return false;
-      const message = gatewayError(error);
-      session.error = message;
-      if (noteSessions.current.active === session) setPropertiesError(message);
-      setNotice(noteSessions.current.active === session
-        ? message
-        : `Couldn’t update source for “${session.draft.title || session.document.path}”. ${message}`);
-      touchSession(session);
-      return false;
-    }
-  }
-
-  async function validateNote() {
-    if (mutationScope.current.isFrozen) return;
-    const token = mutationScope.current.token();
-    const session = noteSessions.current.active;
-    if (!session) return;
-    setNotice(undefined);
-    try {
-      await flushSession(session);
-      const diagnostics = await runNoteOperation(
-        session,
-        "validating",
-        () => gateway.validate(session.document.path)
-      );
-      if (mutationScope.current.isCurrent(token) && noteSessions.current.active === session) {
-        setNotice(diagnostics.length ? diagnostics.map((item) => item.message).join(" ") : "No validation issues.");
-      }
-    } catch (error) {
-      if (!mutationScope.current.isCurrent(token)) return;
-      const message = gatewayError(error);
-      setNotice(noteSessions.current.active === session
-        ? message
-        : `Couldn’t check “${session.draft.title || session.document.path}”. ${message}`);
-    }
-  }
-
-  async function requestDelete() {
-    if (mutationScope.current.isFrozen || !canDeleteNotes) return;
-    const token = mutationScope.current.token();
-    const session = noteSessions.current.active;
-    if (!session) return;
-    const requestKey = `${session.document.path}\n${session.document.revision}`;
-    if (deleteRequest.current === requestKey) return;
-    deleteRequest.current = requestKey;
-    setNotice(undefined);
-    try {
-      await flushSession(session);
-      const preflight = await runNoteOperation(session, "validating", () => gateway.preflightDelete(
-        session.document.path,
-        session.document.revision
-      ));
-      if (mutationScope.current.isCurrent(token) && noteSessions.current.active === session) {
-        setDeletePlan({ session, brokenLinkPaths: preflight.brokenLinkPaths });
-      }
-    } catch (error) {
-      if (!mutationScope.current.isCurrent(token)) return;
-      const message = gatewayError(error);
-      session.error = message;
-      setNotice(noteSessions.current.active === session
-        ? message
-        : `Couldn’t check deletion for “${session.draft.title || session.document.path}”. ${message}`);
-      touchSession(session);
-    } finally {
-      deleteRequest.current = undefined;
-    }
-  }
-
-  function deleteNote(plan: DeletePlan) {
-    if (mutationScope.current.isFrozen) return;
-    const token = mutationScope.current.token();
-    const { session } = plan;
-    const path = session.document.path;
-    const next = allNotes.find((note) => note.path !== path);
-    session.deleted = true;
-    indexController.stageRemoval(path);
-    forgetNoteHistoryPath(path);
-    setDeletePlan(undefined);
-    if (noteSessions.current.active === session) {
-      noteSessions.current.deactivate(session);
-      setDocument(undefined);
-      setDraft(undefined);
-      setSelectedPath(undefined);
-      if (next) void openNote(next.path);
-    }
-    void (async () => {
-      try {
-        let deletedDocument: NoteDocument | undefined;
-        await runNoteOperation(session, "deleting", async (token) => {
-          deletedDocument = structuredClone(session.document);
-          await gateway.delete(session.document.path, session.document.revision, {
-            onProgress: (progress) => {
-              if (mutationScope.current.isCurrent(token)) updateMutationActivity(session, progress, touchSession);
-            }
-          });
-        });
-        if (!mutationScope.current.isCurrent(token)) return;
-        session.record.markDeleted();
-        noteSessions.current.delete(path);
-        indexController.commitRemoval(path);
-        setRecentPaths((current) => forgetRecentPath(current, path));
-        if (deletedDocument) setRecoveryAction({ kind: "delete", document: deletedDocument });
-      } catch (error) {
-        if (!mutationScope.current.isCurrent(token)) return;
-        session.deleted = false;
-        indexController.rollbackRemoval(summaryFromDocument(session.document));
-        session.error = gatewayError(error);
-        setNotice(`Couldn’t delete “${session.draft.title || path}”. ${session.error}`);
-        touchSession(session);
-      }
-    })();
-  }
-
-  async function undoRecovery() {
-    const action = recoveryAction;
-    if (!action || recoveryBusy || mutationScope.current.isFrozen) return;
-    const token = mutationScope.current.token();
-    setRecoveryBusy(true);
-    setNotice(undefined);
-    try {
-      if (action.kind === "delete") {
-        const restored = await mutationScope.current.register(token, gateway.restore(action.document));
-        if (!mutationScope.current.isCurrent(token)) return;
-        createSession(restored);
-        indexController.create(summaryFromDocument(restored));
-        setNotice(`Restored “${noteTitle(restored, typeDescriptors)}”.`);
-      } else {
-        const session = noteSessions.current.get(action.to);
-        if (!session || session.deleted) throw new Error("The renamed note is no longer available to restore.");
-        await flushSession(session);
-        const restored = await runNoteOperation(session, "renaming", () => gateway.rename(
-          action.to,
-          action.from,
-          session.document.revision,
-          true
-        ));
-        session.record.accept(restored);
-        session.error = undefined;
-        noteSessions.current.move(action.to, action.from, session);
-        updateNoteSummary(restored, action.to);
-        if (noteSessions.current.active === session) {
-          setDocument(restored);
-          setSelectedPath(restored.path);
-          setPathDraft(restored.path);
-          localStorage.setItem("mdbase-editor:last-note", restored.path);
-        }
-        setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, action.to), restored.path));
-        replaceNoteHistoryPath(action.to, restored.path);
-        touchSession(session);
-        setNotice(`Restored the path to “${action.from}”.`);
-      }
-      setRecoveryAction(undefined);
-    } catch (error) {
-      if (mutationScope.current.isCurrent(token)) setNotice(`Couldn’t undo that change. ${gatewayError(error)}`);
-    } finally {
-      if (mutationScope.current.isCurrent(token)) setRecoveryBusy(false);
-    }
   }
 
   function selectType(name: string) {
@@ -1641,7 +1447,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     setPropertiesOpen(false);
     setBacklinksOpen(false);
     setRenamePlan(undefined);
-    renameRequest.current = undefined;
+    clearRenameRequest();
     setMobilePane(next === "settings" ? "editor" : "notes");
     if (next === "types" && !typeCreating) {
       const name = selectedTypeName ?? description?.types[0]?.name;
@@ -1720,20 +1526,44 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         setShortcutsOpen(false);
         return;
       }
-      if (modifier && (key === "p" || (key === "k" && !isEditableTarget(event.target)))) {
+      if (matchesCommandShortcut("quick-open", event) || matchesCommandShortcut("command-palette", event)) {
         event.preventDefault();
         setShortcutsOpen(false);
+        setQuickOpenCommandMode(event.shiftKey);
         setQuickOpen(true);
+        return;
+      }
+      if (modifier && !event.altKey && !event.shiftKey && key === "k"
+          && !(event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content"))) {
+        // K belongs only to note text, not the browser's location bar or a
+        // second workspace shortcut when focus is on another control.
+        event.preventDefault();
         return;
       }
       if (quickOpen || shortcutsOpen) return;
       if (phase !== "ready") return;
-      if (modifier && event.shiftKey && key === "n") {
+      if (event.key === "Escape" && focusMode && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"], .cm-panels, .cm-tooltip'))) {
+        event.preventDefault();
+        setPreferences((current) => ({ ...current, focusMode: false }));
+        return;
+      }
+      if (matchesCommandShortcut("focus", event) && surface === "notes" && document && !creationMode && !selectedCollectionFile) {
+        event.preventDefault();
+        toggleFocus();
+        return;
+      }
+      if (!event.defaultPrevented && matchesCommandShortcut("rename", event) && selectedPath && surface === "notes" && !creationMode && !selectedCollectionFile
+          && !(event.target instanceof Element && event.target.closest('#note-path, [role="dialog"], [role="alertdialog"], [role="menu"]'))) {
+        event.preventDefault();
+        void renameNote(selectedPath);
+        return;
+      }
+      if (matchesCommandShortcut("new-note", event)) {
         event.preventDefault();
         beginCreate();
         return;
       }
-      if (modifier && event.shiftKey && key === "l") {
+      if (matchesCommandShortcut("toggle-list", event)) {
         event.preventDefault();
         setLayout((current) => ({ ...current, listCollapsed: !current.listCollapsed }));
         return;
@@ -1765,9 +1595,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         setShortcutsOpen(true);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [creationDirty, creationMode, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mutationsFrozen, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
   const dismissToast = useCallback((id: string) => {
@@ -1809,10 +1639,10 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
 
   const selectedType = description.types.find((type) => type.name === selectedTypeName);
   const hasListPane = surface !== "settings";
-  const preferredCollectionTrack = layout.collectionCollapsed ? 0 : layout.collectionWidth;
-  const preferredListTrack = hasListPane && !layout.listCollapsed ? layout.listWidth : 0;
+  const preferredCollectionTrack = focusMode || layout.collectionCollapsed ? 0 : layout.collectionWidth;
+  const preferredListTrack = hasListPane && !focusMode && !layout.listCollapsed ? layout.listWidth : 0;
   const editorMinimum = viewportWidth <= 1120 ? 320 : 380;
-  const inspectorVisible = propertiesOpen || backlinksOpen;
+  const inspectorVisible = propertiesOpen && !focusMode;
   const inspectorResizeMax = Math.max(INSPECTOR_WIDTH.min, Math.min(
     INSPECTOR_WIDTH.max,
     viewportWidth > 1120
@@ -1820,7 +1650,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       : viewportWidth - editorMinimum
   ));
   const inspectorTrack = Math.min(layout.inspectorWidth, inspectorResizeMax);
-  const reservedInspectorWidth = inspectorVisible && viewportWidth > 1120 ? inspectorTrack : 0;
+  const inspectorOverlay = viewportWidth <= 1120;
+  const reservedInspectorWidth = inspectorVisible && !inspectorOverlay ? inspectorTrack : 0;
   const collectionResizeMax = Math.max(COLLECTION_WIDTH.min, Math.min(
     COLLECTION_WIDTH.max,
     viewportWidth - preferredListTrack - editorMinimum - reservedInspectorWidth
@@ -1839,22 +1670,43 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   const activePendingRename = pendingRenameRecovery?.plan.session === noteSessions.current.active
     ? pendingRenameRecovery
     : undefined;
-  const quickOpenCommands = buildQuickOpenCommands({
-    onNewNote: canCreateNotes ? beginCreate : undefined,
-    listCollapsed: layout.listCollapsed,
-    onToggleList: () => setLayout((current) => ({ ...current, listCollapsed: !current.listCollapsed })),
-    onShortcuts: () => setShortcutsOpen(true),
-    vim: preferences.vim,
-    onToggleVim: () => setPreferences((current) => ({ ...current, vim: !current.vim })),
-    hasDocument: Boolean(document && draft),
-    propertiesOpen,
-    onToggleProperties: () => { setBacklinksOpen(false); setPropertiesOpen((value) => !value); },
-    backlinksOpen,
-    onToggleBacklinks: () => { setPropertiesOpen(false); setBacklinksOpen((value) => !value); },
-    onCheckNote: () => void validateNote(),
-    onCopyPath: () => { if (document) copyFacet(document.path, "note path"); }
-  });
-  const activeToasts = buildToastItems({ notice, recoveryMessage: recoveryAction ? recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document, typeDescriptors)}”.` : `Renamed to “${recoveryAction.to}”.` : undefined, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
+  const multipleSelected = surface === "notes" && listSelection.paths.length > 1;
+  const bulkCommandsAvailable = multipleSelected && !mutationsFrozen && !bulkBusy && !recoveryBusy;
+  const quickOpenCommands = buildEditorCommands({
+    "new-note": canCreateNotes && !mutationsFrozen ? beginCreate : undefined,
+    "new-note-in-folder": canCreateNotes && !mutationsFrozen ? () => beginNoteInFolder(document?.path.split("/").slice(0, -1).join("/") ?? (noteFilter?.kind === "folder" ? noteFilter.value : "")) : undefined,
+    "toggle-list": () => setLayout((current) => ({ ...current, listCollapsed: !current.listCollapsed })),
+    shortcuts: () => setShortcutsOpen(true),
+    vim: () => setPreferences((current) => ({ ...current, vim: !current.vim })),
+    theme: switchTheme,
+    types: () => selectSurface("types"),
+    settings: () => selectSurface("settings"),
+    connect: () => { location.href = `/connect?collection=${encodeURIComponent(description.collectionId)}`; },
+    "switch-collection": () => setCollectionSwitcherOpen(true),
+    ...(bulkCommandsAvailable ? {
+      "move-selected": canRenameNotes ? () => setMovePaths(listSelection.paths) : undefined,
+      "delete-selected": canDeleteNotes ? () => void deleteSelectedNotes(listSelection.paths) : undefined,
+      "add-tag": canEditNotes ? () => openBulkProperty("add-tag") : undefined,
+      "remove-tag": canEditNotes ? () => openBulkProperty("remove-tag") : undefined,
+      "set-property": canEditNotes && selectionFields.some((field) => field.shared) ? () => openBulkProperty("property") : undefined
+    } : {}),
+    ...(multipleSelected ? { "clear-selection": () => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); } } : {}),
+    ...(document && draft && surface === "notes" && !creationMode && !selectedCollectionFile ? {
+      rename: canRenameNotes && !mutationsFrozen ? () => void renameNote(document.path) : undefined,
+      move: canRenameNotes && !mutationsFrozen && !multipleSelected ? () => setMovePaths([document.path]) : undefined,
+      duplicate: canCreateNotes && !mutationsFrozen ? () => void duplicateNote(document.path) : undefined,
+      delete: canDeleteNotes && !mutationsFrozen && !bulkBusy && !multipleSelected ? () => void requestDelete(document.path) : undefined,
+      "copy-link": () => copyFacet(`[[${document.path.replace(/\.md$/i, "")}]]`, "note link"),
+      "copy-path": () => copyFacet(document.path, "note path"),
+      ...(pinnedPaths.includes(document.path) ? { unpin: () => togglePin(document.path) } : { pin: () => togglePin(document.path) }),
+      focus: toggleFocus,
+      properties: () => { if (focusMode) toggleFocus(); setPropertiesOpen((value) => !value); },
+      outline: () => setOutlineOpen((value) => !value),
+      backlinks: () => { setBacklinksOpen(true); window.document.getElementById("linked-from")?.focus(); },
+      "check-note": !mutationsFrozen ? () => void validateNote() : undefined
+    } : {})
+  }, { focus: focusMode ? "Exit focus mode" : "Focus mode" });
+  const activeToasts = buildToastItems({ notice, recoveryMessage: recoveryAction ? recoveryAction.kind === "mention" ? "Linked mention." : recoveryAction.kind === "batch" ? recoveryAction.message : recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document, typeDescriptors)}”.` : recoveryAction.kind === "move" ? recoveryAction.message ?? `Moved ${recoveryAction.paths.length} ${recoveryAction.paths.length === 1 ? "note" : "notes"}.${recoveryAction.references ? ` Also updated links in ${recoveryAction.references} ${recoveryAction.references === 1 ? "note" : "notes"}.` : ""}` : `Renamed to “${recoveryAction.to}”.` : undefined, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
   const pendingNoteMutations = gateway.pendingNoteMutations();
   activeToasts.push(...pendingNoteToasts(pendingNoteMutations, activePendingRename?.requestId, recoveryBusy, recoverPendingNote));
   if (noteOpenFailure && document) activeToasts.push({
@@ -1865,20 +1717,33 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     {layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
     <PaneControl pane="list" label={`Show ${listName} sidebar`} action="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
   </> : undefined;
+  const notePathControl = document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
+    <label className="sr-only" htmlFor="note-path">Markdown path</label>
+    <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
+  </form> : mobileLayout ? <p className="mobile-note-path" title={document.path}><PathLabel path={document.path} /></p>
+    : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path" aria-label={document.path}><PathLabel path={document.path} /><Pencil aria-hidden="true" /></button>);
+  const noteSaveIndicator = <SaveIndicator
+    identity={noteSessions.current.active?.editorSessionKey ?? document?.path}
+    onRetry={canEditNotes ? () => { void noteSessions.current.active?.record.save(); } : undefined}
+    state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
+    activity={noteSessions.current.active?.activity}
+    detail={noteSessions.current.active?.activityDetail}
+    onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
+  />;
   const noteStatuses = new Map<string, NoteRowStatus>();
   for (const session of noteSessions.current.values()) {
     const status = noteRowStatus(session);
     if (status) noteStatuses.set(session.document.path, status);
   }
   return <div
-    className={`app-shell surface-${surface} pane-${mobilePane}${inspectorVisible ? " inspector-visible" : ""}${layout.collectionCollapsed ? " collection-pane-collapsed" : ""}${hasListPane && layout.listCollapsed ? " list-pane-collapsed" : ""}${hasListPane ? "" : " no-list-pane"}${resizingPane ? " resizing-pane" : ""}`}
+    className={`app-shell surface-${surface} pane-${mobilePane}${focusMode ? " focus-mode" : ""}${focusMode && preferences.typewriterScrolling ? " typewriter-mode" : ""}${inspectorVisible ? " inspector-visible" : ""}${layout.collectionCollapsed ? " collection-pane-collapsed" : ""}${hasListPane && layout.listCollapsed ? " list-pane-collapsed" : ""}${hasListPane ? "" : " no-list-pane"}${resizingPane ? " resizing-pane" : ""}`}
     style={{
       "--collection-track": `${collectionTrack}px`,
       "--list-track": `${listTrack}px`,
       "--inspector-track": `${inspectorTrack}px`
     } as CSSProperties}
   >
-    {(!layout.collectionCollapsed || mobileLayout) && <CollectionRail
+    {!focusMode && (!layout.collectionCollapsed || mobileLayout) && <CollectionRail
       collectionId={description.collectionId}
       name={description.displayName}
       count={collectionTotal ?? allNotes.length}
@@ -1892,13 +1757,12 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       onCreateFolder={canCreateNotes ? beginFolderCreate : undefined}
       onCreateNoteInFolder={canCreateNotes ? beginNoteInFolder : undefined}
       onCreateSubfolder={canCreateNotes ? beginSubfolder : undefined}
-      onCreateNoteWithTag={canCreateNotes ? beginNoteWithTag : undefined}
-      onCreateNoteWithType={canCreateNotes ? beginNoteWithType : undefined}
-      onOpenType={openTypeFromRail}
+      onPlanFolderChange={canRenameNotes && !mutationsFrozen ? planFolderChange : undefined}
+      onChangeFolder={canRenameNotes && !mutationsFrozen ? changeFolder : undefined}
+      onMoveNotes={canRenameNotes && !mutationsFrozen ? (paths, folder) => void onMoveNotes(paths, folder) : undefined}
       onCopyFacet={copyFacet}
       onTypes={() => selectSurface("types")}
       onSettings={() => selectSurface("settings")}
-      onShortcuts={() => setShortcutsOpen(true)}
       connectionState={connectionState}
       connectionIssue={connectionIssue}
       directAccess={connectionSummary?.directAccess}
@@ -1910,8 +1774,15 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     />}
 
     {surface === "notes" && <>
-      {(!layout.listCollapsed || mobileLayout) && <NoteList
+      {!focusMode && (!layout.listCollapsed || mobileLayout) && <NoteList
         entries={visibleBrowserEntries}
+        selection={listSelection}
+        onSelection={setSelection}
+        pinnedPaths={pinnedPaths}
+        selectionBar={listSelection.paths.length > 1 && <div className="note-selection" role="group" aria-label="Selected notes" aria-busy={bulkBusy}>
+          <div className="note-selection-bar"><span role="status">{listSelection.paths.length} selected</span><ActionMenu label="Selection actions" items={bulkActions(listSelection.paths)} /><button className="mdbase-button is-tertiary" aria-label="Clear selection" onClick={() => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); }}>Clear</button></div>
+          {bulkPropertyKind && <Suspense fallback={<p>Loading properties…</p>}><BulkNoteProperties key={bulkPropertyKind} kind={bulkPropertyKind} fields={selectionFields} busy={bulkBusy} onApply={(change) => applyBulkProperties(listSelection.paths, change)} onClose={() => setBulkPropertyKind(undefined)} /></Suspense>}
+        </div>}
         noteCount={visibleNotes.length}
         fileCount={visibleFiles.length}
         types={description.types}
@@ -1934,11 +1805,11 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         searchContexts={searchContexts}
         sort={noteSort}
         scopeLabel={filterScopeLabel(noteFilter)}
-        collectionName={filterLabel(noteFilter, description.displayName)}
+        collectionName={filterLabel(noteFilter, "All notes")}
         onSearch={setSearch}
         onSort={setNoteSort}
         onClearScope={() => setNoteFilter(undefined)}
-        onQuickOpen={() => setQuickOpen(true)}
+        onQuickOpen={() => { setQuickOpenCommandMode(false); setQuickOpen(true); }}
         onRetryStructure={() => void loadIndex().catch(() => undefined)}
         onRetryContent={() => void loadContentIndex()}
         onRetryFiles={() => void fileController.reload().catch(() => undefined)}
@@ -1947,9 +1818,13 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           navigateToNote(path);
         }}
         onSelectFile={navigateToFile}
-        previewPath={notePreviewController.preview?.path}
-        onPreview={notePreviewController.request}
-        onDismissPreview={notePreviewController.dismiss}
+        filter={noteFilter}
+        tags={tagFacets}
+        filterTypes={typeFacets}
+        onFilter={setNoteFilter}
+        noteActions={(path) => listSelection.paths.length > 1 && listSelection.paths.includes(path) ? bulkActions(listSelection.paths) : noteActions(path)}
+        onRename={(path) => void renameNote(path)}
+        onDelete={(path) => { if (listSelection.paths.length > 1 && listSelection.paths.includes(path)) void deleteSelectedNotes(listSelection.paths); else void requestDelete(path); }}
         onCreate={canCreateNotes ? beginCreate : undefined}
         onCollections={() => returnToMobilePane("collections")}
         leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
@@ -1973,7 +1848,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         onCreate={createNote}
         onCancel={cancelCreation}
         onDraftChange={setCreationDirty}
-      /></Suspense> : <main className="editor-pane" aria-label="Note editor">
+      /></Suspense> : <main className="editor-pane" aria-label="Note editor" data-save-state={saveState}>
         {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar mdbase-settle-host">
             <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
@@ -1994,43 +1869,30 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
                 onClick={() => navigateNoteHistory(1)}
               ><ArrowRight aria-hidden="true" /></button>
             </div>
-            <div className="path-wrap">
-              {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
-                <label className="sr-only" htmlFor="note-path">Markdown path</label>
-                <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
-              </form> : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
-            </div>
-            {noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
-            {!mobileLayout && <span className="word-count" aria-label={`${wordCount.toLocaleString()} words`}>{wordCount.toLocaleString()} {wordCount === 1 ? "word" : "words"}</span>}
-            {preferences.vim && <span className="vim-label">vim</span>}
-            {!canEditNotes && <span className="connect-muted">Read only</span>}
-            <SaveIndicator
-              state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
-              activity={noteSessions.current.active?.activity}
-              detail={noteSessions.current.active?.activityDetail}
-              onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
-            />
-            {!mobileLayout && <OutlineMenu headings={noteHeadings(draft.body)} onReveal={(line) => revealMarkdownLine(noteSessions.current.active?.editorSessionKey ?? document.path, line)} />}
-            {!mobileLayout && <button className={`icon-button backlink-button${backlinksOpen ? " active" : ""}`} aria-label="Backlinks" aria-pressed={backlinksOpen} onClick={() => {
-              setBacklinksOpen((value) => {
-                if (!value) setPropertiesOpen(false);
-                return !value;
-              });
-            }}><Link2 aria-hidden="true" />{backlinkNotes.length > 0 && <span>{backlinkNotes.length}</span>}</button>}
+            {!mobileLayout && <div className="path-wrap">{notePathControl}</div>}
+            {!mobileLayout && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
+            {!mobileLayout && !canEditNotes && <span className="connect-muted">Read only</span>}
+            {!mobileLayout && noteSaveIndicator}
             {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => {
               setPropertiesOpen((value) => {
                 if (!value) setBacklinksOpen(false);
                 return !value;
               });
             }}><Info aria-hidden="true" /></button>}
+            {focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}>Exit focus mode</button>}
             <ActionMenu label="More note actions" items={[
               ...(mobileLayout ? [
-                { label: "Backlinks", icon: <Link2 aria-hidden="true" />, onSelect: () => { setPropertiesOpen(false); setBacklinksOpen(true); } },
-                { label: "Note properties", icon: <Info aria-hidden="true" />, onSelect: () => { setBacklinksOpen(false); setPropertiesOpen(true); } }
+                ...(canCreateNotes ? [menuCommand("new-note", <FilePlus2 aria-hidden="true" />, beginCreate, mutationsFrozen)] : []),
+                menuCommand("quick-open", <Search aria-hidden="true" />, () => { setQuickOpenCommandMode(false); setQuickOpen(true); })
               ] : []),
-              attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error)))),
-              { label: "Check note", icon: <Check aria-hidden="true" />, disabled: mutationsFrozen, onSelect: () => void validateNote() },
-              { label: "Delete note", icon: <Trash2 aria-hidden="true" />, tone: "danger", disabled: mutationsFrozen || !canDeleteNotes, onSelect: () => void requestDelete() }
+              ...noteActions(document.path).map((item) => mobileLayout && item.label === "Rename" ? { ...item, label: "Rename path" } : item),
+              { ...menuCommand("outline", <ListBullets aria-hidden="true" />, () => setOutlineOpen(true)), separatorBefore: true },
+              menuCommand("backlinks", <Link2 aria-hidden="true" />, () => { setBacklinksOpen(true); window.document.getElementById("linked-from")?.focus(); }),
+              menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? "Exit focus mode" : undefined),
+              ...(mobileLayout ? [menuCommand("properties", <Info aria-hidden="true" />, () => { if (focusMode) toggleFocus(); setBacklinksOpen(false); setPropertiesOpen(true); })] : []),
+              { ...attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error)))), separatorBefore: true },
+              { ...menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)), separatorBefore: true },
+              menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
             ]} />
           </header>
           {noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
@@ -2066,20 +1928,26 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           {renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
             <div><strong>Rename this note?</strong><span>{renamePlan.affectedPaths.length.toLocaleString()} {renamePlan.affectedPaths.length === 1 ? "note contains" : "notes contain"} links that will change.{renamePlan.warnings.length > 0 ? ` ${renamePlan.warnings.length.toLocaleString()} ${renamePlan.warnings.length === 1 ? "link needs" : "links need"} attention and won’t be changed automatically.` : ""}</span></div>
             <button onClick={cancelRename}>Cancel</button>
-            <button onClick={() => void performRename(renamePlan, false)}>Rename only</button>
-            <button className="primary-confirm-action" onClick={() => void performRename(renamePlan, true)}>Rename and update links</button>
+            <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}>Rename and update links</button>
           </div>}
-          {deletePlan && deletePlan.session === noteSessions.current.active && <div className="delete-confirm" role="alert"><div><strong>Delete this note?</strong><span>{deletePlan.brokenLinkPaths.length > 0 ? `${deletePlan.brokenLinkPaths.length.toLocaleString()} ${deletePlan.brokenLinkPaths.length === 1 ? "note will keep a broken link" : "notes will keep broken links"}. ` : ""}You can undo the note deletion.</span></div><button onClick={() => setDeletePlan(undefined)}>Keep note</button><button className="danger-action" onClick={() => void deleteNote(deletePlan)}>Delete</button></div>}
-          <MarkdownNoteEditor editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
+          <MarkdownNoteEditor footer={<BacklinksPanel key={document.path} mentions={mentions} onLinkMention={canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={backlinkNotes} types={typeDescriptors} loading={contentIndexing} error={contentError} onFind={!contentComplete && !contentIndexing && !contentError ? () => setBacklinksOpen(true) : undefined} onRetry={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
             draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey} readOnly={noteReadOnly}
+            provenance={mobileLayout ? <>
+              {notePathControl}
+              {!canEditNotes && <span className="connect-muted">Read only</span>}
+              {noteSaveIndicator}
+              {noteLoading && <span role="status" className="note-opening-status">Opening “{pendingNotePath}”…</span>}
+            </> : undefined}
             remoteApplyToken={remoteApplyToken} autoFocus={editorAutoFocus}
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
+            onUploadAttachment={canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
             insertion={attachments.insertion} onTitleChange={(title) => changeActiveDraft((current) => ({ ...current, title }))}
             onBodyChange={(body) => changeActiveDraft((current) => ({ ...current, body }))} onOpenLink={navigateToNote}
             onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}
             onDismissLinkPreview={notePreviewController.dismiss} onOpenFile={setOpenFileAsset} onOpenFileLink={navigateToFile}
             onVisibleFileEmbeds={updateVisibleFileEmbeds} onVisibleNoteEmbeds={updateVisibleNoteEmbeds} />
+          {outlineOpen && <OutlinePanel headings={noteHeadings(draft.body)} onClose={() => setOutlineOpen(false)} onReveal={(line) => revealMarkdownLine(noteSessions.current.active?.editorSessionKey ?? document.path, line)} />}
         </> : <EmptyEditor
           leadingActions={editorLeadingActions}
           notice={noteOpenFailure?.message ?? (activeRemoteDocument ? undefined : notice?.message)}
@@ -2087,10 +1955,11 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           onRetry={() => noteOpenFailure ? navigateToNote(noteOpenFailure.path, noteOpenFailure.options) : void start()}
         />}
       </main>}
-      {propertiesOpen && (document ? <Suspense fallback={<InspectorPanelLoading label="Note properties" />}>
+      {inspectorVisible && <InspectorFrame overlay={inspectorOverlay} label="Note properties" width={inspectorTrack} onClose={() => setPropertiesOpen(false)}>{document ? <Suspense fallback={<InspectorPanelLoading label="Note properties" />}>
         <PropertiesPanel
           key={document.path}
           note={document}
+          wordCount={wordCount}
           types={description.types}
           recordPaths={allNotes.map((note) => note.path)}
           error={propertiesError}
@@ -2099,10 +1968,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
           onSave={saveProperties}
           onSaveDocument={(source, previousSource) => saveRecordSource(document.path, source, previousSource)}
         />
-      </Suspense> : noteLoading ? <InspectorPanelLoading label="Note properties" /> : null)}
-      {backlinksOpen && (document
-        ? <BacklinksPanel notes={backlinkNotes} types={typeDescriptors} loading={foldersLoading || (!contentComplete && !contentError)} error={contentError} onRetry={() => void loadContentIndex()} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />
-        : noteLoading ? <InspectorPanelLoading label="Backlinks" /> : null)}
+      </Suspense> : noteLoading ? <InspectorPanelLoading label="Note properties" /> : null}</InspectorFrame>}
     </>}
 
     {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{missingTypeCapabilities(connectionSummary).length > 0 ? <TypeAccessPrompt
@@ -2145,7 +2011,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         notes={allNotes}
         explicitTypeKeys={collectionExplicitTypeKeys(description.configuration)}
         creating={typeCreating}
-        loading={typeLoading}
+        loading={typeLoading || Boolean(selectedType && !typeDocument && !typeCreating && !typeError)}
         saving={typeSaving}
         error={typeError}
         leadingActions={editorLeadingActions}
@@ -2173,7 +2039,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       onRequestDirectAccess={() => void requestDirectAccess()}
     />}
 
-    {(!layout.collectionCollapsed || (hasListPane && !layout.listCollapsed) || (inspectorVisible && !mobileLayout)) && <aside className="pane-resizers" aria-label="Sidebar layout controls">
+    {!focusMode && (!layout.collectionCollapsed || (hasListPane && !layout.listCollapsed) || (inspectorVisible && !mobileLayout)) && <aside className="pane-resizers" aria-label="Sidebar layout controls">
       {!layout.collectionCollapsed && <PaneResizeHandle
         className="collection-resizer"
         label="Resize collections sidebar"
@@ -2194,7 +2060,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         onReset={() => setLayout((current) => ({ ...current, listWidth: LIST_WIDTH.default }))}
         onDragChange={(dragging) => setResizingPane(dragging ? "list" : undefined)}
       />}
-      {inspectorVisible && !mobileLayout && <PaneResizeHandle
+      {inspectorVisible && !inspectorOverlay && <PaneResizeHandle
         className="inspector-resizer"
         label="Resize note inspector"
         value={inspectorTrack}
@@ -2207,8 +2073,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       />}
     </aside>}
     {quickOpen && <QuickOpen
+      initialCommandMode={quickOpenCommandMode}
       index={searchIndex}
-      recentPaths={recentPaths}
+      recentPaths={[...pinnedPaths, ...recentPaths.filter((path) => !pinnedPaths.includes(path))]}
       types={typeDescriptors}
       commands={quickOpenCommands}
       onSelect={(path) => {
@@ -2220,7 +2087,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       onClose={() => setQuickOpen(false)}
     />}
     {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
+    {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {collectionSwitcherOpen && <CollectionSwitcher
+      connectHref={connectWorkspaceUrl(description.collectionId)}
       activeCollectionId={connectionSummary?.collectionId}
       connections={sessionSnapshot.connections}
       displayName={description.displayName}
@@ -2242,14 +2111,6 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     <NotePreviewCard preview={notePreviewController.preview} />
     <ToastStack toasts={activeToasts} onDismiss={dismissToast} />
   </div>;
-}
-
-function summaryFromDocument(document: NoteDocument): NoteSummary {
-  const { revision: _revision, ...summary } = document;
-  return {
-    ...summary,
-    file: { ...document.file, path: document.path }
-  };
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

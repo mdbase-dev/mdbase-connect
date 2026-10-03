@@ -19,12 +19,12 @@
   min-height: 64px;
   display: flex;
   align-items: center;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--line);
 }
 
 .connect-nav > header strong {
-  font-size: 1rem;
+  font-size: var(--font-size-section);
   letter-spacing: -0.01em;
 }
 
@@ -36,7 +36,7 @@
   flex: 1;
   display: grid;
   align-content: start;
-  gap: 24px;
+  gap: var(--space-6);
   padding: 18px 10px;
   overflow-y: auto;
 }
@@ -48,11 +48,8 @@
 
 .connect-nav-group > p {
   margin: 0 10px 7px;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: var(--muted);
+  font-size: var(--font-size-ui);
 }
 
 .connect-nav > nav > .connect-nav-group > a {
@@ -62,7 +59,7 @@
   align-items: center;
   gap: 9px;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--muted);
   text-align: left;
   text-decoration: none;
@@ -76,8 +73,8 @@
 
 .connect-nav > nav > .connect-nav-group > a strong {
   overflow: hidden;
-  font-size: 0.92rem;
-  font-weight: 400;
+  font-size: var(--font-size-section);
+  font-weight: var(--font-weight-regular);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -87,13 +84,8 @@
   color: var(--ink);
 }
 
-.connect-nav > nav > .connect-nav-group > a.selected {
-  background: var(--selected);
-  color: var(--accent-strong);
-}
-
 .connect-nav > nav > .connect-nav-group > a.selected strong {
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .connect-avatar {
@@ -102,17 +94,14 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
 }
 
 .connect-shell .collection-rail .connection-footer {
   display: grid;
   gap: 10px;
-  padding-top: 12px;
+  padding-top: var(--space-3);
 }
 
 .connect-shell .collection-rail .wordmark-label strong {
@@ -131,9 +120,9 @@
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 5px 3px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: inherit;
   text-align: left;
   text-decoration: none;
@@ -160,13 +149,13 @@
   white-space: nowrap;
 }
 
-.connect-rail-account strong { font-size: 0.8rem; }
-.connect-rail-account small { color: var(--faint); font-size: 0.75rem; }
+.connect-rail-account strong { font-size: var(--font-size-ui); }
+.connect-rail-account small { color: var(--faint); font-size: var(--font-size-caption); }
 
 .connect-rail-feedback {
   padding: 3px;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-ui);
   text-decoration: none;
 }
 
@@ -178,11 +167,10 @@
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  margin: 32px auto -22px;
-  padding: 13px 16px;
+  gap: var(--space-3);
+  margin: var(--space-8) auto -22px;
+  padding: 13px var(--space-4);
   border: 1px solid var(--color-warning-border);
-  border-radius: 4px;
   background: var(--warning-soft);
   color: var(--warning);
   text-decoration: none;
@@ -190,16 +178,17 @@
 
 .connect-pending-banner > svg { width: 16px; height: 16px; }
 .connect-pending-banner > span { min-width: 0; display: grid; gap: 2px; }
-.connect-pending-banner strong { font-size: 0.76rem; }
-.connect-pending-banner small { color: var(--muted); font-size: 0.75rem; }
-.connect-pending-banner b { color: var(--accent-strong); font-size: 0.75rem; white-space: nowrap; }
+.connect-pending-banner strong { font-size: var(--font-size-ui); }
+.connect-pending-banner small { color: var(--muted); font-size: var(--font-size-caption); }
+.connect-pending-banner b { color: var(--accent-strong); font-size: var(--font-size-ui); white-space: nowrap; }
 .connect-pending-banner > .connect-banner-actions { display: flex; align-items: center; gap: 10px; }
-.connect-banner-actions button { min-height: 36px; padding: 6px 10px; font-size: 0.75rem; }
+.connect-banner-actions button { min-height: 36px; padding: 6px 10px; font-size: var(--font-size-ui); }
 
 .connect-main {
   min-width: 0;
   overflow: auto;
   background: var(--white);
+  font: var(--font-size-section)/1.5 var(--sans);
 }
 
 .connect-page {
@@ -209,13 +198,14 @@
 }
 
 .connect-page > header {
-  margin-bottom: 52px;
+  margin-bottom: 40px;
 }
 
 .connect-page > header h1 {
   margin: 0;
-  font-size: 27px;
-  line-height: 1.05;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
   letter-spacing: -0.035em;
 }
 
@@ -228,12 +218,12 @@
   display: block;
   margin-top: 13px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-section);
   line-height: 1.5;
 }
 
 .connect-page > section {
-  margin-top: 52px;
+  margin-top: 40px;
 }
 
 .connect-section-title {
@@ -242,7 +232,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding-bottom: 12px;
+  padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--line-strong);
 }
 
@@ -254,21 +244,23 @@
 
 .connect-section-title h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--font-size-section);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;
 }
 
 .connect-section-title span {
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 0.75rem;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: var(--font-size-ui);
+  font-variant-numeric: tabular-nums;
 }
 
 .connect-section-title > p {
   flex: 1;
   margin: 0;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-caption);
   text-align: right;
 }
 
@@ -285,7 +277,7 @@
   padding: 6px 2px;
   color: var(--accent-strong);
   text-decoration: none;
-  font-size: 0.75rem;
+  font-size: var(--font-size-ui);
 }
 
 .connect-section-title svg,
@@ -299,8 +291,8 @@
   display: grid;
   grid-template-columns: minmax(190px, 1fr) auto auto;
   align-items: center;
-  gap: 24px;
-  padding: 13px 4px;
+  gap: var(--space-6);
+  padding: 13px var(--space-1);
   border-bottom: 1px solid var(--line);
 }
 
@@ -321,7 +313,7 @@
 
 .connect-application-row > span {
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: var(--font-size-ui);
   line-height: 1.5;
 }
 
@@ -334,12 +326,13 @@
 }
 
 .connect-row strong {
-  font-size: 0.82rem;
+  font-size: var(--font-size-section);
+  font-weight: var(--font-weight-semibold);
 }
 
 .connect-row small {
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-ui);
   line-height: 1.4;
 }
 
@@ -356,9 +349,9 @@
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  gap: var(--space-2) var(--space-3);
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-ui);
 }
 
 .connect-confirm-action > span:first-child {
@@ -370,7 +363,7 @@
 .connect-inline-rename {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .connect-inline-rename input {
@@ -378,9 +371,7 @@
   min-height: 36px;
   padding: 7px 9px;
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
   color: var(--ink);
-  background: var(--white);
   font: inherit;
 }
 
@@ -401,7 +392,7 @@ button.danger:disabled {
   align-items: center;
   gap: 7px;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-ui);
   white-space: nowrap;
 }
 
@@ -421,17 +412,9 @@ button.danger:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 12px;
-  border-radius: 5px;
-  background: var(--accent);
-  color: var(--color-on-accent) !important;
+  padding: 6px var(--space-3);
   text-decoration: none;
-  font-size: 0.84rem;
-  font-weight: 700;
-}
 
-.connect-primary-action:hover {
-  background: var(--accent-strong);
 }
 
 .connect-muted {
@@ -443,7 +426,7 @@ button.danger:disabled {
   align-items: end;
   justify-content: space-between;
   gap: 20px;
-  padding: 16px 4px;
+  padding: var(--space-4) var(--space-1);
   border-bottom: 1px solid var(--line);
 }
 
@@ -452,7 +435,7 @@ button.danger:disabled {
   display: grid;
   gap: 6px;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: var(--font-size-ui);
 }
 
 .connect-inline-form input,
@@ -461,7 +444,7 @@ button.danger:disabled {
   min-height: 36px;
   padding: 7px 10px;
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--white);
   color: var(--ink);
   font: inherit;
@@ -477,7 +460,7 @@ button.danger:disabled {
   grid-column: 1 / 4;
   margin: 0;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-caption);
   line-height: 1.45;
 }
 .connect-sharing-form > div { grid-column: 4; grid-row: 1 / 3; align-self: end; }
@@ -487,19 +470,19 @@ button.danger:disabled {
   grid-template-columns: minmax(180px, 0.7fr) minmax(240px, 1fr) auto;
   align-items: center;
   gap: 14px;
-  padding: 14px 4px;
+  padding: 14px var(--space-1);
   border-bottom: 1px solid var(--line);
 }
 .connect-sharing-link > div { display: grid; gap: 2px; }
-.connect-sharing-link small { color: var(--muted); font-size: 0.75rem; line-height: 1.4; }
-.connect-sharing-link input { min-width: 0; min-height: 36px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--soft); color: var(--muted); }
-.connect-sharing-link button { min-height: 36px; color: var(--accent-strong); font-size: 0.75rem; }
+.connect-sharing-link small { color: var(--muted); font-size: var(--font-size-caption); line-height: 1.4; }
+.connect-sharing-link input { min-width: 0; min-height: 36px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--soft); color: var(--muted); }
+.connect-sharing-link button { min-height: 36px; color: var(--accent-strong); font-size: var(--font-size-ui); }
 .connect-role-select .mdbase-select { min-width: 104px; }
 .connect-member-row { grid-template-columns: minmax(190px, 1fr) auto auto; }
 
 .connect-inline-form > div {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .connect-collection-row {
@@ -509,9 +492,9 @@ button.danger:disabled {
 .connect-row-detail {
   grid-column: 1 / -1;
   width: 100%;
-  padding: 4px 0 0;
+  padding: var(--space-1) 0 0;
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: var(--font-size-ui);
 }
 
 .connect-row-detail summary {
@@ -524,7 +507,7 @@ button.danger:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 0 8px 18px;
+  padding: var(--space-2) 0 var(--space-2) 18px;
   border-top: 1px solid var(--line);
 }
 
@@ -540,7 +523,7 @@ button.danger:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 12px 4px;
+  padding: var(--space-3) var(--space-1);
   list-style: none;
 }
 
@@ -563,7 +546,7 @@ button.danger:disabled {
 .connect-application > summary b,
 .connect-grant > summary b {
   color: var(--accent-strong);
-  font-size: 0.8rem;
+  font-size: var(--font-size-ui);
 }
 
 .connect-application-body {
@@ -574,8 +557,8 @@ button.danger:disabled {
 .connect-grant-body {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(200px, 0.7fr);
-  gap: 24px;
-  padding: 4px 4px 22px;
+  gap: var(--space-6);
+  padding: var(--space-1) var(--space-1) 22px;
 }
 
 .connect-permissions {
@@ -587,21 +570,17 @@ button.danger:disabled {
 .connect-permissions label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.connect-permissions input {
-  accent-color: var(--accent);
+  font-size: var(--font-size-ui);
 }
 
 .connect-grant-meta {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-content: start;
-  gap: 8px 12px;
-  font-size: 0.78rem;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--font-size-ui);
 }
 
 .connect-grant-meta span {
@@ -610,7 +589,7 @@ button.danger:disabled {
 
 .connect-grant-meta strong {
   overflow-wrap: anywhere;
-  font-weight: 400;
+  font-weight: var(--font-weight-regular);
 }
 
 .connect-grant-body > .connect-row-actions {
@@ -639,7 +618,7 @@ button.danger:disabled {
 
 .connect-account-details dd {
   margin: 0;
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .connect-current {
@@ -647,7 +626,7 @@ button.danger:disabled {
   align-items: center;
   gap: 5px;
   color: var(--success);
-  font-size: 0.8rem;
+  font-size: var(--font-size-ui);
 }
 
 .connect-current svg {
@@ -655,26 +634,21 @@ button.danger:disabled {
 }
 
 .connect-sign-out {
-  margin-top: 24px;
+  margin-top: var(--space-6);
   color: var(--danger);
 }
 
 .connect-account-message {
-  padding: 12px 14px;
+  padding: var(--space-3) 14px;
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
-  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-ui);
 }
 
 .connect-account-message.error {
   border-color: var(--color-warning-border);
   background: var(--warning-soft);
   color: var(--warning);
-}
-
-.connect-account-message.success {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
 }
 
 .connect-account-list {
@@ -685,7 +659,7 @@ button.danger:disabled {
   display: grid;
   gap: 10px;
   margin: 14px 0 30px;
-  padding: 16px 4px 18px;
+  padding: var(--space-4) var(--space-1) 18px;
   border-bottom: 1px solid var(--line-strong);
 }
 
@@ -693,7 +667,7 @@ button.danger:disabled {
   display: flex;
   align-items: start;
   justify-content: space-between;
-  gap: 24px;
+  gap: var(--space-6);
 }
 
 .connect-subscription-heading > div {
@@ -702,17 +676,17 @@ button.danger:disabled {
 }
 
 .connect-subscription-heading strong {
-  font-size: 0.9rem;
+  font-size: var(--font-size-section);
 }
 
 .connect-subscription-heading small,
 .connect-subscription-storage p {
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-caption);
 }
 
 .connect-subscription-heading > span {
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 .connect-subscription-storage p {
@@ -724,8 +698,8 @@ button.danger:disabled {
   display: grid;
   grid-template-columns: minmax(190px, 1fr) auto;
   align-items: center;
-  gap: 24px;
-  padding: 13px 4px;
+  gap: var(--space-6);
+  padding: 13px var(--space-1);
   border-bottom: 1px solid var(--line);
 }
 
@@ -736,16 +710,16 @@ button.danger:disabled {
   gap: 2px;
 }
 
-.connect-account-row strong { font-size: 0.82rem; }
-.connect-account-row small { color: var(--muted); font-size: 0.75rem; line-height: 1.4; }
-.connect-account-row > span { color: var(--muted); font-size: 0.75rem; text-align: right; }
+.connect-account-row strong { font-size: var(--font-size-section); font-weight: var(--font-weight-semibold); }
+.connect-account-row small { color: var(--muted); font-size: var(--font-size-ui); line-height: 1.5; }
+.connect-account-row > span { color: var(--muted); font-size: var(--font-size-ui); text-align: right; }
 
 .connect-account-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .connect-account-action,
@@ -756,11 +730,11 @@ button.danger:disabled {
   justify-content: center;
   padding: 6px 10px;
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--accent-strong);
   background: var(--white);
   text-decoration: none;
-  font-size: 0.78rem;
+  font-size: var(--font-size-ui);
 }
 
 .connect-account-action:hover { background: var(--hover); }
@@ -779,15 +753,15 @@ button.danger:disabled {
   display: grid;
   grid-template-columns: minmax(190px, 1fr) auto;
   align-items: center;
-  gap: 24px;
-  padding: 13px 4px;
+  gap: var(--space-6);
+  padding: 13px var(--space-1);
 }
 
 .connect-account-form {
   max-width: 560px;
   display: grid;
   gap: 14px;
-  padding: 4px 4px 22px;
+  padding: var(--space-1) var(--space-1) 22px;
 }
 
 .connect-account-form label,
@@ -795,20 +769,18 @@ button.danger:disabled {
   display: grid;
   gap: 6px;
   color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
 }
 
 .connect-account-form input,
 .connect-account-reauthentication input {
   min-height: 38px;
-  padding: 8px 10px;
+  padding: var(--space-2) 10px;
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
   color: var(--ink);
-  background: var(--white);
   font: inherit;
-  font-weight: 400;
+  font-weight: var(--font-weight-regular);
 }
 
 .connect-storage-progress {
@@ -825,7 +797,7 @@ button.danger:disabled {
 }
 
 .connect-danger-section {
-  padding-top: 4px;
+  padding-top: var(--space-1);
 }
 
 .connect-danger-section .connect-section-title {
@@ -835,25 +807,25 @@ button.danger:disabled {
 .connect-deletion-effects {
   padding: 14px;
   border: 1px solid color-mix(in oklch, var(--danger) 28%, var(--line));
-  border-radius: 5px;
   background: var(--danger-soft);
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: var(--font-size-ui);
 }
 
 .connect-deletion-effects p { margin: 0; }
-.connect-deletion-effects ul { margin: 8px 0; padding-left: 20px; }
+.connect-deletion-effects ul { margin: var(--space-2) 0; padding-left: 20px; }
 
 .connect-account-reauthentication {
   display: grid;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
   padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 5px;
 }
 
 .connect-google-provider {
   position: relative;
+  min-width: 0;
   width: min(100%, 400px);
   min-height: 40px;
 }
@@ -868,11 +840,11 @@ button.danger:disabled {
   display: grid;
   place-items: center;
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   background: var(--white);
-  font-family: var(--mono);
-  font-size: 0.75rem;
+  font-family: var(--sans);
+  font-size: var(--font-size-ui);
 }
 
 .connect-deleted-account {
@@ -880,7 +852,7 @@ button.danger:disabled {
   min-height: 100%;
   display: grid;
   place-items: center;
-  padding: 32px;
+  padding: var(--space-8);
   background: var(--canvas);
 }
 
@@ -891,7 +863,7 @@ button.danger:disabled {
   background: var(--white);
 }
 
-.connect-deleted-account h1 { margin: 0; font-size: 27px; }
+.connect-deleted-account h1 { margin: 0; font-size: var(--font-size-heading); }
 .connect-deleted-account span { display: block; margin: 14px 0 26px; color: var(--muted); line-height: 1.5; }
 
 .connect-empty {
@@ -911,7 +883,7 @@ button.danger:disabled {
 
 .connect-empty div {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .connect-empty strong {
@@ -920,14 +892,14 @@ button.danger:disabled {
 
 .connect-empty p {
   margin: 0;
-  font-size: 0.84rem;
+  font-size: var(--font-size-ui);
 }
 
 .connect-empty-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  margin-top: 8px;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-2);
 }
 
 .connect-empty-actions a,
@@ -937,9 +909,9 @@ button.danger:disabled {
 
 .connect-desktop-help {
   max-width: 68ch;
-  margin: 16px 4px 0;
+  margin: var(--space-4) var(--space-1) 0;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-ui);
   line-height: 1.5;
 }
 
@@ -954,7 +926,7 @@ button.danger:disabled {
   border-bottom: 1px solid var(--color-warning-border);
   background: var(--warning-soft);
   color: var(--warning);
-  font-size: 0.84rem;
+  font-size: var(--font-size-ui);
 }
 
 .connect-notice svg {
@@ -963,7 +935,7 @@ button.danger:disabled {
 
 .connect-notice button {
   margin-left: auto;
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .connect-loading {
@@ -972,7 +944,7 @@ button.danger:disabled {
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 30px;
   background: var(--canvas);
   text-align: center;
@@ -981,7 +953,7 @@ button.danger:disabled {
 .connect-loading .wordmark-mark {
   width: 42px;
   height: 42px;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .connect-loading p {
@@ -1064,9 +1036,13 @@ button.danger:disabled {
     padding: 0;
   }
 
+  .connect-shell .rail-current-collection {
+    display: none;
+  }
+
   .connect-shell > .collection-rail nav {
     flex: 1;
-    margin: 0 4px;
+    margin: 0 var(--space-1);
     overflow: visible;
   }
 
@@ -1080,10 +1056,10 @@ button.danger:disabled {
     align-items: center;
     gap: 6px;
     margin: 0 auto;
-    padding: 8px 2px;
+    padding: var(--space-2) 2px;
     color: var(--accent-strong);
-    font-size: 0.82rem;
-    font-weight: 700;
+    font-size: var(--font-size-ui);
+    font-weight: var(--font-weight-semibold);
     text-decoration: none;
     white-space: nowrap;
   }
@@ -1102,7 +1078,7 @@ button.danger:disabled {
   }
 
   .connect-shell > .collection-rail .connection-footer > p,
-  .connect-rail-feedback,
+  .connect-shell > .collection-rail .connect-rail-feedback,
   .connect-rail-account > span:last-child {
     display: none;
   }
@@ -1124,12 +1100,12 @@ button.danger:disabled {
     min-height: 54px;
     display: flex;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--space-4);
     padding: 5px 14px;
   }
 
   .connect-nav > header > strong {
-    font-size: 0.82rem;
+    font-size: var(--font-size-ui);
   }
 
   .connect-mobile-nav-toggle {
@@ -1138,28 +1114,28 @@ button.danger:disabled {
     display: grid;
     justify-items: end;
     align-content: center;
-    padding: 4px 0;
+    padding: var(--space-1) 0;
     color: var(--accent-strong);
     text-align: right;
   }
 
   .connect-mobile-nav-toggle span {
     overflow: hidden;
-    font-size: 0.82rem;
-    font-weight: 700;
+    font-size: var(--font-size-ui);
+    font-weight: var(--font-weight-semibold);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .connect-mobile-nav-toggle small {
     color: var(--faint);
-    font-size: 0.75rem;
+    font-size: var(--font-size-caption);
   }
 
   .connect-nav > nav {
     display: none;
     gap: 20px;
-    padding: 8px 10px 18px;
+    padding: var(--space-2) 10px 18px;
     border-top: 1px solid var(--line);
   }
 
@@ -1174,9 +1150,9 @@ button.danger:disabled {
   .connect-nav > nav > .connect-nav-group > .connect-feedback-mobile-link {
     display: flex !important;
     align-items: center;
-    padding: 8px 12px;
+    padding: var(--space-2) var(--space-3);
     color: var(--muted);
-    font-size: 0.78rem;
+    font-size: var(--font-size-ui);
     text-decoration: none;
   }
 
@@ -1186,7 +1162,7 @@ button.danger:disabled {
 
   .connect-page {
     width: calc(100% - 28px);
-    padding: 32px 0 64px;
+    padding: var(--space-8) 0 var(--space-16);
   }
 
   .connect-pending-banner {
@@ -1201,7 +1177,7 @@ button.danger:disabled {
   }
 
   .connect-page > header {
-    margin-bottom: 32px;
+    margin-bottom: var(--space-8);
   }
 
   .connect-permissions {
@@ -1209,7 +1185,7 @@ button.danger:disabled {
   }
 
   .connect-page > section {
-    margin-top: 32px;
+    margin-top: var(--space-8);
   }
 
   .connect-inline-form {
@@ -1224,7 +1200,7 @@ button.danger:disabled {
   .connect-sharing-form > p,
   .connect-sharing-form > div { grid-column: 1; grid-row: auto; }
   .connect-sharing-link { grid-template-columns: 1fr; }
-  .connect-member-row { grid-template-columns: 1fr; gap: 8px; }
+  .connect-member-row { grid-template-columns: 1fr; gap: var(--space-2); }
   .connect-role-select .mdbase-select { min-height: 44px; }
 
 
@@ -1242,7 +1218,7 @@ button.danger:disabled {
   .connect-account-row,
   .connect-account-row-main {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .connect-account-actions { justify-content: flex-start; }
@@ -1282,7 +1258,7 @@ button.danger:disabled {
   .connect-shell *::before,
   .connect-shell *::after {
     scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
   }
 }
 
@@ -1296,44 +1272,18 @@ button.danger:disabled {
 .connect-account-form input,
 .connect-account-reauthentication input,
 .connect-provider-loading {
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .connect-nav > nav > .connect-nav-group > a.selected {
-  background: var(--selected);
-  color: var(--ink);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-
-.connect-avatar {
-  border: 1px solid var(--line-strong);
-  background: transparent;
-  color: var(--muted);
-}
-
-.connect-primary-action {
-  border: 1px solid var(--accent);
-  border-radius: 2px;
-  background: transparent;
-  color: var(--accent) !important;
-}
-
-.connect-primary-action:hover {
-  background: var(--hover);
-  color: var(--accent-strong) !important;
+  border-left: 2px solid var(--accent);
 }
 
 .connect-account-message,
 .connect-pending-banner,
 .connect-deletion-effects,
 .connect-account-reauthentication {
-  border-radius: 2px;
-}
-
-.connect-account-message.success {
-  border-color: color-mix(in oklch, var(--success) 42%, var(--line));
-  background: transparent;
-  color: var(--success);
+  border-radius: var(--radius-sm);
 }
 
 .connect-deleted-account > div {

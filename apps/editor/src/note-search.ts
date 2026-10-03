@@ -5,6 +5,7 @@ import { basename, noteTags, noteTitle } from "./note";
 export interface NoteSearchEntry {
   note: NoteSummary;
   title: string;
+  titleText: string;
   filename: string;
   path: string;
   metadata: string;
@@ -64,9 +65,11 @@ function buildNoteSearchEntry(note: NoteSummary, types: CollectionTypeDescriptor
   const metadata: string[] = [...note.types, ...noteTags(note)];
   collectSearchValues(note.effectiveFrontmatter, metadata);
   const metadataText = readableMetadata(note);
+  const titleText = noteTitle(note, types);
   return {
     note,
-    title: normalize(noteTitle(note, types)),
+    title: normalize(titleText),
+    titleText,
     filename: normalize(basename(note.path)),
     path: normalize(note.path),
     metadata: normalize(metadata.join("\n")),

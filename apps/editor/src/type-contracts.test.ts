@@ -1,7 +1,7 @@
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
-import { NEW_TYPE_SOURCE } from "./type-constants";
+import { NEW_TYPE_SOURCE } from "./type-presentation";
 import {
   addTypeContractImplementation,
   contractViewPreview,

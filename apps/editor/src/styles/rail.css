@@ -1,0 +1,270 @@
+.collection-rail {
+  grid-column: 1;
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-6) 10px var(--space-4);
+  border-right: 1px solid var(--line);
+}
+
+.rail-header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: 0 1px 0 var(--space-2);
+}
+
+.rail-header > .rail-collection-switcher {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: var(--space-3);
+  padding: 0;
+  text-align: left;
+}
+
+.rail-current-collection {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+  color: var(--ink);
+}
+
+.rail-current-collection > span,
+.collection-rail nav .rail-row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-current-collection svg { width: 12px; height: 12px; flex: 0 0 auto; }
+.rail-collection-switcher .wordmark { white-space: nowrap; }
+.rail-collection-switcher:hover .rail-current-collection { color: var(--accent); }
+
+@container (max-width: 190px) {
+  .rail-header .wordmark-label strong { display: none; }
+}
+
+@container (max-width: 140px) {
+  .rail-header .wordmark-label { display: none; }
+}
+
+.collection-rail nav {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--space-6);
+}
+
+.rail-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.rail-bottom-group {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--space-6);
+}
+
+.collection-rail nav button,
+.collection-rail nav .editor-rail-link {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 7px var(--space-2);
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+  text-align: left;
+  text-decoration: none;
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.collection-rail nav button > span,
+.collection-rail nav .editor-rail-link > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.collection-rail nav button svg,
+.collection-rail nav .editor-rail-link svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--faint);
+  stroke-width: 1.6;
+}
+
+.collection-rail nav button:hover,
+.collection-rail nav .editor-rail-link:hover { background: var(--hover); }
+
+.collection-rail nav button.selected,
+.collection-rail nav .editor-rail-link.selected {
+  font-weight: var(--font-weight-semibold);
+}
+
+.collection-rail nav small {
+  flex: 0 0 auto;
+  opacity: 0;
+  color: var(--faint);
+  font-family: var(--sans);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
+  font-variant-numeric: tabular-nums;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.collection-rail nav button:hover small,
+.collection-rail nav a:hover small,
+.collection-rail nav button:focus-visible small,
+.collection-rail nav a:focus-visible small,
+.collection-rail nav .selected small,
+.collection-rail nav .rail-drop-target:focus-within small,
+.collection-rail nav .context-menu-target:hover small,
+.collection-rail nav .context-menu-target:focus-within small { opacity: 1; }
+
+.rail-filter-section { margin-top: var(--space-1); }
+.rail-filter-items { display: grid; }
+.collection-rail nav .rail-new-folder { color: var(--muted); }
+
+.folder-tree ul { margin: 0; padding: 0; list-style: none; }
+.folder-tree ul ul { padding-left: var(--space-3); }
+
+.rail-tree-row {
+  min-width: 0;
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+}
+
+.collection-rail nav .rail-tree-row .folder-disclosure,
+.collection-rail nav .rail-tree-row .folder-disclosure-spacer {
+  width: 20px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--faint);
+}
+
+.collection-rail nav .rail-tree-row .folder-disclosure:hover { background: transparent; color: var(--ink); }
+.collection-rail nav .rail-tree-row .folder-disclosure svg { width: 12px; height: 12px; }
+
+.collection-rail nav .rail-tree-row .rail-row-action {
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 28px 5px 3px;
+}
+.collection-rail nav .rail-tree-row .rail-row-action > span { gap: 6px; }
+
+/* Counts and actions have separate, stable slots; hover never shifts the label. */
+.collection-rail nav .rail-tree-row .rail-row-menu {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 24px;
+  min-height: 24px;
+  justify-content: center;
+  padding: 0;
+  transform: translateY(-50%);
+  background: var(--hover);
+  color: var(--faint);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.collection-rail nav .rail-tree-row:hover .rail-row-menu,
+.collection-rail nav .rail-tree-row:focus-within .rail-row-menu,
+.collection-rail nav .rail-tree-row .rail-row-menu[aria-expanded="true"] { opacity: 1; pointer-events: auto; }
+.collection-rail nav .rail-tree-row .rail-row-menu:hover { color: var(--ink); }
+.collection-rail nav .rail-tree-row .rail-row-menu svg { width: 14px; height: 14px; }
+
+.rail-drop-target { position: relative; border-radius: var(--radius-sm); }
+.rail-drop-target.drop-ready {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--selected);
+}
+.rail-drop-hint {
+  position: absolute;
+  z-index: 1;
+  right: var(--space-1);
+  bottom: -6px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-caption);
+  color: var(--ink);
+  background: var(--white);
+  pointer-events: none;
+}
+
+.folder-loading,
+.folder-placeholder {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+}
+
+.collection-rail .connection-footer {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) 1px 0;
+  border-top: 1px solid var(--line);
+}
+.connection-footer p {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+}
+.status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--faint); }
+
+.folder-change-dialog form { display: grid; gap: var(--space-3); }
+.folder-change-dialog .mdbase-select { width: 100%; }
+.folder-change-dialog .confirm-dialog-copy { max-height: 65vh; overflow-y: auto; }
+.folder-change-dialog code { overflow-wrap: anywhere; }
+.folder-change-dialog p + p { margin-top: var(--space-2); }
+.collection-connect-workspace { display: inline-flex; padding: var(--space-2); color: var(--muted); text-decoration: none; border-radius: var(--radius-sm); }
+.collection-connect-workspace:hover { color: var(--ink); background: var(--hover); }
+
+/* Also used on the collection connection screen. */
+.compatibility-help { margin-top: var(--space-4); color: var(--faint); font-size: var(--font-size-caption); }
+.compatibility-help summary { width: fit-content; cursor: pointer; color: var(--muted); }
+.compatibility-help p { max-width: 47ch; margin: var(--space-2) 0 0; line-height: 1.55; }
+
+@media (max-width: 760px) {
+  .collection-rail nav .editor-rail-link { min-height: 44px; }
+  .collection-rail nav .rail-tree-row { grid-template-columns: 28px minmax(0, 1fr); }
+  .collection-rail nav .rail-tree-row .rail-row-action,
+  .collection-rail nav .rail-tree-row .folder-disclosure,
+  .collection-rail nav .rail-tree-row .folder-disclosure-spacer { min-height: 44px; }
+  .collection-rail nav .rail-tree-row .folder-disclosure,
+  .collection-rail nav .rail-tree-row .folder-disclosure-spacer { width: 28px; }
+  .collection-rail nav .rail-tree-row .rail-row-menu { opacity: 1; pointer-events: auto; }
+}

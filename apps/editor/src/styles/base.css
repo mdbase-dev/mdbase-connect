@@ -1,0 +1,204 @@
+.fatal-error {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-8);
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.fatal-error > div {
+  max-width: 440px;
+}
+
+.fatal-error strong {
+  font-size: var(--font-size-prose);
+}
+
+.fatal-error p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+:root[data-theme="dark"] {
+  --color-diff-local: oklch(24% 0.025 28);
+  --color-diff-local-mark: oklch(67% 0.09 28);
+  --color-diff-remote: oklch(24% 0.025 153);
+  --color-diff-remote-mark: oklch(70% 0.085 153);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --color-diff-local: oklch(24% 0.025 28);
+    --color-diff-local-mark: oklch(67% 0.09 28);
+    --color-diff-remote: oklch(24% 0.025 153);
+    --color-diff-remote-mark: oklch(70% 0.085 153);
+  }
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb-current) transparent;
+}
+
+.app-shell > *:hover,
+.app-shell > *:focus-within {
+  --scrollbar-thumb-current: var(--scrollbar-thumb);
+  --scrollbar-size: 6px;
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 50%;
+  background: var(--scrollbar-thumb-current);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+/* Provider layout is global; the feedback dialog styles load with its feature. */
+.mdbase-feedback-app { display: contents; }
+
+body {
+  font-size: var(--font-size-ui);
+  min-width: 320px;
+  overflow: hidden;
+}
+
+.route-loading {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: var(--canvas);
+  color: var(--muted);
+}
+
+button,
+input,
+textarea,
+select {
+  color: inherit;
+  font: inherit;
+}
+
+button {
+  border: 0;
+  background: none;
+}
+
+/* Counts align without making the interface look like source code. */
+
+/* Counts align without making the interface look like source code. */
+:where(small, time, .file-workspace-size, .schema-item-number) {
+  font-variant-numeric: tabular-nums;
+}
+
+button:not(:disabled),
+summary {
+  cursor: pointer;
+}
+
+button:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.combobox-control {
+  position: relative;
+  min-width: 0;
+}
+
+.combobox-control > input {
+  width: 100%;
+}
+
+.combobox-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: var(--space-1);
+  border: 1px solid var(--line-strong);
+  background: var(--white);
+}
+
+.combobox-popover.drop-up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.combobox-popover button {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+  text-align: left;
+}
+
+.combobox-popover button:hover,
+.combobox-popover button.active {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.combobox-popover button[aria-selected="true"] {
+  background: var(--selected);
+  color: var(--ink);
+}
+
+.combobox-popover p {
+  margin: 0;
+  padding: 7px 9px;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+}
+
+
+
+
+
+

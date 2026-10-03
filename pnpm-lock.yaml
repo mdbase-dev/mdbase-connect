@@ -282,7 +282,7 @@ importers:
 
   packages/app-ui:
     dependencies:
-      '@fontsource/atkinson-hyperlegible':
+      '@fontsource-variable/atkinson-hyperlegible-next':
         specifier: ^5.3.0
         version: 5.3.0
       '@fontsource/azeret-mono':
@@ -1508,8 +1508,8 @@ packages:
   '@fastify/websocket@11.3.1':
     resolution: {integrity: sha512-3117Fteg0MC9zRl0ilNAQelRb+PNDvNuWe0yJ+jnLthaPPZnlml+GraGpesNUEQvLl8+3C+W4aKZz10XmQ10Mg==}
 
-  '@fontsource/atkinson-hyperlegible@5.3.0':
-    resolution: {integrity: sha512-Sp8Ve8+rQmENY2Lv02VH7sLpntzTTvnncnJMTbRE7DX6TLxGraN4ykZfzaUWIoCFmaomwkvNiqmlPkrKBuDoSA==}
+  '@fontsource-variable/atkinson-hyperlegible-next@5.3.0':
+    resolution: {integrity: sha512-UnLzNUy1RWoLDfydAatP4NaRm99X/WbQEph7q/PymJnCFIOOwKOx3pBmp5ys8trO0dM+CKGuJgeZP9fAR4mQpA==}
 
   '@fontsource/azeret-mono@5.3.0':
     resolution: {integrity: sha512-Ag/+gN67fUry7i1yLlTnk16Rr1nnTQI2YefA/G7tYcCSr/+TC/ayMrE8Km7O0OKRgI/B5Mfel46Gq9IGY50Uaw==}
@@ -6563,7 +6563,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@fontsource/atkinson-hyperlegible@5.3.0': {}
+  '@fontsource-variable/atkinson-hyperlegible-next@5.3.0': {}
 
   '@fontsource/azeret-mono@5.3.0': {}
 

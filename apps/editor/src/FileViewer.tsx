@@ -1,5 +1,5 @@
-import { useEffect, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useId, type ReactNode } from "react";
+import { Dialog } from "./Dialog";
 import { ArrowLeftIcon as ArrowLeft, FileIcon as File, XIcon as X } from "./icons";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import type { CollectionFile } from "./model";
@@ -36,20 +36,14 @@ export function FileViewer({ asset, onClose }: {
   asset?: Extract<FileAssetSnapshot, { status: "ready" }>;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    if (!asset) return;
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [asset, onClose]);
+  const titleId = useId();
   if (!asset) return null;
   const filename = collectionFileTitle(asset.file);
-  return createPortal(<div className="file-viewer-backdrop" role="presentation" onMouseDown={(event) => {
-    if (event.target === event.currentTarget) onClose();
-  }}><section className="file-viewer" role="dialog" aria-modal="true" aria-label={`Preview ${filename}`}>
-    <header><div><strong>{filename}</strong><span>{asset.file.path}</span></div><a href={asset.url} target="_blank" rel="noreferrer">Open original</a><button className="icon-button" aria-label="Close file preview" onClick={onClose} autoFocus><X aria-hidden="true" /></button></header>
+  return <Dialog className="file-viewer" titleId={titleId} onClose={onClose}>
+    <h1 className="sr-only" id={titleId}>Preview {filename}</h1>
+    <header><div><strong>{filename}</strong><span>{asset.file.path}</span></div><a href={asset.url} target="_blank" rel="noreferrer">Open original</a><button className="icon-button" aria-label="Close file preview" onClick={onClose} data-autofocus><X aria-hidden="true" /></button></header>
     <div className={`file-viewer-content file-viewer-${asset.file.mediaClass}`}><FileContent asset={asset} /></div>
-  </section></div>, document.body);
+  </Dialog>;
 }
 
 function FileContent({ asset }: { asset: Extract<FileAssetSnapshot, { status: "ready" }> }) {

@@ -11,12 +11,8 @@ import {
 } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
 
-export interface QuickOpenCommand {
-  id: string;
-  label: string;
-  hint?: string;
-  run: () => void;
-}
+import { commandDefinitions, filterCommands, formatShortcut, rememberCommand, type EditorCommand } from "./editor-commands";
+export type QuickOpenCommand = EditorCommand;
 
 type QuickOpenRow =
   | { kind: "note"; result: NoteSearchResult }
@@ -27,15 +23,16 @@ interface QuickOpenSection {
   row: QuickOpenRow;
 }
 
-export function QuickOpen({ index, recentPaths, types, commands = [], onSelect, onClose }: {
+export function QuickOpen({ index, recentPaths, types, commands = [], initialCommandMode = false, onSelect, onClose }: {
   index: NoteSearchEntry[];
   recentPaths: string[];
   types: CollectionTypeDescriptor[];
   commands?: QuickOpenCommand[];
+  initialCommandMode?: boolean;
   onSelect: (path: string) => void;
   onClose: () => void;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialCommandMode ? ">" : "");
   const [activeIndex, setActiveIndex] = useState(0);
   const commandMode = query.trimStart().startsWith(">");
   const commandQuery = (commandMode ? query.trimStart().slice(1) : query).trim();
@@ -48,10 +45,14 @@ export function QuickOpen({ index, recentPaths, types, commands = [], onSelect, 
     [commandMode, filteredCommands, results, showCommands]);
   const rows = sections.map((section) => section.row);
   useEffect(() => setActiveIndex(0), [query]);
+  useEffect(() => {
+    document.getElementById(`quick-open-${activeIndex}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [activeIndex, rows.length]);
 
   function choose(row: QuickOpenRow | undefined) {
     if (!row) return;
     if (row.kind === "command") {
+      rememberCommand(row.command.id);
       onClose();
       row.command.run();
       return;
@@ -78,7 +79,7 @@ export function QuickOpen({ index, recentPaths, types, commands = [], onSelect, 
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") {
               event.preventDefault();
-              setActiveIndex((current) => Math.min(rows.length - 1, current + 1));
+              setActiveIndex((current) => Math.max(0, Math.min(rows.length - 1, current + 1)));
             } else if (event.key === "ArrowUp") {
               event.preventDefault();
               setActiveIndex((current) => Math.max(0, current - 1));
@@ -113,7 +114,7 @@ export function QuickOpen({ index, recentPaths, types, commands = [], onSelect, 
               className={`quick-open-command${selected ? " selected" : ""}`}
               onMouseEnter={() => setActiveIndex(rowIndex)}
               onClick={() => choose(row)}
-            ><span><strong>{row.command.label}</strong>{row.command.hint && <small className="search-result-context path">{row.command.hint}</small>}</span></button> : (() => {
+            ><span><strong>{row.command.label}</strong>{row.command.hint && <small className="search-result-context">{row.command.hint}</small>}</span>{row.command.shortcut && <kbd>{formatShortcut(row.command.shortcut)}</kbd>}</button> : (() => {
               const result = row.result;
               return <button
                 id={`quick-open-${rowIndex}`}
@@ -166,13 +167,6 @@ function buildSections(
   return sections;
 }
 
-function filterCommands(commands: QuickOpenCommand[], query: string): QuickOpenCommand[] {
-  const needle = query.toLocaleLowerCase();
-  if (!needle) return commands;
-  return commands.filter((command) => [command.label, command.hint ?? ""]
-    .some((text) => text.toLocaleLowerCase().includes(needle)));
-}
-
 function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSearchResult[] {
   const byPath = new Map(index.map((entry) => [entry.note.path, entry.note]));
   const recent = paths.flatMap((path) => {
@@ -186,11 +180,16 @@ function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSearchResul
   }));
 }
 
+import { shortcutModifier } from "./editor-commands";
+export { shortcutModifier } from "./editor-commands";
+
 export function ShortcutHelp({ onClose }: { onClose: () => void }) {
-  const modifier = navigator.platform.includes("Mac") ? "⌘" : "Ctrl";
+  const modifier = shortcutModifier();
   const shortcuts = [
-    [`${modifier} P`, "Quick open"],
-    [`${modifier} K`, "Quick open, outside the note text"],
+    ...Object.values(commandDefinitions).flatMap((definition) => {
+      const entry: { label: string; shortcut?: string; scope?: string } = definition;
+      return entry.shortcut ? [[formatShortcut(entry.shortcut), entry.label + (entry.scope ? `, ${entry.scope}` : "")]] : [];
+    }),
     [">", "Actions in quick open"],
     ["↑ / ↓", "Move through the note list"],
     [`${modifier} F`, "Find in note"],
@@ -199,9 +198,8 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
     ["/", "Markdown commands"],
     ["Alt ← / →", "Back or forward"],
     ["Alt J / K", "Next or previous note"],
-    [`${modifier} Shift N`, "New note"],
-    [`${modifier} Shift L`, "Show or hide the notes sidebar"],
-    ["?", "Show this shortcut guide"]
+    ["Shift F10", "Note actions, in the list"],
+    ["Esc", "Exit focus mode"]
   ];
   return <Dialog titleId="shortcut-help-title" className="shortcut-help" onClose={onClose}>
       <header><h2 id="shortcut-help-title">Shortcuts</h2><button className="icon-button" aria-label="Close keyboard shortcuts" onClick={onClose}><X aria-hidden="true" /></button></header>

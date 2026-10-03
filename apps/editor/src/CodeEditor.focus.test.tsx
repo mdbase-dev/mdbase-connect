@@ -69,6 +69,29 @@ describe("CodeEditor mount focus ownership", () => {
     }
   );
 
+  it("preserves the listbox’s keyboard selection when the lazy editor mounts later", async () => {
+    let resolve!: (module: { default: typeof CodeEditor }) => void;
+    const LazyEditor = lazy(() => new Promise<{ default: typeof CodeEditor }>((done) => { resolve = done; }));
+    render(<>
+      <div role="listbox" aria-label="Notes" tabIndex={0} />
+      <Suspense fallback={<div>Loading editor</div>}><LazyEditor value="Original note" label="Note body" autoFocus /></Suspense>
+    </>);
+    const list = screen.getByRole("listbox", { name: "Notes" });
+    list.focus();
+    await act(async () => { resolve({ default: CodeEditor }); });
+    flushFrame();
+    expect(list).toHaveFocus();
+  });
+
+  it("still autofocuses after a plain click-to-open row rather than a focused composite listbox", () => {
+    render(<>
+      <div role="listbox" aria-label="Notes"><button role="option" aria-selected="false" ref={(button) => button?.focus()}>Open note</button></div>
+      <CodeEditor value="Original note" label="Note body" autoFocus />
+    </>);
+    flushFrame();
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveFocus();
+  });
+
   it("autofocuses when no editable control owns focus", () => {
     render(<CodeEditor value="Original note" label="Note body" autoFocus />);
     expect(document.body).toHaveFocus();

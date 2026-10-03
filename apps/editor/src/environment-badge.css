@@ -3,15 +3,13 @@
   z-index: 10000;
   top: 5px;
   right: 5px;
-  padding: 4px 7px 3px;
+  padding: var(--space-1) 7px 3px;
   border: 1px solid currentColor;
   background: #f4f7f7;
-  box-shadow: 2px 2px 0 rgb(20 34 35 / 14%);
+  box-shadow: var(--elevation-low);
   color: #34585d;
-  font: 500 9px/1.2 "Azeret Mono", ui-monospace, monospace;
-  letter-spacing: 0.14em;
+  font: var(--font-weight-medium) var(--font-size-caption)/1.2 var(--sans);
   pointer-events: none;
-  text-transform: uppercase;
 }
 
 .environment-badge.is-lab {
@@ -34,6 +32,6 @@
     top: 3px;
     right: 3px;
     padding: 3px 5px 2px;
-    font-size: 8px;
+    font-size: var(--font-size-caption);
   }
 }

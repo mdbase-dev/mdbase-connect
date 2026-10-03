@@ -23,8 +23,10 @@ Role values for light, dark and system themes live in
 Editor's quiet treatment is the canonical palette; do not restate values here.
 
 Use a restrained monochrome strategy in both themes. The canvas is the only
-major surface. Controls stay on that surface and use fine neutral outlines
-rather than contrasting fills. Green indicates verified connection or
+major surface. Fields use fine neutral outlines; secondary actions use a quiet tonal fill,
+tertiary actions read as text, and the single committing action uses a filled
+accent. Identity provider buttons retain their required provider treatment, at
+secondary weight. Green indicates verified connection or
 completion. Amber indicates pending attention. Red indicates revocation,
 disconnection, or destructive local administration. Semantic color should
 occupy as little space as possible.
@@ -40,12 +42,19 @@ values so both themes preserve the same hierarchy.
 
 ## Typography
 
-- Primary family: Atkinson Hyperlegible, matching mdbase.dev and packaged with
-  both the desktop app and portal.
-- Technical data: Azeret Mono for origins, paths, versions, IDs, operation
-  names, and the mdbase wordmark.
-- Product headings use compact fixed sizes and strong weight contrast.
-- Body copy is 12 to 14px at 1.45 to 1.55 line height, capped near 70ch.
+- Primary family: locally packaged Atkinson Hyperlegible Next Variable (200–800).
+  Use shared weight tokens: regular 400, medium 500, semibold 600, bold 700.
+- Azeret Mono is reserved for paths, source/code and the canonical mdbase wordmark.
+  Counts, dates, sizes and versions use the primary family with tabular numerals.
+- The six shared size tokens are caption 12px, UI 13px, section 15px, prose 17px,
+  heading 24px and document title 34px. UI chrome defaults to 13px; nothing is
+  smaller than 12px. Emphasis normally uses 500/600, not bold-or-nothing.
+- Account authentication uses the prose token in a centered, mobile-safe column;
+  Connect management uses the section token for body copy.
+- Labels use sentence case without uppercase tracking. Body copy has a relaxed
+  line height and a readable measure, capped near 70ch.
+- Typography, the 4/8/12px corner scale, two elevations, spacing and motion come
+  from `packages/app-ui/css/tokens.css`, never local raw style values.
 
 The product name is always written as `mdbase connect`. The wordmark pairs a
 20px Frontmatter mark with lowercase `mdbase`; `connect` remains a quiet
@@ -95,11 +104,18 @@ and interaction guidance in
 
 ## Components
 
-- Buttons: 4 to 5px radius, 34 to 36px height in dense views and 44px on
-  transactional pages. Secondary actions stay on the current surface with a
-  fine outline; quiet and danger actions are text led. A view's one committing
-  action, such as `Allow access`, may use a filled accent. No shadows. All
-  include hover, focus, disabled, and busy states.
+- Buttons share `.mdbase-button`: filled accent `.is-primary` for the one
+  committing action, a tonal default for secondary actions, and text-led
+  `.is-tertiary` for quiet actions. `.is-danger` supplies destructive intent.
+  Dense views use 34 to 36px height; transactional pages use 44px. Disabled
+  buttons lose the accent, retain readable text, and cannot be mistaken for an
+  enabled primary. All actions have hover, visible keyboard focus and busy states.
+- Switches use `.mdbase-switch` on a native button with `role="switch"` and
+  `aria-checked`; the filled track and moving thumb both distinguish On from Off.
+- Checkboxes use `.mdbase-checkbox` on native inputs (or Markdown's existing
+  checkbox-role button), with an explicit check mark, indeterminate state,
+  visible focus and disabled styling. Labels and Space activation remain native.
+  Switches and checkboxes preserve forced-color cues and expand touch hit areas.
 - Status: pair a colored dot with a text label. Never show a dot alone.
 - Direct access: explain the browser's local-network prompt beside one quiet,
   user-initiated action. Afterward, show only `Connected directly` or
@@ -112,6 +128,7 @@ and interaction guidance in
 
 ## Motion
 
-Use 150 to 200ms ease-out transitions for hover, navigation, and inline reveals.
-Do not animate layout or orchestrate page entry. Disable nonessential motion
-under `prefers-reduced-motion`.
+Use shared duration tokens (120/150/180/240ms) and shared easing for hover,
+navigation and inline reveals. Do not orchestrate page entry or introduce
+layout animation as decoration. Duration tokens collapse under
+`prefers-reduced-motion`; nonessential looping animations are disabled.

@@ -3,7 +3,7 @@ import type { CollectionDescription } from "@mdbase-dev/connect";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import type { CollectionGateway, ConnectionSummary } from "./model";
 import type { EditorPreferences } from "./preferences";
-import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase-dev/ui/theme";
+import { applyThemePreference, loadThemePreference, observeTheme, saveThemePreference, type ThemePreference } from "@mdbase-dev/ui/theme";
 import { Select } from "@mdbase-dev/ui/select";
 import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
 
@@ -31,7 +31,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
     <header className="settings-mobile-bar"><button className="mobile-back icon-button" aria-label="Back to collection" onClick={onBack}><ArrowLeft aria-hidden="true" /></button><span>Settings</span></header>
     {leadingActions && <div className="settings-pane-actions">{leadingActions}</div>}
     <div className="settings-document">
-      <header><p className="eyebrow">mdbase editor</p><h1>Settings</h1></header>
+      <header><h1>Settings</h1></header>
       <section>
         <div className="settings-intro"><h2>Editing</h2><p>Preferences stay in this browser.</p></div>
         <SettingRow title="Vim key bindings" description="Use normal, insert, visual, and command modes in the note editor.">
@@ -43,6 +43,9 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         <SettingRow title="Quiet Markdown" description="Soften punctuation away from the active line and make tasks checkable.">
           <Toggle checked={preferences.quietMarkdown} label="Quiet Markdown" onChange={(quietMarkdown) => onChange({ ...preferences, quietMarkdown })} />
         </SettingRow>
+        <SettingRow title="Typewriter scrolling" description="Keep the caret line centred while writing in focus mode.">
+          <Toggle checked={preferences.typewriterScrolling} label="Typewriter scrolling" onChange={(typewriterScrolling) => onChange({ ...preferences, typewriterScrolling })} />
+        </SettingRow>
         <SettingRow title="Text size" description="Change note text without changing the surrounding interface.">
           <Select aria-label="Editor text size" value={String(preferences.fontSize)} options={[{ value: "16", label: "Compact" }, { value: "17", label: "Comfortable" }, { value: "19", label: "Large" }]} onChange={(next) => onChange({ ...preferences, fontSize: Number(next) as EditorPreferences["fontSize"] })} />
         </SettingRow>
@@ -52,15 +55,15 @@ export function SettingsView({ description, connection, noteCount, preferences, 
       </section>
 
       <section>
-        <div className="settings-intro"><h2>Collection</h2><p>The collection you chose in mdbase connect.</p></div>
+        <div className="settings-intro"><h2>Collection</h2></div>
         <FactRow label="Name" value={description.displayName} />
         <FactRow label="Notes" value={noteCount.toLocaleString()} />
         <FactRow label="Types" value={String(description.types.length)} />
         <details className="settings-details">
           <summary><span>Details</span><ChevronRight aria-hidden="true" /></summary>
           <FactRow label="Specification" value={description.specVersion} />
-          <FactRow label="Types folder" value={stringValue(settings.types_folder, "_types")} />
-          <FactRow label="Explicit type keys" value={explicitTypeKeys.length ? explicitTypeKeys.join(", ") : "Disabled"} mono />
+          <FactRow label="Types folder" value={stringValue(settings.types_folder, "_types")} mono />
+          <FactRow label="Explicit type keys" value={explicitTypeKeys.length ? explicitTypeKeys.join(", ") : "Disabled"} />
           <FactRow label="Validation" value={stringValue(settings.validation, "error")} />
           <FactRow label="Runtime" value={runtime.enabled === true ? `Enabled · ${stringValue(runtime.profile_version, "0.1.0")}` : "Disabled"} />
         </details>
@@ -69,17 +72,17 @@ export function SettingsView({ description, connection, noteCount, preferences, 
       {gateway?.peopleDirectory && <Suspense fallback={null}><YourPersonPanel key={description.collectionId} gateway={gateway} description={description} canInstall={connection?.operations.includes("apply_type_pack") ?? false} onRefreshDescription={onRefreshDescription} canCreate={connection?.operations.includes("create") ?? false} canEdit={connection?.operations.includes("update") ?? false} /></Suspense>}
 
       <section>
-        <div className="settings-intro"><h2>Connection</h2><p>Collection-wide access through mdbase connect. Storage remains local or hosted according to the collection you chose.</p></div>
+        <div className="settings-intro"><h2>Connection</h2></div>
         <FactRow label="Route" value={connectionRouteLabel(connection)} />
         <DirectAccessRow connection={connection} busy={directAccessBusy} onRequest={onRequestDirectAccess} />
         <div className="setting-row connection-action">
           <div><h3>Saved access</h3><p>Remove this collection from the editor without changing its files.</p></div>
-          <button className="settings-danger-action" onClick={onForget}><Trash2 aria-hidden="true" />Forget from this browser</button>
+          <button className="settings-danger-action mdbase-button is-tertiary is-danger" onClick={onForget}><Trash2 aria-hidden="true" />Forget from this browser</button>
         </div>
         <details className="settings-details">
           <summary><span>Details</span><ChevronRight aria-hidden="true" /></summary>
-          <FactRow label="Operations" value={description.operations.join(", ")} mono />
-          <FactRow label="Collection ID" value={description.collectionId} mono />
+          <FactRow label="Operations" value={description.operations.join(", ")} />
+          <FactRow label="Collection ID" value={description.collectionId} />
         </details>
       </section>
     </div>
@@ -88,6 +91,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
 
 function ThemePreferenceSetting() {
   const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
+  useEffect(() => observeTheme(() => setPreference(loadThemePreference())), []);
   useEffect(() => {
     applyThemePreference(preference);
     if (preference !== "system" || typeof window.matchMedia !== "function") return;
@@ -131,7 +135,7 @@ function DirectAccessRow({ connection, busy, onRequest }: {
       ? "Checking…"
       : "Check again";
   return <SettingRow title="This computer" description={description}>
-    <button className="settings-secondary-action" disabled={status === "checking" || busy} onClick={onRequest}>{label}</button>
+    <button className="settings-secondary-action mdbase-button" disabled={status === "checking" || busy} onClick={onRequest}>{label}</button>
   </SettingRow>;
 }
 
@@ -142,7 +146,7 @@ function connectionRouteLabel(connection: ConnectionSummary | null): string {
 }
 
 function Toggle({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
-  return <button className={`toggle${checked ? " checked" : ""}`} role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}><span /></button>;
+  return <button className="mdbase-switch" role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}><span aria-hidden="true" /></button>;
 }
 
 function objectValue(value: unknown): Record<string, unknown> {

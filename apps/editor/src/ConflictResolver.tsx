@@ -21,7 +21,7 @@ export function ConflictResolver({ local, remote, onUseRemote, onKeepLocal }: {
       <div><strong>This note changed elsewhere</strong><span>Compare your edits with the latest version before choosing which one to save.</span></div>
       <div className="conflict-actions">
         <button onClick={onUseRemote}>Use latest</button>
-        <button className="primary-conflict-action" onClick={onKeepLocal}>Keep my edits</button>
+        <button className="primary-conflict-action mdbase-button is-primary" onClick={onKeepLocal}>Keep my edits</button>
       </div>
     </div>
     <details>

@@ -8,7 +8,7 @@ use std::sync::Condvar;
 use std::time::{Duration, Instant};
 
 const FOREGROUND_READ_CAPACITY: usize = 4;
-const BACKGROUND_CAPACITY: usize = 1;
+const SYNC_CAPACITY: usize = 1;
 const WAIT_SLICE: Duration = Duration::from_millis(10);
 const MAX_EXTERNAL_READ_CURSORS: usize = 4_096;
 
@@ -36,7 +36,7 @@ pub(super) struct CollectionExecutor {
     provider: Arc<FilesystemProvider>,
     mutation: PermitPool,
     foreground: PermitPool,
-    background: PermitPool,
+    sync: PermitPool,
     feed: Mutex<Option<ChangeFeed>>,
     read_cursors: Mutex<ReadCursorState>,
     last_used: Mutex<Instant>,
@@ -80,7 +80,7 @@ impl CollectionExecutor {
             provider,
             mutation: PermitPool::new(1),
             foreground: PermitPool::new(FOREGROUND_READ_CAPACITY),
-            background: PermitPool::new(BACKGROUND_CAPACITY),
+            sync: PermitPool::new(SYNC_CAPACITY),
             feed: Mutex::new(feed),
             read_cursors: Mutex::new(ReadCursorState::default()),
             last_used: Mutex::new(Instant::now()),
@@ -164,7 +164,24 @@ impl CollectionExecutor {
         context: &OperationContext,
         operation: impl FnOnce(Option<&FilesystemRuntime>) -> Result<T, ConnectError>,
     ) -> Result<T, ConnectError> {
-        let _permit = self.background.acquire(context)?;
+        // Feed ingestion, acknowledgement and reconciliation are runtime writes.
+        // Share the mutation gate: settlement transfers a durable write lock
+        // before its worker acquires the provider gate, so an overlapping
+        // background writer can invert those locks. Unlike foreground work,
+        // idle background polling must not touch residency.
+        let _permit = self.mutation.acquire(context)?;
+        operation(self.runtime.as_deref())
+    }
+
+    // A sync request owns snapshot/receipt orchestration, not the runtime write
+    // boundary. Its nested scoped mutation and subsequent feed finalization
+    // acquire the mutation gate separately; this permit must not be that gate.
+    pub(super) fn with_sync<T>(
+        &self,
+        context: &OperationContext,
+        operation: impl FnOnce(Option<&FilesystemRuntime>) -> Result<T, ConnectError>,
+    ) -> Result<T, ConnectError> {
+        let _permit = self.sync.acquire(context)?;
         operation(self.runtime.as_deref())
     }
 
@@ -507,6 +524,51 @@ mod tests {
         ));
         drop(held);
         assert!(pool.acquire(&context(Duration::from_secs(1))).is_ok());
+    }
+
+    #[test]
+    fn background_batch_settlement_shares_mutation_capacity_without_touching_residency() {
+        let state = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry
+            .create(parent.path().join("notes"), None, "UTC")
+            .unwrap();
+        let executor = registry.executor_for(&collection).unwrap();
+        let last_used = executor.last_used();
+        executor
+            .with_background(&context(Duration::from_secs(1)), |_| {
+                // This is the exclusion invariant, not a scheduler/timeout assertion.
+                // The engine transfers its durable write lock before the settlement
+                // worker takes the provider gate; background writers cannot overlap.
+                assert_eq!(*executor.mutation.available.lock().unwrap(), 0);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(*executor.mutation.available.lock().unwrap(), 1);
+        assert_eq!(
+            executor.last_used(),
+            last_used,
+            "idle polling must not pin residency"
+        );
+    }
+
+    #[test]
+    fn sync_orchestration_can_enter_batch_settlement_without_reentrant_permits() {
+        let state = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry
+            .create(parent.path().join("notes"), None, "UTC")
+            .unwrap();
+        let executor = registry.executor_for(&collection).unwrap();
+        executor
+            .with_sync(&context(Duration::from_secs(1)), |_| {
+                assert_eq!(*executor.sync.available.lock().unwrap(), 0);
+                executor.with_mutation(&context(Duration::from_secs(1)), |_| Ok(()))?;
+                executor.with_background(&context(Duration::from_secs(1)), |_| Ok(()))
+            })
+            .unwrap();
     }
 
     #[test]

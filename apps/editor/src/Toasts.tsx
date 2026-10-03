@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircleIcon as CheckCircle, WarningCircleIcon as CircleAlert, XIcon as X } from "./icons";
 
 export type ToastTone = "info" | "success" | "error";
@@ -40,7 +40,6 @@ export function buildToastItems({
     id: "recovery",
     message: recoveryMessage,
     tone: "success",
-    sticky: true,
     action: { label: recoveryBusy ? "Undoing" : "Undo", onAction: onUndo, busy: recoveryBusy }
   });
   if (hasPendingRename) items.push({
@@ -55,6 +54,15 @@ export function buildToastItems({
 }
 
 export function ToastStack({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: string) => void }) {
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+      const toast = [...toasts].reverse().find((item) => item.dismissible !== false && !item.action?.busy);
+      if (toast) { event.preventDefault(); onDismiss(toast.id); }
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [toasts, onDismiss]);
   if (!toasts.length) return null;
   return <div className="toast-stack" aria-label="Notifications">
     {toasts.map((toast) => <Toast key={toast.id} toast={toast} onDismiss={onDismiss} />)}
@@ -63,8 +71,9 @@ export function ToastStack({ toasts, onDismiss }: { toasts: ToastItem[]; onDismi
 
 function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: string) => void }) {
   const dismiss = () => onDismiss(toast.id);
-  useAutoDismiss(toast, dismiss);
-  return <div className={`toast toast-${toast.tone}`} role="status" data-toast={toast.id}>
+  const [paused, setPaused] = useState(false);
+  useAutoDismiss(toast, dismiss, paused);
+  return <div className={`toast toast-${toast.tone}`} role="status" data-toast={toast.id} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false); }}>
     {toast.tone === "error" ? <CircleAlert aria-hidden="true" /> : toast.tone === "success" ? <CheckCircle aria-hidden="true" /> : null}
     <span>{toast.message}</span>
     {toast.action && <button disabled={toast.action.busy} onClick={toast.action.onAction}>{toast.action.label}</button>}
@@ -72,12 +81,12 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: string)
   </div>;
 }
 
-function useAutoDismiss(toast: ToastItem, dismiss: () => void) {
+function useAutoDismiss(toast: ToastItem, dismiss: () => void, paused: boolean) {
   const dismissRef = useRef(dismiss);
   dismissRef.current = dismiss;
   useEffect(() => {
-    if (toast.sticky || toast.action) return;
+    if (toast.sticky || toast.action?.busy || paused) return;
     const timer = window.setTimeout(() => dismissRef.current(), autoDismissMs);
     return () => window.clearTimeout(timer);
-  }, [toast.message, toast.sticky, toast.action]);
+  }, [toast.message, toast.sticky, toast.action?.busy, paused]);
 }

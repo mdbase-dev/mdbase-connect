@@ -1,6 +1,6 @@
 import { DotsThreeIcon as MoreHorizontal } from "./icons";
 import { moveMenuFocus, useMenuPopover } from "@mdbase-dev/ui/popover";
-import { useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 
 export interface ActionMenuItem {
   label: string;
@@ -8,6 +8,7 @@ export interface ActionMenuItem {
   tone?: "default" | "danger";
   disabled?: boolean;
   title?: string;
+  separatorBefore?: boolean;
   onSelect: () => void;
 }
 
@@ -34,7 +35,15 @@ export function MenuPopover({ label, className, triggerRef, onClose, children }:
     role="menu"
     aria-label={label}
     tabIndex={-1}
-    onKeyDown={(event) => moveMenuFocus(event, menu.current)}
+    onKeyDown={(event) => {
+      moveMenuFocus(event, menu.current);
+      if (event.defaultPrevented && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        const focused = document.activeElement;
+        if (focused instanceof HTMLElement && menu.current?.contains(focused)) {
+          focused.scrollIntoView?.({ block: "nearest" });
+        }
+      }
+    }}
   >{children}</div>;
 }
 
@@ -65,8 +74,9 @@ export function ActionMenu({ label, items }: { label: string; items: ActionMenuI
   return <div className="note-actions">
     <button {...triggerProps} className="icon-button" aria-label={label}><MoreHorizontal aria-hidden="true" /></button>
     {open && <MenuPopover label={label} triggerRef={trigger} onClose={close}>
-      {items.map((item) => <button
-        key={item.label}
+      {items.map((item) => <Fragment key={item.label}>
+        {item.separatorBefore && <div role="separator" className="action-menu-separator" />}
+        <button
         role="menuitem"
         className={item.tone === "danger" ? "danger-action" : undefined}
         disabled={item.disabled}
@@ -75,7 +85,7 @@ export function ActionMenu({ label, items }: { label: string; items: ActionMenuI
           close(true);
           item.onSelect();
         }}
-      >{item.icon}{item.label}</button>)}
+      >{item.icon}{item.label}</button></Fragment>)}
     </MenuPopover>}
   </div>;
 }
