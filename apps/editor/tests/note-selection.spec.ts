@@ -1,0 +1,60 @@
+import { expect, test } from "@playwright/test";
+
+const listName = "Collection notes and files";
+
+test("selection preserves the anchor, keyboard range works, batch tag changes share one Undo", async ({ page }) => {
+  await page.goto("?demo=8");
+  await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toHaveValue("The shape of useful tools");
+  const list = page.getByRole("listbox", { name: listName });
+  const second = list.getByRole("option", { name: /Garden notes 2/ });
+  await second.click({ modifiers: ["Control"] });
+  await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toHaveValue("The shape of useful tools");
+  await expect(list).toBeFocused();
+  await page.keyboard.press("Shift+ArrowDown");
+  await expect(page.getByText("3 selected", { exact: true })).toBeVisible();
+  await page.keyboard.press("Shift+ArrowUp");
+  await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
+  await page.keyboard.press("Control+a");
+  await expect(page.getByText("8 selected", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(list.locator('[aria-selected="true"]')).toHaveCount(0);
+  await second.click({ modifiers: ["Shift"] });
+  await page.getByRole("button", { name: "Selection actions" }).click();
+  await page.getByRole("menuitem", { name: "Add tag", exact: true }).click();
+  await page.getByRole("textbox", { name: "Tag", exact: true }).fill("batch-test");
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCount(1);
+  await expect(page.locator('[data-toast="recovery"]')).toContainText("Updated 2 notes");
+  const search = page.getByRole("combobox", { name: "Search notes and files" });
+  await search.fill("batch-test");
+  await expect(list.getByRole("option")).toHaveCount(2);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(list.getByRole("option")).toHaveCount(0);
+});
+
+test("pins persist only in All notes, selected drag moves all notes and Undo restores links", async ({ page }) => {
+  await page.goto("?demo=8");
+  await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toBeVisible();
+  const list = page.getByRole("listbox", { name: listName });
+  const second = list.getByRole("option", { name: /Garden notes 2/ });
+  await second.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Pin", exact: true }).click();
+  await expect(list.locator(".note-group-header").first()).toHaveText("Pinned");
+  await expect(list.getByRole("option").first()).toContainText("Garden notes 2");
+  await page.reload();
+  await expect(list.locator(".note-group-header").first()).toHaveText("Pinned");
+  const search = page.getByRole("combobox", { name: "Search notes and files" });
+  await search.fill("Garden");
+  await expect(list.locator(".note-group-header")).toHaveCount(0);
+  await search.fill("");
+  await second.click({ modifiers: ["Control"] });
+  await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
+  await second.dragTo(page.getByRole("button", { name: /^Show notes in Archive,/ }));
+  await expect(page.locator('[data-toast="recovery"]')).toContainText("Moved 2 notes");
+  await expect(page.getByRole("button", { name: "Archive/the-shape-of-useful-tools.md", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Notes/the-shape-of-useful-tools.md", exact: true })).toBeVisible();
+  await expect(list.locator(".note-group-header").first()).toHaveText("Pinned");
+  await expect(list.getByRole("option").first()).toContainText("Garden notes 2");
+});

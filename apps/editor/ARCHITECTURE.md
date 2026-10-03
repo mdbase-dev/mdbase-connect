@@ -131,8 +131,14 @@ outside it:
   shortcut matching/help, and QuickOpen bind the same definitions;
 - `CollectionRail.tsx` owns folder expansion persistence;
 - `NoteSearchField.tsx` owns tag/type filter suggestions and chips;
-- `NoteList.tsx` owns list virtualization, search result rendering, and list
-  status copy;
+- `NoteList.tsx` owns list virtualization, keyboard focus, selection gestures,
+  search result rendering, and list status copy. `note-list-view.ts` holds the
+  pure selection model and browser-local, collection-scoped pin persistence;
+- selection lives in App independently of the open note session. Batch actions
+  reuse the operation coordinator and collection mutation scope, collecting
+  successful inverse operations for one Undo and preserving partial failures
+  for retry. Property Undo checks the written revision, not a freshly fetched
+  revision, so it cannot overwrite later changes;
 - `TypeBrowser.tsx`, `PropertiesPanel.tsx`, and `NewNoteComposer.tsx` own their
   feature workspaces;
 - `Brand.tsx` and the dialog/menu components are reusable presentation.

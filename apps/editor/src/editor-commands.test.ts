@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildEditorCommands, commandDefinitions, filterCommands, matchesCommandShortcut, rememberCommand } from "./editor-commands";
 import { loadPreferences, savePreferences, defaultPreferences } from "./preferences";
-import { loadPinnedNotes, savePinnedNotes } from "./pinned-notes";
+import { loadPinnedNotes, savePinnedNotes } from "./note-list-view";
 
 describe("editor command registry", () => {
   it("binds one canonical label and shortcut per supported action", () => {

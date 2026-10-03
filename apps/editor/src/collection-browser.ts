@@ -145,7 +145,7 @@ export function browserListItems(
   types: CollectionTypeDescriptor[] = [],
   now = new Date(),
   searching = false,
-  pinnedPaths: readonly string[] = []
+  pinnedPaths: ReadonlySet<string> = new Set()
 ): BrowserListItem[] {
   const items: BrowserListItem[] = [];
   if (searching) {
@@ -156,7 +156,7 @@ export function browserListItems(
   let currentLabel: string | undefined;
   let headerCount = 0;
   entries.forEach((entry, entryIndex) => {
-    const label = pinnedPaths.includes(entry.path) ? "Pinned" : browserGroupLabel(entry, sort, types, now);
+    const label = entry.kind === "note" && pinnedPaths.has(entry.path) ? "Pinned" : browserGroupLabel(entry, sort, types, now);
     if (label !== currentLabel) {
       currentLabel = label;
       items.push({ key: `header:${headerCount}:${label}`, kind: "header", label });

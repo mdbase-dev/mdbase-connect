@@ -308,6 +308,7 @@ export function CodeEditor({
       // but before this frame, and keep dialogs in charge of their own focus.
       if (autoFocus && activeElement === focusBeforeMount
           && (!editableOwner || view.dom.contains(activeElement))
+          && !activeElement?.matches("[role='listbox']")
           && !activeElement?.closest("[role='dialog'], [role='alertdialog'], [role='combobox']")) view.focus();
     });
     return () => {

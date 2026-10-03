@@ -59,6 +59,32 @@ test("unlinked mentions link the source occurrence and Undo restores it", async 
   await expect(page.getByText("Unlinked mentions (1)", { exact: true })).toBeVisible();
 });
 
+test("selection commands reuse bulk forms, moves and deletion Undo", async ({ page }) => {
+  await page.goto("?demo=4");
+  await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeVisible();
+  await page.getByRole("option", { name: /Garden notes 2/ }).click({ modifiers: ["Control"] });
+  await expect(page.getByRole("group", { name: "Selected notes" })).toContainText("2 selected");
+  const command = async (query: string) => {
+    await page.keyboard.press("Control+Shift+P");
+    const input = page.getByRole("combobox", { name: "Find a note or action" });
+    await input.fill(`>${query}`); await input.press("Enter");
+  };
+  await command("add tag");
+  await page.getByRole("textbox", { name: "Tag", exact: true }).fill("command-test");
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(page.getByText("Updated 2 notes.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByText("Restored selected notes.", { exact: true })).toBeVisible();
+  await command("move selected");
+  await expect(page.getByRole("dialog", { name: "Move 2 notes" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await command("delete selected");
+  await expect(page.getByText("Deleted 2 notes.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByRole("option", { name: /Garden notes 2/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /The shape of useful tools/ })).toBeVisible();
+});
+
 test("typewriter scrolling centres the caret and stays opt-in", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("mdbase-editor:preferences", JSON.stringify({ focusMode: true, typewriterScrolling: true })));
   await page.goto("?demo=4");

@@ -44,11 +44,11 @@ describe("workspace commands", () => {
     const user = userEvent.setup();
     render(<App gateway={new DemoCollectionGateway(4)} />);
     await screen.findByRole("textbox", { name: "Note body" });
-    await runCommand("pin note");
-    expect(screen.getByRole("option", { name: /Pinned:.*The shape of useful tools/ })).toBeInTheDocument();
+    await runCommand("pin");
+    expect(screen.getByText("Pinned")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "More note actions" }));
-    await user.click(screen.getByRole("menuitem", { name: "Unpin note" }));
-    expect(screen.queryByText("Pinned:")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Unpin" }));
+    expect(screen.queryByText("Pinned")).not.toBeInTheDocument();
     await runCommand("open settings");
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
   });
@@ -133,12 +133,39 @@ describe("workspace commands", () => {
     expect((await gateway.read(original.path)).body).toContain("A newer local edit.");
   });
 
+  it("exposes selected-note commands through the same bulk actions and shared Undo", async () => {
+    const user = userEvent.setup();
+    const gateway = new DemoCollectionGateway(4);
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    fireEvent.click(screen.getByRole("option", { name: /Garden notes 2/ }), { ctrlKey: true });
+    expect(screen.getByRole("group", { name: "Selected notes" })).toHaveTextContent("2 selected");
+    fireEvent.keyDown(window, { key: "P", ctrlKey: true, shiftKey: true });
+    const dialog = screen.getByRole("dialog", { name: "Quick open" });
+    for (const label of ["Move to…", "Delete", "Add tag", "Remove tag", "Clear selection"]) expect(within(dialog).getByRole("option", { name: new RegExp(`^${label}`) })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("option", { name: /^Set property/ })).not.toBeInTheDocument();
+    const input = within(dialog).getByRole("combobox");
+    fireEvent.change(input, { target: { value: ">add tag" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await user.type(await screen.findByRole("textbox", { name: "Tag" }), "command-test");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await screen.findByRole("button", { name: "Undo" });
+    for (const path of ["Notes/the-shape-of-useful-tools.md", "Journal/garden-notes-2.md"]) expect((await gateway.read(path)).frontmatter.tags).toContain("command-test");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await screen.findByText("Restored selected notes.");
+    await runCommand("move selected");
+    expect(await screen.findByRole("dialog", { name: "Move 2 notes" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await runCommand("clear selection");
+    expect(screen.queryByRole("group", { name: "Selected notes" })).not.toBeInTheDocument();
+  });
+
   it("creates in the active note's folder and uses registry labels for the note commands", async () => {
     render(<App gateway={new DemoCollectionGateway(3)} />);
     await screen.findByRole("textbox", { name: "Note body" });
     fireEvent.keyDown(window, { key: "P", ctrlKey: true, shiftKey: true });
     const dialog = screen.getByRole("dialog", { name: "Quick open" });
-    for (const label of ["Rename", "Move to…", "Duplicate", "Copy link", "Copy path", "Delete", "Pin note", "Note properties", "Document outline", "Switch theme", "Toggle Vim key bindings", "Open Types", "Open Settings", "Open Connect", "Switch collection"]) {
+    for (const label of ["Rename", "Move to…", "Duplicate", "Copy link", "Copy path", "Delete", "Pin", "Note properties", "Document outline", "Switch theme", "Toggle Vim key bindings", "Open Types", "Open Settings", "Open Connect", "Switch collection"]) {
       expect(within(dialog).getByRole("option", { name: new RegExp(`^${label}`) })).toBeInTheDocument();
     }
     const input = within(dialog).getByRole("combobox");

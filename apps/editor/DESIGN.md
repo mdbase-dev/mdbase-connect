@@ -210,7 +210,11 @@ remain visible with recovery actions. Word count lives in Properties, not the ba
 Ctrl/⌘P opens quick open everywhere; `>` switches to commands, and
 Ctrl/⌘Shift+P opens commands directly. Commands use the same registry as note
 menus and shortcut help, with fuzzy matching, shortcut chips and recent commands
-first. Ctrl/⌘K inserts a link only in note text.
+first. Pin/Unpin and available selection actions use that registry too. With
+multiple notes selected, Move and Delete target the selection; Add tag, Remove
+tag, Set property and Clear selection appear only when applicable. Property
+commands reveal the existing inline selection form, never a second bulk-action
+surface. Ctrl/⌘K inserts a link only in note text.
 
 Focus mode (Ctrl/⌘Shift+F, Escape to exit) temporarily hides the rail, note list
 and properties without changing their saved layout. Its minimal bar keeps Exit
@@ -248,7 +252,22 @@ rail. New notes inherit the active scope.
 
 Note rows and the document’s More menu share Rename, Move to…, Duplicate, Copy
 link, Copy path, and Delete. F2 renames; Ctrl/⌘+Backspace deletes in the list.
-Context-menu and Shift+F10 keys open row actions. Moving notes rewrites incoming
+Context-menu and Shift+F10 keys open row actions. Ctrl/⌘-click toggles note selection;
+Shift-click and Shift+Up/Down extend from the open anchor note. Ctrl/⌘A in the
+focused list selects visible notes; Escape clears selection without closing the
+anchor. A quiet count and actions menu appears only for multiple notes. The same
+batch actions live in selected rows’ context menus: Move to…, Add tag, Remove
+tag, Set property, and Delete. Property choices are declared by the selected
+notes’ types; only shared, compatible fields can be set together. Dragging a
+selected row moves the selection to a rail folder. Batches use revision checks,
+report individual failures, and provide one Undo for successful changes. Undo
+never overwrites a later property revision and retains failed items for retry.
+
+Pin and Unpin live in note actions. Pins are browser-local and collection-scoped,
+with no file writes. Only the unfiltered All notes list groups them at the top;
+search relevance and folder/type/tag scopes remain unchanged.
+
+Moving notes rewrites incoming
 links and offers Undo, as does renaming. Deletion is immediate, with a six-second
 Undo notification that recreates the same path, frontmatter, and body. Undo
 notifications announce their result, pause expiry while hovered/focused, and
