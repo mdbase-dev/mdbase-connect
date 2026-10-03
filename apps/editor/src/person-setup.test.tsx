@@ -7,12 +7,11 @@ import { YourPersonPanel } from "./YourPersonPanel";
 import { peopleGateway } from "./test/people-gateway";
 import { loadPersonSetup, requireGuidedPersonSetup } from "./person-setup";
 import bundled from "./person-setup.pack.json";
-// Real `mdbase packs assess` results (CLI 0.1.0-beta.123) for the bundled 1.3.0
-// provision in a collection with mdbase.contact 1.2.0 applied: `unedited` keeps
-// the Person v2 seed as installed; `merged` has an edited Markdown body and a
-// lock recording that seed's origin. `upgradeBaseline`, `originDigest`, and the
-// whole `unknownOrigin` case (an edited seed under a lock without an origin) are
-// hand-constructed from mdbase-spec 05A until the engines report them.
+// Real mdbase-rs 056db73 `assess_type_pack` results for the bundled 1.4.0
+// provision, in SDK form. With mdbase.contact 1.2.0 applied: `unedited` keeps the
+// Person v2 seed as installed; `merged` appends to its Markdown body; and
+// `unknownOrigin` makes that edit under a lock without the seed's origin digest.
+// `uneditedV1` keeps the Person v1 seed of an applied mdbase.contact 1.1.0.
 import upgrades from "./test/person-starter-upgrade.assessment.json";
 import { chooseOption } from "./test/select";
 
@@ -28,7 +27,7 @@ function assessment(): TypePackAssessment {
   return {
     applicable: true, status: "install", assessmentDigest: "reviewed-digest",
     resources: bundled.manifest.resources.map((resource) => ({ ...resource, action: "create" })),
-    desired: { id: "mdbase.contact", version: "1.3.0", digest: "digest", installedBy: "dev.mdbase.editor", resources: [] },
+    desired: { id: "mdbase.contact", version: "1.4.0", digest: "digest", installedBy: "dev.mdbase.editor", resources: [] },
     lock: { target: "mdbase.lock.yaml", action: "create", digest: "lock-digest" },
     contractSetups: { choices: [], resources: [] }
   } as TypePackAssessment;
@@ -169,15 +168,29 @@ it("sends every other replacement, removal, conflict, or downgrade to Types", ()
   expect(() => requireGuidedPersonSetup(provision, otherBaseline)).toThrow("No files have been changed");
 });
 it("accepts an upgrade from any baseline the pack lists, as the engine reports it", () => {
-  const first = "---\nkind: mdbase.type\nname: person\nversion: 1\n---\n";
-  const listed = structuredClone(provision);
-  const seed = listed.manifest.resources.find((r) => r.target === "_types/person.md")!;
-  seed.upgrade_from = [{ digest: "sha256:person-v1", document: first, version: 1 }, ...[seed.upgrade_from ?? []].flat()];
-  const fromFirst = upgrade("merged");
-  Object.assign(fromFirst.resources.find((r) => r.target === "_types/person.md")!, { upgradeBaseline: { digest: "sha256:person-v1", version: 1 } });
-  expect(requireGuidedPersonSetup(listed, fromFirst)).toEqual({ upgrade: { target: "_types/person.md", merged: true } });
-  expect(requireGuidedPersonSetup(listed, upgrade("unedited"))).toEqual({ upgrade: { target: "_types/person.md", merged: false } });
-  expect(() => requireGuidedPersonSetup(provision, fromFirst)).toThrow("No files have been changed");
+  // The Person v1 starter upgrades in place; the released Contact seed is left as it is.
+  expect(requireGuidedPersonSetup(provision, upgrade("uneditedV1"))).toEqual({ upgrade: { target: "_types/person.md", merged: false } });
+  // A pack listing only the Person v2 baseline, as mdbase.contact 1.3.0 did, does not cover it.
+  const v2Only = structuredClone(provision);
+  const seed = v2Only.manifest.resources.find((r) => r.target === "_types/person.md")!;
+  seed.upgrade_from = [seed.upgrade_from ?? []].flat().filter(({ version }) => version === 2);
+  expect(() => requireGuidedPersonSetup(v2Only, upgrade("uneditedV1"))).toThrow("No files have been changed");
+  expect(requireGuidedPersonSetup(v2Only, upgrade("unedited"))).toEqual({ upgrade: { target: "_types/person.md", merged: false } });
+});
+it("offers the Person v1 starter, which implements mdbase.person 1.0.0, the same reviewed update", async () => {
+  const personV1 = { ...empty, types: [{ name: "person", schema: {} }], contracts: [{ id: "mdbase.person", version: "1.0.0", implementations: [{ typeName: "person", typeVersion: 1, typePath: "_types/person.md", fields: { id: "id", name: "name", identities: "identities" } }] }] } as unknown as CollectionDescription;
+  const f = fixture(true, personV1, upgrade("uneditedV1"));
+  f.refresh.mockImplementationOnce(async () => { f.view.rerender(f.panel(personAt(3))); return personAt(3); });
+  expect(await screen.findByRole("heading", { name: "Person type update available" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Create my person record" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Review Person type update" }));
+  const region = await screen.findByRole("region", { name: "Review person setup" });
+  expect(region).toHaveTextContent("It has not been edited since it was added, so it is replaced with the new starter.");
+  expect(region).toHaveTextContent("upgrade: _types/person.md");
+  expect(region).toHaveTextContent("preserve: _types/contact.md");
+  fireEvent.click(screen.getByRole("button", { name: "Update definitions and continue" }));
+  await screen.findByRole("region", { name: "Create person form" });
+  expect(f.gateway.applyTypePack).toHaveBeenCalledExactlyOnceWith(bundled, f.review);
 });
 it("reports a Person type the engine keeps without a known starter, instead of offering it again", async () => {
   expect(requireGuidedPersonSetup(provision, upgrade("unknownOrigin"))).toEqual({ kept: true });
