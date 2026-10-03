@@ -47,7 +47,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   const lifecycle = useRef<AbortController | null>(null);
   const implementations = personImplementations(description).filter((candidate) => ["name", "identities"].every((field) => candidate.fields[field] || candidate.fields[`/${field}`]));
   const implementation = implementations.find((candidate) => candidate.typeName === typeName) ?? implementations[0];
-  const outdatedStarter = canInstall ? outdatedPersonStarter(implementations) : undefined;
+  const outdatedStarter = canInstall ? outdatedPersonStarter(description) : undefined;
   const identity = directory?.account;
   const records = directory?.people;
   const linked = directory?.me.status === "linked" ? directory.me.person : undefined;
@@ -223,10 +223,10 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       {(implementations.length === 0 || outdatedStarter) && <>
         <div className="setting-row">{starterKept
           ? <div role="status"><h3>Person type kept as it is</h3><p>This collection's Person type was not added from a Person starter that can be upgraded automatically, so it has not been changed. {implementations.length === 0 ? "Review its Person mappings in Types before creating a person record." : "You can still use it, or compare it with the current starter in Types."}</p></div>
-          : implementations.length === 0
+          : !outdatedStarter
           ? <div><h3>Person definitions needed</h3><p>This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval.</p></div>
           : <div><h3>Person type update available</h3><p>The <strong>{outdatedStarter!.typeName}</strong> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval.</p></div>}
-          {!setup && !starterKept && <button ref={setupButton} className="settings-secondary-action mdbase-button" type="button" disabled={busy || !canInstall || !onRefreshDescription} onClick={() => void reviewSetup()}>{busy ? "Checking person setup…" : implementations.length === 0 ? "Set up person records" : "Review Person type update"}</button>}</div>
+          {!setup && !starterKept && <button ref={setupButton} className="settings-secondary-action mdbase-button" type="button" disabled={busy || !canInstall || !onRefreshDescription} onClick={() => void reviewSetup()}>{busy ? "Checking person setup…" : outdatedStarter ? "Review Person type update" : "Set up person records"}</button>}</div>
         {!canInstall && <p className="settings-note">Adding definitions requires permission to manage this collection's types.</p>}
         {setup && <section ref={setupPanel} className="settings-review" tabIndex={-1} aria-label="Review person setup">
           {setup.upgrade ? <>

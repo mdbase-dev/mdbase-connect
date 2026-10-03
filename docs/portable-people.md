@@ -253,20 +253,24 @@ user profile. Follow the LAB skill before starting a daemon or browser test.
 ### Guided setup when Person definitions are missing
 
 Settings offers **Set up person records** in place. It assesses a bundled,
-SHA-256-pinned copy of canonical `mdbase.contact` 1.3.0 (the People
+SHA-256-pinned copy of canonical `mdbase.contact` 1.4.0 (the People
 pack), shows definition paths and the setup receipt, and writes only after
 **Add definitions and continue**. Catalog availability is not a prerequisite.
-The bundle is byte-identical to `mdbase-contracts/dist/packs/mdbase.contact/1.3.0.json`;
+The bundle is byte-identical to `mdbase-contracts/dist/packs/mdbase.contact/1.4.0.json`;
 updating it requires updating the pinned digest and contract references
 together. This does not publish a public catalog entry.
 
 Fresh setup adds only the Person v3 type, implementing both contracts with
 optional contact details. Person v3 neither declares nor requires `type`, so it
 validates in collections whose `settings.explicit_type_keys` record the type
-under another key (such as `[mdbase_type]`); it carries `upgrade_from` the exact
-Person v2 seed from 1.2.0. When a Person implementation is the earlier
-starter at `_types/person.md` (type version below 3) and the user can manage
-types, Settings offers **Review Person type update**. The same review then names
+under another key (such as `[mdbase_type]`); its `upgrade_from` lists both
+earlier starters as baselines: the exact Person v2 seed from 1.2.0 and the
+Person v1 seed from 1.1.0. When an implementation of any `mdbase.person` version
+is an earlier starter at `_types/person.md` (type version below 3, including
+Person v1, which implements `mdbase.person` 1.0.0) and the user can manage
+types, Settings offers **Review Person type update**. Upgrading from 1.1.0 also
+adds the `mdbase.person` 2.0.0 schema and contract and leaves the released
+Contact seed (`_types/contact.md`) as it is. The same review then names
 the upgraded type, says whether it is replaced (unedited seed) or merged with
 the collection's edits (clean three-way merge), and writes only after **Update
 definitions and continue**, with the reviewed assessment digest.
