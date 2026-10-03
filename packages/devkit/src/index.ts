@@ -21,7 +21,8 @@ import {
   validateAppManifest,
   type ManifestValidationIssue,
   type ManifestValidationOptions,
-  type ManifestValidationResult
+  type ManifestValidationResult,
+  validateTypePackProvision
 } from "@mdbase-dev/connect-protocol/manifest";
 import connectProblemSchema from "@mdbase-dev/connect-protocol/schemas/connect-problem.v1.schema.json" with { type: "json" };
 import dataContractSchema from "@mdbase-dev/connect-protocol/schemas/data-contract.schema.json" with { type: "json" };
@@ -111,6 +112,12 @@ export interface TypePackResourceInput {
   target?: string;
   /** Exact UTF-8 resource document included in the provision. */
   document: string;
+  /**
+   * Seed types only: the exact starters previously shipped for this resource
+   * that a collection may be upgraded from, oldest first. Digests are computed
+   * from each document, and `version` defaults to the one the document declares.
+   */
+  upgradeFrom?: Array<{ document: string; version?: number }>;
 }
 
 export interface TypePackDefinition {
@@ -151,12 +158,13 @@ export function defineTypePack(definition: TypePackDefinition): TypePackProvisio
       version: definition.version,
       ...(definition.name ? { name: definition.name } : {}),
       ...(definition.description ? { description: definition.description } : {}),
-      resources: definition.resources.map(({ kind, mode, source, target = source, document }) => ({
+      resources: definition.resources.map(({ kind, mode, source, target = source, document, upgradeFrom }) => ({
+        ...(upgradeFrom ? { upgrade_from: upgradeFrom.map(upgradeBaseline) } : {}),
         kind,
         mode,
         source,
         target,
-        digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
+        digest: sha256(document)
       }))
     },
     resources: definition.resources.map(({ source, document }) => ({ source, document })),
@@ -164,7 +172,27 @@ export function defineTypePack(definition: TypePackDefinition): TypePackProvisio
   };
   const result = validateProtocolValue(provision, "typePackProvision");
   if (!result.valid) throw new TypePackDefinitionError(result.issues);
+  const issues = validateTypePackProvision(provision);
+  if (issues.length > 0) throw new TypePackDefinitionError(issues);
   return provision;
+}
+
+function upgradeBaseline({ document, version }: { document: string; version?: number }) {
+  const declared = version ?? declaredTypeVersion(document);
+  return { digest: sha256(document), document, ...(declared === undefined ? {} : { version: declared }) };
+}
+
+/** The positive integer `version` a type document declares, if any. */
+function declaredTypeVersion(document: string): number | undefined {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(document)?.[1];
+  const parsed = frontmatter === undefined ? undefined : parseDocument(frontmatter, { uniqueKeys: true });
+  if (!parsed || parsed.errors.length > 0) return undefined;
+  const version = (parsed.toJS({ maxAliasCount: 0 }) as { version?: unknown } | null)?.version;
+  return Number.isInteger(version) && Number(version) > 0 ? Number(version) : undefined;
+}
+
+function sha256(document: string): string {
+  return `sha256:${createHash("sha256").update(document).digest("hex")}`;
 }
 
 function exactContractReferenceFromDocument(

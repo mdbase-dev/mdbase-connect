@@ -9,7 +9,10 @@ import { loadPersonSetup, requireGuidedPersonSetup } from "./person-setup";
 import bundled from "./person-setup.pack.json";
 // Real `mdbase packs assess` results (CLI 0.1.0-beta.123) for the bundled 1.3.0
 // provision in a collection with mdbase.contact 1.2.0 applied: `unedited` keeps
-// the Person v2 seed as installed; `merged` has an edited Markdown body.
+// the Person v2 seed as installed; `merged` has an edited Markdown body and a
+// lock recording that seed's origin. `upgradeBaseline`, `originDigest`, and the
+// whole `unknownOrigin` case (an edited seed under a lock without an origin) are
+// hand-constructed from mdbase-spec 05A until the engines report them.
 import upgrades from "./test/person-starter-upgrade.assessment.json";
 import { chooseOption } from "./test/select";
 
@@ -156,12 +159,36 @@ it("sends every other replacement, removal, conflict, or downgrade to Types", ()
   expect(() => requireGuidedPersonSetup(provision, managed)).toThrow("No files have been changed");
   const downgrade = upgrade("unedited"); downgrade.status = "downgrade";
   expect(() => requireGuidedPersonSetup(provision, downgrade)).toThrow("No files have been changed");
-  // A seed update the pack does not declare: no upgrade_from, or a different installed baseline.
+  // A seed update the pack does not declare: no upgrade_from, no reported baseline, or another one.
   const undeclared = structuredClone(provision);
   delete undeclared.manifest.resources.find((r) => r.target === "_types/person.md")!.upgrade_from;
   expect(() => requireGuidedPersonSetup(undeclared, upgrade("unedited"))).toThrow("No files have been changed");
-  const otherBaseline = upgrade("merged"); person(otherBaseline).installedDigest = "sha256:other";
+  const unreported = upgrade("merged"); delete person(unreported).upgradeBaseline;
+  expect(() => requireGuidedPersonSetup(provision, unreported)).toThrow("No files have been changed");
+  const otherBaseline = upgrade("merged"); person(otherBaseline).upgradeBaseline = { digest: "sha256:other" };
   expect(() => requireGuidedPersonSetup(provision, otherBaseline)).toThrow("No files have been changed");
+});
+it("accepts an upgrade from any baseline the pack lists, as the engine reports it", () => {
+  const first = "---\nkind: mdbase.type\nname: person\nversion: 1\n---\n";
+  const listed = structuredClone(provision);
+  const seed = listed.manifest.resources.find((r) => r.target === "_types/person.md")!;
+  seed.upgrade_from = [{ digest: "sha256:person-v1", document: first, version: 1 }, ...[seed.upgrade_from ?? []].flat()];
+  const fromFirst = upgrade("merged");
+  Object.assign(fromFirst.resources.find((r) => r.target === "_types/person.md")!, { upgradeBaseline: { digest: "sha256:person-v1", version: 1 } });
+  expect(requireGuidedPersonSetup(listed, fromFirst)).toEqual({ upgrade: { target: "_types/person.md", merged: true } });
+  expect(requireGuidedPersonSetup(listed, upgrade("unedited"))).toEqual({ upgrade: { target: "_types/person.md", merged: false } });
+  expect(() => requireGuidedPersonSetup(provision, fromFirst)).toThrow("No files have been changed");
+});
+it("reports a Person type the engine keeps without a known starter, instead of offering it again", async () => {
+  expect(requireGuidedPersonSetup(provision, upgrade("unknownOrigin"))).toEqual({ kept: true });
+  const f = fixture(true, personAt(2), upgrade("unknownOrigin"));
+  fireEvent.click(await screen.findByRole("button", { name: "Review Person type update" }));
+  expect(await screen.findByRole("heading", { name: "Person type kept as it is" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Review Person type update" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Review person setup" })).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("button", { name: "Create my person record" })).toBeInTheDocument();
+  expect(f.gateway.applyTypePack).not.toHaveBeenCalled();
 });
 it("reviews an earlier Person starter as an upgrade that keeps collection edits", async () => {
   const f = fixture(true, personAt(2), upgrade("merged"));

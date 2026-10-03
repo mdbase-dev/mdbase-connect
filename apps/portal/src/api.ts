@@ -199,6 +199,8 @@ export interface CapabilityApplicationRequirements {
   };
 }
 
+type TypePackUpgradeBaseline = { digest: string; document: string; version?: number };
+
 export interface TypePackProvision {
   manifest: {
     kind: "mdbase.type-pack";
@@ -208,7 +210,7 @@ export interface TypePackProvision {
     description?: string;
     resources: Array<{
       kind: "contract" | "type" | "schema";
-      upgrade_from?: { digest: string; document: string };
+      upgrade_from?: TypePackUpgradeBaseline | TypePackUpgradeBaseline[];
       source: string;
       target: string;
       digest: string;

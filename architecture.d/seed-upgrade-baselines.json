@@ -1,0 +1,6 @@
+{
+  "reason": "validateTypePackProvision lets devkit reuse the protocol's mdbase-spec 05A upgrade-baseline validation for type packs instead of keeping a second copy of the rules; it is the one added export (user-approved).",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}
