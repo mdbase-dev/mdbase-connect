@@ -836,6 +836,7 @@ function wireTypePackResource(value: import("@mdbase-dev/connect-protocol").Type
     ...(value.current_digest ? { currentDigest: value.current_digest } : {}),
     ...(value.installed_digest ? { installedDigest: value.installed_digest } : {}),
     ...(value.adopted_from_digest ? { adoptedFromDigest: value.adopted_from_digest } : {}),
+    ...(value.upgrade_baseline ? { upgradeBaseline: value.upgrade_baseline } : {}),
     ...(value.reason ? { reason: value.reason } : {})
   };
 }
@@ -852,7 +853,8 @@ function wireTypePackReceipt(value: import("@mdbase-dev/connect-protocol").TypeP
       kind: resource.kind,
       mode: resource.mode,
       digest: resource.digest,
-      ...(resource.adopted_from_digest ? { adoptedFromDigest: resource.adopted_from_digest } : {})
+      ...(resource.adopted_from_digest ? { adoptedFromDigest: resource.adopted_from_digest } : {}),
+      ...(resource.origin_digest ? { originDigest: resource.origin_digest } : {})
     }))
   };
 }

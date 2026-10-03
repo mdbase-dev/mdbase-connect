@@ -359,6 +359,47 @@ describe("canonical developer validation", () => {
     })).toThrow("contract resources must be managed");
   });
 
+  it("pins every earlier seed type starter as an upgrade baseline", () => {
+    const starter = (version: number, extra = "") => `---\nkind: mdbase.type\nname: task\nversion: ${version}\n${extra}---\n`;
+    const digest = (document: string) => `sha256:${createHash("sha256").update(document).digest("hex")}`;
+    const seed = (upgradeFrom: Array<{ document: string; version?: number }>, kind: "type" | "schema" = "type") => ({
+      id: "example.tasks",
+      version: "1.2.0",
+      resources: [{ kind, mode: "seed" as const, source: "_types/task.md", document: starter(3), upgradeFrom }]
+    });
+    const unversioned = "---\nkind: mdbase.type\nname: task\n---\n";
+    const pack = defineTypePack(seed([{ document: unversioned }, { document: starter(2) }]));
+    expect(pack.manifest.resources[0]).toEqual({
+      upgrade_from: [
+        { digest: digest(unversioned), document: unversioned },
+        { digest: digest(starter(2)), document: starter(2), version: 2 }
+      ],
+      kind: "type",
+      mode: "seed",
+      source: "_types/task.md",
+      target: "_types/task.md",
+      digest: digest(starter(3))
+    });
+    expect(pack.resources).toEqual([{ source: "_types/task.md", document: starter(3) }]);
+
+    const path = "/manifest/resources/0/upgrade_from";
+    const rejected = (definition: ReturnType<typeof seed>) => {
+      try {
+        defineTypePack(definition);
+      } catch (error) {
+        expect(error).toBeInstanceOf(TypePackDefinitionError);
+        return (error as TypePackDefinitionError).issues.map(({ path }) => path);
+      }
+      throw new Error("expected the type pack to be rejected");
+    };
+    expect(rejected(seed([{ document: starter(1) }, { document: starter(1) }]))).toEqual([`${path}/1/digest`]);
+    expect(rejected(seed([{ document: starter(1) }, { document: starter(3) }]))).toEqual([`${path}/1/digest`]);
+    expect(rejected(seed([{ document: starter(2), version: 1 }]))).toEqual([`${path}/0/version`]);
+    expect(rejected(seed([{ document: starter(2).replace("name: task", "name: other") }]))).toEqual([`${path}/0/document`]);
+    expect(rejected(seed([{ document: starter(2) }], "schema"))).toEqual([path]);
+    expect(() => defineTypePack(seed([]))).toThrow(TypePackDefinitionError);
+  });
+
   it("validates addressable wire definitions", () => {
     expect(validateProtocolValue({ valid: true, result: {}, diagnostics: [] }, "operationEnvelope").valid)
       .toBe(true);

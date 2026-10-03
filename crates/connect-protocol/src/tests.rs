@@ -516,6 +516,40 @@ fn contract_setup_choices_have_an_explicit_discriminated_wire_shape() {
 }
 
 #[test]
+fn type_pack_seed_upgrade_baselines_round_trip_verbatim() {
+    let baseline = |version: u64| {
+        serde_json::json!({
+            "digest": format!("sha256:{}", version.to_string().repeat(64)),
+            "document": format!("---\nkind: mdbase.type\nname: task\nversion: {version}\n---\n"),
+            "version": version
+        })
+    };
+    for upgrade_from in [baseline(2), serde_json::json!([baseline(1), baseline(2)])] {
+        let provision = serde_json::json!({
+            "manifest": {
+                "kind": "mdbase.type-pack",
+                "id": "example.tasks",
+                "version": "1.0.0",
+                "resources": [{
+                    "upgrade_from": upgrade_from,
+                    "kind": "type",
+                    "mode": "seed",
+                    "source": "types/task.md",
+                    "target": "_types/task.md",
+                    "digest": format!("sha256:{}", "3".repeat(64))
+                }]
+            },
+            "resources": [{ "source": "types/task.md", "document": "---\n---\n" }],
+            "provides": []
+        });
+        assert_schema("/$defs/typePackProvision", provision.clone());
+        let parsed: TypePackProvision = serde_json::from_value(provision.clone()).unwrap();
+        // The pack digest covers the manifest, so either form must survive unchanged.
+        assert_eq!(serde_json::to_value(parsed).unwrap(), provision);
+    }
+}
+
+#[test]
 fn copied_collection_registration_has_an_explicit_wire_command() {
     let request = ControlRequest {
         id: Uuid::nil(),

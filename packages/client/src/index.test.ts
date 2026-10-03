@@ -230,17 +230,33 @@ describe("provider-neutral collection client", () => {
           version: "1.0.0",
           digest: `sha256:${"2".repeat(64)}`,
           installed_by: "dev.mdbase.tests",
-          resources: []
+          resources: [{
+            source: "types/task.md",
+            target: "_types/task.md",
+            kind: "type",
+            mode: "seed",
+            digest: `sha256:${"1".repeat(64)}`,
+            origin_digest: `sha256:${"1".repeat(64)}`
+          }]
         };
         return {
           valid: true,
           result: operation === "assess_type_pack" || operation === "apply_type_pack"
             ? {
-                status: "install",
+                status: "upgrade",
                 applicable: true,
                 assessment_digest: `sha256:${"3".repeat(64)}`,
                 desired: receipt,
-                resources: [],
+                resources: [{
+                  source: "types/task.md",
+                  target: "_types/task.md",
+                  kind: "type",
+                  mode: "seed",
+                  action: "update",
+                  digest: `sha256:${"5".repeat(64)}`,
+                  current_digest: `sha256:${"6".repeat(64)}`,
+                  upgrade_baseline: { digest: `sha256:${"7".repeat(64)}`, version: 2 }
+                }],
                 lock: { target: "mdbase.lock.yaml", action: "create", digest: `sha256:${"4".repeat(64)}` },
                 contract_setups: { choices: [], resources: [] },
                 ...(operation === "apply_type_pack" ? { receipt, cleanup_deferred: false } : {})
@@ -280,6 +296,17 @@ describe("provider-neutral collection client", () => {
       provision,
       installedBy: "dev.mdbase.tests"
     }));
+    expect(assessment.resources[0]).toEqual({
+      source: "types/task.md",
+      target: "_types/task.md",
+      kind: "type",
+      mode: "seed",
+      action: "update",
+      digest: `sha256:${"5".repeat(64)}`,
+      currentDigest: `sha256:${"6".repeat(64)}`,
+      upgradeBaseline: { digest: `sha256:${"7".repeat(64)}`, version: 2 }
+    });
+    expect(assessment.desired.resources[0].originDigest).toBe(`sha256:${"1".repeat(64)}`);
     await client.applyTypePack({
       provision,
       installedBy: "dev.mdbase.tests",

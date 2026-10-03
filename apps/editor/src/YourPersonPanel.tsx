@@ -32,6 +32,8 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   // The grant predates People consent or the optional identity permission was declined.
   const [identityDenied, setIdentityDenied] = useState(false);
   const [revision, setRevision] = useState(0);
+  // The engine kept the Person type because no declared starter baseline applies.
+  const [starterKept, setStarterKept] = useState(false);
   const [setup, setSetup] = useState<{ provision: TypePackProvision; assessment: TypePackAssessment; upgrade?: ReturnType<typeof requireGuidedPersonSetup>["upgrade"]; controller: AbortController }>();
   const setupPanel = useRef<HTMLElement>(null);
   const setupButton = useRef<HTMLButtonElement>(null);
@@ -56,7 +58,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   useEffect(() => {
     const controller = new AbortController();
     lifecycle.current = controller;
-    setDirectory(undefined); setContacts([]); setConversion(undefined); setSetup(undefined); setError(""); setIdentityDenied(false); setConfirmClaimed(false);
+    setDirectory(undefined); setContacts([]); setConversion(undefined); setSetup(undefined); setStarterKept(false); setError(""); setIdentityDenied(false); setConfirmClaimed(false);
     void (async () => {
       try {
         if (!gateway.peopleDirectory) throw new Error("This collection has no Connect account identity.");
@@ -104,8 +106,9 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       const assessment = await gateway.assessTypePack(provision);
       if (controller.signal.aborted) return;
       assertCurrent();
-      const { upgrade } = requireGuidedPersonSetup(provision, assessment);
-      setSetup({ provision, assessment, upgrade, controller });
+      const { upgrade, kept } = requireGuidedPersonSetup(provision, assessment);
+      if (kept) setStarterKept(true);
+      else setSetup({ provision, assessment, upgrade, controller });
     } catch (reason) {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not review person setup.");
     } finally { setBusy(false); }
@@ -218,10 +221,12 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       {conversion && <div className="settings-review" role="region" aria-label="Review contact conversion"><p>This changes only <code>{conversion.path}</code> to the <strong>{conversion.typeName}</strong> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed.</p><details className="settings-details"><summary><span>Review fields to write</span><ChevronRight aria-hidden="true" /></summary><pre>{JSON.stringify(conversion.patch, null, 2)}</pre></details><div className="settings-review-actions"><button className="settings-secondary-action" type="button" disabled={busy || !canEdit} onClick={() => void convertContact()}>Convert and link this contact</button><button className="settings-quiet-action" type="button" disabled={busy} onClick={() => setConversion(undefined)}>Cancel conversion</button></div></div>}
       {!canEdit && <p className="settings-note">Ask a collection editor to link your person record.</p>}
       {(implementations.length === 0 || outdatedStarter) && <>
-        <div className="setting-row">{implementations.length === 0
+        <div className="setting-row">{starterKept
+          ? <div role="status"><h3>Person type kept as it is</h3><p>This collection's Person type was not added from a Person starter that can be upgraded automatically, so it has not been changed. {implementations.length === 0 ? "Review its Person mappings in Types before creating a person record." : "You can still use it, or compare it with the current starter in Types."}</p></div>
+          : implementations.length === 0
           ? <div><h3>Person definitions needed</h3><p>This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval.</p></div>
           : <div><h3>Person type update available</h3><p>The <strong>{outdatedStarter!.typeName}</strong> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval.</p></div>}
-          {!setup && <button ref={setupButton} className="settings-secondary-action" type="button" disabled={busy || !canInstall || !onRefreshDescription} onClick={() => void reviewSetup()}>{busy ? "Checking person setup…" : implementations.length === 0 ? "Set up person records" : "Review Person type update"}</button>}</div>
+          {!setup && !starterKept && <button ref={setupButton} className="settings-secondary-action" type="button" disabled={busy || !canInstall || !onRefreshDescription} onClick={() => void reviewSetup()}>{busy ? "Checking person setup…" : implementations.length === 0 ? "Set up person records" : "Review Person type update"}</button>}</div>
         {!canInstall && <p className="settings-note">Adding definitions requires permission to manage this collection's types.</p>}
         {setup && <section ref={setupPanel} className="settings-review" tabIndex={-1} aria-label="Review person setup">
           {setup.upgrade ? <>
