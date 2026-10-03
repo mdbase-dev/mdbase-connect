@@ -47,8 +47,8 @@
     "productionFiles": 739,
     "relativeImports": 1630,
     "workspacePackages": 25,
-    "rustPublicDeclarations": 3368,
-    "typeScriptExportDeclarations": 2691,
+    "rustPublicDeclarations": 3365,
+    "typeScriptExportDeclarations": 2692,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }
