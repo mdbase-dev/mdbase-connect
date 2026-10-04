@@ -75,7 +75,8 @@ describe("database migrations", () => {
       "0037_collection_unavailable_reason",
       "0038_next_policy_outbox",
       "0039_free_entitlement_profile",
-      "0040_next_devices"
+      "0040_next_devices",
+      "0042_next_client_key_attestations"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -720,7 +721,8 @@ describe("database migrations", () => {
       "0037_collection_unavailable_reason",
       "0038_next_policy_outbox",
       "0039_free_entitlement_profile",
-      "0040_next_devices"
+      "0040_next_devices",
+      "0042_next_client_key_attestations"
     ]);
   });
 

@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { capabilityOperationsForContractVersion } from "@mdbase-dev/connect-protocol";
-import { approveHostedAuthorization } from "./features/authorizations/approval-service.js";
+import { approveHostedAuthorization } from "./features/authorizations/hosted-approval-service.js";
 import { HostedProviderClient } from "./hosted-provider.js";
 import type { DatabasePool } from "./db.js";
 import type { CollectionAccessContext } from "./collection-access.js";

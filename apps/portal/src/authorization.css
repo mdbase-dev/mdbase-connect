@@ -92,6 +92,19 @@
   white-space: nowrap;
 }
 
+.request-identity .request-fingerprint {
+  margin-top: 0.35rem;
+  color: var(--ink-muted);
+  font-size: 0.8125rem;
+}
+
+.request-identity .request-fingerprint code {
+  color: var(--ink);
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 .request-identity .request-expiry {
   margin-top: 0.2rem;
   color: var(--ink-muted);

@@ -57,7 +57,7 @@ import {
 } from "../grants/policy.js";
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { createLocalApprovalService, liveAuthorizationCollections } from "./local-collections.js";
-import { approveHostedAuthorization } from "./approval-service.js";
+import { approveHostedAuthorization } from "./hosted-approval-service.js";
 import { PEOPLE_PERMISSIONS } from "@mdbase-dev/connect-protocol";
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
@@ -66,6 +66,7 @@ import {
   createAuthorizationRedirect,
   deniedAuthorizationRedirect
 } from "./redirects.js";
+import { storeRequestClientNoiseKey, verifiedClientNoiseKey, withClientFingerprint } from "../next/client-key.js";
 import type { AuthorizationRouteOptions } from "./route-options.js";
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
@@ -121,7 +122,8 @@ export function registerAuthorizationRoutes(
       collection_id: z.uuid().optional(),
       code_challenge: z.string().min(43).max(128),
       code_challenge_method: z.literal("S256"),
-      application_authorization: z.string().min(1).max(16_384)
+      application_authorization: z.string().min(1).max(16_384),
+      client_noise_key: z.string().max(512).optional()
     }).strict().parse(request.body);
     const application = await options.db.query<{
       id: string;
@@ -179,6 +181,7 @@ export function registerAuthorizationRoutes(
     );
     assertFreshApplicationAuthorization(application.rows[0].requirements);
     const authorizationId = proof.binding.authorization_id;
+    const clientNoiseKey = options.nextClientKeys ? verifiedClientNoiseKey(input.client_noise_key, proof.binding) : undefined;
     const deviceCode = randomToken("device");
     const userCode = randomUserCode();
     const inserted = await options.db.query(
@@ -220,6 +223,7 @@ export function registerAuthorizationRoutes(
         "The application authorization request has already been used."
       ));
     }
+    if (clientNoiseKey) await storeRequestClientNoiseKey(options.db, authorizationId, clientNoiseKey);
     const verificationUri = `${publicUrl}/device`;
     return reply.header("cache-control", "no-store").send({
       device_code: deviceCode,
@@ -457,7 +461,8 @@ export function registerAuthorizationRoutes(
       state: z.string().min(1).max(500),
       operations: z.string().default("read,query"),
       collection_id: z.uuid().optional(),
-      application_authorization: z.string().min(1).max(16_384)
+      application_authorization: z.string().min(1).max(16_384),
+      client_noise_key: z.string().max(512).optional()
     }).strict().parse(request.body);
     const application = await options.db.query<{
       id: string;
@@ -515,6 +520,7 @@ export function registerAuthorizationRoutes(
     );
     assertFreshApplicationAuthorization(application.rows[0].requirements);
     const authorizationId = proof.binding.authorization_id;
+    const clientNoiseKey = options.nextClientKeys ? verifiedClientNoiseKey(input.client_noise_key, proof.binding) : undefined;
     const inserted = await options.db.query(
       `INSERT INTO authorization_requests
          (id, user_id, application_id, redirect_uri, state, code_challenge,
@@ -549,6 +555,7 @@ export function registerAuthorizationRoutes(
         "The application authorization request has already been used."
       ));
     }
+    if (clientNoiseKey) await storeRequestClientNoiseKey(options.db, authorizationId, clientNoiseKey);
     return reply.header("cache-control", "no-store").send({
       authorization_id: authorizationId,
       authorization_uri: `${publicUrl}/oauth/authorize?request_id=${encodeURIComponent(authorizationId)}`,
@@ -638,8 +645,10 @@ export function registerAuthorizationRoutes(
               ar.collection_id, ar.expires_at,
               a.id AS application_id, a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon,
-              a.requirements, a.provisions, a.notifications
+              a.requirements, a.provisions, a.notifications,
+              ${options.nextClientKeys ? "ck.client_pk" : "NULL::bytea"} AS client_pk
        FROM authorization_requests ar JOIN applications a ON a.id = ar.application_id
+       ${options.nextClientKeys ? "LEFT JOIN next_authorization_client_keys ck ON ck.request_id = ar.id" : ""}
        WHERE ar.id = $1 AND ar.user_id = $2 AND ar.expires_at > now()
          AND ar.completed_at IS NULL AND ar.denied_at IS NULL`,
       [requestId, user.id]
@@ -723,7 +732,7 @@ export function registerAuthorizationRoutes(
     ];
     return {
       authorization: {
-        ...authorization.rows[0],
+        ...withClientFingerprint(authorization.rows[0]),
         existing_access: existingAccess
       },
       hosted_collections_available: options.hostedCollections === true,

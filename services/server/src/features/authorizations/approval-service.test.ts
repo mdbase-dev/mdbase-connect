@@ -7,7 +7,8 @@ import { createDatabase, type DatabasePool } from "../../db.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { pkceChallenge } from "../../security.js";
 import type { RelayHub } from "../../relay.js";
-import { approveHostedAuthorization, approvePortalAuthorization } from "./approval-service.js";
+import { approvePortalAuthorization } from "./approval-service.js";
+import { approveHostedAuthorization } from "./hosted-approval-service.js";
 
 const databases: DatabasePool[] = [];
 const providers: HostedProviderClient[] = [];

@@ -3,7 +3,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { WebSocket } from "ws";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { revocationFixture } from "../../local-grant-revocation.test.js";
+import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
 import {
   clientFingerprint,
@@ -96,7 +96,7 @@ describePostgres("mdbase-next daemon devices", () => {
   }, 60_000);
 
   it("registers a device with proof of possession, once per challenge, with immutable keys", async () => {
-    const connectorId = await revocationFixture(db);
+    const connectorId = await localGrantFixture(db);
     const connector = { id: connectorId, user_id: connectorId };
     const keys = deviceKeys();
     const deviceId = randomUUID();
@@ -112,13 +112,13 @@ describePostgres("mdbase-next daemon devices", () => {
       const weak = { ...(await registration(db, connectorId, deviceId, keys)), [field]: "00".repeat(32) };
       await expect(registerDevice(db, connector, weak)).rejects.toMatchObject({ code: "invalid_device" });
     }
-    const other = await revocationFixture(db);
+    const other = await localGrantFixture(db);
     const stolen = await registration(db, connectorId, randomUUID(), deviceKeys());
     await expect(registerDevice(db, { id: other, user_id: other }, stolen)).rejects.toMatchObject({ code: "invalid_device" });
   });
 
   it("binds a relay socket only with the device key, the session nonce and an active connector", async () => {
-    const connectorId = await revocationFixture(db);
+    const connectorId = await localGrantFixture(db);
     const keys = deviceKeys();
     const deviceId = randomUUID();
     await registerDevice(db, { id: connectorId, user_id: connectorId }, await registration(db, connectorId, deviceId, keys));
@@ -148,7 +148,7 @@ describePostgres("mdbase-next daemon devices", () => {
   });
 
   it("adds Noise fields to the lease snapshot only for next_device_v1 connectors", async () => {
-    const connectorId = await revocationFixture(db);
+    const connectorId = await localGrantFixture(db);
     await db.query("UPDATE grants SET activated_at = now(), operations = $2, application_authorization = jsonb_set(application_authorization, '{binding,contracts,semantic_capabilities}', '2') WHERE id = $1",
       [connectorId, JSON.stringify(["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type"])]);
     await db.query("UPDATE applications SET application_declaration = '{}'::jsonb WHERE id = $1", [connectorId]);

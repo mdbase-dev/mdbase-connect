@@ -196,6 +196,7 @@ export interface PolicyGrantSource {
   file_capability?: unknown | null;
   application_authorization: ApplicationAuthorizationProof;
   client_pk?: Buffer | null;
+  client_key_signature?: Buffer | null;
 }
 
 export function normalizePolicyGrant(
@@ -241,11 +242,14 @@ export function normalizePolicyGrant(
  * 2026-10-04-control-daemon-grant-feed-and-relay.md §3). Absent fields mean the grant
  * works only through the envelope compatibility layer.
  */
-function nextDeviceGrantFields(grant: { operations: string[]; client_pk: Buffer | null; application_authorization: ApplicationAuthorizationProof }): Record<string, unknown> {
+function nextDeviceGrantFields(grant: { operations: string[]; client_pk: Buffer | null; client_key_signature: Buffer | null; application_authorization: ApplicationAuthorizationProof }): Record<string, unknown> {
   const capabilities = grantCapabilityGroups(grant.application_authorization.binding.contracts.semantic_capabilities, grant.operations);
   return {
     ...(capabilities ? { capabilities } : {}),
-    ...(grant.client_pk ? { client_pk: grant.client_pk.toString("hex"), client_fingerprint: clientFingerprint(grant.client_pk) } : {})
+    ...(grant.client_pk ? { client_pk: grant.client_pk.toString("hex"), client_fingerprint: clientFingerprint(grant.client_pk) } : {}),
+    // The app's attestation of client_pk under the binding's grant signing key; daemons
+    // verify it before trusting client_pk.
+    ...(grant.client_pk && grant.client_key_signature ? { client_key_signature: grant.client_key_signature.toString("base64url") } : {})
   };
 }
 
@@ -318,7 +322,7 @@ export async function buildPolicySnapshot(
       file_capability: unknown | null;
       application_authorization: ApplicationAuthorizationProof;
       application_declaration: unknown | null;
-      notification_criteria: unknown[]; created_at: Date | string; client_pk: Buffer | null;
+      notification_criteria: unknown[]; created_at: Date | string; client_pk: Buffer | null; client_key_signature: Buffer | null;
     }>(
       `SELECT g.id, g.application_id, a.name AS application_name,
               a.distribution AS application_distribution,
@@ -331,7 +335,7 @@ export async function buildPolicySnapshot(
               g.encryption, g.file_capability, g.application_authorization,
               a.application_declaration,
               g.notification_criteria, g.created_at,
-              ${nextDevice ? "k.client_pk" : "NULL::bytea AS client_pk"}
+              ${nextDevice ? "k.client_pk, k.signature AS client_key_signature" : "NULL::bytea AS client_pk, NULL::bytea AS client_key_signature"}
        FROM grants g
        JOIN collections c ON c.id = g.collection_id
        JOIN applications a ON a.id = g.application_id

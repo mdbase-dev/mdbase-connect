@@ -1,0 +1,9 @@
+{
+  "reason": "The app Noise key attestation is its own boundary between consent and the daemon grant feed. Hosted approval moves out of approval-service.ts, which was at the 1,000-line cap, into hosted-approval-service.ts so that both approval paths can copy the key; the next test fixture is shared instead of re-importing another test file.",
+  "growth": {
+    "productionFiles": 3,
+    "relativeImports": 16,
+    "typeScriptExportDeclarations": 8,
+    "services/server": 3
+  }
+}
