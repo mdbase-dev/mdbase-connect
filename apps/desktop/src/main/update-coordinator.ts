@@ -7,6 +7,13 @@ import {
   type UpdateTarget
 } from "./update-policy";
 import { UpdateStateStore, type PersistedUpdateState, type UpdateTransaction } from "./update-state";
+import {
+  TAKEOVER_COMPLETE_MESSAGE,
+  TAKEOVER_STARTED_MESSAGE,
+  takeoverOwnsDaemon,
+  type TakeoverPhase,
+  type TakeoverState
+} from "./takeover-handoff";
 
 export type UpdatePhase =
   | "unavailable"
@@ -18,7 +25,8 @@ export type UpdatePhase =
   | "external"
   | "installing"
   | "recovery"
-  | "failed";
+  | "failed"
+  | "handed_off";
 
 export interface DesktopUpdateStatus {
   phase: UpdatePhase;
@@ -49,7 +57,14 @@ export interface UpdateBackend {
   channel: UpdateChannel;
   platformKey: string;
   packaged: boolean;
-  reconcileInstalledRuntime(rollback?: PersistedUpdateState["last_known_good_runtime"]): Promise<string | null>;
+  /**
+   * Bring the old daemon to this app's version. With `startStopped: false`
+   * it leaves a stopped daemon stopped (a postponed takeover stopped it).
+   */
+  reconcileInstalledRuntime(
+    rollback?: PersistedUpdateState["last_known_good_runtime"],
+    options?: { startStopped: boolean }
+  ): Promise<string | null>;
   findLatest(): Promise<{ manifest: UpdateManifest } | null>;
   stageAutomatic(
     manifest: UpdateManifest,
@@ -61,6 +76,8 @@ export interface UpdateBackend {
   installAutomatic(): void;
   openExternal(url: string): Promise<void>;
   recover(transaction: UpdateTransaction): Promise<RecoveryResult>;
+  /** Whether the mdbase-next daemon has taken over this app's collections. */
+  takeoverState(): Promise<TakeoverState>;
 }
 
 export class UpdateCoordinator {
@@ -71,6 +88,7 @@ export class UpdateCoordinator {
   private candidate: { manifest: UpdateManifest; target: UpdateTarget } | null = null;
   private operation: Promise<DesktopUpdateStatus> | null = null;
   private runtime: { version: string; binary: string | null };
+  private takeover: TakeoverPhase | "unknown" = "none";
 
   constructor(store: UpdateStateStore, backend: UpdateBackend) {
     this.store = store;
@@ -97,6 +115,7 @@ export class UpdateCoordinator {
   }
 
   daemonStartupBlock(): string | null {
+    if (takeoverOwnsDaemon(this.takeover)) return takeoverMessage(this.takeover);
     const status = this.statusValue;
     return status.phase === "installing" ||
       (["recovery", "failed"].includes(status.phase) && !status.can_check)
@@ -110,15 +129,32 @@ export class UpdateCoordinator {
   }
 
   async initialize(): Promise<DesktopUpdateStatus> {
+    // Read the takeover state before anything that can start the old daemon.
+    // Once mdbase-next has started a takeover, never reconcile, recover,
+    // reinstall or restart the old daemon; a failed read is a failed boot.
+    const takeover = await this.refreshTakeover();
     const persisted = await this.store.load();
     if (persisted.last_checked_at) {
       this.statusValue.checked_at = persisted.last_checked_at;
+    }
+    if (takeover === "unknown") return this.status();
+    if (takeoverOwnsDaemon(takeover)) {
+      if (persisted.transaction) {
+        // This app updated itself; its daemon belongs to mdbase now, so there
+        // is no connector to activate or roll back.
+        await this.store.update((state) => {
+          delete state.transaction;
+        });
+      }
+      return this.status();
     }
     if (!persisted.transaction) {
       try {
         const rollback = persisted.last_known_good_runtime?.for_app_version === this.backend.currentVersion
           ? persisted.last_known_good_runtime : undefined;
-        const message = await this.backend.reconcileInstalledRuntime(rollback);
+        const message = await this.backend.reconcileInstalledRuntime(rollback, {
+          startStopped: takeover !== "postponed"
+        });
         if (rollback) this.runtime = { version: rollback.version, binary: rollback.path };
         if (message) {
           this.setStatus({
@@ -136,6 +172,17 @@ export class UpdateCoordinator {
           can_install: false
         });
       }
+      return this.status();
+    }
+    if (takeover === "postponed") {
+      // Recovery restarts the connector; wait until mdbase retries its takeover.
+      this.setStatus({
+        phase: "recovery",
+        target_version: persisted.transaction.target_version,
+        message: "Waiting for mdbase to finish moving your collections before restarting the connector.",
+        can_check: false,
+        can_install: false
+      });
       return this.status();
     }
     this.setStatus({
@@ -172,6 +219,58 @@ export class UpdateCoordinator {
     return this.status();
   }
 
+  /**
+   * Whether this app may start a stopped old daemon now. The new daemon can
+   * take over while this app runs, so every launch asks again.
+   */
+  async mayStartOldDaemon(): Promise<boolean> {
+    return (await this.refreshTakeover()) === "none";
+  }
+
+  takeoverPhase(): TakeoverPhase | "unknown" {
+    return this.takeover;
+  }
+
+  /**
+   * Re-read the takeover record and folder claims. A takeover only moves
+   * forward within one process: once started, a later read can upgrade it to
+   * complete but never return the old daemon to this app. A failed read
+   * blocks starting the old daemon instead of risking a second daemon.
+   */
+  private async refreshTakeover(): Promise<TakeoverPhase | "unknown"> {
+    let observed: TakeoverState;
+    try {
+      observed = await this.backend.takeoverState();
+    } catch (error) {
+      if (takeoverOwnsDaemon(this.takeover)) return this.takeover;
+      this.takeover = "unknown";
+      this.setStatus({
+        phase: "failed",
+        message: `Could not check whether mdbase has taken over this computer's collections: ${message(error)}`,
+        can_check: false,
+        can_install: false
+      });
+      return this.takeover;
+    }
+    const next = takeoverOwnsDaemon(this.takeover) && !takeoverOwnsDaemon(observed.state)
+      ? this.takeover
+      : observed.state;
+    const changed = next !== this.takeover;
+    this.takeover = next;
+    if (changed && takeoverOwnsDaemon(next)) this.showHandedOff();
+    return next;
+  }
+
+  private showHandedOff(): void {
+    this.setStatus({
+      phase: "handed_off",
+      message: takeoverMessage(this.takeover),
+      // The bridge keeps updating itself, so later fixes still reach it.
+      can_check: this.backend.packaged,
+      can_install: false
+    });
+  }
+
   check(manual = false): Promise<DesktopUpdateStatus> {
     if (this.operation) return this.operation;
     if (
@@ -180,7 +279,14 @@ export class UpdateCoordinator {
     ) {
       return Promise.resolve(this.status());
     }
-    this.operation = this.checkExclusive(manual).finally(() => {
+    this.operation = this.checkExclusive(manual).then((status) => {
+      // Keep the takeover notice visible once an uneventful check finishes.
+      if (takeoverOwnsDaemon(this.takeover) && status.phase === "idle") {
+        this.showHandedOff();
+        return this.status();
+      }
+      return status;
+    }).finally(() => {
       this.operation = null;
     });
     return this.operation;
@@ -279,6 +385,7 @@ export class UpdateCoordinator {
 
   private async checkExclusive(manual: boolean): Promise<DesktopUpdateStatus> {
     if (!this.backend.packaged) return this.status();
+    await this.refreshTakeover();
     this.setStatus({
       phase: "checking",
       message: "Checking the signed release channel…",
@@ -462,4 +569,8 @@ function maxVersion(left: string | undefined, right: string | undefined): string
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function takeoverMessage(phase: TakeoverPhase | "unknown"): string {
+  return phase === "complete" ? TAKEOVER_COMPLETE_MESSAGE : TAKEOVER_STARTED_MESSAGE;
 }

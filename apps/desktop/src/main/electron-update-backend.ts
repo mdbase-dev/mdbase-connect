@@ -11,6 +11,7 @@ import {
   stat
 } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { findLatestRelease, verifyArtifactBundle } from "./release-source";
@@ -28,6 +29,13 @@ import type { PersistedUpdateState, UpdateTransaction } from "./update-state";
 import { LOCAL_CONTROL_PROTOCOL_VERSION } from "./control-client";
 import { artifactMatches, downloadArtifact, downloadBytes } from "./update-download";
 import { connectCliEnvironment, daemonCliArguments, type DaemonTarget } from "./daemon-lifecycle";
+import {
+  detectTakeover,
+  newDaemonStateDirectory,
+  readTakeoverRecord,
+  registeredFoldersFromRegistry,
+  type TakeoverState
+} from "./takeover-handoff";
 
 const execFile = promisify(execFileCallback);
 const AUTO_UPDATER_TIMEOUT_MS = 180_000;
@@ -60,7 +68,10 @@ export class ElectronUpdateBackend implements UpdateBackend {
     this.packaged = options.packaged;
   }
 
-  async reconcileInstalledRuntime(rollback?: PersistedUpdateState["last_known_good_runtime"]): Promise<string | null> {
+  async reconcileInstalledRuntime(
+    rollback?: PersistedUpdateState["last_known_good_runtime"],
+    options: { startStopped: boolean } = { startStopped: true }
+  ): Promise<string | null> {
     if (!this.packaged && !rollback) return null;
     if (rollback) {
       this.assertPrivateRuntime(rollback.path, rollback.version);
@@ -69,6 +80,9 @@ export class ElectronUpdateBackend implements UpdateBackend {
     const binary = rollback?.path ?? this.options.binaryPath();
     const version = rollback?.version ?? this.currentVersion;
     const status = await this.daemonStatus(binary);
+    if (!options.startStopped && !status.running) {
+      return "The connector stays stopped while mdbase finishes moving your collections.";
+    }
     if (runtimeNeedsReconciliation(status, version)) {
       await this.activateRuntime(binary, version);
     } else if (rollback && !status.ready) {
@@ -79,6 +93,16 @@ export class ElectronUpdateBackend implements UpdateBackend {
     return rollback
       ? `Using verified rollback connector ${version} with application ${this.currentVersion}.`
       : `Connector runtime ${version} was reconciled with this application.`;
+  }
+
+  takeoverState(): Promise<TakeoverState> {
+    return detectTakeover({
+      takeoverRecord: () => readTakeoverRecord(
+        newDaemonStateDirectory(this.options.platform, homedir()),
+        this.options.platform
+      ),
+      registeredFolders: () => registeredFoldersFromRegistry(this.options.stateDirectory())
+    });
   }
 
   async findLatest(): Promise<{ manifest: UpdateManifest } | null> {
