@@ -402,6 +402,12 @@ export class ConnectCollectionGateway implements CollectionGateway {
     }));
   }
 
+  /** Holds and log conflicts are mdbase-next concepts; Connect has none to review. */
+  onSyncAttention(listener: (attention: import("./model").SyncAttention) => void): () => void {
+    listener({ holds: [], conflicts: [] });
+    return () => undefined;
+  }
+
   private activeConnection(): MdbaseConnection<NoteFrontmatter> | null {
     return this.session.connection();
   }

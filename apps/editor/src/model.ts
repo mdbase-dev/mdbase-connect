@@ -28,6 +28,8 @@ export interface NoteSummary extends QueryRecord<NoteFrontmatter> {
   effectiveFrontmatter: NoteFrontmatter;
   /** mdbase-next only: whether the replica's log has confirmed this version yet. */
   syncState?: "pending" | "confirmed";
+  /** mdbase-next only: the replica holds this file until the user resolves it. */
+  hold?: CollectionHold["reason"];
 }
 
 /** "Confirmed through N, plus pending" (mdbase-next replicas only). */
@@ -125,9 +127,50 @@ export interface DeletePreflight {
   operation: DeletePreflightResult;
 }
 
+/**
+ * Connect reports rename/delete phases. mdbase-next submits one intent, so it adds
+ * `submitted`: the replica captured the change, which can no longer be cancelled.
+ */
+export type NoteMutationProgress = Omit<MutationProgress, "state"> & {
+  state: MutationProgress["state"] | "submitted";
+};
+
+/** A file the replica is holding back until the user decides (mdbase-next §8.1). */
+export interface CollectionHold {
+  id: string;
+  path: string;
+  reason: "conflict" | "unknown_provenance" | "deleted_elsewhere" | "read_only" | "editor_busy" | "suspect_write";
+  since: number;
+  /** User saves collected while held. */
+  saves: number;
+  /** Whether a confirmed version exists to take instead (absent when deleted elsewhere). */
+  hasTheirs: boolean;
+}
+
+export type HoldResolution = "keep_mine" | "take_theirs" | "use" | "delete" | "keep_both";
+
+/** A merge the log recorded; what was kept is live, what was lost can be restored. */
+export interface CollectionConflict {
+  /** Stable key for resolving: mutation, record and field. */
+  key: string;
+  recordId: string;
+  path?: string;
+  kind: "field" | "frontmatter" | "body" | "path" | "delete" | "file";
+  field?: string;
+  kept: string;
+  lost: string;
+  /** Whether "use the lost value" can be applied (field values and body text). */
+  restorable: boolean;
+}
+
+export interface SyncAttention {
+  holds: CollectionHold[];
+  conflicts: CollectionConflict[];
+}
+
 export interface MutationOperationOptions {
   signal?: AbortSignal;
-  onProgress?: (progress: MutationProgress) => void;
+  onProgress?: (progress: NoteMutationProgress) => void;
 }
 
 export type TitleSource =
@@ -211,6 +254,11 @@ export interface CollectionGateway {
    * the replica later rejected. Optional: Connect reports every failure inline.
    */
   onBackgroundProblem?(listener: (message: string) => void): () => void;
+  /** Holds and conflicts to review (mdbase-next); Connect reports none. */
+  onSyncAttention?(listener: (attention: SyncAttention) => void): () => void;
+  resolveHold?(id: string, how: HoldResolution, use?: string): Promise<void>;
+  /** Keep what the merge kept (`"kept"`), or restore the lost value (`"lost"`). */
+  resolveConflict?(key: string, choice: "kept" | "lost"): Promise<void>;
   mostRecentNote(): Promise<string | undefined>;
   read(path: string): Promise<NoteDocument>;
   listFiles(options?: FileListRequest): Promise<CollectionFile[]>;

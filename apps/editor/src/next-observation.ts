@@ -37,7 +37,8 @@ function noteSummary(view: RecordView): NoteSummary {
     effectiveFrontmatter: view.effective ? plainFrontmatter(view.effective) : frontmatter,
     ...(view.body === undefined ? {} : { body: view.body }),
     file: { path: view.path, folder: folderOf(view.path) },
-    syncState: view.state.state
+    syncState: view.state.state,
+    ...(view.state.hold ? { hold: view.state.hold.reason } : {})
   };
   summaries.set(view, summary);
   return summary;

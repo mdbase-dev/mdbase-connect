@@ -1,8 +1,10 @@
 import type { CollectionDescription, CollectionTypeDescriptor, DeletePreflightResult, JsonObject, MdbaseDiagnostic, MdbaseFileSource, PendingMutationSummary, RenamePreflightResult, TypePackAssessment } from "@mdbase-dev/connect";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
-import { connect, mdbaseError, MdbaseError, toPlain, type Connector, type FileView, type Include, type MdbaseClient, type PlainValue, type RecordView, type UpdateInput, type Write } from "@mdbase-dev/sdk";
+import { connect, mdbaseError, MdbaseError, toPlain, type ConflictEntry, type ConflictValue, type Connector, type FileView, type Include, type MdbaseClient, type PlainValue, type RecordView, type UpdateInput, type Write } from "@mdbase-dev/sdk";
 import type {
   CollectionAuthorizationTarget,
+  CollectionConflict,
+  CollectionHold,
   CollectionFile,
   CollectionGateway,
   CollectionSessionSnapshot,
@@ -12,9 +14,13 @@ import type {
   FileListRequest,
   FileReadRequest,
   FileUploadRequest,
+  HoldResolution,
+  MutationOperationOptions,
   NoteDocument,
+  NoteMutationProgress,
   NoteObservation,
   RenamePreflight,
+  SyncAttention,
   TypeDocument,
   TypePackApplyResult
 } from "./model";
@@ -295,9 +301,18 @@ export class NextCollectionGateway implements CollectionGateway {
     return { affectedPaths: [], warnings: ["Linked notes can’t be previewed with the mdbase-next backend yet. Links are still updated."], operation };
   }
 
-  async rename(from: string, to: string, revision: string, updateRefs = true): Promise<NoteDocument> {
-    const seen = await this.view(from, revision);
-    return this.written(to, "rename", () => this.requireClient().rename(seen, to, { updateRefs, include: NOTE_INCLUDE }));
+  /**
+   * One rename intent. Progress follows its receipt: `applying` (cancellable)
+   * until the replica captures it, `submitted` (no longer cancellable) when the
+   * write is pending, and `completed` once confirmed. A rejection throws.
+   */
+  async rename(from: string, to: string, revision: string, updateRefs = true, options: MutationOperationOptions = {}): Promise<NoteDocument> {
+    const progress = mutationProgress("rename", options.onProgress);
+    progress("applying", true);
+    const seen = await this.guard(() => this.view(from, revision));
+    return this.written(to, "rename", () => this.requireClient().rename(seen, to, {
+      updateRefs, include: NOTE_INCLUDE, ...(options.signal ? { signal: options.signal } : {})
+    }), progress);
   }
 
   /** No broken-link preview yet. */
@@ -306,12 +321,85 @@ export class NextCollectionGateway implements CollectionGateway {
     return { brokenLinkPaths: [], operation };
   }
 
-  async delete(path: string, revision: string): Promise<void> {
-    const seen = await this.view(path, revision);
+  /** One delete intent, with the same receipt-driven progress as `rename`. */
+  async delete(path: string, revision: string, options: MutationOperationOptions = {}): Promise<void> {
+    const progress = mutationProgress("delete", options.onProgress);
+    progress("applying", true);
+    const seen = await this.guard(() => this.view(path, revision));
     const client = this.requireClient();
-    const write = await this.guard(() => client.delete(seen));
-    await this.settled(write, path, "delete");
+    const write = await this.guard(() => client.delete(seen, options.signal ? { signal: options.signal } : {}));
+    await this.settled(write, path, "delete", progress);
     this.forget(path);
+  }
+
+  // ------------------------------------------------------------ holds and conflicts (§8)
+
+  /**
+   * Holds (files the replica keeps back until the user decides) and recorded
+   * merge conflicts, pushed. Held notes also carry `hold` in the list, so an
+   * edit is never silently stuck.
+   */
+  onSyncAttention(listener: (attention: SyncAttention) => void): () => void {
+    const client = this.requireClient();
+    let holds: CollectionHold[] = [];
+    let conflicts: CollectionConflict[] = [];
+    let active = true;
+    let generation = 0;
+    const publish = () => { if (active) listener({ holds, conflicts }); };
+    const stopHolds = client.onHolds((next) => {
+      holds = next.map((hold) => ({
+        id: hold.id, path: hold.path, reason: hold.reason, since: hold.since, saves: hold.saves, hasTheirs: hold.theirs !== undefined
+      }));
+      publish();
+    });
+    const stopConflicts = client.onConflicts((entries) => {
+      const current = ++generation;
+      this.conflicts = new Map(entries.map((entry) => [conflictKey(entry), entry]));
+      void Promise.all(entries.map(async (entry) => describeConflict(entry, await this.recordPath(entry.conflict.id)))).then((described) => {
+        if (current !== generation) return;
+        conflicts = described;
+        publish();
+      });
+    });
+    return () => { active = false; stopHolds(); stopConflicts(); };
+  }
+
+  async resolveHold(id: string, how: HoldResolution, use?: string): Promise<void> {
+    const client = this.requireClient();
+    const write = await this.guard(() => client.resolveHold(id, how, use));
+    await this.settled(write, id, how === "delete" ? "delete" : "update");
+  }
+
+  async resolveConflict(key: string, choice: "kept" | "lost"): Promise<void> {
+    const entry = this.conflicts.get(key);
+    if (!entry) throw new Error("This conflict was already resolved.");
+    const client = this.requireClient();
+    const { conflict } = entry;
+    let write: Write;
+    if (choice === "kept") write = await this.guard(() => client.dismissConflict(entry));
+    else if (conflict.kind === "field" && conflict.field && conflict.lost.form === "value") {
+      const field = conflict.field;
+      const value = toPlain(conflict.lost.value) as PlainValue;
+      write = await this.guard(() => client.resolveConflict(entry, field, value));
+    } else if (conflict.kind === "body" && conflict.lost.form === "text") {
+      const body = conflict.lost.text;
+      [write] = await this.guard(() => client.submit([
+        { kind: "update", id: conflict.id, body },
+        { kind: "conflict_dismiss", mutation: entry.mutation, record: conflict.id }
+      ])) as [Write];
+    } else throw notAvailable("Restoring this kind of conflict");
+    await this.settled(write, this.paths.get(conflict.id) ?? conflict.id, "update");
+  }
+
+  private conflicts = new Map<string, ConflictEntry>();
+  private paths = new Map<string, string>();
+
+  private async recordPath(id: string): Promise<string | undefined> {
+    const known = this.paths.get(id);
+    if (known) return known;
+    const view = await this.requireClient().find(id).catch(() => null);
+    if (view) this.paths.set(id, view.path);
+    return view?.path;
   }
 
   // ------------------------------------------------------------ files
@@ -422,21 +510,25 @@ export class NextCollectionGateway implements CollectionGateway {
   }
 
   /** Submit, surface an immediate rejection inline, and return the optimistic record. */
-  private async written(path: string, operation: PendingMutationSummary["operation"], submit: () => Promise<Write>): Promise<NoteDocument> {
+  private async written(path: string, operation: PendingMutationSummary["operation"], submit: () => Promise<Write>, progress?: Progress): Promise<NoteDocument> {
     const write = await this.guard(submit);
-    await this.settled(write, path, operation);
+    await this.settled(write, path, operation, progress);
     const view = write.records.find((record) => record.path === path) ?? write.records[0];
     if (view && view.body !== undefined) return this.document(view);
     return this.read(view?.path ?? path);
   }
 
-  private async settled(write: Write, path: string, operation: PendingMutationSummary["operation"]): Promise<void> {
+  private async settled(write: Write, path: string, operation: PendingMutationSummary["operation"], progress?: Progress): Promise<void> {
     if (write.state === "rejected" || write.state === "unknown") {
       try {
         await write.confirmed;
       } catch (error) {
         throw connectFailureFrom(error, write.mutationId);
       }
+    }
+    if (progress) {
+      if (write.state === "pending") progress("submitted", false);
+      write.confirmed.then(() => progress("completed", false), () => undefined);
     }
     this.track(write, path, operation);
   }
@@ -454,6 +546,45 @@ export class NextCollectionGateway implements CollectionGateway {
       for (const listener of this.problemListeners) listener(`“${path}” wasn’t saved: ${message}`);
     });
   }
+}
+
+function conflictKey(entry: ConflictEntry): string {
+  return `${entry.mutation}/${entry.conflict.id}/${entry.conflict.field ?? entry.conflict.kind}`;
+}
+
+function conflictText(value: ConflictValue): string {
+  switch (value.form) {
+    case "missing": return "(not set)";
+    case "deleted": return "(deleted)";
+    case "text": return value.text.length > 120 ? `${value.text.slice(0, 117)}…` : value.text;
+    case "blob": return "(file contents)";
+    case "value": return JSON.stringify(toPlain(value.value));
+  }
+}
+
+function describeConflict(entry: ConflictEntry, path: string | undefined): CollectionConflict {
+  const { conflict } = entry;
+  return {
+    key: conflictKey(entry),
+    recordId: conflict.id,
+    ...(path ? { path } : {}),
+    kind: conflict.kind,
+    ...(conflict.field ? { field: conflict.field } : {}),
+    kept: conflictText(conflict.kept),
+    lost: conflictText(conflict.lost),
+    restorable: (conflict.kind === "field" && conflict.lost.form === "value") || (conflict.kind === "body" && conflict.lost.form === "text")
+  };
+}
+
+type Progress = (state: NoteMutationProgress["state"], cancellable: boolean) => void;
+
+function mutationProgress(operation: "rename" | "delete", report?: (progress: NoteMutationProgress) => void): Progress {
+  const started = Date.now();
+  return (state, cancellable) => report?.({
+    operation, state, cancellable, resumed: false,
+    completedUnits: state === "completed" || state === "submitted" ? 1 : 0,
+    elapsedMs: Date.now() - started
+  });
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
