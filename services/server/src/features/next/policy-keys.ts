@@ -6,6 +6,7 @@
 // it, and items signed by the old key stay valid because each embeds its certificate.
 import { createPrivateKey, createPublicKey, verify as edVerify, type KeyObject } from "node:crypto";
 import { certDigest, keyId, type CpCert, type PolicySigner } from "./policy-wire.js";
+import { parseLabFixtureConfig, type LabFixtureConfig } from "./lab-fixture-config.js";
 
 /** Refuse to start when the certificate expires within this window. */
 const MIN_CERT_REMAINING_MS = 7 * 24 * 60 * 60 * 1000;
@@ -31,6 +32,7 @@ export interface NextControlPlaneConfig {
   logService: LogServiceConfig;
   /** Bearer tokens of the hosted replica and escrow deployments, per kind; absent until deployed. */
   serviceTokens: { hosted?: string; escrow?: string };
+  labFixtures?: LabFixtureConfig;
 }
 
 function hexBytes(value: string, size: number, name: string): Uint8Array {
@@ -78,6 +80,7 @@ export function verifyCert(cert: CpCert, rootPublicKey: Uint8Array): boolean {
  * plane is disabled; throws on a partial or malformed configuration.
  */
 export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPlaneConfig | null {
+  const labFixtures = parseLabFixtureConfig(env);
   const enabled = env.MDBASE_NEXT_CONTROL_PLANE?.trim() ?? "";
   if (enabled !== "" && enabled !== "0" && enabled !== "1") throw new Error("MDBASE_NEXT_CONTROL_PLANE must be 0 or 1.");
   if (enabled !== "1") return null;
@@ -114,6 +117,7 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
     policyCert: parsedCert,
     logService: { url: logServiceUrl, tokenIssuerKeyPem, transportKeyPem },
     serviceTokens: { ...(hosted ? { hosted } : {}), ...(escrow ? { escrow } : {}) },
+    ...(labFixtures ? { labFixtures } : {}),
   };
 }
 

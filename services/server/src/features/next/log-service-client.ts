@@ -161,6 +161,10 @@ export class LogServiceClient {
     await this.rpc("create_log", struct([[0, uuidBytes(collection)], [1, genesis]]));
   }
 
+  async setQuota(collection: string, quotas: { storageBytes: number; itemsPerSecond: number; bytesPerSecond: number; burstItems: number }): Promise<void> {
+    await this.rpc("set_quota", struct([[0, uuidBytes(collection)], [1, [quotas.storageBytes, quotas.itemsPerSecond, quotas.bytesPerSecond, quotas.burstItems]]]));
+  }
+
   async deleteLog(collection: string): Promise<void> {
     await this.rpc("delete_log", struct([[0, uuidBytes(collection)]]));
   }
