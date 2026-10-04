@@ -70,6 +70,11 @@ export async function ensureNextDaemon(run: CliRunner, bundledVersion: string): 
     if (status.readiness === null || status.readiness === undefined) {
       const started = await run(["--json", "service", "start"]);
       if (started.exitCode !== 0) throw new Error(`mdbase service start failed (exit ${started.exitCode}).`);
+      const health = started.value as ServiceStatus | null;
+      if (!health || health.registration !== "installed" || health.readiness?.ready !== true ||
+          !atLeast(typeof health.readiness.binary_version === "string" ? health.readiness.binary_version : null, bundledVersion)) {
+        throw new Error("The installed mdbase daemon did not become ready after starting.");
+      }
       return { outcome: "already_installed", version, started: true };
     }
     return { outcome: "already_installed", version, started: false };

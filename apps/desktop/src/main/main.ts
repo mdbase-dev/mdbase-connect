@@ -29,6 +29,7 @@ import { selectiveSyncPolicy } from "./selective-sync-input";
 import { createTrayImage } from "./tray-image";
 import { UpdateCoordinator } from "./update-coordinator";
 import { UpdateStateStore } from "./update-state";
+import { bundledNextDaemon, ensureNextDaemon, nextDaemonRunner, rolloutAllowsLocalTakeover } from "./next-daemon";
 
 guardDesktopProcessOutput();
 
@@ -938,9 +939,21 @@ app.whenReady().then(async () => {
   handleDeepLink(process.argv.find((value) => value.startsWith("mdbase-connect://")));
   try {
     await bootGate.ready();
+    if (app.isPackaged && daemonPaths!.target === "installed_service" &&
+        ["none", "postponed"].includes(updater.takeoverPhase())) {
+      void (async () => {
+        const bundled = await bundledNextDaemon(process.resourcesPath, process.platform);
+        if (!bundled) return;
+        const rollout = await requestAgent<unknown>(controlEndpoint(), "next.rollout", undefined, 20_000);
+        if (!rolloutAllowsLocalTakeover(rollout)) return;
+        const result = await ensureNextDaemon(nextDaemonRunner(bundled.binary), bundled.version);
+        console.info("Bundled mdbase daemon:", result.outcome, result.version);
+        // Installation may complete the takeover during this session.
+        await updater!.mayStartOldDaemon();
+      })().catch((error) => console.warn("Could not install the bundled mdbase daemon:", error));
+    }
   } catch (error) {
-    if (updater.daemonStartupBlock() && updater.takeoverPhase() !== "unknown" &&
-        updater.takeoverPhase() !== "none") {
+    if (["started", "complete", "postponed"].includes(updater.takeoverPhase())) {
       // Not a failure: mdbase owns the collections now (or is moving them).
       refreshTrayMenu();
     } else {

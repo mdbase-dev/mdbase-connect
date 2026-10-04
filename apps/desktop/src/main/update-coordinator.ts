@@ -116,6 +116,7 @@ export class UpdateCoordinator {
 
   daemonStartupBlock(): string | null {
     if (takeoverOwnsDaemon(this.takeover)) return takeoverMessage(this.takeover);
+    if (this.takeover === "unknown") return "Could not verify the mdbase takeover state.";
     const status = this.statusValue;
     return status.phase === "installing" ||
       (["recovery", "failed"].includes(status.phase) && !status.can_check)
@@ -252,7 +253,8 @@ export class UpdateCoordinator {
       });
       return this.takeover;
     }
-    const next = takeoverOwnsDaemon(this.takeover) && !takeoverOwnsDaemon(observed.state)
+    const next = this.takeover === "complete" ||
+      (takeoverOwnsDaemon(this.takeover) && !takeoverOwnsDaemon(observed.state))
       ? this.takeover
       : observed.state;
     const changed = next !== this.takeover;
@@ -320,7 +322,11 @@ export class UpdateCoordinator {
       can_install: false
     });
     try {
-      await this.backend.stopDaemon();
+      const takeover = await this.refreshTakeover();
+      if (takeover === "unknown" || takeover === "postponed") {
+        throw new Error("Waiting for a verified mdbase takeover state before installing the app update.");
+      }
+      if (!takeoverOwnsDaemon(takeover)) await this.backend.stopDaemon();
       await this.store.update((state) => {
         if (state.transaction?.id === transaction.id) state.transaction.phase = "installing";
       });
@@ -329,6 +335,13 @@ export class UpdateCoordinator {
       await this.store.update((state) => {
         if (state.transaction?.id === transaction.id) state.transaction.phase = "recovering";
       });
+      const takeover = await this.refreshTakeover();
+      if (takeover !== "none") {
+        // App-update failure must never restore the old daemon into a takeover.
+        this.candidate = null;
+        if (takeoverOwnsDaemon(takeover)) this.showHandedOff();
+        throw error;
+      }
       const recovered = await this.backend.recover(transaction).then(async (result) => {
         await this.completeRecovery(transaction, result);
         return result;
@@ -385,7 +398,7 @@ export class UpdateCoordinator {
 
   private async checkExclusive(manual: boolean): Promise<DesktopUpdateStatus> {
     if (!this.backend.packaged) return this.status();
-    await this.refreshTakeover();
+    if (await this.refreshTakeover() === "unknown") return this.status();
     this.setStatus({
       phase: "checking",
       message: "Checking the signed release channel…",
@@ -470,7 +483,13 @@ export class UpdateCoordinator {
             can_check: false,
             can_install: false
           });
-          const handoff = await this.backend.prepareDaemonHandoff(this.runtime.version, this.runtime.binary);
+          const takeover = await this.refreshTakeover();
+          if (takeover === "unknown" || takeover === "postponed") {
+            throw new Error("Waiting for a verified mdbase takeover state before preparing the app update.");
+          }
+          const handoff = takeoverOwnsDaemon(takeover)
+            ? { serviceInstalled: false, previousRuntime: null }
+            : await this.backend.prepareDaemonHandoff(this.runtime.version, this.runtime.binary);
           const transaction: UpdateTransaction = {
             id: randomUUID(),
             phase: "prepared",

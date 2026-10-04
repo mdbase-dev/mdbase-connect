@@ -99,6 +99,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
     return detectTakeover({
       takeoverRecord: () => readTakeoverRecord(
         newDaemonStateDirectory(this.options.platform, homedir()),
+        this.options.stateDirectory(),
         this.options.platform
       ),
       registeredFolders: () => registeredFoldersFromRegistry(this.options.stateDirectory())

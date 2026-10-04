@@ -1,5 +1,8 @@
-import { lstat, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { constants } from "node:fs";
+import { lstat, open, readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { promisify } from "node:util";
 
 /**
  * Bridge-release handoff to the mdbase-next daemon.
@@ -139,37 +142,70 @@ export function newDaemonStateDirectory(
  */
 export async function readTakeoverRecord(
   stateDirectory: string,
+  oldStateDirectory: string,
   platform: NodeJS.Platform = process.platform,
   uid: number | undefined = process.getuid?.()
 ): Promise<TakeoverRecord | null> {
   const path = join(stateDirectory, "takeover.json");
-  let details;
+  // Check directories even when the record is absent: a linked state directory
+  // must not make a takeover look absent. Windows has reparse types beyond links.
+  for (const directory of [dirname(stateDirectory), stateDirectory]) {
+    try {
+      const details = await lstat(directory);
+      if (!details.isDirectory() || details.isSymbolicLink()) {
+        throw new Error("The mdbase state directory is not an ordinary directory.");
+      }
+      if (platform === "win32") await rejectWindowsReparsePoint(directory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
   try {
-    details = await lstat(path);
+    const details = await lstat(path);
+    if (!details.isFile() || details.isSymbolicLink()) {
+      throw new Error("The mdbase takeover record is not an ordinary file.");
+    }
+    if (platform === "win32") await rejectWindowsReparsePoint(path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
-  if (!details.isFile()) throw new Error("The mdbase takeover record is not an ordinary file.");
-  if (platform !== "win32") {
-    if (uid !== undefined && details.uid !== uid) {
-      throw new Error("The mdbase takeover record is owned by another user.");
+  const file = await open(path, constants.O_RDONLY | (platform === "win32" ? 0 : constants.O_NOFOLLOW));
+  let bytes: string;
+  try {
+    const details = await file.stat();
+    if (!details.isFile()) throw new Error("The mdbase takeover record is not an ordinary file.");
+    if (platform !== "win32") {
+      if (uid !== undefined && details.uid !== uid) {
+        throw new Error("The mdbase takeover record is owned by another user.");
+      }
+      if ((details.mode & 0o022) !== 0) {
+        throw new Error("The mdbase takeover record is writable by other users.");
+      }
     }
-    if ((details.mode & 0o022) !== 0) {
-      throw new Error("The mdbase takeover record is writable by other users.");
-    }
+    bytes = await file.readFile("utf8");
+  } finally {
+    await file.close();
   }
-  const value = JSON.parse(await readFile(path, "utf8")) as unknown;
+  const value = JSON.parse(bytes) as unknown;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("The mdbase takeover record is invalid.");
   }
   const record = value as Record<string, unknown>;
-  if (record.schema_version !== 1) {
-    // A newer schema still means the new daemon owns the machine's takeover.
-    return { state: "started" };
+  if (typeof record.old_state_dir !== "string") {
+    throw new Error("The mdbase takeover record does not identify the old profile.");
   }
-  if (!["started", "complete", "postponed", "rolled_back"].includes(record.state as string)) {
-    throw new Error("The mdbase takeover record has an unknown state.");
+  const normalize = (directory: string) => {
+    const normalized = resolve(directory);
+    return platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  if (normalize(record.old_state_dir) !== normalize(oldStateDirectory)) return null;
+  if (record.schema_version !== 1 ||
+      !["started", "complete", "postponed", "rolled_back"].includes(record.state as string)) {
+    // Unknown schemas and states are ownership signals, never permission to
+    // start the old service (packaging interface §6.7).
+    return { state: "started" };
   }
   return {
     state: record.state as TakeoverRecord["state"],
@@ -177,13 +213,22 @@ export async function readTakeoverRecord(
   };
 }
 
+async function rejectWindowsReparsePoint(path: string): Promise<void> {
+  await promisify(execFile)("powershell.exe", [
+    "-NoProfile", "-NonInteractive", "-Command",
+    "$ErrorActionPreference='Stop'; $item=Get-Item -Force -LiteralPath $env:MDBASE_BRIDGE_CHECK_PATH; " +
+      "if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { exit 1 }"
+  ], { env: { ...process.env, MDBASE_BRIDGE_CHECK_PATH: path }, windowsHide: true, timeout: 10_000 });
+}
+
 /** Folders registered in the old connector's registry, read-only. */
 export async function registeredFoldersFromRegistry(stateDirectory: string): Promise<string[]> {
   const path = join(stateDirectory, "connector.sqlite");
   try {
     await lstat(path);
-  } catch {
-    return [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
   }
   const { DatabaseSync } = await import("node:sqlite");
   const database = new DatabaseSync(path, { readOnly: true });
