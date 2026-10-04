@@ -1,0 +1,9 @@
+{
+  "reason": "Device-approval reports for private grants are a separate trust boundary (device signature plus log check) that notify's grant resolver consumes; it doesn't belong in the device-registration module.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 6,
+    "typeScriptExportDeclarations": 5,
+    "services/server": 1
+  }
+}
