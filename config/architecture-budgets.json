@@ -6,7 +6,7 @@
   },
   "productionFileBudgetsByPackage": {
     "apps/desktop": 46,
-    "apps/editor": 122,
+    "apps/editor": 121,
     "apps/portal": 16,
     "crates/connect-agent": 37,
     "crates/connect-cli": 8,
@@ -18,7 +18,7 @@
     "crates/connect-runtime": 3,
     "crates/connect-testbed-adapter": 1,
     "packages/app-ui": 21,
-    "packages/client": 82,
+    "packages/client": 83,
     "packages/devkit": 3,
     "packages/management": 1,
     "packages/pickle": 2,
@@ -45,10 +45,10 @@
   },
   "reviewBudgets": {
     "productionFiles": 752,
-    "relativeImports": 1686,
+    "relativeImports": 1690,
     "workspacePackages": 25,
     "rustPublicDeclarations": 3366,
-    "typeScriptExportDeclarations": 2756,
+    "typeScriptExportDeclarations": 2758,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }
