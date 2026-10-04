@@ -523,7 +523,7 @@ export async function buildApp(options: BuildOptions) {
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
-    registerNextRouteRoutes(app, { db: options.db, publicUrl });
+    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
       db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,
       environment: options.environment, publicUrl, emitter: nextPolicyEmitter!
