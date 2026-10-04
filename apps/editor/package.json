@@ -36,6 +36,7 @@
     "@mdbase-dev/connect": "workspace:*",
     "@mdbase/connect-management": "workspace:*",
     "@mdbase-dev/connect-protocol": "workspace:*",
+    "@mdbase-dev/sdk": "file:./vendor/mdbase-dev-sdk-c573c96.tgz",
     "@mdbase-dev/ui": "workspace:*",
     "@mdbase/connect-ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
