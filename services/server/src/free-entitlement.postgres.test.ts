@@ -66,6 +66,31 @@ describePostgres("free plan entitlement", () => {
     expect(grants.rows).toHaveLength(2);
   });
 
+  it("never re-grants a revoked or expired free plan, skips suspended accounts, and terminates (SEC-039)", async () => {
+    const operationId = randomUUID();
+    const drain = async () => {
+      let runs = 0;
+      for (let result = await backfillFreeEntitlement(db, { operationId, ...audit, limit: "5000" }); result.remaining > 0; result = await backfillFreeEntitlement(db, { operationId, ...audit, limit: "5000" })) {
+        runs += 1;
+        if (runs > 10) throw new Error("backfill does not terminate");
+      }
+    };
+    await drain();
+    const revoked = await user();
+    const expired = await user();
+    const suspended = await user();
+    await drain();
+    await db.query("UPDATE account_entitlement_grants SET revoked_at = now() WHERE user_id = $1 AND profile_code = 'free_v1'", [revoked]);
+    await db.query("UPDATE account_entitlement_grants SET starts_at = now() - interval '2 days', ends_at = now() - interval '1 day' WHERE user_id = $1 AND profile_code = 'free_v1'", [expired]);
+    await db.query("DELETE FROM account_entitlement_grants WHERE user_id = $1", [suspended]);
+    await db.query("UPDATE users SET suspended_at = now() WHERE id = $1", [suspended]);
+    const rerun = await backfillFreeEntitlement(db, { operationId, ...audit, limit: "5000" });
+    expect(rerun).toMatchObject({ granted: 0, remaining: 0 });
+    expect(await effectiveEntitlement(db, revoked)).toBeNull();
+    expect(await effectiveEntitlement(db, expired)).toBeNull();
+    expect(await effectiveEntitlement(db, suspended)).toBeNull();
+  });
+
   it("refuses an out-of-range batch size", async () => {
     await expect(backfillFreeEntitlement(db, { operationId: randomUUID(), ...audit, limit: "0" })).rejects.toThrow(/between 1 and 5000/);
   });

@@ -320,7 +320,7 @@ function nonNegativeInteger(value: unknown): value is number {
 }
 
 /**
- * Grant the free plan to accounts that don't hold it yet, at most `limit` per run.
+ * Grant the free plan to active accounts that never held it, at most `limit` per run.
  * Each grant goes through `grantOperatorEntitlement`, which is idempotent, creates the
  * storage account and records an audit event. Run it until `remaining` is 0. It is
  * a rollout step: holding the free profile gives an account without other grants one
@@ -332,12 +332,13 @@ export async function backfillFreeEntitlement(
 ): Promise<{ operation_id: string; granted: number; remaining: number }> {
   const limit = input.limit === undefined ? 500 : Number(input.limit);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 5000) throw new RangeError("--limit must be between 1 and 5000.");
-  const missing = `FROM users WHERE NOT EXISTS (
+  // Only accounts that never held the profile, in any state: an operator's revocation
+  // or an expiry is never undone by a rerun, and each account is granted at most once,
+  // so reruns with one operation ID terminate. Suspended accounts are skipped.
+  const missing = `FROM users WHERE users.suspended_at IS NULL AND NOT EXISTS (
        SELECT 1 FROM account_entitlement_grants entitlement_grant
        WHERE entitlement_grant.user_id = users.id
-         AND entitlement_grant.profile_code = $1
-         AND entitlement_grant.revoked_at IS NULL
-         AND (entitlement_grant.ends_at IS NULL OR entitlement_grant.ends_at > now()))`;
+         AND entitlement_grant.profile_code = $1)`;
   const batch = await db.query<{ id: string }>(
     `SELECT id ${missing} ORDER BY id LIMIT $2`,
     [FREE_ENTITLEMENT_PROFILE, limit]
