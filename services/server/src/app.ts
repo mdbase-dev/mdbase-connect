@@ -514,7 +514,7 @@ export async function buildApp(options: BuildOptions) {
   });
   if (options.nextControlPlane) {
     relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
-    registerNextDeviceRoutes(app, { db: options.db });
+    registerNextDeviceRoutes(app, { db: options.db, log: new LogServiceClient(options.nextControlPlane.logService) });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
