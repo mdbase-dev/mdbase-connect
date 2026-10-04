@@ -8,10 +8,10 @@ import { canonicalJson } from "../../../canonical-json.js";
  * (`crates/connect-runtime/src/timers.rs`, mdbase-rs `timer.rs`).
  */
 
-export const MAX_TIMERS_PER_RECONCILE = 10_000;
+const MAX_TIMERS_PER_RECONCILE = 10_000;
 export const MAX_ACTIVE_PER_NAMESPACE = 10_000;
 export const MAX_ACTIVE_PER_GRANT = 50_000;
-export const MAX_DATA_BYTES = 16 * 1024;
+const MAX_DATA_BYTES = 16 * 1024;
 export const LIST_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
 export type TimerStatus = "scheduled" | "firing" | "fired" | "cancelled";
@@ -97,7 +97,7 @@ export function desiredTimer(input: { id: string; fire_at: string; data?: unknow
 }
 
 /** `undefined` and `null` both mean "no data". Enforces the 16 KiB bound. */
-export function normalizeData(data: unknown): unknown {
+function normalizeData(data: unknown): unknown {
   if (data === undefined || data === null) return null;
   let encoded: string;
   try {

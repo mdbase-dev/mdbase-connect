@@ -99,7 +99,7 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
 export type TimerOperation = "list_timers" | "put_timer" | "cancel_timer" | "reconcile_timers";
 const WRITE_OPERATIONS: readonly TimerOperation[] = ["put_timer", "cancel_timer", "reconcile_timers"];
 
-export function isTimerCriterion(criterion: NotificationCriterion): boolean {
+function isTimerCriterion(criterion: NotificationCriterion): boolean {
   return criterion.event.id === MDBASE_TIMER_FIRED_CONTRACT.id
     && criterion.event.version === MDBASE_TIMER_FIRED_CONTRACT.version
     && criterion.event.digest === MDBASE_TIMER_FIRED_CONTRACT.digest;

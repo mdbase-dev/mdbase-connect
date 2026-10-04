@@ -19,14 +19,14 @@ import { cancelRevokedGrantTimers } from "./store.js";
  * times: for local and end-to-end collections, the only data mdbase holds about
  * them. Keep them only for a short debug window (SEC-043 §2).
  */
-export const EVENT_RETENTION_MS = 7 * 24 * 60 * 60_000;
+const EVENT_RETENTION_MS = 7 * 24 * 60 * 60_000;
 /**
  * Hard ceiling: events are deleted after this age even if a consumer never
  * handled them, so a stalled consumer can't keep reminder history.
  */
-export const EVENT_HARD_CEILING_MS = 14 * 24 * 60 * 60_000;
+const EVENT_HARD_CEILING_MS = 14 * 24 * 60 * 60_000;
 /** A consumer whose oldest unhandled event is older than this is reported as lagging. */
-export const CONSUMER_LAG_ALERT_MS = 60 * 60_000;
+const CONSUMER_LAG_ALERT_MS = 60 * 60_000;
 
 /** Privacy-safe metrics for alerting: names, counts and ages only. */
 export type TimerMetric =
