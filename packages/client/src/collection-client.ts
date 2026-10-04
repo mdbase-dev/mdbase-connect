@@ -22,7 +22,7 @@ import type {
   TypePackApplyResult as WireTypePackApplyResult,
   TypePackAssessment as WireTypePackAssessment,
 } from "@mdbase-dev/connect-protocol";
-import { abortableDelay } from "./async.js";
+import { abortableDelay, pollDelay } from "./async.js";
 import { invalidatesDescription, normalizeChangesPage } from "./change-events.js";
 import { CollectionDescriptionCache } from "./description-cache.js";
 import { coordinatedQueryPages } from "./query-pagination.js";
@@ -511,7 +511,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
         cursor = page.cursor;
         if (!page.hasMore) {
           try {
-            await abortableDelay(pollInterval, options.signal);
+            await pollDelay(pollInterval, options.signal);
           } catch {
             if (!options.signal?.aborted) throw connectError("operation_failed", "Watch polling delay failed unexpectedly.");
           }

@@ -16,6 +16,16 @@ with `reason: "invalid_payload"`. Unknown IDs use `reason: "unrecognized_type"`.
 Raw data stays reachable in either case. Optional/null metadata on older
 connectors remains absent: no capability probe or error-based fallback is needed.
 
+## Polling cadence
+
+`watch` polls the authority's change cursor every `pollIntervalMs` (default
+1 s) once it has caught up. `observe` and `connection.watch` use the same
+loop. While the browser page is hidden (`document.visibilityState ===
+"hidden"`) it waits at least a minute between polls instead, and polls
+immediately when the page becomes visible again, so background tabs stop
+generating a request per second per collection without delaying a returning
+user. Without a `document`, as in Node, the interval is unchanged.
+
 ## Producer evidence
 
 [`collection-changes-v1.json`](../packages/protocol/test/fixtures/collection-changes-v1.json)
