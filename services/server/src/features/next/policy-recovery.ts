@@ -10,6 +10,7 @@ export async function withPolicyLock<T>(db: DatabasePool, collectionId: string, 
   const lock = await db.connect();
   try {
     await lock.query("BEGIN");
+    await lock.query("SET LOCAL lock_timeout = '5s'");
     await lock.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 20261004))", [collectionId]);
     return await run();
   } finally {
@@ -54,7 +55,7 @@ async function recover(db: DatabasePool, log: LogServiceClient, collectionId: st
         const rows = await client.query<{ ops: { version: number; ops: unknown[] } }>(
           "SELECT ops FROM next_policy_outbox WHERE batch_id = $1 ORDER BY id", [batch.id]
         );
-        if (!rows.rows.length || rows.rows.some((row) => row.ops.version !== 1 || !Array.isArray(row.ops.ops))) {
+        if (!rows.rows.length || rows.rows.some((row) => !row.ops || typeof row.ops !== "object" || row.ops.version !== 1 || !Array.isArray(row.ops.ops))) {
           await client.query("UPDATE next_policy_batches SET state = 'parked', error = 'invalid_retained_ops', lost_at = now() WHERE id = $1", [batch.id]);
           await client.query("COMMIT");
           return queued;

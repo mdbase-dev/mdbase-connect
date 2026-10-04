@@ -390,7 +390,7 @@ describePostgres("mdbase-next policy outbox", () => {
     service.failReadCollection = undefined;
   });
 
-  it.each(["version", "missing"])("durably parks unrecoverable %s retained ops instead of draining fresh work", async (failure) => {
+  it.each(["version", "missing", "null", "string"])("durably parks unrecoverable %s retained ops instead of draining fresh work", async (failure) => {
     const collectionId = await register(await newUser(database.db));
     const emitter = new PolicyEmitter(database.db, client, signer);
     await emitter.drainCollection(collectionId);
@@ -398,8 +398,10 @@ describePostgres("mdbase-next policy outbox", () => {
     await emitter.drainCollection(collectionId);
     if (failure === "version") {
       await database.db.query("UPDATE next_policy_outbox SET ops = jsonb_set(ops, '{version}', '99') WHERE batch_id IN (SELECT id FROM next_policy_batches WHERE collection_id = $1 AND seq = 2)", [collectionId]);
-    } else {
+    } else if (failure === "missing") {
       await database.db.query("DELETE FROM next_policy_outbox WHERE batch_id IN (SELECT id FROM next_policy_batches WHERE collection_id = $1 AND seq = 2)", [collectionId]);
+    } else {
+      await database.db.query("UPDATE next_policy_outbox SET ops = $2::jsonb WHERE batch_id IN (SELECT id FROM next_policy_batches WHERE collection_id = $1 AND seq = 2)", [collectionId, JSON.stringify(failure === "null" ? null : "unsupported")]);
     }
     service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
     await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: false }]);
