@@ -214,9 +214,16 @@ pub(super) async fn doctor(state_dir: &Path, endpoint: &str, target: DaemonTarge
         }
         _ => ("unavailable", None),
     };
+    let claimed_collections = if daemon == "unavailable" {
+        Vec::new()
+    } else {
+        claimed_collections(endpoint).await
+    };
     serde_json::json!({
         "healthy": state_directory != "unavailable" && daemon == "ready"
-            && status.as_ref().is_some_and(|status| status["relay_problem"].is_null()),
+            && status.as_ref().is_some_and(|status| status["relay_problem"].is_null())
+            && claimed_collections.is_empty(),
+        "claimed_collections": claimed_collections,
         "state_directory": {
             "path": state_dir,
             "state": state_directory
@@ -230,6 +237,36 @@ pub(super) async fn doctor(state_dir: &Path, endpoint: &str, target: DaemonTarge
         "service_installed":
             target == DaemonTarget::InstalledService && service::installed()
     })
+}
+
+/// Registered collections a newer mdbase runtime has claimed. Connect fails
+/// closed on them, so doctor reports them instead of calling Connect healthy.
+async fn claimed_collections(endpoint: &str) -> Vec<Value> {
+    let Ok(response) = send(
+        endpoint,
+        ControlRequest::new(ControlCommand::CollectionList),
+    )
+    .await
+    else {
+        return Vec::new();
+    };
+    response
+        .result
+        .as_ref()
+        .and_then(Value::as_array)
+        .map(|collections| {
+            collections
+                .iter()
+                .filter(|collection| collection["unavailable_reason"] == "claimed_by_newer_runtime")
+                .map(|collection| {
+                    serde_json::json!({
+                        "id": collection["id"],
+                        "display_name": collection["display_name"],
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub(super) fn create_private_state_dir(state_dir: &Path) -> std::io::Result<()> {

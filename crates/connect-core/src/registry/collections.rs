@@ -34,7 +34,7 @@ impl CollectionRegistry {
         let mut collections = self.registered_summaries()?;
         for summary in &mut collections {
             if !matches!(mirror_collection_id(Path::new(&summary.path)), Ok(None)) {
-                summary.enabled = false;
+                mark_unavailable(summary);
                 continue;
             }
             let _ = self.refresh_summary_metadata(summary);
@@ -53,7 +53,7 @@ impl CollectionRegistry {
         let mut collections = self.registered_summaries()?;
         for summary in &mut collections {
             if !matches!(mirror_collection_id(Path::new(&summary.path)), Ok(None)) {
-                summary.enabled = false;
+                mark_unavailable(summary);
                 continue;
             }
             let _ = self.refresh_summary_metadata(summary);
@@ -81,7 +81,7 @@ impl CollectionRegistry {
             match mirror_collection_id(Path::new(&summary.path)) {
                 Ok(None) => {}
                 Ok(Some(_)) | Err(_) => {
-                    summary.enabled = false;
+                    mark_unavailable(&mut summary);
                     catalog.push(CollectionCatalogEntry {
                         summary,
                         description: None,
@@ -144,6 +144,7 @@ impl CollectionRegistry {
                     state: CollectionAuthorityTransferState::Fenced,
                 }),
                 contracts: Vec::new(),
+                unavailable_reason: None,
             })
         })
         .collect()
@@ -476,6 +477,15 @@ impl CollectionRegistry {
     }
 
     pub fn get(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
+        let mut collection = self.registered(id)?;
+        if mirror_collection_id(Path::new(&collection.path))?.is_some() {
+            collection.enabled = false;
+        }
+        Ok(collection)
+    }
+
+    /// The registry row, without consulting the folder's role marker.
+    pub(super) fn registered(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
         let connection = self.connection()?;
         let row = connection
             .query_row(
@@ -492,6 +502,7 @@ impl CollectionRegistry {
                         enabled: row.get(4)?,
                         authority_transfer: None,
                         contracts: Vec::new(),
+                        unavailable_reason: None,
                     })
                 },
             )
@@ -503,15 +514,21 @@ impl CollectionRegistry {
                 transfer_id,
                 state: CollectionAuthorityTransferState::Fenced,
             });
-        if mirror_collection_id(Path::new(&collection.path))?.is_some() {
-            collection.enabled = false;
-        }
         Ok(collection)
     }
 
     pub fn remove(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
         let _lifecycle = self.lock_runtime_lifecycle()?;
-        let collection = self.get(id)?;
+        // Removal only forgets the registration; it never touches the folder,
+        // so a collection a newer runtime has claimed must stay removable.
+        let collection = match self.get(id) {
+            Err(ConnectError::ClaimedByNewerRuntime) => {
+                let mut collection = self.registered(id)?;
+                mark_unavailable(&mut collection);
+                collection
+            }
+            other => other?,
+        };
         crate::LocalSyncStore::for_registry(self).assert_not_transferring(id)?;
         self.set_collection_access_overlay(id, false)?;
         self.connection()?
@@ -561,5 +578,14 @@ impl CollectionRegistry {
                 transaction.commit()?;
                 Ok(())
             })
+    }
+}
+
+/// Disable a summary whose folder cannot be served, recording a claim by a
+/// newer runtime so surfaces can explain it instead of showing a pause.
+fn mark_unavailable(summary: &mut CollectionSummary) {
+    summary.enabled = false;
+    if claimed_by_newer_runtime(Path::new(&summary.path)) {
+        summary.unavailable_reason = Some(CollectionUnavailableReason::ClaimedByNewerRuntime);
     }
 }

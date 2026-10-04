@@ -7,10 +7,10 @@ use mdbase_connect_protocol::{
     ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
     AuthoritySnapshot, CollectionAuthorityTransfer, CollectionAuthorityTransferState,
     CollectionChange, CollectionChangesPage, CollectionContractDescriptor, CollectionDescription,
-    CollectionSummary, CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice,
-    ContractSetupMode, EncryptedRelayEnvelope, GrantPolicy, GrantScope, GrantSummary,
-    SyncCollectionResources, SyncMutation, SyncMutationReceipt, SyncResourceDocument,
-    TypePackProvision, CONTROL_PROTOCOL_VERSION,
+    CollectionSummary, CollectionTypeDescriptor, CollectionUnavailableReason, ContractRequirement,
+    ContractSetupChoice, ContractSetupMode, EncryptedRelayEnvelope, GrantPolicy, GrantScope,
+    GrantSummary, RoleMarker, SyncCollectionResources, SyncMutation, SyncMutationReceipt,
+    SyncResourceDocument, TypePackProvision, CONTROL_PROTOCOL_VERSION, ROLE_MARKER_PATH,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractScopeError, ContractSelector};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -107,9 +107,10 @@ pub use grants::{
     canonical_policy_authority_digest, RemotePolicyAuthority, RemotePolicyAuthorityMode,
 };
 use identity::{
-    assert_local_authority_folder, clear_collection_identity, collection_display_name,
-    ensure_collection_id, normalized_optional, read_collection_id, read_collection_metadata,
-    remove_mirror_marker, set_collection_identity, write_collection_id, write_mirror_marker,
+    assert_local_authority_folder, claimed_by_newer_runtime, clear_collection_identity,
+    collection_display_name, ensure_collection_id, normalized_optional, read_collection_id,
+    read_collection_metadata, remove_mirror_marker, set_collection_identity, write_collection_id,
+    write_mirror_marker,
 };
 pub use identity::{collection_identity, mirror_collection_id};
 pub use migrations::{RegistryBackupDiagnostic, RegistryBackupMetadata, RegistryDiagnostics};
@@ -178,6 +179,10 @@ pub enum ConnectError {
     MirrorCannotRegister { collection_id: Uuid },
     #[error("Mirror role marker is invalid: {0}")]
     InvalidMirrorMarker(String),
+    #[error(
+        "This collection is now managed by a newer mdbase runtime on this computer. Update mdbase Connect, or remove the collection from Connect."
+    )]
+    ClaimedByNewerRuntime,
     #[error("The selected folder is not a registered collection copy: {0}")]
     NotARegisteredCollectionCopy(String),
     #[error("Unsupported collection operation: {0}")]
@@ -275,6 +280,7 @@ impl ConnectError {
             Self::DuplicateCollectionIdentity { .. } => "duplicate_collection_identity",
             Self::MirrorCannotRegister { .. } => "mirror_cannot_register",
             Self::InvalidMirrorMarker(_) => "invalid_mirror_marker",
+            Self::ClaimedByNewerRuntime => "collection_claimed_by_newer_runtime",
             Self::NotARegisteredCollectionCopy(_) => "not_a_registered_collection_copy",
             Self::UnsupportedOperation(_) => "unsupported_operation",
             Self::InvalidInput(_) => "invalid_input",

@@ -228,6 +228,19 @@ to retain its portable identity while acting as that collection's mirror;
 do not create or edit this marker manually. Invalid or unreadable metadata is
 an error, not evidence that the folder is unowned.
 
+### Folders claimed by a newer runtime
+
+A newer mdbase runtime claims a folder by writing a role marker with an integer
+`version` of 2 or more. Connect fails closed on such a folder: registration,
+every operation, enabling and runtime ingestion return
+`collection_claimed_by_newer_runtime`, and the message never contains the local
+path. `collection list` shows the collection as `claimed`, `doctor` warns about
+it, and the relay inventory reports `unavailable_reason:
+"claimed_by_newer_runtime"`. The daemon stops polling the collection and
+releases its runtime as soon as it notices the claim. The collection can still
+be removed from Connect, which forgets the registration without touching the
+folder or the claim.
+
 ## Desktop boundary
 
 Electron is responsible for windows, native folder selection, opening browser

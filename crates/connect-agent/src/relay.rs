@@ -767,13 +767,10 @@ async fn sync_collections(
     let payload = serde_json::json!({
         "relay_public_key": state.relay_public_key(),
         "inventory_revision": inventory_revision,
-        "collections": collections.into_iter().map(|collection| serde_json::json!({
-            "id": collection.id,
-            "display_name": collection.display_name,
-            "spec_version": collection.spec_version,
-            "enabled": collection.enabled,
-            "contracts": collection.contracts
-        })).collect::<Vec<_>>()
+        "collections": collections
+            .into_iter()
+            .map(inventory_entry)
+            .collect::<Result<Vec<_>, serde_json::Error>>()?
     });
     let response = client
         .post(format!(
@@ -801,6 +798,24 @@ async fn sync_collections(
         return Err(format!("collection sync failed with HTTP {}", response.status()).into());
     }
     Ok(())
+}
+
+fn inventory_entry(
+    collection: mdbase_connect_protocol::CollectionSummary,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let mut entry = serde_json::json!({
+        "id": collection.id,
+        "display_name": collection.display_name,
+        "spec_version": collection.spec_version,
+        "enabled": collection.enabled,
+        "contracts": collection.contracts
+    });
+    // Send the reason only when there is one: servers that predate it must
+    // keep accepting this inventory unchanged.
+    if let Some(reason) = collection.unavailable_reason {
+        entry["unavailable_reason"] = serde_json::to_value(reason)?;
+    }
+    Ok(entry)
 }
 
 fn websocket_url(server_url: &str) -> Result<Url, Box<dyn std::error::Error + Send + Sync>> {

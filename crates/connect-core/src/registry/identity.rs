@@ -8,13 +8,6 @@ pub(super) struct CollectionMetadata {
     pub(super) description: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct MirrorMarker {
-    version: u8,
-    role: String,
-    collection_id: Uuid,
-}
-
 pub(super) fn assert_local_authority_folder(root: &Path) -> Result<(), ConnectError> {
     if let Some(collection_id) = mirror_collection_id(root)? {
         return Err(ConnectError::MirrorCannotRegister { collection_id });
@@ -22,6 +15,9 @@ pub(super) fn assert_local_authority_folder(root: &Path) -> Result<(), ConnectEr
     Ok(())
 }
 
+/// The hosted collection a folder mirrors, if any. A newer runtime's claim
+/// and every unreadable marker fail closed. Messages name the marker relative
+/// to the collection because they can reach applications through the relay.
 pub fn mirror_collection_id(root: &Path) -> Result<Option<Uuid>, ConnectError> {
     let marker_directory = root.join(MIRROR_MARKER_DIRECTORY);
     let directory_metadata = match fs::symlink_metadata(&marker_directory) {
@@ -31,8 +27,7 @@ pub fn mirror_collection_id(root: &Path) -> Result<Option<Uuid>, ConnectError> {
     };
     if directory_metadata.file_type().is_symlink() || !directory_metadata.is_dir() {
         return Err(ConnectError::InvalidMirrorMarker(format!(
-            "{} must be an ordinary directory.",
-            marker_directory.display()
+            "{MIRROR_MARKER_DIRECTORY} must be an ordinary directory."
         )));
     }
     let marker_path = marker_directory.join(MIRROR_MARKER_FILE);
@@ -43,24 +38,27 @@ pub fn mirror_collection_id(root: &Path) -> Result<Option<Uuid>, ConnectError> {
     };
     if marker_metadata.file_type().is_symlink() || !marker_metadata.is_file() {
         return Err(ConnectError::InvalidMirrorMarker(format!(
-            "{} must be an ordinary file.",
-            marker_path.display()
+            "{ROLE_MARKER_PATH} must be an ordinary file."
         )));
     }
-    let marker: MirrorMarker =
-        serde_json::from_str(&fs::read_to_string(&marker_path)?).map_err(|error| {
-            ConnectError::InvalidMirrorMarker(format!(
-                "{} could not be read: {error}",
-                marker_path.display()
-            ))
-        })?;
-    if marker.version != 1 || marker.role != "mirror" {
-        return Err(ConnectError::InvalidMirrorMarker(format!(
-            "{} has an unsupported role or version.",
-            marker_path.display()
-        )));
+    match RoleMarker::classify(&fs::read(&marker_path)?) {
+        RoleMarker::Mirror { collection_id } => Ok(Some(collection_id)),
+        RoleMarker::ClaimedByNewerRuntime { .. } => Err(ConnectError::ClaimedByNewerRuntime),
+        RoleMarker::Unrecognized => Err(ConnectError::InvalidMirrorMarker(format!(
+            "{ROLE_MARKER_PATH} has an unsupported role or version."
+        ))),
+        RoleMarker::Malformed => Err(ConnectError::InvalidMirrorMarker(format!(
+            "{ROLE_MARKER_PATH} could not be read."
+        ))),
     }
-    Ok(Some(marker.collection_id))
+}
+
+/// Whether a registered folder has been claimed by a newer runtime.
+pub(super) fn claimed_by_newer_runtime(root: &Path) -> bool {
+    matches!(
+        mirror_collection_id(root),
+        Err(ConnectError::ClaimedByNewerRuntime)
+    )
 }
 
 pub(super) fn write_mirror_marker(root: &Path, collection_id: Uuid) -> Result<(), ConnectError> {
@@ -68,8 +66,7 @@ pub(super) fn write_mirror_marker(root: &Path, collection_id: Uuid) -> Result<()
     match fs::symlink_metadata(&marker_directory) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
             return Err(ConnectError::InvalidMirrorMarker(format!(
-                "{} must be an ordinary directory.",
-                marker_directory.display()
+                "{MIRROR_MARKER_DIRECTORY} must be an ordinary directory."
             )));
         }
         Ok(_) => {}
@@ -84,8 +81,7 @@ pub(super) fn write_mirror_marker(root: &Path, collection_id: Uuid) -> Result<()
             Ok(())
         } else {
             Err(ConnectError::InvalidMirrorMarker(format!(
-                "{} belongs to another collection.",
-                marker_path.display()
+                "{ROLE_MARKER_PATH} belongs to another collection."
             )))
         };
     }

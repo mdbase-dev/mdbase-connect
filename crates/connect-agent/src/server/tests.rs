@@ -498,6 +498,54 @@ async fn collection_remove_deactivates_runtime_finalization() {
 }
 
 #[tokio::test]
+async fn a_claimed_collection_is_deactivated_released_and_removable() {
+    let test_root = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(test_root.path().join("state")).unwrap();
+    let root = test_root.path().join("collection");
+    let collection = registry.create(&root, Some("Claimed"), "UTC").unwrap();
+    registry
+        .operation(
+            collection.id,
+            "create",
+            &serde_json::json!({"path": "note.md", "frontmatter": {"title": "Note"}}),
+        )
+        .unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    watcher.refresh(&registry.list().unwrap());
+    assert!(watcher.is_active(collection.id));
+
+    fs::create_dir_all(root.join(".mdbase")).unwrap();
+    fs::write(
+        root.join(".mdbase/connect-role.json"),
+        include_bytes!("../../../../test-fixtures/role-marker-v2-claim.json"),
+    )
+    .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while watcher.is_active(collection.id) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the finalizer kept polling a claimed collection"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(!registry
+        .resident_collection_ids()
+        .unwrap()
+        .contains(&collection.id));
+
+    let state = Arc::new(AgentState::new(registry, watcher.clone(), None));
+    let response = state
+        .execute(ControlRequest::new(ControlCommand::CollectionRemove(
+            mdbase_connect_protocol::CollectionIdParams {
+                collection_id: collection.id,
+            },
+        )))
+        .await;
+    assert!(response.ok, "{:?}", response.error);
+    assert!(root.join(".mdbase/connect-role.json").exists());
+}
+
+#[tokio::test]
 async fn bounds_local_control_request_memory() {
     let test_root = std::env::temp_dir().join(format!(
         "mdbase-connect-request-limit-test-{}",
