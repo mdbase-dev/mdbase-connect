@@ -12,6 +12,7 @@ import {
   type ApplicationCapabilityId
 } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "../../database-types.js";
+import { NOISE_PIPE_CAPABILITY, type NoisePipes } from "./noise-pipes.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, uuidBytes } from "./policy-wire.js";
 
@@ -168,9 +169,24 @@ export function deviceBindDigest(connectorId: string, sessionId: string, nonce: 
  * did not offer `next_device_v1`.
  */
 export class NextRelayDevices {
-  private readonly sockets = new WeakMap<WebSocket, { nonce: Buffer; deviceId?: string }>();
+  private readonly sockets = new WeakMap<WebSocket, { nonce: Buffer; pipes: boolean; deviceId?: string }>();
 
-  constructor(private readonly db: DatabasePool) {}
+  constructor(private readonly db: DatabasePool, private readonly pipes?: NoisePipes) {}
+
+  /** Text messages from the daemon that this module handles. */
+  handlesMessage(type: unknown): boolean {
+    return type === "device_bind" || type === "pipe_close";
+  }
+
+  async handleMessage(socket: WebSocket, connectorId: string, sessionId: string, message: Record<string, unknown>): Promise<void> {
+    if (message.type === "device_bind") return this.bind(socket, connectorId, sessionId, message);
+    if (this.boundDevice(socket)) this.pipes?.handleDeviceClose(socket, message);
+  }
+
+  /** Binary frames from the daemon: true when consumed as a Noise pipe frame. */
+  handleBinary(socket: WebSocket, raw: Buffer): boolean {
+    return this.boundDevice(socket) !== undefined && (this.pipes?.handleDeviceBinary(socket, raw) ?? false);
+  }
 
   negotiated(capabilities: readonly string[]): boolean {
     return capabilities.includes(NEXT_DEVICE_CAPABILITY);
@@ -180,12 +196,12 @@ export class NextRelayDevices {
   welcome(socket: WebSocket, capabilities: readonly string[]): { device_nonce?: string } {
     if (!this.negotiated(capabilities)) return {};
     const nonce = randomBytes(32);
-    this.sockets.set(socket, { nonce });
+    this.sockets.set(socket, { nonce, pipes: this.pipes !== undefined && capabilities.includes(NOISE_PIPE_CAPABILITY) });
     return { device_nonce: nonce.toString("hex") };
   }
 
   /** Handle `device_bind`; replies `device_bound` or `device_bind_failed`. */
-  async bind(socket: WebSocket, connectorId: string, sessionId: string, message: Record<string, unknown>): Promise<void> {
+  private async bind(socket: WebSocket, connectorId: string, sessionId: string, message: Record<string, unknown>): Promise<void> {
     const state = this.sockets.get(socket);
     const reply = (value: Record<string, unknown>) => {
       if (socket.readyState === 1) socket.send(JSON.stringify(value));
@@ -203,7 +219,8 @@ export class NextRelayDevices {
       return reply({ type: "device_bind_failed", reason: "unknown_device_or_signature" });
     }
     state.deviceId = deviceId;
-    reply({ type: "device_bound", device_id: deviceId });
+    if (state.pipes) await this.pipes!.attach(socket, connectorId, sessionId, deviceId);
+    reply({ type: "device_bound", device_id: deviceId, noise_pipes: state.pipes });
   }
 
   boundDevice(socket: WebSocket): string | undefined {

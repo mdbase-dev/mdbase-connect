@@ -1,0 +1,9 @@
+{
+  "reason": "mdbase-next Noise pipes: a relay byte-pipe module (daemon and client sides) plus a pub/sub primitive on the relay broker, because pipes stream both ways across instances, which the request/reply broker cannot carry.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 6,
+    "typeScriptExportDeclarations": 6,
+    "services/server": 1
+  }
+}

@@ -25,11 +25,12 @@ import { LogServiceClient } from "./features/next/log-service-client.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
 import { loadPolicySigner, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 import { NextRelayDevices } from "./features/next/devices.js";
+import { NoisePipes, registerNoisePipeClientRoute } from "./features/next/noise-pipes.js";
 import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { NotificationService, type NotificationTransports } from "./notifications.js";
 import { RelayHub } from "./relay.js";
-import type { RelayBroker } from "./relay-broker.js";
+import { LocalRelayBroker, type RelayBroker } from "./relay-broker.js";
 import type {
   AuthenticationLegalDocuments,
   RegistrationMode
@@ -126,7 +127,9 @@ export async function buildApp(options: BuildOptions) {
     options.db,
     options.registration ?? "closed"
   );
-  const relay = new RelayHub(options.db, options.relayBroker);
+  const relayBroker = options.relayBroker ?? new LocalRelayBroker();
+  const relay = new RelayHub(options.db, relayBroker);
+  const noisePipes = options.nextControlPlane ? new NoisePipes(options.db, relayBroker) : undefined;
   const notifications = options.notifications
     ? new NotificationService(
         options.db,
@@ -246,6 +249,7 @@ export async function buildApp(options: BuildOptions) {
     await providerRevocations?.close();
     await nextPolicyEmitter?.close();
     await notifications?.close();
+    noisePipes?.close();
     await relay.close();
   });
   notifications?.start();
@@ -466,8 +470,9 @@ export async function buildApp(options: BuildOptions) {
     hostedReference
   });
   if (options.nextControlPlane) {
-    relay.useNextDevices(new NextRelayDevices(options.db));
+    relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
     registerNextDeviceRoutes(app, { db: options.db });
+    registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
   }
   registerConnectorRelayRoute(app, { db: options.db, relay });
   registerApplicationRoutes(app, {
