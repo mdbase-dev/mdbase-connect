@@ -252,6 +252,68 @@ describePostgres("Noise pipe revocation backstop", () => {
     await admin?.end();
   }, 60_000);
 
+  it("allocates no recurring queries or broker resources when admission resumes after client close", async () => {
+    const id = await localGrantFixture(db);
+    let resolveAdmission!: (value: unknown) => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const held = new Promise((resolve) => { resolveAdmission = resolve; });
+    const queries = vi.spyOn(db, "query").mockImplementationOnce(() => { entered(); return held as ReturnType<typeof db.query>; });
+    const subscriptions = vi.spyOn(broker, "subscribePipe");
+    const publications = vi.spyOn(broker, "publishPipe");
+    const socket = new WebSocket(`${base}/v1/next/relay/client`);
+    try {
+      await once(socket, "open");
+      socket.send(JSON.stringify({ type: "pipe_auth", access_token: "synthetic", collection: id, grant: id, device: randomUUID(), device_noise_pk: "11".repeat(32) }));
+      await started;
+      const closed = once(socket, "close");
+      socket.close();
+      await closed;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      resolveAdmission({ rows: [{ connector_id: id }], rowCount: 1, command: "SELECT", fields: [], oid: 0 });
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      expect(queries).toHaveBeenCalledTimes(1);
+      expect(subscriptions).not.toHaveBeenCalled();
+      expect(publications).not.toHaveBeenCalled();
+    } finally {
+      queries.mockRestore(); subscriptions.mockRestore(); publications.mockRestore(); socket.close();
+    }
+  });
+
+  it.each(["generation", "subscribe", "publish"])("cleans up close during suspended %s without starting revalidation", async (stage) => {
+    const id = await localGrantFixture(db);
+    let resume!: (value: unknown) => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const held = new Promise((resolve) => { resume = resolve; });
+    const result = (rows: unknown[]) => ({ rows, rowCount: rows.length, command: "SELECT", fields: [], oid: 0 });
+    const queries = vi.spyOn(db, "query").mockResolvedValueOnce(result([{ connector_id: id }]));
+    if (stage === "generation") queries.mockImplementationOnce(() => { entered(); return held as ReturnType<typeof db.query>; });
+    else queries.mockResolvedValueOnce(result([{ relay_generation: 1 }]));
+    const closeBinding = vi.fn(async () => undefined);
+    const subscriptions = vi.spyOn(broker, "subscribePipe");
+    if (stage === "subscribe") subscriptions.mockImplementationOnce(() => { entered(); return held as ReturnType<typeof broker.subscribePipe>; });
+    else if (stage === "publish") subscriptions.mockResolvedValueOnce({ close: closeBinding });
+    const publications = vi.spyOn(broker, "publishPipe");
+    if (stage === "publish") publications.mockImplementationOnce(() => { entered(); return held as ReturnType<typeof broker.publishPipe>; });
+    const socket = new WebSocket(`${base}/v1/next/relay/client`);
+    try {
+      await once(socket, "open");
+      socket.send(JSON.stringify({ type: "pipe_auth", access_token: "synthetic", collection: id, grant: id, device: randomUUID(), device_noise_pk: "11".repeat(32) }));
+      await started;
+      const closed = once(socket, "close"); socket.close(); await closed;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      resume(stage === "generation" ? result([{ relay_generation: 1 }]) : stage === "subscribe" ? { close: closeBinding } : undefined);
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      expect(queries).toHaveBeenCalledTimes(2);
+      if (stage === "generation") expect(subscriptions).not.toHaveBeenCalled();
+      else expect(closeBinding).toHaveBeenCalledTimes(1);
+      if (stage !== "publish") expect(publications).not.toHaveBeenCalled();
+    } finally {
+      queries.mockRestore(); subscriptions.mockRestore(); publications.mockRestore(); socket.close();
+    }
+  });
+
   it.each(["grant", "token", "lookup"])("closes an open pipe at both ends on %s denial", async (revoked) => {
     const id = await localGrantFixture(db);
     await db.query("UPDATE grants SET activated_at = now() WHERE id = $1", [id]);
@@ -277,6 +339,12 @@ describePostgres("Noise pipe revocation backstop", () => {
       else if (revoked === "token") await db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [id]);
       expect((await closed).map(String)).toEqual(revoked === "lookup" ? ["4404", "connector_offline"] : ["4403", "grant_inactive"]);
       expect(toDevice).toContain(revoked === "lookup" ? "2:authorization_unavailable" : "2:grant_revoked");
+      const afterClose = vi.spyOn(db, "query");
+      const callsAtClose = afterClose.mock.calls.length;
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        expect(afterClose.mock.calls).toHaveLength(callsAtClose);
+      } finally { afterClose.mockRestore(); }
     } finally {
       lookup?.mockRestore();
       socket.close();
