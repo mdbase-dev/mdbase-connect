@@ -28,6 +28,8 @@ export interface NoisePipeLimits {
   handshakeMs: number;
   idleMs: number;
   lifetimeMs: number;
+  /** How often an open pipe re-checks its app token and grant (revocation backstop). */
+  revalidateMs: number;
 }
 
 export const DEFAULT_NOISE_PIPE_LIMITS: NoisePipeLimits = {
@@ -38,6 +40,7 @@ export const DEFAULT_NOISE_PIPE_LIMITS: NoisePipeLimits = {
   handshakeMs: 30_000,
   idleMs: 10 * 60_000,
   lifetimeMs: 24 * 60 * 60_000,
+  revalidateMs: 30_000,
 };
 
 // Broker frames: one type byte, then the payload.
@@ -233,20 +236,55 @@ export function registerNoisePipeClientRoute(
 ): void {
   const limits = options.limits ?? DEFAULT_NOISE_PIPE_LIMITS;
   app.get("/v1/next/relay/client", { websocket: true }, (socket) => {
-    const closeWith = (reason: string) => {
-      const code = { unauthenticated: 4401, grant_inactive: 4403, connector_offline: 4404, connector_busy: 4429 }[reason] ?? 4000;
-      if (socket.readyState < 2) socket.close(code, reason);
-    };
-    const authTimer = setTimeout(() => closeWith("unauthenticated"), limits.authTimeoutMs);
     let pipeId: string | undefined;
     let inbound: RelayBrokerBinding | undefined;
     let opened = false;
-    socket.once("close", () => {
+    let published = false;
+    let terminal = false;
+    let credential: { token: string; collection: string; grant: string } | undefined;
+    let revalidation: NodeJS.Timeout | undefined;
+    let openTimer: NodeJS.Timeout | undefined;
+    let verifying = false;
+    const authTimer = setTimeout(() => closeWith("unauthenticated"), limits.authTimeoutMs);
+    // Terminal cleanup runs on every denial and close, even before the close event.
+    // Async admission must never allocate timers/subscriptions after this boundary.
+    const finish = (reason?: string, deviceReason = "client_closed") => {
+      if (terminal) return;
+      terminal = true;
+      opened = false;
+      credential = undefined;
       clearTimeout(authTimer);
-      void inbound?.close();
-      if (pipeId && opened) void options.broker.publishPipe(pipeSubject(pipeId, "device"), closeFrame("client_closed")).catch(() => undefined);
-    });
+      clearTimeout(openTimer);
+      clearInterval(revalidation);
+      const binding = inbound;
+      inbound = undefined;
+      void binding?.close();
+      if (pipeId && published) void options.broker.publishPipe(pipeSubject(pipeId, "device"), closeFrame(deviceReason)).catch(() => undefined);
+      if (reason && socket.readyState < 2) {
+        const code = { unauthenticated: 4401, grant_inactive: 4403, connector_offline: 4404, connector_busy: 4429 }[reason] ?? 4000;
+        socket.close(code, reason);
+      }
+    };
+    const closeWith = (reason: string) => finish(reason);
+    const alive = () => {
+      if (!terminal && socket.readyState === 1) return true;
+      finish();
+      return false;
+    };
+    const startRevalidation = () => {
+      if (!alive()) return;
+      revalidation = setInterval(() => {
+        if (terminal || !credential || verifying) return;
+        verifying = true;
+        void admission(credential.token, credential.collection, credential.grant).then((result) => {
+          if (!terminal && !result.rows[0]) finish("grant_inactive", "grant_revoked");
+        }, () => finish("connector_offline", "authorization_unavailable")).finally(() => { verifying = false; });
+      }, limits.revalidateMs);
+      revalidation.unref();
+    };
+    socket.once("close", () => finish());
     socket.on("message", (raw: Buffer, isBinary: boolean) => {
+      if (!alive()) return;
       if (opened && pipeId) {
         if (!isBinary || raw.length > MAX_PIPE_PAYLOAD) return closeWith("invalid_frame");
         void options.broker.publishPipe(pipeSubject(pipeId, "device"), frame(DATA, raw)).catch(() => closeWith("connector_offline"));
@@ -256,6 +294,23 @@ export function registerNoisePipeClientRoute(
       pipeId = randomUUID();
       void admit(raw.toString("utf8"), pipeId).catch(() => closeWith("connector_offline"));
     });
+
+    function admission(token: string, collection: string, grant: string) {
+      return options.db.query<{ connector_id: string }>(
+        `SELECT col.connector_id
+         FROM access_tokens tok
+         JOIN grants g ON g.id = tok.grant_id
+         JOIN users u ON u.id = g.user_id
+         JOIN collections col ON col.id = g.collection_id
+         JOIN next_grant_client_keys k ON k.grant_id = g.id
+         WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
+           AND g.id::text = $3 AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+           AND u.suspended_at IS NULL
+           AND col.local_id = $2 AND col.enabled = true
+           AND col.present = true AND col.authority_state = 'active'`,
+        [tokenHash(token), collection, grant]
+      );
+    }
 
     async function admit(text: string, id: string): Promise<void> {
       let auth: { type?: unknown; access_token?: unknown; collection?: unknown; grant?: unknown; device?: unknown; device_noise_pk?: unknown };
@@ -268,28 +323,18 @@ export function registerNoisePipeClientRoute(
         || typeof auth.device !== "string" || typeof auth.device_noise_pk !== "string" || !/^[0-9a-f]{64}$/.test(auth.device_noise_pk)) {
         return closeWith("unauthenticated");
       }
-      const admitted = await options.db.query<{ connector_id: string }>(
-        `SELECT col.connector_id
-         FROM access_tokens tok
-         JOIN grants g ON g.id = tok.grant_id
-         JOIN users u ON u.id = g.user_id
-         JOIN collections col ON col.id = g.collection_id
-         JOIN next_grant_client_keys k ON k.grant_id = g.id
-         WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
-           AND g.id::text = $3 AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
-           AND u.suspended_at IS NULL
-           AND col.local_id = $2 AND col.enabled = true
-           AND col.present = true AND col.authority_state = 'active'`,
-        [tokenHash(auth.access_token), auth.collection, auth.grant]
-      );
+      const admitted = await admission(auth.access_token, auth.collection, auth.grant);
+      if (!alive()) return;
       const connectorId = admitted.rows[0]?.connector_id;
       if (!connectorId) return closeWith("grant_inactive");
+      credential = { token: auth.access_token, collection: auth.collection, grant: auth.grant };
       const generation = await currentRelayGeneration(options.db, connectorId);
+      if (!alive()) return;
       if (!generation) return closeWith("connector_offline");
       clearTimeout(authTimer);
-      const openTimer = setTimeout(() => closeWith("connector_offline"), limits.openTimeoutMs);
-      inbound = await options.broker.subscribePipe(pipeSubject(id, "client"), (message) => {
-        if (message.length === 0 || socket.readyState !== 1) return;
+      openTimer = setTimeout(() => closeWith("connector_offline"), limits.openTimeoutMs);
+      const binding = await options.broker.subscribePipe(pipeSubject(id, "client"), (message) => {
+        if (message.length === 0 || !alive()) return;
         if (message[0] === OPENED && !opened) {
           clearTimeout(openTimer);
           opened = true;
@@ -302,10 +347,20 @@ export function registerNoisePipeClientRoute(
           closeWith(Buffer.from(message.subarray(1)).toString("utf8"));
         }
       });
+      if (!alive()) { await binding.close(); return; }
+      inbound = binding;
+      published = true;
       await options.broker.publishPipe(
         pipeSubject("open", connectorId, generation),
         Buffer.from(JSON.stringify({ pipe_id: id, collection_id: auth.collection, grant_id: auth.grant, device_id: auth.device, device_noise_pk: auth.device_noise_pk }))
       );
+      if (!alive()) {
+        // Closure may have raced publication; send cleanup after that publication
+        // too, so an earlier close frame cannot be lost ahead of the open.
+        await options.broker.publishPipe(pipeSubject(id, "device"), closeFrame("client_closed")).catch(() => undefined);
+        return;
+      }
+      startRevalidation();
     }
   });
 }
