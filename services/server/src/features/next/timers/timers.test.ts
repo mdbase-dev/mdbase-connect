@@ -12,7 +12,7 @@ import {
   unsealPushTargets
 } from "../push-target-seal.js";
 import { legacyTimer } from "./hosted-copy.js";
-import { timerEventId } from "./worker.js";
+import { TimerWorker, notificationsConsumer, timerEventId, type TimerMetric } from "./worker.js";
 
 class RecordingPushTransport implements PushTransport {
   readonly deliveries: Array<{ target: PushSubscriptionTarget; payload: string }> = [];
@@ -307,6 +307,97 @@ describe("security conditions before MDBASE_NEXT_TIMERS=1 (#598)", () => {
       payload: { timers: [{ grant_id: local.grantId, namespace: "ns", id: "t", criterion_id: "task.reminder", fire_at: future(60_000) }] }
     });
     expect(imported.json()).toEqual({ imported: 0, existing: 0, skipped: 1 });
+  });
+});
+
+describe("fail-closed grants at registration, consumption and delivery; event ceiling (#598 audit)", () => {
+  async function markPrivate(f: Awaited<ReturnType<typeof fixture>>) {
+    const owner = await f.db.query<{ user_id: string }>("SELECT user_id FROM grants WHERE id = $1", [f.grantId]);
+    await f.db.query(
+      `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id)
+       VALUES ($1, $2, 'next', 'private', $3)`,
+      [f.collectionId, owner.rows[0].user_id, Buffer.alloc(8)]
+    );
+  }
+  const channelBody = {
+    installation_id: "installation_0123456789",
+    criteria: ["task.reminder"],
+    subscription: {
+      endpoint: "https://push.example/subscription/one",
+      expirationTime: null,
+      keys: { p256dh: "p256dh_012345678901234567890123456789", auth: "auth_0123456789012345" }
+    }
+  };
+  async function insertEvent(f: Awaited<ReturnType<typeof fixture>>, id: string, createdAt = new Date()) {
+    await f.db.query(
+      `INSERT INTO next_timer_events
+         (event_id, grant_id, criterion_id, namespace, timer_id, generation,
+          scheduled_for, fired_at, late_by_ms, data, created_at)
+       VALUES ($1, $2, 'task.reminder', 'ns', 't', 1, $3, $3, 0, NULL, $3)`,
+      [id, f.grantId, createdAt.toISOString()]
+    );
+  }
+
+  it("refuses channel registration and subscriptions for unapproved end-to-end grants", async () => {
+    const f = await fixture({ hosted: true });
+    const registered = await f.app.inject({ method: "POST", url: "/v1/notifications/channels", headers: f.auth, payload: channelBody });
+    expect(registered.statusCode).toBe(201);
+    await markPrivate(f);
+    const refused = await f.app.inject({ method: "POST", url: "/v1/notifications/channels", headers: f.auth, payload: channelBody });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error.details.reason).toBe("grant_not_usable");
+    const subscription = await f.app.inject({
+      method: "PUT",
+      url: "/v1/notifications/subscriptions/task.reminder",
+      headers: f.auth,
+      payload: { channel_id: registered.json().channel_id }
+    });
+    expect(subscription.statusCode).toBe(403);
+  });
+
+  it("consumes events and drops deliveries for unapproved end-to-end grants", async () => {
+    const f = await fixture({ hosted: true });
+    await f.app.inject({ method: "POST", url: "/v1/notifications/channels", headers: f.auth, payload: channelBody });
+    // A delivery already queued before the collection went private is discarded.
+    const queued = await f.app.inject({
+      method: "POST",
+      url: "/internal/v1/hosted/notification-signals",
+      headers: { authorization: `Bearer ${INTERNAL_TOKEN}` },
+      payload: { signal_id: "signal_01234567890123456789", grant_id: f.grantId, criterion_id: "task.reminder", cursor: "c" }
+    });
+    expect(queued.statusCode).toBe(202);
+    await markPrivate(f);
+    await insertEvent(f, "tmr_private_event_000000000000000");
+    await f.timers!.tick();
+    // Let the drain kicked by the signal route finish, then drain once more.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(f.transport.deliveries).toHaveLength(0);
+    const statuses = await f.db.query<{ status: string; last_error: string | null }>(
+      "SELECT status, last_error FROM notification_deliveries"
+    );
+    expect(statuses.rows).toEqual([{ status: "discarded", last_error: "grant_not_usable" }]);
+    const receipts = await f.db.query("SELECT event_id FROM next_timer_event_receipts");
+    expect(receipts.rows).toHaveLength(1);
+    const signals = await f.db.query<{ signal_id: string }>("SELECT signal_id FROM notification_signals");
+    expect(signals.rows.map((row) => row.signal_id)).toEqual(["signal_01234567890123456789"]);
+  });
+
+  it("deletes events past the hard ceiling even if unhandled, and reports consumer lag", async () => {
+    const f = await fixture();
+    const metrics: TimerMetric[] = [];
+    const stalled = { name: "stalled", handle: async () => { throw new Error("stalled"); } };
+    const worker = new TimerWorker(f.db, [notificationsConsumer(() => undefined), stalled], {
+      onMetric: (metric) => metrics.push(metric)
+    });
+    const day = 24 * 60 * 60_000;
+    await insertEvent(f, "tmr_ancient_event_00000000000000", new Date(Date.now() - 15 * day));
+    await insertEvent(f, "tmr_lagging_event_00000000000000", new Date(Date.now() - 2 * 60 * 60_000));
+    await worker.prune();
+    const left = await f.db.query<{ event_id: string }>("SELECT event_id FROM next_timer_events");
+    expect(left.rows.map((row) => row.event_id)).toEqual(["tmr_lagging_event_00000000000000"]);
+    expect(metrics).toContainEqual({ metric: "timer_event_hard_ceiling_deleted", events: 1 });
+    expect(metrics).toContainEqual(expect.objectContaining({ metric: "timer_event_consumer_lag", consumer: "stalled" }));
+    expect(JSON.stringify(metrics)).not.toContain(f.grantId);
   });
 });
 

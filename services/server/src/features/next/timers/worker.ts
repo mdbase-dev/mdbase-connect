@@ -20,6 +20,18 @@ import { cancelRevokedGrantTimers } from "./store.js";
  * them. Keep them only for a short debug window (SEC-043 §2).
  */
 export const EVENT_RETENTION_MS = 7 * 24 * 60 * 60_000;
+/**
+ * Hard ceiling: events are deleted after this age even if a consumer never
+ * handled them, so a stalled consumer can't keep reminder history.
+ */
+export const EVENT_HARD_CEILING_MS = 14 * 24 * 60 * 60_000;
+/** A consumer whose oldest unhandled event is older than this is reported as lagging. */
+export const CONSUMER_LAG_ALERT_MS = 60 * 60_000;
+
+/** Privacy-safe metrics for alerting: names, counts and ages only. */
+export type TimerMetric =
+  | { metric: "timer_event_consumer_lag"; consumer: string; oldest_age_seconds: number }
+  | { metric: "timer_event_hard_ceiling_deleted"; events: number };
 
 /** The data of `mdbase.runtime.timer.fired@1.0.0`, plus routing fields. */
 export interface TimerFiredEvent {
@@ -73,10 +85,17 @@ function lengthPrefixed(value: string): Buffer {
 }
 
 /** Turns fired-timer events into opaque notification signals (push and webhooks). */
-export function notificationsConsumer(wake: () => void): TimerEventConsumer {
+export function notificationsConsumer(
+  wake: () => void,
+  resolver: TimerGrantResolver = legacyTimerGrantResolver
+): TimerEventConsumer {
   return {
     name: "notifications",
     async handle(db, event) {
+      // Usable-grant check at consumption (SEC-043): an event for a grant that
+      // is no longer usable is consumed without producing a signal.
+      const grant = await resolver.resolve(db, event.grant_id);
+      if (!grant || !grantMayFire(grant, event.criterion_id)) return;
       await insertNotificationSignal(db, {
         signalId: event.event_id,
         grantId: event.grant_id,
@@ -109,6 +128,7 @@ export class TimerWorker {
       batchSize?: number;
       resolver?: TimerGrantResolver;
       onError?: (error: unknown) => void;
+      onMetric?: (metric: TimerMetric) => void;
     } = {}
   ) {}
 
@@ -295,6 +315,8 @@ export class TimerWorker {
     if (now - this.lastPrune < 60 * 60_000) return;
     this.lastPrune = now;
     await this.pruneTimers(now);
+    await this.enforceCeiling(now);
+    await this.reportLag(now);
     if (this.consumers.length === 0) return;
     const old = await this.db.query<{ event_id: string }>(
       `SELECT event_id FROM next_timer_events WHERE created_at < $1
@@ -321,6 +343,47 @@ export class TimerWorker {
       const list = placeholders(done.length);
       await this.db.query(`DELETE FROM next_timer_event_receipts WHERE event_id IN (${list})`, done);
       await this.db.query(`DELETE FROM next_timer_events WHERE event_id IN (${list})`, done);
+    }
+  }
+
+  /** Delete every event older than the hard ceiling, handled or not. */
+  private async enforceCeiling(now: number): Promise<void> {
+    const cutoff = new Date(now - EVENT_HARD_CEILING_MS).toISOString();
+    await this.db.query(
+      `DELETE FROM next_timer_event_receipts WHERE event_id IN (
+         SELECT event_id FROM next_timer_events WHERE created_at < $1)`,
+      [cutoff]
+    );
+    const deleted = await this.db.query(
+      "DELETE FROM next_timer_events WHERE created_at < $1 RETURNING event_id",
+      [cutoff]
+    );
+    if (deleted.rows.length > 0) {
+      this.options.onMetric?.({ metric: "timer_event_hard_ceiling_deleted", events: deleted.rows.length });
+    }
+  }
+
+  /** Report each consumer whose oldest unhandled event exceeds the lag threshold. */
+  async reportLag(now = Date.now()): Promise<void> {
+    for (const consumer of this.consumers) {
+      const oldest = await this.db.query<{ created_at: Date | string }>(
+        `SELECT e.created_at FROM next_timer_events e
+         LEFT JOIN next_timer_event_receipts r
+           ON r.event_id = e.event_id AND r.consumer = $1
+         WHERE r.event_id IS NULL
+         ORDER BY e.created_at LIMIT 1`,
+        [consumer.name]
+      );
+      const row = oldest.rows[0];
+      if (!row) continue;
+      const age = now - new Date(row.created_at).getTime();
+      if (age > CONSUMER_LAG_ALERT_MS) {
+        this.options.onMetric?.({
+          metric: "timer_event_consumer_lag",
+          consumer: consumer.name,
+          oldest_age_seconds: Math.round(age / 1000)
+        });
+      }
     }
   }
 

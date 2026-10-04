@@ -148,7 +148,8 @@ export async function buildApp(options: BuildOptions) {
         options.notifications.transports,
         options.notifications.pollIntervalMs,
         (error) => app.log.error({ err: error }, "notification delivery worker failed"),
-        options.notifications.pushTargetSealer
+        options.notifications.pushTargetSealer,
+        options.nextTimers?.resolver
       )
     : undefined;
   const timers = options.nextTimers
@@ -158,11 +159,12 @@ export async function buildApp(options: BuildOptions) {
           void notifications?.drainOnce().catch(
             (error) => app.log.error({ err: error }, "notification delivery worker failed")
           );
-        })],
+        }, options.nextTimers.resolver)],
         {
           pollIntervalMs: options.nextTimers.pollIntervalMs,
           resolver: options.nextTimers.resolver,
-          onError: (error) => app.log.error({ err: error }, "timer worker failed")
+          onError: (error) => app.log.error({ err: error }, "timer worker failed"),
+          onMetric: (metric) => app.log.warn(metric, "privacy-safe Connect metric")
         }
       )
     : undefined;
@@ -448,7 +450,8 @@ export async function buildApp(options: BuildOptions) {
     service: notifications,
     publicKey: options.notifications?.publicKey,
     transports: options.notifications?.transports,
-    hostedProvider: options.hostedProvider
+    hostedProvider: options.hostedProvider,
+    grantResolver: options.nextTimers?.resolver
   });
   if (timers) {
     registerTimerRoutes(app, {

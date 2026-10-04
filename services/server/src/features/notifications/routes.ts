@@ -13,6 +13,10 @@ import {
   type NotificationTransports
 } from "../../notifications.js";
 import { tokenHash } from "../../security.js";
+import {
+  legacyTimerGrantResolver,
+  type TimerGrantResolver
+} from "../next/timers/grants.js";
 import { apiError } from "../../platform/http-errors.js";
 import {
   bearerToken,
@@ -25,6 +29,8 @@ interface NotificationRoutesOptions {
   publicKey?: string;
   transports?: NotificationTransports;
   hostedProvider?: HostedProviderClient;
+  /** Fail-closed grant resolver shared with the timer service. */
+  grantResolver?: TimerGrantResolver;
 }
 
 const signalSchema = z.object({
@@ -117,6 +123,10 @@ export function registerNotificationRoutes(
           "invalid_token",
           "Access token is invalid or expired."
         ));
+      }
+      if (!(await (options.grantResolver ?? legacyTimerGrantResolver).resolve(connection, grant.grant_id))?.usable) {
+        await connection.query("ROLLBACK");
+        return reply.code(403).send(grantNotUsable());
       }
       const application = await connection.query<{
         notifications: ApplicationNotifications;
@@ -307,6 +317,9 @@ export function registerNotificationRoutes(
           "invalid_token",
           "Access token is invalid or expired."
         ));
+      }
+      if (!(await (options.grantResolver ?? legacyTimerGrantResolver).resolve(options.db, grant.grant_id))?.usable) {
+        return reply.code(403).send(grantNotUsable());
       }
       const application = await options.db.query<{
         notification_criteria: NotificationCriterion[];
@@ -499,4 +512,13 @@ function notificationsUnavailable(reply: {
     "notifications_unavailable",
     "Push notifications are not configured."
   ));
+}
+
+/** End-to-end grants without device approval (and unusable grants) get no channels. */
+function grantNotUsable() {
+  return apiError(
+    "forbidden",
+    "This grant cannot receive notifications until a device approves it.",
+    { reason: "grant_not_usable" }
+  );
 }

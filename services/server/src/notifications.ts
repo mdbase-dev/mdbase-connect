@@ -8,6 +8,10 @@ import {
   PushTargetKeyUnavailable,
   type PushTargetSealer
 } from "./features/next/push-target-seal.js";
+import {
+  legacyTimerGrantResolver,
+  type TimerGrantResolver
+} from "./features/next/timers/grants.js";
 
 export interface PushSubscriptionTarget {
   endpoint: string;
@@ -123,8 +127,18 @@ export class NotificationService {
     private readonly transports: NotificationTransports,
     private readonly pollIntervalMs = 1_000,
     private readonly onError: (error: unknown) => void = () => undefined,
-    private readonly sealer?: PushTargetSealer
+    private readonly sealer?: PushTargetSealer,
+    private readonly grantResolver: TimerGrantResolver = legacyTimerGrantResolver
   ) {}
+
+  /**
+   * The grant is usable for delivery: the same fail-closed resolver as timers,
+   * so an end-to-end grant without device approval never receives a push.
+   */
+  private async grantUsable(grantId: string): Promise<boolean> {
+    const grant = await this.grantResolver.resolve(this.db, grantId);
+    return grant?.usable === true;
+  }
 
   /** The push-target sealer, when push targets are sealed at rest. */
   get pushTargetSealer(): PushTargetSealer | undefined {
@@ -213,6 +227,10 @@ export class NotificationService {
       const leaseToken = await this.claim("notification_deliveries", row.id);
       if (!leaseToken) continue;
       processed += 1;
+      if (!await this.grantUsable(row.grant_id)) {
+        await this.finish("notification_deliveries", row.id, leaseToken, "grant_not_usable");
+        continue;
+      }
       const payload = notificationPayload(row);
       if (!payload) {
         await this.finish(
@@ -256,6 +274,10 @@ export class NotificationService {
       const leaseToken = await this.claim("notification_webhook_deliveries", row.id);
       if (!leaseToken) continue;
       processed += 1;
+      if (!await this.grantUsable(row.grant_id)) {
+        await this.finish("notification_webhook_deliveries", row.id, leaseToken, "grant_not_usable");
+        continue;
+      }
       const notification = notificationPayload(row);
       if (!notification) {
         await this.finish(

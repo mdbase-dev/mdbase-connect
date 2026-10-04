@@ -15,3 +15,5 @@
   `MDBASE_NEXT_PUSH_TOKEN_KEY_ID`. `next:timers seal-push-targets` seals
   existing rows. `unseal-push-targets` restores plaintext before rolling back to
   a release that predates sealing.
+- Push channel registration and push and webhook delivery refuse grants on
+  mdbase-next private-sync collections until device approval can be checked.

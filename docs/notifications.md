@@ -396,6 +396,16 @@ same for local, synced and end-to-end collections.
   7 days, once every consumer has handled the event. They are a history of
   reminder times, which for local and end-to-end collections is the only thing
   mdbase holds about them. Database backups keep them until the backups expire.
+  - **Hard ceiling.** Events older than 14 days are deleted whether or not every
+    consumer has handled them, so a stalled consumer can't hold history.
+  - **Metric `timer_event_hard_ceiling_deleted`** (log line "privacy-safe
+    Connect metric") counts those deletions.
+  - **Alert.** `timer_event_consumer_lag` is logged when a consumer's oldest
+    unhandled event is over an hour old. Alert on it.
+- **Fail-closed grants.** Timer calls, channel registration, event consumption
+  and push and webhook delivery all use one grant resolver. Until the
+  mdbase-next resolver checks device approval, it treats every grant on a
+  `sync = private` collection as unusable.
 - **Cutover.** `pnpm --filter @mdbase/connect-server next:timers copy-hosted
   <collection>` copies a hosted collection's active timers. It reads
   `MDBASE_NEXT_PROVIDER_DATABASE_URL`.
