@@ -9,6 +9,8 @@ import {
   clientFingerprint,
   deviceBindDigest,
   deviceRegistrationDigest,
+  weakAgreementKey,
+  weakSigningKey,
   DeviceRegistrationError,
   grantCapabilityGroups,
   issueDeviceChallenge,
@@ -47,6 +49,22 @@ describe("device helpers", () => {
       .toEqual(["collection.read", "records.create"]);
     expect(grantCapabilityGroups(2, ["update"])).toEqual([]);
     expect(grantCapabilityGroups(1, ["read"])).toBeUndefined();
+  });
+
+  it("recognises weak device keys (SEC-039)", () => {
+    const hex = (value: string) => Buffer.from(value, "hex");
+    for (const weak of ["01" + "00".repeat(31), "ec" + "ff".repeat(30) + "7f", "00".repeat(32), "00".repeat(31) + "80",
+      "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85", "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+      "ff".repeat(31) + "7f"]) {
+      expect(weakSigningKey(hex(weak)), weak).toBe(true);
+    }
+    for (const weak of ["00".repeat(32), "01" + "00".repeat(31), "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b880",
+      "5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157", "ee" + "ff".repeat(30) + "ff"]) {
+      expect(weakAgreementKey(hex(weak)), weak).toBe(true);
+    }
+    const { privateKey } = generateKeyPairSync("ed25519");
+    expect(weakSigningKey(ed25519RawPublicKey(privateKey))).toBe(false);
+    expect(weakAgreementKey(randomBytes(32))).toBe(false);
   });
 
   it("computes the daemon's client fingerprint", () => {
@@ -90,6 +108,10 @@ describePostgres("mdbase-next daemon devices", () => {
     await expect(registerDevice(db, connector, await registration(db, connectorId, randomUUID(), keys))).rejects.toMatchObject({ code: "device_already_bound" });
     const forged = { ...(await registration(db, connectorId, deviceId, keys)), sig: "00".repeat(64) };
     await expect(registerDevice(db, connector, forged)).rejects.toBeInstanceOf(DeviceRegistrationError);
+    for (const field of ["kem_pk", "noise_pk"]) {
+      const weak = { ...(await registration(db, connectorId, deviceId, keys)), [field]: "00".repeat(32) };
+      await expect(registerDevice(db, connector, weak)).rejects.toMatchObject({ code: "invalid_device" });
+    }
     const other = await revocationFixture(db);
     const stolen = await registration(db, connectorId, randomUUID(), deviceKeys());
     await expect(registerDevice(db, { id: other, user_id: other }, stolen)).rejects.toMatchObject({ code: "invalid_device" });

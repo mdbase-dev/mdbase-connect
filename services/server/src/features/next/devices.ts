@@ -24,6 +24,50 @@ export class DeviceRegistrationError extends Error {
   }
 }
 
+// Encodings with the top bit masked, as libsodium compares them (SEC-039).
+// Ed25519: the small-order points and the non-canonical y >= p encodings of y = 0, 1.
+const WEAK_ED25519 = [
+  "0000000000000000000000000000000000000000000000000000000000000000",
+  "0100000000000000000000000000000000000000000000000000000000000000",
+  "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+  "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+  "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+  "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+  "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+];
+// X25519: the low-order u-coordinates, including 0 (all-zero is reserved for recovery devices).
+const WEAK_X25519 = [
+  "0000000000000000000000000000000000000000000000000000000000000000",
+  "0100000000000000000000000000000000000000000000000000000000000000",
+  "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800",
+  "5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157",
+  "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+  "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+  "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+];
+
+function masked(key: Uint8Array): string {
+  const copy = Buffer.from(key);
+  copy[31] = copy[31]! & 0x7f;
+  return copy.toString("hex");
+}
+
+/** A non-canonical (y >= p) Ed25519 encoding: y read little-endian with the sign bit cleared. */
+function nonCanonicalEd25519(key: Uint8Array): boolean {
+  const y = BigInt(`0x${Buffer.from(key).reverse().toString("hex")}`) & ((1n << 255n) - 1n);
+  return y >= (1n << 255n) - 19n;
+}
+
+/** Ed25519 public keys a device may not use: small order or non-canonical. */
+export function weakSigningKey(key: Uint8Array): boolean {
+  return WEAK_ED25519.includes(masked(key)) || nonCanonicalEd25519(key);
+}
+
+/** X25519 public keys a device may not use: all-zero or low order. */
+export function weakAgreementKey(key: Uint8Array): boolean {
+  return WEAK_X25519.includes(masked(key));
+}
+
 const bytes = (hex: unknown, size: number): Buffer | null =>
   typeof hex === "string" && new RegExp(`^[0-9a-f]{${size * 2}}$`).test(hex) ? Buffer.from(hex, "hex") : null;
 
@@ -70,6 +114,9 @@ export async function registerDevice(
   const sig = bytes(body.sig, 64);
   if (!deviceId || !kind || !signPk || !kemPk || !noisePk || !challenge || !sig) {
     throw new DeviceRegistrationError("invalid_device", "The device registration is malformed.");
+  }
+  if (weakSigningKey(signPk) || weakAgreementKey(kemPk) || weakAgreementKey(noisePk)) {
+    throw new DeviceRegistrationError("invalid_device", "A device key is weak, small order or non-canonical.");
   }
   const digest = deviceRegistrationDigest({ challenge, connectorId: connector.id, deviceId, signPk, kemPk, noisePk });
   if (!verifies(signPk, digest, sig)) throw new DeviceRegistrationError("invalid_device", "The device signature does not verify.");
