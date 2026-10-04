@@ -8,6 +8,7 @@ import { canonicalSha256 } from "./canonical-json.js";
 import type { DatabasePool } from "./db.js";
 import { ConnectorOperationError } from "./relay-errors.js";
 import { normalizedApplicationOrigin } from "./features/authorizations/redirects.js";
+import { clientFingerprint, grantCapabilityGroups } from "./features/next/devices.js";
 
 const MAX_POLICY_SEQUENCE = BigInt(Number.MAX_SAFE_INTEGER);
 const POLICY_STAGE_DELAY_MS = 2_000;
@@ -194,6 +195,7 @@ export interface PolicyGrantSource {
   encryption?: unknown | null;
   file_capability?: unknown | null;
   application_authorization: ApplicationAuthorizationProof;
+  client_pk?: Buffer | null;
 }
 
 export function normalizePolicyGrant(
@@ -234,6 +236,19 @@ export function normalizePolicyGrant(
   };
 }
 
+/**
+ * Fields a `next_device_v1` daemon needs for its access list (interface note
+ * 2026-10-04-control-daemon-grant-feed-and-relay.md §3). Absent fields mean the grant
+ * works only through the envelope compatibility layer.
+ */
+function nextDeviceGrantFields(grant: { operations: string[]; client_pk: Buffer | null; application_authorization: ApplicationAuthorizationProof }): Record<string, unknown> {
+  const capabilities = grantCapabilityGroups(grant.application_authorization.binding.contracts.semantic_capabilities, grant.operations);
+  return {
+    ...(capabilities ? { capabilities } : {}),
+    ...(grant.client_pk ? { client_pk: grant.client_pk.toString("hex"), client_fingerprint: clientFingerprint(grant.client_pk) } : {})
+  };
+}
+
 export async function buildPolicySnapshot(
   db: DatabasePool,
   connectorId: string,
@@ -241,7 +256,8 @@ export async function buildPolicySnapshot(
   expectedRelayGeneration?: string,
   isStillCurrent: () => boolean = () => true,
   mode: PolicyMode = "lease_v1",
-  declarationEvidence = false
+  declarationEvidence = false,
+  nextDevice = false
 ): Promise<PolicySnapshot | null> {
   const connection = await observeConnectorPolicyStage("database_checkout", () => db.connect());
   const rollback = () => observeConnectorPolicyStage(
@@ -302,7 +318,7 @@ export async function buildPolicySnapshot(
       file_capability: unknown | null;
       application_authorization: ApplicationAuthorizationProof;
       application_declaration: unknown | null;
-      notification_criteria: unknown[]; created_at: Date | string;
+      notification_criteria: unknown[]; created_at: Date | string; client_pk: Buffer | null;
     }>(
       `SELECT g.id, g.application_id, a.name AS application_name,
               a.distribution AS application_distribution,
@@ -314,10 +330,12 @@ export async function buildPolicySnapshot(
               c.local_id, c.display_name AS collection_name, g.operations, g.scope,
               g.encryption, g.file_capability, g.application_authorization,
               a.application_declaration,
-              g.notification_criteria, g.created_at
+              g.notification_criteria, g.created_at,
+              ${nextDevice ? "k.client_pk" : "NULL::bytea AS client_pk"}
        FROM grants g
        JOIN collections c ON c.id = g.collection_id
        JOIN applications a ON a.id = g.application_id
+       ${nextDevice ? "LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id" : ""}
        WHERE c.connector_id = $1 AND g.revoked_at IS NULL
          AND g.activated_at IS NOT NULL
          AND g.scope->>'access' = 'full_collection'
@@ -329,10 +347,10 @@ export async function buildPolicySnapshot(
     if (sequenceValue > MAX_POLICY_SEQUENCE) throw new PolicySequenceExhaustedError();
     const sequence = Number(sequenceValue);
     const leaseIssuedAtMs = new Date(active.rows[0].database_now).getTime();
-    const policyGrants = grants.rows.map((grant) => normalizePolicyGrant({
-      ...grant,
-      collection_id: grant.local_id
-    }, declarationEvidence));
+    const policyGrants = grants.rows.map((grant) => {
+      const normalized = normalizePolicyGrant({ ...grant, collection_id: grant.local_id }, declarationEvidence);
+      return nextDevice ? { ...normalized, ...nextDeviceGrantFields(grant) } : normalized;
+    });
     await observeConnectorPolicyStage("transaction_commit", () => connection.query("COMMIT"));
     if (mode === "legacy_ack_v0") {
       return {

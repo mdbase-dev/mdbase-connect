@@ -9,12 +9,11 @@ import type {
 import {
   CONNECT_CONTRACT_SUPPORT, CONTROL_PROTOCOL_VERSION,
   isConnectProblem, normalizeConnectProblem,
-  OPERATION_TRANSPORT_PROTOCOL_VERSION,
-  POLICY_FRESHNESS_LEASE_CAPABILITY,
-  POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION,
-  PROTOCOL_USAGE_REPORT_CAPABILITY, RELAY_CAPABILITIES,
-  APPLICATION_DECLARATION_EVIDENCE_CAPABILITY
+  OPERATION_TRANSPORT_PROTOCOL_VERSION, POLICY_FRESHNESS_LEASE_CAPABILITY,
+  POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION, PROTOCOL_USAGE_REPORT_CAPABILITY,
+  RELAY_CAPABILITIES, APPLICATION_DECLARATION_EVIDENCE_CAPABILITY
 } from "@mdbase-dev/connect-protocol";
+import type { NextRelayDevices } from "./features/next/devices.js";
 import type { DatabasePool } from "./db.js";
 import type { DatabaseQueryable } from "./database-types.js";
 import {
@@ -74,6 +73,7 @@ export class RelayHub {
   private readonly legacyPolicyPublisher: ExactPolicyPublisher;
   private closed = false;
   private authorizationHandler?: AuthorizationHandler;
+  private nextDevices?: NextRelayDevices;
 
   constructor(
     private readonly db: DatabasePool,
@@ -97,6 +97,7 @@ export class RelayHub {
     );
   }
 
+  useNextDevices(devices: NextRelayDevices): void { this.nextDevices = devices; }
   beginHandshake(socket: WebSocket): Promise<RelayHello | null> {
     return receiveRelayHello(socket);
   }
@@ -194,7 +195,8 @@ export class RelayHub {
             {
               connectorId: identity.connectorId, generation: identity.generation, isStillCurrent,
               declarationEvidence: hello.capabilities.includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY)
-                && hello.contract_support.semantic_capabilities.includes(2)
+                && hello.contract_support.semantic_capabilities.includes(2),
+              nextDevice: this.nextDevices?.negotiated(hello.capabilities) ?? false
             },
             (message) => this.sendToConnector(
               identity.socket, identity.connectorId, undefined, message.request_id,
@@ -265,6 +267,9 @@ export class RelayHub {
           revision?: string;
           entries?: unknown[];
         };
+        if (message.type === "device_bind" && this.nextDevices) {
+          return void this.nextDevices.bind(socket, connectorId, generation, message as Record<string, unknown>);
+        }
         if (message.type === "protocol_usage_report") {
           if (
             message.protocol_version !== CONTROL_PROTOCOL_VERSION
@@ -440,7 +445,8 @@ export class RelayHub {
       protocol_version: CONTROL_PROTOCOL_VERSION,
       session_id: generation,
       capabilities: [...RELAY_CAPABILITIES],
-      contract_support: CONNECT_CONTRACT_SUPPORT
+      contract_support: CONNECT_CONTRACT_SUPPORT,
+      ...this.nextDevices?.welcome(socket, hello.capabilities)
     }));
     socket.once("close", (code) => {
       reportConnectorRelayClose(code, session.ready);

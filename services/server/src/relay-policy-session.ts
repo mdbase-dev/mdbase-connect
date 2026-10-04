@@ -206,6 +206,8 @@ export class RelayPolicySession {
 
 export interface ExactPolicyAuthority {
   declarationEvidence?: boolean;
+  /** The connector negotiated `next_device_v1`: grants carry their Noise fields. */
+  nextDevice?: boolean;
   connectorId: string;
   generation: string;
   isStillCurrent(): boolean;
@@ -234,7 +236,8 @@ export class ExactPolicyPublisher {
       authority.generation,
       () => this.isOpen() && authority.isStillCurrent(),
       this.mode,
-      authority.declarationEvidence === true
+      authority.declarationEvidence === true,
+      authority.nextDevice === true
     ));
     if (!message || !await observeConnectorPolicyStage(
       "generation_after_build", () => this.isCurrent(authority)

@@ -1,0 +1,9 @@
+{
+  "reason": "mdbase-next daemons register a device and bind it to their relay socket; the device module and its routes are a new boundary that the relay, the policy snapshot and later Noise pipes use.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 12,
+    "typeScriptExportDeclarations": 11,
+    "services/server": 2
+  }
+}
