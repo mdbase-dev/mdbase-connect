@@ -1,5 +1,10 @@
 use super::*;
 
+/// Recent application activity kept for `activity` listings, which return at
+/// most 500 entries. Older entries are pruned as new ones are recorded.
+const ACTIVITY_RETAINED_ROWS: i64 = 10_000;
+const ACTIVITY_PRUNE_BATCH: i64 = 1_000;
+
 impl CollectionRegistry {
     pub fn set_paused(&self, paused: bool) -> Result<(), ConnectError> {
         self.authority
@@ -50,6 +55,9 @@ impl CollectionRegistry {
         Ok(next)
     }
 
+    /// Append one activity entry and prune the oldest beyond the retention
+    /// window, a bounded batch at a time so an oversized legacy table shrinks
+    /// gradually instead of stalling the operation that records the entry.
     #[allow(clippy::too_many_arguments)]
     pub fn record_activity(
         &self,
@@ -61,7 +69,8 @@ impl CollectionRegistry {
         outcome: &str,
         detail: Option<&str>,
     ) -> Result<(), ConnectError> {
-        self.connection()?.execute(
+        let connection = self.connection()?;
+        connection.execute(
             "INSERT INTO activity
                (id, application_id, application_name, collection_id, collection_name,
                 operation, outcome, detail)
@@ -77,6 +86,17 @@ impl CollectionRegistry {
                 detail,
             ],
         )?;
+        // Rowids grow with each insert and pruning never removes the newest
+        // row, so this keeps exactly the newest ACTIVITY_RETAINED_ROWS entries
+        // once any backlog has drained, using the rowid B-tree, not a scan.
+        connection.execute(
+            "DELETE FROM activity WHERE rowid IN (
+               SELECT rowid FROM activity WHERE rowid <= ?1 ORDER BY rowid LIMIT ?2)",
+            params![
+                connection.last_insert_rowid() - ACTIVITY_RETAINED_ROWS,
+                ACTIVITY_PRUNE_BATCH
+            ],
+        )?;
         Ok(())
     }
 
@@ -85,7 +105,7 @@ impl CollectionRegistry {
         let mut statement = connection.prepare(
             "SELECT id, application_id, application_name, collection_id, collection_name,
                     operation, outcome, detail, created_at
-             FROM activity ORDER BY created_at DESC, rowid DESC LIMIT ?1",
+             FROM activity ORDER BY rowid DESC LIMIT ?1",
         )?;
         let rows = statement.query_map([limit.clamp(1, 500) as i64], |row| {
             Ok((
