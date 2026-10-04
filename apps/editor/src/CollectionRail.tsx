@@ -13,13 +13,13 @@ import { FolderChangeDialog, type FolderChangeActions } from "./FolderChangeDial
 import { FOLDER_PATH_MIME } from "./folder-change";
 import { RailDropTarget } from "./RailDropTarget";
 import { EditorRail } from "./EditorRail";
-import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
+import type { CollectionFile, CollectionSyncStatus, ConnectionSummary, NoteSummary } from "./model";
 import type { ConnectionState } from "./app-state-types";
 import { folderTree, type FolderTreeNode } from "./note";
 import type { NoteFilter } from "./note-list-view";
 
 
-export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, onSwitch, onCollapse, onPlanFolderChange, onChangeFolder }: {
+export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, sync, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, onSwitch, onCollapse, onPlanFolderChange, onChangeFolder }: {
   collectionId: string;
   name: string;
   count: number;
@@ -31,6 +31,8 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   surface: "notes" | "types" | "settings";
   connectionState: ConnectionState;
   connectionIssue?: string;
+  /** mdbase-next: "confirmed through N, plus pending". */
+  sync?: CollectionSyncStatus;
   directAccess?: ConnectionSummary["directAccess"];
   directAccessBusy: boolean;
   onFilter: (filter?: NoteFilter) => void;
@@ -66,7 +68,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     footer={<>
       {directAccess === "permission_required" && connectionState === "connected"
         ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? "Checking…" : "Use this computer"}</button>
-        : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : connectionState === "reconnecting" ? "Reconnecting" : "Sync stopped"}</span></p>}
+        : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : connectionState === "reconnecting" ? "Reconnecting" : "Sync stopped"}</span>{sync && <span title={`Confirmed through log position ${sync.confirmedThrough}`}>{syncSummary(sync)}</span>}</p>}
       {connectionState !== "connected" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
     </>}
   >
@@ -301,4 +303,10 @@ export function connectWorkspaceUrl(collectionId: string): string {
   if (server) url.searchParams.set("server", server);
   url.searchParams.set("collection", collectionId);
   return `${url.pathname}${url.search}`;
+}
+
+/** "Confirmed through N, plus pending", in words. */
+export function syncSummary(sync: CollectionSyncStatus): string {
+  const waiting = sync.pending ? ` · ${sync.pending.toLocaleString()} waiting to sync` : " · All changes synced";
+  return sync.unresolved ? `${waiting} · ${sync.unresolved.toLocaleString()} to review` : waiting;
 }
