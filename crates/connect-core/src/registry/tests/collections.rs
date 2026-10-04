@@ -506,3 +506,94 @@ fn collection_metadata_refreshes_edits_and_disabled_collections_fail_closed() {
         Err(ConnectError::AccessDenied(message)) if message.contains("disabled")
     ));
 }
+
+#[test]
+fn activity_keeps_a_bounded_newest_window_and_drains_a_backlog_in_batches() {
+    // The retention policy in agent_state.rs.
+    const ACTIVITY_RETAINED_ROWS: i64 = 10_000;
+    const ACTIVITY_PRUNE_BATCH: i64 = 1_000;
+    let state = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let application = Uuid::new_v4();
+    let collection = Uuid::new_v4();
+    // A table that grew without retention before this change.
+    let backlog = ACTIVITY_RETAINED_ROWS + 2 * ACTIVITY_PRUNE_BATCH + 7;
+    {
+        let mut connection = registry.connection().unwrap();
+        let transaction = connection.transaction().unwrap();
+        for index in 0..backlog {
+            transaction
+                .execute(
+                    "INSERT INTO activity
+                       (id, application_id, application_name, collection_id,
+                        collection_name, operation, outcome, detail)
+                     VALUES (?1, ?2, 'App', ?3, 'Notes', 'read', 'succeeded', ?4)",
+                    params![
+                        Uuid::new_v4().to_string(),
+                        application.to_string(),
+                        collection.to_string(),
+                        format!("legacy-{index}")
+                    ],
+                )
+                .unwrap();
+        }
+        transaction.commit().unwrap();
+    }
+    let count = || -> i64 {
+        registry
+            .connection()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM activity", [], |row| row.get(0))
+            .unwrap()
+    };
+    let record = |detail: &str| {
+        registry
+            .record_activity(
+                application,
+                "App",
+                collection,
+                "Notes",
+                "create",
+                "succeeded",
+                Some(detail),
+            )
+            .unwrap();
+    };
+
+    record("first");
+    assert_eq!(count(), backlog + 1 - ACTIVITY_PRUNE_BATCH);
+    record("second");
+    record("third");
+    assert_eq!(count(), ACTIVITY_RETAINED_ROWS);
+    record("fourth");
+    assert_eq!(count(), ACTIVITY_RETAINED_ROWS);
+
+    let newest = registry.list_activity(3).unwrap();
+    assert_eq!(
+        newest
+            .iter()
+            .map(|entry| entry.detail.as_deref().unwrap())
+            .collect::<Vec<_>>(),
+        ["fourth", "third", "second"]
+    );
+
+    // Listing and pruning walk the rowid B-tree; neither needs another index.
+    let connection = registry.connection().unwrap();
+    for query in [
+        "SELECT id FROM activity ORDER BY rowid DESC LIMIT 20",
+        "DELETE FROM activity WHERE rowid IN (
+           SELECT rowid FROM activity WHERE rowid <= 5 ORDER BY rowid LIMIT 10)",
+    ] {
+        let plan = connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {query}"))
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(3))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+            .join("; ");
+        // A reverse table walk stops at LIMIT; a temporary B-tree would mean
+        // sorting the whole table.
+        assert!(!plan.contains("TEMP B-TREE"), "{query}: {plan}");
+    }
+}
