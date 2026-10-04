@@ -50,7 +50,7 @@ export async function registerNextCollection(
   if (genesis?.op !== "genesis" || input.ops.slice(1).some((op) => op.op === "genesis")) throw new Error("a new log starts with exactly one genesis op");
   if (!Buffer.from(genesis.root).equals(Buffer.from(input.rootKeyId))) throw new Error("genesis root differs from the collection's root key");
   if (genesis.state !== (input.sync === "private" ? "e2e" : "cloud-copy")) throw new Error("genesis state differs from the collection's sync state");
-  if (input.sync === "private") assertNoKeyForMdbase(input.ops);
+  if (input.sync === "private") assertPrivateOps(input.ops);
   await client.query(
     `INSERT INTO next_collections (collection_id, owner_user_id, runtime, location, sync, root_key_id)
      VALUES ($1, $2, $3, 'hosted', $4, $5)`,
@@ -59,10 +59,17 @@ export async function registerNextCollection(
   await client.query("INSERT INTO next_policy_outbox (collection_id, ops) VALUES ($1, $2)", [input.collectionId, serializeOps(input.ops)]);
 }
 
-/** Ops that would give mdbase a key to a private collection. */
-function assertNoKeyForMdbase(ops: PolicyOp[]): void {
+/**
+ * Refuse ops a private collection must never carry: anything that would give mdbase
+ * its key (SEC-003), and folder names in clear (SEC-013; the device-signed approval
+ * carries them sealed, flagged by `folderScoped`).
+ */
+function assertPrivateOps(ops: PolicyOp[]): void {
   if (ops.some((op) => (op.op === "device-enrol" && (op.kind === "hosted" || op.kind === "escrow")) || (op.op === "collection-state" && op.state === "cloud-copy"))) {
     throw new Error("a private collection never enrols a hosted or escrow device");
+  }
+  if (ops.some((op) => op.op === "grant" && op.fileFolders !== undefined)) {
+    throw new Error("a private collection never carries folder names in clear");
   }
 }
 
@@ -81,7 +88,7 @@ export async function queueNextPolicy(client: DatabaseQueryable, collectionId: s
   );
   const sync = collection.rows[0]?.sync;
   if (!sync) return false;
-  if (sync === "private") assertNoKeyForMdbase(ops);
+  if (sync === "private") assertPrivateOps(ops);
   await client.query("INSERT INTO next_policy_outbox (collection_id, ops) VALUES ($1, $2)", [collectionId, serializeOps(ops)]);
   return true;
 }
@@ -223,12 +230,13 @@ export class PolicyEmitter {
       if (!Buffer.from(row.root_key_id).equals(Buffer.from(this.signer.cert.root))) {
         throw new Error("the configured policy key is certified by a different root than this collection's");
       }
-      const issuedAt = Math.max(this.now(), Number(row.last_issued_at) + 1);
-      if (issuedAt > this.signer.cert.notAfter) throw new Error("the policy key certificate has expired; rotate it");
+      // Monotonic per collection (policy.md §3 rule 4), even if the clock steps back.
+      const previousIssuedAt = Number(row.last_issued_at);
+      const issuedAt = Math.max(this.now(), previousIssuedAt + 1);
       const genesis = ops[0]?.op === "genesis";
       const head = genesis ? { seq: 0, chain: ZERO_CHAIN } : await this.log.head(collectionId);
       const seq = head.seq + 1;
-      const item = signPolicyItem(this.signer, { collection: collectionId, seq, prev: head.chain, issuedAt, ops });
+      const item = signPolicyItem(this.signer, { collection: collectionId, seq, prev: head.chain, issuedAt, previousIssuedAt, ops });
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO next_policy_batches (collection_id, seq, prev, item, issued_at, state)
          VALUES ($1, $2, $3, $4, $5, 'sending') RETURNING id`,

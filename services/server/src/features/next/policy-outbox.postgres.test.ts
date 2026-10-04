@@ -189,6 +189,9 @@ describePostgres("mdbase-next policy outbox", () => {
     await expect(queueNextPolicy(database.db, collectionId, [{ op: "device-enrol", device: randomUUID(), account: "00000000-0000-0000-0000-000000000000", kind: "hosted", ...deviceKeys() }])).rejects.toThrow(/never enrols/);
     await expect(queueNextPolicy(database.db, collectionId, [{ op: "collection-state", state: "cloud-copy" }])).rejects.toThrow(/never enrols/);
     expect(await queueNextPolicy(database.db, collectionId, [{ op: "device-enrol", device: randomUUID(), account: owner, kind: "desktop", ...deviceKeys() }])).toBe(true);
+    const grant = { op: "grant" as const, grant: randomUUID(), installation: randomUUID(), appId: "app", account: owner, capabilities: ["collection.read"], clientPublicKey: Buffer.alloc(32, 9) };
+    await expect(queueNextPolicy(database.db, collectionId, [{ ...grant, fileFolders: ["Private"] }])).rejects.toThrow(/folder names in clear/);
+    expect(await queueNextPolicy(database.db, collectionId, [{ ...grant, folderScoped: true }])).toBe(true);
     await expect(database.db.query("INSERT INTO next_collections (collection_id, owner_user_id, runtime, location, sync, root_key_id) VALUES ($1, $2, 'next', 'device', 'private', $3)", [randomUUID(), owner, Buffer.alloc(16)])).rejects.toThrow();
   });
 
