@@ -129,7 +129,7 @@ function environment(now: number) {
   const rootPublicKey = ed25519RawPublicKey(root.publicKey);
   const unsigned = { policyPublicKey: ed25519RawPublicKey(policy.publicKey), notBefore: now - 1000, notAfter: now + 90 * 86_400_000, root: keyId(rootPublicKey) };
   const cert = { ...unsigned, signature: sign(null, certDigest(unsigned), root.privateKey) };
-  const signerConfig = { rootPublicKey, policyPrivateKeyPem: policy.privateKey.export({ format: "pem", type: "pkcs8" }).toString(), policyCert: certToJson(cert) };
+  const signerConfig = { logService: { url: "https://log.example", tokenIssuerKeyPem: "", transportKeyPem: "" }, rootPublicKey, policyPrivateKeyPem: policy.privateKey.export({ format: "pem", type: "pkcs8" }).toString(), policyCert: certToJson(cert) };
   return { root, policy, cert, signerConfig };
 }
 
@@ -148,6 +148,9 @@ describe("mdbase-next control-plane keys", () => {
       MDBASE_NEXT_ROOT_PUBLIC_KEY: Buffer.from(signerConfig.rootPublicKey).toString("hex"),
       MDBASE_NEXT_POLICY_SIGNING_KEY: signerConfig.policyPrivateKeyPem,
       MDBASE_NEXT_POLICY_KEY_CERT: JSON.stringify(signerConfig.policyCert),
+      MDBASE_NEXT_LOG_SERVICE_URL: "https://log.example",
+      MDBASE_NEXT_LOG_TOKEN_SIGNING_KEY: signerConfig.policyPrivateKeyPem,
+      MDBASE_NEXT_LOG_TRANSPORT_KEY: signerConfig.policyPrivateKeyPem,
     });
     expect(parsed?.policyCert).toEqual(signerConfig.policyCert);
   });

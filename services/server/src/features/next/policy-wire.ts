@@ -79,7 +79,7 @@ export function keyId(publicKey: Uint8Array): Uint8Array {
   return createHash("sha256").update(publicKey).digest().subarray(0, 16);
 }
 
-function uuidBytes(uuid: string): Uint8Array {
+export function uuidBytes(uuid: string): Uint8Array {
   const hex = uuid.replaceAll("-", "");
   if (!/^[0-9a-f]{32}$/i.test(hex)) throw new Error("invalid UUID");
   return Buffer.from(hex, "hex");
@@ -257,4 +257,67 @@ export function signPolicyItem(
   const digest = policyItemSignedDigest(input.collection, input.seq, input.prev, signerId, body);
   const signature = edSign(null, digest, signer.privateKey);
   return encodePolicyItem(input.collection, input.seq, input.prev, signerId, body, signature);
+}
+
+export type Decoded = number | bigint | boolean | null | string | Uint8Array | Decoded[] | Map<number | string, Decoded>;
+
+/**
+ * Decode one `mdb-cbor/1` item (log-service responses). Rejects what the profile
+ * forbids: indefinite lengths, tags, `undefined`, non-64-bit floats and trailing bytes.
+ */
+export function decodeCbor(bytes: Uint8Array): Decoded {
+  let at = 0;
+  const take = (n: number) => {
+    if (at + n > bytes.length) throw new Error("truncated CBOR");
+    const slice = bytes.subarray(at, at + n);
+    at += n;
+    return slice;
+  };
+  const argument = (info: number): bigint => {
+    if (info < 24) return BigInt(info);
+    const size = info === 24 ? 1 : info === 25 ? 2 : info === 26 ? 4 : info === 27 ? 8 : 0;
+    if (size === 0) throw new Error("indefinite or reserved CBOR length");
+    let value = 0n;
+    for (const b of take(size)) value = (value << 8n) | BigInt(b);
+    return value;
+  };
+  const int = (value: bigint): number | bigint => (value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value);
+  const length = (value: bigint) => {
+    if (value > BigInt(bytes.length)) throw new Error("CBOR length exceeds input");
+    return Number(value);
+  };
+  const item = (): Decoded => {
+    const initial = take(1)[0]!;
+    const major = initial >> 5;
+    const info = initial & 0x1f;
+    if (major === 7) {
+      if (info === 20) return false;
+      if (info === 21) return true;
+      if (info === 22) return null;
+      if (info === 27) return Buffer.from(take(8)).readDoubleBE(0);
+      throw new Error("CBOR simple value outside mdb-cbor/1");
+    }
+    const arg = argument(info);
+    switch (major) {
+      case 0: return int(arg);
+      case 1: return int(-1n - arg);
+      case 2: return Uint8Array.from(take(length(arg)));
+      case 3: return new TextDecoder("utf-8", { fatal: true }).decode(take(length(arg)));
+      case 4: return Array.from({ length: length(arg) }, () => item());
+      case 5: {
+        const map = new Map<number | string, Decoded>();
+        for (let i = 0, n = length(arg); i < n; i += 1) {
+          const key = item();
+          if (typeof key !== "number" && typeof key !== "string") throw new Error("CBOR map key outside mdb-cbor/1");
+          if (map.has(key)) throw new Error("duplicate CBOR map key");
+          map.set(key, item());
+        }
+        return map;
+      }
+      default: throw new Error("CBOR tags are not allowed");
+    }
+  };
+  const value = item();
+  if (at !== bytes.length) throw new Error("trailing bytes after CBOR item");
+  return value;
 }

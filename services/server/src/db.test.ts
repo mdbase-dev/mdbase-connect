@@ -72,7 +72,8 @@ describe("database migrations", () => {
       "0033_collection_created_at",
       "0034_email_announcements_and_unsubscribe",
       "0035_portable_people",
-      "0037_collection_unavailable_reason"
+      "0037_collection_unavailable_reason",
+      "0038_next_policy_outbox"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -714,7 +715,8 @@ describe("database migrations", () => {
       "0033_collection_created_at",
       "0034_email_announcements_and_unsubscribe",
       "0035_portable_people",
-      "0037_collection_unavailable_reason"
+      "0037_collection_unavailable_reason",
+      "0038_next_policy_outbox"
     ]);
   });
 
