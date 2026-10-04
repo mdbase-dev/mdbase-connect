@@ -33,6 +33,9 @@ function configuration(): NextControlPlaneConfig {
 class FixtureLog {
   readonly logs = new Map<string, Buffer>();
   unavailable = false;
+  deleteCalls = 0;
+  failCreateAfterCommit = false;
+  failDeleteAfterCommit = false;
   readonly quotas = new Map<string, number[]>();
   readonly fetch: typeof fetch = async (input, init) => {
     if (String(input).endsWith("/v1/nonce")) return new Response("ab".repeat(32));
@@ -44,18 +47,27 @@ class FixtureLog {
     let result: Cbor;
     if (method === "create_log") {
       const genesis = Buffer.from(field(params, 1) as Uint8Array);
-      if (this.logs.has(id)) expect(this.logs.get(id)!.equals(genesis)).toBe(true);
-      else this.logs.set(id, genesis);
+      if (this.logs.has(id) && !this.logs.get(id)!.equals(genesis)) {
+        return new Response(encodeCbor({ struct: [[0, 1], [1, 1], [3, { struct: [[0, "invalid"], [1, "exists"]] }]] }));
+      }
+      this.logs.set(id, genesis);
+      if (this.failCreateAfterCommit) throw new TypeError("create outcome unknown");
       result = { struct: [[0, 1], [1, chainHash(genesis)]] };
     } else if (method === "head") {
       const genesis = this.logs.get(id);
       if (!genesis) throw new TypeError("log unavailable");
       result = { struct: [[0, 1], [1, chainHash(genesis)], [2, 1]] };
+    } else if (method === "read") {
+      const genesis = this.logs.get(id);
+      if (!genesis) return new Response(encodeCbor({ struct: [[0, 1], [1, 1], [3, { struct: [[0, "not_found"]] }]] }));
+      result = { struct: [[0, [[1, genesis]]]] };
     } else if (method === "set_quota") {
       this.quotas.set(id, field(params, 1) as number[]);
       result = { struct: [] };
     } else if (method === "delete_log") {
+      this.deleteCalls += 1;
       this.logs.delete(id);
+      if (this.failDeleteAfterCommit) throw new TypeError("delete outcome unknown");
       result = { struct: [] };
     } else throw new Error("unexpected fixture operation");
     return new Response(encodeCbor({ struct: [[0, 1], [1, 1], [2, result]] }), { headers: { "content-type": "application/vnd.mdbase.v1+cbor" } });
@@ -99,6 +111,10 @@ describePg("LAB disposable fixture provisioning", () => {
   afterEach(async () => {
     await db.query("TRUNCATE next_lab_fixtures, next_collections CASCADE");
     service.logs.clear();
+    service.quotas.clear();
+    service.deleteCalls = 0;
+    service.failCreateAfterCommit = false;
+    service.failDeleteAfterCommit = false;
     service.unavailable = false;
   });
   afterAll(async () => {
@@ -184,6 +200,89 @@ describePg("LAB disposable fixture provisioning", () => {
     expect((await db.query("SELECT 1 FROM next_lab_fixtures WHERE ready_at IS NULL")).rows).toHaveLength(1);
     service.unavailable = false;
     expect((await provision(who.headers, await proof(who, fixture))).statusCode).toBe(200);
+  });
+  it("retains a not-ready reservation when external genesis differs", async () => {
+    const who = await identity(); const fixture = randomUUID();
+    const external = Buffer.from("unrelated genesis");
+    service.logs.set(fixture.replaceAll("-", ""), external);
+    expect((await provision(who.headers, await proof(who, fixture))).statusCode).toBe(503);
+    expect((await destroy(who.headers, await proof(who, fixture, "delete"))).statusCode).toBe(503);
+    expect(service.deleteCalls).toBe(0);
+    expect(service.logs.get(fixture.replaceAll("-", ""))).toEqual(external);
+    expect(service.quotas.size).toBe(0);
+    expect((await db.query("SELECT 1 FROM next_collections")).rows).toHaveLength(1);
+    expect((await db.query("SELECT 1 FROM next_lab_fixtures WHERE deleted_at IS NULL AND ready_at IS NULL")).rows).toHaveLength(1);
+  });
+  it("does not delete an unverified reservation when the external log is missing", async () => {
+    const who = await identity(); const fixture = randomUUID(); service.unavailable = true;
+    expect((await provision(who.headers, await proof(who, fixture))).statusCode).toBe(503);
+    service.unavailable = false;
+    expect((await destroy(who.headers, await proof(who, fixture, "delete"))).statusCode).toBe(503);
+    expect(service.deleteCalls).toBe(0);
+    expect((await db.query("SELECT 1 FROM next_lab_fixtures WHERE deleted_at IS NULL")).rows).toHaveLength(1);
+  });
+  it("verifies committed bytes after unknown creation and retains an unknown deletion for retry", async () => {
+    const who = await identity(); const fixture = randomUUID(); service.failCreateAfterCommit = true;
+    expect((await provision(who.headers, await proof(who, fixture))).statusCode).toBe(503);
+    expect((await db.query("SELECT state FROM next_policy_batches")).rows[0]!.state).toBe("sending");
+    service.failCreateAfterCommit = false; service.failDeleteAfterCommit = true;
+    expect((await destroy(who.headers, await proof(who, fixture, "delete"))).statusCode).toBe(503);
+    expect(service.deleteCalls).toBe(1); expect(service.logs.size).toBe(0);
+    expect((await db.query("SELECT state FROM next_policy_batches")).rows[0]!.state).toBe("appended");
+    expect((await db.query("SELECT 1 FROM next_lab_fixtures WHERE ready_at IS NULL AND deleted_at IS NULL")).rows).toHaveLength(1);
+    service.failDeleteAfterCommit = false;
+    expect((await destroy(who.headers, await proof(who, fixture, "delete"))).statusCode).toBe(204);
+    expect(service.deleteCalls).toBe(1); // Confirmed missing: no second privileged delete.
+    expect((await db.query("SELECT 1 FROM next_collections")).rows).toHaveLength(0);
+  });
+  it("rechecks exact external ownership even for a previously ready fixture", async () => {
+    const who = await identity(); const fixture = randomUUID();
+    expect((await provision(who.headers, await proof(who, fixture))).statusCode).toBe(200);
+    const external = Buffer.from("different immutable genesis");
+    service.logs.set(fixture.replaceAll("-", ""), external);
+    service.quotas.clear();
+    expect((await provision(who.headers, await proof(who, fixture))).statusCode).toBe(503);
+    expect(service.quotas.size).toBe(0);
+    expect((await destroy(who.headers, await proof(who, fixture, "delete"))).statusCode).toBe(503);
+    expect(service.deleteCalls).toBe(0);
+    expect(service.logs.get(fixture.replaceAll("-", ""))).toEqual(external);
+  });
+  it("canonicalizes fixture and device UUID text without changing proof bytes", async () => {
+    const who = await identity(); const fixture = randomUUID();
+    const body = { ...await proof(who, fixture.toUpperCase()), device_id: who.device.toUpperCase() };
+    const response = await provision(who.headers, body);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().fixture_id).toBe(fixture);
+    expect(response.json().device.device_id).toBe(who.device);
+    expect((await provision(who.headers, await proof(who, fixture))).statusCode).toBe(200);
+    expect((await destroy(who.headers, { ...await proof(who, fixture.toUpperCase(), "delete"), device_id: who.device.toUpperCase() })).statusCode).toBe(204);
+  });
+  it("serializes uppercase fixture deletion with canonical collection emission", async () => {
+    const who = await identity(); const fixture = randomUUID();
+    expect((await provision(who.headers, await proof(who, fixture))).statusCode).toBe(200);
+    const lock = await db.connect();
+    let response: Awaited<ReturnType<typeof destroy>> | undefined;
+    try {
+      await lock.query("BEGIN");
+      await lock.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 20261004))", [fixture]);
+      const deletion = destroy(who.headers, await proof(who, fixture.toUpperCase(), "delete")).then((value) => { response = value; return value; });
+      await expect.poll(async () => (await db.query("SELECT 1 FROM next_lab_fixtures WHERE fixture_id = $1 AND deleting_at IS NOT NULL", [fixture])).rows.length).toBe(1);
+      await expect.poll(async () => (await db.query(
+        `SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND objsubid = 1
+         AND classid = ((hashtextextended($1, 20261004) >> 32) & 4294967295)::oid
+         AND objid = (hashtextextended($1, 20261004) & 4294967295)::oid`, [fixture]
+      )).rows.length).toBe(1);
+      expect(response === undefined).toBe(true);
+      expect(service.deleteCalls).toBe(0);
+      // The holder is the emitter's collection-wide lock domain. Only its release
+      // permits deletion; then the retained outbox and collection disappear together.
+      await lock.query("COMMIT");
+      expect((await deletion).statusCode).toBe(204);
+      expect(service.logs.size).toBe(0);
+      expect((await db.query("SELECT 1 FROM next_policy_batches")).rows).toHaveLength(0);
+      expect(await emitter.drainCollection(fixture)).toBe(0);
+      expect(service.logs.size).toBe(0);
+    } finally { await lock.query("ROLLBACK"); lock.release(); }
   });
   it("bounds fixture quota and expired fixture renewal", async () => {
     const who = await identity(); const first = randomUUID();

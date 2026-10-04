@@ -3,7 +3,7 @@
 // explicit, bounded disposable fixture IDs are ever touched or returned.
 import { verify } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { safeEqual } from "../../security.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
@@ -43,6 +43,26 @@ async function authenticateProof(client: DatabaseConnection, body: Proof, connec
   return device;
 }
 
+interface Genesis { id: string; item: Buffer; state: string }
+async function fixtureGenesis(db: DatabaseQueryable, fixture: string): Promise<Genesis> {
+  const result = await db.query<Genesis>("SELECT id, item, state FROM next_policy_batches WHERE collection_id = $1 AND seq = 1 ORDER BY id LIMIT 1", [fixture]);
+  if (!result.rows[0]) throw new FixtureError(503, "fixture_not_ready");
+  return result.rows[0];
+}
+
+/** Local reservation is not ownership. Only exact external genesis bytes prove it. */
+async function verifyFixtureGenesis(log: LogServiceClient, fixture: string, genesis: Genesis, deleting = false): Promise<boolean> {
+  let external: Uint8Array | null;
+  try { external = await log.controlItemAt(fixture, 1); } catch (error) {
+    // A confirmed absent log needs no privileged deletion. Retained acknowledgement
+    // permits local-only completion of a previously committed, unknown deletion.
+    if (deleting && genesis.state === "appended" && error instanceof LogServiceError && error.code === "not_found") return false;
+    throw error;
+  }
+  if (!external || !genesis.item.equals(Buffer.from(external))) throw new FixtureError(503, "fixture_not_ready");
+  return true;
+}
+
 export function registerLabFixtureRoutes(app: FastifyInstance, options: {
   db: DatabasePool; config: LabFixtureConfig; next: NextControlPlaneConfig;
   environment?: string; publicUrl: string; emitter: PolicyEmitter; log?: LogServiceClient
@@ -75,7 +95,9 @@ export function registerLabFixtureRoutes(app: FastifyInstance, options: {
       }
       const connector = await requireConnector(request, reply, options.db);
       if (!connector) return reply;
-      const body = request.body;
+      // UUID bytes and PostgreSQL UUID values are canonical; text lock keys and
+      // identity comparisons must use that same representation before any work.
+      const body = { ...request.body, fixture_id: request.body.fixture_id.toLowerCase(), device_id: request.body.device_id.toLowerCase() };
       const client = await options.db.connect();
       let device: Device;
       let expiry: Date;
@@ -136,9 +158,18 @@ export function registerLabFixtureRoutes(app: FastifyInstance, options: {
               await cleanup.query("BEGIN");
               // Same lock domain as policy emission/recovery (#602); deleting the
               // log and its outbox cannot race an in-flight genesis append.
-              await cleanup.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 20261004))", [body.fixture_id]);
-              try { await log.deleteLog(body.fixture_id); } catch (error) {
-                if (!(error instanceof LogServiceError) || error.code !== "not_found") throw error;
+              await cleanup.query("SET LOCAL lock_timeout = '5s'");
+              await cleanup.query("SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text, 20261004))", [body.fixture_id]);
+              const genesis = await fixtureGenesis(cleanup, body.fixture_id);
+              if (await verifyFixtureGenesis(log, body.fixture_id, genesis, true)) {
+                // Exact-position read confirms a previously unknown create commit.
+                // Persist that existing acknowledgement BEFORE delete: if delete
+                // commits but its response is lost, retry can finish local cleanup
+                // on confirmed not_found, never by deleting an unverified object.
+                if (genesis.state !== "appended") await options.db.query("UPDATE next_policy_batches SET state = 'appended', appended_at = COALESCE(appended_at, now()), error = NULL WHERE id = $1", [genesis.id]);
+                try { await log.deleteLog(body.fixture_id); } catch (error) {
+                  if (!(error instanceof LogServiceError) || error.code !== "not_found") throw error;
+                }
               }
               await cleanup.query("DELETE FROM next_collections WHERE collection_id = $1 AND owner_user_id = $2", [body.fixture_id, connector.user_id]);
               await cleanup.query("UPDATE next_lab_fixtures SET deleted_at = now() WHERE fixture_id = $1", [body.fixture_id]);
@@ -148,8 +179,9 @@ export function registerLabFixtureRoutes(app: FastifyInstance, options: {
           return reply.code(204).send();
         }
         await options.emitter.drainCollection(body.fixture_id);
-        const genesis = await options.db.query<{ item: Buffer; seq: string }>("SELECT item, seq FROM next_policy_batches WHERE collection_id = $1 AND seq = 1 AND state = 'appended' ORDER BY id LIMIT 1", [body.fixture_id]);
-        if (!genesis.rows.length) throw new FixtureError(503, "fixture_not_ready");
+        const genesis = await fixtureGenesis(options.db, body.fixture_id);
+        if (genesis.state !== "appended") throw new FixtureError(503, "fixture_not_ready");
+        await verifyFixtureGenesis(log, body.fixture_id, genesis);
         await log.setQuota(body.fixture_id, { storageBytes: 16 * 1024 * 1024, itemsPerSecond: 5, bytesPerSecond: 256 * 1024, burstItems: 10 });
         const head = await log.head(body.fixture_id);
         const ready = await options.db.query(
@@ -164,7 +196,7 @@ export function registerLabFixtureRoutes(app: FastifyInstance, options: {
           fixture_id: body.fixture_id, collection: body.fixture_id, owner_account: connector.user_id, state: "e2e",
           log_url: options.next.logService.url, head: { seq: head.seq, chain: Buffer.from(head.chain).toString("hex") },
           root_public_key: Buffer.from(options.next.rootPublicKey).toString("hex"), policy_cert: options.next.policyCert,
-          genesis: { seq: Number(genesis.rows[0]!.seq), item: genesis.rows[0]!.item.toString("hex") },
+          genesis: { seq: 1, item: genesis.item.toString("hex") },
           device: { device_id: body.device_id, sign_pk: device!.sign_pk.toString("hex"), kem_pk: device!.kem_pk.toString("hex"), noise_pk: device!.noise_pk.toString("hex"), token: log.mintToken({ device: body.device_id, signPublicKey: device!.sign_pk, collection: body.fixture_id, expiresAt }), expires_at: expiresAt }
         };
       } catch {
