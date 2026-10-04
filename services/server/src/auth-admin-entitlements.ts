@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseConnection, DatabasePool } from "./db.js";
-import { effectiveEntitlement, reconcileHostedAccountCollections } from "./entitlements.js";
+import {
+  effectiveEntitlement,
+  FREE_ENTITLEMENT_PROFILE,
+  grantOperatorEntitlement,
+  reconcileHostedAccountCollections
+} from "./entitlements.js";
 import {
   HostedProviderResponseError,
   type HostedAccountUsage,
@@ -312,4 +317,47 @@ function stringArray(value: unknown): value is string[] {
 
 function nonNegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+/**
+ * Grant the free plan to accounts that don't hold it yet, at most `limit` per run.
+ * Each grant goes through `grantOperatorEntitlement`, which is idempotent, creates the
+ * storage account and records an audit event. Run it until `remaining` is 0. It is
+ * a rollout step: holding the free profile gives an account without other grants one
+ * hosted collection in the current system too.
+ */
+export async function backfillFreeEntitlement(
+  db: DatabasePool,
+  input: { operationId: string; actor: string; reason: string; limit: string | undefined }
+): Promise<{ operation_id: string; granted: number; remaining: number }> {
+  const limit = input.limit === undefined ? 500 : Number(input.limit);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 5000) throw new RangeError("--limit must be between 1 and 5000.");
+  const missing = `FROM users WHERE NOT EXISTS (
+       SELECT 1 FROM account_entitlement_grants entitlement_grant
+       WHERE entitlement_grant.user_id = users.id
+         AND entitlement_grant.profile_code = $1
+         AND entitlement_grant.revoked_at IS NULL
+         AND (entitlement_grant.ends_at IS NULL OR entitlement_grant.ends_at > now()))`;
+  const batch = await db.query<{ id: string }>(
+    `SELECT id ${missing} ORDER BY id LIMIT $2`,
+    [FREE_ENTITLEMENT_PROFILE, limit]
+  );
+  for (const user of batch.rows) {
+    await grantOperatorEntitlement(db, {
+      userId: user.id,
+      profileCode: FREE_ENTITLEMENT_PROFILE,
+      operationId: input.operationId,
+      actor: input.actor,
+      reason: input.reason
+    });
+  }
+  const remaining = await db.query<{ count: string | number }>(
+    `SELECT count(*) AS count ${missing}`,
+    [FREE_ENTITLEMENT_PROFILE]
+  );
+  return {
+    operation_id: input.operationId,
+    granted: batch.rows.length,
+    remaining: Number(remaining.rows[0]!.count)
+  };
 }

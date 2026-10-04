@@ -4,6 +4,7 @@ import type { DatabasePool } from "./db.js";
 import { compatibilityReport } from "./auth-admin-compatibility.js";
 import { usageReport } from "./usage-report.js";
 import {
+  backfillFreeEntitlement,
   inspectAccountEntitlements,
   reconcileActiveHostedEntitlements
 } from "./auth-admin-entitlements.js";
@@ -117,6 +118,10 @@ async function runCommand(
   }
   if (area === "entitlements" && action === "reconcile") {
     return reconcileEntitlements(rest, context);
+  }
+  if (area === "entitlements" && action === "backfill-free") {
+    const flags = parseFlags(rest, new Set(["operation-id", "actor", "reason", "limit"]));
+    return backfillFreeEntitlement(context.db, { operationId: requiredFlag(flags, "operation-id"), actor: requiredFlag(flags, "actor"), reason: requiredFlag(flags, "reason"), limit: flags.get("limit") });
   }
   if (area === "users" && action === "list") {
     return listUsers(rest, context);
@@ -973,6 +978,7 @@ function usage(): string {
     "  auth-admin beta list [--status pending|invited] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin entitlements show --user <uuid|email>",
     "  auth-admin entitlements grant --user <uuid|email> --profile <code> --operation-id <uuid> --actor <id> --reason <text>",
+    "  auth-admin entitlements backfill-free --operation-id <uuid> --actor <id> --reason <text> [--limit <n>]",
     "  auth-admin entitlements reconcile (--user <uuid|email> | --all enabled | --active-hosted enabled) --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin users list [--status active|suspended] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin users show --user <uuid|email>",

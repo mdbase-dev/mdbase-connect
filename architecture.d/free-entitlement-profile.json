@@ -1,0 +1,6 @@
+{
+  "reason": "The mdbase-next free plan needs a named profile constant and an operator backfill entry point, used by the admin CLI and the upcoming synced-collection checks.",
+  "growth": {
+    "typeScriptExportDeclarations": 2
+  }
+}
