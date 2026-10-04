@@ -1,19 +1,17 @@
 -- mdbase-next control plane: collections served by the new runtime, and the outbox
 -- of signed policy items appended to their logs (mdbase-next docs/ship/control-plane.md
--- §2, §4). Every collection has a log; `location` says where it lives. `sync` is
--- set only for hosted logs: 'private' (blind log, no hosted replica, no escrow) or
--- 'cloud_copy' (hosted replica + escrow). New tables only: the previous release never reads them, and nothing writes
--- them unless MDBASE_NEXT_CONTROL_PLANE=1.
+-- §2, §4). Rows exist only for synced collections: 'private' (end-to-end, blind log,
+-- no hosted replica, no escrow) or 'cloud_copy' (hosted replica + escrow).
+-- Collections on this device have no log and no row. New tables only: the previous
+-- release never reads them, and nothing writes them unless MDBASE_NEXT_CONTROL_PLANE=1.
 CREATE TABLE next_collections (
   collection_id uuid PRIMARY KEY,
   owner_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   runtime text NOT NULL CHECK (runtime IN ('shadow', 'next')),
-  location text NOT NULL CHECK (location IN ('device', 'hosted')),
-  sync text CHECK (sync IN ('private', 'cloud_copy')),
+  sync text NOT NULL CHECK (sync IN ('private', 'cloud_copy')),
   root_key_id bytea NOT NULL,
   last_issued_at bigint NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CHECK ((location = 'hosted') = (sync IS NOT NULL)),
   -- Target of service devices' composite key: they may exist only for cloud_copy.
   UNIQUE (collection_id, sync)
 );

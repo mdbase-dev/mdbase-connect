@@ -192,7 +192,7 @@ describePostgres("mdbase-next policy outbox", () => {
     const grant = { op: "grant" as const, grant: randomUUID(), installation: randomUUID(), appId: "app", account: owner, capabilities: ["collection.read"], clientPublicKey: Buffer.alloc(32, 9) };
     await expect(queueNextPolicy(database.db, collectionId, [{ ...grant, fileFolders: ["Private"] }])).rejects.toThrow(/folder names in clear/);
     expect(await queueNextPolicy(database.db, collectionId, [{ ...grant, folderScoped: true }])).toBe(true);
-    await expect(database.db.query("INSERT INTO next_collections (collection_id, owner_user_id, runtime, location, sync, root_key_id) VALUES ($1, $2, 'next', 'device', 'private', $3)", [randomUUID(), owner, Buffer.alloc(16)])).rejects.toThrow();
+    await expect(database.db.query("INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id) VALUES ($1, $2, 'next', 'local', $3)", [randomUUID(), owner, Buffer.alloc(16)])).rejects.toThrow();
   });
 
   it("queues nothing for a collection the new runtime does not serve", async () => {

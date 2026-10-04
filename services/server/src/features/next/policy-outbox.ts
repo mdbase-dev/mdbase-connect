@@ -52,8 +52,8 @@ export async function registerNextCollection(
   if (genesis.state !== (input.sync === "private" ? "e2e" : "cloud-copy")) throw new Error("genesis state differs from the collection's sync state");
   if (input.sync === "private") assertPrivateOps(input.ops);
   await client.query(
-    `INSERT INTO next_collections (collection_id, owner_user_id, runtime, location, sync, root_key_id)
-     VALUES ($1, $2, $3, 'hosted', $4, $5)`,
+    `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id)
+     VALUES ($1, $2, $3, $4, $5)`,
     [input.collectionId, input.ownerUserId, input.runtime, input.sync, Buffer.from(input.rootKeyId)]
   );
   await client.query("INSERT INTO next_policy_outbox (collection_id, ops) VALUES ($1, $2)", [input.collectionId, serializeOps(input.ops)]);
@@ -83,7 +83,7 @@ export async function queueNextPolicy(client: DatabaseQueryable, collectionId: s
   if (ops.length === 0) return false;
   if (ops.some((op) => op.op === "genesis")) throw new Error("genesis is only valid when registering a collection");
   const collection = await client.query<{ sync: HostedSync }>(
-    "SELECT sync FROM next_collections WHERE collection_id = $1 AND location = 'hosted' FOR KEY SHARE",
+    "SELECT sync FROM next_collections WHERE collection_id = $1 FOR KEY SHARE",
     [collectionId]
   );
   const sync = collection.rows[0]?.sync;
