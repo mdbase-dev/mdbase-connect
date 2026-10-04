@@ -1,0 +1,9 @@
+{
+  "reason": "The hosted replica's view of the control plane (collection-state directory now; key custody and service tokens next) is a separate internal API with its own per-deployment tokens.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 5,
+    "typeScriptExportDeclarations": 6,
+    "services/server": 1
+  }
+}
