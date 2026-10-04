@@ -12,7 +12,8 @@ import { certDigest, keyId } from "./policy-wire.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
 import { pkceChallenge } from "../../security.js";
-import { clientNoiseKeyMessage, copyClientNoiseKeyToGrant, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "./client-key.js";
+import { clientNoiseKeyMessage, copyClientNoiseKeyToGrant, storeRequestClientNoiseKey, verifiedClientNoiseKey, withClientFingerprint } from "./client-key.js";
+import { clientFingerprint } from "./devices.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -41,6 +42,12 @@ function attestation(key: ReturnType<typeof grantSigningKey>, authorizationId: s
 }
 
 describe("client Noise key attestation", () => {
+  it("shows the portal a fingerprint, never the raw key", () => {
+    const key = randomBytes(32);
+    expect(withClientFingerprint({ id: "r", client_pk: key })).toEqual({ id: "r", client_fingerprint: clientFingerprint(key) });
+    expect(withClientFingerprint({ id: "r", client_pk: null })).toEqual({ id: "r", client_fingerprint: null });
+  });
+
   it("pins the attested message bytes", () => {
     const message = clientNoiseKeyMessage("4c18af2e-b04a-4b77-b83e-493c3695962e", Buffer.alloc(32, 0x0c));
     expect(message.toString("hex")).toBe(

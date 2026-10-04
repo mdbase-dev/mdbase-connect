@@ -331,6 +331,9 @@ export function RequestIdentity({ request }: { request: PendingAuthorization }) 
         {portable
           ? <p className="request-guidance portable-authorization-warning" role="note"><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <> and it shows <code>{request.user_code}</code></> : null}.{request.project_url ? <> {host(request.project_url)} does not verify its origin.</> : null}</p>
           : <p className="request-guidance">Only continue if you recognize this exact site.</p>}
+        {request.client_fingerprint
+          ? <p className="request-fingerprint">App key <code>{request.client_fingerprint}</code>. The app shows the same code, and so will your computer when the app connects.</p>
+          : null}
         <p className="request-expiry">Request expires {relativeTime(request.expires_at)}</p>
       </div>
     </header>

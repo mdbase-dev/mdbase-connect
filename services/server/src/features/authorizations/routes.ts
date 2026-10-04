@@ -66,7 +66,7 @@ import {
   createAuthorizationRedirect,
   deniedAuthorizationRedirect
 } from "./redirects.js";
-import { storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
+import { storeRequestClientNoiseKey, verifiedClientNoiseKey, withClientFingerprint } from "../next/client-key.js";
 import type { AuthorizationRouteOptions } from "./route-options.js";
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
@@ -645,8 +645,10 @@ export function registerAuthorizationRoutes(
               ar.collection_id, ar.expires_at,
               a.id AS application_id, a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon,
-              a.requirements, a.provisions, a.notifications
+              a.requirements, a.provisions, a.notifications,
+              ${options.nextClientKeys ? "ck.client_pk" : "NULL::bytea"} AS client_pk
        FROM authorization_requests ar JOIN applications a ON a.id = ar.application_id
+       ${options.nextClientKeys ? "LEFT JOIN next_authorization_client_keys ck ON ck.request_id = ar.id" : ""}
        WHERE ar.id = $1 AND ar.user_id = $2 AND ar.expires_at > now()
          AND ar.completed_at IS NULL AND ar.denied_at IS NULL`,
       [requestId, user.id]
@@ -730,7 +732,7 @@ export function registerAuthorizationRoutes(
     ];
     return {
       authorization: {
-        ...authorization.rows[0],
+        ...withClientFingerprint(authorization.rows[0]),
         existing_access: existingAccess
       },
       hosted_collections_available: options.hostedCollections === true,

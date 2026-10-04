@@ -89,6 +89,8 @@ export interface PendingAuthorization {
   requirements: ApplicationRequirements;
   provisions: ApplicationProvisions;
   notifications: ApplicationNotifications;
+  /** Fingerprint of the app's attested Noise key, when it registered one (mdbase-next). */
+  client_fingerprint?: string | null;
   existing_access?: Array<{
     collection_id: string;
     operations: string[];

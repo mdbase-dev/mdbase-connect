@@ -6,7 +6,7 @@
 import { createPublicKey, verify } from "node:crypto";
 import { ApplicationAuthorizationError } from "../../application-authorization.js";
 import type { DatabaseQueryable } from "../../database-types.js";
-import { weakAgreementKey } from "./devices.js";
+import { clientFingerprint, weakAgreementKey } from "./devices.js";
 
 const DOMAIN = Buffer.from("mdbase-next client noise key v1\0", "utf8");
 
@@ -100,4 +100,14 @@ export async function copyClientNoiseKeyToGrant(db: DatabaseQueryable, requestId
      ON CONFLICT (grant_id) DO UPDATE SET client_pk = EXCLUDED.client_pk, signature = EXCLUDED.signature, created_at = now()`,
     [requestId, grantId]
   );
+}
+
+/**
+ * The consent screen shows the fingerprint of the app's attested key, so the user can
+ * compare it with what the app displays (and the daemon later shows). The raw key is
+ * not sent to the portal.
+ */
+export function withClientFingerprint<T extends { client_pk?: Buffer | null }>(row: T): Omit<T, "client_pk"> & { client_fingerprint: string | null } {
+  const { client_pk: clientPk, ...rest } = row;
+  return { ...rest, client_fingerprint: clientPk ? clientFingerprint(clientPk) : null };
 }
