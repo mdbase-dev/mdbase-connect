@@ -1,0 +1,4 @@
+{
+  "reason": "Authenticated, closed-by-default takeover-gate endpoint for the old daemon bridge, isolated from device enrollment and policy emission.",
+  "growth": { "productionFiles": 1, "relativeImports": 3, "typeScriptExportDeclarations": 1, "services/server": 1 }
+}
