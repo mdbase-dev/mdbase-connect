@@ -374,11 +374,14 @@ describe("mdbase connect server", () => {
     expect(paused.statusCode).toBe(409);
     expect(paused.json().error.details).toEqual({ reason: "paused" });
 
-    // A connector reporting the collection available clears any old reason.
+    // A connector reporting the collection available clears any old reason,
+    // and an explicit null is accepted like an omitted reason.
     expect((await inventory(3, {
       enabled: true,
       unavailable_reason: "claimed_by_newer_runtime"
     })).statusCode).toBe(200);
+    expect((await inventory(4, { enabled: true, unavailable_reason: null })).statusCode)
+      .toBe(200);
     const stored = await db.query<{ unavailable_reason: string | null }>(
       "SELECT unavailable_reason FROM collections WHERE id = $1",
       [collectionId]

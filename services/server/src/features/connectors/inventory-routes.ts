@@ -27,7 +27,7 @@ const inventorySchema = z.object({
     display_name: z.string().min(1).max(200),
     spec_version: z.string().min(1).max(30),
     enabled: z.boolean(),
-    unavailable_reason: z.enum(["claimed_by_newer_runtime"]).optional(),
+    unavailable_reason: z.enum(["claimed_by_newer_runtime"]).nullish(),
     contracts: z.array(collectionContractDescriptorSchema).max(100).default([])
   })).max(1_000)
 });
