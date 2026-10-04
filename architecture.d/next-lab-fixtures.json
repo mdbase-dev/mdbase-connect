@@ -1,4 +1,0 @@
-{
-  "reason": "Hard LAB environment/origin configuration boundary and isolated disposable fixture routes, with immutable ordinary device proofs and a bounded ownership ledger. No production fixture path is mounted; policy/key custody uses the existing signer, outbox and log client.",
-  "growth": { "productionFiles": 2, "relativeImports": 12, "typeScriptExportDeclarations": 5, "services/server": 2 }
-}

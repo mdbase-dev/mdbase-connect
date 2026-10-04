@@ -1,9 +1,0 @@
-{
-  "reason": "Lost-policy recovery verifies retained acknowledged bytes and schedules same-ops reissues under the emitter's collection lock. A separate route module bounds advisory hints and exposes parked policy work on readiness without changing the legacy system routes.",
-  "growth": {
-    "productionFiles": 2,
-    "relativeImports": 8,
-    "typeScriptExportDeclarations": 3,
-    "services/server": 2
-  }
-}

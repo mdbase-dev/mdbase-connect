@@ -1,9 +1,0 @@
-{
-  "reason": "mdbase-next opaque timer service: a new feature folder (timer model, grant resolver, store, routes, worker with fired-timer events and consumers, hosted cutover copy, operator CLI) plus at-rest sealing of push targets. It replaces the timer operations that today run in each collection authority; there is no existing control-plane module to extend. The shared fail-closed grant resolver is imported by the notification routes and delivery service (security-2 audit on #598). Module-private constants and helpers are not exported.",
-  "growth": {
-    "productionFiles": 8,
-    "relativeImports": 36,
-    "typeScriptExportDeclarations": 57,
-    "services/server": 8
-  }
-}

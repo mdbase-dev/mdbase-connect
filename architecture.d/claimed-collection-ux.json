@@ -1,6 +1,0 @@
-{
-  "reason": "A collection claimed by a newer runtime needs one explicit state instead of a generic pause: the CollectionSummary unavailable_reason field and its enum (Rust and TS consumers), the registry's release_claimed_runtime used by the finalizer to stop polling and drop the runtime, and two registry-internal helpers (registered row lookup for removal, claim check) shared by listing, removal and residency.",
-  "growth": {
-    "rustPublicDeclarations": 5
-  }
-}

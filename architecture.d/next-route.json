@@ -1,9 +1,0 @@
-{
-  "reason": "The app-facing routing endpoint for mdbase-next is its own route module beside the relay pipe; the hosted replica target joins it with key custody.",
-  "growth": {
-    "productionFiles": 2,
-    "relativeImports": 8,
-    "typeScriptExportDeclarations": 3,
-    "services/server": 2
-  }
-}
