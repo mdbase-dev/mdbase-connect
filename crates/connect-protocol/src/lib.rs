@@ -22,6 +22,7 @@ mod files;
 mod mutation_fingerprint;
 mod operation_validation;
 mod relay;
+mod role_marker;
 mod sync;
 
 pub use application_authorization::*;
@@ -39,6 +40,7 @@ pub use files::*;
 pub use mutation_fingerprint::*;
 pub use operation_validation::*;
 pub use relay::*;
+pub use role_marker::*;
 pub use sync::*;
 pub const CONTROL_PROTOCOL_VERSION: u32 = 1;
 pub const LOCAL_CONTROL_PROTOCOL_VERSION: u32 = 5;

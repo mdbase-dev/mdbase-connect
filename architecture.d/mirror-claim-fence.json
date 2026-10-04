@@ -1,0 +1,8 @@
+{
+  "reason": "The folder role marker is a persisted format read by the hosted mirror and, next, by the local registry. One classifier in connect-protocol (RoleMarker, its classify function, ROLE_MARKER_PATH) replaces the mirror's ad hoc JSON checks so both crates recognise a newer runtime's claim the same way; connect-mirror exports verify_mirror_marker for the agent's per-sync fence.",
+  "growth": {
+    "productionFiles": 1,
+    "rustPublicDeclarations": 5,
+    "crates/connect-protocol": 1
+  }
+}

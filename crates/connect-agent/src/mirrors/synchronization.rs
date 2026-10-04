@@ -215,6 +215,9 @@ impl MirrorManager {
         access_token: &str,
     ) -> Result<DirectoryMirror, ConnectError> {
         self.validate_mirror_root(entry)?;
+        // A newer runtime may claim the folder at any time; never sync into
+        // or out of a folder that no longer carries this mirror's marker.
+        verify_mirror_marker(&entry.path, entry.collection_id).map_err(from_mirror)?;
         let transport =
             HttpSyncTransport::new(&entry.sync_url, access_token).map_err(from_mirror)?;
         DirectoryMirror::new_with_selective_sync(

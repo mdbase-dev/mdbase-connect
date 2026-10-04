@@ -57,6 +57,27 @@ describe("device-local mirror storage", () => {
     }
   });
 
+  it("refuses a folder claimed by a newer runtime and never removes the claim", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-claimed-"));
+    const collectionId = crypto.randomUUID();
+    const claim = await readFile(
+      new URL("../../../test-fixtures/role-marker-v2-claim.json", import.meta.url),
+      "utf8"
+    );
+    try {
+      await markMirror(root, collectionId);
+      const markerPath = join(root, ".mdbase", "connect-role.json");
+      await writeFile(markerPath, claim);
+      await expect(loadMirrorMarker(root)).rejects.toMatchObject({ code: "invalid_mirror_marker" });
+      await expect(assertMirror(root, collectionId)).rejects.toBeDefined();
+      await expect(markMirror(root, collectionId)).rejects.toBeDefined();
+      await expect(clearMirrorMarker(root, collectionId)).rejects.toBeDefined();
+      expect(await readFile(markerPath, "utf8")).toBe(claim);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("requires an authority transfer before a local collection folder becomes a mirror", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
     try {

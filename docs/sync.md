@@ -538,7 +538,11 @@ Each physical mirror folder also contains the non-secret
 `.mdbase/connect-role.json` marker. It binds that folder to one hosted
 collection and prevents the local connector from exposing it as another write
 authority. Credentials, cursors, pending mutations, and conflicts remain in
-device-local state outside the collection.
+device-local state outside the collection. The daemon re-reads the marker before
+every sync. A marker with a higher integer `version` means a newer mdbase
+runtime has claimed the folder: the mirror stops with
+`collection_claimed_by_newer_runtime`, and `mirror remove` deletes only this
+mirror's own version 1 marker, never a claim.
 
 Before changing files, a Node mirror takes an exclusive device-local folder
 lease. `mdbase-mirror watch` holds it until the watcher stops; one-shot sync and

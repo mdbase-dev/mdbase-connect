@@ -4,8 +4,8 @@ use mdbase_connect_core::{
 };
 use mdbase_connect_mirror::{
     clear_mirror_marker, mark_mirror, mirror_lock_path, validate_mirror_folder,
-    validate_selective_sync_policy, DirectoryMirror, HttpSyncTransport, MirrorApplyResult,
-    MirrorError, MirrorSyncPlan,
+    validate_selective_sync_policy, verify_mirror_marker, DirectoryMirror, HttpSyncTransport,
+    MirrorApplyResult, MirrorError, MirrorSyncPlan,
 };
 use mdbase_connect_protocol::{
     MirrorAddParams, MirrorApplyParams, MirrorConfigureSelectiveSyncParams, MirrorConflictParams,
