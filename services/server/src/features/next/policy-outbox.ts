@@ -11,7 +11,7 @@
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { LogServiceError, type LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
-import { recoverLostPolicy } from "./policy-recovery.js";
+import { recoverLostPolicy, withPolicyLock } from "./policy-recovery.js";
 
 const OUTBOX_FORMAT = 1;
 const MAX_ROWS_PER_ITEM = 64;
@@ -158,10 +158,13 @@ export class PolicyEmitter {
     if (due) this.lastVerificationAt = this.now();
     const collectionIds = new Set([...checks.rows.map((row) => row.collection_id), ...this.verificationHints]);
     this.verificationHints.clear();
+    const failedVerification = new Set<string>();
     for (const collectionId of collectionIds) {
       try {
         await recoverLostPolicy(this.db, this.log, collectionId);
       } catch (error) {
+        failedVerification.add(collectionId);
+        this.verificationHints.add(collectionId);
         this.onError(error, collectionId);
       }
     }
@@ -171,6 +174,7 @@ export class PolicyEmitter {
     );
     let appended = 0;
     for (const { collection_id: collectionId } of collections.rows) {
+      if (failedVerification.has(collectionId)) continue;
       try {
         appended += await this.drainCollection(collectionId);
       } catch (error) {
@@ -191,7 +195,11 @@ export class PolicyEmitter {
     }
   }
 
-  private async step(collectionId: string): Promise<DrainOutcome> {
+  private step(collectionId: string): Promise<DrainOutcome> {
+    return withPolicyLock(this.db, collectionId, () => this.sendStep(collectionId));
+  }
+
+  private async sendStep(collectionId: string): Promise<DrainOutcome> {
     const batch = await this.claim(collectionId);
     if (batch === "idle" || batch === "blocked") return batch;
     const seq = Number(batch.seq);

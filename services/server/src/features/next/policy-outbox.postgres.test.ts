@@ -46,6 +46,8 @@ class FakeLogService {
   dropNextResponse = false;
   refuseNextAppend = false;
   failNextRead = false;
+  failNextAppend = false;
+  failReadCollection: string | undefined;
   constructor(private readonly issuer: Uint8Array) {}
 
   readonly fetch: typeof fetch = async (input, init) => {
@@ -75,7 +77,7 @@ class FakeLogService {
       if (!log) return this.reply({ error: "not_found" });
       result = st([0, head().seq], [1, head().chain], [2, 1]);
     } else if (method === "read") {
-      if (this.failNextRead) {
+      if (this.failNextRead && (!this.failReadCollection || this.failReadCollection === collection)) {
         this.failNextRead = false;
         throw new TypeError("read failed");
       }
@@ -90,6 +92,10 @@ class FakeLogService {
       }
       result = st([0, items], [1, head().seq], [2, head().chain], [3, 1], [4, false], [6, false]);
     } else if (method === "append") {
+      if (this.failNextAppend) {
+        this.failNextAppend = false;
+        throw new TypeError("append unavailable");
+      }
       if (this.refuseNextAppend) {
         this.refuseNextAppend = false;
         return this.reply({ error: "forbidden" });
@@ -348,6 +354,63 @@ describePostgres("mdbase-next policy outbox", () => {
     expect(await emitter.drainCollection(collectionId)).toBe(0);
     const parked = await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id = $1 AND state = 'parked'", [collectionId]);
     expect(parked.rows).toHaveLength(1);
+  });
+
+  it("fences an open fresh sending batch prepared at the regressed head until recovery lands", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    await queueNextPolicy(database.db, collectionId, [{ op: "grant-revoke", grant: randomUUID() }]);
+    await emitter.drainCollection(collectionId);
+    service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: false }]);
+    service.failNextAppend = true;
+    await expect(emitter.drainCollection(collectionId)).rejects.toThrow(/append unavailable/);
+    const sending = await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id = $1 AND state = 'sending'", [collectionId]);
+    expect(sending.rows).toHaveLength(1);
+    expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(1);
+    expect(await emitter.drainCollection(collectionId)).toBe(2);
+    expect(service.policyOps(collectionId, signer.cert.policyPublicKey)).toEqual([["1", "4", "2", "2"], ["7"], ["11"]]);
+  });
+
+  it("does not drain fresh work after an exact-read failure, including the next retry poll", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: false }]);
+    service.failReadCollection = collectionId.replaceAll("-", "");
+    service.failNextRead = true;
+    await emitter.drain();
+    expect((await client.head(collectionId)).seq).toBe(1);
+    service.failNextRead = true;
+    await emitter.drain();
+    expect((await client.head(collectionId)).seq).toBe(1);
+    await emitter.drain();
+    expect((await client.head(collectionId)).seq).toBe(2);
+    service.failReadCollection = undefined;
+  });
+
+  it.each(["version", "missing"])("durably parks unrecoverable %s retained ops instead of draining fresh work", async (failure) => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    await queueNextPolicy(database.db, collectionId, [{ op: "grant-revoke", grant: randomUUID() }]);
+    await emitter.drainCollection(collectionId);
+    if (failure === "version") {
+      await database.db.query("UPDATE next_policy_outbox SET ops = jsonb_set(ops, '{version}', '99') WHERE batch_id IN (SELECT id FROM next_policy_batches WHERE collection_id = $1 AND seq = 2)", [collectionId]);
+    } else {
+      await database.db.query("DELETE FROM next_policy_outbox WHERE batch_id IN (SELECT id FROM next_policy_batches WHERE collection_id = $1 AND seq = 2)", [collectionId]);
+    }
+    service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: false }]);
+    expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(0);
+    expect(await emitter.drainCollection(collectionId)).toBe(0);
+    const parked = await database.db.query<{ error: string }>("SELECT error FROM next_policy_batches WHERE collection_id = $1 AND state = 'parked'", [collectionId]);
+    expect(parked.rows[0]!.error).toBe("invalid_retained_ops");
+    const app = Fastify();
+    registerPolicyRecoveryRoutes(app, database.db, emitter);
+    app.get("/ready", () => ({ ok: true }));
+    try { expect((await app.inject({ url: "/ready" })).statusCode).toBe(503); } finally { await app.close(); }
   });
 
   it("parks a reissue that cannot be signed without relaxing certificate validity", async () => {

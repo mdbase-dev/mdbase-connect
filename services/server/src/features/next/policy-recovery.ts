@@ -4,7 +4,24 @@
 import type { DatabasePool } from "../../database-types.js";
 import type { LogServiceClient } from "./log-service-client.js";
 
-export async function recoverLostPolicy(db: DatabasePool, log: LogServiceClient, collectionId: string): Promise<number> {
+// A transaction-scoped advisory lock spans the emitter's claim COMMIT and network
+// append. Stored bytes remain durable before sending, without a race with recovery.
+export async function withPolicyLock<T>(db: DatabasePool, collectionId: string, run: () => Promise<T>): Promise<T> {
+  const lock = await db.connect();
+  try {
+    await lock.query("BEGIN");
+    await lock.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 20261004))", [collectionId]);
+    return await run();
+  } finally {
+    try { await lock.query("ROLLBACK"); } finally { lock.release(); }
+  }
+}
+
+export function recoverLostPolicy(db: DatabasePool, log: LogServiceClient, collectionId: string): Promise<number> {
+  return withPolicyLock(db, collectionId, () => recover(db, log, collectionId));
+}
+
+async function recover(db: DatabasePool, log: LogServiceClient, collectionId: string): Promise<number> {
   const client = await db.connect();
   try {
     await client.query("BEGIN");
@@ -38,12 +55,33 @@ export async function recoverLostPolicy(db: DatabasePool, log: LogServiceClient,
           "SELECT ops FROM next_policy_outbox WHERE batch_id = $1 ORDER BY id", [batch.id]
         );
         if (!rows.rows.length || rows.rows.some((row) => row.ops.version !== 1 || !Array.isArray(row.ops.ops))) {
-          throw new Error("lost policy batch has no valid retained ops");
+          await client.query("UPDATE next_policy_batches SET state = 'parked', error = 'invalid_retained_ops', lost_at = now() WHERE id = $1", [batch.id]);
+          await client.query("COMMIT");
+          return queued;
         }
         const ops = { version: 1, ops: rows.rows.flatMap((row) => row.ops.ops) };
         await client.query("INSERT INTO next_policy_outbox(collection_id, ops, reissue_of) VALUES($1, $2, $3)", [collectionId, JSON.stringify(ops), batch.id]);
         await client.query("UPDATE next_policy_batches SET lost_at = now() WHERE id = $1", [batch.id]);
         queued += 1;
+      }
+    }
+    if (queued > 0) {
+      const fresh = await client.query<{ id: string; seq: string; item: Buffer }>(
+        `SELECT b.id, b.seq, b.item FROM next_policy_batches b WHERE b.collection_id = $1
+         AND b.state = 'sending' AND NOT EXISTS
+         (SELECT 1 FROM next_policy_outbox o WHERE o.batch_id = b.id AND o.reissue_of IS NOT NULL)
+         ORDER BY b.id`, [collectionId]
+      );
+      for (const batch of fresh.rows) {
+        // An unknown response might already have committed the exact bytes. Never
+        // discard that effect or blindly resend it against restored history.
+        const stored = await log.controlItemAt(collectionId, Number(batch.seq));
+        if (stored && batch.item.equals(Buffer.from(stored))) {
+          await client.query("UPDATE next_policy_batches SET state = 'appended', appended_at = now(), error = NULL WHERE id = $1", [batch.id]);
+        } else {
+          await client.query("UPDATE next_policy_outbox SET batch_id = NULL WHERE batch_id = $1", [batch.id]);
+          await client.query("DELETE FROM next_policy_batches WHERE id = $1", [batch.id]);
+        }
       }
     }
     await client.query("COMMIT");
