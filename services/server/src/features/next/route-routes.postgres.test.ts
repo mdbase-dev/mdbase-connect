@@ -70,4 +70,24 @@ describePostgres("mdbase-next route endpoint", () => {
     expect((await route()).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: `/v1/next/collections/${id}/route` })).statusCode).toBe(401);
   });
+
+  it("lists the installation's collections for switching (C2)", async () => {
+    const { id, token } = await grantWithToken();
+    const second = await localGrantFixture(db);
+    // A second grant of the same user, app and installation, on another collection.
+    await db.query(`UPDATE grants SET user_id = $2, application_id = $2, activated_at = now() WHERE id = $1`, [second, id]);
+    await db.query(`UPDATE collections SET user_id = $2, enabled = true, present = true, authority_state = 'active' WHERE id = $1`, [second, id]);
+    await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [second, randomBytes(32)]);
+    await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','private',$3)", [second, id, Buffer.alloc(16)]);
+    // Another installation's grant is not listed.
+    const other = await localGrantFixture(db);
+    await db.query(`UPDATE grants SET user_id = $2, application_id = $2, application_installation_id = 'other-installation', activated_at = now() WHERE id = $1`, [other, id]);
+    const response = await app.inject({ method: "GET", url: "/v1/next/apps/collections", headers: { authorization: `Bearer ${token}` } });
+    expect(response.statusCode).toBe(200);
+    const collections = response.json().collections as Array<Record<string, unknown>>;
+    expect(collections.map((entry) => entry.grant).sort()).toEqual([id, second].sort());
+    expect(collections.find((entry) => entry.grant === second)).toMatchObject({ collection: second, state: "synced_e2e", routable: true });
+    expect(collections.find((entry) => entry.grant === id)).toMatchObject({ collection: id, state: "local", routable: false });
+    expect((await app.inject({ method: "GET", url: "/v1/next/apps/collections" })).statusCode).toBe(401);
+  });
 });

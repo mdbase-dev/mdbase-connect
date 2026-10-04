@@ -58,4 +58,51 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
       : [];
     return { collection: id, grant: row.grant_id, targets, ...(targets.length === 0 ? { reason: "no_device_registered" } : {}) };
   });
+
+  // C2: the collections this app installation may switch between, one entry per active
+  // grant of the same user and installation. A grant is `routable` when it has a
+  // registered Noise key (otherwise it works only through the old envelope).
+  app.get("/v1/next/apps/collections", {
+    config: { rateLimit: { max: 60, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
+    const token = bearerToken(request);
+    if (!token) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
+    const caller = await options.db.query<{ user_id: string; application_id: string; installation: string }>(
+      `SELECT g.user_id, g.application_id, g.application_installation_id AS installation
+       FROM access_tokens tok JOIN grants g ON g.id = tok.grant_id JOIN users u ON u.id = g.user_id
+       WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
+         AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL`,
+      [tokenHash(token)]
+    );
+    const self = caller.rows[0];
+    if (!self) return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired."));
+    const grants = await options.db.query<{
+      grant_id: string; collection: string; display_name: string; operations: string[];
+      sync: "private" | "cloud_copy" | null; routable: boolean;
+    }>(
+      `SELECT g.id AS grant_id, COALESCE(col.local_id::text, hc.id::text) AS collection,
+              COALESCE(col.display_name, hc.display_name) AS display_name, g.operations,
+              nc.sync, (k.grant_id IS NOT NULL) AS routable
+       FROM grants g
+       LEFT JOIN collections col ON col.id = g.collection_id
+       LEFT JOIN hosted_collections hc ON hc.id = g.hosted_collection_id
+       LEFT JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, hc.id::text)
+       LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
+       WHERE g.user_id = $1 AND g.application_id = $2 AND g.application_installation_id = $3
+         AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+         AND (g.collection_id IS NULL OR (col.enabled = true AND col.present = true AND col.authority_state = 'active'))
+       ORDER BY display_name, g.id`,
+      [self.user_id, self.application_id, self.installation]
+    );
+    return {
+      collections: grants.rows.map((row) => ({
+        collection: row.collection,
+        name: row.display_name,
+        grant: row.grant_id,
+        state: row.sync === "cloud_copy" ? "synced" : row.sync === "private" ? "synced_e2e" : "local",
+        operations: row.operations,
+        routable: row.routable
+      }))
+    };
+  });
 }
