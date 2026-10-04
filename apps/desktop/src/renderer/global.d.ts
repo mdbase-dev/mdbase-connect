@@ -22,6 +22,7 @@ interface CollectionSummary {
     state: "fenced";
   };
   contracts: CollectionContractDescriptor[];
+  unavailable_reason?: "claimed_by_newer_runtime";
 }
 
 interface ContractRequirement {

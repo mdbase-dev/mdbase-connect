@@ -412,6 +412,10 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
       }
     });
   };
+  const claimed = collection.unavailable_reason === "claimed_by_newer_runtime";
+  const removeCollection = () => {
+    if (window.confirm(`Remove ${collection.display_name} from mdbase connect? Its files will not be deleted.`)) void onAct(async () => { await window.mdbaseConnect.removeCollection(collection.id); onNotice(`${collection.display_name} was removed.`); });
+  };
   return (
     <article className={`collection-card ${editing ? "editing" : ""}`}>
       <div className="collection-summary">
@@ -420,8 +424,10 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
           {collection.description && <p>{collection.description}</p>}
           <button className="path" title={collection.path} onClick={() => void onAct(() => window.mdbaseConnect.openCollectionFolder(collection.id))}>{collection.path}</button>
         </div>
-        <div className="collection-status"><StatusDot state={collection.enabled ? "connected" : "idle"} />{collection.enabled ? "Available" : "Disabled"}</div>
-        <div className="row-actions">
+        <div className="collection-status"><StatusDot state={collection.enabled ? "connected" : "idle"} />{claimed ? "Moved to newer runtime" : collection.enabled ? "Available" : "Disabled"}</div>
+        {claimed ? <div className="row-actions">
+          <button className="quiet-action danger" disabled={busy} onClick={removeCollection}>Remove from mdbase connect</button>
+        </div> : <div className="row-actions">
           <button
             className="quiet-action"
             disabled={busy}
@@ -431,8 +437,12 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
           </button>
           <button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : "Details"}</button>
           <button className="quiet-action" disabled={busy || collection.authority_transfer !== undefined} onClick={() => void onAct(async () => { await window.mdbaseConnect.setCollectionEnabled(collection.id, !collection.enabled); onNotice(collection.enabled ? `${collection.display_name} is no longer available to remote applications.` : `${collection.display_name} is available again.`); })}>{collection.enabled ? "Disable" : "Enable"}</button>
-        </div>
+        </div>}
       </div>
+      {claimed && <div className="authority-history" role="note">
+        <strong>Managed by a newer mdbase runtime</strong>
+        <span>A newer version of mdbase now manages this folder, so Connect no longer serves it to applications. Update mdbase Connect to keep using it here, or remove it from Connect. Removing never deletes its files.</span>
+      </div>}
       {(actionError || transferError) && <div className="message error-message" role="alert">{actionError || transferError}</div>}
       {authorityHistory.length > 0 && <div className="authority-history" role="note">
         <strong>History and recovery</strong>
@@ -512,7 +522,7 @@ function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, 
         />}
         <div className="collection-danger-row">
           <small>Removing this collection from mdbase connect never deletes its files.</small>
-          <button className="quiet-action danger" disabled={busy || collection.authority_transfer !== undefined} onClick={() => { if (window.confirm(`Remove ${collection.display_name} from mdbase connect? Its files will not be deleted.`)) void onAct(async () => { await window.mdbaseConnect.removeCollection(collection.id); onNotice(`${collection.display_name} was removed.`); }); }}>Remove from mdbase connect</button>
+          <button className="quiet-action danger" disabled={busy || collection.authority_transfer !== undefined} onClick={removeCollection}>Remove from mdbase connect</button>
         </div>
       </div>}
     </article>

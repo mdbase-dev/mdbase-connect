@@ -166,6 +166,25 @@ impl CollectionRegistry {
         drop(roots);
     }
 
+    /// Release a collection's resident runtime once a newer runtime has
+    /// claimed its folder, returning whether it is claimed. Callers stop
+    /// scheduling background work for a claimed collection; every serving path
+    /// already refuses it.
+    pub fn release_claimed_runtime(&self, id: Uuid) -> Result<bool, ConnectError> {
+        let collection = self.registered(id)?;
+        if !claimed_by_newer_runtime(Path::new(&collection.path)) {
+            return Ok(false);
+        }
+        let _lifecycle = self.lock_runtime_lifecycle()?;
+        let released = self
+            .executors
+            .lock()
+            .map_err(|_| ConnectError::CollectionOpen("executor registry lock poisoned".into()))?
+            .remove(&id);
+        drop(released);
+        Ok(true)
+    }
+
     /// Snapshot the bounded set of collection runtimes already held in memory.
     pub fn resident_collection_ids(&self) -> Result<Vec<Uuid>, ConnectError> {
         let executors = self

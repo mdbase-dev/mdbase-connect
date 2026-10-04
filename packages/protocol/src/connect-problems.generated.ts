@@ -18,6 +18,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "capability_contract_incompatible": { category: "compatibility", recovery: "upgrade_application" },
   "change_cursor_reset": { category: "conflict", recovery: "refresh" },
   "collection_access_denied": { category: "authorization", recovery: "reauthorize" },
+  "collection_claimed_by_newer_runtime": { category: "compatibility", recovery: "upgrade_connector" },
   "collection_configuration_invalid": { category: "validation", recovery: "repair_collection" },
   "collection_contracts_missing": { category: "compatibility", recovery: "choose_collection" },
   "collection_incompatible": { category: "compatibility", recovery: "choose_collection" },
@@ -171,6 +172,7 @@ export interface ConnectProblemDetailsByCode {
 };
   "change_cursor_reset": undefined;
   "collection_access_denied": undefined;
+  "collection_claimed_by_newer_runtime": undefined;
   "collection_configuration_invalid": {
   "diagnostics": Array<Record<string, unknown>>;
 };
@@ -413,6 +415,12 @@ export interface ConnectProblemByCode {
     code: "collection_access_denied";
     category: "authorization";
     recovery: "reauthorize";
+    details?: never;
+  };
+  "collection_claimed_by_newer_runtime": ConnectProblemBase & {
+    code: "collection_claimed_by_newer_runtime";
+    category: "compatibility";
+    recovery: "upgrade_connector";
     details?: never;
   };
   "collection_configuration_invalid": ConnectProblemBase & {

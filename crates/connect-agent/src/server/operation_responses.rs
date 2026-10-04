@@ -269,6 +269,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_claimed_collection_is_a_catalogued_connector_upgrade_problem() {
+        let problem = operation_problem(&ConnectError::ClaimedByNewerRuntime);
+        assert_eq!(problem.code, "collection_claimed_by_newer_runtime");
+        assert_eq!(
+            problem.recovery,
+            mdbase_connect_protocol::ConnectRecoveryAction::UpgradeConnector
+        );
+        assert!(problem.server_code.is_none());
+    }
+
+    #[test]
     fn transfer_session_mutations_do_not_snapshot_the_collection() {
         let state = tempfile::tempdir().unwrap();
         let registry = CollectionRegistry::open(state.path()).unwrap();

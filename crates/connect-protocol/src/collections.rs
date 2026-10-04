@@ -12,6 +12,17 @@ pub struct CollectionSummary {
     pub authority_transfer: Option<CollectionAuthorityTransfer>,
     #[serde(default)]
     pub contracts: Vec<CollectionContractDescriptor>,
+    /// Why a registered collection cannot be served, when that is not the
+    /// user's own pause. Older readers ignore it and see `enabled: false`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<CollectionUnavailableReason>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CollectionUnavailableReason {
+    /// A newer mdbase runtime claimed the folder with its role marker.
+    ClaimedByNewerRuntime,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

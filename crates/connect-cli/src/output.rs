@@ -102,6 +102,36 @@ fn relay_problem_message(value: &Value) -> String {
     format!("\nRelay: {code}\n{action}")
 }
 
+fn collection_state(item: &Value) -> &'static str {
+    if item["unavailable_reason"] == "claimed_by_newer_runtime" {
+        "claimed"
+    } else if item["enabled"].as_bool().unwrap_or(false) {
+        "available"
+    } else {
+        "paused"
+    }
+}
+
+fn claimed_collections_message(doctor: &Value) -> String {
+    let names = doctor["claimed_collections"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|collection| collection["display_name"].as_str())
+        .collect::<Vec<_>>();
+    if names.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\nWarning: a newer mdbase runtime now manages {}. Connect no longer serves {}; \
+         update mdbase Connect, or remove {} with `mdbase connect collection remove`.",
+        names.join(", "),
+        if names.len() == 1 { "it" } else { "them" },
+        if names.len() == 1 { "it" } else { "them" },
+    )
+}
+
 pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
     match kind {
         OutputKind::Status => {
@@ -143,7 +173,7 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
                 .unwrap_or("unknown");
             let daemon = value["daemon"]["state"].as_str().unwrap_or("unknown");
             format!(
-                "{}\nState directory: {}\nDaemon: {}{}",
+                "{}\nState directory: {}\nDaemon: {}{}{}",
                 if healthy {
                     "Connect is healthy."
                 } else {
@@ -151,7 +181,8 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
                 },
                 state,
                 daemon,
-                relay_problem_message(&value["daemon"]["status"])
+                relay_problem_message(&value["daemon"]["status"]),
+                claimed_collections_message(value)
             )
         }
         OutputKind::Collections => render_rows(
@@ -160,11 +191,7 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
             |item| {
                 vec![
                     text(item, "display_name"),
-                    if item["enabled"].as_bool().unwrap_or(false) {
-                        "available".to_string()
-                    } else {
-                        "paused".to_string()
-                    },
+                    collection_state(item).to_string(),
                     text(item, "id"),
                     text(item, "path"),
                 ]

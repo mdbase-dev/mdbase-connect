@@ -347,3 +347,36 @@ fn hosted_connections_have_a_quiet_human_table() {
     assert!(rendered.contains("2"));
     assert!(!rendered.contains('{'));
 }
+
+#[test]
+fn claimed_collections_are_labelled_and_reported_by_doctor() {
+    let collections = serde_json::json!([{
+        "display_name": "Notes",
+        "enabled": false,
+        "unavailable_reason": "claimed_by_newer_runtime",
+        "id": "4c18af2e-b04a-4b77-b83e-493c3695962e",
+        "path": "/notes"
+    }, {
+        "display_name": "Paused",
+        "enabled": false,
+        "id": "5c18af2e-b04a-4b77-b83e-493c3695962e",
+        "path": "/paused"
+    }]);
+    let rendered = render_human(OutputKind::Collections, &collections);
+    assert!(rendered
+        .lines()
+        .any(|line| line.starts_with("Notes") && line.contains("claimed")));
+    assert!(rendered
+        .lines()
+        .any(|line| line.starts_with("Paused") && line.contains("paused")));
+
+    let doctor = serde_json::json!({
+        "healthy": false,
+        "state_directory": {"state": "available"},
+        "daemon": {"state": "ready", "status": {}},
+        "claimed_collections": [{"id": "4c18af2e-b04a-4b77-b83e-493c3695962e", "display_name": "Notes"}]
+    });
+    let rendered = render_human(OutputKind::Doctor, &doctor);
+    assert!(rendered.starts_with("Connect needs attention."));
+    assert!(rendered.contains("Warning: a newer mdbase runtime now manages Notes."));
+}

@@ -88,6 +88,7 @@ pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition
         "capability_contract_incompatible" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::UpgradeApplication }),
         "change_cursor_reset" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::Refresh }),
         "collection_access_denied" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
+        "collection_claimed_by_newer_runtime" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::UpgradeConnector }),
         "collection_configuration_invalid" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Validation, recovery: ConnectRecoveryAction::RepairCollection }),
         "collection_contracts_missing" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::ChooseCollection }),
         "collection_incompatible" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::ChooseCollection }),

@@ -110,6 +110,98 @@ fn a_registered_folder_stops_being_available_when_it_becomes_a_mirror() {
     ));
 }
 
+/// Contract: a folder claimed by a newer runtime (v2 marker, no
+/// `collection_id`) is never served or written, reports why without a local
+/// path, releases its runtime, and can still be removed from Connect.
+#[test]
+fn a_folder_claimed_by_a_newer_runtime_fails_closed_and_stays_removable() {
+    let claim = include_bytes!("../../../../../test-fixtures/role-marker-v2-claim.json");
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let root = collection_parent.path().join("notes");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let created = registry.create(&root, Some("Notes"), "UTC").unwrap();
+    registry
+        .operation(
+            created.id,
+            "create",
+            &json!({"path": "before.md", "frontmatter": {"title": "Before"}}),
+        )
+        .unwrap();
+    assert!(registry
+        .resident_collection_ids()
+        .unwrap()
+        .contains(&created.id));
+    let configuration = fs::read(root.join("mdbase.yaml")).unwrap();
+
+    fs::create_dir_all(root.join(MIRROR_MARKER_DIRECTORY)).unwrap();
+    let marker = root.join(MIRROR_MARKER_DIRECTORY).join(MIRROR_MARKER_FILE);
+    fs::write(&marker, claim).unwrap();
+
+    let claimed = |error: Result<_, ConnectError>| match error {
+        Err(error @ ConnectError::ClaimedByNewerRuntime) => {
+            assert_eq!(error.code(), "collection_claimed_by_newer_runtime");
+            assert!(!error.to_string().contains(&*root.to_string_lossy()));
+        }
+        other => panic!("expected a claimed collection, got {other:?}"),
+    };
+    claimed(registry.get(created.id).map(|_| ()));
+    claimed(
+        registry
+            .operation(
+                created.id,
+                "create",
+                &json!({"path": "after.md", "frontmatter": {"title": "After"}}),
+            )
+            .map(|_| ()),
+    );
+    claimed(
+        registry
+            .operation(created.id, "describe", &json!({}))
+            .map(|_| ()),
+    );
+    claimed(registry.set_enabled(created.id, true).map(|_| ()));
+    claimed(
+        registry
+            .ingest_runtime_external(
+                created.id,
+                std::time::Duration::ZERO,
+                &mdbase::OperationCancellation::new(),
+            )
+            .map(|_| ()),
+    );
+    claimed(registry.add(&root).map(|_| ()));
+    assert!(!root.join("after.md").exists());
+
+    for summary in [
+        registry.list().unwrap().remove(0),
+        registry.inventory().unwrap().remove(0),
+        registry.catalog().unwrap().remove(0).summary,
+    ] {
+        assert!(!summary.enabled);
+        assert_eq!(
+            summary.unavailable_reason,
+            Some(CollectionUnavailableReason::ClaimedByNewerRuntime)
+        );
+    }
+
+    assert!(registry.release_claimed_runtime(created.id).unwrap());
+    assert!(!registry
+        .resident_collection_ids()
+        .unwrap()
+        .contains(&created.id));
+
+    let removed = registry.remove(created.id).unwrap();
+    assert_eq!(
+        removed.unavailable_reason,
+        Some(CollectionUnavailableReason::ClaimedByNewerRuntime)
+    );
+    assert!(registry.list().unwrap().is_empty());
+    assert_eq!(fs::read(&marker).unwrap(), claim);
+    assert_eq!(fs::read(root.join("mdbase.yaml")).unwrap(), configuration);
+    assert!(root.join("before.md").exists());
+}
+
 #[test]
 fn a_malformed_mirror_marker_fails_closed() {
     let state = tempdir().unwrap();

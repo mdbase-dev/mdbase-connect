@@ -401,6 +401,7 @@ fn run_finalizer(
         }
         if poll {
             poll = false;
+            let mut claimed = Vec::new();
             for id in active_resident_ids(&registry, &active) {
                 let cancellation = mdbase::OperationCancellation::new();
                 match registry.ingest_runtime_external(id, Duration::ZERO, &cancellation) {
@@ -412,11 +413,26 @@ fn run_finalizer(
                         // for another edge, interleaved with finalization turns.
                         poll |= changed;
                     }
+                    Err(ConnectError::ClaimedByNewerRuntime) => claimed.push(id),
                     Err(error) => {
                         tracing::warn!(collection_id = %id, code = error.code(), %error, "runtime external-change ingestion failed")
                     }
                 }
             }
+            // A newer runtime now owns these folders. Stop polling them and
+            // drop their runtimes instead of failing ingestion every second.
+            for id in claimed {
+                active.remove(&id);
+                if let Err(error) = registry.release_claimed_runtime(id) {
+                    tracing::warn!(collection_id = %id, code = error.code(), "claimed collection runtime could not be released");
+                }
+                tracing::warn!(
+                    collection_id = %id,
+                    code = "collection_claimed_by_newer_runtime",
+                    "collection claimed by a newer mdbase runtime; Connect stopped serving it"
+                );
+            }
+            cancel_inactive(&mut jobs, &active);
         }
         let Some(mut job) = jobs.pop_front() else {
             continue;

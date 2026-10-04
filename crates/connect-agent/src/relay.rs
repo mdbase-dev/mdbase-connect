@@ -772,6 +772,7 @@ async fn sync_collections(
             "display_name": collection.display_name,
             "spec_version": collection.spec_version,
             "enabled": collection.enabled,
+            "unavailable_reason": collection.unavailable_reason,
             "contracts": collection.contracts
         })).collect::<Vec<_>>()
     });

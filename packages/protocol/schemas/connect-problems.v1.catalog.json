@@ -89,6 +89,7 @@
     },
     "change_cursor_reset": { "category": "conflict", "recovery": "refresh" },
     "collection_access_denied": { "category": "authorization", "recovery": "reauthorize" },
+    "collection_claimed_by_newer_runtime": { "category": "compatibility", "recovery": "upgrade_connector" },
     "collection_configuration_invalid": {
       "category": "validation",
       "recovery": "repair_collection",
