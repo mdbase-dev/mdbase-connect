@@ -715,7 +715,7 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
       id: collection.id,
       name: collection.display_name,
       detail: collection.connector_name,
-      status: !collection.enabled ? "Paused" : upgradeRequired ? "Update required" : online ? "Connected" : "Offline",
+      status: collection.unavailable_reason === "claimed_by_newer_runtime" ? "Moved to newer runtime" : !collection.enabled ? "Paused" : upgradeRequired ? "Update required" : online ? "Connected" : "Offline",
       available: collection.enabled && online,
       upgradeRequired,
       kind: "local" as const

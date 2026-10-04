@@ -11,7 +11,10 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { COLLECTION_OPERATIONS } from "../../collection-access.js";
+import {
+  COLLECTION_OPERATIONS,
+  localCollectionUnavailableError
+} from "../../collection-access.js";
 import type { DatabasePool } from "../../database-types.js";
 import {
   ConnectorOperationError,
@@ -95,6 +98,12 @@ export function registerLocalOperationRoutes(
       );
       const grant = authorized.rows[0];
       if (!grant) {
+        const unavailable = await localCollectionUnavailableError(
+          options.db,
+          tokenHash(bearer),
+          params.collectionId
+        );
+        if (unavailable) return reply.code(409).send(unavailable);
         return reply.code(401).send(apiError(
           "invalid_token",
           "Access token is invalid or expired."

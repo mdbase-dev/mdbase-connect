@@ -277,6 +277,122 @@ describe("mdbase connect server", () => {
     });
   });
 
+  it("reports an unavailable local collection instead of an invalid token", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const userId = "10000000-0000-4000-8000-000000000081";
+    const connectorId = "20000000-0000-4000-8000-000000000081";
+    const collectionId = "30000000-0000-4000-8000-000000000081";
+    const localId = "70000000-0000-4000-8000-000000000081";
+    const applicationId = "40000000-0000-4000-8000-000000000081";
+    const grantId = "50000000-0000-4000-8000-000000000081";
+    const connectorToken = "connector-unavailable-token";
+    const accessToken = "access-unavailable-token";
+    // Insert after startup so legacy grant reconciliation leaves the fixture alone.
+    const { app } = await buildApp({ db, devAuth: true, publicUrl: "http://connect.test" });
+    resources.push(() => app.close());
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, 'claimed@example.com', 'Claimed')",
+      [userId]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash, inventory_revision)
+       VALUES ($1, $2, 'Laptop', $3, 0)`,
+      [connectorId, userId, tokenHash(connectorToken)]
+    );
+    await db.query(
+      `INSERT INTO collections
+         (id, user_id, connector_id, local_id, display_name, spec_version)
+       VALUES ($1, $2, $3, $4, 'Notes', '0.3.0')`,
+      [collectionId, userId, connectorId, localId]
+    );
+    await db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris)
+       VALUES ($1, 'web:https://claimed-app.example', 'Claimed app',
+         'https://claimed-app.example',
+         '["https://claimed-app.example/callback"]'::jsonb)`,
+      [applicationId]
+    );
+    await db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, collection_id, operations, scope,
+          application_authorization, application_installation_id, activated_at)
+       VALUES ($1, $2, $3, $4, '["read"]'::jsonb,
+               '{"access":"full_collection","contracts":[]}'::jsonb,
+               '{"binding":{"protocol_version":4}}'::jsonb, $5, now())`,
+      [grantId, userId, applicationId, collectionId, randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO access_tokens (id, token_hash, grant_id, expires_at)
+       VALUES ($1, $2, $3, now() + interval '1 hour')`,
+      [randomUUID(), tokenHash(accessToken), grantId]
+    );
+    const inventory = (revision: number, collection: Record<string, unknown>) => app.inject({
+      method: "POST",
+      url: "/v1/connectors/sync",
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {
+        inventory_revision: revision,
+        collections: [{
+          id: localId,
+          display_name: "Notes",
+          spec_version: "0.3.0",
+          contracts: [],
+          ...collection
+        }]
+      }
+    });
+    const read = (token: string) => app.inject({
+      method: "POST",
+      url: `/v1/authorities/${localId}/operations/read`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { path: "note.md" }
+    });
+
+    expect((await inventory(1, {
+      enabled: false,
+      unavailable_reason: "claimed_by_newer_runtime"
+    })).statusCode).toBe(200);
+    const claimed = await read(accessToken);
+    expect(claimed.statusCode).toBe(409);
+    expect(claimed.json().error).toMatchObject({
+      code: "collection_unavailable",
+      details: { reason: "claimed_by_newer_runtime" }
+    });
+    const files = await app.inject({
+      method: "POST",
+      url: `/v1/authorities/${localId}/files/control`,
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: {}
+    });
+    expect(files.statusCode).toBe(409);
+    expect(files.json().error.code).toBe("collection_unavailable");
+
+    expect((await inventory(2, { enabled: false })).statusCode).toBe(200);
+    const paused = await read(accessToken);
+    expect(paused.statusCode).toBe(409);
+    expect(paused.json().error.details).toEqual({ reason: "paused" });
+
+    // A connector reporting the collection available clears any old reason,
+    // and an explicit null is accepted like an omitted reason.
+    expect((await inventory(3, {
+      enabled: true,
+      unavailable_reason: "claimed_by_newer_runtime"
+    })).statusCode).toBe(200);
+    expect((await inventory(4, { enabled: true, unavailable_reason: null })).statusCode)
+      .toBe(200);
+    const stored = await db.query<{ unavailable_reason: string | null }>(
+      "SELECT unavailable_reason FROM collections WHERE id = $1",
+      [collectionId]
+    );
+    expect(stored.rows[0]?.unavailable_reason).toBeNull();
+
+    const unknown = await read("not-a-token");
+    expect(unknown.statusCode).toBe(401);
+    expect(unknown.json().error.code).toBe("invalid_token");
+  });
+
   it("enforces account suspension across connector and application credentials", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());

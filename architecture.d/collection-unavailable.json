@@ -1,0 +1,7 @@
+{
+  "reason": "Local operation and file routes share one collection_unavailable decision in collection-access.ts (one export) instead of each answering a valid token on an unavailable collection with invalid_token; the file routes gain one import of that existing module.",
+  "growth": {
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 1
+  }
+}

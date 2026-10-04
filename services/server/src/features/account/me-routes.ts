@@ -89,6 +89,7 @@ export function registerAccountOverviewRoute(
           `SELECT col.id, col.connector_id, col.local_id, col.display_name,
                   col.spec_version, col.enabled, col.authority_state,
                   col.authority_epoch, col.contracts, col.last_seen_at,
+                  col.unavailable_reason,
                   connector.name AS connector_name
            FROM collections col
            JOIN connectors connector ON connector.id = col.connector_id

@@ -203,6 +203,8 @@ export interface ManagementOverview {
     display_name: string;
     spec_version: string;
     enabled: boolean;
+    /** Set when the connector reports why the collection is unavailable. */
+    unavailable_reason?: "claimed_by_newer_runtime" | null;
     contracts: CollectionContractDescriptor[];
     last_seen_at: string;
   }>;
