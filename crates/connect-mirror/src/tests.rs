@@ -3457,3 +3457,64 @@ fn mirrors_materialize_markdown_notes_and_obsidian_bases_as_records() {
     assert_eq!(frontmatter["views"][0]["name"], "Open");
     assert_eq!(body, "");
 }
+
+/// A newer runtime claims a folder with a v2 role marker (no `collection_id`).
+/// Every mirror entry point must refuse it, and none may write or remove it.
+#[test]
+fn v2_claim_marker_is_never_used_written_or_removed() {
+    let claim = include_bytes!("../../../test-fixtures/role-marker-v2-claim.json");
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path();
+    let id = Uuid::new_v4();
+    mark_mirror(root, id).unwrap();
+    verify_mirror_marker(root, id).unwrap();
+    let marker = root.join(".mdbase/connect-role.json");
+    fs::write(&marker, claim).unwrap();
+
+    for error in [
+        verify_mirror_marker(root, id).unwrap_err(),
+        validate_mirror_folder(root, id).unwrap_err(),
+        mark_mirror(root, id).unwrap_err(),
+    ] {
+        assert_eq!(error.code, "collection_claimed_by_newer_runtime");
+    }
+    clear_mirror_marker(root, id).unwrap();
+    assert_eq!(fs::read(&marker).unwrap(), claim);
+}
+
+#[test]
+fn mirror_marker_verification_and_removal_require_this_exact_mirror() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path();
+    let id = Uuid::new_v4();
+    // Folders provisioned before role markers existed have none.
+    verify_mirror_marker(root, id).unwrap();
+    clear_mirror_marker(root, id).unwrap();
+
+    let marker = root.join(".mdbase/connect-role.json");
+    fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    for (document, code) in [
+        (
+            format!(
+                r#"{{"version":1,"role":"mirror","collection_id":"{}"}}"#,
+                Uuid::new_v4()
+            ),
+            "mirror_identity_conflict",
+        ),
+        (
+            format!(r#"{{"version":1,"role":"replica","collection_id":"{id}"}}"#),
+            "mirror_identity_conflict",
+        ),
+        ("{broken".to_string(), "invalid_mirror_marker"),
+    ] {
+        fs::write(&marker, &document).unwrap();
+        assert_eq!(verify_mirror_marker(root, id).unwrap_err().code, code);
+        assert_eq!(clear_mirror_marker(root, id).unwrap_err().code, code);
+        assert_eq!(fs::read_to_string(&marker).unwrap(), document);
+    }
+
+    fs::remove_file(&marker).unwrap();
+    mark_mirror(root, id).unwrap();
+    clear_mirror_marker(root, id).unwrap();
+    assert!(!marker.exists());
+}

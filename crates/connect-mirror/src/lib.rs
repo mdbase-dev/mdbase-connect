@@ -15,11 +15,11 @@ use mdbase_connect_protocol::{
     MoveFileReceipt, MoveFileReceiptKind, MoveFileRequest, MoveFileRequestKind,
     OpenFileDownloadRequest, OpenFileDownloadRequestKind, OpenFileUploadRequest,
     OpenFileUploadRequestKind, PrepareFileUploadPartRequest, PrepareFileUploadPartRequestKind,
-    PreparedFilePart, PreparedFilePartKind, SelectiveSyncPolicy, SyncChange, SyncChangesPage,
-    SyncCollectionResources, SyncFileSnapshotPage, SyncMutation, SyncMutationOperation,
-    SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument, SyncSession,
-    SyncSnapshotPage, UploadedFilePart, FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
-    SYNC_PROTOCOL_VERSION,
+    PreparedFilePart, PreparedFilePartKind, RoleMarker, SelectiveSyncPolicy, SyncChange,
+    SyncChangesPage, SyncCollectionResources, SyncFileSnapshotPage, SyncMutation,
+    SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument,
+    SyncSession, SyncSnapshotPage, UploadedFilePart, FILE_PROTOCOL_VERSION,
+    FILE_TRANSFER_PROTOCOL_VERSION, ROLE_MARKER_PATH, SYNC_PROTOCOL_VERSION,
 };
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
@@ -67,7 +67,10 @@ pub use sync_model::{
 pub use directory_files::validate_selective_sync_policy;
 use directory_files::{classify_file_media, validate_visible_file_path};
 
-pub use filesystem::{clear_mirror_marker, mark_mirror, mirror_lock_path, validate_mirror_folder};
+pub use filesystem::{
+    clear_mirror_marker, mark_mirror, mirror_lock_path, validate_mirror_folder,
+    verify_mirror_marker,
+};
 pub use transport::{HttpSyncTransport, SyncTransport};
 
 #[cfg(test)]

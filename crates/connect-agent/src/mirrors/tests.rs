@@ -273,3 +273,64 @@ async fn timed_out_sync_future_releases_the_mirror_guard() {
 
     let _replacement = manager.begin_operation(replica_id, false).unwrap();
 }
+
+#[test]
+fn claimed_mirror_folder_stops_sync_and_status_without_touching_the_claim() {
+    let temporary = tempfile::tempdir().unwrap();
+    let state = temporary.path().join("state");
+    let root = temporary.path().join("mirror");
+    fs::create_dir_all(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    let collection_id = Uuid::new_v4();
+    mark_mirror(&root, collection_id).unwrap();
+    let entry = MirrorRegistryEntry {
+        collection_id,
+        replica_id: Uuid::new_v4(),
+        name: "Claimed".to_string(),
+        mode: SyncReplicaMode::ReadWrite,
+        selective_sync: SelectiveSyncPolicy::default(),
+        path: root.clone(),
+        sync_url: format!("https://connect.example/v1/authorities/{collection_id}/sync"),
+        control_url: "https://connect.example".to_string(),
+        enrollment_id: Uuid::new_v4(),
+        access_token_expires_at: "2026-08-08T00:00:00Z".to_string(),
+        created_at: "2026-08-07T00:00:00Z".to_string(),
+        lifecycle: MirrorLifecycle::Active,
+        promotion: None,
+    };
+    fs::create_dir_all(&state).unwrap();
+    write_registry(&state.join("mirrors.json"), std::slice::from_ref(&entry)).unwrap();
+    let manager = MirrorManager::open(
+        &state,
+        CollectionRegistry::open(&state).unwrap(),
+        None,
+        Some("Test does not use credentials".into()),
+    )
+    .unwrap();
+    assert!(manager.build_mirror(&entry, "token").is_ok());
+
+    let claim = include_bytes!("../../../../test-fixtures/role-marker-v2-claim.json");
+    fs::write(root.join(".mdbase/connect-role.json"), claim).unwrap();
+    fs::write(
+        root.join("after-claim.md"),
+        "written by the newer runtime\n",
+    )
+    .unwrap();
+
+    let Err(error) = manager.build_mirror(&entry, "token") else {
+        panic!("a claimed folder must not build a mirror");
+    };
+    assert_eq!(error.code(), "collection_claimed_by_newer_runtime");
+    assert!(!error.to_string().contains(&*root.to_string_lossy()));
+    assert!(terminal_background_error(&error, false));
+    let summary = manager.list_summary(&entry);
+    assert_eq!(summary.state, MirrorState::Offline);
+    assert_eq!(
+        summary.error_code.as_deref(),
+        Some("collection_claimed_by_newer_runtime")
+    );
+    assert_eq!(
+        fs::read(root.join(".mdbase/connect-role.json")).unwrap(),
+        claim
+    );
+}

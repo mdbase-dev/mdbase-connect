@@ -184,7 +184,8 @@ verified backup rather than silently adopting a new authority.
 - One canonical filesystem directory has exactly one mirror owner.
 - A directory cannot overlap another mirror or a registered local authority.
 - The non-secret `.mdbase/connect-role.json` marker binds the directory to its
-  collection before any content is written.
+  collection before any content is written, and is re-checked before every
+  sync; a newer runtime's claim stops the mirror and survives `mirror remove`.
 - Mirror state and credentials remain outside the mirrored collection.
 - Writes are atomic where the platform permits.
 - A local mutation is journaled durably before upload.

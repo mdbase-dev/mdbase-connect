@@ -174,8 +174,13 @@ pub(super) fn terminal_background_error(
     error: &ConnectError,
     startup_credentials_unavailable: bool,
 ) -> bool {
-    error.code() == "mirror_state_upgrade_required"
-        || (error.code() == "credential_store_unavailable" && startup_credentials_unavailable)
+    matches!(
+        error.code(),
+        "mirror_state_upgrade_required"
+            | "collection_claimed_by_newer_runtime"
+            | "mirror_identity_conflict"
+            | "invalid_mirror_marker"
+    ) || (error.code() == "credential_store_unavailable" && startup_credentials_unavailable)
 }
 
 pub(super) fn computer_name() -> String {

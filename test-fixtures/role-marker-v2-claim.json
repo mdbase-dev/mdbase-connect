@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "role": "replica",
+  "collection": "4c18af2e-b04a-4b77-b83e-493c3695962e",
+  "replica_id": "9a4f0c7e-1d2b-4c3a-8e5f-6b7a8c9d0e1f",
+  "runtime": "mdbase-next",
+  "claimed_at": "2026-10-04T01:30:00Z",
+  "notice": "This folder is managed by a newer mdbase runtime. Update mdbase Connect to keep using it."
+}

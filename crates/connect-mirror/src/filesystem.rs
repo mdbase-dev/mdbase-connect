@@ -64,26 +64,12 @@ fn pending_mirror_marker(root: &Path, collection_id: Uuid) -> Result<Option<Path
     }
     let root = fs::canonicalize(root)
         .map_err(|error| MirrorError::io("Could not resolve", root, error))?;
-    let marker = safe_path(&root, ".mdbase/connect-role.json")?;
-    let existing = match fs::read(&marker) {
-        Ok(existing) => Some(existing),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(MirrorError::io("Could not read", &marker, error)),
-    };
+    let (marker, existing) = read_role_marker(&root)?;
     if let Some(existing) = existing {
-        let value = serde_json::from_slice::<Value>(&existing).map_err(|_| {
-            MirrorError::new("invalid_mirror_marker", "Mirror role marker is corrupt.")
-        })?;
-        if value["version"] == 1
-            && value["role"] == "mirror"
-            && value["collection_id"] == collection_id.to_string()
-        {
-            return Ok(None);
-        }
-        return Err(MirrorError::new(
-            "mirror_identity_conflict",
-            "This folder is already assigned to a different storage role.",
-        ));
+        return match existing {
+            RoleMarker::Mirror { collection_id: id } if id == collection_id => Ok(None),
+            other => Err(role_marker_conflict(&other)),
+        };
     }
     let configuration = safe_path(&root, "mdbase.yaml")?;
     let source = match fs::read_to_string(&configuration) {
@@ -145,21 +131,57 @@ pub fn clear_mirror_marker(root: &Path, collection_id: Uuid) -> Result<(), Mirro
     }
     let root = fs::canonicalize(root)
         .map_err(|error| MirrorError::io("Could not resolve", root, error))?;
-    let marker = safe_path(&root, ".mdbase/connect-role.json")?;
-    let value = match fs::read(&marker) {
-        Ok(value) => value,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(MirrorError::io("Could not read", &marker, error)),
-    };
-    let value = serde_json::from_slice::<Value>(&value)
-        .map_err(|_| MirrorError::new("invalid_mirror_marker", "Mirror role marker is corrupt."))?;
-    if value["collection_id"] != collection_id.to_string() {
-        return Err(MirrorError::new(
-            "mirror_identity_conflict",
-            "Mirror role marker belongs to a different collection.",
-        ));
+    match read_role_marker(&root)? {
+        (_, None) => Ok(()),
+        (marker, Some(RoleMarker::Mirror { collection_id: id })) if id == collection_id => {
+            fs::remove_file(&marker)
+                .map_err(|error| MirrorError::io("Could not remove", &marker, error))
+        }
+        // A newer runtime owns the folder now. Removing this mirror must leave
+        // that runtime's claim in place.
+        (_, Some(RoleMarker::ClaimedByNewerRuntime { .. })) => Ok(()),
+        (_, Some(other)) => Err(role_marker_conflict(&other)),
     }
-    fs::remove_file(&marker).map_err(|error| MirrorError::io("Could not remove", &marker, error))
+}
+
+/// Require that a provisioned mirror folder still belongs to this mirror
+/// before each sync. A folder without a marker predates role markers and is
+/// accepted; any other marker stops the mirror without touching the folder.
+pub fn verify_mirror_marker(root: &Path, collection_id: Uuid) -> Result<(), MirrorError> {
+    match read_role_marker(root)?.1 {
+        None => Ok(()),
+        Some(RoleMarker::Mirror { collection_id: id }) if id == collection_id => Ok(()),
+        Some(other) => Err(role_marker_conflict(&other)),
+    }
+}
+
+fn read_role_marker(root: &Path) -> Result<(PathBuf, Option<RoleMarker>), MirrorError> {
+    let marker = safe_path(root, ROLE_MARKER_PATH)?;
+    match fs::read(&marker) {
+        Ok(bytes) => {
+            let classified = RoleMarker::classify(&bytes);
+            Ok((marker, Some(classified)))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok((marker, None)),
+        Err(error) => Err(MirrorError::io("Could not read", &marker, error)),
+    }
+}
+
+fn role_marker_conflict(marker: &RoleMarker) -> MirrorError {
+    match marker {
+        RoleMarker::ClaimedByNewerRuntime { .. } => MirrorError::new(
+            "collection_claimed_by_newer_runtime",
+            "This folder is now managed by a newer mdbase runtime. Update mdbase Connect, \
+             or remove this mirror from Connect.",
+        ),
+        RoleMarker::Malformed => {
+            MirrorError::new("invalid_mirror_marker", "Mirror role marker is corrupt.")
+        }
+        RoleMarker::Mirror { .. } | RoleMarker::Unrecognized => MirrorError::new(
+            "mirror_identity_conflict",
+            "This folder is already assigned to a different storage role.",
+        ),
+    }
 }
 
 pub(super) fn safe_path(root: &Path, relative: &str) -> Result<PathBuf, MirrorError> {
