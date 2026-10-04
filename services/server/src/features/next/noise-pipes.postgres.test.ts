@@ -6,7 +6,11 @@ import { WebSocket } from "ws";
 import { CONNECT_CONTRACT_SUPPORT } from "@mdbase-dev/connect-protocol";
 import { buildApp } from "../../app.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import Fastify from "fastify";
+import websocket from "@fastify/websocket";
 import { LocalRelayBroker, pipeSubject } from "../../relay-broker.js";
+import { DEFAULT_NOISE_PIPE_LIMITS, registerNoisePipeClientRoute } from "./noise-pipes.js";
+import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { tokenHash } from "../../security.js";
 import { deviceBindDigest, deviceRegistrationDigest } from "./devices.js";
 import { certToJson, ed25519RawPublicKey } from "./policy-keys.js";
@@ -217,5 +221,59 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
     expect(await refused).toBe("connector_offline");
     expect((await liveClosed).map(String)).toEqual(["4404", "connector_offline"]);
     device.close();
+  });
+});
+
+describePostgres("Noise pipe revocation backstop", () => {
+  let admin: pg.Pool;
+  let db: DatabasePool;
+  let schema: string;
+  const broker = new LocalRelayBroker();
+  const app = Fastify();
+  let base = "";
+
+  beforeAll(async () => {
+    const url = new URL(testUrl!);
+    if (!["localhost", "127.0.0.1", "::1"].includes(url.hostname) || !/test/i.test(url.pathname)) throw new Error("Pipe tests require a dedicated local test database.");
+    schema = `mdbase_next_pipe_revocation_${randomUUID().replaceAll("-", "")}`;
+    admin = new pg.Pool({ connectionString: url.toString(), max: 2 });
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    url.searchParams.set("options", `-csearch_path=${schema}`);
+    db = await createDatabase(url.toString());
+    await app.register(websocket);
+    registerNoisePipeClientRoute(app, { db, broker, limits: { ...DEFAULT_NOISE_PIPE_LIMITS, revalidateMs: 100 } });
+    base = (await app.listen({ host: "127.0.0.1", port: 0 })).replace(/^http/, "ws");
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+    await db?.end();
+    if (admin && schema) await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await admin?.end();
+  }, 60_000);
+
+  it.each(["grant", "token"])("closes an open pipe at both ends when its %s is revoked", async (revoked) => {
+    const id = await localGrantFixture(db);
+    await db.query("UPDATE grants SET activated_at = now() WHERE id = $1", [id]);
+    await db.query("UPDATE collections SET enabled = true, present = true, authority_state = 'active' WHERE id = $1", [id]);
+    await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [id, randomBytes(32)]);
+    const token = `at_${randomUUID()}`;
+    await db.query("INSERT INTO access_tokens(id,token_hash,grant_id,expires_at) VALUES($1,$2,$3,now() + interval '1 hour')", [randomUUID(), tokenHash(token), id]);
+    // The daemon's side, on the broker: accept the open, then watch the device subject.
+    const toDevice: string[] = [];
+    await broker.subscribePipe(pipeSubject("open", id, "1"), (data) => {
+      const { pipe_id: pipeId } = JSON.parse(Buffer.from(data).toString()) as { pipe_id: string };
+      void broker.subscribePipe(pipeSubject(pipeId, "device"), (message) => toDevice.push(`${message[0]}:${Buffer.from(message.subarray(1)).toString()}`));
+      void broker.publishPipe(pipeSubject(pipeId, "client"), Buffer.of(1));
+    });
+    const socket = new WebSocket(`${base}/v1/next/relay/client`);
+    await once(socket, "open");
+    socket.send(JSON.stringify({ type: "pipe_auth", access_token: token, collection: id, grant: id, device: randomUUID(), device_noise_pk: "11".repeat(32) }));
+    await next(socket, json("pipe_opened"));
+    const closed = once(socket, "close");
+    if (revoked === "grant") await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [id]);
+    else await db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [id]);
+    expect((await closed).map(String)).toEqual(["4403", "grant_inactive"]);
+    expect(toDevice).toContain("2:grant_revoked");
   });
 });

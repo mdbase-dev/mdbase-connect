@@ -28,6 +28,8 @@ export interface NoisePipeLimits {
   handshakeMs: number;
   idleMs: number;
   lifetimeMs: number;
+  /** How often an open pipe re-checks its app token and grant (revocation backstop). */
+  revalidateMs: number;
 }
 
 export const DEFAULT_NOISE_PIPE_LIMITS: NoisePipeLimits = {
@@ -38,6 +40,7 @@ export const DEFAULT_NOISE_PIPE_LIMITS: NoisePipeLimits = {
   handshakeMs: 30_000,
   idleMs: 10 * 60_000,
   lifetimeMs: 24 * 60 * 60_000,
+  revalidateMs: 30_000,
 };
 
 // Broker frames: one type byte, then the payload.
@@ -241,8 +244,26 @@ export function registerNoisePipeClientRoute(
     let pipeId: string | undefined;
     let inbound: RelayBrokerBinding | undefined;
     let opened = false;
+    let credential: { token: string; collection: string; grant: string } | undefined;
+    let revalidation: NodeJS.Timeout | undefined;
+    // Backstop for revocation: the daemon closes sessions when it applies a revocation,
+    // but a pipe must not outlive its grant or token at the relay either. Re-check them
+    // while the pipe is open and close both ends when they no longer admit it.
+    const startRevalidation = () => {
+      revalidation = setInterval(() => {
+        if (!credential) return;
+        void admission(credential.token, credential.collection, credential.grant).then((result) => {
+          if (result.rows[0]) return;
+          if (pipeId && opened) void options.broker.publishPipe(pipeSubject(pipeId, "device"), closeFrame("grant_revoked")).catch(() => undefined);
+          opened = false;
+          closeWith("grant_inactive");
+        }, () => undefined);
+      }, limits.revalidateMs);
+      revalidation.unref();
+    };
     socket.once("close", () => {
       clearTimeout(authTimer);
+      clearInterval(revalidation);
       void inbound?.close();
       if (pipeId && opened) void options.broker.publishPipe(pipeSubject(pipeId, "device"), closeFrame("client_closed")).catch(() => undefined);
     });
@@ -257,18 +278,8 @@ export function registerNoisePipeClientRoute(
       void admit(raw.toString("utf8"), pipeId).catch(() => closeWith("connector_offline"));
     });
 
-    async function admit(text: string, id: string): Promise<void> {
-      let auth: { type?: unknown; access_token?: unknown; collection?: unknown; grant?: unknown; device?: unknown; device_noise_pk?: unknown };
-      try {
-        auth = JSON.parse(text) as typeof auth;
-      } catch {
-        return closeWith("unauthenticated");
-      }
-      if (auth.type !== "pipe_auth" || typeof auth.access_token !== "string" || typeof auth.collection !== "string" || typeof auth.grant !== "string"
-        || typeof auth.device !== "string" || typeof auth.device_noise_pk !== "string" || !/^[0-9a-f]{64}$/.test(auth.device_noise_pk)) {
-        return closeWith("unauthenticated");
-      }
-      const admitted = await options.db.query<{ connector_id: string }>(
+    function admission(token: string, collection: string, grant: string) {
+      return options.db.query<{ connector_id: string }>(
         `SELECT col.connector_id
          FROM access_tokens tok
          JOIN grants g ON g.id = tok.grant_id
@@ -280,15 +291,31 @@ export function registerNoisePipeClientRoute(
            AND u.suspended_at IS NULL
            AND col.local_id = $2 AND col.enabled = true
            AND col.present = true AND col.authority_state = 'active'`,
-        [tokenHash(auth.access_token), auth.collection, auth.grant]
+        [tokenHash(token), collection, grant]
       );
+    }
+
+    async function admit(text: string, id: string): Promise<void> {
+      let auth: { type?: unknown; access_token?: unknown; collection?: unknown; grant?: unknown; device?: unknown; device_noise_pk?: unknown };
+      try {
+        auth = JSON.parse(text) as typeof auth;
+      } catch {
+        return closeWith("unauthenticated");
+      }
+      if (auth.type !== "pipe_auth" || typeof auth.access_token !== "string" || typeof auth.collection !== "string" || typeof auth.grant !== "string"
+        || typeof auth.device !== "string" || typeof auth.device_noise_pk !== "string" || !/^[0-9a-f]{64}$/.test(auth.device_noise_pk)) {
+        return closeWith("unauthenticated");
+      }
+      const admitted = await admission(auth.access_token, auth.collection, auth.grant);
       const connectorId = admitted.rows[0]?.connector_id;
       if (!connectorId) return closeWith("grant_inactive");
+      credential = { token: auth.access_token, collection: auth.collection, grant: auth.grant };
       const generation = await currentRelayGeneration(options.db, connectorId);
       if (!generation) return closeWith("connector_offline");
       clearTimeout(authTimer);
+      startRevalidation();
       const openTimer = setTimeout(() => closeWith("connector_offline"), limits.openTimeoutMs);
-      inbound = await options.broker.subscribePipe(pipeSubject(id, "client"), (message) => {
+            inbound = await options.broker.subscribePipe(pipeSubject(id, "client"), (message) => {
         if (message.length === 0 || socket.readyState !== 1) return;
         if (message[0] === OPENED && !opened) {
           clearTimeout(openTimer);
