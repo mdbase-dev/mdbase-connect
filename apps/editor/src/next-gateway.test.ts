@@ -1,14 +1,16 @@
 import { MdbaseConnectError, type CollectionChange } from "@mdbase-dev/connect";
-import { connect, mdbaseError, type Connector, type ErrorCode } from "@mdbase-dev/sdk";
+import { connect, mdbaseError, uuidv7, wire, type CborValue, type ConflictEntry, type Connector, type ErrorCode, type FramePort, type Hold } from "@mdbase-dev/sdk";
 import { MemoryReplica } from "@mdbase-dev/sdk/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CollectionIndexController } from "./collection-index-controller";
 import { gatewayError } from "./gateway";
-import type { CollectionSessionSnapshot, NoteSummary } from "./model";
+import type { CollectionSessionSnapshot, NoteMutationProgress, NoteSummary, SyncAttention } from "./model";
 import { nextDemoSource } from "./next-demo";
 import { nextErrorMessage, toConnectError, WAITING_FOR_DEVICE } from "./next-errors";
 import { NextCollectionGateway } from "./next-gateway";
 import { NOTE_WINDOW } from "./next-observation";
+import { updateMutationActivity } from "./note-mutation-presentation";
+import type { NoteSession } from "./note-session";
 
 const app = { name: "editor-test", version: "0" };
 const cleanups: Array<() => void> = [];
@@ -212,5 +214,173 @@ describe("mdbase-next error mapping", () => {
     online = true;
     await vi.waitFor(() => expect(seen.at(-1)?.status).toBe("ready"), { timeout: 5_000 });
     expect((await gateway.read("Note.md")).body).toBe("x");
+  });
+});
+
+describe("rename and delete progress", () => {
+  const states = (events: NoteMutationProgress[]) => events.map((event) => [event.state, event.cancellable]);
+
+  it("follows the receipt: cancellable until captured, then submitted, then completed", async () => {
+    const { gateway, replica } = await openGateway(1);
+    const opened = await gateway.read("Projects/Replica port.md");
+    const events: NoteMutationProgress[] = [];
+    const renamed = await gateway.rename(opened.path, "Archive/Replica port.md", opened.revision, true, { onProgress: (event) => events.push(event) });
+    expect(renamed.path).toBe("Archive/Replica port.md");
+    expect(states(events)).toEqual([["applying", true], ["submitted", false]]);
+
+    replica.confirmAll();
+    await vi.waitFor(() => expect(states(events).at(-1)).toEqual(["completed", false]));
+
+    const doomed = await gateway.read("Projects/Search.md");
+    const deletes: NoteMutationProgress[] = [];
+    await gateway.delete(doomed.path, doomed.revision, { onProgress: (event) => deletes.push(event) });
+    replica.confirmAll();
+    await vi.waitFor(() => expect(states(deletes)).toEqual([["applying", true], ["submitted", false], ["completed", false]]));
+    expect(replica.allRecords.some((record) => record.path === "Projects/Search.md")).toBe(false);
+  });
+
+  it("surfaces a rejection instead of reporting it submitted", async () => {
+    const { gateway } = await openGateway(1);
+    const opened = await gateway.read("Projects/Replica port.md");
+    const events: NoteMutationProgress[] = [];
+    await expect(gateway.rename(opened.path, "Projects/Search.md", opened.revision, true, { onProgress: (event) => events.push(event) }))
+      .rejects.toMatchObject({ problem: { code: "path_occupied" } });
+    expect(states(events)).toEqual([["applying", true]]);
+  });
+
+  it("cancels before capture, and nothing changes", async () => {
+    const { gateway, replica } = await openGateway(1);
+    const opened = await gateway.read("Projects/Replica port.md");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(gateway.rename(opened.path, "Elsewhere.md", opened.revision, true, { signal: controller.signal }))
+      .rejects.toMatchObject({ problem: { code: "operation_cancelled" } });
+    await expect(gateway.delete(opened.path, opened.revision, { signal: controller.signal }))
+      .rejects.toMatchObject({ problem: { code: "operation_cancelled" } });
+    expect(replica.allRecords.some((record) => record.path === "Projects/Replica port.md")).toBe(true);
+  });
+
+  it("tells the user a captured change can't be cancelled", () => {
+    const session = { activityDetail: undefined, mutationCancellable: true } as unknown as NoteSession;
+    updateMutationActivity(session, { operation: "rename", state: "submitted", cancellable: false, resumed: false, completedUnits: 1, elapsedMs: 3 }, () => undefined);
+    expect(session.activityDetail).toBe("Moved; can’t be cancelled now");
+    expect(session.mutationCancellable).toBe(false);
+  });
+});
+
+describe("describe.changeCursor", () => {
+  it("is the replica's view version, not a placeholder", async () => {
+    const { gateway } = await openGateway(2);
+    const before = (await gateway.describe()).changeCursor;
+    expect(before).toBeGreaterThan(0);
+    const opened = await gateway.read("Welcome.md");
+    await gateway.updateProperties(opened.path, { status: "read" }, opened.revision);
+    expect((await gateway.describe()).changeCursor).toBeGreaterThan(before);
+  });
+});
+
+/**
+ * MemoryReplica has no holds or conflicts. This proxy answers the §8 methods
+ * itself and pushes `holds`/`conflicts`, forwarding everything else.
+ */
+function attentionConnector(replica: MemoryReplica, state: { holds: Hold[]; conflicts: ConflictEntry[]; resolved: Array<[string, string]> }): Connector & { push(): void } {
+  const ports = new Set<FramePort>();
+  const pushTo = (port: FramePort) => {
+    port.onframe?.(wire.clientFrame.enc({ kind: "push", type: "holds", payload: state.holds.map((hold) => wire.hold.enc(hold)) }));
+    port.onframe?.(wire.clientFrame.enc({ kind: "push", type: "conflicts", payload: state.conflicts.map((entry) => wire.conflictEntry.enc(entry)) }));
+  };
+  return {
+    description: "attention",
+    push: () => { for (const port of ports) pushTo(port); },
+    open: async (hello) => {
+      const inner = await replica.connector().open(hello);
+      const outer: FramePort = {
+        onframe: null,
+        onclose: null,
+        close: () => inner.port.close(),
+        send: (raw: CborValue) => {
+          const frame = wire.clientFrame.dec(raw);
+          if (frame.kind !== "request") return inner.port.send(raw);
+          const reply = (result: CborValue) => queueMicrotask(() => outer.onframe?.(wire.clientFrame.enc({ kind: "response", id: frame.id, result })));
+          const params = frame.params as Map<number, CborValue>;
+          switch (frame.method) {
+            case "list_holds": return reply(state.holds.map((hold) => wire.hold.enc(hold)));
+            case "list_conflicts": return reply(state.conflicts.map((entry) => wire.conflictEntry.enc(entry)));
+            case "subscribe_holds":
+            case "subscribe_conflicts": return reply(null);
+            case "resolve_hold": {
+              const id = wire.holdRef.dec(new Map([[0, params.get(0)!], [1, 0]])).id;
+              state.resolved.push([id, wire.holdResolution.dec(params.get(1)!)]);
+              state.holds = state.holds.filter((hold) => hold.id !== id);
+              reply(wire.receipt.enc({ mutation: uuidv7(), state: "confirmed", seq: 1 }));
+              return queueMicrotask(() => pushTo(outer));
+            }
+            case "submit": {
+              const submitted = wire.submitParams.dec(frame.params);
+              const dismissed = submitted.ops.flatMap((op) => op.kind === "conflict_dismiss" ? [op.mutation] : []);
+              if (dismissed.length) {
+                state.conflicts = state.conflicts.filter((entry) => !dismissed.includes(entry.mutation));
+                queueMicrotask(() => pushTo(outer));
+              }
+              return inner.port.send(raw);
+            }
+            default: return inner.port.send(raw);
+          }
+        }
+      };
+      inner.port.onframe = (frame) => outer.onframe?.(frame);
+      inner.port.onclose = (error) => { ports.delete(outer); outer.onclose?.(error); };
+      ports.add(outer);
+      return { port: outer, helloResponse: inner.helloResponse };
+    }
+  };
+}
+
+describe("holds and conflicts", () => {
+  it("lists holds and conflicts and resolves each one", async () => {
+    const replica = new MemoryReplica({ confirmDelayMs: null });
+    const task = replica.seed({ path: "Task.md", frontmatter: { status: "done" }, body: "kept body\n" });
+    const state = {
+      holds: [{ id: task.id, path: "Task.md", reason: "conflict" as const, since: 1, mine: "mine", theirs: "theirs", saves: 2 }],
+      conflicts: [
+        { mutation: uuidv7(), seq: 3, conflict: { kind: "field" as const, id: task.id, field: "status", kept: { form: "value" as const, value: "done" }, lost: { form: "value" as const, value: "blocked" } } },
+        { mutation: uuidv7(), seq: 4, conflict: { kind: "body" as const, id: task.id, kept: { form: "text" as const, text: "kept body\n" }, lost: { form: "text" as const, text: "lost body\n" } } }
+      ],
+      resolved: [] as Array<[string, string]>
+    };
+    const connector = attentionConnector(replica, state);
+    const gateway = new NextCollectionGateway({ open: async () => ({ connector }) }, app);
+    cleanups.push(() => gateway.close());
+    expect((await gateway.startSession()).status).toBe("ready");
+
+    let attention: SyncAttention = { holds: [], conflicts: [] };
+    const stop = gateway.onSyncAttention((next) => { attention = next; });
+    cleanups.push(stop);
+    await vi.waitFor(() => {
+      expect(attention.holds).toEqual([{ id: task.id, path: "Task.md", reason: "conflict", since: 1, saves: 2, hasTheirs: true }]);
+      expect(attention.conflicts).toHaveLength(2);
+    });
+    const [field, body] = attention.conflicts;
+    expect(field).toMatchObject({ path: "Task.md", kind: "field", field: "status", kept: "\"done\"", lost: "\"blocked\"", restorable: true });
+    expect(body).toMatchObject({ kind: "body", kept: "kept body\n", lost: "lost body\n", restorable: true });
+
+    await gateway.resolveHold(task.id, "keep_both");
+    expect(state.resolved).toEqual([[task.id, "keep_both"]]);
+    await vi.waitFor(() => expect(attention.holds).toEqual([]));
+
+    await gateway.resolveConflict(field!.key, "lost");
+    await vi.waitFor(() => expect(attention.conflicts.map((conflict) => conflict.kind)).toEqual(["body"]));
+    expect(replica.allRecords[0]!.frontmatter.get("status")).toBe("blocked");
+
+    await gateway.resolveConflict(body!.key, "kept");
+    await vi.waitFor(() => expect(attention.conflicts).toEqual([]));
+    expect(replica.allRecords[0]!.body).toBe("kept body\n");
+  });
+
+  it("reports nothing to review in Connect mode", async () => {
+    const { ConnectCollectionGateway } = await import("./gateway");
+    const seen: SyncAttention[] = [];
+    ConnectCollectionGateway.prototype.onSyncAttention.call(undefined as never, (attention) => seen.push(attention))();
+    expect(seen).toEqual([{ holds: [], conflicts: [] }]);
   });
 });
