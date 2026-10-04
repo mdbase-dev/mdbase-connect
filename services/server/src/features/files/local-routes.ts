@@ -13,6 +13,9 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import {
+  localCollectionUnavailableError
+} from "../../collection-access.js";
 import type { DatabasePool } from "../../database-types.js";
 import {
   apiError,
@@ -62,7 +65,7 @@ export function registerLocalFileRoutes(
     async (request, reply) => {
       const params = collectionParamsSchema.parse(request.params);
       const grant = await authorizedFileGrant(request, options.db, params.collectionId);
-      if (!grant) return invalidToken(reply);
+      if (!grant) return invalidToken(request, reply, options.db, params.collectionId);
       if (!grant.file_capability) {
         return reply.code(403).send(insufficientAccessError(
           ["files"],
@@ -120,7 +123,7 @@ export function registerLocalFileRoutes(
     async (request, reply) => {
       const params = collectionParamsSchema.parse(request.params);
       const grant = await authorizedFileGrant(request, options.db, params.collectionId);
-      if (!grant) return invalidToken(reply);
+      if (!grant) return invalidToken(request, reply, options.db, params.collectionId);
       const activeGrant = requireBinaryFileGrant(reply, grant);
       if (!activeGrant) return;
       if (!Buffer.isBuffer(request.body)) {
@@ -171,7 +174,7 @@ export function registerLocalFileRoutes(
     async (request, reply) => {
       const params = downloadParamsSchema.parse(request.params);
       const grant = await authorizedFileGrant(request, options.db, params.collectionId);
-      if (!grant) return invalidToken(reply);
+      if (!grant) return invalidToken(request, reply, options.db, params.collectionId);
       const activeGrant = requireBinaryFileGrant(reply, grant);
       if (!activeGrant) return;
       const relayRequest = relayFrame(
@@ -301,7 +304,17 @@ function relayFrame(
   };
 }
 
-function invalidToken(reply: FastifyReply): unknown {
+async function invalidToken(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  db: DatabasePool,
+  collectionId: string
+): Promise<unknown> {
+  const bearer = bearerToken(request);
+  const unavailable = bearer
+    ? await localCollectionUnavailableError(db, tokenHash(bearer), collectionId)
+    : null;
+  if (unavailable) return reply.code(409).send(unavailable);
   return reply.code(401).send(apiError(
     "invalid_token",
     "Access token is invalid or expired."

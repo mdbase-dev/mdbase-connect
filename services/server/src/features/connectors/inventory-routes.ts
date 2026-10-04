@@ -27,6 +27,7 @@ const inventorySchema = z.object({
     display_name: z.string().min(1).max(200),
     spec_version: z.string().min(1).max(30),
     enabled: z.boolean(),
+    unavailable_reason: z.enum(["claimed_by_newer_runtime"]).optional(),
     contracts: z.array(collectionContractDescriptorSchema).max(100).default([])
   })).max(1_000)
 });
@@ -185,9 +186,10 @@ export function registerConnectorInventoryRoutes(
           `INSERT INTO collections
              (id, user_id, connector_id, local_id, display_name, spec_version,
               enabled, reported_enabled, present, authority_state,
-              authority_epoch, contracts, last_inventory_revision)
+              authority_epoch, contracts, last_inventory_revision,
+              unavailable_reason)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10,
-                   $11::jsonb, $12)
+                   $11::jsonb, $12, $13)
            ON CONFLICT(connector_id, local_id) DO UPDATE SET
              user_id = excluded.user_id,
              display_name = excluded.display_name,
@@ -199,6 +201,7 @@ export function registerConnectorInventoryRoutes(
              authority_epoch = excluded.authority_epoch,
              contracts = excluded.contracts,
              last_inventory_revision = excluded.last_inventory_revision,
+             unavailable_reason = excluded.unavailable_reason,
              last_seen_at = now(),
              removed_at = NULL
            RETURNING id, local_id, authority_state, authority_epoch`,
@@ -214,7 +217,8 @@ export function registerConnectorInventoryRoutes(
             authorityState,
             authorityEpoch,
             JSON.stringify(collection.contracts),
-            input.inventory_revision
+            input.inventory_revision,
+            collection.enabled ? null : collection.unavailable_reason ?? null
           ]
         );
         synchronized.push({

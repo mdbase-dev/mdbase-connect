@@ -155,3 +155,64 @@ export class CollectionAccessDeniedError extends Error {
     this.name = "CollectionAccessDeniedError";
   }
 }
+
+type LocalCollectionUnavailableReason = "claimed_by_newer_runtime" | "paused";
+
+const UNAVAILABLE_MESSAGES: Record<LocalCollectionUnavailableReason, string> = {
+  claimed_by_newer_runtime:
+    "This collection is now managed by a newer mdbase runtime on its computer.",
+  paused: "This collection is paused on its computer."
+};
+
+/**
+ * The `collection_unavailable` error for a local collection that rejects an
+ * otherwise valid access token, or null when the token is not valid for it at
+ * all. Routes then report an unavailable collection instead of calling a valid
+ * token invalid; only a holder of a live grant for that collection learns the
+ * reason. Removal and authority moves revoke grants in the same transaction,
+ * so they remain invalid tokens.
+ */
+export async function localCollectionUnavailableError(
+  db: DatabaseQueryable,
+  tokenDigest: string,
+  localId: string
+) {
+  const result = await db.query<{
+    enabled: boolean;
+    present: boolean;
+    authority_state: string;
+    unavailable_reason: string | null;
+  }>(
+    `SELECT col.enabled, col.present, col.authority_state, col.unavailable_reason
+     FROM access_tokens tok
+     JOIN grants g ON g.id = tok.grant_id
+     JOIN users u ON u.id = g.user_id
+     JOIN collections col ON col.id = g.collection_id
+     WHERE tok.token_hash = $1 AND tok.expires_at > now()
+       AND tok.revoked_at IS NULL
+       AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+       AND u.suspended_at IS NULL
+       AND col.local_id = $2`,
+    [tokenDigest, localId]
+  );
+  const collection = result.rows[0];
+  if (
+    !collection
+    || collection.enabled
+    || !collection.present
+    || collection.authority_state !== "active"
+  ) {
+    return null;
+  }
+  const reason: LocalCollectionUnavailableReason =
+    collection.unavailable_reason === "claimed_by_newer_runtime"
+      ? "claimed_by_newer_runtime"
+      : "paused";
+  return {
+    error: {
+      code: "collection_unavailable",
+      message: UNAVAILABLE_MESSAGES[reason],
+      details: { reason }
+    }
+  };
+}

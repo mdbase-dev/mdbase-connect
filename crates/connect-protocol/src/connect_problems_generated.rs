@@ -99,6 +99,7 @@ pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition
         "collection_not_ready" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Selection, recovery: ConnectRecoveryAction::ChooseCollection }),
         "collection_not_selected" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Selection, recovery: ConnectRecoveryAction::ChooseCollection }),
         "collection_type_registry_invalid" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Validation, recovery: ConnectRecoveryAction::RepairCollection }),
+        "collection_unavailable" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::ChooseCollection }),
         "collection_version_unsupported" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::UpgradeCollection }),
         "concurrent_modification" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::Refresh }),
         "connector_busy" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::Retry }),

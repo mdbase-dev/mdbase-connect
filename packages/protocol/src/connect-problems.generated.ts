@@ -29,6 +29,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "collection_not_ready": { category: "selection", recovery: "choose_collection" },
   "collection_not_selected": { category: "selection", recovery: "choose_collection" },
   "collection_type_registry_invalid": { category: "validation", recovery: "repair_collection" },
+  "collection_unavailable": { category: "availability", recovery: "choose_collection" },
   "collection_version_unsupported": { category: "compatibility", recovery: "upgrade_collection" },
   "concurrent_modification": { category: "conflict", recovery: "refresh" },
   "connector_busy": { category: "availability", recovery: "retry" },
@@ -193,6 +194,9 @@ export interface ConnectProblemDetailsByCode {
   "collection_not_selected": undefined;
   "collection_type_registry_invalid": {
   "diagnostics": Array<Record<string, unknown>>;
+};
+  "collection_unavailable": {
+  "reason": string;
 };
   "collection_version_unsupported": {
   "current_version": string;
@@ -482,6 +486,12 @@ export interface ConnectProblemByCode {
     category: "validation";
     recovery: "repair_collection";
     details: ConnectProblemDetailsByCode["collection_type_registry_invalid"];
+  };
+  "collection_unavailable": ConnectProblemBase & {
+    code: "collection_unavailable";
+    category: "availability";
+    recovery: "choose_collection";
+    details: ConnectProblemDetailsByCode["collection_unavailable"];
   };
   "collection_version_unsupported": ConnectProblemBase & {
     code: "collection_version_unsupported";
@@ -1228,6 +1238,17 @@ const CONNECT_PROBLEM_DETAIL_SCHEMAS: Readonly<Record<string, ConnectProblemDeta
         "items": {
           "type": "object"
         }
+      }
+    }
+  },
+  "collection_unavailable": {
+    "type": "object",
+    "required": [
+      "reason"
+    ],
+    "properties": {
+      "reason": {
+        "type": "string"
       }
     }
   },

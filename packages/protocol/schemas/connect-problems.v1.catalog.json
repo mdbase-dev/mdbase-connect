@@ -146,6 +146,16 @@
         }
       }
     },
+    "collection_unavailable": {
+      "category": "availability",
+      "recovery": "choose_collection",
+      "details": {
+        "required": ["reason"],
+        "properties": {
+          "reason": { "type": "string" }
+        }
+      }
+    },
     "collection_version_unsupported": {
       "category": "compatibility",
       "recovery": "upgrade_collection",
