@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import { generateKeyPairSync as keyPair, randomBytes, randomUUID, sign } from "node:crypto";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { CONNECT_CONTRACT_SUPPORT } from "@mdbase-dev/connect-protocol";
 import { buildApp } from "../../app.js";
@@ -252,7 +252,7 @@ describePostgres("Noise pipe revocation backstop", () => {
     await admin?.end();
   }, 60_000);
 
-  it.each(["grant", "token"])("closes an open pipe at both ends when its %s is revoked", async (revoked) => {
+  it.each(["grant", "token", "lookup"])("closes an open pipe at both ends on %s denial", async (revoked) => {
     const id = await localGrantFixture(db);
     await db.query("UPDATE grants SET activated_at = now() WHERE id = $1", [id]);
     await db.query("UPDATE collections SET enabled = true, present = true, authority_state = 'active' WHERE id = $1", [id]);
@@ -271,9 +271,15 @@ describePostgres("Noise pipe revocation backstop", () => {
     socket.send(JSON.stringify({ type: "pipe_auth", access_token: token, collection: id, grant: id, device: randomUUID(), device_noise_pk: "11".repeat(32) }));
     await next(socket, json("pipe_opened"));
     const closed = once(socket, "close");
-    if (revoked === "grant") await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [id]);
-    else await db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [id]);
-    expect((await closed).map(String)).toEqual(["4403", "grant_inactive"]);
-    expect(toDevice).toContain("2:grant_revoked");
+    const lookup = revoked === "lookup" ? vi.spyOn(db, "query").mockRejectedValueOnce(new Error("database unavailable")) : undefined;
+    try {
+      if (revoked === "grant") await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [id]);
+      else if (revoked === "token") await db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [id]);
+      expect((await closed).map(String)).toEqual(revoked === "lookup" ? ["4404", "connector_offline"] : ["4403", "grant_inactive"]);
+      expect(toDevice).toContain(revoked === "lookup" ? "2:authorization_unavailable" : "2:grant_revoked");
+    } finally {
+      lookup?.mockRestore();
+      socket.close();
+    }
   });
 });

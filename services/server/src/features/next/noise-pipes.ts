@@ -249,15 +249,17 @@ export function registerNoisePipeClientRoute(
     // Backstop for revocation: the daemon closes sessions when it applies a revocation,
     // but a pipe must not outlive its grant or token at the relay either. Re-check them
     // while the pipe is open and close both ends when they no longer admit it.
+    const denyOpenPipe = (deviceReason: string, clientReason: string) => {
+      if (pipeId && opened) void options.broker.publishPipe(pipeSubject(pipeId, "device"), closeFrame(deviceReason)).catch(() => undefined);
+      opened = false;
+      closeWith(clientReason);
+    };
     const startRevalidation = () => {
       revalidation = setInterval(() => {
         if (!credential) return;
         void admission(credential.token, credential.collection, credential.grant).then((result) => {
-          if (result.rows[0]) return;
-          if (pipeId && opened) void options.broker.publishPipe(pipeSubject(pipeId, "device"), closeFrame("grant_revoked")).catch(() => undefined);
-          opened = false;
-          closeWith("grant_inactive");
-        }, () => undefined);
+          if (!result.rows[0]) denyOpenPipe("grant_revoked", "grant_inactive");
+        }, () => denyOpenPipe("authorization_unavailable", "connector_offline"));
       }, limits.revalidateMs);
       revalidation.unref();
     };
@@ -315,7 +317,7 @@ export function registerNoisePipeClientRoute(
       clearTimeout(authTimer);
       startRevalidation();
       const openTimer = setTimeout(() => closeWith("connector_offline"), limits.openTimeoutMs);
-            inbound = await options.broker.subscribePipe(pipeSubject(id, "client"), (message) => {
+      inbound = await options.broker.subscribePipe(pipeSubject(id, "client"), (message) => {
         if (message.length === 0 || socket.readyState !== 1) return;
         if (message[0] === OPENED && !opened) {
           clearTimeout(openTimer);
