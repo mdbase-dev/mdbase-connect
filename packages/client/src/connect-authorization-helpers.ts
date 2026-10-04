@@ -1,5 +1,31 @@
-import { APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY } from "@mdbase-dev/connect-protocol";
+import { APPLICATION_AUTHORIZATION_PROTOCOL_VERSION, APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY } from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError, connectError } from "./errors.js";
+import { applicationInstallationId, type ApplicationIdentity } from "./application-identity.js";
+import { randomBase64Url } from "./base64.js";
+import type { GrantKeyRecord } from "./crypto.js";
+import type { Application } from "./internal-types.js";
+
+/** Shared v5 prefix in the original web/device field order. No pipeline duplication. */
+export async function authorizationBindingBase(
+  application: Application, installation: ApplicationIdentity, grant: GrantKeyRecord,
+  authorizationId: string, flow: "authorization_code" | "device_code", issuedAt: Date
+) {
+  return {
+    protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+    authorization_id: authorizationId,
+    application_id: application.id,
+    application_declaration_id: declarationIdFromFamilyIdentity(application.family_identity),
+    application_manifest_digest: application.manifest_digest,
+    application_installation_id: await applicationInstallationId(installation),
+    installation_signing_public_key: installation.signingPublicKey,
+    grant_agreement_public_key: grant.agreementPublicKey,
+    grant_signing_public_key: grant.signingPublicKey,
+    flow,
+    authorization_nonce: randomBase64Url(32),
+    issued_at: issuedAt.toISOString(),
+    expires_at: new Date(issuedAt.getTime() + 10 * 60 * 1_000).toISOString()
+  };
+}
 
 export async function assertFreshV2AuthorizationSupport(
   serverUrl: string,
