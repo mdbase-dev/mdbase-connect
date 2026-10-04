@@ -20,12 +20,12 @@ export interface CollectionDirectoryEntry {
 
 /**
  * The state of each collection for the hosted replica (§1). `standard` (cloud copy) is
- * the only state that admits a hosted replica; anything Connect doesn't know as synced
- * or local is `unknown`, which the hosted replica refuses.
+ * the only state that admits a hosted replica. A collection that has left sync, or that
+ * Connect doesn't know as synced or local, is `unknown`, which the hosted replica refuses.
  */
 export async function collectionDirectory(db: DatabaseQueryable, ids: readonly string[]): Promise<CollectionDirectoryEntry[]> {
-  const rows = await db.query<{ id: string; sync: "private" | "cloud_copy" | null; runtime: "shadow" | "next" | null; local: boolean }>(
-    `SELECT requested.id::text AS id, next.sync, next.runtime,
+  const rows = await db.query<{ id: string; sync: "private" | "cloud_copy" | null; runtime: "shadow" | "next" | null; left: boolean; local: boolean }>(
+    `SELECT requested.id::text AS id, next.sync, next.runtime, next.left_sync_at IS NOT NULL AS left,
             EXISTS (SELECT 1 FROM collections local
                     WHERE local.local_id = requested.id
                       AND local.authority_state <> 'retired' AND local.removed_at IS NULL) AS local
@@ -36,9 +36,12 @@ export async function collectionDirectory(db: DatabaseQueryable, ids: readonly s
   const byId = new Map(rows.rows.map((row) => [row.id, row]));
   return ids.map((id) => {
     const row = byId.get(id);
-    const state: CollectionDirectoryState = row?.sync === "cloud_copy" ? "standard"
-      : row?.sync === "private" ? "private"
-        : row?.local ? "local" : "unknown";
+    // A collection that has left sync is never standard again, even while its local
+    // row also exists: the hosted replica must close it at once.
+    const state: CollectionDirectoryState = row?.left ? "unknown"
+      : row?.sync === "cloud_copy" ? "standard"
+        : row?.sync === "private" ? "private"
+          : row?.local ? "local" : "unknown";
     return { collection: id, state, runtime: row?.runtime ?? null };
   });
 }

@@ -36,7 +36,7 @@ describePostgres("hosted replica directory", () => {
   let db: DatabasePool;
   let schema: string;
   const app = Fastify();
-  const ids = { owner: randomUUID(), standard: randomUUID(), private: randomUUID(), local: randomUUID(), retired: randomUUID(), unknown: randomUUID() };
+  const ids = { owner: randomUUID(), standard: randomUUID(), private: randomUUID(), local: randomUUID(), retired: randomUUID(), unknown: randomUUID(), left: randomUUID() };
 
   beforeAll(async () => {
     const url = new URL(testUrl!);
@@ -47,7 +47,7 @@ describePostgres("hosted replica directory", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Owner')", [ids.owner, `${ids.owner}@example.test`]);
-    for (const [id, sync] of [[ids.standard, "cloud_copy"], [ids.private, "private"]]) {
+    for (const [id, sync] of [[ids.standard, "cloud_copy"], [ids.private, "private"], [ids.left, "cloud_copy"]]) {
       await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next',$3,$4)", [id, ids.owner, sync, Buffer.alloc(16)]);
     }
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Daemon',$3)", [ids.owner, ids.owner, ids.owner]);
@@ -55,6 +55,9 @@ describePostgres("hosted replica directory", () => {
       await db.query(`INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,authority_state)
         VALUES($1,$2,$2,$3,'Local','0.3.0',$4)`, [randomUUID(), ids.owner, id, state]);
     }
+    await db.query("UPDATE next_collections SET left_sync_at = now() WHERE collection_id = $1", [ids.left]);
+    await db.query(`INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version)
+      VALUES($1,$2,$2,$3,'Was synced','0.3.0')`, [randomUUID(), ids.owner, ids.left]);
     registerNextHostedRoutes(app, { db, tokens: { hosted, escrow } });
   }, 60_000);
 
@@ -69,10 +72,10 @@ describePostgres("hosted replica directory", () => {
     const response = await app.inject({
       method: "POST", url: "/internal/v1/next/collections/states",
       headers: { authorization: `Bearer ${hosted}` },
-      payload: { ids: [ids.standard, ids.private, ids.local, ids.retired, ids.unknown] }
+      payload: { ids: [ids.standard, ids.private, ids.local, ids.retired, ids.unknown, ids.left] }
     });
     expect(response.statusCode, response.body).toBe(200);
-    expect(response.json().collections.map((entry: { state: string }) => entry.state)).toEqual(["standard", "private", "local", "unknown", "unknown"]);
+    expect(response.json().collections.map((entry: { state: string }) => entry.state)).toEqual(["standard", "private", "local", "unknown", "unknown", "unknown"]);
     const single = await app.inject({ method: "GET", url: `/internal/v1/next/collections/${ids.standard}/state`, headers: { authorization: `Bearer ${escrow}` } });
     expect(single.json()).toEqual({ collection: ids.standard, state: "standard", runtime: "next" });
   });
