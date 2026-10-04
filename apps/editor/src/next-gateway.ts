@@ -194,10 +194,18 @@ export class NextCollectionGateway implements CollectionGateway {
       displayName: summary.displayName ?? "mdbase-next collection",
       specVersion: typeof raw?.spec_version === "string" ? raw.spec_version : `replica API ${this.hello?.version ?? "1"}`,
       operations: summary.operations as CollectionDescription["operations"],
-      changeCursor: 0,
+      // The replica's local view version, the same cursor space as `changes`. The
+      // editor never follows the feed from here: live queries and the
+      // observation's own watchChanges cursor (from the live result's asOf) do.
+      changeCursor: await this.viewVersion(),
       types: typeDescriptors(raw?.types),
       contracts: []
     };
+  }
+
+  private async viewVersion(): Promise<number> {
+    const client = this.requireClient();
+    return (await this.guard(() => client.query({ limit: 1 }))).asOf;
   }
 
   observe(): NoteObservation {
