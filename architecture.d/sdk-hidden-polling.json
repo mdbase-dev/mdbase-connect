@@ -1,0 +1,6 @@
+{
+  "reason": "Change polling needs one visibility-aware delay, pollDelay in the SDK's existing async helper module, used by CollectionClient.watch (and so by observe and connection.watch) to back off in hidden pages and wake immediately when visible.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}
