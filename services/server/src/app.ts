@@ -25,6 +25,8 @@ import { LogServiceClient } from "./features/next/log-service-client.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
 import { registerNextHostedRoutes } from "./features/next/hosted-routes.js";
 import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
+import { registerLabFixtureRoutes } from "./features/next/lab-fixture-routes.js";
+import { validateLabFixtureConfig } from "./features/next/lab-fixture-config.js";
 import { loadPolicySigner, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 import { NextRelayDevices } from "./features/next/devices.js";
 import { NoisePipes, registerNoisePipeClientRoute } from "./features/next/noise-pipes.js";
@@ -123,6 +125,9 @@ interface BuildOptions {
 }
 
 export async function buildApp(options: BuildOptions) {
+  if (options.nextControlPlane?.labFixtures) validateLabFixtureConfig(
+    options.nextControlPlane.labFixtures, options.environment, options.publicUrl ?? ""
+  );
   const app = Fastify({
     logger: process.env.NODE_ENV !== "test",
     // OAuth callbacks carry short-lived credentials in the query string.
@@ -519,6 +524,10 @@ export async function buildApp(options: BuildOptions) {
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
     registerNextRouteRoutes(app, { db: options.db, publicUrl });
+    if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
+      db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,
+      environment: options.environment, publicUrl, emitter: nextPolicyEmitter!
+    });
   }
   registerConnectorRelayRoute(app, { db: options.db, relay });
   registerApplicationRoutes(app, {
