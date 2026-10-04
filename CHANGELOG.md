@@ -4,6 +4,50 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.127
+
+### Added
+
+- SDK `observe(query, options)` owns progressive live-query snapshots/deltas,
+  batched changed-path rereads, capability-gated metadata membership and exact
+  revisions, reset/gap reconciliation, cancellation and local-write overlays.
+  Manual mode refreshes without watch. Replace collection synchronization
+  workers, not domain indexes or draft/session logic; see `docs/sdk-observe.md`.
+  Initial loads use full-row query pages, reserving metadata/document batches for
+  deltas. Terminal pages no longer release an already consumed query/view cursor.
+  Errors stop synchronization until explicit reconciliation; accepted writes
+  always queue confirmation in watch mode, and initial readiness follows any
+  superseding refresh or hydration. Later qualified echoes reuse confirmed base
+  rows without another document read, while authority metadata refreshes file facts.
+
+- SDK `readMany(paths, { revisions: false })` keeps read-only hydration in typed
+  path queries, defaulting to 1,000-path batches without document discovery or
+  separate type selection. Revision-bearing defaults are unchanged. Migration:
+  replace hand-written body queries with this option (use `batchSize: 500` for
+  Writer's existing payload size); retain the default for revision-safe editing.
+  See `docs/sdk-query-helpers.md` for the result and error contracts.
+- MCP `query_records` accepts capability-gated `output: "metadata"`;
+  `list_changes` adds SDK-normalized `typed_events` alongside unchanged raw
+  events. The MCP manifest and permissions remain unchanged, as does the
+  record-only `read_record` tool. File stat is not exposed through MCP; no new
+  consent or shared grant-model change is required.
+
+### Changed
+
+- The editor uses SDK query observations instead of its separate collection
+  load/watch, structural reconciliation and overlay workers. Asset opens use
+  capability-gated `files.stat` before downloading a pinned revision. Record
+  sessions, drafts, file inventory and presentation indexes remain app-owned.
+  Newest-note startup uses a separate bounded query without ordering the live
+  observer; failure of that auxiliary query does not disconnect the collection.
+  Stopped synchronization is shown explicitly with connection retry.
+
+### Fixed
+
+- The desktop app keeps showing "Computer approved. Connecting securely…" until
+  it relaunches after pairing, instead of briefly switching to the collections
+  view when a background refresh sees the new account first.
+
 ## 0.1.0-beta.126
 
 ### Added

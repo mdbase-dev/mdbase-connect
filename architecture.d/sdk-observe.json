@@ -1,8 +1,0 @@
-{
-  "reason": "One SDK observer replaces the editor's load/watch, structural reconciliation and overlay workers. The added client module owns that lifecycle boundary; total production files do not grow. Export growth is the typed observer API and its barrel, not another synchronization implementation. The editor rail imports the existing connection-state type so stopped synchronization has one canonical UI state.",
-  "growth": {
-    "relativeImports": 4,
-    "typeScriptExportDeclarations": 2,
-    "packages/client": 1
-  }
-}
