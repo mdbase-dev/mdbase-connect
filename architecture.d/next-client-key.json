@@ -1,0 +1,9 @@
+{
+  "reason": "The app Noise key attestation is its own boundary between consent (authorization routes and approval) and the daemon grant feed; keeping it separate avoids growing the authorization modules at their line caps.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 5,
+    "typeScriptExportDeclarations": 6,
+    "services/server": 1
+  }
+}

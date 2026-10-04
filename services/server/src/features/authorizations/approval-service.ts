@@ -15,6 +15,7 @@ import {
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
 import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
+import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
 import {
   requireCollectionAction,
   resolveHostedCollectionAccess,
@@ -303,6 +304,7 @@ export async function approvePortalAuthorization(
        WHERE id = $1`,
       [input.requestId, grantId]
     );
+    await copyClientNoiseKeyToGrant(connection, input.requestId, grantId);
     connectorId = selected.connector_id;
     localCollectionId = selected.local_id;
     authorityRowId = selected.authority_row_id;

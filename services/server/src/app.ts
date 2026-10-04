@@ -487,6 +487,7 @@ export async function buildApp(options: BuildOptions) {
   });
   registerConnectorGrantRoutes(app, { db: options.db, relay });
   registerAuthorizationRoutes(app, {
+    nextClientKeys: options.nextControlPlane !== undefined,
     db: options.db,
     relay,
     publicUrl,

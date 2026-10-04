@@ -66,6 +66,7 @@ import {
   createAuthorizationRedirect,
   deniedAuthorizationRedirect
 } from "./redirects.js";
+import { storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
 import type { AuthorizationRouteOptions } from "./route-options.js";
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
@@ -121,7 +122,8 @@ export function registerAuthorizationRoutes(
       collection_id: z.uuid().optional(),
       code_challenge: z.string().min(43).max(128),
       code_challenge_method: z.literal("S256"),
-      application_authorization: z.string().min(1).max(16_384)
+      application_authorization: z.string().min(1).max(16_384),
+      client_noise_key: z.string().max(512).optional()
     }).strict().parse(request.body);
     const application = await options.db.query<{
       id: string;
@@ -179,6 +181,7 @@ export function registerAuthorizationRoutes(
     );
     assertFreshApplicationAuthorization(application.rows[0].requirements);
     const authorizationId = proof.binding.authorization_id;
+    const clientNoiseKey = options.nextClientKeys ? verifiedClientNoiseKey(input.client_noise_key, proof.binding) : undefined;
     const deviceCode = randomToken("device");
     const userCode = randomUserCode();
     const inserted = await options.db.query(
@@ -220,6 +223,7 @@ export function registerAuthorizationRoutes(
         "The application authorization request has already been used."
       ));
     }
+    if (clientNoiseKey) await storeRequestClientNoiseKey(options.db, authorizationId, clientNoiseKey);
     const verificationUri = `${publicUrl}/device`;
     return reply.header("cache-control", "no-store").send({
       device_code: deviceCode,
@@ -457,7 +461,8 @@ export function registerAuthorizationRoutes(
       state: z.string().min(1).max(500),
       operations: z.string().default("read,query"),
       collection_id: z.uuid().optional(),
-      application_authorization: z.string().min(1).max(16_384)
+      application_authorization: z.string().min(1).max(16_384),
+      client_noise_key: z.string().max(512).optional()
     }).strict().parse(request.body);
     const application = await options.db.query<{
       id: string;
@@ -515,6 +520,7 @@ export function registerAuthorizationRoutes(
     );
     assertFreshApplicationAuthorization(application.rows[0].requirements);
     const authorizationId = proof.binding.authorization_id;
+    const clientNoiseKey = options.nextClientKeys ? verifiedClientNoiseKey(input.client_noise_key, proof.binding) : undefined;
     const inserted = await options.db.query(
       `INSERT INTO authorization_requests
          (id, user_id, application_id, redirect_uri, state, code_challenge,
@@ -549,6 +555,7 @@ export function registerAuthorizationRoutes(
         "The application authorization request has already been used."
       ));
     }
+    if (clientNoiseKey) await storeRequestClientNoiseKey(options.db, authorizationId, clientNoiseKey);
     return reply.header("cache-control", "no-store").send({
       authorization_id: authorizationId,
       authorization_uri: `${publicUrl}/oauth/authorize?request_id=${encodeURIComponent(authorizationId)}`,

@@ -10,4 +10,6 @@ export interface AuthorizationRouteOptions {
   hostedCollections?: boolean;
   hostedProvider?: HostedProviderClient;
   drainProviderRevocations(): Promise<void>;
+  /** mdbase-next: verify and store an app's attested Noise key (`client_noise_key`). */
+  nextClientKeys?: boolean;
 }
