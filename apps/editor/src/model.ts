@@ -26,6 +26,45 @@ export type CollectionFile = CollectionFileDescriptor;
 export interface NoteSummary extends QueryRecord<NoteFrontmatter> {
   frontmatter: NoteFrontmatter;
   effectiveFrontmatter: NoteFrontmatter;
+  /** mdbase-next only: whether the replica's log has confirmed this version yet. */
+  syncState?: "pending" | "confirmed";
+}
+
+/** "Confirmed through N, plus pending" (mdbase-next replicas only). */
+export interface CollectionSyncStatus {
+  confirmedThrough: number;
+  pending: number;
+  connection: "online" | "connecting" | "offline";
+  holds: number;
+  unresolved: number;
+}
+
+/**
+ * The note list's synchronization owner. Connect's `MdbaseQueryObserver`
+ * satisfies it; the mdbase-next gateway supplies a windowed live query.
+ */
+export interface NoteObservation {
+  readonly ready: Promise<import("@mdbase-dev/connect").ConnectOutcome<void>>;
+  getSnapshot(): import("@mdbase-dev/connect").ObserveSnapshot<NoteFrontmatter>;
+  subscribe(listener: (
+    snapshot: import("@mdbase-dev/connect").ObserveSnapshot<NoteFrontmatter>,
+    delta: import("@mdbase-dev/connect").ObserveDelta<NoteFrontmatter>
+  ) => void): () => void;
+  subscribeChanges(listener: (change: import("@mdbase-dev/connect").CollectionChange) => void): () => void;
+  /** Upgrade to body-bearing rows (full-text search and backlinks). */
+  hydrate(): Promise<import("@mdbase-dev/connect").ConnectOutcome<void>>;
+  refresh(): Promise<import("@mdbase-dev/connect").ConnectOutcome<void>>;
+  optimistic(
+    upserts?: readonly import("@mdbase-dev/connect").QueryRecord<NoteFrontmatter>[],
+    removed?: readonly string[]
+  ): import("@mdbase-dev/connect").ObserveOverlay;
+  close(): void;
+  /** Windowed observations: whether rows exist beyond the current window. */
+  hasMore?(): boolean;
+  /** Windowed observations: widen the window by one page. */
+  loadMore?(): Promise<void>;
+  /** mdbase-next only: the replica's sync status, pushed. */
+  subscribeSync?(listener: (status: CollectionSyncStatus) => void): () => void;
 }
 
 export type NoteDocument = RecordDocument<NoteFrontmatter>;
@@ -166,7 +205,12 @@ export interface CollectionGateway {
     contract: import("@mdbase-dev/connect").DataContractSelector,
     options?: { signal?: AbortSignal }
   ): Promise<Array<{ path: string; values: import("@mdbase-dev/connect").JsonObject }>>;
-  observe(options?: import("@mdbase-dev/connect").ObserveOptions): import("@mdbase-dev/connect").MdbaseQueryObserver<NoteFrontmatter>;
+  observe(options?: import("@mdbase-dev/connect").ObserveOptions): NoteObservation;
+  /**
+   * Problems that surface after a call returned, such as an optimistic write
+   * the replica later rejected. Optional: Connect reports every failure inline.
+   */
+  onBackgroundProblem?(listener: (message: string) => void): () => void;
   mostRecentNote(): Promise<string | undefined>;
   read(path: string): Promise<NoteDocument>;
   listFiles(options?: FileListRequest): Promise<CollectionFile[]>;

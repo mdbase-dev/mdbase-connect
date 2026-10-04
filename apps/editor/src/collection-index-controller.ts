@@ -1,5 +1,5 @@
-import { MdbaseConnectError, type CollectionChange, type MdbaseQueryObserver, type ObserveSnapshot, type QueryRecord } from "@mdbase-dev/connect";
-import type { CollectionGateway, NoteFrontmatter, NoteSummary } from "./model";
+import { MdbaseConnectError, type CollectionChange, type ObserveSnapshot, type QueryRecord } from "@mdbase-dev/connect";
+import type { CollectionGateway, CollectionSyncStatus, NoteFrontmatter, NoteObservation, NoteSummary } from "./model";
 
 export interface CollectionIndexState {
   notes: NoteSummary[];
@@ -12,13 +12,19 @@ export interface CollectionIndexState {
   contentIndexing: boolean;
   contentLoaded: number;
   contentError?: string;
+  /** Windowed (mdbase-next) lists: more notes exist beyond the loaded window. */
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  sync?: CollectionSyncStatus;
 }
 export interface CollectionIndexLoadResult { cancelled: boolean; notes: NoteSummary[] }
 const EMPTY_STATE: CollectionIndexState = { notes: [], listLoading: false, structureLoading: false, structureComplete: false, contentComplete: false, contentIndexing: false, contentLoaded: 0 };
 
 /** Editor presentation only. The SDK owns reads, watch, generations and overlays. */
 export class CollectionIndexController {
-  private observation?: MdbaseQueryObserver<NoteFrontmatter>;
+  private observation?: NoteObservation;
+  private stopSync?: () => void;
+  private widening?: Promise<void>;
   private state = EMPTY_STATE;
   private listeners = new Set<() => void>();
   private changeListeners = new Set<(change: CollectionChange) => void>();
@@ -46,6 +52,7 @@ export class CollectionIndexController {
         else this.accept(snapshot);
       });
       observation.subscribeChanges(change => { for (const listener of this.changeListeners) listener(change); });
+      this.stopSync = observation.subscribeSync?.(sync => this.publish({ ...this.state, sync }));
       this.accept(observation.getSnapshot());
     }
     const observation = this.observation;
@@ -73,6 +80,21 @@ export class CollectionIndexController {
     this.hydration = promise;
     return promise;
   }
+  /** Widen a windowed list by one page. No-op for complete (Connect) lists. */
+  loadMore(): Promise<void> {
+    const observation = this.observation;
+    if (!observation?.loadMore || !observation.hasMore?.()) return Promise.resolve();
+    if (this.widening) return this.widening;
+    this.publish({ ...this.state, loadingMore: true });
+    const widening = observation.loadMore().catch(error => {
+      if (this.observation === observation) this.publish({ ...this.state, structureError: this.errorMessage(error) });
+    }).finally(() => {
+      if (this.widening === widening) this.widening = undefined;
+      if (this.observation === observation) this.publish({ ...this.state, loadingMore: false, hasMore: observation.hasMore?.() ?? false });
+    });
+    this.widening = widening;
+    return widening;
+  }
   upsert(note: NoteSummary, previousPath = note.path): void {
     void this.observation?.optimistic([note], previousPath === note.path ? [] : [previousPath]).commit();
   }
@@ -86,8 +108,11 @@ export class CollectionIndexController {
   reset(): void {
     const observation = this.observation;
     this.observation = undefined;
+    this.stopSync?.();
+    this.stopSync = undefined;
     observation?.close();
     this.hydration = undefined;
+    this.widening = undefined;
     this.publish(EMPTY_STATE);
   }
   private accept(snapshot: ObserveSnapshot<NoteFrontmatter>): void {
@@ -105,7 +130,8 @@ export class CollectionIndexController {
     this.publish({ ...this.state, notes, total: snapshot.total ?? this.state.total,
       listLoading: !hydrating && snapshot.state === "loading", structureLoading: !hydrating && snapshot.state === "loading", structureComplete: hydrating ? this.state.structureComplete : complete,
       structureError: snapshot.problem ? this.errorMessage(new MdbaseConnectError(snapshot.problem)) : undefined,
-      contentComplete: complete && contentLoaded === notes.length, contentLoaded });
+      contentComplete: complete && contentLoaded === notes.length, contentLoaded,
+      hasMore: this.observation?.hasMore?.() ?? false });
   }
   private publish(state: CollectionIndexState): void {
     this.state = state;
