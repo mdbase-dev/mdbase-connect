@@ -576,3 +576,28 @@ fn execution_deadlines_cancel_reads_as_not_sent() {
             && problem.operation_outcome == Some(ConnectOperationOutcome::NotSent)
     ));
 }
+
+#[test]
+fn inventory_entries_carry_an_unavailable_reason_only_when_present() {
+    let mut collection = mdbase_connect_protocol::CollectionSummary {
+        id: uuid::Uuid::new_v4(),
+        display_name: "Notes".into(),
+        description: None,
+        path: "/private/notes".into(),
+        spec_version: "0.3.0".into(),
+        enabled: true,
+        authority_transfer: None,
+        contracts: Vec::new(),
+        unavailable_reason: None,
+    };
+    let available = inventory_entry(collection.clone()).unwrap();
+    assert!(available.get("unavailable_reason").is_none());
+    assert!(available.get("path").is_none());
+
+    collection.enabled = false;
+    collection.unavailable_reason =
+        Some(mdbase_connect_protocol::CollectionUnavailableReason::ClaimedByNewerRuntime);
+    let claimed = inventory_entry(collection).unwrap();
+    assert_eq!(claimed["unavailable_reason"], "claimed_by_newer_runtime");
+    assert_eq!(claimed["enabled"], false);
+}
