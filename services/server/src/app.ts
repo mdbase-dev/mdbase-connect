@@ -24,6 +24,7 @@ import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
 import { registerNextHostedRoutes } from "./features/next/hosted-routes.js";
+import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
 import { loadPolicySigner, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 import { NextRelayDevices } from "./features/next/devices.js";
 import { NoisePipes, registerNoisePipeClientRoute } from "./features/next/noise-pipes.js";
@@ -475,6 +476,7 @@ export async function buildApp(options: BuildOptions) {
     registerNextDeviceRoutes(app, { db: options.db });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens });
+    registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
   }
   registerConnectorRelayRoute(app, { db: options.db, relay });
   registerApplicationRoutes(app, {

@@ -1,5 +1,9 @@
 import { createHash, createPrivateKey, generateKeyPairSync, randomUUID, sign, verify, type KeyObject } from "node:crypto";
 import pg from "pg";
+import Fastify from "fastify";
+import { tokenHash } from "../../security.js";
+import { recoverLostPolicy } from "./policy-recovery.js";
+import { registerPolicyRecoveryRoutes } from "./policy-recovery-routes.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { LogServiceClient } from "./log-service-client.js";
@@ -40,6 +44,8 @@ const bytes = (value: Decoded | undefined) => Buffer.from(value as Uint8Array);
 class FakeLogService {
   readonly logs = new Map<string, Buffer[]>();
   dropNextResponse = false;
+  refuseNextAppend = false;
+  failNextRead = false;
   constructor(private readonly issuer: Uint8Array) {}
 
   readonly fetch: typeof fetch = async (input, init) => {
@@ -68,7 +74,26 @@ class FakeLogService {
     } else if (method === "head") {
       if (!log) return this.reply({ error: "not_found" });
       result = st([0, head().seq], [1, head().chain], [2, 1]);
+    } else if (method === "read") {
+      if (this.failNextRead) {
+        this.failNextRead = false;
+        throw new TypeError("read failed");
+      }
+      if (!log) return this.reply({ error: "not_found" });
+      const after = field(params, 1) as number;
+      const items: Cbor[] = [];
+      for (let i = after; i < log.length; i += 1) {
+        const decoded = decodeCbor(log[i]!);
+        if (field(decoded, 0) !== 1) continue;
+        items.push([i + 1, log[i]!]);
+        break;
+      }
+      result = st([0, items], [1, head().seq], [2, head().chain], [3, 1], [4, false], [6, false]);
     } else if (method === "append") {
+      if (this.refuseNextAppend) {
+        this.refuseNextAppend = false;
+        return this.reply({ error: "forbidden" });
+      }
       if (!log) return this.reply({ error: "not_found" });
       const expectSeq = field(params, 1) as number;
       const items = (field(params, 3) as Uint8Array[]).map((item) => Buffer.from(item));
@@ -248,6 +273,137 @@ describePostgres("mdbase-next policy outbox", () => {
     expect(await emitter.drainCollection(collectionId)).toBe(0);
     const parked = await database.db.query<{ state: string }>("SELECT state FROM next_policy_batches WHERE collection_id = $1", [collectionId]);
     expect(parked.rows).toEqual([{ state: "parked" }]);
+  });
+
+  it("reissues a regressed acknowledged tail in original batches before fresh ops, once", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    const grant = randomUUID();
+    await queueNextPolicy(database.db, collectionId, [{ op: "grant-revoke", grant }]);
+    await emitter.drainCollection(collectionId);
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: true }]);
+    await emitter.drainCollection(collectionId);
+    const log = service.logs.get(collectionId.replaceAll("-", ""))!;
+    const original = log.slice(1);
+    log.splice(1);
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: false }]);
+    expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(2);
+    expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(0);
+    expect(await emitter.drainCollection(collectionId)).toBe(3);
+    expect(service.policyOps(collectionId, signer.cert.policyPublicKey)).toEqual([["1", "4", "2", "2"], ["7"], ["11"], ["11"]]);
+    // Same canonical op bytes/subjects, fresh item signature and issued_at.
+    original.forEach((item, index) => {
+      const oldPayload = decodeCbor(bytes(field(decodeCbor(item), 11)));
+      const newPayload = decodeCbor(bytes(field(decodeCbor(log[index + 1]!), 11)));
+      expect(field(newPayload, 3)).toEqual(field(oldPayload, 3));
+      expect(field(newPayload, 2)).toBeGreaterThan(field(oldPayload, 2) as number);
+      expect(log[index + 1]!.equals(item)).toBe(false);
+    });
+    expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(0);
+    // The replacement can itself be lost on the next failover.
+    log.splice(1);
+    expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(3);
+    expect(await emitter.drainCollection(collectionId)).toBe(3);
+  });
+
+  it("detects an overwritten position at a nonregressed head, without trusting hints", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    await queueNextPolicy(database.db, collectionId, [{ op: "member-remove", account: randomUUID() }]);
+    await emitter.drainCollection(collectionId);
+    service.logs.get(collectionId.replaceAll("-", ""))!.splice(1, 1, Buffer.from("a0", "hex"));
+    emitter.hintLostPolicy(collectionId);
+    await emitter.drain();
+    const restored = service.logs.get(collectionId.replaceAll("-", ""))!.at(-1)!;
+    const ops = field(decodeCbor(bytes(field(decodeCbor(restored), 11))), 3) as Decoded[];
+    expect(ops.map((op) => field(op, 0))).toEqual([5]);
+    expect((await client.head(collectionId)).seq).toBe(3);
+  });
+
+  it("rolls back loss scheduling if verification fails", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    service.failNextRead = true;
+    await expect(recoverLostPolicy(database.db, client, collectionId)).rejects.toThrow(/read failed/);
+    const marked = await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id = $1 AND lost_at IS NOT NULL", [collectionId]);
+    expect(marked.rows).toHaveLength(0);
+    expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(0);
+  });
+
+  it("serializes concurrent checks and parks refused reissues with later work blocked", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    await queueNextPolicy(database.db, collectionId, [{ op: "grant-revoke", grant: randomUUID() }]);
+    await emitter.drainCollection(collectionId);
+    service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
+    const results = await Promise.all([recoverLostPolicy(database.db, client, collectionId), recoverLostPolicy(database.db, client, collectionId)]);
+    expect(results.sort()).toEqual([0, 1]);
+    service.refuseNextAppend = true;
+    await expect(emitter.drainCollection(collectionId)).rejects.toThrow(/forbidden/);
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: false }]);
+    expect(await emitter.drainCollection(collectionId)).toBe(0);
+    const parked = await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id = $1 AND state = 'parked'", [collectionId]);
+    expect(parked.rows).toHaveLength(1);
+  });
+
+  it("parks a reissue that cannot be signed without relaxing certificate validity", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    await queueNextPolicy(database.db, collectionId, [{ op: "grant-revoke", grant: randomUUID() }]);
+    await emitter.drainCollection(collectionId);
+    service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
+    await recoverLostPolicy(database.db, client, collectionId);
+    const expired = new PolicyEmitter(database.db, client, signer, () => undefined, 2_000, () => signer.cert.notAfter + 1);
+    expect(await expired.drainCollection(collectionId)).toBe(0);
+    const parked = await database.db.query<{ error: string }>("SELECT error FROM next_policy_batches WHERE collection_id = $1 AND state = 'parked'", [collectionId]);
+    expect(parked.rows[0]!.error).toMatch(/validity window/);
+  });
+
+  it("parks lost genesis instead of changing the root at a new position", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    service.logs.get(collectionId.replaceAll("-", ""))!.splice(0, 1, Buffer.from("a0", "hex"));
+    expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(0);
+    expect(await emitter.drainCollection(collectionId)).toBe(0);
+    const batch = await database.db.query<{ error: string }>("SELECT error FROM next_policy_batches WHERE collection_id = $1", [collectionId]);
+    expect(batch.rows[0]!.error).toBe("lost_genesis");
+  });
+
+  it("accepts only authenticated owner hints, verifies bytes, and surfaces parked readiness", async () => {
+    const owner = await newUser(database.db);
+    const collectionId = await register(owner);
+    const token = randomUUID();
+    const connector = randomUUID();
+    await database.db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Test',$3)", [connector, owner, tokenHash(token)]);
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    const app = Fastify();
+    registerPolicyRecoveryRoutes(app, database.db, emitter);
+    app.get("/ready", () => ({ ok: true }));
+    try {
+      const url = `/v1/next/collections/${collectionId}/lost-policy`;
+      const payload = { from_seq: 1, to_seq: 999, ops_digest: "ab".repeat(32) };
+      expect((await app.inject({ method: "POST", url, payload })).statusCode).toBe(401);
+      const otherToken = randomUUID();
+      await database.db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Other',$3)", [randomUUID(), await newUser(database.db), tokenHash(otherToken)]);
+      expect((await app.inject({ method: "POST", url, payload, headers: { authorization: `Bearer ${otherToken}` } })).statusCode).toBe(404);
+      expect((await app.inject({ method: "POST", url, payload, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(202);
+      expect((await app.inject({ method: "POST", url: `/v1/next/collections/${randomUUID()}/lost-policy`, payload, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(404);
+      expect((await app.inject({ method: "POST", url, payload: { ...payload, ops_digest: "bad" }, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(400);
+      await emitter.drain();
+      expect((await client.head(collectionId)).seq).toBe(1);
+      await database.db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [connector]);
+      expect((await app.inject({ method: "POST", url, payload, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401);
+      expect((await app.inject({ method: "GET", url: "/ready" })).statusCode).toBe(503);
+    } finally {
+      await app.close();
+    }
   });
 
   it("refuses to sign for a collection governed by another root", async () => {

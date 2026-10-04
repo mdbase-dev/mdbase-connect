@@ -11,6 +11,7 @@
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { LogServiceError, type LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
+import { recoverLostPolicy } from "./policy-recovery.js";
 
 const OUTBOX_FORMAT = 1;
 const MAX_ROWS_PER_ITEM = 64;
@@ -107,6 +108,13 @@ const MAX_REBUILDS = 8;
 export class PolicyEmitter {
   private timer: NodeJS.Timeout | undefined;
   private inFlight: Promise<number> | undefined;
+  private lastVerificationAt = -Infinity;
+  private readonly verificationHints = new Set<string>();
+
+  /** Hints only select a collection for verification, never its ops or positions. */
+  hintLostPolicy(collectionId: string): void {
+    this.verificationHints.add(collectionId);
+  }
 
   constructor(
     private readonly db: DatabasePool,
@@ -143,6 +151,20 @@ export class PolicyEmitter {
   }
 
   private async drainAll(): Promise<number> {
+    const due = this.now() - this.lastVerificationAt >= 60_000;
+    const checks = due ? await this.db.query<{ collection_id: string }>(
+      "SELECT DISTINCT collection_id FROM next_policy_batches WHERE state = 'appended' AND lost_at IS NULL"
+    ) : { rows: [] };
+    if (due) this.lastVerificationAt = this.now();
+    const collectionIds = new Set([...checks.rows.map((row) => row.collection_id), ...this.verificationHints]);
+    this.verificationHints.clear();
+    for (const collectionId of collectionIds) {
+      try {
+        await recoverLostPolicy(this.db, this.log, collectionId);
+      } catch (error) {
+        this.onError(error, collectionId);
+      }
+    }
     const collections = await this.db.query<{ collection_id: string }>(
       `SELECT collection_id FROM next_policy_outbox WHERE batch_id IS NULL
        UNION SELECT collection_id FROM next_policy_batches WHERE state = 'sending'`
@@ -218,25 +240,38 @@ export class PolicyEmitter {
         await client.query("COMMIT");
         return open.rows[0].state === "parked" ? "blocked" : open.rows[0];
       }
-      const pending = await client.query<{ id: string; ops: unknown }>(
-        "SELECT id, ops FROM next_policy_outbox WHERE collection_id = $1 AND batch_id IS NULL ORDER BY id LIMIT $2",
-        [collectionId, MAX_ROWS_PER_ITEM]
+      const recovery = await client.query<{ id: string; ops: unknown; reissue_of: string }>(
+        `SELECT id, ops, reissue_of FROM next_policy_outbox WHERE collection_id = $1 AND batch_id IS NULL
+         AND reissue_of IS NOT NULL ORDER BY reissue_of LIMIT 1`, [collectionId]
+      );
+      // One item per lost batch, before fresh policy work; never coalesce reissues.
+      const pending = recovery.rows.length ? recovery : await client.query<{ id: string; ops: unknown }>(
+        `SELECT id, ops FROM next_policy_outbox WHERE collection_id = $1 AND batch_id IS NULL
+         AND reissue_of IS NULL ORDER BY id LIMIT $2`, [collectionId, MAX_ROWS_PER_ITEM]
       );
       if (pending.rows.length === 0) {
         await client.query("COMMIT");
         return "idle";
       }
       const ops = pending.rows.flatMap((entry) => deserializeOps(entry.ops));
-      if (!Buffer.from(row.root_key_id).equals(Buffer.from(this.signer.cert.root))) {
-        throw new Error("the configured policy key is certified by a different root than this collection's");
-      }
       // Monotonic per collection (policy.md §3 rule 4), even if the clock steps back.
       const previousIssuedAt = Number(row.last_issued_at);
       const issuedAt = Math.max(this.now(), previousIssuedAt + 1);
       const genesis = ops[0]?.op === "genesis";
       const head = genesis ? { seq: 0, chain: ZERO_CHAIN } : await this.log.head(collectionId);
       const seq = head.seq + 1;
-      const item = signPolicyItem(this.signer, { collection: collectionId, seq, prev: head.chain, issuedAt, previousIssuedAt, ops });
+      let item: Uint8Array;
+      try {
+        if (!Buffer.from(row.root_key_id).equals(Buffer.from(this.signer.cert.root))) {
+          throw new Error("the configured policy key is certified by a different root than this collection's");
+        }
+        item = signPolicyItem(this.signer, { collection: collectionId, seq, prev: head.chain, issuedAt, previousIssuedAt, ops });
+      } catch (error) {
+        if (!recovery.rows.length) throw error;
+        await client.query("UPDATE next_policy_batches SET state = 'parked', error = $2 WHERE id = $1", [recovery.rows[0]!.reissue_of, String((error as Error).message)]);
+        await client.query("COMMIT");
+        return "blocked";
+      }
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO next_policy_batches (collection_id, seq, prev, item, issued_at, state)
          VALUES ($1, $2, $3, $4, $5, 'sending') RETURNING id`,
