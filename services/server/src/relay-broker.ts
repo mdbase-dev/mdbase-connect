@@ -77,6 +77,9 @@ export interface RelayBroker {
     timeoutMs: number
   ): Promise<RelayBrokerBinaryReply>;
   publishReplacement(connectorId: string, generation: string): Promise<void>;
+  /** Byte-stream fan-out for mdbase-next Noise pipes (`pipeSubject`); at-most-once, ordered per publisher. */
+  subscribePipe(subject: string, handle: (data: Uint8Array) => void): Promise<RelayBrokerBinding>;
+  publishPipe(subject: string, data: Uint8Array): Promise<void>;
   ready(): Promise<void>;
   close(): Promise<void>;
 }
@@ -101,6 +104,7 @@ interface LocalBinding {
  */
 export class LocalRelayBroker implements RelayBroker {
   private readonly bindings = new Map<string, LocalBinding>();
+  private readonly pipes = new Map<string, Set<(data: Uint8Array) => void>>();
   private closed = false;
 
   async bind(input: LocalBinding): Promise<RelayBrokerBinding> {
@@ -149,6 +153,24 @@ export class LocalRelayBroker implements RelayBroker {
     }
   }
 
+  async subscribePipe(subject: string, handle: (data: Uint8Array) => void): Promise<RelayBrokerBinding> {
+    this.assertOpen();
+    const handlers = this.pipes.get(subject) ?? new Set();
+    handlers.add(handle);
+    this.pipes.set(subject, handlers);
+    return {
+      close: async () => {
+        handlers.delete(handle);
+        if (handlers.size === 0 && this.pipes.get(subject) === handlers) this.pipes.delete(subject);
+      }
+    };
+  }
+
+  async publishPipe(subject: string, data: Uint8Array): Promise<void> {
+    this.assertOpen();
+    for (const handle of this.pipes.get(subject) ?? []) handle(data);
+  }
+
   async ready(): Promise<void> {
     this.assertOpen();
   }
@@ -156,6 +178,7 @@ export class LocalRelayBroker implements RelayBroker {
   async close(): Promise<void> {
     this.closed = true;
     this.bindings.clear();
+    this.pipes.clear();
   }
 
   private assertOpen(): void {
@@ -204,6 +227,21 @@ export class NatsRelayBroker implements RelayBroker {
       reconnectTimeWait: 500
     });
     return new NatsRelayBroker(connection);
+  }
+
+  async subscribePipe(subject: string, handle: (data: Uint8Array) => void): Promise<RelayBrokerBinding> {
+    this.assertAvailable();
+    const subscription = this.connection.subscribe(subject, {
+      callback: (error, message) => {
+        if (!error) handle(message.data);
+      }
+    });
+    return { close: async () => subscription.unsubscribe() };
+  }
+
+  async publishPipe(subject: string, data: Uint8Array): Promise<void> {
+    this.assertAvailable();
+    this.connection.publish(subject, data);
   }
 
   async bind(input: {
@@ -414,6 +452,17 @@ class NatsRelayBinding implements RelayBrokerBinding {
 
 export async function createRelayBroker(config: RelayBrokerConfig | null): Promise<RelayBroker> {
   return config ? NatsRelayBroker.connect(config) : new LocalRelayBroker();
+}
+
+/**
+ * Subjects of mdbase-next Noise pipes: `open.<connector>` to the instance holding the
+ * daemon's bound socket, and `<pipe>.device` / `<pipe>.client` for the two directions.
+ */
+export function pipeSubject(...parts: string[]): string {
+  for (const part of parts) {
+    if (!/^[A-Za-z0-9-]+$/.test(part)) throw new TypeError("Relay pipe subject parts must be identifiers.");
+  }
+  return `${SUBJECT_PREFIX}.pipe.${parts.join(".")}`;
 }
 
 function deliverySubject(connectorId: string, generation: string): string {

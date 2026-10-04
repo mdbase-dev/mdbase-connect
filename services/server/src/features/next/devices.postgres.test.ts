@@ -126,24 +126,24 @@ describePostgres("mdbase-next daemon devices", () => {
 
     const legacy = fakeSocket();
     expect(devices.welcome(legacy.socket, ["policy-freshness-lease-v1"])).toEqual({});
-    await devices.bind(legacy.socket, connectorId, "1", { device_id: deviceId, sig: "00".repeat(64) });
+    await devices.handleMessage(legacy.socket, connectorId, "1", { type: "device_bind", device_id: deviceId, sig: "00".repeat(64) });
     expect(legacy.sent).toEqual([{ type: "device_bind_failed", reason: "invalid" }]);
 
     const { socket, sent } = fakeSocket();
     const nonce = Buffer.from(devices.welcome(socket, ["next_device_v1"]).device_nonce!, "hex");
     const wrongSession = Buffer.from(sign(null, deviceBindDigest(connectorId, "2", nonce), keys.privateKey)).toString("hex");
-    await devices.bind(socket, connectorId, "1", { device_id: deviceId, sig: wrongSession });
+    await devices.handleMessage(socket, connectorId, "1", { type: "device_bind", device_id: deviceId, sig: wrongSession });
     expect(sent.pop()).toMatchObject({ type: "device_bind_failed" });
     expect(devices.boundDevice(socket)).toBeUndefined();
     const sig = Buffer.from(sign(null, deviceBindDigest(connectorId, "1", nonce), keys.privateKey)).toString("hex");
-    await devices.bind(socket, connectorId, "1", { device_id: deviceId, sig });
-    expect(sent.pop()).toEqual({ type: "device_bound", device_id: deviceId });
+    await devices.handleMessage(socket, connectorId, "1", { type: "device_bind", device_id: deviceId, sig });
+    expect(sent.pop()).toEqual({ type: "device_bound", device_id: deviceId, noise_pipes: false });
     expect(devices.boundDevice(socket)).toBe(deviceId);
 
     await db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [connectorId]);
     const later = fakeSocket();
     const laterNonce = Buffer.from(devices.welcome(later.socket, ["next_device_v1"]).device_nonce!, "hex");
-    await devices.bind(later.socket, connectorId, "1", { device_id: deviceId, sig: Buffer.from(sign(null, deviceBindDigest(connectorId, "1", laterNonce), keys.privateKey)).toString("hex") });
+    await devices.handleMessage(later.socket, connectorId, "1", { type: "device_bind", device_id: deviceId, sig: Buffer.from(sign(null, deviceBindDigest(connectorId, "1", laterNonce), keys.privateKey)).toString("hex") });
     expect(later.sent.pop()).toMatchObject({ type: "device_bind_failed" });
   });
 

@@ -1,0 +1,221 @@
+import { once } from "node:events";
+import { generateKeyPairSync as keyPair, randomBytes, randomUUID, sign } from "node:crypto";
+import pg from "pg";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
+import { CONNECT_CONTRACT_SUPPORT } from "@mdbase-dev/connect-protocol";
+import { buildApp } from "../../app.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
+import { LocalRelayBroker, pipeSubject } from "../../relay-broker.js";
+import { tokenHash } from "../../security.js";
+import { deviceBindDigest, deviceRegistrationDigest } from "./devices.js";
+import { certToJson, ed25519RawPublicKey } from "./policy-keys.js";
+import { certDigest, keyId } from "./policy-wire.js";
+
+
+const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
+const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
+const describePostgres = testUrl && approved ? describe : describe.skip;
+
+function nextConfig() {
+  const pem = (key: ReturnType<typeof keyPair>["privateKey"]) => key.export({ format: "pem", type: "pkcs8" }).toString();
+  const root = keyPair("ed25519");
+  const policy = keyPair("ed25519");
+  const rootPublicKey = ed25519RawPublicKey(root.privateKey);
+  const now = Date.now();
+  const unsigned = { policyPublicKey: ed25519RawPublicKey(policy.privateKey), notBefore: now - 60_000, notAfter: now + 90 * 86_400_000, root: keyId(rootPublicKey) };
+  return {
+    rootPublicKey,
+    policyPrivateKeyPem: pem(policy.privateKey),
+    policyCert: certToJson({ ...unsigned, signature: sign(null, certDigest(unsigned), root.privateKey) }),
+    logService: { url: "http://127.0.0.1:9", tokenIssuerKeyPem: pem(keyPair("ed25519").privateKey), transportKeyPem: pem(keyPair("ed25519").privateKey) }
+  };
+}
+
+/** Wait for the next message on a socket that satisfies `match`. */
+function next<T>(socket: WebSocket, match: (data: Buffer, binary: boolean) => T | undefined, timeoutMs = 5_000): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off("message", listener);
+      reject(new Error("timed out waiting for a message"));
+    }, timeoutMs);
+    const listener = (data: Buffer, binary: boolean) => {
+      const value = match(data, binary);
+      if (value === undefined) return;
+      clearTimeout(timer);
+      socket.off("message", listener);
+      resolve(value);
+    };
+    socket.on("message", listener);
+  });
+}
+const json = (type: string) => (data: Buffer, binary: boolean) => {
+  if (binary) return undefined;
+  const message = JSON.parse(data.toString()) as Record<string, unknown>;
+  return message.type === type ? message : undefined;
+};
+
+describePostgres("mdbase-next Noise pipes through the relay", () => {
+  let admin: pg.Pool;
+  let db: DatabasePool;
+  let schema: string;
+  let app: Awaited<ReturnType<typeof buildApp>>["app"];
+  let base: string;
+  const broker = new LocalRelayBroker();
+  const ids = { user: randomUUID(), connector: randomUUID(), collection: randomUUID(), localId: randomUUID(), application: randomUUID(), grant: randomUUID(), device: randomUUID() };
+  const connectorToken = `con_${randomUUID()}`;
+  const accessToken = `at_${randomUUID()}`;
+  const deviceKey = keyPair("ed25519").privateKey;
+  const deviceNoisePk = randomBytes(32);
+
+  beforeAll(async () => {
+    const url = new URL(testUrl!);
+    if (!["localhost", "127.0.0.1", "::1"].includes(url.hostname) || !/test/i.test(url.pathname)) throw new Error("Pipe tests require a dedicated local test database.");
+    schema = `mdbase_next_pipes_test_${randomUUID().replaceAll("-", "")}`;
+    admin = new pg.Pool({ connectionString: url.toString(), max: 2 });
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    url.searchParams.set("options", `-csearch_path=${schema}`);
+    db = await createDatabase(url.toString());
+    await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Pipe owner')", [ids.user, `${ids.user}@example.test`]);
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash,relay_generation) VALUES($1,$2,'Daemon',$3,0)", [ids.connector, ids.user, tokenHash(connectorToken)]);
+    await db.query(`INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,enabled,present,authority_state)
+      VALUES($1,$2,$3,$4,'Notes','0.3.0',true,true,'active')`, [ids.collection, ids.user, ids.connector, ids.localId]);
+    ({ app } = await buildApp({ db, publicUrl: "http://connect.test", relayBroker: broker, nextControlPlane: nextConfig() }));
+    base = (await app.listen({ host: "127.0.0.1", port: 0 })).replace(/^http/, "ws");
+    // Application reconciliation seeds its jobs at startup and then every 6 hours.
+    // Settle it before creating the hand-made grant, which has no manifest to satisfy.
+    await (app as unknown as { drainApplicationReconciliation(): Promise<void> }).drainApplicationReconciliation();
+    await db.query("INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris) VALUES($1,$2,'Pipe app','https://example.test','[]')", [ids.application, ids.application]);
+    await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,scope,application_installation_id,application_authorization,activated_at)
+      VALUES($1,$2,$3,$4,'["read"]','{"access":"full_collection","contracts":[]}','pipe-installation',
+      '{"binding":{"protocol_version":4,"contracts":{"semantic_capabilities":1}}}',now())`, [ids.grant, ids.user, ids.application, ids.collection]);
+    await db.query("INSERT INTO access_tokens(id,token_hash,grant_id,expires_at) VALUES($1,$2,$3,now() + interval '1 hour')", [randomUUID(), tokenHash(accessToken), ids.grant]);
+    await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [ids.grant, randomBytes(32)]);
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await db?.end();
+    if (admin && schema) await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await admin?.end();
+  }, 60_000);
+
+  async function registerDevice() {
+    const headers = { authorization: `Bearer ${connectorToken}` };
+    const { challenge } = (await app.inject({ method: "POST", url: "/v1/next/devices/challenge", headers })).json() as { challenge: string };
+    const keys = { signPk: Buffer.from(ed25519RawPublicKey(deviceKey)), kemPk: randomBytes(32), noisePk: deviceNoisePk };
+    const digest = deviceRegistrationDigest({ challenge: Buffer.from(challenge, "hex"), connectorId: ids.connector, deviceId: ids.device, ...keys });
+    const response = await app.inject({
+      method: "POST", url: "/v1/next/devices", headers,
+      payload: { device_id: ids.device, kind: "desktop", challenge, sign_pk: keys.signPk.toString("hex"), kem_pk: keys.kemPk.toString("hex"), noise_pk: keys.noisePk.toString("hex"), sig: Buffer.from(sign(null, digest, deviceKey)).toString("hex") }
+    });
+    expect(response.statusCode, response.body).toBe(200);
+  }
+
+  let lastGeneration = "";
+  async function daemon(bind = true): Promise<WebSocket> {
+    const socket = new WebSocket(`${base}/v1/relay`, { headers: { authorization: `Bearer ${connectorToken}` } });
+    socket.on("message", (data: Buffer, binary: boolean) => {
+      if (binary) return;
+      const message = JSON.parse(data.toString()) as Record<string, unknown>;
+      if (message.type === "policy_snapshot") {
+        socket.send(JSON.stringify({ type: "policy_applied", protocol_version: 1, request_id: message.request_id, revision: message.revision, ok: true }));
+      }
+    });
+    await once(socket, "open");
+    const welcome = next(socket, json("relay_welcome"));
+    socket.send(JSON.stringify({
+      type: "relay_hello", protocol_version: 1, connector_version: "0.1.0-test",
+      capabilities: ["application-authorization-v4", "authorization-activation", "encrypted-relay", "policy-ack", "policy-freshness-lease-v1", "next_device_v1", "noise_pipe_v1"],
+      contract_support: CONNECT_CONTRACT_SUPPORT
+    }));
+    const { session_id: sessionId, device_nonce: nonce } = await welcome as { session_id: string; device_nonce: string };
+    lastGeneration = sessionId;
+    if (!bind) return socket;
+    const bound = next(socket, json("device_bound"));
+    socket.send(JSON.stringify({ type: "device_bind", device_id: ids.device, sig: Buffer.from(sign(null, deviceBindDigest(ids.connector, sessionId, Buffer.from(nonce, "hex")), deviceKey)).toString("hex") }));
+    expect(await bound).toMatchObject({ device_id: ids.device, noise_pipes: true });
+    return socket;
+  }
+
+  async function client(grant = ids.grant, target: { device?: string; noisePk?: string } = {}): Promise<WebSocket> {
+    const socket = new WebSocket(`${base}/v1/next/relay/client`);
+    await once(socket, "open");
+    socket.send(JSON.stringify({
+      type: "pipe_auth", access_token: accessToken, collection: ids.localId, grant,
+      device: target.device ?? ids.device, device_noise_pk: target.noisePk ?? deviceNoisePk.toString("hex")
+    }));
+    return socket;
+  }
+
+  it("carries opaque bytes both ways and closes on the daemon's request", async () => {
+    await registerDevice();
+    const device = await daemon();
+    const app1 = await client();
+    const opened = await Promise.all([next(device, json("pipe_open")), next(app1, json("pipe_opened"))]);
+    const pipeId = opened[0].pipe_id as string;
+    expect(opened[0]).toMatchObject({ collection_id: ids.localId, grant_id: ids.grant });
+    expect(opened[1].pipe_id).toBe(pipeId);
+    const pipeBytes = Buffer.from(pipeId.replaceAll("-", ""), "hex");
+
+    const toDevice = next(device, (data, binary) => (binary ? data : undefined));
+    app1.send(Buffer.from("noise message 1"));
+    const framed = await toDevice;
+    expect(framed.subarray(0, 4).toString()).toBe("MDBN");
+    expect(framed.subarray(4, 20).equals(pipeBytes)).toBe(true);
+    expect(framed.subarray(20).toString()).toBe("noise message 1");
+
+    const toClient = next(app1, (data, binary) => (binary ? data.toString() : undefined));
+    device.send(Buffer.concat([Buffer.from("MDBN"), pipeBytes, Buffer.from("noise reply")]));
+    expect(await toClient).toBe("noise reply");
+
+    const closed = once(app1, "close");
+    device.send(JSON.stringify({ type: "pipe_close", pipe_id: pipeId, reason: "unknown_grant" }));
+    const [code, reason] = await closed;
+    expect([code, reason.toString()]).toEqual([4000, "unknown_grant"]);
+    device.close();
+  });
+
+  it("refuses a client without a matching active grant, and when no daemon is bound", async () => {
+    const wrong = await client(randomUUID());
+    const [code] = await once(wrong, "close");
+    expect(code).toBe(4403);
+    const offline = await client();
+
+    const [offlineCode, offlineReason] = await once(offline, "close");
+    expect([offlineCode, offlineReason.toString()]).toEqual([4404, "connector_offline"]);
+  });
+
+  it("routes only to the named device's current bound socket with its registered key (SEC-039)", async () => {
+    const unbound = await daemon(false);
+    const pending = await client();
+    expect((await once(pending, "close")).map(String)).toEqual(["4404", "connector_offline"]);
+    unbound.close();
+    await once(unbound, "close");
+
+    const device = await daemon();
+    const wrongDevice = await client(ids.grant, { device: randomUUID() });
+    expect((await once(wrongDevice, "close")).map(String)).toEqual(["4000", "device_mismatch"]);
+    const wrongKey = await client(ids.grant, { noisePk: randomBytes(32).toString("hex") });
+    expect((await once(wrongKey, "close")).map(String)).toEqual(["4000", "device_key_mismatch"]);
+
+    // A request still addressed to this socket's generation after a newer one exists
+    // (e.g. a replacement whose fence failed to close it) is refused at routing time,
+    // and the stale socket's pipes are closed.
+    const live = await client();
+    await next(live, json("pipe_opened"));
+    const liveClosed = once(live, "close");
+    const oldGeneration = lastGeneration;
+    await db.query("UPDATE connectors SET relay_generation = relay_generation + 1 WHERE id = $1", [ids.connector]);
+    const pipeId = randomUUID();
+    const refused = new Promise<string>((resolve) => {
+      void broker.subscribePipe(pipeSubject(pipeId, "client"), (data) => resolve(Buffer.from(data.subarray(1)).toString()));
+    });
+    await broker.publishPipe(pipeSubject("open", ids.connector, oldGeneration), Buffer.from(JSON.stringify({
+      pipe_id: pipeId, collection_id: ids.localId, grant_id: ids.grant, device_id: ids.device, device_noise_pk: deviceNoisePk.toString("hex")
+    })));
+    expect(await refused).toBe("connector_offline");
+    expect((await liveClosed).map(String)).toEqual(["4404", "connector_offline"]);
+    device.close();
+  });
+});

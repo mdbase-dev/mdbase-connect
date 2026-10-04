@@ -240,7 +240,7 @@ export class RelayHub {
     socket.on("message", (raw, isBinary) => {
       try {
         if (isBinary) {
-          this.files.handleConnectorResponse(socket, raw);
+          if (!this.nextDevices?.handleBinary(socket, raw as Buffer)) this.files.handleConnectorResponse(socket, raw);
           return;
         }
         const message = JSON.parse(raw.toString()) as {
@@ -267,8 +267,8 @@ export class RelayHub {
           revision?: string;
           entries?: unknown[];
         };
-        if (message.type === "device_bind" && this.nextDevices) {
-          return void this.nextDevices.bind(socket, connectorId, generation, message as Record<string, unknown>);
+        if (this.nextDevices?.handlesMessage(message.type)) {
+          return void this.nextDevices.handleMessage(socket, connectorId, generation, message as Record<string, unknown>);
         }
         if (message.type === "protocol_usage_report") {
           if (
