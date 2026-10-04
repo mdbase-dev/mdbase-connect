@@ -4,7 +4,6 @@ import type {
   JsonObject
 } from "@mdbase-dev/connect-protocol";
 import {
-  APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   authorizationContractRequirements,
   DEFAULT_LOOPBACK_PORT,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
@@ -25,7 +24,6 @@ import {
   IndexedDbApplicationIdentityStore,
   MemoryApplicationIdentityStore,
   applicationIdentity,
-  applicationInstallationId,
   signApplicationAuthorization,
   type ApplicationIdentity,
   type ApplicationIdentityStore
@@ -42,7 +40,7 @@ import type { MdbaseConnectionInfo, MdbaseDeviceAuthorization } from "./connecti
 import {
   assertFreshV2AuthorizationSupport,
   authorizationAbort,
-  declarationIdFromFamilyIdentity
+  authorizationBindingBase
 } from "./connect-authorization-helpers.js";
 import {
   IndexedDbGrantKeyStore,
@@ -91,6 +89,7 @@ import {
 import { storedTokenFromResponse } from "./token-response.js";
 import { deleteUnusedGrantKey, planRetiredGrantKeys, storedTokenKeyHandles } from "./retired-grant-keys.js";
 import { SharedOperationMap } from "./shared-operation.js";
+import { configureNextClientKey, nextAuthorizationFields } from "./next-client-key.js";
 
 export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   readonly serverUrl: string;
@@ -100,6 +99,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   readonly storage: Storage;
   readonly relayEncryption: "required" | "disabled";
   readonly keyStore: GrantKeyStore;
+  readonly nextClientKey: MdbaseConnectOptions["nextClientKey"];
   readonly identityStore: ApplicationIdentityStore;
   readonly directAccessMode: "auto" | "disabled";
   readonly loopbackUrl: string;
@@ -123,6 +123,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     this.redirectUri = declaration.redirectUri;
     this.storage = options.storage ?? defaultStorage(opaquePortable);
     this.relayEncryption = options.relayEncryption ?? "required";
+    this.nextClientKey = configureNextClientKey(options.nextClientKey, this.serverUrl);
     this.keyStore = options.keyStore ?? (
       opaquePortable ? new MemoryGrantKeyStore() : new IndexedDbGrantKeyStore()
     );
@@ -314,19 +315,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const requestedFiles = authorizationFiles(application.requirements);
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
-      protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
-      authorization_id: authorizationId,
-      application_id: application.id,
-      application_declaration_id: declarationIdFromFamilyIdentity(application.family_identity),
-      application_manifest_digest: application.manifest_digest,
-      application_installation_id: await applicationInstallationId(installation),
-      installation_signing_public_key: installation.signingPublicKey,
-      grant_agreement_public_key: grantKey.agreementPublicKey,
-      grant_signing_public_key: grantKey.signingPublicKey,
-      flow: "authorization_code",
-      authorization_nonce: randomBase64Url(32),
-      issued_at: issuedAt.toISOString(),
-      expires_at: new Date(issuedAt.getTime() + 10 * 60 * 1_000).toISOString(),
+      ...await authorizationBindingBase(application, installation, grantKey, authorizationId, "authorization_code", issuedAt),
       redirect_uri: this.redirectUri,
       state,
       code_challenge: challenge,
@@ -373,7 +362,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           state,
           operations: operations.join(","),
           ...(targetCollectionId ? { collection_id: targetCollectionId } : {}),
-          application_authorization: JSON.stringify(proof)
+          ...await nextAuthorizationFields(proof, grantKey, this.nextClientKey)
         }),
         signal: options.signal
       });
@@ -463,19 +452,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const authorizationId = crypto.randomUUID();
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
-      protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
-      authorization_id: authorizationId,
-      application_id: application.id,
-      application_declaration_id: declarationIdFromFamilyIdentity(application.family_identity),
-      application_manifest_digest: application.manifest_digest,
-      application_installation_id: await applicationInstallationId(installation),
-      installation_signing_public_key: installation.signingPublicKey,
-      grant_agreement_public_key: grantKey.agreementPublicKey,
-      grant_signing_public_key: grantKey.signingPublicKey,
-      flow: "device_code",
-      authorization_nonce: randomBase64Url(32),
-      issued_at: issuedAt.toISOString(),
-      expires_at: new Date(issuedAt.getTime() + 10 * 60 * 1_000).toISOString(),
+      ...await authorizationBindingBase(application, installation, grantKey, authorizationId, "device_code", issuedAt),
       code_challenge: challenge,
       contracts: authorizationContractRequirements(
         operations,
@@ -508,7 +485,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
             : {}),
           code_challenge: challenge,
           code_challenge_method: "S256",
-          application_authorization: JSON.stringify(proof)
+          ...await nextAuthorizationFields(proof, grantKey, this.nextClientKey)
         }),
         signal: options.signal
       });

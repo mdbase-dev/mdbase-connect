@@ -23,6 +23,14 @@ export interface MdbaseConnectOptions {
   /** Encrypted relay is required by default for newly authorized grants. */
   relayEncryption?: "required" | "disabled";
   keyStore?: GrantKeyStore;
+  /**
+   * Opt-in Next consent on a canonical HTTPS control origin: return the retained
+   * Noise client's X25519 public key.
+   * The SDK attests it using this authorization's internal per-grant P-256 signer.
+   * Keep the corresponding private key for IK; no grant private key is exposed.
+   * When absent, the authorization form and signing behavior are unchanged.
+   */
+  nextClientKey?: () => Uint8Array | Promise<Uint8Array>;
   /** Persistent installation signing identity; separate from disposable grant keys. */
   identityStore?: ApplicationIdentityStore;
   /** Prefer same-computer connector access when the browser permits it. */
