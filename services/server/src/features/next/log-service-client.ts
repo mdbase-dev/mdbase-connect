@@ -130,6 +130,17 @@ export class LogServiceClient {
     return result;
   }
 
+  /** Exact-position control read; control items are never compacted. */
+  async controlItemAt(collection: string, seq: number): Promise<Uint8Array | null> {
+    const result = await this.rpc("read", struct([[0, uuidBytes(collection)], [1, seq - 1], [2, 1], [3, 1]]));
+    const items = field(result, 0);
+    if (!Array.isArray(items)) throw new Error("malformed control read response");
+    if (items.length === 0) return null;
+    const item = items[0];
+    if (!Array.isArray(item) || typeof item[0] !== "number" || !(item[1] instanceof Uint8Array)) throw new Error("malformed control item response");
+    return item[0] === seq ? item[1] : null;
+  }
+
   async head(collection: string): Promise<{ seq: number; chain: Uint8Array }> {
     const result = await this.rpc("head", struct([[0, uuidBytes(collection)]]));
     return { seq: seqField(result, 0), chain: bytesField(result, 1) };
