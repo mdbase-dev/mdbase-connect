@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     const db = await createDatabase();
     try {
       const { timers, skipped } = await readHostedLegacyTimers(provider, argument);
-      const result = await importLegacyTimers(db, legacyTimerGrantResolver, timers);
+      const result = await importLegacyTimers(db, legacyTimerGrantResolver, timers, "cloud_copy");
       console.log(JSON.stringify({ collection: argument, read: timers.length, unrecognized: skipped, ...result }));
     } finally {
       await provider.end();

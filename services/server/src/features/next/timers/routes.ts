@@ -92,7 +92,17 @@ export function registerTimerRoutes(app: FastifyInstance, options: TimerRoutesOp
       reply.code(401).send(apiError("unauthenticated", "Hosted provider credential is invalid."));
       return null;
     }
-    return z.object({ grant: z.uuid() }).parse(request.params).grant;
+    const grantId = z.object({ grant: z.uuid() }).parse(request.params).grant;
+    // The provider credential acts only for cloud-copy grants, never for local
+    // or end-to-end collections.
+    const grant = await resolver.resolve(options.db, grantId);
+    if (!grant || grant.state !== "cloud_copy") {
+      reply.code(403).send(apiError("forbidden", "The hosted shim may act only for cloud-copy grants.", {
+        reason: "not_cloud_copy"
+      }));
+      return null;
+    }
+    return grantId;
   };
 
   const run = async (
@@ -219,7 +229,8 @@ export function registerTimerRoutes(app: FastifyInstance, options: TimerRoutesOp
     }
     const input = parseOr400(importBodySchema, request.body, reply);
     if (!input) return reply;
-    return importLegacyTimers(options.db, resolver, input.timers);
+    // Same scope as the shim: the provider credential imports cloud-copy timers only.
+    return importLegacyTimers(options.db, resolver, input.timers, "cloud_copy");
   });
 }
 
@@ -238,7 +249,8 @@ export const importBodySchema = z.object({
 export async function importLegacyTimers(
   db: DatabasePool,
   resolver: TimerGrantResolver,
-  timers: z.infer<typeof importBodySchema>["timers"]
+  timers: z.infer<typeof importBodySchema>["timers"],
+  onlyState?: TimerGrant["state"]
 ): Promise<{ imported: number; existing: number; skipped: number }> {
   let imported = 0;
   let existing = 0;
@@ -252,7 +264,7 @@ export async function importLegacyTimers(
         grants.set(timer.grant_id, await resolver.resolve(connection, timer.grant_id));
       }
       const grant = grants.get(timer.grant_id);
-      if (!grant || !grant.usable) {
+      if (!grant || !grant.usable || (onlyState && grant.state !== onlyState)) {
         skipped += 1;
         continue;
       }

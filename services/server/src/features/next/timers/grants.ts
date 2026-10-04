@@ -57,19 +57,27 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
       revoked_at: string | null;
       activated_at: string | null;
       suspended_at: string | null;
+      next_sync: "private" | "cloud_copy" | null;
     }>(
       `SELECT g.id, g.user_id, g.application_id, g.application_origin,
               g.collection_id, g.hosted_collection_id, c.connector_id,
               g.operations, g.notification_criteria, g.revoked_at,
-              g.activated_at, u.suspended_at
+              g.activated_at, u.suspended_at, nc.sync AS next_sync
        FROM grants g
        JOIN users u ON u.id = g.user_id
        LEFT JOIN collections c ON c.id = g.collection_id
+       LEFT JOIN next_collections nc
+         ON nc.collection_id = g.hosted_collection_id
+         OR nc.collection_id = g.collection_id
        WHERE g.id = $1`,
       [grantId]
     );
     const row = result.rows[0];
     if (!row) return null;
+    // Fail closed for private sync (end-to-end): this resolver can't check the
+    // device approval that makes such a grant effective (policy.md §5.1), so it
+    // reports the grant unusable. The next-aware resolver replaces this.
+    const e2e = row.next_sync === "private";
     return {
       grantId: row.id,
       userId: row.user_id,
@@ -78,8 +86,8 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
       collectionIds: [row.collection_id, row.hosted_collection_id]
         .filter((id): id is string => id !== null),
       connectorId: row.connector_id,
-      state: row.hosted_collection_id ? "cloud_copy" : "local",
-      usable: !row.revoked_at && row.activated_at !== null && !row.suspended_at,
+      state: e2e ? "e2e" : row.hosted_collection_id ? "cloud_copy" : "local",
+      usable: !e2e && !row.revoked_at && row.activated_at !== null && !row.suspended_at,
       operations: new Set(Array.isArray(row.operations)
         ? row.operations.filter((op): op is string => typeof op === "string")
         : []),

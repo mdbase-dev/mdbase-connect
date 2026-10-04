@@ -244,6 +244,72 @@ describe("timer service: put, cancel, reconcile", () => {
   });
 });
 
+describe("security conditions before MDBASE_NEXT_TIMERS=1 (#598)", () => {
+  async function markPrivate(f: Awaited<ReturnType<typeof fixture>>) {
+    const owner = await f.db.query<{ user_id: string }>("SELECT user_id FROM grants WHERE id = $1", [f.grantId]);
+    await f.db.query(
+      `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id)
+       VALUES ($1, $2, 'next', 'private', $3)`,
+      [f.collectionId, owner.rows[0].user_id, Buffer.alloc(8)]
+    );
+  }
+
+  it("fails closed for private-sync grants: no timers, no data, no firing", async () => {
+    const f = await fixture({ hosted: true });
+    await f.call("PUT", `${f.base}/ns/before`, { criterion_id: "task.reminder", fire_at: future(60_000) });
+    await markPrivate(f);
+    const put = await f.call("PUT", `${f.base}/ns/t`, { criterion_id: "task.reminder", fire_at: future(60_000) });
+    expect(put.statusCode).toBe(403);
+    expect(put.json().error.details.reason).toBe("grant_not_usable");
+    const withData = await f.call("PUT", `${f.base}/ns/t`, {
+      criterion_id: "task.reminder", fire_at: future(60_000), data: { a: 1 }
+    });
+    expect(withData.statusCode).toBe(403);
+    // A timer written before the switch is cancelled at fire time, with no event.
+    await f.db.query("UPDATE next_timers SET fire_at = $1", [new Date(Date.now() - 1_000).toISOString()]);
+    await f.timers!.tick();
+    expect((await f.db.query("SELECT event_id FROM next_timer_events")).rows).toHaveLength(0);
+    const rows = await f.db.query<{ status: string }>("SELECT status FROM next_timers");
+    expect(rows.rows[0].status).toBe("cancelled");
+  });
+
+  it("limits the provider's internal token to cloud-copy grants", async () => {
+    const local = await fixture();
+    const shim = (grantId: string, method: "GET" | "POST" | "DELETE", path: string, payload?: unknown) =>
+      local.app.inject({
+        method,
+        url: `/internal/v1/next/timers/${grantId}/${path}`,
+        headers: { authorization: `Bearer ${INTERNAL_TOKEN}` },
+        ...(payload === undefined ? {} : { payload })
+      });
+    for (const response of [
+      await shim(local.grantId, "GET", "ns"),
+      await shim(local.grantId, "POST", "ns/reconcile", { criterion_id: "task.reminder", timers: [] }),
+      await shim(local.grantId, "DELETE", "ns/t"),
+      await shim(randomUUID(), "GET", "ns")
+    ]) {
+      expect(response.statusCode).toBe(403);
+    }
+
+    const hosted = await fixture({ hosted: true });
+    await markPrivate(hosted);
+    const privateGrant = await hosted.app.inject({
+      method: "GET",
+      url: `/internal/v1/next/timers/${hosted.grantId}/ns`,
+      headers: { authorization: `Bearer ${INTERNAL_TOKEN}` }
+    });
+    expect(privateGrant.statusCode).toBe(403);
+
+    const imported = await local.app.inject({
+      method: "POST",
+      url: "/internal/v1/next/timers/import",
+      headers: { authorization: `Bearer ${INTERNAL_TOKEN}` },
+      payload: { timers: [{ grant_id: local.grantId, namespace: "ns", id: "t", criterion_id: "task.reminder", fire_at: future(60_000) }] }
+    });
+    expect(imported.json()).toEqual({ imported: 0, existing: 0, skipped: 1 });
+  });
+});
+
 describe("timer service: firing and the fired-timer event", () => {
   async function registerPush(f: Awaited<ReturnType<typeof fixture>>) {
     const channel = await f.app.inject({
@@ -373,8 +439,8 @@ describe("timer service: firing and the fired-timer event", () => {
 });
 
 describe("timer service: cutover copy", () => {
-  it("imports legacy timers idempotently and drops data outside cloud copies", async () => {
-    const f = await fixture();
+  it("imports legacy cloud-copy timers idempotently", async () => {
+    const f = await fixture({ hosted: true });
     const timer = legacyTimer({
       id: "connect:x:task-reminders:timer.6162",
       fire_at: "2030-01-01T00:00:00Z",
@@ -392,7 +458,7 @@ describe("timer service: cutover copy", () => {
     expect((await send()).json()).toEqual({ imported: 1, existing: 0, skipped: 1 });
     expect((await send()).json()).toEqual({ imported: 0, existing: 1, skipped: 1 });
     const rows = await f.db.query<{ data: unknown; fire_at: Date | string }>("SELECT data, fire_at FROM next_timers");
-    expect(rows.rows[0].data).toBeNull();
+    expect(rows.rows[0].data).toEqual({ secret: 1 });
     expect(new Date(rows.rows[0].fire_at).toISOString()).toBe("2030-01-01T00:00:00.000Z");
   });
 });
