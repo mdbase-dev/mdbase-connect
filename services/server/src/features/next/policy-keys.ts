@@ -1,0 +1,111 @@
+// Control-plane keys for mdbase-next policy items (mdbase-next policy.md §3).
+//
+// The offline root key certifies an online policy key for a validity window. The
+// server holds only the policy key and its certificate; a root private key is never
+// configured on a server. Rotation: certify a new key offline (`next-cp-cert`), deploy
+// it, and items signed by the old key stay valid because each embeds its certificate.
+import { createPrivateKey, createPublicKey, verify as edVerify, type KeyObject } from "node:crypto";
+import { certDigest, keyId, type CpCert, type PolicySigner } from "./policy-wire.js";
+
+/** Refuse to start when the certificate expires within this window. */
+const MIN_CERT_REMAINING_MS = 7 * 24 * 60 * 60 * 1000;
+
+export interface CpCertJson {
+  policy_public_key: string;
+  not_before: number;
+  not_after: number;
+  root_key_id: string;
+  signature: string;
+}
+
+export interface NextControlPlaneConfig {
+  rootPublicKey: Uint8Array;
+  policyPrivateKeyPem: string;
+  policyCert: CpCertJson;
+}
+
+function hexBytes(value: string, size: number, name: string): Uint8Array {
+  if (!new RegExp(`^[0-9a-f]{${size * 2}}$`).test(value)) throw new Error(`${name} must be ${size} bytes of lowercase hex.`);
+  return Buffer.from(value, "hex");
+}
+
+export function certFromJson(json: CpCertJson): CpCert {
+  if (!Number.isSafeInteger(json.not_before) || !Number.isSafeInteger(json.not_after) || json.not_before >= json.not_after) {
+    throw new Error("The policy key certificate needs an increasing integer validity window in milliseconds.");
+  }
+  return {
+    policyPublicKey: hexBytes(json.policy_public_key, 32, "policy_public_key"),
+    notBefore: json.not_before,
+    notAfter: json.not_after,
+    root: hexBytes(json.root_key_id, 16, "root_key_id"),
+    signature: hexBytes(json.signature, 64, "signature"),
+  };
+}
+
+export function certToJson(cert: CpCert): CpCertJson {
+  const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
+  return { policy_public_key: hex(cert.policyPublicKey), not_before: cert.notBefore, not_after: cert.notAfter, root_key_id: hex(cert.root), signature: hex(cert.signature) };
+}
+
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
+export function ed25519PublicKeyObject(raw: Uint8Array): KeyObject {
+  return createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, raw]), format: "der", type: "spki" });
+}
+
+export function ed25519RawPublicKey(key: KeyObject): Uint8Array {
+  const der = (key.type === "private" ? createPublicKey(key) : key).export({ format: "der", type: "spki" });
+  if (der.length !== 44 || !der.subarray(0, 12).equals(ED25519_SPKI_PREFIX)) throw new Error("Expected an Ed25519 key.");
+  return der.subarray(12);
+}
+
+export function verifyCert(cert: CpCert, rootPublicKey: Uint8Array): boolean {
+  if (!Buffer.from(cert.root).equals(Buffer.from(keyId(rootPublicKey)))) return false;
+  return edVerify(null, certDigest(cert), ed25519PublicKeyObject(rootPublicKey), cert.signature);
+}
+
+/**
+ * Parse the `MDBASE_NEXT_*` key settings. Returns null when the mdbase-next control
+ * plane is disabled; throws on a partial or malformed configuration.
+ */
+export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPlaneConfig | null {
+  const enabled = env.MDBASE_NEXT_CONTROL_PLANE?.trim() ?? "";
+  if (enabled !== "" && enabled !== "0" && enabled !== "1") throw new Error("MDBASE_NEXT_CONTROL_PLANE must be 0 or 1.");
+  if (enabled !== "1") return null;
+  const root = env.MDBASE_NEXT_ROOT_PUBLIC_KEY?.trim() ?? "";
+  const pem = env.MDBASE_NEXT_POLICY_SIGNING_KEY?.trim() ?? "";
+  const cert = env.MDBASE_NEXT_POLICY_KEY_CERT?.trim() ?? "";
+  if (!root || !pem || !cert) {
+    throw new Error("MDBASE_NEXT_CONTROL_PLANE=1 requires MDBASE_NEXT_ROOT_PUBLIC_KEY, MDBASE_NEXT_POLICY_SIGNING_KEY and MDBASE_NEXT_POLICY_KEY_CERT.");
+  }
+  let parsedCert: CpCertJson;
+  try {
+    parsedCert = JSON.parse(cert) as CpCertJson;
+  } catch {
+    throw new Error("MDBASE_NEXT_POLICY_KEY_CERT must be the JSON printed by next-cp-cert.");
+  }
+  return { rootPublicKey: hexBytes(root, 32, "MDBASE_NEXT_ROOT_PUBLIC_KEY"), policyPrivateKeyPem: pem, policyCert: parsedCert };
+}
+
+/**
+ * Load the policy signer and check it against the pinned root: the private key matches
+ * the certificate, the root signed the certificate, and it is valid for at least
+ * `MIN_CERT_REMAINING_MS` from `now`.
+ */
+export function loadPolicySigner(config: NextControlPlaneConfig, now: number): PolicySigner {
+  const cert = certFromJson(config.policyCert);
+  let privateKey: KeyObject;
+  try {
+    privateKey = createPrivateKey(config.policyPrivateKeyPem);
+  } catch {
+    throw new Error("MDBASE_NEXT_POLICY_SIGNING_KEY must be a PEM-encoded Ed25519 private key.");
+  }
+  if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("MDBASE_NEXT_POLICY_SIGNING_KEY must be an Ed25519 key.");
+  if (!Buffer.from(ed25519RawPublicKey(privateKey)).equals(Buffer.from(cert.policyPublicKey))) {
+    throw new Error("MDBASE_NEXT_POLICY_SIGNING_KEY does not match the certificate's policy key.");
+  }
+  if (!verifyCert(cert, config.rootPublicKey)) throw new Error("The policy key certificate is not signed by MDBASE_NEXT_ROOT_PUBLIC_KEY.");
+  if (cert.notBefore > now) throw new Error("The policy key certificate is not valid yet.");
+  if (cert.notAfter - now < MIN_CERT_REMAINING_MS) throw new Error("The policy key certificate expires within 7 days; rotate it.");
+  return { cert, privateKey };
+}

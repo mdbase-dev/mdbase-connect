@@ -1,0 +1,9 @@
+{
+  "reason": "mdbase-next control plane: a new feature folder that encodes and signs policy items (canonical CBOR, Ed25519), loads the certified policy key, and ships the offline certificate tool. It has no existing module to extend; later control-plane PRs build on these exports.",
+  "growth": {
+    "productionFiles": 3,
+    "relativeImports": 4,
+    "typeScriptExportDeclarations": 31,
+    "services/server": 3
+  }
+}

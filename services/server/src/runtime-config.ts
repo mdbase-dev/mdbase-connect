@@ -4,6 +4,7 @@ import type { HostedProviderConfig } from "./hosted-provider.js";
 import type { RelayBrokerConfig } from "./relay-broker.js";
 import type { VapidConfig } from "./web-push.js";
 import type { WebhookSigningConfig } from "./webhook.js";
+import { loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 
 export type RegistrationMode = "closed" | "invite" | "open";
 
@@ -49,6 +50,8 @@ export interface RuntimeConfig {
   vapid: VapidConfig | null;
   fcm: { credentials?: Record<string, unknown> } | null;
   webhookSigning: WebhookSigningConfig | null;
+  /** mdbase-next control plane (policy signing); null or absent when disabled. */
+  nextControlPlane?: NextControlPlaneConfig | null;
 }
 
 export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
@@ -192,6 +195,7 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
       throw new Error("Web Push requires both VAPID public and private keys.");
     }
   }
+  if (config.nextControlPlane) loadPolicySigner(config.nextControlPlane, Date.now());
   if (config.webhookSigning) {
     if (!/^[A-Za-z0-9._-]{1,100}$/.test(config.webhookSigning.keyId)) {
       throw new Error("MDBASE_CONNECT_WEBHOOK_SIGNING_KEY_ID is invalid.");
@@ -389,7 +393,8 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
           privateKeyPem: webhookPrivateKey,
           previousPublicKeys: webhookPreviousPublicKeys
         }
-      : null
+      : null,
+    nextControlPlane: parseNextControlPlaneEnv(env)
   });
 }
 
