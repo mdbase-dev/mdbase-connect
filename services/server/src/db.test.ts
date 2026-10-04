@@ -76,6 +76,7 @@ describe("database migrations", () => {
       "0038_next_policy_outbox",
       "0039_free_entitlement_profile",
       "0040_next_devices",
+      "0041_next_collections_left_sync",
       "0042_next_client_key_attestations"
     ]);
     const columns = await db.query<{ column_name: string }>(
@@ -722,6 +723,7 @@ describe("database migrations", () => {
       "0038_next_policy_outbox",
       "0039_free_entitlement_profile",
       "0040_next_devices",
+      "0041_next_collections_left_sync",
       "0042_next_client_key_attestations"
     ]);
   });

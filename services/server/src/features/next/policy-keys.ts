@@ -29,6 +29,8 @@ export interface NextControlPlaneConfig {
   policyPrivateKeyPem: string;
   policyCert: CpCertJson;
   logService: LogServiceConfig;
+  /** Bearer tokens of the hosted replica and escrow deployments, per kind; absent until deployed. */
+  serviceTokens: { hosted?: string; escrow?: string };
 }
 
 function hexBytes(value: string, size: number, name: string): Uint8Array {
@@ -98,11 +100,20 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
   } catch {
     throw new Error("MDBASE_NEXT_POLICY_KEY_CERT must be the JSON printed by next-cp-cert.");
   }
+  const serviceToken = (name: string) => {
+    const value = env[name]?.trim() ?? "";
+    if (value && value.length < 32) throw new Error(`${name} must be at least 32 characters.`);
+    return value || undefined;
+  };
+  const hosted = serviceToken("MDBASE_NEXT_HOSTED_INTERNAL_TOKEN");
+  const escrow = serviceToken("MDBASE_NEXT_ESCROW_INTERNAL_TOKEN");
+  if (hosted && hosted === escrow) throw new Error("The hosted and escrow internal tokens must differ.");
   return {
     rootPublicKey: hexBytes(root, 32, "MDBASE_NEXT_ROOT_PUBLIC_KEY"),
     policyPrivateKeyPem: pem,
     policyCert: parsedCert,
     logService: { url: logServiceUrl, tokenIssuerKeyPem, transportKeyPem },
+    serviceTokens: { ...(hosted ? { hosted } : {}), ...(escrow ? { escrow } : {}) },
   };
 }
 
