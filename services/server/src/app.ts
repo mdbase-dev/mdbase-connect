@@ -41,7 +41,7 @@ import { registerApplicationRoutes } from "./features/applications/routes.js";
 import { registerExternalAuthRoutes } from "./features/auth/external-routes.js";
 import { registerPasswordAuthRoutes } from "./features/auth/password-routes.js";
 import { registerAuthorizationRoutes } from "./features/authorizations/routes.js";
-import { approveHostedAuthorization } from "./features/authorizations/approval-service.js";
+import { approveHostedAuthorization } from "./features/authorizations/hosted-approval-service.js";
 import { registerAuthorityAdoptionRoutes } from "./features/authority-adoption/routes.js";
 import { registerHostedToLocalTransferRoutes } from "./features/authority-transfer/hosted-to-local-routes.js";
 import { registerLocalToHostedTransferRoutes } from "./features/authority-transfer/local-to-hosted-routes.js";

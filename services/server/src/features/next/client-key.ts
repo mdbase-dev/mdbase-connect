@@ -84,12 +84,20 @@ export async function storeRequestClientNoiseKey(db: DatabaseQueryable, requestI
   );
 }
 
-/** At approval, inside its transaction: the request's attested key becomes the grant's. */
+/**
+ * At approval, inside its transaction: the grant's key becomes exactly the request's
+ * attested key. A grant reactivated by a request without one loses any earlier key.
+ */
 export async function copyClientNoiseKeyToGrant(db: DatabaseQueryable, requestId: string, grantId: string): Promise<void> {
+  await db.query(
+    `DELETE FROM next_grant_client_keys
+     WHERE grant_id = $2 AND NOT EXISTS (SELECT 1 FROM next_authorization_client_keys WHERE request_id = $1)`,
+    [requestId, grantId]
+  );
   await db.query(
     `INSERT INTO next_grant_client_keys (grant_id, client_pk, signature)
      SELECT $2, client_pk, signature FROM next_authorization_client_keys WHERE request_id = $1
-     ON CONFLICT (grant_id) DO NOTHING`,
+     ON CONFLICT (grant_id) DO UPDATE SET client_pk = EXCLUDED.client_pk, signature = EXCLUDED.signature, created_at = now()`,
     [requestId, grantId]
   );
 }

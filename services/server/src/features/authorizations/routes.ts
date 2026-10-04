@@ -57,7 +57,7 @@ import {
 } from "../grants/policy.js";
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { createLocalApprovalService, liveAuthorizationCollections } from "./local-collections.js";
-import { approveHostedAuthorization } from "./approval-service.js";
+import { approveHostedAuthorization } from "./hosted-approval-service.js";
 import { PEOPLE_PERMISSIONS } from "@mdbase-dev/connect-protocol";
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";

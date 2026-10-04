@@ -3,8 +3,13 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { testApplicationAuthorization } from "../../application-authorization.test-helper.js";
 import { ApplicationAuthorizationError } from "../../application-authorization.js";
+import { capabilityOperations } from "@mdbase-dev/connect-protocol";
+import { buildApp } from "../../app.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { revocationFixture } from "../../local-grant-revocation.test.js";
+import { registerApplicationManifest } from "../../manifest.js";
+import { certToJson, ed25519RawPublicKey } from "./policy-keys.js";
+import { certDigest, keyId } from "./policy-wire.js";
+import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
 import { pkceChallenge } from "../../security.js";
 import { clientNoiseKeyMessage, copyClientNoiseKeyToGrant, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "./client-key.js";
@@ -89,7 +94,7 @@ describePostgres("client Noise key storage", () => {
   }, 60_000);
 
   it("moves the attested key from request to grant and into the daemon feed", async () => {
-    const id = await revocationFixture(db);
+    const id = await localGrantFixture(db);
     const key = grantSigningKey();
     const proof = await proofWith(key.publicKey);
     const requestId = proof.binding.authorization_id;
@@ -104,7 +109,6 @@ describePostgres("client Noise key storage", () => {
     await storeRequestClientNoiseKey(db, requestId, attested);
     await copyClientNoiseKeyToGrant(db, requestId, id);
     await copyClientNoiseKeyToGrant(db, requestId, id);
-    await copyClientNoiseKeyToGrant(db, randomUUID(), id);
 
     await db.query("UPDATE grants SET activated_at = now() WHERE id = $1", [id]);
     const snapshot = await buildPolicySnapshot(db, id, 55_000, undefined, () => true, "lease_v1", false, true) as LeasePolicySnapshot;
@@ -112,5 +116,90 @@ describePostgres("client Noise key storage", () => {
       client_pk: attested.publicKey.toString("hex"),
       client_key_signature: attested.signature.toString("base64url")
     });
+
+    // Reactivating the grant from a request without a key removes the old one.
+    await copyClientNoiseKeyToGrant(db, randomUUID(), id);
+    expect((await db.query("SELECT 1 FROM next_grant_client_keys WHERE grant_id = $1", [id])).rows).toHaveLength(0);
+  });
+
+  function nextConfig() {
+    const pem = (key: import("node:crypto").KeyObject) => key.export({ format: "pem", type: "pkcs8" }).toString();
+    const root = generateKeyPairSync("ed25519");
+    const policy = generateKeyPairSync("ed25519");
+    const rootPublicKey = ed25519RawPublicKey(root.privateKey);
+    const now = Date.now();
+    const unsigned = { policyPublicKey: ed25519RawPublicKey(policy.privateKey), notBefore: now - 60_000, notAfter: now + 90 * 86_400_000, root: keyId(rootPublicKey) };
+    return {
+      rootPublicKey, policyPrivateKeyPem: pem(policy.privateKey),
+      policyCert: certToJson({ ...unsigned, signature: sign(null, certDigest(unsigned), root.privateKey) }),
+      logService: { url: "http://127.0.0.1:9", tokenIssuerKeyPem: pem(generateKeyPairSync("ed25519").privateKey), transportKeyPem: pem(generateKeyPairSync("ed25519").privateKey) },
+      serviceTokens: {}
+    };
+  }
+
+  it("verifies and stores the key through both request routes, and refuses a bad attestation", async () => {
+    const operations = capabilityOperations("collection.read");
+    const manifest = registerApplicationManifest({ manifest_version: 1, id: "dev.mdbase.client-key-route", name: "Client key route", distribution: "portable",
+      requirements: { contracts: [], access: "full_collection", capabilities: { contract_version: 2, required: ["collection.read"] } } });
+    const insertApplication = async (distribution: "portable" | "web") => {
+      const applicationId = randomUUID();
+      await db.query(`INSERT INTO applications (id, canonical_identity, family_identity, manifest_digest, distribution, name, homepage, redirect_uris,
+        requirements, provisions, notifications, application_declaration)
+        VALUES ($1, $2, 'bundle:dev.mdbase.client-key-route', $3, $4, 'Client key route', 'https://app.example', $5::jsonb, $6::jsonb,
+        '{"type_packs":[],"configuration":[]}'::jsonb, '{"criteria":[]}'::jsonb, $7::jsonb)`,
+      [applicationId, `bundle:dev.mdbase.client-key-route:sha256:${manifest.digest}:${applicationId}`, manifest.digest, distribution,
+        JSON.stringify(["https://app.example/callback"]), JSON.stringify(manifest.manifest.requirements), JSON.stringify(manifest.manifest)]);
+      return applicationId;
+    };
+    const { app } = await buildApp({ db, publicUrl: "http://connect.test", nextControlPlane: nextConfig() });
+    try {
+      const verifier = "client-key-route-verifier-000000000000000000000";
+      const flows = [
+        { distribution: "portable" as const, flow: "device_code" as const, url: "/oauth/device_authorization", extra: {} },
+        { distribution: "web" as const, flow: "authorization_code" as const, url: "/oauth/authorization_request",
+          extra: { redirect_uri: "https://app.example/callback", state: "client-key-state" } }
+      ];
+      for (const { distribution, flow, url, extra } of flows) {
+        const applicationId = await insertApplication(distribution);
+        // Submit a request whose Noise key is attested by `attester` (the binding's own
+        // grant signing key when omitted).
+        const submit = async (attester?: ReturnType<typeof grantSigningKey>) => {
+          const key = grantSigningKey();
+          const proof = await testApplicationAuthorization({
+            applicationId, applicationDeclarationId: "dev.mdbase.client-key-route", applicationManifestDigest: manifest.digest,
+            flow, codeChallenge: pkceChallenge(verifier), requestedOperations: operations, semanticCapabilityContractVersion: 2,
+            grantSigningPublicKey: key.publicKey,
+            ...(flow === "authorization_code" ? { redirectUri: extra.redirect_uri, state: extra.state } : {})
+          });
+          const response = await app.inject({
+            method: "POST", url,
+            headers: { "content-type": "application/x-www-form-urlencoded", ...(flow === "device_code" ? { origin: "null" } : {}) },
+            payload: new URLSearchParams({
+              client_id: applicationId, operations: operations.join(","),
+              code_challenge: pkceChallenge(verifier), code_challenge_method: "S256",
+              application_authorization: JSON.stringify(proof),
+              client_noise_key: attestation(attester ?? key, proof.binding.authorization_id).raw,
+              ...extra
+            }).toString()
+          });
+          return { response, authorizationId: proof.binding.authorization_id };
+        };
+        const rows = async (authorizationId: string) => ({
+          request: (await db.query("SELECT 1 FROM authorization_requests WHERE id = $1", [authorizationId])).rows.length,
+          key: (await db.query("SELECT 1 FROM next_authorization_client_keys WHERE request_id = $1", [authorizationId])).rows.length
+        });
+
+        const good = await submit();
+        expect(good.response.statusCode, `${flow}: ${good.response.body}`).toBe(200);
+        expect(await rows(good.authorizationId)).toEqual({ request: 1, key: 1 });
+
+        // Attested by another key: the whole request is refused and nothing is stored.
+        const forged = await submit(grantSigningKey());
+        expect(forged.response.statusCode, flow).toBe(400);
+        expect(await rows(forged.authorizationId)).toEqual({ request: 0, key: 0 });
+      }
+    } finally {
+      await app.close();
+    }
   });
 });
