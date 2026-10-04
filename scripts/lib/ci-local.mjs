@@ -47,6 +47,7 @@ export const ciOnlySteps = [
   { prefix: "docker build", reason: "container lane; run with pnpm test:system -- --suite container" },
   { prefix: "MDBASE_CONNECT_E2E_BUILD=0 node test/system/run.mjs --suite container", reason: "container lane; run with pnpm test:system -- --suite container" },
   { prefix: "test/upgrade/", reason: "published predecessor images and PostgreSQL" },
+  { prefix: "pnpm --filter @mdbase/connect-server exec vitest run src/features/next", reason: "needs the CI PostgreSQL service; locally set MDBASE_CONNECT_TEST_DATABASE_URL and the destructive-test approval, then run the same command" },
   { prefix: "env -u DATABASE_URL -u UPGRADE_SERVER_URL test/upgrade/", reason: "published predecessor images and PostgreSQL" },
   { prefix: "source .github/", reason: "pulls and verifies immutable predecessor images" },
   { prefix: "pnpm --filter @mdbase-dev/connect-protocol build", reason: "subset of pnpm build" },
