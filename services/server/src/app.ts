@@ -27,6 +27,7 @@ import { loadPolicySigner, type NextControlPlaneConfig } from "./features/next/p
 import { NextRelayDevices } from "./features/next/devices.js";
 import { NoisePipes, registerNoisePipeClientRoute } from "./features/next/noise-pipes.js";
 import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
+import { registerNextRolloutRoutes } from "./features/next/rollout-routes.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { NotificationService, type NotificationTransports } from "./notifications.js";
 import { RelayHub } from "./relay.js";
@@ -472,6 +473,7 @@ export async function buildApp(options: BuildOptions) {
   if (options.nextControlPlane) {
     relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
     registerNextDeviceRoutes(app, { db: options.db });
+    registerNextRolloutRoutes(app, options.db);
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
   }
   registerConnectorRelayRoute(app, { db: options.db, relay });
