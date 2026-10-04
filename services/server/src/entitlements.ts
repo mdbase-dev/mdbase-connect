@@ -9,6 +9,8 @@ import {
 
 export const BETA_ENTITLEMENT_PROFILE = "beta_v1";
 export const OPEN_BETA_ENTITLEMENT_PROFILE = "open_beta_v1";
+/** The free plan every account holds once backfilled (pricing §6). */
+export const FREE_ENTITLEMENT_PROFILE = "free_v1";
 
 export interface EffectiveEntitlement {
   profileCodes: string[];
