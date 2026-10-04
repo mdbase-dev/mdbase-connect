@@ -64,6 +64,7 @@ async function fixture(options: {
   const userId = randomUUID();
   const connectorId = randomUUID();
   const collectionId = randomUUID();
+  const localId = randomUUID();
   const applicationId = randomUUID();
   const grantId = randomUUID();
   const applicationToken = `application_token_${randomUUID()}`;
@@ -83,7 +84,7 @@ async function fixture(options: {
     await db.query(
       `INSERT INTO collections (id, user_id, connector_id, local_id, display_name, spec_version, enabled)
        VALUES ($1, $2, $3, $4, $5, $6, true)`,
-      [collectionId, userId, connectorId, randomUUID(), "Tasks", "0.3.0"]
+      [collectionId, userId, connectorId, localId, "Tasks", "0.3.0"]
     );
   }
   await db.query(
@@ -125,7 +126,9 @@ async function fixture(options: {
   const base = `/v1/next/collections/${collectionId}/timers`;
   const call = (method: "GET" | "PUT" | "DELETE" | "POST", url: string, payload?: unknown) =>
     built.app.inject({ method, url, headers: auth, ...(payload === undefined ? {} : { payload }) });
-  return { ...built, db, transport, grantId, collectionId, applicationToken, connectorToken, auth, base, call };
+  // The logical collection ID, as keyed in next_collections.
+  const logicalId = options.hosted ? collectionId : localId;
+  return { ...built, db, transport, grantId, collectionId, logicalId, applicationToken, connectorToken, auth, base, call };
 }
 
 const future = (ms: number) => new Date(Date.now() + ms).toISOString();
@@ -250,7 +253,7 @@ describe("security conditions before MDBASE_NEXT_TIMERS=1 (#598)", () => {
     await f.db.query(
       `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id)
        VALUES ($1, $2, 'next', 'private', $3)`,
-      [f.collectionId, owner.rows[0].user_id, Buffer.alloc(8)]
+      [f.logicalId, owner.rows[0].user_id, Buffer.alloc(8)]
     );
   }
 
@@ -271,6 +274,37 @@ describe("security conditions before MDBASE_NEXT_TIMERS=1 (#598)", () => {
     expect((await f.db.query("SELECT event_id FROM next_timer_events")).rows).toHaveLength(0);
     const rows = await f.db.query<{ status: string }>("SELECT status FROM next_timers");
     expect(rows.rows[0].status).toBe("cancelled");
+  });
+
+  it("fails closed for a local collection keyed by its logical ID", async () => {
+    const f = await fixture();
+    const before = await f.call("PUT", `${f.base}/ns/t`, { criterion_id: "task.reminder", fire_at: future(60_000) });
+    expect(before.statusCode).toBe(200);
+    // The app may also name the collection by its logical ID.
+    const logical = await f.call("GET", `/v1/next/collections/${f.logicalId}/timers/ns`);
+    expect(logical.statusCode).toBe(200);
+    await markPrivate(f);
+    const refused = await f.call("PUT", `${f.base}/ns/t2`, { criterion_id: "task.reminder", fire_at: future(60_000) });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error.details.reason).toBe("grant_not_usable");
+    const channel = await f.app.inject({
+      method: "POST",
+      url: "/v1/notifications/channels",
+      headers: f.auth,
+      payload: {
+        installation_id: "installation_0123456789",
+        criteria: ["task.reminder"],
+        subscription: {
+          endpoint: "https://push.example/subscription/local",
+          expirationTime: null,
+          keys: { p256dh: "p256dh_012345678901234567890123456789", auth: "auth_0123456789012345" }
+        }
+      }
+    });
+    expect(channel.statusCode).toBe(403);
+    await f.db.query("UPDATE next_timers SET fire_at = $1", [new Date(Date.now() - 1_000).toISOString()]);
+    await f.timers!.tick();
+    expect((await f.db.query("SELECT event_id FROM next_timer_events")).rows).toHaveLength(0);
   });
 
   it("limits the provider's internal token to cloud-copy grants", async () => {
@@ -316,7 +350,7 @@ describe("fail-closed grants at registration, consumption and delivery; event ce
     await f.db.query(
       `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id)
        VALUES ($1, $2, 'next', 'private', $3)`,
-      [f.collectionId, owner.rows[0].user_id, Buffer.alloc(8)]
+      [f.logicalId, owner.rows[0].user_id, Buffer.alloc(8)]
     );
   }
   const channelBody = {

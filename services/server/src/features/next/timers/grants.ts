@@ -19,7 +19,11 @@ export interface TimerGrant {
   userId: string;
   applicationId: string;
   applicationOrigin: string;
-  /** IDs a caller may name the collection by (Connect collection or hosted collection). */
+  /**
+   * IDs a caller may name the collection by: the logical collection ID (a local
+   * collection's `local_id`, or the hosted collection's ID, as in
+   * `next_collections`) or Connect's authority-row ID.
+   */
   collectionIds: string[];
   /** Connect's connector that serves a local collection, when there is one. */
   connectorId: string | null;
@@ -50,6 +54,7 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
       application_id: string;
       application_origin: string;
       collection_id: string | null;
+      local_id: string | null;
       hosted_collection_id: string | null;
       connector_id: string | null;
       operations: unknown;
@@ -60,15 +65,14 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
       next_sync: "private" | "cloud_copy" | null;
     }>(
       `SELECT g.id, g.user_id, g.application_id, g.application_origin,
-              g.collection_id, g.hosted_collection_id, c.connector_id,
+              g.collection_id, c.local_id, g.hosted_collection_id, c.connector_id,
               g.operations, g.notification_criteria, g.revoked_at,
               g.activated_at, u.suspended_at, nc.sync AS next_sync
        FROM grants g
        JOIN users u ON u.id = g.user_id
        LEFT JOIN collections c ON c.id = g.collection_id
        LEFT JOIN next_collections nc
-         ON nc.collection_id = g.hosted_collection_id
-         OR nc.collection_id = g.collection_id
+         ON nc.collection_id = COALESCE(c.local_id, g.hosted_collection_id)
        WHERE g.id = $1`,
       [grantId]
     );
@@ -83,7 +87,7 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
       userId: row.user_id,
       applicationId: row.application_id,
       applicationOrigin: row.application_origin,
-      collectionIds: [row.collection_id, row.hosted_collection_id]
+      collectionIds: [row.collection_id, row.local_id, row.hosted_collection_id]
         .filter((id): id is string => id !== null),
       connectorId: row.connector_id,
       state: e2e ? "e2e" : row.hosted_collection_id ? "cloud_copy" : "local",

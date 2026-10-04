@@ -241,8 +241,10 @@ export async function eraseTimerData(
   db: DatabaseQueryable,
   collectionId: string
 ): Promise<number> {
+  // `collectionId` is the logical ID (next_collections), or an authority-row ID.
   const grants = `SELECT id FROM grants
-    WHERE collection_id = $1 OR hosted_collection_id = $1`;
+    WHERE hosted_collection_id = $1 OR collection_id = $1
+       OR collection_id IN (SELECT id FROM collections WHERE local_id = $1)`;
   const timers = await db.query(
     `UPDATE next_timers SET data = NULL, updated_at = now()
      WHERE data IS NOT NULL AND grant_id IN (${grants})
