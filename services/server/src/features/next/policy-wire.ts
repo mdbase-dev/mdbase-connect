@@ -36,7 +36,10 @@ function encodeInto(value: Cbor, out: number[]): void {
     else head(1, -1n - n, out);
   } else if (typeof value === "boolean") out.push(value ? 0xf5 : 0xf4);
   else if (typeof value === "string") {
+    // A lone surrogate would become U+FFFD here, so the signed bytes would differ
+    // from the string the caller stored.
     const bytes = Buffer.from(value, "utf8");
+    if (bytes.toString("utf8") !== value) throw new Error("text must be well-formed Unicode");
     head(3, BigInt(bytes.length), out);
     for (const b of bytes) out.push(b);
   } else if (value instanceof Uint8Array) {
@@ -83,11 +86,11 @@ function uuidBytes(uuid: string): Uint8Array {
 }
 
 export type CollectionStateName = "e2e" | "cloud-copy";
-export type DeviceKind = "desktop" | "mobile" | "app-runtime" | "cli" | "hosted" | "escrow";
+export type DeviceKind = "desktop" | "mobile" | "app-runtime" | "cli" | "hosted" | "escrow" | "recovery";
 export type MemberRole = "viewer" | "editor" | "owner";
 
 const CSTATE: Record<CollectionStateName, number> = { e2e: 0, "cloud-copy": 1 };
-const DEVICE_KIND: Record<DeviceKind, number> = { desktop: 0, mobile: 1, "app-runtime": 2, cli: 3, hosted: 4, escrow: 5 };
+const DEVICE_KIND: Record<DeviceKind, number> = { desktop: 0, mobile: 1, "app-runtime": 2, cli: 3, hosted: 4, escrow: 5, recovery: 6 };
 const ROLE: Record<MemberRole, number> = { viewer: 0, editor: 1, owner: 2 };
 
 export interface CpCert {
@@ -100,16 +103,31 @@ export interface CpCert {
 
 export type PolicyOp =
   | { op: "genesis"; owner: string; root: Uint8Array; state: CollectionStateName }
-  | { op: "device-enrol"; device: string; account: string; kind: DeviceKind; signPublicKey: Uint8Array; kemPublicKey: Uint8Array; noisePublicKey: Uint8Array }
+  | {
+      op: "device-enrol"; device: string; account: string; kind: DeviceKind;
+      signPublicKey: Uint8Array; kemPublicKey: Uint8Array; noisePublicKey: Uint8Array;
+      /** The new device's SAS commitment (sealed-envelope.md §5.3). */
+      sasCommit?: Uint8Array;
+      /** The root this device would govern a device-located log with (policy.md §2.1). */
+      localRoot?: Uint8Array;
+    }
   | { op: "device-revoke"; device: string }
   | { op: "member-set"; account: string; role: MemberRole }
   | { op: "member-remove"; account: string }
-  | { op: "grant"; grant: string; installation: string; appId: string; account: string; capabilities: string[]; clientPublicKey: Uint8Array; fileFolders?: string[] }
+  | {
+      op: "grant"; grant: string; installation: string; appId: string; account: string;
+      capabilities: string[]; clientPublicKey: Uint8Array;
+      /** Cloud-copy only: in e2e the scope travels sealed in the grant approval. */
+      fileFolders?: string[];
+      /** e2e only: the approval carries the folder scope. */
+      folderScoped?: boolean;
+    }
   | { op: "grant-revoke"; grant: string }
   | { op: "collection-state"; state: CollectionStateName; compress?: boolean; minSemMajor?: number }
   | { op: "cp-key-revoke"; keyId: Uint8Array; revokedFrom: number; rootSignature: Uint8Array }
   | { op: "migration-cutover"; legacyCollection: string; revoked: string[]; cutoverAt: number }
-  | { op: "freeze"; frozen: boolean; reason?: string };
+  | { op: "freeze"; frozen: boolean; reason?: string }
+  | { op: "root-handover"; newRoot: Uint8Array; ownerDevice: string; moveId: string; ownerSignature: Uint8Array };
 
 function sized(bytes: Uint8Array, size: number, name: string): Uint8Array {
   if (bytes.length !== size) throw new Error(`${name} must be ${size} bytes`);
@@ -124,6 +142,7 @@ function encodeOp(op: PolicyOp): StructMap {
       return struct([
         [0, 2], [1, uuidBytes(op.device)], [2, uuidBytes(op.account)], [3, DEVICE_KIND[op.kind]],
         [4, sized(op.signPublicKey, 32, "sign_pk")], [5, sized(op.kemPublicKey, 32, "kem_pk")], [6, sized(op.noisePublicKey, 32, "noise_pk")],
+        [7, op.sasCommit && sized(op.sasCommit, 32, "sas_commit")], [8, op.localRoot && sized(op.localRoot, 32, "local_root")],
       ]);
     case "device-revoke":
       return struct([[0, 3], [1, uuidBytes(op.device)]]);
@@ -136,7 +155,7 @@ function encodeOp(op: PolicyOp): StructMap {
       if (op.fileFolders?.length === 0) throw new Error("file_folders is omitted, never empty");
       return struct([
         [0, 6], [1, uuidBytes(op.grant)], [2, uuidBytes(op.installation)], [3, op.appId], [4, uuidBytes(op.account)],
-        [5, op.capabilities], [6, sized(op.clientPublicKey, 32, "client_pk")], [7, op.fileFolders],
+        [5, op.capabilities], [6, sized(op.clientPublicKey, 32, "client_pk")], [7, op.fileFolders], [8, op.folderScoped],
       ]);
     case "grant-revoke":
       return struct([[0, 7], [1, uuidBytes(op.grant)]]);
@@ -148,6 +167,8 @@ function encodeOp(op: PolicyOp): StructMap {
       return struct([[0, 10], [1, uuidBytes(op.legacyCollection)], [2, op.revoked.map(uuidBytes)], [3, op.cutoverAt]]);
     case "freeze":
       return struct([[0, 11], [1, op.frozen], [2, op.reason]]);
+    case "root-handover":
+      return struct([[0, 12], [1, sized(op.newRoot, 32, "new_root")], [2, uuidBytes(op.ownerDevice)], [3, uuidBytes(op.moveId)], [4, sized(op.ownerSignature, 64, "signature")]]);
   }
 }
 
@@ -162,7 +183,19 @@ export function certDigest(cert: Omit<CpCert, "signature">): Uint8Array {
 
 /** The digest the offline root signs for a `cp-key-revoke` op (policy.md §1). */
 export function keyRevocationDigest(revokedKeyId: Uint8Array, revokedFrom: number): Uint8Array {
-  return domainHash("mdbase/v1/cp-cert", encodeCbor([sized(revokedKeyId, 16, "key ID"), revokedFrom]));
+  return domainHash("mdbase/v1/cp-key-revoke", encodeCbor([sized(revokedKeyId, 16, "key ID"), revokedFrom]));
+}
+
+/**
+ * The digest a keyed owner device signs to consent to a `root-handover` (policy.md
+ * §2.1): `H("mdbase/v1/root-handover", collection ‖ u64be(seq) ‖ new_root ‖ move ID)`,
+ * where `seq` is the position of the policy item carrying the op.
+ */
+export function rootHandoverDigest(collection: string, seq: number, newRoot: Uint8Array, moveId: string): Uint8Array {
+  if (!Number.isSafeInteger(seq) || seq < 1) throw new Error("seq must be a positive integer");
+  const position = Buffer.alloc(8);
+  position.writeBigUInt64BE(BigInt(seq));
+  return domainHash("mdbase/v1/root-handover", Buffer.concat([uuidBytes(collection), position, sized(newRoot, 32, "new_root"), uuidBytes(moveId)]));
 }
 
 export function encodeCert(cert: CpCert): Uint8Array {
@@ -205,8 +238,20 @@ export interface PolicySigner {
   privateKey: KeyObject;
 }
 
-/** Build and sign the policy item at `(seq, prev)`. */
-export function signPolicyItem(signer: PolicySigner, input: { collection: string; seq: number; prev: Uint8Array; issuedAt: number; ops: PolicyOp[] }): Uint8Array {
+/**
+ * Build and sign the policy item at `(seq, prev)`. Refuses an `issuedAt` outside the
+ * certificate's window or below the collection's previous valid policy item
+ * (policy.md §3 rules 3 and 4): replicas would void such an item.
+ */
+export function signPolicyItem(
+  signer: PolicySigner,
+  input: { collection: string; seq: number; prev: Uint8Array; issuedAt: number; previousIssuedAt: number; ops: PolicyOp[] }
+): Uint8Array {
+  if (!Number.isSafeInteger(input.issuedAt)) throw new Error("issuedAt must be an integer in milliseconds");
+  if (input.issuedAt < signer.cert.notBefore || input.issuedAt > signer.cert.notAfter) {
+    throw new Error("issuedAt is outside the policy key certificate's validity window");
+  }
+  if (input.issuedAt < input.previousIssuedAt) throw new Error("issuedAt must not precede the collection's previous policy item");
   const body = encodePolicyPayload(signer.cert, input.issuedAt, input.ops);
   const signerId = keyId(signer.cert.policyPublicKey);
   const digest = policyItemSignedDigest(input.collection, input.seq, input.prev, signerId, body);
