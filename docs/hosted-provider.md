@@ -221,7 +221,8 @@ Every mutation follows one failure-atomic transaction:
 
 1. Verify the provider capability and current replica/grant state.
 2. Return the recorded receipt when the mutation ID already exists.
-3. Lock the collection head and verify authority and scope epochs.
+3. Lock the collection head, require the collection to be `active`, and
+   verify the replica's scope epoch.
 4. Bring the disposable working set to that exact head or rebuild it.
 5. Verify the submitted base revision.
 6. Execute the operation through `mdbase-rs` and capture all changed documents,
@@ -231,6 +232,15 @@ Every mutation follows one failure-atomic transaction:
    and mutation receipt.
 9. Advance the collection head and commit once.
 10. Mark the working set valid for the new head only after commit.
+
+Mutations do not carry or compare an authority epoch. The hosted authority is
+fenced by collection state instead: preparing a transfer moves the collection
+to `transferring` under the same row lock that every record, file, and resource
+write takes with `state = 'active'`, and completing it sets `transferred`, the
+new epoch, and `revoked_at` on every replica of the collection in one
+transaction. Revocation is never cleared, so no credential issued before a
+hosted-to-local handoff can write after the collection is imported again;
+later writers hold replicas created for the new authority.
 
 A process failure before commit leaves no authoritative change. A failure after
 commit may leave a stale working set, which is detected from its head and
