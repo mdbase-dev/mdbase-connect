@@ -96,6 +96,9 @@ export class ElectronUpdateBackend implements UpdateBackend {
   }
 
   takeoverState(): Promise<TakeoverState> {
+    if (this.options.target() === "isolated_profile") {
+      return Promise.resolve({ state: "none", claimedFolders: [] });
+    }
     return detectTakeover({
       takeoverRecord: () => readTakeoverRecord(
         newDaemonStateDirectory(this.options.platform, homedir()),
@@ -269,10 +272,15 @@ export class ElectronUpdateBackend implements UpdateBackend {
     binary: string,
     expectedVersion: string
   ): Promise<void> {
+    await this.assertMayActivateRuntime();
     const current = await this.daemonStatus(binary).catch(() => ({ running: false }));
     if (current.running) {
+      await this.assertMayActivateRuntime();
       await this.runCli(binary, ["stop"], 35_000).catch(() => undefined);
     }
+    // Status/stop may have awaited native work while takeover started. Re-read
+    // immediately before installation; recovery must not revive the old daemon.
+    await this.assertMayActivateRuntime();
     await this.runCli(binary, ["install"], 35_000);
     const deadline = Date.now() + 30_000;
     let lastVersion: string | undefined;
@@ -287,6 +295,13 @@ export class ElectronUpdateBackend implements UpdateBackend {
         ? `Connector ${lastVersion} started when ${expectedVersion} was required.`
         : `Connector ${expectedVersion} did not become healthy.`
     );
+  }
+
+  private async assertMayActivateRuntime(): Promise<void> {
+    const takeover = await this.takeoverState();
+    if (takeover.state !== "none") {
+      throw new Error("The connector stays stopped while mdbase moves your collections.");
+    }
   }
 
   private async daemonStatus(binary = this.options.binaryPath()): Promise<{
