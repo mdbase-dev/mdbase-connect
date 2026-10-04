@@ -1,0 +1,9 @@
+{
+  "reason": "mdbase-next control plane: the transactional policy outbox and its emitter, and the control plane's client for the log service (token minting, proof of possession, CBOR frames). Both are new boundaries with no existing module to extend.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 9,
+    "typeScriptExportDeclarations": 12,
+    "services/server": 2
+  }
+}

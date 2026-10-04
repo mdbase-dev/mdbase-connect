@@ -21,6 +21,9 @@ import type { GitHubAuthConfig } from "./github-auth.js";
 import type { GoogleAuthConfig } from "./google-auth.js";
 import { HostedAuthorityRegistry } from "./hosted.js";
 import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
+import { LogServiceClient } from "./features/next/log-service-client.js";
+import { PolicyEmitter } from "./features/next/policy-outbox.js";
+import { loadPolicySigner, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { NotificationService, type NotificationTransports } from "./notifications.js";
 import { RelayHub } from "./relay.js";
@@ -93,6 +96,8 @@ interface BuildOptions {
   allowInsecureManifests?: boolean;
   trustProxy?: boolean;
   relayBroker?: RelayBroker;
+  /** mdbase-next control plane; absent unless MDBASE_NEXT_CONTROL_PLANE=1. */
+  nextControlPlane?: NextControlPlaneConfig;
   notifications?: {
     publicKey?: string;
     transports: NotificationTransports;
@@ -174,6 +179,15 @@ export async function buildApp(options: BuildOptions) {
       )
     : undefined;
 
+  const nextPolicyEmitter = options.nextControlPlane
+    ? new PolicyEmitter(
+        options.db,
+        new LogServiceClient(options.nextControlPlane.logService),
+        loadPolicySigner(options.nextControlPlane, Date.now()),
+        (error, collectionId) => app.log.error({ err: error, collectionId }, "mdbase-next policy emission failed")
+      )
+    : undefined;
+
   await app.register(cookie);
   await app.register(helmet, {
     referrerPolicy: {
@@ -228,6 +242,7 @@ export async function buildApp(options: BuildOptions) {
     await usageRetention.close();
     await applicationReconciliation.close();
     await providerRevocations?.close();
+    await nextPolicyEmitter?.close();
     await notifications?.close();
     await relay.close();
   });
@@ -238,6 +253,7 @@ export async function buildApp(options: BuildOptions) {
     applicationReconciliation.drainUntilIdle()
   );
   applicationReconciliation.start();
+  nextPolicyEmitter?.start();
   providerRevocations?.start();
 
   app.addHook("onRequest", async (request, reply) => {

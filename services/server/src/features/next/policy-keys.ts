@@ -18,10 +18,17 @@ export interface CpCertJson {
   signature: string;
 }
 
+export interface LogServiceConfig {
+  url: string;
+  tokenIssuerKeyPem: string;
+  transportKeyPem: string;
+}
+
 export interface NextControlPlaneConfig {
   rootPublicKey: Uint8Array;
   policyPrivateKeyPem: string;
   policyCert: CpCertJson;
+  logService: LogServiceConfig;
 }
 
 function hexBytes(value: string, size: number, name: string): Uint8Array {
@@ -75,8 +82,15 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
   const root = env.MDBASE_NEXT_ROOT_PUBLIC_KEY?.trim() ?? "";
   const pem = env.MDBASE_NEXT_POLICY_SIGNING_KEY?.trim() ?? "";
   const cert = env.MDBASE_NEXT_POLICY_KEY_CERT?.trim() ?? "";
-  if (!root || !pem || !cert) {
-    throw new Error("MDBASE_NEXT_CONTROL_PLANE=1 requires MDBASE_NEXT_ROOT_PUBLIC_KEY, MDBASE_NEXT_POLICY_SIGNING_KEY and MDBASE_NEXT_POLICY_KEY_CERT.");
+  const logServiceUrl = env.MDBASE_NEXT_LOG_SERVICE_URL?.trim() ?? "";
+  const tokenIssuerKeyPem = env.MDBASE_NEXT_LOG_TOKEN_SIGNING_KEY?.trim() ?? "";
+  const transportKeyPem = env.MDBASE_NEXT_LOG_TRANSPORT_KEY?.trim() ?? "";
+  if (!root || !pem || !cert || !logServiceUrl || !tokenIssuerKeyPem || !transportKeyPem) {
+    throw new Error("MDBASE_NEXT_CONTROL_PLANE=1 requires MDBASE_NEXT_ROOT_PUBLIC_KEY, MDBASE_NEXT_POLICY_SIGNING_KEY, MDBASE_NEXT_POLICY_KEY_CERT, MDBASE_NEXT_LOG_SERVICE_URL, MDBASE_NEXT_LOG_TOKEN_SIGNING_KEY and MDBASE_NEXT_LOG_TRANSPORT_KEY.");
+  }
+  const url = new URL(logServiceUrl);
+  if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname)) {
+    throw new Error("MDBASE_NEXT_LOG_SERVICE_URL must use https outside loopback.");
   }
   let parsedCert: CpCertJson;
   try {
@@ -84,7 +98,12 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
   } catch {
     throw new Error("MDBASE_NEXT_POLICY_KEY_CERT must be the JSON printed by next-cp-cert.");
   }
-  return { rootPublicKey: hexBytes(root, 32, "MDBASE_NEXT_ROOT_PUBLIC_KEY"), policyPrivateKeyPem: pem, policyCert: parsedCert };
+  return {
+    rootPublicKey: hexBytes(root, 32, "MDBASE_NEXT_ROOT_PUBLIC_KEY"),
+    policyPrivateKeyPem: pem,
+    policyCert: parsedCert,
+    logService: { url: logServiceUrl, tokenIssuerKeyPem, transportKeyPem },
+  };
 }
 
 /**

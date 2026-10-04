@@ -64,6 +64,7 @@ const { app } = await buildApp({
   trustProxy: runtime.trustProxy,
   allowInsecureManifests: process.env.MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS === "1",
   relayBroker,
+  nextControlPlane: runtime.nextControlPlane ?? undefined,
   notifications: runtime.vapid || runtime.fcm || runtime.webhookSigning
     ? {
         ...(runtime.vapid ? { publicKey: runtime.vapid.publicKey } : {}),
