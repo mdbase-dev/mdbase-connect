@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { buildApp } from "./app.js";
+import { PushTargetSealer } from "./features/next/push-target-seal.js";
 import { createDatabase, openDatabase } from "./db.js";
 import { assertControlPlaneMigrationsCurrent } from "./migrations.js";
 import { runtimeConfigFromEnv } from "./runtime-config.js";
@@ -82,9 +83,13 @@ const { app } = await buildApp({
           ...(runtime.webhookSigning
             ? { webhook: new SignedWebhookTransport(runtime.webhookSigning) }
             : {})
-        }
+        },
+        ...(runtime.pushTargetSeal
+          ? { pushTargetSealer: new PushTargetSealer(runtime.pushTargetSeal) }
+          : {})
       }
-    : undefined
+    : undefined,
+  ...(runtime.nextTimers ? { nextTimers: {} } : {})
 });
 
 await app.listen({ port, host: runtime.host });

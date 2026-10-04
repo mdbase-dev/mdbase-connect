@@ -374,3 +374,48 @@ it might still be in flight. The hosted provider also requires
 `MDBASE_CONNECT_CONTROL_PLANE_URL` and the existing internal provider
 credential. `MDBASE_CONNECT_HOSTED_NOTIFICATION_INTERVAL_SECONDS` controls
 durable source-outbox recovery and defaults to five seconds.
+
+## mdbase-next timer service (off by default)
+
+`MDBASE_NEXT_TIMERS=1` turns on the mdbase-next opaque timer service. It is the
+same for local, synced and end-to-end collections.
+
+- **Routes.** Apps call `/v1/next/collections/:collection/timers/:namespace` with
+  their access token. The old-SDK shim uses `/internal/v1/next/timers/:grant/...`.
+  The daemon's legacy-layer route waits for device proof of possession (SEC-043).
+- **What it stores.** Timers are keyed by grant, namespace and the app's opaque
+  ID. The service stores the criterion and a UTC fire time, plus `data` only for
+  hosted (cloud copy) collections.
+- **Firing.** The control-plane worker fires due timers. Each fired generation
+  becomes one row in `next_timer_events`, with data per
+  `mdbase.runtime.timer.fired@1.0.0`. Consumers read those events and record
+  receipts in `next_timer_event_receipts`. The `notifications` consumer turns
+  each event into an opaque signal for the delivery paths above.
+- **Revocation.** Revoked grants have their timers cancelled.
+- **Retention.** Fired and cancelled timers, events and receipts are deleted after
+  7 days, once every consumer has handled the event. They are a history of
+  reminder times, which for local and end-to-end collections is the only thing
+  mdbase holds about them. Database backups keep them until the backups expire.
+- **Cutover.** `pnpm --filter @mdbase/connect-server next:timers copy-hosted
+  <collection>` copies a hosted collection's active timers. It reads
+  `MDBASE_NEXT_PROVIDER_DATABASE_URL`.
+
+The contract is mdbase-next `docs/contracts/timer-service-api.md`.
+
+Push targets can be sealed at rest with AES-256-GCM:
+
+```text
+MDBASE_NEXT_PUSH_TOKEN_KEY_ID=push-2026-10
+MDBASE_NEXT_PUSH_TOKEN_KEY=<base64url, 32 bytes>
+MDBASE_NEXT_PUSH_TOKEN_PREVIOUS_KEYS={"push-2026-07":"<base64url>"}
+```
+
+With a key set:
+- new registrations store only the sealed target, plus the existing hashes for
+  uniqueness;
+- `next:timers seal-push-targets` seals existing rows and re-seals rows under a
+  previous key.
+
+**Before rolling back** to a release that predates sealing, run
+`next:timers unseal-push-targets`. Otherwise that release sees incomplete targets
+and disables those channels until the apps register again.
