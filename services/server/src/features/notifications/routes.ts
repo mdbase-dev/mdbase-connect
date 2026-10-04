@@ -13,6 +13,10 @@ import {
   type NotificationTransports
 } from "../../notifications.js";
 import { tokenHash } from "../../security.js";
+import {
+  legacyTimerGrantResolver,
+  type TimerGrantResolver
+} from "../next/timers/grants.js";
 import { apiError } from "../../platform/http-errors.js";
 import {
   bearerToken,
@@ -25,6 +29,8 @@ interface NotificationRoutesOptions {
   publicKey?: string;
   transports?: NotificationTransports;
   hostedProvider?: HostedProviderClient;
+  /** Fail-closed grant resolver shared with the timer service. */
+  grantResolver?: TimerGrantResolver;
 }
 
 const signalSchema = z.object({
@@ -118,6 +124,10 @@ export function registerNotificationRoutes(
           "Access token is invalid or expired."
         ));
       }
+      if (!(await (options.grantResolver ?? legacyTimerGrantResolver).resolve(connection, grant.grant_id))?.usable) {
+        await connection.query("ROLLBACK");
+        return reply.code(403).send(grantNotUsable());
+      }
       const application = await connection.query<{
         notifications: ApplicationNotifications;
         notification_criteria: NotificationCriterion[];
@@ -187,12 +197,27 @@ export function registerNotificationRoutes(
           "Web Push delivery is not configured."
         ));
       }
+      // Sealed at rest when a push-target key is configured: the plaintext
+      // target columns stay NULL and only the hashes remain queryable.
+      const sealer = options.service.pushTargetSealer;
+      const target = {
+        endpoint: webSubscription?.endpoint ?? null,
+        p256dh: webSubscription?.keys.p256dh ?? null,
+        auth: webSubscription?.keys.auth ?? null,
+        fcm_token: fcmToken
+      };
+      const sealedTarget = sealer
+        ? sealer.seal(grant.grant_id, input.installation_id, target)
+        : null;
+      const stored = sealer
+        ? { endpoint: null, p256dh: null, auth: null, fcm_token: null }
+        : target;
       const channel = await connection.query<{ id: string }>(
         `INSERT INTO push_channels
            (id, grant_id, installation_id, kind, endpoint, endpoint_hash,
             p256dh, auth, expires_at, fcm_project_id, fcm_token,
-            fcm_token_hash)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            fcm_token_hash, sealed_target, sealed_key_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          ON CONFLICT(grant_id, installation_id) DO UPDATE SET
            kind = excluded.kind,
            endpoint = excluded.endpoint,
@@ -203,6 +228,8 @@ export function registerNotificationRoutes(
            fcm_project_id = excluded.fcm_project_id,
            fcm_token = excluded.fcm_token,
            fcm_token_hash = excluded.fcm_token_hash,
+           sealed_target = excluded.sealed_target,
+           sealed_key_id = excluded.sealed_key_id,
            disabled_at = NULL,
            last_seen_at = now(),
            updated_at = now()
@@ -212,18 +239,20 @@ export function registerNotificationRoutes(
           grant.grant_id,
           input.installation_id,
           kind,
-          webSubscription?.endpoint ?? null,
+          stored.endpoint,
           webSubscription ? tokenHash(webSubscription.endpoint) : null,
-          webSubscription?.keys.p256dh ?? null,
-          webSubscription?.keys.auth ?? null,
+          stored.p256dh,
+          stored.auth,
           webSubscription?.expirationTime
             ? new Date(webSubscription.expirationTime).toISOString()
             : null,
           kind === "fcm" && nativeDelivery?.mode === "managed_fcm"
             ? nativeDelivery.firebase_project_id
             : null,
-          fcmToken,
-          fcmToken ? tokenHash(fcmToken) : null
+          stored.fcm_token,
+          fcmToken ? tokenHash(fcmToken) : null,
+          sealedTarget,
+          sealer ? sealer.keyId : null
         ]
       );
       await connection.query(
@@ -288,6 +317,9 @@ export function registerNotificationRoutes(
           "invalid_token",
           "Access token is invalid or expired."
         ));
+      }
+      if (!(await (options.grantResolver ?? legacyTimerGrantResolver).resolve(options.db, grant.grant_id))?.usable) {
+        return reply.code(403).send(grantNotUsable());
       }
       const application = await options.db.query<{
         notification_criteria: NotificationCriterion[];
@@ -480,4 +512,13 @@ function notificationsUnavailable(reply: {
     "notifications_unavailable",
     "Push notifications are not configured."
   ));
+}
+
+/** End-to-end grants without device approval (and unusable grants) get no channels. */
+function grantNotUsable() {
+  return apiError(
+    "forbidden",
+    "This grant cannot receive notifications until a device approves it.",
+    { reason: "grant_not_usable" }
+  );
 }

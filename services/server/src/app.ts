@@ -63,6 +63,10 @@ import { registerHostedSharingRoutes } from "./features/hosted/sharing-routes.js
 import { registerReferenceSyncRoutes } from "./features/hosted/reference-sync-routes.js";
 import { registerMirrorPairingRoutes } from "./features/mirrors/pairing-routes.js";
 import { registerNotificationRoutes } from "./features/notifications/routes.js";
+import type { PushTargetSealer } from "./features/next/push-target-seal.js";
+import type { TimerGrantResolver } from "./features/next/timers/grants.js";
+import { registerTimerRoutes } from "./features/next/timers/routes.js";
+import { TimerWorker, notificationsConsumer } from "./features/next/timers/worker.js";
 import { registerOnboardingRoutes } from "./features/onboarding/routes.js";
 import { registerPeopleRoutes } from "./features/account/people-routes.js";
 import { registerLocalOperationRoutes } from "./features/operations/local-routes.js";
@@ -107,6 +111,13 @@ interface BuildOptions {
     publicKey?: string;
     transports: NotificationTransports;
     pollIntervalMs?: number;
+    /** Seals push targets at rest (MDBASE_NEXT_PUSH_TOKEN_KEY). */
+    pushTargetSealer?: PushTargetSealer;
+  };
+  /** mdbase-next opaque timer service (MDBASE_NEXT_TIMERS=1). */
+  nextTimers?: {
+    pollIntervalMs?: number;
+    resolver?: TimerGrantResolver;
   };
 }
 
@@ -137,7 +148,25 @@ export async function buildApp(options: BuildOptions) {
         options.db,
         options.notifications.transports,
         options.notifications.pollIntervalMs,
-        (error) => app.log.error({ err: error }, "notification delivery worker failed")
+        (error) => app.log.error({ err: error }, "notification delivery worker failed"),
+        options.notifications.pushTargetSealer,
+        options.nextTimers?.resolver
+      )
+    : undefined;
+  const timers = options.nextTimers
+    ? new TimerWorker(
+        options.db,
+        [notificationsConsumer(() => {
+          void notifications?.drainOnce().catch(
+            (error) => app.log.error({ err: error }, "notification delivery worker failed")
+          );
+        }, options.nextTimers.resolver)],
+        {
+          pollIntervalMs: options.nextTimers.pollIntervalMs,
+          resolver: options.nextTimers.resolver,
+          onError: (error) => app.log.error({ err: error }, "timer worker failed"),
+          onMetric: (metric) => app.log.warn(metric, "privacy-safe Connect metric")
+        }
       )
     : undefined;
   const scheduledEmails = options.emailTransport
@@ -250,11 +279,13 @@ export async function buildApp(options: BuildOptions) {
     await applicationReconciliation.close();
     await providerRevocations?.close();
     await nextPolicyEmitter?.close();
+    await timers?.close();
     await notifications?.close();
     noisePipes?.close();
     await relay.close();
   });
   notifications?.start();
+  timers?.start();
   // Test hook intentionally drains the same production worker; it does not
   // bypass leases, cursors, result rows, or provider/relay behavior.
   app.decorate("drainApplicationReconciliation", () =>
@@ -420,8 +451,17 @@ export async function buildApp(options: BuildOptions) {
     service: notifications,
     publicKey: options.notifications?.publicKey,
     transports: options.notifications?.transports,
-    hostedProvider: options.hostedProvider
+    hostedProvider: options.hostedProvider,
+    grantResolver: options.nextTimers?.resolver
   });
+  if (timers) {
+    registerTimerRoutes(app, {
+      db: options.db,
+      resolver: options.nextTimers?.resolver,
+      hostedProvider: options.hostedProvider,
+      onWrite: () => timers.wake()
+    });
+  }
   registerLifecycleDiagnosticRoute(app, {
     db: options.db,
     hostedProvider: options.hostedProvider
@@ -521,5 +561,5 @@ export async function buildApp(options: BuildOptions) {
   scheduledEmails?.start();
   usageRetention.start();
 
-  return { app, relay };
+  return { app, relay, timers };
 }

@@ -4,6 +4,14 @@ import type {
   NotificationCriterion
 } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
+import {
+  PushTargetKeyUnavailable,
+  type PushTargetSealer
+} from "./features/next/push-target-seal.js";
+import {
+  legacyTimerGrantResolver,
+  type TimerGrantResolver
+} from "./features/next/timers/grants.js";
 
 export interface PushSubscriptionTarget {
   endpoint: string;
@@ -60,6 +68,9 @@ export class PushDeliveryError extends Error {
 interface DeliveryRow {
   id: string;
   channel_id: string;
+  grant_id: string;
+  installation_id: string;
+  sealed_target: string | null;
   kind: "web_push" | "fcm";
   endpoint: string | null;
   p256dh: string | null;
@@ -115,8 +126,24 @@ export class NotificationService {
     private readonly db: DatabasePool,
     private readonly transports: NotificationTransports,
     private readonly pollIntervalMs = 1_000,
-    private readonly onError: (error: unknown) => void = () => undefined
+    private readonly onError: (error: unknown) => void = () => undefined,
+    private readonly sealer?: PushTargetSealer,
+    private readonly grantResolver: TimerGrantResolver = legacyTimerGrantResolver
   ) {}
+
+  /**
+   * The grant is usable for delivery: the same fail-closed resolver as timers,
+   * so an end-to-end grant without device approval never receives a push.
+   */
+  private async grantUsable(grantId: string): Promise<boolean> {
+    const grant = await this.grantResolver.resolve(this.db, grantId);
+    return grant?.usable === true;
+  }
+
+  /** The push-target sealer, when push targets are sealed at rest. */
+  get pushTargetSealer(): PushTargetSealer | undefined {
+    return this.sealer;
+  }
 
   start(): void {
     if (this.timer) return;
@@ -141,71 +168,14 @@ export class NotificationService {
     const connection = await this.db.connect();
     try {
       await connection.query("BEGIN");
-      const existing = await connection.query<{ id: string }>(
-        "SELECT id FROM notification_signals WHERE signal_id = $1",
-        [input.signalId]
-      );
-      if (existing.rows[0]) {
+      const outcome = await insertNotificationSignal(connection, input);
+      if (outcome.duplicate) {
         await connection.query("ROLLBACK");
-        return { duplicate: true, deliveries: 0 };
-      }
-      const signal = await connection.query<{ id: string }>(
-        `INSERT INTO notification_signals
-           (id, signal_id, grant_id, criterion_id, cursor)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT(signal_id) DO NOTHING
-         RETURNING id`,
-        [randomUUID(), input.signalId, input.grantId, input.criterionId, input.cursor]
-      );
-      if (!signal.rows[0]) {
-        await connection.query("ROLLBACK");
-        return { duplicate: true, deliveries: 0 };
-      }
-      const subscriptions = await connection.query<{ id: string }>(
-        `SELECT ns.id
-         FROM notification_subscriptions ns
-         JOIN push_channels pc ON pc.id = ns.channel_id
-         JOIN grants g ON g.id = ns.grant_id
-         WHERE ns.grant_id = $1 AND ns.criterion_id = $2
-           AND pc.disabled_at IS NULL AND g.revoked_at IS NULL
-           AND g.activated_at IS NOT NULL`,
-        [input.grantId, input.criterionId]
-      );
-      let deliveries = 0;
-      for (const subscription of subscriptions.rows) {
-        const inserted = await connection.query(
-          `INSERT INTO notification_deliveries (id, signal_id, subscription_id)
-           VALUES ($1, $2, $3)
-           ON CONFLICT(signal_id, subscription_id) DO NOTHING
-           RETURNING id`,
-          [randomUUID(), signal.rows[0].id, subscription.id]
-        );
-        deliveries += inserted.rowCount ?? inserted.rows.length;
-      }
-      const route = await connection.query<{
-        notifications: ApplicationNotifications;
-      }>(
-        `SELECT a.notifications
-         FROM grants g
-         JOIN applications a ON a.id = g.application_id
-         WHERE g.id = $1 AND g.revoked_at IS NULL
-           AND g.activated_at IS NOT NULL`,
-        [input.grantId]
-      );
-      const nativeDelivery = route.rows[0]?.notifications.native_delivery;
-      if (nativeDelivery?.mode === "webhook") {
-        const inserted = await connection.query(
-          `INSERT INTO notification_webhook_deliveries (id, signal_id, url)
-           VALUES ($1, $2, $3)
-           ON CONFLICT(signal_id) DO NOTHING
-           RETURNING id`,
-          [randomUUID(), signal.rows[0].id, nativeDelivery.url]
-        );
-        deliveries += inserted.rowCount ?? inserted.rows.length;
+        return outcome;
       }
       await connection.query("COMMIT");
       void this.drainOnce().catch(this.onError);
-      return { duplicate: false, deliveries };
+      return outcome;
     } catch (error) {
       await connection.query("ROLLBACK");
       throw error;
@@ -231,7 +201,8 @@ export class NotificationService {
 
   private async drainPushes(limit: number): Promise<number> {
     const ready = await this.db.query<DeliveryRow>(
-      `SELECT nd.id, nd.attempts, pc.id AS channel_id, pc.kind, pc.endpoint,
+      `SELECT nd.id, nd.attempts, pc.id AS channel_id, pc.grant_id,
+              pc.installation_id, pc.sealed_target, pc.kind, pc.endpoint,
               pc.p256dh, pc.auth, pc.expires_at, pc.fcm_project_id, pc.fcm_token,
               sig.signal_id, sig.criterion_id, sig.cursor, a.notifications,
               g.notification_criteria
@@ -256,6 +227,10 @@ export class NotificationService {
       const leaseToken = await this.claim("notification_deliveries", row.id);
       if (!leaseToken) continue;
       processed += 1;
+      if (!await this.grantUsable(row.grant_id)) {
+        await this.finish("notification_deliveries", row.id, leaseToken, "grant_not_usable");
+        continue;
+      }
       const payload = notificationPayload(row);
       if (!payload) {
         await this.finish(
@@ -299,6 +274,10 @@ export class NotificationService {
       const leaseToken = await this.claim("notification_webhook_deliveries", row.id);
       if (!leaseToken) continue;
       processed += 1;
+      if (!await this.grantUsable(row.grant_id)) {
+        await this.finish("notification_webhook_deliveries", row.id, leaseToken, "grant_not_usable");
+        continue;
+      }
       const notification = notificationPayload(row);
       if (!notification) {
         await this.finish(
@@ -372,7 +351,8 @@ export class NotificationService {
     return processed;
   }
 
-  private async sendPush(row: DeliveryRow, payload: string): Promise<void> {
+  private async sendPush(sealedRow: DeliveryRow, payload: string): Promise<void> {
+    const row = this.openTarget(sealedRow);
     if (row.kind === "fcm") {
       if (!this.transports.fcm) {
         throw new PushDeliveryError(
@@ -415,6 +395,36 @@ export class NotificationService {
       expirationTime: row.expires_at ? Date.parse(row.expires_at) : null,
       keys: { p256dh: row.p256dh, auth: row.auth }
     }, payload);
+  }
+
+  private openTarget(row: DeliveryRow): DeliveryRow {
+    if (!row.sealed_target) return row;
+    if (!this.sealer) {
+      throw new PushDeliveryError(
+        "Sealed push targets need MDBASE_NEXT_PUSH_TOKEN_KEY.",
+        false,
+        60 * 60_000
+      );
+    }
+    try {
+      const target = this.sealer.open(
+        row.grant_id,
+        row.installation_id,
+        row.sealed_target
+      );
+      return {
+        ...row,
+        endpoint: target.endpoint ?? null,
+        p256dh: target.p256dh ?? null,
+        auth: target.auth ?? null,
+        fcm_token: target.fcm_token ?? null
+      };
+    } catch (error) {
+      if (error instanceof PushTargetKeyUnavailable) {
+        throw new PushDeliveryError(error.message, false, 60 * 60_000);
+      }
+      throw new PushDeliveryError("Sealed push target could not be opened.", true);
+    }
   }
 
   private async handlePushFailure(
@@ -519,6 +529,73 @@ export class NotificationService {
 type DeliveryTable =
   | "notification_deliveries"
   | "notification_webhook_deliveries";
+
+/**
+ * Insert one opaque signal and its deliveries inside the caller's transaction.
+ * Idempotent on `signal_id`. Callers commit, then wake the drain loop.
+ */
+export async function insertNotificationSignal(
+  connection: DatabaseQueryable,
+  input: NotificationSignalInput
+): Promise<{ duplicate: boolean; deliveries: number }> {
+  const existing = await connection.query<{ id: string }>(
+    "SELECT id FROM notification_signals WHERE signal_id = $1",
+    [input.signalId]
+  );
+  if (existing.rows[0]) return { duplicate: true, deliveries: 0 };
+  const signal = await connection.query<{ id: string }>(
+    `INSERT INTO notification_signals
+       (id, signal_id, grant_id, criterion_id, cursor)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT(signal_id) DO NOTHING
+     RETURNING id`,
+    [randomUUID(), input.signalId, input.grantId, input.criterionId, input.cursor]
+  );
+  if (!signal.rows[0]) return { duplicate: true, deliveries: 0 };
+  const subscriptions = await connection.query<{ id: string }>(
+    `SELECT ns.id
+     FROM notification_subscriptions ns
+     JOIN push_channels pc ON pc.id = ns.channel_id
+     JOIN grants g ON g.id = ns.grant_id
+     WHERE ns.grant_id = $1 AND ns.criterion_id = $2
+       AND pc.disabled_at IS NULL AND g.revoked_at IS NULL
+       AND g.activated_at IS NOT NULL`,
+    [input.grantId, input.criterionId]
+  );
+  let deliveries = 0;
+  for (const subscription of subscriptions.rows) {
+    const inserted = await connection.query(
+      `INSERT INTO notification_deliveries (id, signal_id, subscription_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT(signal_id, subscription_id) DO NOTHING
+       RETURNING id`,
+      [randomUUID(), signal.rows[0].id, subscription.id]
+    );
+    deliveries += inserted.rowCount ?? inserted.rows.length;
+  }
+  const route = await connection.query<{
+    notifications: ApplicationNotifications;
+  }>(
+    `SELECT a.notifications
+     FROM grants g
+     JOIN applications a ON a.id = g.application_id
+     WHERE g.id = $1 AND g.revoked_at IS NULL
+       AND g.activated_at IS NOT NULL`,
+    [input.grantId]
+  );
+  const nativeDelivery = route.rows[0]?.notifications.native_delivery;
+  if (nativeDelivery?.mode === "webhook") {
+    const inserted = await connection.query(
+      `INSERT INTO notification_webhook_deliveries (id, signal_id, url)
+       VALUES ($1, $2, $3)
+       ON CONFLICT(signal_id) DO NOTHING
+       RETURNING id`,
+      [randomUUID(), signal.rows[0].id, nativeDelivery.url]
+    );
+    deliveries += inserted.rowCount ?? inserted.rows.length;
+  }
+  return { duplicate: false, deliveries };
+}
 
 export async function activeGrantForToken(
   db: DatabaseQueryable,
