@@ -24,6 +24,8 @@ import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
 import { loadPolicySigner, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
+import { NextRelayDevices } from "./features/next/devices.js";
+import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { NotificationService, type NotificationTransports } from "./notifications.js";
 import { RelayHub } from "./relay.js";
@@ -463,6 +465,10 @@ export async function buildApp(options: BuildOptions) {
     db: options.db,
     hostedReference
   });
+  if (options.nextControlPlane) {
+    relay.useNextDevices(new NextRelayDevices(options.db));
+    registerNextDeviceRoutes(app, { db: options.db });
+  }
   registerConnectorRelayRoute(app, { db: options.db, relay });
   registerApplicationRoutes(app, {
     db: options.db,
