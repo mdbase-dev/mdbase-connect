@@ -5,6 +5,7 @@ use super::*;
 impl HostedProvider {
     pub async fn compact_through(&self, collection_id: Uuid, through: u64) -> ApiResult<()> {
         let mut transaction = self.pool.begin().await?;
+        collections::ensure_legacy_data_disposable(&mut transaction, collection_id).await?;
         cleanup_expired_snapshot_leases(&mut *transaction, Some(collection_id)).await?;
         let row = sqlx::query(
             "SELECT head, retained_after FROM hosted_provider_collections WHERE id = $1 FOR UPDATE",

@@ -44,6 +44,7 @@ mod authentication;
 mod authority_import_files;
 mod diagnostics;
 mod files;
+mod legacy_migration;
 mod projections;
 mod replicas;
 
@@ -55,6 +56,7 @@ use authority_import_files::{
 };
 use diagnostics::diagnostic_routes;
 use files::file_routes;
+use legacy_migration::{delete_collection, legacy_migration_routes};
 use projections::projection_routes;
 use replicas::{
     list_replicas, register_application_replica_v2, register_replica, revoke_replica,
@@ -195,6 +197,7 @@ pub fn app(state: AppState) -> Router {
     let internal = Router::new()
         .merge(account_routes())
         .merge(projection_routes())
+        .merge(legacy_migration_routes())
         .route("/internal/v1/protocol-usage", get(protocol_usage))
         .route(
             "/internal/v1/collections/{collection_id}",
@@ -456,16 +459,6 @@ async fn revoke_notification_grant(
 ) -> ApiResult<Json<Value>> {
     state.provider.revoke_notification_grant(grant_id).await?;
     Ok(Json(json!({"ok": true})))
-}
-
-async fn delete_collection(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(collection_id): Path<Uuid>,
-) -> ApiResult<StatusCode> {
-    state.authorize_internal(&headers)?;
-    state.provider.delete_collection(collection_id).await?;
-    Ok(StatusCode::NO_CONTENT)
 }
 
 // Versioned write routes prevent a mixed-version fleet from silently accepting
