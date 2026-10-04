@@ -22,6 +22,7 @@ import {
   connectServerUrl
 } from "./connect-endpoint";
 import { persistedBody } from "./note";
+import { isNextError, nextErrorMessage } from "./next-errors";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type {
   CollectionGateway,
@@ -469,6 +470,9 @@ function mutationKey(from: string, to: string, revision: string): string {
 }
 
 export function gatewayError(error: unknown): string {
+  // mdbase-next errors already carry the editor's text for their code and reason.
+  if (isNextError(error)) return nextErrorMessage(error);
+  if (error instanceof MdbaseConnectError && isNextError(error.cause)) return error.message;
   if (error instanceof MdbaseConnectError) {
     if (error.problem.code === "connector_offline") return "The computer holding this collection is offline.";
     if (error.problem.recovery === "reauthorize") {
