@@ -10,7 +10,9 @@
 // using a fresh single-use challenge. Everything is checked and the token minted in
 // one transaction under share locks (connector, account, device, collection):
 // - the connector, account and device are current, with the device's exact keys;
-// - the collection is a current synced collection (not left);
+// - the collection is a current synced collection on the next runtime (not left);
+// - the account is a current member: its last membership op is an acknowledged
+//   member-set (a member-remove counts even while pending);
 // - an enrolment of exactly this device (account, kind, sign/KEM/Noise keys) is in
 //   an appended policy batch: acknowledged by the log, not merely queued;
 // - no device-revoke for this device exists, appended or pending.
@@ -112,9 +114,9 @@ async function refresh(
     [connector.id, connector.user_id, deviceId, device.sign_pk, device.kem_pk, device.noise_pk, device.kind]
   );
   if (!identity.rows.length) throw new Refused(403, "identity_not_current");
-  // A current synced collection.
+  // A current synced collection served by the next runtime.
   const current = await client.query(
-    "SELECT 1 FROM next_collections WHERE collection_id = $1 AND left_sync_at IS NULL FOR SHARE",
+    "SELECT 1 FROM next_collections WHERE collection_id = $1 AND runtime = 'next' AND left_sync_at IS NULL FOR SHARE",
     [collection]
   );
   if (!current.rows.length) throw new Refused(409, "not_current");
@@ -131,6 +133,24 @@ async function refresh(
     [collection, tuple]
   );
   if (!enrolled.rows.length) throw new Refused(409, "not_enrolled");
+  // The account is a current member: its last membership op, in outbox order, is a
+  // member-set acknowledged by the log. A member-remove counts even while pending.
+  const membership = await client.query<{ ops: { ops: Array<{ op: string; account?: string }> }; state: string | null }>(
+    `SELECT o.ops, b.state FROM next_policy_outbox o LEFT JOIN next_policy_batches b ON b.id = o.batch_id
+     WHERE o.collection_id = $1 AND (o.ops->'ops' @> $2::jsonb OR o.ops->'ops' @> $3::jsonb)
+     ORDER BY o.id`,
+    [collection, JSON.stringify([{ op: "member-set", account: connector.user_id }]),
+      JSON.stringify([{ op: "member-remove", account: connector.user_id }])]
+  );
+  let member = false;
+  for (const row of membership.rows) {
+    for (const op of row.ops.ops) {
+      if (op.account !== connector.user_id) continue;
+      if (op.op === "member-set" && row.state === "appended") member = true;
+      if (op.op === "member-remove") member = false;
+    }
+  }
+  if (!member) throw new Refused(409, "not_member");
   const revoked = await client.query(
     "SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb LIMIT 1",
     [collection, JSON.stringify([{ op: "device-revoke", device: deviceId }])]

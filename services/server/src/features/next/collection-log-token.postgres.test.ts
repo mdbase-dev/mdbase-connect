@@ -186,4 +186,37 @@ describePg("collection log-token refresh", () => {
     await db.query("UPDATE users SET suspended_at = now() WHERE id = $1", [who.connector.user_id]);
     expect((await refresh(who, c, p)).statusCode).toBe(401);
   });
+
+  it("needs current membership: a removed member's device gets nothing until re-added and acknowledged", async () => {
+    const owner = await identity(); const member = await identity();
+    const c = await collection(owner, "cloud_copy", [owner, member]);
+    expect((await refresh(member, c, await proof(member, c))).statusCode).toBe(200);
+    const queue = async (ops: Parameters<typeof queueNextPolicy>[2]) => {
+      const client = await db.connect();
+      try {
+        await client.query("BEGIN");
+        await queueNextPolicy(client, c, ops);
+        await client.query("COMMIT");
+      } finally {
+        client.release();
+      }
+    };
+    await queue([{ op: "member-remove", account: member.connector.user_id }]);
+    expect((await refresh(member, c, await proof(member, c))).json().error.code).toBe("not_member");
+    await appendPending(c);
+    expect((await refresh(member, c, await proof(member, c))).json().error.code).toBe("not_member");
+    await queue([{ op: "member-set", account: member.connector.user_id, role: "editor" }]);
+    expect((await refresh(member, c, await proof(member, c))).json().error.code).toBe("not_member");
+    await appendPending(c);
+    expect((await refresh(member, c, await proof(member, c))).statusCode).toBe(200);
+    expect((await refresh(owner, c, await proof(owner, c))).statusCode).toBe(200);
+  });
+
+  it("refuses a collection not served by the next runtime", async () => {
+    const who = await identity();
+    const c = await collection(who, "cloud_copy", [who]);
+    await db.query("UPDATE next_collections SET runtime = 'shadow' WHERE collection_id = $1", [c]);
+    expect((await refresh(who, c, await proof(who, c))).json().error.code).toBe("not_current");
+  });
 });
+
