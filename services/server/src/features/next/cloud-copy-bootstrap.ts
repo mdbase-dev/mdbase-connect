@@ -20,7 +20,7 @@ import { verify } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
-import { requireConnector, requireUser } from "../../platform/request-authentication.js";
+import { requireConnector, requireSessionContext, requireUser } from "../../platform/request-authentication.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import { ed25519PublicKeyObject, type NextControlPlaneConfig } from "./policy-keys.js";
 import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
@@ -111,6 +111,22 @@ async function currentIdentity(client: DatabaseConnection, connector: Connector,
   if (!row.rows.length) throw new CreateError(403, "identity_not_current");
 }
 
+/**
+ * The signed-in session is still the account's current credential (not revoked, not
+ * expired, same session epoch, account not suspended); share-locked until the
+ * transaction ends, so a sign-out or suspension either happened before or waits.
+ */
+async function currentSession(client: DatabaseConnection, session: string, user: string): Promise<void> {
+  const row = await client.query(
+    `SELECT 1 FROM sessions s JOIN users u ON u.id = s.user_id
+     WHERE s.id = $1 AND u.id = $2 AND s.revoked_at IS NULL AND s.expires_at > now()
+       AND u.suspended_at IS NULL AND s.account_session_epoch = u.session_epoch
+     FOR SHARE OF s, u`,
+    [session, user]
+  );
+  if (!row.rows.length) throw new CreateError(403, "identity_not_current");
+}
+
 /** The account is still active; share-locked until the transaction ends. */
 async function currentAccount(client: DatabaseConnection, user: string): Promise<void> {
   const row = await client.query("SELECT 1 FROM users WHERE id = $1 AND suspended_at IS NULL FOR SHARE", [user]);
@@ -149,8 +165,22 @@ const ENROLMENT = `SELECT o.ops, b.seq, b.item, b.state FROM next_policy_outbox 
   LEFT JOIN next_policy_batches b ON b.id = o.batch_id
   WHERE o.collection_id = $1 AND o.ops->'ops' @> $2::jsonb ORDER BY o.id LIMIT 1`;
 const enrolmentKey = (device: string) => JSON.stringify([{ op: "device-enrol", device }]);
-const exactEnrolment = (device: string, account: string, signPk: Buffer) =>
-  JSON.stringify([{ op: "device-enrol", device, account, signPublicKey: { $hex: signPk.toString("hex") } }]);
+/** The whole immutable enrolment tuple: device, account, kind and all three keys. */
+const exactEnrolment = (device: string, account: string, d: Device) => JSON.stringify([{
+  op: "device-enrol", device, account, kind: d.kind,
+  signPublicKey: { $hex: d.sign_pk.toString("hex") },
+  kemPublicKey: { $hex: d.kem_pk.toString("hex") },
+  noisePublicKey: { $hex: d.noise_pk.toString("hex") }
+}]);
+
+/** A historical enrolment is never current once the device has been revoked. */
+async function refuseRevoked(client: DatabaseConnection, collection: string, device: string): Promise<void> {
+  const revoked = await client.query(
+    "SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb LIMIT 1",
+    [collection, JSON.stringify([{ op: "device-revoke", device }])]
+  );
+  if (revoked.rows.length) throw new CreateError(409, "device_revoked");
+}
 
 function refuse(reply: FastifyReply, error: unknown, message: string) {
   if (error instanceof CreateError || error instanceof ServiceDeviceError) {
@@ -221,21 +251,34 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     schema: { body: { type: "object", additionalProperties: false, required: ["collection_id"], properties: { collection_id: uuid } } }
   }, async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
-    if (!user) return reply;
+    // Session credentials are rechecked after every await; Tailscale identities have
+    // no session row, so for them the account itself is.
+    let user: { id: string };
+    let current: (client: DatabaseConnection) => Promise<void>;
+    if (options.tailscaleAuth) {
+      const u = await requireUser(request, reply, options.db, true);
+      if (!u) return reply;
+      user = u;
+      current = (client) => currentAccount(client, u.id);
+    } else {
+      const context = await requireSessionContext(request, reply, options.db);
+      if (!context) return reply;
+      user = context.user;
+      current = (client) => currentSession(client, context.sessionId, context.user.id);
+    }
     const collection = request.body.collection_id.toLowerCase();
     if (collection === NIL) return reply.code(400).send(apiError("invalid_request", "Nil identifiers are not accepted."));
     try {
       const exists = await inTransaction(options.db, async (client) => {
         await lock(client, collection);
-        await currentAccount(client, user.id);
+        await current(client);
         return existing(client, collection, user.id);
       });
       if (!exists) {
         const generated = await generateFor(collection);
         await inTransaction(options.db, async (client) => {
           await lock(client, collection);
-          await currentAccount(client, user.id);
+          await current(client);
           if (await existing(client, collection, user.id)) throw new CreateError(503, "not_ready");
           await registerNextCollection(client, {
             collectionId: collection, ownerUserId: user.id, runtime: "next", sync: "cloud_copy", rootKeyId,
@@ -255,7 +298,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
       const genesis = await appendedGenesis(collection);
       const head = await options.log.head(collection);
       return await inTransaction(options.db, async (client) => {
-        await currentAccount(client, user.id);
+        await current(client);
         await currentCloudCopy(client, collection, user.id);
         // Hosted is the first member: it generates the epoch key and wraps it for
         // hosted and escrow. No user device is enrolled here.
@@ -324,11 +367,12 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
       return await inTransaction(options.db, async (client) => {
         await currentIdentity(client, connector, body.device_id, device);
         await currentCloudCopy(client, collection, connector.user_id);
+        await refuseRevoked(client, collection, body.device_id);
         // The requesting device must be the one the genesis enrolled, with the same keys.
         const enrolled = await client.query(
           `SELECT 1 FROM next_policy_outbox WHERE id = (SELECT min(id) FROM next_policy_outbox WHERE collection_id = $1)
              AND ops->'ops' @> $2::jsonb`,
-          [collection, exactEnrolment(body.device_id, connector.user_id, device.sign_pk)]
+          [collection, exactEnrolment(body.device_id, connector.user_id, device)]
         );
         if (!enrolled.rows.length) throw new CreateError(409, "collection_exists");
         const records = await loadRecords(client, collection);
@@ -366,12 +410,16 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
       device = await inTransaction(options.db, async (client) => {
         await lock(client, collection);
         const joining = await authenticate(client, body, connector, digest);
+        // The connector, account and device are current and stay locked until the
+        // enrolment commits: a revocation racing this request waits or wins.
+        await currentIdentity(client, connector, body.device_id, joining);
         // Cloud copy only: a private collection, or one that has left sync, refuses
         // before any policy op exists.
         await currentCloudCopy(client, collection, connector.user_id);
+        await refuseRevoked(client, collection, body.device_id);
         const prior = (await client.query<{ ops: { ops: Array<Record<string, unknown>> } }>(ENROLMENT, [collection, enrolmentKey(body.device_id)])).rows[0];
         if (prior) {
-          const same = (await client.query(ENROLMENT, [collection, exactEnrolment(body.device_id, connector.user_id, joining.sign_pk)])).rows.length > 0;
+          const same = (await client.query(ENROLMENT, [collection, exactEnrolment(body.device_id, connector.user_id, joining)])).rows.length > 0;
           if (!same) throw new CreateError(409, "device_enrolled_differently");
         } else if (!(await queueNextPolicy(client, collection, [enrolOp(body.device_id, connector.user_id, joining)]))) {
           throw new CreateError(409, "not_current_cloud_copy");
@@ -384,12 +432,13 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     try {
       await options.emitter.drainCollection(collection);
       const row = (await options.db.query<{ seq: string | null; item: Buffer | null; state: string | null }>(
-        ENROLMENT, [collection, exactEnrolment(body.device_id, connector.user_id, device.sign_pk)]
+        ENROLMENT, [collection, exactEnrolment(body.device_id, connector.user_id, device)]
       )).rows[0];
       const batch = await appendedBatch(collection, row);
       return await inTransaction(options.db, async (client) => {
         await currentIdentity(client, connector, body.device_id, device);
         await currentCloudCopy(client, collection, connector.user_id);
+        await refuseRevoked(client, collection, body.device_id);
         // Hosted (or escrow) wraps the current epoch key to this device next.
         return { collection_id: collection, enrolled_at: batch.seq, device: mint(body.device_id, device.sign_pk, collection) };
       });

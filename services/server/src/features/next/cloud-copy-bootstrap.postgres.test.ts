@@ -10,7 +10,7 @@ import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "
 import { collectionDirectory } from "./hosted-routes.js";
 import { LogServiceClient } from "./log-service-client.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./policy-keys.js";
-import { PolicyEmitter } from "./policy-outbox.js";
+import { PolicyEmitter, queueNextPolicy } from "./policy-outbox.js";
 import { certDigest, chainHash, decodeCbor, encodeCbor, keyId, type Cbor, type Decoded } from "./policy-wire.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -434,5 +434,67 @@ describePg("cloud-copy bootstrap", () => {
     const revoked = await join(who, collection, await joinProof(who, collection));
     expect(revoked.statusCode).toBe(403);
     expect(revoked.body).not.toContain("token");
+  });
+
+  // ---- Review fixes (control, security-2) ----
+
+  it("locks the joining identity before the enrolment is queued: a racing revocation wins", async () => {
+    const who = await identity(); const collection = randomUUID();
+    expect((await serviceCreate(await session(who.connector.user_id), collection)).statusCode).toBe(200);
+    const payload = await joinProof(who, collection);
+    const revoking = await admin.connect();
+    try {
+      await revoking.query(`SET search_path = "${schema}"`);
+      await revoking.query("BEGIN");
+      await revoking.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [who.connector.id]);
+      // The request authenticates against the committed (unrevoked) connector, then
+      // waits on the row lock inside its enrolment transaction.
+      const pending = join(who, collection, payload);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await revoking.query("COMMIT");
+      expect((await pending).statusCode).toBe(403);
+    } finally {
+      revoking.release();
+    }
+    const enrolled = await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb",
+      [collection, JSON.stringify([{ op: "device-enrol", device: who.device }])]);
+    expect(enrolled.rows).toHaveLength(0);
+  });
+
+  it("compares the whole enrolment tuple and never revives a revoked device", async () => {
+    const who = await identity(); const collection = randomUUID();
+    expect((await serviceCreate(await session(who.connector.user_id), collection)).statusCode).toBe(200);
+    expect((await join(who, collection, await joinProof(who, collection))).statusCode).toBe(200);
+    // Same device and signing key, another KEM key: not the enrolment on record.
+    await db.query("UPDATE next_devices SET kem_pk = $2 WHERE id = $1", [who.device, rawX()]);
+    expect((await join(who, collection, await joinProof(who, collection))).statusCode).toBe(409);
+    const other = await identity(who.connector.user_id); const c2 = randomUUID();
+    expect((await serviceCreate(await session(who.connector.user_id), c2)).statusCode).toBe(200);
+    expect((await join(other, c2, await joinProof(other, c2))).statusCode).toBe(200);
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      await queueNextPolicy(client, c2, [{ op: "device-revoke", device: other.device }]);
+      await client.query("COMMIT");
+    } finally {
+      client.release();
+    }
+    const again = await join(other, c2, await joinProof(other, c2));
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error.code).toBe("device_revoked");
+  });
+
+  it("rechecks the session after generation: a sign-out or session-epoch bump refuses", async () => {
+    const who = await identity();
+    const headers = await session(who.connector.user_id);
+    const signedOut = randomUUID();
+    deployments.during = async () => { await db.query("UPDATE sessions SET revoked_at = now() WHERE user_id = $1", [who.connector.user_id]); };
+    expect((await serviceCreate(headers, signedOut)).statusCode).toBe(403);
+    expect(await registered(signedOut)).toBe(false);
+    const fresh = await session(who.connector.user_id);
+    const bumped = randomUUID();
+    deployments.during = async () => { await db.query("UPDATE users SET session_epoch = session_epoch + 1 WHERE id = $1", [who.connector.user_id]); };
+    expect((await serviceCreate(fresh, bumped)).statusCode).toBe(403);
+    expect(await registered(bumped)).toBe(false);
   });
 });
