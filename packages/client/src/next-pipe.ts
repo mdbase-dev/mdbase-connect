@@ -1,5 +1,10 @@
 import { connectError } from "./errors.js";
 
+/** Relay close reasons passed through (control contract); any other text is dropped. */
+const REASONS = new Set(["unauthenticated", "grant_inactive", "connector_offline", "connector_busy",
+  "device_mismatch", "device_key_mismatch", "invalid_frame", "handshake_timeout", "idle", "lifetime",
+  "pipe_closed", "grant_revoked", "not_served"]);
+
 export interface AuthenticatedRelayByteDuplex {
   send(bytes: Uint8Array): void;
   onmessage: ((bytes: Uint8Array) => void) | null;
@@ -10,7 +15,10 @@ export interface AuthenticatedRelayByteDuplex {
 
 const MAX_CHUNK = 65_539;
 const MAX_BUFFER = 1_048_576;
-const failed = () => connectError("invalid_operation_response", "The Next relay pipe is unavailable or invalid.");
+const failed = (close?: { code?: number; reason?: string }) => connectError(
+  "invalid_operation_response", "The Next relay pipe is unavailable or invalid.",
+  // Bounded admission metadata (close code and known reason) for the SDK's mapping.
+  close?.code === undefined ? undefined : { cause: Object.freeze({ ...close }) });
 
 /** Internal only: the narrow client API never exposes this credential-bearing input. */
 export function admitNextPipe(input: {
@@ -19,6 +27,8 @@ export function admitNextPipe(input: {
   check(): void;
   release(): void;
   signal: AbortSignal;
+  /** The caller's own signal: aborting it closes the pipe for its whole lifetime. */
+  lifetime?: AbortSignal;
 }): Promise<AuthenticatedRelayByteDuplex> {
   return new Promise((resolve, reject) => {
     let socket: WebSocket | undefined;
@@ -37,15 +47,16 @@ export function admitNextPipe(input: {
       terminal = true;
       credential = "";
       queue.length = 0; buffered = 0;
-      closed = reason && /^[a-z_]{1,64}$/u.test(reason) ? { code, reason } : { code };
+      closed = reason && REASONS.has(reason) ? { code, reason } : { code };
       clearTimeout(deadline);
       input.signal.removeEventListener("abort", abort);
+      input.lifetime?.removeEventListener("abort", abort);
       if (socket) {
         socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
         try { socket.close(); } catch { /* terminal */ }
       }
       release();
-      if (!admitted) reject(failed());
+      if (!admitted) reject(failed(closed));
       else { try { close?.(closed); } catch { /* listener errors never resurrect the pipe */ } }
     };
     const abort = () => end();
@@ -72,8 +83,9 @@ export function admitNextPipe(input: {
       close: () => end(1000)
     };
     input.signal.addEventListener("abort", abort, { once: true });
+    input.lifetime?.addEventListener("abort", abort, { once: true });
     try {
-      if (input.signal.aborted) { end(); return; }
+      if (input.signal.aborted || input.lifetime?.aborted) { end(); return; }
       input.check();
       socket = new WebSocket(input.url);
       socket.binaryType = "arraybuffer";

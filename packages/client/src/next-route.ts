@@ -73,7 +73,8 @@ function decode(raw: unknown, collection: string, grant: string, relayUrl: strin
   const targets = value.targets.map(rawTarget => {
     if (!rawTarget || typeof rawTarget !== "object") throw invalid();
     const t = rawTarget as Record<string, unknown>;
-    if (!["desktop", "cli", "hosted"].includes(String(t.kind)) || typeof t.device !== "string" || !UUID.test(t.device)
+    if (typeof t.kind !== "string" || !["desktop", "cli", "hosted"].includes(t.kind)
+      || typeof t.device !== "string" || !UUID.test(t.device)
       || typeof t.noise_pk !== "string" || !/^[0-9a-f]{64}$/u.test(t.noise_pk) || /^0{64}$/u.test(t.noise_pk)
       || t.url !== relayUrl || typeof t.relay_collection !== "string" || !UUID.test(t.relay_collection)
       || (t.online !== undefined && typeof t.online !== "boolean")) throw invalid();
@@ -148,7 +149,7 @@ export function connectionNext(context: {
           const pipe = await admitNextPipe({ url: target.url, signal: budget.signal,
             auth: JSON.stringify({ type: "pipe_auth", access_token: lease.token.accessToken,
               collection: target.relay_collection, grant: prior.grant, device: target.device, device_noise_pk: target.noise_pk }),
-            check: () => check(prior.binding), release });
+            check: () => check(prior.binding), release, lifetime: options.signal });
           return pipe;
         } catch (error) { release(); throw error; }
       });
