@@ -106,14 +106,21 @@ export class LogServiceClient {
     if (!/^[0-9a-f]{64}$/u.test(nonceHex)) throw new LogServiceError("unavailable", "nonce");
     this.requestId += 1;
     const body = encodeCbor(struct([[0, 0], [1, this.requestId], [2, method], [3, params]]));
-    const digest = domainHash("mdbase/v1/item-sig", Buffer.concat([
-      Buffer.from("ls-http"), Buffer.from(nonceHex, "hex"), Buffer.from(method), Buffer.of(0), createHash("sha256").update(body).digest(),
+    const token = this.controlPlaneToken();
+    const collectionField = field(field(decodeCbor(body), 3)!, 0);
+    const collection = collectionField instanceof Uint8Array && collectionField.length === 16
+      ? collectionField : new Uint8Array(16);
+    // auth::http_digest: method is the LS RPC method, not HTTP POST.
+    const digest = domainHash("mdbase/v1/ls-http", Buffer.concat([
+      Buffer.from(method), Buffer.of(0), Buffer.from("/v1/rpc"), Buffer.of(0), collection,
+      createHash("sha256").update(token, "utf8").digest(), createHash("sha256").update(body).digest(),
+      Buffer.from(nonceHex, "hex"),
     ]));
     const frame = decodeCbor(await this.fetchBytes("/v1/rpc", {
       method: "POST",
       headers: {
         "content-type": "application/vnd.mdbase.v1+cbor",
-        authorization: `Bearer ${this.controlPlaneToken()}`,
+        authorization: `Bearer ${token}`,
         "x-mdbase-nonce": nonceHex,
         "x-mdbase-sig": Buffer.from(sign(null, digest, this.transport)).toString("hex"),
       },
