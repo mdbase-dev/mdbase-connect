@@ -20,6 +20,7 @@ import { generateServiceDevice, loadServiceDevice, ServiceDeviceError, storeServ
 
 /** Service devices belong to no account (policy.md: hosted and escrow enrol with the zero account). */
 const SERVICE_ACCOUNT = "00000000-0000-0000-0000-000000000000";
+const NIL = SERVICE_ACCOUNT;
 
 interface Body { collection_id: string; device_id: string; challenge: string; sig: string }
 interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: "desktop" | "cli" }
@@ -65,6 +66,23 @@ async function authenticate(client: DatabaseConnection, body: Body, connector: {
   return device;
 }
 
+/**
+ * The owner's connector, account and device are still current, with the exact keys
+ * authenticated in phase 1; locked until the transaction ends, so a revocation,
+ * suspension or device removal either happened before (and is refused here) or waits.
+ */
+async function currentIdentity(client: DatabaseConnection, connector: { id: string; user_id: string }, deviceId: string, device: Device): Promise<void> {
+  const row = await client.query(
+    `SELECT 1 FROM connectors c JOIN users u ON u.id = c.user_id
+       JOIN next_devices d ON d.connector_id = c.id AND d.user_id = u.id
+     WHERE c.id = $1 AND u.id = $2 AND d.id = $3 AND c.revoked_at IS NULL AND u.suspended_at IS NULL
+       AND d.sign_pk = $4 AND d.kem_pk = $5 AND d.noise_pk = $6 AND d.kind = $7
+     FOR SHARE OF c, u, d`,
+    [connector.id, connector.user_id, deviceId, device.sign_pk, device.kem_pk, device.noise_pk, device.kind]
+  );
+  if (!row.rows.length) throw new CreateError(403, "identity_not_current");
+}
+
 async function inTransaction<T>(db: DatabasePool, run: (client: DatabaseConnection) => Promise<T>): Promise<T> {
   const client = await db.connect();
   try {
@@ -106,8 +124,8 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     if (!connector) return reply;
     const body = { ...request.body, collection_id: request.body.collection_id.toLowerCase(), device_id: request.body.device_id.toLowerCase() };
     const collection = body.collection_id;
+    if (collection === NIL || body.device_id === NIL) return reply.code(400).send(apiError("invalid_request", "Nil identifiers are not accepted."));
     let device: Device;
-    let records: ServiceDeviceRecord[];
     try {
       // 1. Proof and ownership, consuming the challenge. No network call holds a lock.
       let created: boolean;
@@ -116,43 +134,31 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
         const owner = await authenticate(client, body, connector);
         return { device: owner, created: await existing(client, collection, connector.user_id) };
       }));
-      if (created) {
-        // A retry must come from the device the genesis enrolled, with the same keys.
-        const enrolled = await options.db.query(
-          `SELECT 1 FROM next_policy_outbox WHERE id = (SELECT min(id) FROM next_policy_outbox WHERE collection_id = $1)
-             AND ops->'ops' @> $2::jsonb`,
-          [collection, JSON.stringify([{ op: "device-enrol", device: body.device_id, account: connector.user_id, signPublicKey: { $hex: device.sign_pk.toString("hex") } }])]
-        );
-        if (!enrolled.rows.length) throw new CreateError(409, "collection_exists");
-        records = await Promise.all((["hosted", "escrow"] as const).map(async (kind) => {
-          const record = await loadServiceDevice(options.db, collection, { kind }, true);
-          if (!record) throw new CreateError(503, "not_ready");
-          return record;
-        }));
-      } else {
-        // 2. Each deployment generates its own keys; a retry returns the same device.
+      if (!created) {
+        // 2. Each deployment generates its own keys. Nothing is locked while they work.
         const generated = await Promise.all((["hosted", "escrow"] as const).map((kind) =>
           generateServiceDevice(deployments[kind], kind, collection, options.fetchImpl)));
-        // 3. Register genesis and store the records together, rechecking ownership.
-        records = await inTransaction(options.db, async (client) => {
+        // 3. Recheck the owner's identity (revocation, suspension, device removal or
+        // key change may have happened meanwhile) and the collection, then register
+        // genesis and store the records together. The first committed record wins.
+        await inTransaction(options.db, async (client) => {
           await lock(client, collection);
+          await currentIdentity(client, connector, body.device_id, device);
           // Created concurrently: the retry path rechecks the enrolled device.
           if (await existing(client, collection, connector.user_id)) throw new CreateError(503, "not_ready");
-          {
-            await registerNextCollection(client, {
-              collectionId: collection, ownerUserId: connector.user_id, runtime: "next", sync: "cloud_copy", rootKeyId,
-              ops: [
-                { op: "genesis", owner: connector.user_id, root: rootKeyId, state: "cloud-copy" },
-                { op: "member-set", account: connector.user_id, role: "owner" },
-                { op: "device-enrol", device: body.device_id, account: connector.user_id, kind: device.kind, signPublicKey: device.sign_pk, kemPublicKey: device.kem_pk, noisePublicKey: device.noise_pk },
-                ...generated.map((record) => ({
-                  op: "device-enrol" as const, device: record.device_id, account: SERVICE_ACCOUNT, kind: record.kind,
-                  signPublicKey: record.sign_pk, kemPublicKey: record.kem_pk, noisePublicKey: record.noise_pk
-                }))
-              ]
-            });
-          }
-          return Promise.all(generated.map((record) => storeServiceDevice(client, collection, record)));
+          await registerNextCollection(client, {
+            collectionId: collection, ownerUserId: connector.user_id, runtime: "next", sync: "cloud_copy", rootKeyId,
+            ops: [
+              { op: "genesis", owner: connector.user_id, root: rootKeyId, state: "cloud-copy" },
+              { op: "member-set", account: connector.user_id, role: "owner" },
+              { op: "device-enrol", device: body.device_id, account: connector.user_id, kind: device.kind, signPublicKey: device.sign_pk, kemPublicKey: device.kem_pk, noisePublicKey: device.noise_pk },
+              ...generated.map((record) => ({
+                op: "device-enrol" as const, device: record.device_id, account: SERVICE_ACCOUNT, kind: record.kind,
+                signPublicKey: record.sign_pk, kemPublicKey: record.kem_pk, noisePublicKey: record.noise_pk
+              }))
+            ]
+          });
+          for (const record of generated) await storeServiceDevice(client, collection, record);
         });
       }
     } catch (error) {
@@ -162,8 +168,8 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
       }
       throw error;
     }
-    // 4. Only an appended genesis whose exact bytes the log returns counts as created.
     try {
+      // 4. Only an appended genesis whose exact bytes the log returns counts as created.
       await options.emitter.drainCollection(collection);
       const genesis = (await options.db.query<{ item: Buffer; state: string }>(
         "SELECT item, state FROM next_policy_batches WHERE collection_id = $1 AND seq = 1 ORDER BY id LIMIT 1", [collection]
@@ -171,18 +177,46 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
       const external = genesis?.state === "appended" ? await options.log.controlItemAt(collection, 1) : null;
       if (!genesis || !external || !genesis.item.equals(Buffer.from(external))) throw new CreateError(503, "not_ready");
       const head = await options.log.head(collection);
-      const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
-      return {
-        collection_id: collection, state: "cloud-copy", owner_account: connector.user_id,
-        log_url: options.next.logService.url, head: { seq: head.seq, chain: Buffer.from(head.chain).toString("hex") },
-        root_public_key: Buffer.from(options.next.rootPublicKey).toString("hex"), policy_cert: options.next.policyCert,
-        genesis: { seq: 1, item: genesis.item.toString("hex") },
-        // The desktop's initial rekey wraps for exactly these devices; it checks them against the genesis it verifies.
-        rekey_recipients: [body.device_id, ...records.map((record) => record.device_id)],
-        service_devices: records.map(publicRecord),
-        device: { device_id: body.device_id, token: options.log.mintToken({ device: body.device_id, signPublicKey: device.sign_pk, collection, expiresAt }), expires_at: expiresAt }
-      };
-    } catch {
+      // 5. After every await: the identity, the collection and the enrolment are
+      // current, and stay locked until the token is minted.
+      const answer = await inTransaction(options.db, async (client) => {
+        await currentIdentity(client, connector, body.device_id, device);
+        const current = await client.query(
+          `SELECT 1 FROM next_collections WHERE collection_id = $1 AND owner_user_id = $2 AND sync = 'cloud_copy' AND left_sync_at IS NULL FOR SHARE`,
+          [collection, connector.user_id]
+        );
+        if (!current.rows.length) throw new CreateError(409, "collection_exists");
+        // The requesting device must be the one the genesis enrolled, with the same keys.
+        const enrolled = await client.query(
+          `SELECT 1 FROM next_policy_outbox WHERE id = (SELECT min(id) FROM next_policy_outbox WHERE collection_id = $1)
+             AND ops->'ops' @> $2::jsonb`,
+          [collection, JSON.stringify([{ op: "device-enrol", device: body.device_id, account: connector.user_id, signPublicKey: { $hex: device.sign_pk.toString("hex") } }])]
+        );
+        if (!enrolled.rows.length) throw new CreateError(409, "collection_exists");
+        const records: ServiceDeviceRecord[] = [];
+        for (const kind of ["hosted", "escrow"] as const) {
+          const record = await loadServiceDevice(client, collection, { kind });
+          if (!record) throw new CreateError(503, "not_ready");
+          records.push(record);
+        }
+        const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
+        return {
+          collection_id: collection, state: "cloud-copy", owner_account: connector.user_id,
+          log_url: options.next.logService.url, head: { seq: head.seq, chain: Buffer.from(head.chain).toString("hex") },
+          root_public_key: Buffer.from(options.next.rootPublicKey).toString("hex"), policy_cert: options.next.policyCert,
+          genesis: { seq: 1, item: genesis.item.toString("hex") },
+          // Public identities enrolled by the genesis. Keying them is the owner
+          // desktop's signed initial rekey; this answer is identity provisioning only.
+          rekey_recipients: [body.device_id, ...records.map((record) => record.device_id)],
+          service_devices: records.map(publicRecord),
+          device: { device_id: body.device_id, token: options.log.mintToken({ device: body.device_id, signPublicKey: device.sign_pk, collection, expiresAt }), expires_at: expiresAt }
+        };
+      });
+      return answer;
+    } catch (error) {
+      if (error instanceof CreateError && error.status !== 503) {
+        return reply.code(error.status).send(apiError(error.code, "The cloud copy is not current for this device."));
+      }
       return reply.code(503).send(apiError("not_ready", "The cloud copy outcome is not verified; retry with a fresh proof."));
     }
   });

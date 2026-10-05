@@ -64,6 +64,8 @@ function configuration(): NextControlPlaneConfig {
 /** The log service, holding genesis only. */
 class Log {
   readonly logs = new Map<string, Buffer>();
+  /** Runs once, while the route awaits the log's read-back of genesis. */
+  onRead: (() => Promise<void>) | undefined;
   readonly fetch: typeof fetch = async (input, init) => {
     if (String(input).endsWith("/v1/nonce")) return new Response("ab".repeat(32));
     const frame = decodeCbor(Buffer.from(init!.body as Uint8Array));
@@ -77,6 +79,9 @@ class Log {
     } else if (method === "head") {
       result = { struct: [[0, 1], [1, chainHash(this.logs.get(id)!)], [2, 1]] };
     } else if (method === "read") {
+      const hook = this.onRead;
+      this.onRead = undefined;
+      await hook?.();
       const genesis = this.logs.get(id);
       if (!genesis) return new Response(encodeCbor({ struct: [[0, 1], [1, 1], [3, { struct: [[0, "not_found"]] }]] }));
       result = { struct: [[0, [[1, genesis]]]] };
@@ -90,8 +95,13 @@ class Deployments {
   readonly devices = new Map<string, Record<string, string>>();
   calls = 0;
   failing: "down" | "wrong-kind" | undefined;
+  /** Runs once, while the route awaits generation. */
+  during: (() => Promise<void>) | undefined;
   readonly fetch: typeof fetch = async (input, init) => {
     this.calls += 1;
+    const hook = this.during;
+    this.during = undefined;
+    await hook?.();
     const url = new URL(String(input));
     const kind = url.hostname === "hosted.test" ? "hosted" : "escrow";
     expect(url.pathname).toBe("/internal/v1/service-devices");
@@ -255,5 +265,37 @@ describePg("cloud-copy bootstrap", () => {
     }
     deployments.failing = undefined;
     expect((await create(who, await proof(who, collection))).statusCode).toBe(200);
+  });
+
+  it("refuses nil identifiers", async () => {
+    const who = await identity();
+    const nil = "00000000-0000-0000-0000-000000000000";
+    expect((await create(who, await proof(who, nil))).statusCode).toBe(400);
+    expect((await create(who, { ...(await proof(who, randomUUID())), device_id: nil })).statusCode).toBe(400);
+  });
+
+  it.each([
+    ["the connector is revoked", (who: Who) => db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [who.connector.id])],
+    ["the account is suspended", (who: Who) => db.query("UPDATE users SET suspended_at = now() WHERE id = $1", [who.connector.user_id])],
+    ["the device is removed", (who: Who) => db.query("DELETE FROM next_devices WHERE id = $1", [who.device])]
+  ])("registers nothing when %s during generation", async (_case, change) => {
+    const who = await identity(); const collection = randomUUID();
+    const payload = await proof(who, collection);
+    deployments.during = async () => { await change(who); };
+    expect((await create(who, payload)).statusCode).toBe(403);
+    expect(await registered(collection)).toBe(false);
+  });
+
+  it("mints nothing when the collection leaves sync or the connector is revoked while the log is read back", async () => {
+    const left = await identity(); const leaving = randomUUID();
+    log.onRead = async () => { await db.query("UPDATE next_collections SET left_sync_at = now() WHERE collection_id = $1", [leaving]); };
+    const a = await create(left, await proof(left, leaving));
+    expect(a.statusCode).toBe(409);
+    expect(a.body).not.toContain("token");
+    const revoked = await identity(); const collection = randomUUID();
+    log.onRead = async () => { await db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [revoked.connector.id]); };
+    const b = await create(revoked, await proof(revoked, collection));
+    expect(b.statusCode).toBe(403);
+    expect(b.body).not.toContain("token");
   });
 });
