@@ -1,0 +1,9 @@
+{
+  "reason": "The ordinary owner path to create a cloud-copy collection is one feature module: device-signed proof against the existing challenge table, service-device generation through the C1 client, and genesis through registerNextCollection. It reuses the policy outbox, emitter and log client and adds no transport or credential store; app.ts mounts it only with MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 9,
+    "typeScriptExportDeclarations": 2,
+    "services/server": 1
+  }
+}
