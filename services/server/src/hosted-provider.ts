@@ -689,22 +689,29 @@ export class HostedProviderClient {
     ) as HostedAuthorityTransfer;
   }
 
-  async completeAuthorityTransfer(
-    transferId: string,
-    manifestDigest: string
-  ): Promise<HostedAuthorityTransfer> {
-    return await this.request(
-      "POST",
-      `/internal/v1/authority-transfers/${encodeURIComponent(transferId)}`,
-      { manifest_digest: manifestDigest }
-    ) as HostedAuthorityTransfer;
+  async completeAuthorityTransfer(transferId: string, manifestDigest: string): Promise<HostedAuthorityTransfer> {
+    return await this.request("POST", `/internal/v1/authority-transfers/${encodeURIComponent(transferId)}`,
+      { manifest_digest: manifestDigest }) as HostedAuthorityTransfer;
   }
 
   async abortAuthorityTransfer(transferId: string): Promise<HostedAuthorityTransfer> {
-    return await this.request(
-      "DELETE",
-      `/internal/v1/authority-transfers/${encodeURIComponent(transferId)}`
-    ) as HostedAuthorityTransfer;
+    return await this.request("DELETE", `/internal/v1/authority-transfers/${encodeURIComponent(transferId)}`) as HostedAuthorityTransfer;
+  }
+
+  async expireAuthorityTransfer(transferId: string, collectionId: string, authorityEpoch: number): Promise<void> {
+    const result = await this.request("POST", `/internal/v1/authority-transfers/${encodeURIComponent(transferId)}/expire`, {
+      collection_id: collectionId, authority_epoch: authorityEpoch
+    });
+    z.object({ id: z.literal(transferId), collection_id: z.literal(collectionId),
+      authority_epoch: z.literal(authorityEpoch), state: z.literal("aborted") }).passthrough().parse(result);
+  }
+
+  async expireAuthorityImport(transferId: string, collectionId: string, authorityEpoch: number): Promise<void> {
+    const result = await this.request("POST", `/internal/v1/authority-imports/${encodeURIComponent(transferId)}/expire`, {
+      collection_id: collectionId, authority_epoch: authorityEpoch
+    });
+    z.object({ transfer_id: z.literal(transferId), collection_id: z.literal(collectionId),
+      authority_epoch: z.literal(authorityEpoch), expired: z.literal(true) }).strict().parse(result);
   }
 
   async prepareAuthorityImport(input: {
@@ -727,12 +734,7 @@ export class HostedProviderClient {
     }) as AuthorityImport;
   }
 
-  async completeAuthorityImport(
-    transferId: string,
-    manifestDigest: string,
-    sourceRevision: string,
-    options?: HostedProviderOperationOptions
-  ): Promise<AuthorityImport> {
+  async completeAuthorityImport(transferId: string, manifestDigest: string, sourceRevision: string, options?: HostedProviderOperationOptions): Promise<AuthorityImport> {
     const operation = requiredOperation(options);
     const complete = () => this.request(
       "POST",
@@ -758,10 +760,7 @@ export class HostedProviderClient {
   }
 
   async abortAuthorityImport(transferId: string): Promise<AuthorityImport> {
-    return await this.request(
-      "DELETE",
-      `/internal/v1/authority-imports/${encodeURIComponent(transferId)}`
-    ) as AuthorityImport;
+    return await this.request("DELETE", `/internal/v1/authority-imports/${encodeURIComponent(transferId)}`) as AuthorityImport;
   }
 
   private async request(
