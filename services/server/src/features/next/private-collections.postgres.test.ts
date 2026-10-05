@@ -10,6 +10,7 @@ import { LogServiceClient } from "./log-service-client.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./policy-keys.js";
 import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { certDigest, chainHash, decodeCbor, encodeCbor, keyId, type Cbor, type Decoded, type PolicyOp } from "./policy-wire.js";
+import { inTransaction, refuse } from "./bootstrap-common.js";
 import { privateCreateDigest, privateDeviceEnrolDigest, registerPrivateCollectionRoutes } from "./private-collections.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -194,6 +195,30 @@ describePg("private collections", () => {
     expect(again.statusCode, again.body).toBe(200);
     expect(again.json().genesis).toEqual(first.genesis);
     expect(log.logs.get(collection.replaceAll("-", ""))!.length).toBe(1);
+  });
+
+  it("bounds every statement and lock wait in its transactions, and answers busy on either timeout", async () => {
+    const settings = await inTransaction(db, async (c) => (await c.query<{ s: string; l: string }>(
+      "SELECT current_setting('statement_timeout') AS s, current_setting('lock_timeout') AS l"
+    )).rows[0]);
+    expect(settings).toEqual({ s: "5s", l: "5s" });
+    const timedOut = await inTransaction(db, (c) => c.query("SET LOCAL statement_timeout = '10ms'").then(() => c.query("SELECT pg_sleep(1)")))
+      .then(() => undefined, (error: unknown) => error);
+    expect((timedOut as { code?: string }).code).toBe("57014");
+    for (const code of ["55P03", "57014"]) {
+      const reply = Fastify();
+      reply.get("/", (_req, r) => refuse(r, Object.assign(new Error("timeout"), { code }), "retry"));
+      const res = await reply.inject({ method: "GET", url: "/" });
+      expect([res.statusCode, res.json().error.code]).toEqual([503, "busy"]);
+      await reply.close();
+    }
+  });
+
+  it("a retry mints nothing once the owner account is removed, even while the removal is pending", async () => {
+    const who = await identity();
+    const collection = await created(who);
+    await queue(collection, [{ op: "member-remove", account: who.connector.user_id }]);
+    expect((await create(who, await createProof(who, collection))).json().error.code).toBe("not_member");
   });
 
   it("refuses other devices, other owners, cloud copies and collections that left sync", async () => {

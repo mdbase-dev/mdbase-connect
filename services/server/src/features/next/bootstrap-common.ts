@@ -15,8 +15,8 @@ export const NIL = SERVICE_ACCOUNT;
 export interface Proof { device_id: string; challenge: string; sig: string }
 export interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: "desktop" | "cli" }
 export type Connector = { id: string; user_id: string };
-/** PostgreSQL lock_timeout: another request holds the rows; answer busy, never the driver error. */
-export const isLockTimeout = (error: unknown) => (error as { code?: unknown } | null)?.code === "55P03";
+/** PostgreSQL lock_timeout or statement_timeout: answer busy (fail closed), never the driver error. */
+export const isLockTimeout = (error: unknown) => ["55P03", "57014"].includes(String((error as { code?: unknown } | null)?.code));
 
 export class CreateError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -87,6 +87,8 @@ export async function inTransaction<T>(db: DatabasePool, run: (client: DatabaseC
     // Bounded: no request waits on another's locks for long. Network calls never run
     // inside these transactions.
     await client.query("SET LOCAL lock_timeout = '5s'");
+    // Every statement is bounded too: no history scan holds share locks for long.
+    await client.query("SET LOCAL statement_timeout = '5s'");
     const result = await run(client);
     await client.query("COMMIT");
     return result;

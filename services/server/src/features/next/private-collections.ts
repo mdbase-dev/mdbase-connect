@@ -141,6 +141,9 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
       return await inTransaction(options.db, async (client) => {
         await currentIdentity(client, connector, body.device_id, device);
         await currentPrivate(client, collection, connector.user_id);
+        // Ownership and a historical genesis are not membership: the owner account
+        // must still be a current member (a member-remove counts even while pending).
+        await currentMember(client, collection, connector.user_id);
         await refuseRevoked(client, collection, body.device_id);
         // The requesting device must be the one the genesis enrolled, with the same keys.
         const enrolled = await client.query(
@@ -154,7 +157,9 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
           log_url: options.next.logService.url, head: { seq: head.seq, chain: Buffer.from(head.chain).toString("hex") },
           root_public_key: Buffer.from(options.next.rootPublicKey).toString("hex"), policy_cert: options.next.policyCert,
           genesis: { seq: 1, item: genesis.item.toString("hex") },
-          // Advisory: this device signs the initial rekey, wrapped to itself only.
+          // Advisory: the creating owner device is an editor user device, the legal
+          // initial-rekey signer in e2e (never hosted or escrow); at genesis it is
+          // the only active device, so it wraps the first epoch key to itself.
           rekey_recipients: [body.device_id],
           device: mint(body.device_id, device.sign_pk, collection)
         };
