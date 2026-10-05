@@ -1,10 +1,11 @@
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
+import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
-import { cloudCopyCreateDigest, registerCloudCopyRoutes } from "./cloud-copy-bootstrap.js";
+import { cloudCopyCreateDigest, cloudCopyJoinDigest, registerCloudCopyRoutes } from "./cloud-copy-bootstrap.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { collectionDirectory } from "./hosted-routes.js";
 import { LogServiceClient } from "./log-service-client.js";
@@ -61,10 +62,10 @@ function configuration(): NextControlPlaneConfig {
   };
 }
 
-/** The log service, holding genesis only. */
+/** The log service: control items per collection, with create, append, head and read. */
 class Log {
-  readonly logs = new Map<string, Buffer>();
-  /** Runs once, while the route awaits the log's read-back of genesis. */
+  readonly logs = new Map<string, Buffer[]>();
+  /** Runs once, while the route awaits a read-back. */
   onRead: (() => Promise<void>) | undefined;
   readonly fetch: typeof fetch = async (input, init) => {
     if (String(input).endsWith("/v1/nonce")) return new Response("ab".repeat(32));
@@ -72,19 +73,32 @@ class Log {
     const method = field(frame, 2);
     const params = field(frame, 3)!;
     const id = hex(field(params, 0) as Uint8Array);
+    const items = this.logs.get(id);
+    const chain = () => chainHash(items![items!.length - 1]!);
     let result: Cbor;
     if (method === "create_log") {
-      this.logs.set(id, Buffer.from(field(params, 1) as Uint8Array));
-      result = { struct: [[0, 1], [1, chainHash(this.logs.get(id)!)]] };
+      if (!items) this.logs.set(id, [Buffer.from(field(params, 1) as Uint8Array)]);
+      result = { struct: [[0, 1], [1, chainHash(this.logs.get(id)![0]!)]] };
     } else if (method === "head") {
-      result = { struct: [[0, 1], [1, chainHash(this.logs.get(id)!)], [2, 1]] };
+      result = { struct: [[0, items!.length], [1, chain()], [2, 1]] };
+    } else if (method === "append") {
+      const expect = field(params, 1) as number;
+      const prev = Buffer.from(field(params, 2) as Uint8Array);
+      if (expect !== items!.length + 1 || !prev.equals(Buffer.from(chain()))) {
+        result = { struct: [[0, 1], [1, items!.length], [2, chain()]] };
+      } else {
+        const added = (field(params, 3) as Uint8Array[]).map((b) => Buffer.from(b));
+        items!.push(...added);
+        result = { struct: [[0, 0], [1, expect], [2, items!.length]] };
+      }
     } else if (method === "read") {
       const hook = this.onRead;
       this.onRead = undefined;
       await hook?.();
-      const genesis = this.logs.get(id);
-      if (!genesis) return new Response(encodeCbor({ struct: [[0, 1], [1, 1], [3, { struct: [[0, "not_found"]] }]] }));
-      result = { struct: [[0, [[1, genesis]]]] };
+      if (!items) return new Response(encodeCbor({ struct: [[0, 1], [1, 1], [3, { struct: [[0, "not_found"]] }]] }));
+      const after = field(params, 1) as number;
+      const limit = field(params, 2) as number;
+      result = { struct: [[0, items.slice(after, after + limit).map((item, i) => [after + i + 1, item])]] };
     } else throw new Error("unexpected log operation");
     return new Response(encodeCbor({ struct: [[0, 1], [1, 1], [2, result]] }), { headers: { "content-type": "application/vnd.mdbase.v1+cbor" } });
   };
@@ -140,6 +154,7 @@ describePg("cloud-copy bootstrap", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     const emitter = new PolicyEmitter(db, client, loadPolicySigner(config, Date.now()));
+    await app.register(cookie);
     registerCloudCopyRoutes(app, { db, next: config, emitter, log: client, fetchImpl: deployments.fetch });
   }, 60_000);
   afterAll(async () => {
@@ -318,4 +333,106 @@ describePg("cloud-copy bootstrap", () => {
     }
     expect(await registered(collection)).toBe(false);
   }, 20_000);
+
+  // ---- Service-created cloud copy and device join (Callum, 2026-10-06) ----
+
+  async function session(user: string) {
+    const token = randomUUID();
+    await db.query(
+      `INSERT INTO sessions (id, user_id, token_hash, provider, account_session_epoch, expires_at)
+       VALUES ($1, $2, $3, 'password', COALESCE((SELECT session_epoch FROM users WHERE id = $2), 1), now() + interval '1 day')`,
+      [randomUUID(), user, tokenHash(token)]
+    );
+    await db.query("UPDATE users SET session_epoch = COALESCE(session_epoch, 1) WHERE id = $1", [user]);
+    return { cookie: `mdbase_session=${token}` };
+  }
+  const serviceCreate = (headers: Record<string, string>, collection: string) =>
+    app.inject({ method: "POST", url: "/v1/next/collections/cloud-copy/service", headers, payload: { collection_id: collection } });
+  async function joinProof(who: Who, collection: string) {
+    const { challenge } = await issueDeviceChallenge(db, who.connector.id);
+    const digest = cloudCopyJoinDigest({ challenge: Buffer.from(challenge, "hex"), connector: who.connector.id, device: who.device, collection });
+    return { device_id: who.device, challenge, sig: hex(sign(null, digest, who.key)) };
+  }
+  const join = (who: Who, collection: string, payload: unknown) =>
+    app.inject({ method: "POST", url: `/v1/next/collections/${collection}/devices`, headers: who.headers, payload });
+  const genesisOps = (item: string) => field(decodeCbor(field(decodeCbor(Buffer.from(item, "hex")), 11) as Uint8Array), 3) as Decoded[];
+
+  it("service-creates a cloud copy for an account with no device: genesis enrols hosted and escrow only", async () => {
+    const who = await identity(); const collection = randomUUID();
+    const headers = await session(who.connector.user_id);
+    const response = await serviceCreate(headers, collection);
+    expect(response.statusCode, response.body).toBe(200);
+    const result = response.json();
+    expect(result).toMatchObject({ collection_id: collection, state: "cloud-copy", owner_account: who.connector.user_id, first_member: "hosted" });
+    expect(result.device).toBeUndefined();
+    const ops = genesisOps(result.genesis.item);
+    expect(ops.map((op) => field(op, 0))).toEqual([1, 4, 2, 2]);
+    expect(field(ops[0]!, 3)).toBe(1);
+    expect(ops.slice(2).map((op) => [hex(field(op, 2) as Uint8Array), field(op, 3)])).toEqual([[ZERO_ACCOUNT, 4], [ZERO_ACCOUNT, 5]]);
+    expect(response.body).not.toContain(deployments.devices.get(`hosted/${collection}`)!.wrapped_keys);
+    const calls = deployments.calls;
+    expect((await serviceCreate(headers, collection)).statusCode).toBe(200);
+    expect(deployments.calls).toBe(calls);
+  });
+
+  it("refuses service-creation without a session, for a suspended account, or over someone else's collection", async () => {
+    const who = await identity(); const other = await identity();
+    expect((await serviceCreate({}, randomUUID())).statusCode).toBe(401);
+    const taken = randomUUID();
+    expect((await serviceCreate(await session(other.connector.user_id), taken)).statusCode).toBe(200);
+    expect((await serviceCreate(await session(who.connector.user_id), taken)).statusCode).toBe(409);
+    const headers = await session(who.connector.user_id);
+    const collection = randomUUID();
+    deployments.during = async () => { await db.query("UPDATE users SET suspended_at = now() WHERE id = $1", [who.connector.user_id]); };
+    expect((await serviceCreate(headers, collection)).statusCode).toBe(403);
+    expect(await registered(collection)).toBe(false);
+  });
+
+  it("enrols the owner's registered device into a cloud copy and mints its token", async () => {
+    const who = await identity(); const collection = randomUUID();
+    expect((await serviceCreate(await session(who.connector.user_id), collection)).statusCode).toBe(200);
+    const response = await join(who, collection, await joinProof(who, collection));
+    expect(response.statusCode, response.body).toBe(200);
+    const result = response.json();
+    expect(result.enrolled_at).toBe(2);
+    const claims = decodeCbor(Buffer.from(result.device.token.split(".")[0], "hex"));
+    expect(hex(field(claims, 1) as Uint8Array)).toBe(who.device.replaceAll("-", ""));
+    expect(hex(field(claims, 5) as Uint8Array)).toBe(collection.replaceAll("-", ""));
+    const item = await client.controlItemAt(collection, 2);
+    const ops = field(decodeCbor(field(decodeCbor(item!), 11) as Uint8Array), 3) as Decoded[];
+    expect(ops.map((op) => [field(op, 0), hex(field(op, 1) as Uint8Array), hex(field(op, 2) as Uint8Array), field(op, 3)]))
+      .toEqual([[2, who.device.replaceAll("-", ""), who.connector.user_id.replaceAll("-", ""), 0]]);
+    // Idempotent for the same device and keys: no second enrolment.
+    const again = await join(who, collection, await joinProof(who, collection));
+    expect(again.statusCode, again.body).toBe(200);
+    expect(again.json().enrolled_at).toBe(2);
+  });
+
+  it("never enrols a device into a private collection, someone else's, or one that left sync", async () => {
+    const who = await identity();
+    const priv = randomUUID();
+    await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','private',$3)", [priv, who.connector.user_id, Buffer.from(config.policyCert.root_key_id, "hex")]);
+    expect((await join(who, priv, await joinProof(who, priv))).statusCode).toBe(409);
+    expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id = $1", [priv])).rows).toHaveLength(0);
+    const theirs = randomUUID(); const owner = await identity();
+    expect((await serviceCreate(await session(owner.connector.user_id), theirs)).statusCode).toBe(200);
+    expect((await join(who, theirs, await joinProof(who, theirs))).statusCode).toBe(409);
+    const left = randomUUID();
+    expect((await serviceCreate(await session(who.connector.user_id), left)).statusCode).toBe(200);
+    await db.query("UPDATE next_collections SET left_sync_at = now() WHERE collection_id = $1", [left]);
+    expect((await join(who, left, await joinProof(who, left))).statusCode).toBe(409);
+  });
+
+  it("needs a fresh join proof bound to the collection, and mints nothing once revoked", async () => {
+    const who = await identity(); const collection = randomUUID(); const other = randomUUID();
+    expect((await serviceCreate(await session(who.connector.user_id), collection)).statusCode).toBe(200);
+    const proofFor = await joinProof(who, other);
+    expect((await join(who, collection, proofFor)).statusCode).toBe(403);
+    const createProof = await proof(who, collection);
+    expect((await join(who, collection, { device_id: createProof.device_id, challenge: createProof.challenge, sig: createProof.sig })).statusCode).toBe(403);
+    log.onRead = async () => { await db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [who.connector.id]); };
+    const revoked = await join(who, collection, await joinProof(who, collection));
+    expect(revoked.statusCode).toBe(403);
+    expect(revoked.body).not.toContain("token");
+  });
 });

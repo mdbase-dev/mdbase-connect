@@ -524,7 +524,7 @@ export async function buildApp(options: BuildOptions) {
     registerNextDeviceRoutes(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
-    if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog });
+    if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, tailscaleAuth: options.tailscaleAuth });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
     registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
