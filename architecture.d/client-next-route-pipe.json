@@ -1,0 +1,9 @@
+{
+  "reason": "Coordinator-approved minimal mdbase-next bridge (client.next.route/openPipe, control contracts pinned to Connect #600/#604). Three internal modules (route decode/provenance, relay pipe admission, the opt-in /next entry) keep the retained access token inside the client; callers get route metadata and an authenticated byte duplex only. A separate /next entry keeps it out of the classic browser bundle (unchanged size).",
+  "growth": {
+    "productionFiles": 3,
+    "relativeImports": 12,
+    "typeScriptExportDeclarations": 12,
+    "packages/client": 3
+  }
+}
