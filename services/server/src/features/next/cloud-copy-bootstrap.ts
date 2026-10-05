@@ -24,6 +24,9 @@ const NIL = SERVICE_ACCOUNT;
 
 interface Body { collection_id: string; device_id: string; challenge: string; sig: string }
 interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: "desktop" | "cli" }
+/** PostgreSQL lock_timeout: another request holds the rows; answer busy, never the driver error. */
+const isLockTimeout = (error: unknown) => (error as { code?: unknown } | null)?.code === "55P03";
+
 class CreateError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
 }
@@ -87,6 +90,9 @@ async function inTransaction<T>(db: DatabasePool, run: (client: DatabaseConnecti
   const client = await db.connect();
   try {
     await client.query("BEGIN");
+    // Bounded: no request waits on another's locks for long. Network calls never run
+    // inside these transactions.
+    await client.query("SET LOCAL lock_timeout = '5s'");
     const result = await run(client);
     await client.query("COMMIT");
     return result;
@@ -166,6 +172,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
         const status = error.status === 502 ? 503 : error.status;
         return reply.code(status).send(apiError(error.code, "The cloud copy was not created; retry with a fresh proof."));
       }
+      if (isLockTimeout(error)) return reply.code(503).send(apiError("busy", "The cloud copy was not created; retry with a fresh proof."));
       throw error;
     }
     try {

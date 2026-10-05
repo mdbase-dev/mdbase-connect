@@ -298,4 +298,24 @@ describePg("cloud-copy bootstrap", () => {
     expect(b.statusCode).toBe(403);
     expect(b.body).not.toContain("token");
   });
+
+  it("answers busy, registering nothing, when another request holds the collection lock", async () => {
+    const who = await identity(); const collection = randomUUID();
+    const holder = await admin.connect();
+    try {
+      await holder.query(`SET search_path = "${schema}"`);
+      await holder.query("BEGIN");
+      await holder.query("SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text, 20261005))", [collection]);
+      const started = Date.now();
+      const response = await create(who, await proof(who, collection));
+      expect(response.statusCode).toBe(503);
+      expect(response.json().error.code).toBe("busy");
+      expect(Date.now() - started).toBeLessThan(9_000);
+      expect(response.body).not.toMatch(/lock timeout|canceling statement/i);
+    } finally {
+      await holder.query("ROLLBACK").catch(() => undefined);
+      holder.release();
+    }
+    expect(await registered(collection)).toBe(false);
+  }, 20_000);
 });
