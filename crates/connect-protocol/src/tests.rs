@@ -792,6 +792,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             lease_issued_at_ms: Some(1_700_000_000_000),
             lease_expires_at_ms: Some(1_700_000_060_000),
             grants: vec![GrantPolicy {
+                account_id: None,
                 application_declaration: None,
                 id: ids[1],
                 application_id: ids[3],
@@ -829,6 +830,36 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
     ] {
         assert_schema("", serde_json::to_value(message).unwrap());
     }
+}
+
+#[test]
+fn optional_account_identity_preserves_legacy_and_roundtrips_without_default_advertising() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../test-fixtures/protocol-v1-policy-canonical.json"
+    ))
+    .unwrap();
+    let original = &fixture["normalized_wire_body"]["grants"][0];
+    let mut grant: GrantPolicy = serde_json::from_value(original.clone()).unwrap();
+    assert_eq!(grant.account_id, None);
+    let legacy = serde_json::to_value(&grant).unwrap();
+    assert!(legacy.get("account_id").is_none());
+    grant.account_id = Some(Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap());
+    let with_account = serde_json::to_value(&grant).unwrap();
+    assert_eq!(
+        with_account["account_id"],
+        "11111111-1111-4111-8111-111111111111"
+    );
+    assert_eq!(
+        serde_json::from_value::<GrantPolicy>(with_account.clone())
+            .unwrap()
+            .account_id,
+        grant.account_id
+    );
+    let mut restored = with_account;
+    restored.as_object_mut().unwrap().remove("account_id");
+    assert_eq!(restored, legacy);
+    assert!(!RELAY_REQUIRED_CAPABILITIES.contains(&NEXT_ACCOUNT_CAPABILITY));
+    assert!(!RELAY_CAPABILITIES.contains(&NEXT_ACCOUNT_CAPABILITY));
 }
 
 #[test]
@@ -883,6 +914,7 @@ fn portable_policy_keeps_v1_and_the_exact_opaque_origin() {
         lease_issued_at_ms: Some(1_700_000_000_000),
         lease_expires_at_ms: Some(1_700_000_060_000),
         grants: vec![GrantPolicy {
+            account_id: None,
             application_declaration: None,
             id: ids[0],
             application_id: ids[1],

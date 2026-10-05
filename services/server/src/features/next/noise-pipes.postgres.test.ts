@@ -3,7 +3,7 @@ import { generateKeyPairSync as keyPair, randomBytes, randomUUID, sign } from "n
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import { CONNECT_CONTRACT_SUPPORT } from "@mdbase-dev/connect-protocol";
+import { CONNECT_CONTRACT_SUPPORT, NEXT_ACCOUNT_CAPABILITY, RELAY_REQUIRED_CAPABILITIES } from "@mdbase-dev/connect-protocol";
 import { buildApp } from "../../app.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import Fastify from "fastify";
@@ -118,12 +118,13 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
   }
 
   let lastGeneration = "";
-  async function daemon(bind = true, noisePipes = true): Promise<WebSocket> {
+  async function daemon(bind = true, noisePipes = true, accountMode = false, onPolicy?: (message: Record<string, unknown>) => void): Promise<WebSocket> {
     const socket = new WebSocket(`${base}/v1/relay`, { headers: { authorization: `Bearer ${connectorToken}` } });
     socket.on("message", (data: Buffer, binary: boolean) => {
       if (binary) return;
       const message = JSON.parse(data.toString()) as Record<string, unknown>;
       if (message.type === "policy_snapshot") {
+        onPolicy?.(message);
         socket.send(JSON.stringify({ type: "policy_applied", protocol_version: 1, request_id: message.request_id, revision: message.revision, ok: true }));
       }
     });
@@ -131,7 +132,7 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
     const welcome = next(socket, json("relay_welcome"));
     socket.send(JSON.stringify({
       type: "relay_hello", protocol_version: 1, connector_version: "0.1.0-test",
-      capabilities: ["application-authorization-v4", "authorization-activation", "encrypted-relay", "policy-ack", "policy-freshness-lease-v1", "next_device_v1", ...(noisePipes ? ["noise_pipe_v1"] : [])],
+      capabilities: ["application-authorization-v4", "authorization-activation", "encrypted-relay", "policy-ack", "policy-freshness-lease-v1", "next_device_v1", ...(noisePipes ? ["noise_pipe_v1"] : []), ...(accountMode ? [NEXT_ACCOUNT_CAPABILITY] : [])],
       contract_support: CONNECT_CONTRACT_SUPPORT
     }));
     const { session_id: sessionId, device_nonce: nonce } = await welcome as { session_id: string; device_nonce: string };
@@ -189,6 +190,34 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
 
     const [offlineCode, offlineReason] = await once(offline, "close");
     expect([offlineCode, offlineReason.toString()]).toEqual([4404, "connector_offline"]);
+  });
+
+  it.each(["next_device_v1", "policy-freshness-lease-v1"])("rejects a next account WebSocket missing %s before any policy", async (missing) => {
+    const socket = new WebSocket(`${base}/v1/relay`, { headers: { authorization: `Bearer ${connectorToken}` } });
+    const observed: Array<{ type: string; code?: string }> = [];
+    socket.on("message", (raw) => { observed.push(JSON.parse(raw.toString())); });
+    await once(socket, "open");
+    socket.send(JSON.stringify({ type: "relay_hello", protocol_version: 1, connector_version: "0.1.0-beta.114", contract_support: CONNECT_CONTRACT_SUPPORT,
+      capabilities: [...RELAY_REQUIRED_CAPABILITIES, NEXT_ACCOUNT_CAPABILITY, "next_device_v1", "policy-freshness-lease-v1"].filter((cap) => cap !== missing) }));
+    const [code] = await once(socket, "close");
+    expect(code).toBe(4406);
+    expect(observed.some((message) => message.type === "relay_incompatible" && message.code === "capability_contract_incompatible")).toBe(true);
+    expect(observed.some((message) => message.type === "policy_snapshot")).toBe(false);
+  });
+
+  it("sends account only to an explicitly negotiated next account WebSocket", async () => {
+    let snapshot: Record<string, unknown> | undefined;
+    const socket = await daemon(true, true, true, (message) => { snapshot = message; });
+    try {
+      await expect.poll(() => snapshot).toBeDefined();
+      expect((snapshot!.grants as Array<{ account_id: string }>)[0]!.account_id).toBe(ids.user);
+    } finally { socket.close(); await once(socket, "close"); }
+    let oldSnapshot: Record<string, unknown> | undefined;
+    const old = await daemon(true, true, false, (message) => { oldSnapshot = message; });
+    try {
+      await expect.poll(() => oldSnapshot).toBeDefined();
+      expect((oldSnapshot!.grants as object[])[0]!).not.toHaveProperty("account_id");
+    } finally { old.close(); await once(old, "close"); }
   });
 
   it("reports actual device reachability across HTTP instances, without opening a pipe", async () => {

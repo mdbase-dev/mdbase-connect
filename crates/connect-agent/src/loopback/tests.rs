@@ -1558,6 +1558,7 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
         },
     );
     let grant = GrantPolicy {
+        account_id: None,
         application_declaration: None,
         id: grant_id,
         application_id,

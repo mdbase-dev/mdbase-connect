@@ -72,6 +72,8 @@ pub const YAML_DOCUMENT_RECORDS_CAPABILITY: &str = "yaml-document-records-v1";
 pub const FILE_RELAY_CAPABILITY: &str = "file-relay-v1";
 pub const PROTOCOL_USAGE_REPORT_CAPABILITY: &str = "protocol-usage-report-v1";
 pub const POLICY_FRESHNESS_LEASE_CAPABILITY: &str = "policy-freshness-lease-v1";
+/// Opt-in account-bound next policies; not advertised by typed legacy clients.
+pub const NEXT_ACCOUNT_CAPABILITY: &str = "next_account_v1";
 pub const POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION: &str = "0.1.0-beta.91";
 /// Beta baseline requirements. Advertised capabilities may be optional bridges.
 pub const RELAY_REQUIRED_CAPABILITIES: &[&str] = &[

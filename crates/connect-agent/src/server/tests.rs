@@ -917,6 +917,7 @@ schema:
         security.proof.verify().unwrap();
     }
     let grant = GrantPolicy {
+        account_id: None,
         application_declaration: Some(declaration),
         id: Uuid::new_v4(),
         application_id,
@@ -1062,6 +1063,7 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
     );
     registry
         .replace_grants(&[GrantPolicy {
+            account_id: None,
             application_declaration: None,
             id: grant_id,
             application_id,
@@ -1201,6 +1203,7 @@ fn unauthorized_legacy_mutation_fails_before_replay_or_collection_write() {
     let compatible = crate::test_support::application_security(security_params());
     registry
         .replace_grants(&[GrantPolicy {
+            account_id: None,
             application_declaration: None,
             id: grant_id,
             application_id,
