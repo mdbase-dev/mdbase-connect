@@ -57,9 +57,9 @@ export function parseServiceDevice(value: unknown): ServiceDeviceRecord {
   const sign = Buffer.from(parsed.data.sign_pk, "hex");
   const kem = Buffer.from(parsed.data.kem_pk, "hex");
   const noise = Buffer.from(parsed.data.noise_pk, "hex");
-  // Escrow never holds a Noise session, so its Noise key is all zero; hosted's must be a real key.
-  const noiseOk = parsed.data.kind === "escrow" ? noise.equals(Buffer.alloc(32)) : !weakAgreementKey(noise);
-  if (weakSigningKey(sign) || weakAgreementKey(kem) || !noiseOk) {
+  // Policy (replica policy.rs, policy.md §6.4) voids an all-zero noise_pk for every
+  // kind but recovery, so escrow too enrols a real X25519 key, which it never serves.
+  if (weakSigningKey(sign) || weakAgreementKey(kem) || weakAgreementKey(noise)) {
     throw new ServiceDeviceError(502, "invalid_service_device", "A service device key is weak or misplaced.");
   }
   return {
