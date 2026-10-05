@@ -529,9 +529,10 @@ export async function buildApp(options: BuildOptions) {
   });
   if (options.nextControlPlane) {
     relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
-    registerNextDeviceRoutes(app, { db: options.db, log: new LogServiceClient(options.nextControlPlane.logService) });
+    const nextLog = new LogServiceClient(options.nextControlPlane.logService);
+    registerNextDeviceRoutes(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
-    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens });
+    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
     registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
