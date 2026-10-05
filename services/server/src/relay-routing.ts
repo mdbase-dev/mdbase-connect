@@ -1,12 +1,43 @@
 import type {
   ApplicationProvisions, ApplicationRequirements, CollectionOperation, ConnectProblem, EncryptedRelayEnvelope,
-  EncryptedRelayOperationResponse
+  EncryptedRelayOperationResponse, GrantPolicy, ConnectContractSupport
 } from "@mdbase-dev/connect-protocol";
 import {
-  CONTRACT_SETUP_CAPABILITY, isMutatingOperation, normalizeConnectProblem,
+  APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, NEXT_ACCOUNT_CAPABILITY, CONTRACT_SETUP_CAPABILITY, isMutatingOperation, normalizeConnectProblem,
   RECORD_EXTENSIONS_CONFIGURATION_PATH, YAML_DOCUMENT_RECORDS_CAPABILITY
 } from "@mdbase-dev/connect-protocol";
-import type { RelayBrokerReply } from "./relay-broker.js";
+import type { RelayBrokerReply, RelayBrokerCommand } from "./relay-broker.js";
+import type { DatabaseQueryable } from "./database-types.js";
+import { nextAccountNegotiated, relaySupportsContracts } from "./relay-compatibility.js";
+import { withAccountId } from "./features/next/devices.js";
+import { ConnectorOperationError } from "./relay-errors.js";
+
+/** Exact projection at the serving owner, including cross-instance activation. */
+export async function projectActivationGrant(
+  db: DatabaseQueryable, connectorId: string, command: RelayBrokerCommand,
+  session: { capabilities: string[]; contractSupport: ConnectContractSupport; mode?: "lease_v1" | "legacy_ack_v0" }
+): Promise<{ ok: true; command: RelayBrokerCommand } | { ok: false; reply: RelayBrokerReply }> {
+  const activation = command.message as { grant?: GrantPolicy };
+  const grant = activation.grant;
+  const refused = () => ({ ok: false as const, reply: brokerError("connector", "capability_contract_incompatible", "The selected authority cannot activate this exact authorization contract.") });
+  if (!grant?.application_authorization
+      || !relaySupportsContracts(session, grant.application_authorization.binding.contracts)
+      || (grant.application_authorization.binding.contracts.semantic_capabilities === 2 && grant.application_declaration == null)) return refused();
+  if (session.capabilities.includes(NEXT_ACCOUNT_CAPABILITY)
+      && (!nextAccountNegotiated(session.capabilities) || session.mode !== "lease_v1")) return refused();
+  const { account_id: _untrusted, application_declaration, ...legacyGrant } = grant;
+  let projected: GrantPolicy = session.capabilities.includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY)
+    ? { ...legacyGrant, ...(application_declaration === undefined ? {} : { application_declaration }) } : legacyGrant;
+  if (nextAccountNegotiated(session.capabilities)) {
+    const row = await db.query<{ user_id: string }>(
+      `SELECT g.user_id FROM grants g JOIN collections c ON c.id = g.collection_id
+       WHERE g.id = $1 AND c.connector_id = $2 AND c.local_id = $3 AND g.revoked_at IS NULL`,
+      [grant.id, connectorId, grant.collection_id]);
+    try { projected = withAccountId(projected, row.rows[0]?.user_id); }
+    catch (error) { if (error instanceof ConnectorOperationError) return refused(); throw error; }
+  }
+  return { ok: true, command: { ...command, message: { ...activation, grant: projected } } };
+}
 
 export type ExpectedRelayResponse =
   | "operation_response"

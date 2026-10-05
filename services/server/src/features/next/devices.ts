@@ -13,11 +13,21 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "../../database-types.js";
 import type { RelayBrokerReply } from "../../relay-broker.js";
+import { ConnectorOperationError } from "../../relay-errors.js";
 import { NOISE_PIPE_CAPABILITY, type NoisePipes } from "./noise-pipes.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, uuidBytes } from "./policy-wire.js";
 
 export const NEXT_DEVICE_CAPABILITY = "next_device_v1";
+
+/** Stored consenting identity, not collection/device owner or client metadata. */
+export function withAccountId<T extends object>(grant: T, accountId: unknown): T & { account_id: string } {
+  if (typeof accountId !== "string" || accountId === "00000000-0000-0000-0000-000000000000"
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(accountId)) {
+    throw new ConnectorOperationError("capability_contract_incompatible", "The account-bound grant requires a canonical nonzero account UUID.");
+  }
+  return { ...grant, account_id: accountId };
+}
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 export class DeviceRegistrationError extends Error {

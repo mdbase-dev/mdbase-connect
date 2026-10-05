@@ -544,6 +544,9 @@ pub struct ActivityEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrantPolicy {
+    /// Consenting account UUID; mandatory only in negotiated next_account_v1 mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<Uuid>,
     /// Retained complete normalized JSON; not authority until checked against the signed proof.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub application_declaration: Option<serde_json::Value>,

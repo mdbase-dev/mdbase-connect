@@ -1,0 +1,8 @@
+{
+  "reason": "Explicit opt-in account binding adds a protocol constant/optional legacy wire field and reuses existing negotiation, stored grant projection and serving-owner activation modules. Five imports and three server helpers connect those existing boundaries; no account inference, new endpoint, persisted backend state, default capability or signing hook is added.",
+  "growth": {
+    "relativeImports": 5,
+    "rustPublicDeclarations": 2,
+    "typeScriptExportDeclarations": 4
+  }
+}

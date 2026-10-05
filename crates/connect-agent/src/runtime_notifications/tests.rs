@@ -236,6 +236,7 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
         },
     );
     let policy = GrantPolicy {
+        account_id: None,
         application_declaration: None,
         id: grant_id,
         application_id,
@@ -661,6 +662,7 @@ fn timer_handle_fixture() -> (tempfile::TempDir, CollectionRegistry, GrantSummar
     );
     registry
         .replace_grants(&[GrantPolicy {
+            account_id: None,
             application_declaration: None,
             id: grant_id,
             application_id,

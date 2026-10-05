@@ -7,6 +7,7 @@ import {
   CONNECT_CONTRACT_SUPPORT,
   CONTROL_PROTOCOL_VERSION,
   MINIMUM_CONNECTOR_VERSION,
+  NEXT_ACCOUNT_CAPABILITY,
   POLICY_FRESHNESS_LEASE_CAPABILITY,
   POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION,
   RELAY_REQUIRED_CAPABILITIES
@@ -99,19 +100,27 @@ export function relayContractMismatch(
   return undefined;
 }
 
+export function nextAccountNegotiated(capabilities: readonly string[]): boolean {
+  return capabilities.includes(NEXT_ACCOUNT_CAPABILITY)
+    && capabilities.includes("next_device_v1")
+    && capabilities.includes(POLICY_FRESHNESS_LEASE_CAPABILITY);
+}
+
 export function relayCapabilityMismatch(
-  capabilities: readonly string[]
+  capabilities: readonly string[], nextDevicesEnabled = false
 ): RelayContractMismatch | undefined {
-  const missing = RELAY_REQUIRED_CAPABILITIES.filter(
-    (capability) => !capabilities.includes(capability)
-  );
-  return missing.length === 0
+  const accountMode = capabilities.includes(NEXT_ACCOUNT_CAPABILITY);
+  const required = accountMode
+    ? [...RELAY_REQUIRED_CAPABILITIES, "next_device_v1", POLICY_FRESHNESS_LEASE_CAPABILITY]
+    : RELAY_REQUIRED_CAPABILITIES;
+  const missing = required.filter((capability) => !capabilities.includes(capability));
+  return missing.length === 0 && (!accountMode || nextDevicesEnabled)
     ? undefined
     : {
         code: "capability_contract_incompatible",
         details: {
           contract: "relay_capability",
-          required: [...RELAY_REQUIRED_CAPABILITIES],
+          required: [...required],
           supported: [...capabilities],
           peer: "connector"
         }

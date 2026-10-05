@@ -44,6 +44,7 @@ pub(super) fn signed_test_grant(
         })
         .unwrap();
     GrantPolicy {
+        account_id: None,
         application_declaration: None,
         id: Uuid::new_v4(),
         application_id: binding.application_id,

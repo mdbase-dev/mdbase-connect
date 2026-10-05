@@ -233,7 +233,7 @@ export function registerConnectorPairingRoutes(
         }
       );
       await connection.query("COMMIT");
-      return { status: "paired", connector: connector.rows[0], token };
+      return { status: "paired", account_id: pending.user_id, connector: connector.rows[0], token };
     } catch (error) {
       await connection.query("ROLLBACK");
       throw error;
