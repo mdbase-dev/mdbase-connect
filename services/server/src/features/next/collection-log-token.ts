@@ -11,8 +11,9 @@
 // one transaction under share locks (connector, account, device, collection):
 // - the connector, account and device are current, with the device's exact keys;
 // - the collection is a current synced collection on the next runtime (not left);
-// - the account is a current member: its last membership op is an acknowledged
-//   member-set (a member-remove counts even while pending);
+// - the account is a current member: its latest effective membership op (outbox
+//   order, then op order) is an acknowledged member-set; a member-remove counts even
+//   while pending (one projected row, statement-bounded);
 // - an enrolment of exactly this device (account, kind, sign/KEM/Noise keys) is in
 //   an appended policy batch: acknowledged by the log, not merely queued;
 // - no device-revoke for this device exists, appended or pending.
@@ -40,7 +41,8 @@ export function collectionLogTokenDigest(input: { challenge: Uint8Array; connect
   return domainHash("mdbase/v1/collection-log-token", encodeCbor([input.challenge, uuidBytes(input.connector), uuidBytes(input.device), uuidBytes(input.collection)]));
 }
 
-const isLockTimeout = (error: unknown) => (error as { code?: unknown } | null)?.code === "55P03";
+// Lock and statement timeouts fail closed as a retryable refusal.
+const isLockTimeout = (error: unknown) => ["55P03", "57014"].includes(String((error as { code?: unknown } | null)?.code));
 
 export function registerCollectionLogTokenRoute(app: FastifyInstance, options: {
   db: DatabasePool; log: Pick<LogServiceClient, "mintToken">; now?: () => number;
@@ -67,6 +69,7 @@ export function registerCollectionLogTokenRoute(app: FastifyInstance, options: {
     try {
       await client.query("BEGIN");
       await client.query("SET LOCAL lock_timeout = '5s'");
+      await client.query("SET LOCAL statement_timeout = '5s'");
       const answer = await refresh(client, connector, collection, device, request.body, options);
       await client.query("COMMIT");
       return answer;
@@ -133,23 +136,25 @@ async function refresh(
     [collection, tuple]
   );
   if (!enrolled.rows.length) throw new Refused(409, "not_enrolled");
-  // The account is a current member: its last membership op, in outbox order, is a
-  // member-set acknowledged by the log. A member-remove counts even while pending.
-  const membership = await client.query<{ ops: { ops: Array<{ op: string; account?: string }> }; state: string | null }>(
-    `SELECT o.ops, b.state FROM next_policy_outbox o LEFT JOIN next_policy_batches b ON b.id = o.batch_id
-     WHERE o.collection_id = $1 AND (o.ops->'ops' @> $2::jsonb OR o.ops->'ops' @> $3::jsonb)
-     ORDER BY o.id`,
+  // The account is a current member: its latest effective membership op, in outbox
+  // order then op order within the batch, is a member-set acknowledged by the log.
+  // A member-remove is effective even while pending; a pending member-set is not.
+  // One row at most, projected in SQL.
+  const latest = await client.query<{ op: string }>(
+    `SELECT e.value->>'op' AS op
+       FROM next_policy_outbox o
+       LEFT JOIN next_policy_batches b ON b.id = o.batch_id
+       CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY AS e(value, ord)
+      WHERE o.collection_id = $1
+        AND (o.ops->'ops' @> $2::jsonb OR o.ops->'ops' @> $3::jsonb)
+        AND e.value->>'account' = $4
+        AND (e.value->>'op' = 'member-remove' OR (e.value->>'op' = 'member-set' AND b.state = 'appended'))
+      ORDER BY o.id DESC, e.ord DESC
+      LIMIT 1`,
     [collection, JSON.stringify([{ op: "member-set", account: connector.user_id }]),
-      JSON.stringify([{ op: "member-remove", account: connector.user_id }])]
+      JSON.stringify([{ op: "member-remove", account: connector.user_id }]), connector.user_id]
   );
-  let member = false;
-  for (const row of membership.rows) {
-    for (const op of row.ops.ops) {
-      if (op.account !== connector.user_id) continue;
-      if (op.op === "member-set" && row.state === "appended") member = true;
-      if (op.op === "member-remove") member = false;
-    }
-  }
+  const member = latest.rows[0]?.op === "member-set";
   if (!member) throw new Refused(409, "not_member");
   const revoked = await client.query(
     "SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb LIMIT 1",

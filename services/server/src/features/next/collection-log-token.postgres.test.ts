@@ -212,6 +212,48 @@ describePg("collection log-token refresh", () => {
     expect((await refresh(owner, c, await proof(owner, c))).statusCode).toBe(200);
   });
 
+  it("membership is the latest effective op, in outbox order then op order within a batch", async () => {
+    const owner = await identity(); const member = await identity();
+    const c = await collection(owner, "cloud_copy", [owner, member]);
+    const queue = async (ops: Parameters<typeof queueNextPolicy>[2]) => {
+      const client = await db.connect();
+      try {
+        await client.query("BEGIN");
+        await queueNextPolicy(client, c, ops);
+        await client.query("COMMIT");
+      } finally {
+        client.release();
+      }
+    };
+    const account = member.connector.user_id;
+    const set = { op: "member-set" as const, account, role: "editor" as const };
+    const remove = { op: "member-remove" as const, account };
+    const code = async () => {
+      const r = await refresh(member, c, await proof(member, c));
+      return r.statusCode === 200 ? "ok" : r.json().error.code;
+    };
+    // Set then remove in one batch: removed, pending or appended.
+    await queue([set, remove]);
+    expect(await code()).toBe("not_member");
+    await appendPending(c);
+    expect(await code()).toBe("not_member");
+    // Remove then set in one batch: the set only counts once appended.
+    await queue([remove, set]);
+    expect(await code()).toBe("not_member");
+    await appendPending(c);
+    expect(await code()).toBe("ok");
+    // Another account's ops never count for this one, even later in the same batch.
+    await queue([set, { op: "member-remove", account: owner.connector.user_id }]);
+    await appendPending(c);
+    expect(await code()).toBe("ok");
+    // Many batches: only the latest effective op decides.
+    for (let i = 0; i < 40; i += 1) await queue([i % 2 === 0 ? remove : set]);
+    await appendPending(c);
+    expect(await code()).toBe("ok");
+    await queue([remove]);
+    expect(await code()).toBe("not_member");
+  });
+
   it("refuses a collection not served by the next runtime", async () => {
     const who = await identity();
     const c = await collection(who, "cloud_copy", [who]);
