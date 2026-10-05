@@ -30,6 +30,7 @@ import { validateLabFixtureConfig } from "./features/next/lab-fixture-config.js"
 import { loadPolicySigner, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 import { NextRelayDevices } from "./features/next/devices.js";
 import { NoisePipes, registerNoisePipeClientRoute } from "./features/next/noise-pipes.js";
+import { registerCollectionLogTokenRoute } from "./features/next/collection-log-token.js";
 import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
 import { registerNextRouteRoutes } from "./features/next/route-routes.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
@@ -519,7 +520,9 @@ export async function buildApp(options: BuildOptions) {
   });
   if (options.nextControlPlane) {
     relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
-    registerNextDeviceRoutes(app, { db: options.db, log: new LogServiceClient(options.nextControlPlane.logService) });
+    const nextLog = new LogServiceClient(options.nextControlPlane.logService);
+    registerNextDeviceRoutes(app, { db: options.db, log: nextLog });
+    registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
