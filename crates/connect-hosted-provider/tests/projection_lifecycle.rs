@@ -74,12 +74,10 @@ async fn type_pack_provisioning_does_not_deadlock_a_projection_batch() {
             )
             .await
     });
-    // The definition writer has the collection row and is waiting to abandon
-    // the leased generation. Releasing the worker forces its real projection
-    // INSERT to check the collection FK (an implicit FOR KEY SHARE lock).
-    // FOR UPDATE here formed collection -> generation -> collection; a
-    // non-key writer lock must let that FK check finish without any retries.
-    wait_for_query_blocked(&fixture.pool, "last_error_code = 'catalog_changed'").await;
+    // The batch already owns collection before generation. The definition
+    // writer must wait at collection, not reach generation abandonment while
+    // holding collection against the worker's later implicit FK lock.
+    wait_for_query_blocked(&fixture.pool, "FROM hosted_provider_collections").await;
     let mut second_writer = fixture.pool.begin().await.unwrap();
     let blocked = sqlx::query(
         "SELECT id FROM hosted_provider_collections WHERE id = $1 FOR NO KEY UPDATE NOWAIT",
@@ -91,7 +89,7 @@ async fn type_pack_provisioning_does_not_deadlock_a_projection_batch() {
     assert_eq!(
         blocked.as_database_error().unwrap().code().as_deref(),
         Some("55P03"),
-        "definition writes must still serialize other writers"
+        "collection-bound writes must still serialize other writers"
     );
     second_writer.rollback().await.unwrap();
     projection_guard.rollback().await.unwrap();
