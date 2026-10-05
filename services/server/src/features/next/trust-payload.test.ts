@@ -52,6 +52,8 @@ describe("NEXT signed-release public trust asset", () => {
   });
   const invalid: Array<[string, (p: NextTrustPayload) => void]> = [
     ["unknown field", (p) => Object.assign(p, { unsigned_lab: true })],
+    ["array environment coercion", (p) => { Object.assign(p, { environment: ["lab"] }); }],
+    ["object environment coercion", (p) => { Object.assign(p, { environment: Object.create({ toString: () => "lab" }) }); }],
     ["optional empty roots", (p) => { p.roots = []; }],
     ["optional empty policy keys", (p) => { p.policy_keys = []; }],
     ["root key ID", (p) => { p.roots[0]!.key_id = "0".repeat(32); }],
