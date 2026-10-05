@@ -112,7 +112,7 @@ class Deployments {
     {
       this.devices.set(key, {
         kind, device_id: randomUUID(), sign_pk: hex(ed25519RawPublicKey(generateKeyPairSync("ed25519").privateKey)), kem_pk: hex(rawX()),
-        noise_pk: kind === "escrow" ? "00".repeat(32) : hex(rawX()), wrapped_keys: Buffer.from(`sealed ${key}`).toString("base64"),
+        noise_pk: hex(rawX()), wrapped_keys: Buffer.from(`sealed ${key}`).toString("base64"),
         kms_key_arn: `arn:aws:kms:eu-west-1:000000000000:key/${kind}`
       });
     }
@@ -194,7 +194,7 @@ describePg("cloud-copy bootstrap", () => {
     expect(enrols).toEqual([
       { device: who.device.replaceAll("-", ""), account: who.connector.user_id.replaceAll("-", ""), kind: 0, sign: hex(who.signPk), noise: expect.any(String) },
       { device: hosted.device_id!.replaceAll("-", ""), account: ZERO_ACCOUNT, kind: 4, sign: hosted.sign_pk, noise: hosted.noise_pk },
-      { device: escrow.device_id!.replaceAll("-", ""), account: ZERO_ACCOUNT, kind: 5, sign: escrow.sign_pk, noise: "00".repeat(32) }
+      { device: escrow.device_id!.replaceAll("-", ""), account: ZERO_ACCOUNT, kind: 5, sign: escrow.sign_pk, noise: escrow.noise_pk }
     ]);
     const claims = decodeCbor(Buffer.from(result.device.token.split(".")[0], "hex"));
     expect(field(claims, 0)).toBe(0);
