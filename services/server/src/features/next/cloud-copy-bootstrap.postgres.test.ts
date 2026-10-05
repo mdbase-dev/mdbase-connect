@@ -85,7 +85,7 @@ class Log {
   };
 }
 
-/** Both deployments: one device per collection and kind, returned again on retry. */
+/** Both deployments, stateless: every call generates a new device; the CP's first stored record wins. */
 class Deployments {
   readonly devices = new Map<string, Record<string, string>>();
   calls = 0;
@@ -99,7 +99,7 @@ class Deployments {
     if (this.failing === "down") throw new TypeError("unavailable");
     const { collection } = JSON.parse(String(init!.body)) as { collection: string };
     const key = `${kind}/${collection}`;
-    if (!this.devices.has(key)) {
+    {
       this.devices.set(key, {
         kind, device_id: randomUUID(), sign_pk: hex(ed25519RawPublicKey(generateKeyPairSync("ed25519").privateKey)), kem_pk: hex(rawX()),
         noise_pk: kind === "escrow" ? "00".repeat(32) : hex(rawX()), wrapped_keys: Buffer.from(`sealed ${key}`).toString("base64"),
@@ -218,6 +218,13 @@ describePg("cloud-copy bootstrap", () => {
     const calls = deployments.calls;
     expect((await create(who, await proof(who, priv))).statusCode).toBe(409);
     expect(deployments.calls).toBe(calls);
+  });
+
+  it("refuses a retry once the collection has left sync", async () => {
+    const who = await identity(); const collection = randomUUID();
+    expect((await create(who, await proof(who, collection))).statusCode).toBe(200);
+    await db.query("UPDATE next_collections SET left_sync_at = now() WHERE collection_id = $1", [collection]);
+    expect((await create(who, await proof(who, collection))).statusCode).toBe(409);
   });
 
   it("refuses a local collection that belongs to someone else", async () => {
