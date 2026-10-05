@@ -21,7 +21,7 @@ const uuidBytes = (id: string) => Buffer.from(id.replaceAll("-", ""), "hex");
 function record(kind: "hosted" | "escrow", device = randomUUID(), fill = 1) {
   return parseServiceDevice({
     kind, device_id: device, sign_pk: Buffer.alloc(32, fill).toString("hex"), kem_pk: Buffer.alloc(32, fill + 1).toString("hex"),
-    noise_pk: Buffer.alloc(32, kind === "escrow" ? 0 : fill + 2).toString("hex"), wrapped_keys: Buffer.from(`sealed-${kind}`).toString("base64"),
+    noise_pk: Buffer.alloc(32, fill + 2).toString("hex"), wrapped_keys: Buffer.from(`sealed-${kind}`).toString("base64"),
     kms_key_arn: `arn:aws:kms:eu-west-1:000000000000:key/${kind}`
   });
 }
@@ -80,7 +80,7 @@ describePostgres("service devices", () => {
     for (const bad of [
       { ...good, sign_pk: good.sign_pk.subarray(0, 31) }, { ...good, kem_pk: Buffer.alloc(32) }, { ...good, wrapped_keys: Buffer.alloc(0) },
       { ...good, wrapped_keys: Buffer.alloc(65 * 1024) }, { ...good, kms_key_arn: "nope" }, { ...good, kind: "owner" as "hosted" },
-      { ...good, kind: "escrow" as const }
+      { ...good, noise_pk: Buffer.alloc(32) }
     ]) await expect(storeServiceDevice(db, fresh, bad)).rejects.toMatchObject({ code: "invalid_service_device" });
     const insert = (sign: Buffer, wrapped: Buffer) => db.query(
       "INSERT INTO next_service_devices(collection_id, kind, device_id, sign_pk, kem_pk, noise_pk, wrapped_keys, kms_key_arn) VALUES($1,'hosted',$2,$3,$4,$4,$5,'arn:x')",

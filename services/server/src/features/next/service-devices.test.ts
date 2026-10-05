@@ -18,8 +18,9 @@ describe("service device record", () => {
     expect(serviceDeviceWire(parseServiceDevice(wire))).toEqual(wire);
   });
 
-  it("requires escrow's Noise key to be all zero", () => {
-    expect(parseServiceDevice({ ...wire, kind: "escrow", noise_pk: "00".repeat(32) }).noise_pk).toEqual(Buffer.alloc(32));
+  it("refuses an all-zero Noise key for escrow too (policy voids it)", () => {
+    expect(() => parseServiceDevice({ ...wire, kind: "escrow", noise_pk: "00".repeat(32) })).toThrow(ServiceDeviceError);
+    expect(parseServiceDevice({ ...wire, kind: "escrow" }).kind).toBe("escrow");
   });
 
   it("rejects malformed or oversized fields", () => {
@@ -28,8 +29,7 @@ describe("service device record", () => {
       { ...wire, wrapped_keys: "" }, { ...wire, wrapped_keys: "not base64!" }, { ...wire, wrapped_keys: "QQ" },
       { ...wire, wrapped_keys: Buffer.alloc(MAX_WRAPPED_KEYS_BYTES + 1).toString("base64") },
       { ...wire, kms_key_arn: "key" }, { ...wire, extra: 1 }, { ...wire, device_id: "nope" },
-      { ...wire, sign_pk: "00".repeat(32) }, { ...wire, kem_pk: "01" + "00".repeat(31) }, { ...wire, noise_pk: "00".repeat(32) },
-      { ...wire, kind: "escrow" }, { ...wire, device_id: "00000000-0000-0000-0000-000000000000" }
+      { ...wire, sign_pk: "00".repeat(32) }, { ...wire, kem_pk: "01" + "00".repeat(31) }, { ...wire, noise_pk: "00".repeat(32) }, { ...wire, device_id: "00000000-0000-0000-0000-000000000000" }
     ]) expect(() => parseServiceDevice(bad), JSON.stringify(bad).slice(0, 80)).toThrow(ServiceDeviceError);
   });
 });
