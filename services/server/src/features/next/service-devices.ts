@@ -5,6 +5,7 @@
 // and role-0 log tokens back to the deployment of the same kind. It never unwraps.
 import { z } from "zod";
 import type { DatabaseQueryable } from "../../database-types.js";
+import { weakAgreementKey, weakSigningKey } from "./devices.js";
 
 export type ServiceKind = "hosted" | "escrow";
 
@@ -50,12 +51,20 @@ export function parseServiceDevice(value: unknown): ServiceDeviceRecord {
   if (wrapped.length === 0 || wrapped.length > MAX_WRAPPED_KEYS_BYTES || wrapped.toString("base64") !== parsed.data.wrapped_keys) {
     throw new ServiceDeviceError(502, "invalid_service_device", "The wrapped keys are malformed.");
   }
+  const sign = Buffer.from(parsed.data.sign_pk, "hex");
+  const kem = Buffer.from(parsed.data.kem_pk, "hex");
+  const noise = Buffer.from(parsed.data.noise_pk, "hex");
+  // Escrow never holds a Noise session, so its Noise key is all zero; hosted's must be a real key.
+  const noiseOk = parsed.data.kind === "escrow" ? noise.equals(Buffer.alloc(32)) : !weakAgreementKey(noise);
+  if (weakSigningKey(sign) || weakAgreementKey(kem) || !noiseOk) {
+    throw new ServiceDeviceError(502, "invalid_service_device", "A service device key is weak or misplaced.");
+  }
   return {
     kind: parsed.data.kind,
     device_id: parsed.data.device_id.toLowerCase(),
-    sign_pk: Buffer.from(parsed.data.sign_pk, "hex"),
-    kem_pk: Buffer.from(parsed.data.kem_pk, "hex"),
-    noise_pk: Buffer.from(parsed.data.noise_pk, "hex"),
+    sign_pk: sign,
+    kem_pk: kem,
+    noise_pk: noise,
     wrapped_keys: wrapped,
     kms_key_arn: parsed.data.kms_key_arn
   };

@@ -2,7 +2,7 @@
   "reason": "Cloud-copy collections need durable service-device records (hosted replica and escrow) and role-0 log tokens for them. One feature module owns the record type, its validation, the idempotent store and the bounded generate client; the existing hosted-routes module serves fetch and token refresh to the matching deployment, reusing LogServiceClient.mintToken. No new transport or credential store.",
   "growth": {
     "productionFiles": 1,
-    "relativeImports": 3,
+    "relativeImports": 4,
     "typeScriptExportDeclarations": 9,
     "services/server": 1
   }

@@ -21,7 +21,7 @@ const uuidBytes = (id: string) => Buffer.from(id.replaceAll("-", ""), "hex");
 function record(kind: "hosted" | "escrow", device = randomUUID(), fill = 1) {
   return parseServiceDevice({
     kind, device_id: device, sign_pk: Buffer.alloc(32, fill).toString("hex"), kem_pk: Buffer.alloc(32, fill + 1).toString("hex"),
-    noise_pk: Buffer.alloc(32, fill + 2).toString("hex"), wrapped_keys: Buffer.from(`sealed-${kind}`).toString("base64"),
+    noise_pk: Buffer.alloc(32, kind === "escrow" ? 0 : fill + 2).toString("hex"), wrapped_keys: Buffer.from(`sealed-${kind}`).toString("base64"),
     kms_key_arn: `arn:aws:kms:eu-west-1:000000000000:key/${kind}`
   });
 }
