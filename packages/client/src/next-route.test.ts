@@ -99,7 +99,8 @@ describe("Next route and relay pipe", () => {
     for (const bad of [
       routeBody({ grant: DEVICE }), routeBody({ collection: DEVICE }),
       routeBody({}, { url: "wss://evil.example.test/v1/next/relay/client" }),
-      routeBody({}, { noise_pk: "0".repeat(64) }), routeBody({}, { relay_collection: undefined })
+      routeBody({}, { noise_pk: "0".repeat(64) }), routeBody({}, { relay_collection: undefined }),
+      routeBody({}, { kind: ["desktop"] }), routeBody({}, { kind: "laptop" })
     ]) {
       routes.push(() => bad);
       await expect(bridge().route(COLLECTION)).rejects.toThrow();
@@ -142,7 +143,7 @@ describe("Next route and relay pipe", () => {
     expect(() => pipe.send(new Uint8Array([1]))).toThrow();
     expect(releases).toBe(leases);
     const second = await opened();
-    second.socket.shut(4000, "Bearer abc\n<script>");
+    second.socket.shut(4000, "secretword");
     const later: unknown[] = [];
     second.pipe.onclose = event => later.push(event);
     expect(later).toEqual([{ code: 4000 }]);
@@ -170,7 +171,7 @@ describe("Next route and relay pipe", () => {
     const again = next.openPipe(COLLECTION, route.targets[0]!);
     await tick();
     FakeSocket.all.at(-1)!.shut(4404, "connector_offline");
-    await expect(again).rejects.toThrow();
+    await expect(again).rejects.toMatchObject({ cause: { code: 4404, reason: "connector_offline" } });
     expect(releases).toBe(leases);
   });
 
@@ -183,4 +184,26 @@ describe("Next route and relay pipe", () => {
     expect(seen).toHaveLength(1);
     expect(releases).toBe(leases);
   });
+
+  it("closes an admitted pipe when the caller's own signal aborts later", async () => {
+    const next = bridge();
+    const route = await next.route(COLLECTION);
+    const controller = new AbortController();
+    const pending = next.openPipe(COLLECTION, route.targets[0]!, { signal: controller.signal });
+    await tick();
+    const socket = FakeSocket.all.at(-1)!;
+    socket.open();
+    socket.text(JSON.stringify({ type: "pipe_opened", pipe_id: PIPE }));
+    const pipe = await pending;
+    const seen: unknown[] = [];
+    pipe.onclose = event => seen.push(event);
+    controller.abort();
+    expect(seen).toHaveLength(1);
+    expect(socket.closed).toBe(true);
+    expect(releases).toBe(leases);
+    // A late open/admission on a dead socket sends nothing.
+    socket.open();
+    expect(socket.sent).toHaveLength(1);
+  });
 });
+
