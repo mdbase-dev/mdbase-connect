@@ -29,7 +29,7 @@ describe("service device record", () => {
       { ...wire, wrapped_keys: Buffer.alloc(MAX_WRAPPED_KEYS_BYTES + 1).toString("base64") },
       { ...wire, kms_key_arn: "key" }, { ...wire, extra: 1 }, { ...wire, device_id: "nope" },
       { ...wire, sign_pk: "00".repeat(32) }, { ...wire, kem_pk: "01" + "00".repeat(31) }, { ...wire, noise_pk: "00".repeat(32) },
-      { ...wire, kind: "escrow" }
+      { ...wire, kind: "escrow" }, { ...wire, device_id: "00000000-0000-0000-0000-000000000000" }
     ]) expect(() => parseServiceDevice(bad), JSON.stringify(bad).slice(0, 80)).toThrow(ServiceDeviceError);
   });
 });

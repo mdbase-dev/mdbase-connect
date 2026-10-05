@@ -47,6 +47,9 @@ type ServiceDeviceWire = z.infer<typeof wireRecord>;
 export function parseServiceDevice(value: unknown): ServiceDeviceRecord {
   const parsed = wireRecord.safeParse(value);
   if (!parsed.success) throw new ServiceDeviceError(502, "invalid_service_device", "The service device record is malformed.");
+  if (/^0{8}-0{4}-0{4}-0{4}-0{12}$/u.test(parsed.data.device_id)) {
+    throw new ServiceDeviceError(502, "invalid_service_device", "A service device needs a non-nil ID.");
+  }
   const wrapped = Buffer.from(parsed.data.wrapped_keys, "base64");
   if (wrapped.length === 0 || wrapped.length > MAX_WRAPPED_KEYS_BYTES || wrapped.toString("base64") !== parsed.data.wrapped_keys) {
     throw new ServiceDeviceError(502, "invalid_service_device", "The wrapped keys are malformed.");
