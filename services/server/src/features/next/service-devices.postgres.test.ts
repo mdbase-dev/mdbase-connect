@@ -33,8 +33,8 @@ describePostgres("service devices", () => {
   const app = Fastify();
   const issuer = generateKeyPairSync("ed25519");
   const owner = randomUUID();
-  const ids = { standard: randomUUID(), private: randomUUID(), left: randomUUID() };
-  const devices = { hosted: record("hosted"), escrow: record("escrow", randomUUID(), 7), left: record("hosted", randomUUID(), 11) };
+  const ids = { standard: randomUUID(), private: randomUUID(), left: randomUUID(), barrier: randomUUID() };
+  const devices = { hosted: record("hosted"), escrow: record("escrow", randomUUID(), 7), left: record("hosted", randomUUID(), 11), barrier: record("hosted", randomUUID(), 21) };
 
   beforeAll(async () => {
     const url = new URL(testUrl!);
@@ -45,12 +45,13 @@ describePostgres("service devices", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Owner')", [owner, `${owner}@example.test`]);
-    for (const [id, sync] of [[ids.standard, "cloud_copy"], [ids.private, "private"], [ids.left, "cloud_copy"]]) {
+    for (const [id, sync] of [[ids.standard, "cloud_copy"], [ids.private, "private"], [ids.left, "cloud_copy"], [ids.barrier, "cloud_copy"]]) {
       await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next',$3,$4)", [id, owner, sync, Buffer.alloc(16)]);
     }
     await storeServiceDevice(db, ids.standard, devices.hosted);
     await storeServiceDevice(db, ids.standard, devices.escrow);
     await storeServiceDevice(db, ids.left, devices.left);
+    await storeServiceDevice(db, ids.barrier, devices.barrier);
     await db.query("UPDATE next_collections SET left_sync_at = now() WHERE collection_id = $1", [ids.left]);
     const transport = generateKeyPairSync("ed25519").privateKey;
     const log = new LogServiceClient({ url: "https://log.example.test", tokenIssuerKeyPem: issuer.privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
@@ -70,6 +71,88 @@ describePostgres("service devices", () => {
     await expect(storeServiceDevice(db, ids.standard, record("hosted"))).rejects.toMatchObject({ status: 409, code: "service_device_conflict" });
     await expect(storeServiceDevice(db, ids.standard, { ...devices.hosted, kms_key_arn: "arn:aws:kms:other" })).rejects.toBeInstanceOf(ServiceDeviceError);
     expect((await loadServiceDevice(db, ids.standard, { kind: "hosted" }))!.kms_key_arn).toBe(devices.hosted.kms_key_arn);
+  });
+
+  it("validates direct writes, and the table refuses malformed rows", async () => {
+    const fresh = randomUUID();
+    await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','cloud_copy',$3)", [fresh, owner, Buffer.alloc(16)]);
+    const good = record("hosted");
+    for (const bad of [
+      { ...good, sign_pk: good.sign_pk.subarray(0, 31) }, { ...good, kem_pk: Buffer.alloc(32) }, { ...good, wrapped_keys: Buffer.alloc(0) },
+      { ...good, wrapped_keys: Buffer.alloc(65 * 1024) }, { ...good, kms_key_arn: "nope" }, { ...good, kind: "owner" as "hosted" },
+      { ...good, kind: "escrow" as const }
+    ]) await expect(storeServiceDevice(db, fresh, bad)).rejects.toMatchObject({ code: "invalid_service_device" });
+    const insert = (sign: Buffer, wrapped: Buffer) => db.query(
+      "INSERT INTO next_service_devices(collection_id, kind, device_id, sign_pk, kem_pk, noise_pk, wrapped_keys, kms_key_arn) VALUES($1,'hosted',$2,$3,$4,$4,$5,'arn:x')",
+      [fresh, randomUUID(), sign, Buffer.alloc(32, 9), wrapped]
+    );
+    await expect(insert(Buffer.alloc(31, 1), Buffer.alloc(1))).rejects.toThrow(/check constraint/i);
+    await expect(insert(Buffer.alloc(32, 1), Buffer.alloc(0))).rejects.toThrow(/check constraint/i);
+    await expect(insert(Buffer.alloc(32, 1), Buffer.alloc(65537))).rejects.toThrow(/check constraint/i);
+    expect(await loadServiceDevice(db, fresh, { kind: "hosted" })).toBeNull();
+  });
+
+  it("serves nothing once a concurrent leave commits: the leave and the mint are ordered by the row lock", async () => {
+    const leaving = await admin.connect();
+    try {
+      await leaving.query(`SET search_path = "${schema}"`);
+      await leaving.query("BEGIN");
+      await leaving.query("UPDATE next_collections SET left_sync_at = now() WHERE collection_id = $1", [ids.barrier]);
+      let settled = false;
+      const mint = app.inject({ method: "POST", url: `/internal/v1/next/service-devices/${devices.barrier.device_id}/log-token`, headers: { authorization: `Bearer ${hosted}` }, payload: { collection: ids.barrier } })
+        .finally(() => { settled = true; });
+      const fetch = app.inject({ method: "GET", url: `/internal/v1/next/collections/${ids.barrier}/service-devices/hosted`, headers: { authorization: `Bearer ${hosted}` } });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(settled).toBe(false);
+      await leaving.query("COMMIT");
+      expect((await mint).statusCode).toBe(409);
+      expect((await fetch).statusCode).toBe(409);
+    } finally {
+      leaving.release();
+    }
+  });
+
+  it("holds the collection row from the currentness check through the mint", async () => {
+    // A pool whose transactions, just before COMMIT, check that a leave cannot take the row.
+    const events: string[] = [];
+    const probe: DatabasePool = {
+      query: db.query.bind(db), end: async () => undefined,
+      async connect() {
+        const inner = await db.connect();
+        return {
+          async query(text: string, values?: unknown[]) {
+            if (text === "COMMIT") {
+              const other = await admin.connect();
+              try {
+                await other.query(`SET search_path = "${schema}"`);
+                await other.query("BEGIN");
+                await other.query("SET LOCAL lock_timeout = '100ms'");
+                await other.query("UPDATE next_collections SET left_sync_at = now() WHERE collection_id = $1", [ids.standard]);
+                events.push("leave-acquired");
+              } catch (error) {
+                events.push(/lock timeout/i.test(String(error)) ? "leave-blocked" : String(error));
+              } finally {
+                await other.query("ROLLBACK").catch(() => undefined);
+                other.release();
+              }
+            }
+            return inner.query(text, values as never);
+          },
+          release: () => inner.release()
+        } as Awaited<ReturnType<DatabasePool["connect"]>>;
+      }
+    };
+    const probed = Fastify();
+    const transport = generateKeyPairSync("ed25519").privateKey;
+    const log = new LogServiceClient({ url: "https://log.example.test", tokenIssuerKeyPem: issuer.privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+      transportKeyPem: transport.export({ format: "pem", type: "pkcs8" }).toString() }, async () => { throw new Error("no network"); });
+    const mint = log.mintToken.bind(log);
+    log.mintToken = (claims) => { events.push("minted"); return mint(claims); };
+    registerNextHostedRoutes(probed, { db: probe, tokens: { hosted, escrow }, log, now: () => NOW });
+    const response = await probed.inject({ method: "POST", url: `/internal/v1/next/service-devices/${devices.hosted.device_id}/log-token`, headers: { authorization: `Bearer ${hosted}` }, payload: { collection: ids.standard } });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(events).toEqual(["minted", "leave-blocked"]);
+    await probed.close();
   });
 
   it("admits service devices only for cloud-copy collections", async () => {
