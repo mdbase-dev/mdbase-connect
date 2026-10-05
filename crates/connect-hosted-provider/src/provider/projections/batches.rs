@@ -14,6 +14,18 @@ impl HostedProvider {
             .execute(&mut *transaction)
             .await?;
         enable_projection_digest_write(&mut transaction).await?;
+        // Projection inserts take an implicit collection FK lock. Acquire it
+        // before the generation lease, in the same order as generation startup.
+        let collection = sqlx::query(
+            r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
+               FROM hosted_provider_collections
+               WHERE id = $1 AND state IN ('active', 'indexing')
+               FOR UPDATE"#,
+        )
+        .bind(collection_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(projection_binding_changed)?;
         let generation = sqlx::query(
             r#"UPDATE hosted_provider_projection_generations
                SET lease_owner = $3,
@@ -62,15 +74,6 @@ impl HostedProvider {
                 "The projection generation requires a different semantic engine.",
             ));
         }
-        let collection = sqlx::query(
-            r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
-               FROM hosted_provider_collections
-               WHERE id = $1 AND state IN ('active', 'indexing')"#,
-        )
-        .bind(collection_id)
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or_else(projection_binding_changed)?;
         let data_key = self
             .collection_key(collection_id, collection.get("wrapped_data_key"))
             .await?;
@@ -479,28 +482,18 @@ impl HostedProvider {
             .execute(&mut *transaction)
             .await?;
         enable_projection_digest_write(&mut transaction).await?;
-        let may_complete: bool = sqlx::query_scalar(
-            r#"SELECT NOT EXISTS (
-                 SELECT 1 FROM hosted_provider_record_projections
-                 WHERE collection_id = $1 AND generation_id = $2
-                   AND valid_to_sequence IS NULL AND resolution_complete = false
-               )"#,
+        // Resolution persistence also takes collection FK locks and can publish
+        // completion. Keep collection -> generation ordering for every batch.
+        let collection = sqlx::query(
+            r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
+               FROM hosted_provider_collections
+               WHERE id = $1 AND state IN ('active', 'indexing')
+               FOR UPDATE"#,
         )
         .bind(collection_id)
-        .bind(generation_id)
-        .fetch_one(&mut *transaction)
-        .await?;
-        if may_complete {
-            // Every path that can lock both rows uses collection -> generation.
-            // Ordinary resolution batches never need the collection row lock.
-            sqlx::query(
-                "SELECT id FROM hosted_provider_collections WHERE id = $1 AND state IN ('active', 'indexing') FOR UPDATE",
-            )
-            .bind(collection_id)
-            .fetch_optional(&mut *transaction)
-            .await?
-            .ok_or_else(projection_binding_changed)?;
-        }
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(projection_binding_changed)?;
         let generation = sqlx::query(
             r#"UPDATE hosted_provider_projection_generations
                SET lease_owner = $3,
@@ -549,15 +542,6 @@ impl HostedProvider {
             ));
         }
 
-        let collection = sqlx::query(
-            r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
-               FROM hosted_provider_collections
-               WHERE id = $1 AND state IN ('active', 'indexing')"#,
-        )
-        .bind(collection_id)
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or_else(projection_binding_changed)?;
         let data_key = self
             .collection_key(collection_id, collection.get("wrapped_data_key"))
             .await?;

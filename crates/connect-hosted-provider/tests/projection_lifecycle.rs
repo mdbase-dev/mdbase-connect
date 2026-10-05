@@ -1056,10 +1056,9 @@ async fn authority_imports_remain_hidden_until_projection_indexing_completes() {
     .await
     .unwrap();
 
-    // The scheduled projection recovery worker legitimately owns the generation
-    // row while a batch reads exact authority. Completion owns import then
-    // collection, so its NOWAIT generation probe must release those locks and
-    // retry rather than leak an incidental 409 through the public operation.
+    // Production batches now lock collection before generation. Inject a lower
+    // generation-row lock directly to retain coverage of completion's NOWAIT
+    // retry and higher-order lock release without recreating the old inversion.
     let completion_lock_hook = AuthorityImportTestHook::install(
         import_id,
         AuthorityImportHookPoint::AfterCollectionBeforeGenerationLock,
@@ -1078,19 +1077,15 @@ async fn authority_imports_remain_hidden_until_projection_indexing_completes() {
     .await
     .unwrap();
 
-    let generation_lease_hook = AuthorityImportTestHook::install(
-        recovery_generation.generation_id,
-        AuthorityImportHookPoint::AfterProjectionGenerationLease,
-        Duration::from_secs(5),
-    );
-    let generation_worker_provider = recovery_provider.clone();
-    let contended_generation_id = recovery_generation.generation_id;
-    let generation_worker = tokio::spawn(async move {
-        generation_worker_provider
-            .advance_projection_generation(collection_id, contended_generation_id)
-            .await
-    });
-    generation_lease_hook.wait_until_paused().await.unwrap();
+    let mut generation_lock = fixture.pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT generation_id FROM hosted_provider_projection_generations WHERE collection_id = $1 AND generation_id = $2 FOR UPDATE",
+    )
+    .bind(collection_id)
+    .bind(recovery_generation.generation_id)
+    .fetch_one(&mut *generation_lock)
+    .await
+    .unwrap();
     let unavailable_hook = AuthorityImportTestHook::install(
         import_id,
         AuthorityImportHookPoint::AfterProjectionLeaseUnavailable,
@@ -1122,11 +1117,10 @@ async fn authority_imports_remain_hidden_until_projection_indexing_completes() {
     .expect("failed completion attempt released import and collection locks");
     released_locks.commit().await.unwrap();
 
-    generation_lease_hook.release();
-    drop(generation_lease_hook);
-    generation_worker
+    generation_lock.commit().await.unwrap();
+    recovery_provider
+        .advance_projection_generation(collection_id, recovery_generation.generation_id)
         .await
-        .unwrap()
         .expect("the production recovery helper releases its exact generation lease");
     unavailable_hook.release();
     let first_indexing = in_flight
