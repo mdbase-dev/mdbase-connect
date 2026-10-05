@@ -343,11 +343,13 @@ describePg("private collections", () => {
     const collection = await created(owner);
     const second = await identity(owner.connector.user_id);
     expect((await renew(second, collection, await renewProof(second, collection, commit()))).json().error.code).toBe("not_enrolled");
-    expect((await enrol(second, collection, await enrolProof(second, collection, commit()))).statusCode).toBe(200);
+    const initial = commit();
+    expect((await enrol(second, collection, await enrolProof(second, collection, initial))).statusCode).toBe(200);
+    expect((await renew(second, collection, await renewProof(second, collection, initial))).json().error.code).toBe("stale_commitment");
     const sas = commit();
     const response = await renew(second, collection, await renewProof(second, collection, sas));
     expect(response.statusCode, response.body).toBe(200);
-    expect(response.json()).toMatchObject({ collection_id: collection, requested_at: 3, approval: "pending" });
+    expect(response.json()).toMatchObject({ collection_id: collection, requested_at: 3, approval: "logged" });
     const items = log.logs.get(collection.replaceAll("-", ""))!;
     const [op] = opsOf(items[2]!);
     expect(field(op!, 0)).toBe(13);
@@ -356,13 +358,31 @@ describePg("private collections", () => {
     // A retry of the same commitment reuses it; a new one is a new request.
     expect((await renew(second, collection, await renewProof(second, collection, sas))).json().requested_at).toBe(3);
     expect(items.length).toBe(3);
-    expect((await renew(second, collection, await renewProof(second, collection, commit()))).json().requested_at).toBe(4);
+    const b = commit();
+    expect((await renew(second, collection, await renewProof(second, collection, b))).json().requested_at).toBe(4);
+    // A, B, then A again: stale, never the old position and never re-queued.
+    expect((await renew(second, collection, await renewProof(second, collection, sas))).json().error.code).toBe("stale_commitment");
+    // The enrolment's own commitment is stale too.
+    expect(items.length).toBe(4);
+    // B is current: a retry reuses it.
+    expect((await renew(second, collection, await renewProof(second, collection, b))).json().requested_at).toBe(4);
     // The proof binds the commitment.
     const p = await renewProof(second, collection, sas);
     expect((await renew(second, collection, { ...p, sas_commit: commit() })).json().error.code).toBe("invalid_proof");
     // An enrolment proof never requests.
     const e = await enrolProof(second, collection, sas);
     expect((await renew(second, collection, e)).json().error.code).toBe("invalid_proof");
+  });
+
+  it("answers superseded when a newer commitment lands while the request is read back", async () => {
+    const owner = await identity();
+    const collection = await created(owner);
+    const second = await identity(owner.connector.user_id);
+    expect((await enrol(second, collection, await enrolProof(second, collection, commit()))).statusCode).toBe(200);
+    const a = commit();
+    const payload = await renewProof(second, collection, a);
+    log.onRead = async () => { await queue(collection, [{ op: "approval-request", device: second.device, sasCommit: Buffer.from(commit(), "hex") }]); };
+    expect((await renew(second, collection, payload)).json().error.code).toBe("superseded");
   });
 
   it("refuses approval requests for revoked devices, removed members and cloud copies", async () => {
