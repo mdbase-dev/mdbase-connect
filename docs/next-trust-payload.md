@@ -51,8 +51,11 @@ Roots contain `key_id` and raw 32-byte Ed25519 `public_key`; policy pins contain
 `key_id` and `certificate` in the existing `CpCertJson` shape. IDs are exactly the
 first **16 bytes of SHA-256(raw public key)** (`policy-wire.keyId`), not a tagged
 hash or full 32-byte fingerprint. Bytes are lowercase hex. Roots and online
-policy keys are distinct principals. Certificates must verify under an included
-root and have increasing safe integer validity windows. At least one policy
+policy keys are distinct principals. Both root and policy signing points must
+pass the same small-order/noncanonical rejection as registered devices
+(`devices.weakSigningKey`); certificate verification alone is insufficient.
+Certificates must verify under an included root and have increasing safe integer
+validity windows. At least one policy
 certificate is valid at issue time; historical certificates may remain for
 history. A later presented certificate is never a new policy-key trust source:
 require its policy public key/ID and root ID to match a published pin, verify its

@@ -3,6 +3,7 @@
 // authenticate Sigstore/OIDC. Never derive `expected` from an unauthenticated file.
 import { createHash } from "node:crypto";
 import { certFromJson, verifyCert, type CpCertJson } from "./policy-keys.js";
+import { weakSigningKey } from "./devices.js";
 import { keyId } from "./policy-wire.js";
 
 export interface NextTrustPayload {
@@ -74,7 +75,8 @@ export function encodeNextTrustPayload(value: unknown): Uint8Array {
     const root = record(value, ["key_id", "public_key"]);
     requireValue(hex(root.key_id, 16) && hex(root.public_key, 32) && root.key_id > previous, "root shape/order/duplicate");
     const pk = Buffer.from(root.public_key, "hex");
-    requireValue(pk.some((b) => b !== 0) && Buffer.from(keyId(pk)).toString("hex") === root.key_id, "root key ID");
+    requireValue(!weakSigningKey(pk), "root signing key");
+    requireValue(Buffer.from(keyId(pk)).toString("hex") === root.key_id, "root key ID");
     roots.set(root.key_id, pk); previous = root.key_id;
   }
   previous = "";
@@ -86,6 +88,7 @@ export function encodeNextTrustPayload(value: unknown): Uint8Array {
     requireValue(hex(c.policy_public_key, 32) && hex(c.root_key_id, 16) && hex(c.signature, 64), "certificate bytes");
     requireValue(integer(c.not_before) && integer(c.not_after), "certificate time");
     const cert = certFromJson(c as unknown as CpCertJson);
+    requireValue(!weakSigningKey(cert.policyPublicKey), "policy signing key");
     const root = roots.get(String(c.root_key_id));
     requireValue(root && verifyCert(cert, root), "certificate/root signature");
     requireValue(!roots.has(pin.key_id) && Buffer.from(keyId(cert.policyPublicKey)).toString("hex") === pin.key_id, "policy key ID/principal");

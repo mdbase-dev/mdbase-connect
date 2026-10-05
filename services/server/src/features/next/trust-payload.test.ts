@@ -39,6 +39,17 @@ describe("NEXT signed-release public trust asset", () => {
     const expected = expectation(bytes); expected.source = { ...expected.source, [field]: "wrong" } as NextTrustPayload["source"];
     expect(() => validateNextTrustPayload(bytes, expected)).toThrow();
   });
+  it("rejects a weak root signing point before certificate processing", () => {
+    const p = fixture(); const pk = Buffer.alloc(32); pk[0] = 1;
+    p.roots = [{ key_id: h(keyId(pk)), public_key: h(pk) }];
+    expect(() => encodeNextTrustPayload(p)).toThrow("root signing key");
+  });
+  it("rejects a weak policy signing point even with a genuine synthetic certificate", () => {
+    const p = fixture(); const pk = Buffer.alloc(32); pk[0] = 1;
+    const weak = { ...unsigned, policyPublicKey: pk };
+    p.policy_keys = [{ key_id: h(keyId(pk)), certificate: certToJson({ ...weak, signature: sign(null, certDigest(weak), root) }) }];
+    expect(() => encodeNextTrustPayload(p)).toThrow("policy signing key");
+  });
   it("requires an authenticated digest even in LAB", () => {
     const bytes = encodeNextTrustPayload(fixture());
     expect(() => validateNextTrustPayload(bytes, { ...expectation(bytes), sha256: undefined! })).toThrow();
