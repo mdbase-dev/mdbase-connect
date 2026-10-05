@@ -270,7 +270,7 @@ export async function buildApp(options: BuildOptions) {
   await app.register(cors, {
     origin: true,
     credentials: true,
-    methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"]
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
   });
   await app.register(websocket);
   app.addContentTypeParser(
