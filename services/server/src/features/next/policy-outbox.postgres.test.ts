@@ -55,15 +55,21 @@ class FakeLogService {
     if (url.pathname === "/v1/nonce") return new Response("ab".repeat(32));
     const body = Buffer.from(init!.body as Uint8Array);
     const headers = new Headers(init!.headers);
-    const [claimsHex, sigHex] = headers.get("authorization")!.replace("Bearer ", "").split(".");
+    const token = headers.get("authorization")!.replace("Bearer ", "");
+    const [claimsHex, sigHex] = token.split(".");
     const claims = Buffer.from(claimsHex!, "hex");
     expect(verify(null, domainHash("mdbase/v1/ls-token", claims), ed25519PublicKeyObject(this.issuer), Buffer.from(sigHex!, "hex"))).toBe(true);
     const frame = decodeCbor(body);
     const method = field(frame, 2) as string;
-    const possession = domainHash("mdbase/v1/item-sig", Buffer.concat([Buffer.from("ls-http"), Buffer.from(headers.get("x-mdbase-nonce")!, "hex"), Buffer.from(method), Buffer.of(0), createHash("sha256").update(body).digest()]));
-    expect(verify(null, possession, ed25519PublicKeyObject(bytes(field(decodeCbor(claims), 2))), Buffer.from(headers.get("x-mdbase-sig")!, "hex"))).toBe(true);
     const params = field(frame, 3);
-    const collection = bytes(field(params, 0)).toString("hex");
+    const collectionBytes = bytes(field(params, 0));
+    const possession = domainHash("mdbase/v1/ls-http", Buffer.concat([
+      Buffer.from(method), Buffer.of(0), Buffer.from(url.pathname), Buffer.of(0), collectionBytes,
+      createHash("sha256").update(token, "utf8").digest(), createHash("sha256").update(body).digest(),
+      Buffer.from(headers.get("x-mdbase-nonce")!, "hex"),
+    ]));
+    expect(verify(null, possession, ed25519PublicKeyObject(bytes(field(decodeCbor(claims), 2))), Buffer.from(headers.get("x-mdbase-sig")!, "hex"))).toBe(true);
+    const collection = collectionBytes.toString("hex");
     const log = this.logs.get(collection);
     const head = () => ({ seq: log?.length ?? 0, chain: log?.length ? chainHash(log[log.length - 1]!) : new Uint8Array(32) });
     const st = (...fields: Array<readonly [number, Cbor]>): Cbor => ({ struct: fields });
