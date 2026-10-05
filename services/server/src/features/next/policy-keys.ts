@@ -39,6 +39,8 @@ export interface NextControlPlaneConfig {
    * inbound `serviceTokens`.
    */
   cloudCopyBootstrap?: { hosted: { url: string; token: string }; escrow: { url: string; token: string } };
+  /** Private collection create and device enrol routes; set only by MDBASE_NEXT_PRIVATE_BOOTSTRAP=1. */
+  privateBootstrap?: true;
   labFixtures?: LabFixtureConfig;
 }
 
@@ -135,6 +137,8 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
       throw new Error("Inbound and outbound service tokens must all differ.");
     }
   }
+  const privateBootstrap = env.MDBASE_NEXT_PRIVATE_BOOTSTRAP?.trim() ?? "";
+  if (privateBootstrap !== "" && privateBootstrap !== "0" && privateBootstrap !== "1") throw new Error("MDBASE_NEXT_PRIVATE_BOOTSTRAP must be 0 or 1.");
   return {
     rootPublicKey: hexBytes(root, 32, "MDBASE_NEXT_ROOT_PUBLIC_KEY"),
     policyPrivateKeyPem: pem,
@@ -142,6 +146,7 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
     logService: { url: logServiceUrl, tokenIssuerKeyPem, transportKeyPem },
     serviceTokens: { ...(hosted ? { hosted } : {}), ...(escrow ? { escrow } : {}) },
     ...(cloudCopyBootstrap ? { cloudCopyBootstrap } : {}),
+    ...(privateBootstrap === "1" ? { privateBootstrap: true as const } : {}),
     ...(labFixtures ? { labFixtures } : {}),
   };
 }
