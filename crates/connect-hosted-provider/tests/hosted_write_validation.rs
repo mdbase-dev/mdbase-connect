@@ -274,11 +274,20 @@ async fn complete_projection(fixture: &FileLifecycleFixture) {
     // As the provider's own bootstrap does, treat that as a hand-off: accept the
     // projection the worker made current, or start a fresh generation.
     for _ in 0..8 {
-        let generation = fixture
+        let generation = match fixture
             .provider
             .start_projection_generation(fixture.collection_id)
             .await
-            .unwrap();
+        {
+            Ok(generation) => generation,
+            // Starting also races recovery. Retry only the advertised database
+            // conflict, within the same eight-attempt budget as worker hand-offs.
+            Err(error) if error.code == "provider_database_retryable" => {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
+            Err(error) => panic!("projection start failed: {error:?}"),
+        };
         for _ in 0..64 {
             match fixture
                 .provider
@@ -535,6 +544,118 @@ async fn writes_with_a_current_projection_reject_duplicate_unique_values() {
     let reused = create_note(&fixture, &token, "notes/e.md", "later").await;
     assert_eq!(reused["valid"], true, "{reused}");
     assert_eq!(record_count(&fixture).await, 3);
+}
+
+/// Queue an actual batch before startup at the generation row. Under the old
+/// order startup holds collection while waiting for generation, then the batch
+/// waits for collection during persistence: PostgreSQL must abort one of them.
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn projection_batches_and_startup_use_collection_before_generation() {
+    use std::time::Duration;
+    use tokio::time::{sleep, timeout};
+
+    async fn wait_for_lock(pool: &sqlx::PgPool, application: &str) {
+        timeout(Duration::from_secs(10), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock')",
+                )
+                .bind(application)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+                if waiting {
+                    return;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("provider reached the controlled lock boundary");
+    }
+
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let token = install_note_type(&fixture).await;
+    let created = create_note(&fixture, &token, "notes/lock-order.md", "lock-order").await;
+    assert_eq!(created["valid"], true, "{created}");
+    complete_projection(&fixture).await;
+    assert!(projection_is_current(&fixture).await);
+    let before = head(&fixture).await;
+
+    // Separate, named providers make the wait boundary observable without sleeps
+    // guessing when a SQL statement acquired its lock. Use only the fixture URL.
+    let batch_name = format!("projection-batch-{}", Uuid::new_v4());
+    let start_name = format!("projection-start-{}", Uuid::new_v4());
+    let named_url = |name: &str| {
+        let mut url = url::Url::parse(database.url()).unwrap();
+        url.query_pairs_mut().append_pair("application_name", name);
+        url.to_string()
+    };
+    let batch_provider = fixture.another_provider(&named_url(&batch_name)).await;
+    let start_provider = fixture.another_provider(&named_url(&start_name)).await;
+    for resolution in [false, true] {
+        let generation = batch_provider
+            .start_projection_generation(fixture.collection_id)
+            .await
+            .unwrap();
+        if resolution {
+            let projected = batch_provider
+                .project_generation_batch(fixture.collection_id, generation.generation_id, 200)
+                .await
+                .unwrap();
+            assert_eq!(projected.records_projected, 1);
+            // The empty follow-up projection batch advances the phase.
+            let advanced = batch_provider
+                .project_generation_batch(fixture.collection_id, generation.generation_id, 200)
+                .await
+                .unwrap();
+            assert_eq!(advanced.records_projected, 0);
+            assert_eq!(advanced.generation.phase, "resolution");
+        }
+        let mut guard = fixture.pool.begin().await.unwrap();
+        sqlx::query("SELECT generation_id FROM hosted_provider_projection_generations WHERE collection_id = $1 AND generation_id = $2 FOR UPDATE")
+            .bind(fixture.collection_id)
+            .bind(generation.generation_id)
+            .fetch_one(&mut *guard)
+            .await
+            .unwrap();
+        let batch = batch_provider.clone();
+        let collection_id = fixture.collection_id;
+        let in_flight = tokio::spawn(async move {
+            if resolution {
+                batch
+                    .resolve_generation_batch(collection_id, generation.generation_id, 200)
+                    .await
+            } else {
+                batch
+                    .project_generation_batch(collection_id, generation.generation_id, 200)
+                    .await
+            }
+        });
+        wait_for_lock(&fixture.pool, &batch_name).await;
+        let startup = start_provider.clone();
+        let new_generation =
+            tokio::spawn(async move { startup.start_projection_generation(collection_id).await });
+        wait_for_lock(&fixture.pool, &start_name).await;
+        guard.commit().await.unwrap();
+        let (batch, startup) = timeout(Duration::from_secs(20), async {
+            tokio::join!(in_flight, new_generation)
+        })
+        .await
+        .expect("batch and startup finish without a lock cycle");
+        let batch = batch
+            .unwrap()
+            .expect("batch must not deadlock with startup");
+        let startup = startup
+            .unwrap()
+            .expect("startup must not deadlock with batch");
+        assert_eq!(batch.records_projected + batch.records_resolved, 1);
+        assert_ne!(batch.generation.generation_id, startup.generation_id);
+        assert_eq!(head(&fixture).await, before);
+        assert_eq!(record_count(&fixture).await, 1);
+    }
 }
 
 #[tokio::test]
