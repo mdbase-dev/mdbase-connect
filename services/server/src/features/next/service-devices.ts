@@ -95,7 +95,9 @@ const COLUMNS = "device.kind, device.device_id::text AS device_id, device.sign_p
  * same record; a different record for the same collection and kind is refused, so a
  * retried bootstrap never replaces an enrolled device. Run inside the caller's transaction.
  */
-export async function storeServiceDevice(db: DatabaseQueryable, collection: string, record: ServiceDeviceRecord): Promise<ServiceDeviceRecord> {
+export async function storeServiceDevice(db: DatabaseQueryable, collection: string, given: ServiceDeviceRecord): Promise<ServiceDeviceRecord> {
+  // Every writer gets the parser's checks, not only records that came over HTTP.
+  const record = parseServiceDevice(serviceDeviceWire(given));
   await db.query(
     `INSERT INTO next_service_devices(collection_id, kind, device_id, sign_pk, kem_pk, noise_pk, wrapped_keys, kms_key_arn)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
@@ -138,7 +140,10 @@ export interface ServiceDeploymentConfig {
 /**
  * Ask the deployment of `kind` to generate a service device for `collection`
  * (`POST <deployment>/internal/v1/service-devices`). The response is bounded and must
- * name the requested kind. The deployment returns the same device for a retried request.
+ * name the requested kind. The deployment need not be idempotent or keep state: the
+ * control plane's first stored record wins (`storeServiceDevice`), a retry after a
+ * committed store reuses that record without calling the deployment again, and a
+ * device generated for a store that never committed is discarded unused.
  */
 export async function generateServiceDevice(
   deployment: ServiceDeploymentConfig,

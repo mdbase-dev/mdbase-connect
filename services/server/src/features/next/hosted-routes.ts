@@ -4,12 +4,12 @@
 // internal token.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import type { DatabaseQueryable } from "../../database-types.js";
+import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
-import { loadServiceDevice, serviceDeviceWire, type ServiceKind } from "./service-devices.js";
+import { loadServiceDevice, serviceDeviceWire, type ServiceDeviceRecord, type ServiceKind } from "./service-devices.js";
 
 export type CollectionDirectoryState = "standard" | "private" | "local" | "unknown";
 
@@ -56,9 +56,34 @@ export function serviceKind(request: FastifyRequest, tokens: { hosted?: string; 
   return null;
 }
 
+/**
+ * Run `use` on the current record while its collection row is share-locked, in one
+ * transaction. Leaving sync updates that row, so it waits until `use` has finished:
+ * a record served or a token minted here was served while the collection was current.
+ * Null when there is no current record.
+ */
+async function withCurrentRecord<T>(
+  db: DatabasePool, collection: string, by: { kind: ServiceKind } | { device: string }, use: (record: ServiceDeviceRecord) => T
+): Promise<T | null> {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+    const record = await loadServiceDevice(client, collection, by);
+    const result = record ? use(record) : null;
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export function registerNextHostedRoutes(
   app: FastifyInstance,
-  options: { db: DatabaseQueryable; tokens: { hosted?: string; escrow?: string }; log?: LogServiceClient; now?: () => number }
+  options: { db: DatabasePool; tokens: { hosted?: string; escrow?: string }; log?: LogServiceClient; now?: () => number }
 ): void {
   const authorize = (request: FastifyRequest) => serviceKind(request, options.tokens) !== null;
   // The record lookup itself requires a current cloud copy; this only picks the answer
@@ -85,9 +110,9 @@ export function registerNextHostedRoutes(
     if (!caller) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const { id, kind } = z.object({ id: z.uuid(), kind: z.enum(["hosted", "escrow"]) }).parse(request.params);
     if (kind !== caller) return reply.code(403).send(apiError("wrong_service_kind", "This token reads only its own kind of service device."));
-    const record = await loadServiceDevice(options.db, id, { kind });
-    if (!record) return notCurrent(reply, id, "The collection has no service device of this kind.");
-    return serviceDeviceWire(record);
+    const wire = await withCurrentRecord(options.db, id, { kind }, serviceDeviceWire);
+    if (!wire) return notCurrent(reply, id, "The collection has no service device of this kind.");
+    return wire;
   });
   // Role-0 log token for a service device, narrowed to one collection (claim 5) and
   // valid for at most LOG_TOKEN_LIFETIME_MS. The deployment refreshes it by asking again.
@@ -100,10 +125,13 @@ export function registerNextHostedRoutes(
     if (!params.success || !body.success) return reply.code(400).send(apiError("invalid_request", "A device and collection are required."));
     const { device } = params.data;
     const { collection } = body.data;
-    const record = await loadServiceDevice(options.db, collection, { device: device.toLowerCase() });
-    if (!record) return notCurrent(reply, collection, "No such service device in this collection.");
-    if (record.kind !== caller) return reply.code(403).send(apiError("wrong_service_kind", "This token mints only for its own kind of service device."));
-    const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
-    return { token: log.mintToken({ device: record.device_id, signPublicKey: record.sign_pk, collection, expiresAt }), expires_at: expiresAt };
+    const minted = await withCurrentRecord(options.db, collection, { device: device.toLowerCase() }, (record) => {
+      if (record.kind !== caller) return "wrong_kind" as const;
+      const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
+      return { token: log.mintToken({ device: record.device_id, signPublicKey: record.sign_pk, collection, expiresAt }), expires_at: expiresAt };
+    });
+    if (!minted) return notCurrent(reply, collection, "No such service device in this collection.");
+    if (minted === "wrong_kind") return reply.code(403).send(apiError("wrong_service_kind", "This token mints only for its own kind of service device."));
+    return minted;
   });
 }
