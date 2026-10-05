@@ -1,0 +1,10 @@
+{
+  "reason": "Move account-read cleanup to one bounded non-overlapping recovery worker. Provider expiry has its own authenticated HTTP boundary, separate from unconditional user cancellation; the small handler module keeps the existing HTTP module below its hard cap. Two provider expiry operations and crate-local handler declarations enforce current identity, epoch and deadline without a fallback to generic cancellation.",
+  "growth": {
+    "productionFiles": 2,
+    "rustPublicDeclarations": 6,
+    "typeScriptExportDeclarations": 1,
+    "crates/connect-hosted-provider": 1,
+    "services/server": 1
+  }
+}
