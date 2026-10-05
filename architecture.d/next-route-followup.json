@@ -1,6 +1,0 @@
-{
-  "reason": "Route metadata queries the existing authenticated relay-owner transport instead of treating historical policy ACKs as current device presence. Two imports bind that narrow request and its typed owner reply; existing socket state is reused, with no new presence store or public credential API.",
-  "growth": {
-    "relativeImports": 2
-  }
-}
