@@ -13,6 +13,7 @@ import { DEFAULT_NOISE_PIPE_LIMITS, registerNoisePipeClientRoute } from "./noise
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { tokenHash } from "../../security.js";
 import { deviceBindDigest, deviceRegistrationDigest } from "./devices.js";
+import { registerNextRouteRoutes } from "./route-routes.js";
 import { certToJson, ed25519RawPublicKey } from "./policy-keys.js";
 import { certDigest, keyId } from "./policy-wire.js";
 
@@ -117,7 +118,7 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
   }
 
   let lastGeneration = "";
-  async function daemon(bind = true): Promise<WebSocket> {
+  async function daemon(bind = true, noisePipes = true): Promise<WebSocket> {
     const socket = new WebSocket(`${base}/v1/relay`, { headers: { authorization: `Bearer ${connectorToken}` } });
     socket.on("message", (data: Buffer, binary: boolean) => {
       if (binary) return;
@@ -130,7 +131,7 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
     const welcome = next(socket, json("relay_welcome"));
     socket.send(JSON.stringify({
       type: "relay_hello", protocol_version: 1, connector_version: "0.1.0-test",
-      capabilities: ["application-authorization-v4", "authorization-activation", "encrypted-relay", "policy-ack", "policy-freshness-lease-v1", "next_device_v1", "noise_pipe_v1"],
+      capabilities: ["application-authorization-v4", "authorization-activation", "encrypted-relay", "policy-ack", "policy-freshness-lease-v1", "next_device_v1", ...(noisePipes ? ["noise_pipe_v1"] : [])],
       contract_support: CONNECT_CONTRACT_SUPPORT
     }));
     const { session_id: sessionId, device_nonce: nonce } = await welcome as { session_id: string; device_nonce: string };
@@ -138,7 +139,7 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
     if (!bind) return socket;
     const bound = next(socket, json("device_bound"));
     socket.send(JSON.stringify({ type: "device_bind", device_id: ids.device, sig: Buffer.from(sign(null, deviceBindDigest(ids.connector, sessionId, Buffer.from(nonce, "hex")), deviceKey)).toString("hex") }));
-    expect(await bound).toMatchObject({ device_id: ids.device, noise_pipes: true });
+    expect(await bound).toMatchObject({ device_id: ids.device, noise_pipes: noisePipes });
     return socket;
   }
 
@@ -188,6 +189,54 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
 
     const [offlineCode, offlineReason] = await once(offline, "close");
     expect([offlineCode, offlineReason.toString()]).toEqual([4404, "connector_offline"]);
+  });
+
+  it("reports actual device reachability across HTTP instances, without opening a pipe", async () => {
+    // Different HTTP instance, shared internal broker; it has no daemon socket map.
+    const metadataApp = Fastify();
+    registerNextRouteRoutes(metadataApp, { db, publicUrl: "https://connect.example", broker });
+    const route = async () => (await metadataApp.inject({ method: "GET", url: `/v1/next/collections/${ids.localId}/route`,
+      headers: { authorization: `Bearer ${accessToken}` } })).json().targets[0].online;
+    let socket: WebSocket | undefined;
+    try {
+      expect(await route()).toBe(false);
+      socket = await daemon(false);
+      expect(await route()).toBe(false);
+      socket.close();
+      await once(socket, "close");
+      socket = await daemon(true, false);
+      expect(await route()).toBe(false);
+      socket.close();
+      await once(socket, "close");
+      socket = await daemon();
+      let opened = 0;
+      socket.on("message", (data, binary) => {
+        if (!binary && JSON.parse(data.toString()).type === "pipe_open") opened++;
+      });
+      await expect.poll(route).toBe(true);
+      const generation = lastGeneration;
+      const invalid = await broker.request(ids.connector, generation,
+        { version: 1, kind: "device_presence", message: { device_id: ids.device, extra: true } }, 1_000);
+      expect(invalid.ok).toBe(false);
+      const wrong = await broker.request(ids.connector, generation,
+        { version: 1, kind: "device_presence", message: { device_id: randomUUID() } }, 1_000);
+      expect(wrong).toEqual({ version: 1, ok: true, value: false });
+      expect(opened).toBe(0);
+      await db.query("UPDATE connectors SET relay_generation = relay_generation + 1 WHERE id = $1", [ids.connector]);
+      expect(await route()).toBe(false);
+      const stale = await broker.request(ids.connector, generation,
+        { version: 1, kind: "device_presence", message: { device_id: ids.device } }, 1_000);
+      expect(stale.ok).toBe(false);
+      socket.close();
+      await once(socket, "close");
+      expect(await route()).toBe(false);
+    } finally {
+      if (socket && socket.readyState !== WebSocket.CLOSED) {
+        socket.close();
+        await once(socket, "close");
+      }
+      await metadataApp.close();
+    }
   });
 
   it("routes only to the named device's current bound socket with its registered key (SEC-039)", async () => {

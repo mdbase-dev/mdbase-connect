@@ -12,35 +12,46 @@ import type { DatabaseQueryable } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { tokenHash } from "../../security.js";
+import { RelayBrokerUnavailableError, type RelayBroker } from "../../relay-broker.js";
 
 export interface RouteTarget {
   kind: "desktop" | "cli" | "hosted";
   device: string;
   noise_pk: string;
   url: string;
+  /**
+   * Snapshot hint: the current relay owner reports this device's Noise-capable
+   * socket bound. Not admission authority; a target can disconnect immediately.
+   */
+  online: boolean;
   /** For relay targets: the collection ID `pipe_auth` names. Absent for direct targets. */
   relay_collection?: string;
 }
 
-export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string }): void {
+export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request"> }): void {
+  // Always `wss:`, except for a loopback development server (SDK request).
   const relayUrl = new URL("/v1/next/relay/client", options.publicUrl);
-  relayUrl.protocol = relayUrl.protocol === "https:" ? "wss:" : "ws:";
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(relayUrl.hostname);
+  relayUrl.protocol = relayUrl.protocol === "http:" && loopback ? "ws:" : "wss:";
   app.get("/v1/next/collections/:id/route", {
     config: { rateLimit: { max: 120, timeWindow: "1 minute" } }
   }, async (request, reply) => {
     const { id } = z.object({ id: z.uuid() }).parse(request.params);
     const token = bearerToken(request);
     if (!token) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
-    const grant = await options.db.query<{ grant_id: string; has_client_key: boolean; device_id: string | null; kind: "desktop" | "cli" | null; noise_pk: Buffer | null; local_id: string }>(
+    const grant = await options.db.query<{ grant_id: string; has_client_key: boolean; device_id: string | null; kind: "desktop" | "cli" | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null }>(
       `SELECT g.id AS grant_id, (k.grant_id IS NOT NULL) AS has_client_key,
-              d.id AS device_id, d.kind, d.noise_pk, col.local_id
+              d.id AS device_id, d.kind, d.noise_pk, col.local_id,
+              c.id AS connector_id, c.relay_generation,
+              (extract(epoch FROM c.last_seen_at) * 1000)::double precision AS last_active_ms
        FROM access_tokens tok
        JOIN grants g ON g.id = tok.grant_id
        JOIN users u ON u.id = g.user_id
        JOIN collections col ON col.id = g.collection_id
        JOIN connectors c ON c.id = col.connector_id AND c.revoked_at IS NULL
        LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
-       LEFT JOIN next_devices d ON d.connector_id = c.id
+       -- SEC-047: only a device of the account that granted the app.
+       LEFT JOIN next_devices d ON d.connector_id = c.id AND d.user_id = g.user_id
        WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
          AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
          AND u.suspended_at IS NULL
@@ -53,9 +64,35 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     if (!row.has_client_key) {
       return reply.code(409).send(apiError("client_key_required", "This grant has no registered Noise key; authorize the app again to register one."));
     }
-    const targets: RouteTarget[] = row.device_id && row.noise_pk && row.kind
-      ? [{ kind: row.kind, device: row.device_id, noise_pk: row.noise_pk.toString("hex"), url: relayUrl.toString(), relay_collection: row.local_id }]
-      : [];
+    const candidates = await Promise.all(grant.rows.flatMap((target) => {
+      if (!target.device_id || !target.noise_pk || !target.kind) return [];
+      const device = target.device_id;
+      const noisePk = target.noise_pk;
+      const kind = target.kind;
+      return [(async () => {
+        let online = false;
+        try {
+          // Ask the actual owner, not this HTTP instance's local socket map or a
+          // recent policy ACK. No daemon operation, policy push, or pipe is opened.
+          const presence = await options.broker.request(target.connector_id, String(target.relay_generation),
+            { version: 1, kind: "device_presence", message: { device_id: device } }, 1_000);
+          online = presence.ok && presence.value === true;
+        } catch (error) {
+          if (!(error instanceof RelayBrokerUnavailableError)) throw error;
+        }
+        const value: RouteTarget = { kind, device, noise_pk: noisePk.toString("hex"), url: relayUrl.toString(), online, relay_collection: target.local_id };
+        return { value, lastActive: target.last_active_ms ?? Number.NEGATIVE_INFINITY };
+      })()];
+    }));
+    // Online first, then desktop/CLI daemons before other kinds, then latest
+    // activity. UUID is the stable final tie-breaker. Current local authority is
+    // bound 1:1 to a connector/device; mobile registration is not implemented.
+    const daemonRank = (kind: RouteTarget["kind"]) => kind === "desktop" || kind === "cli" ? 0 : 1;
+    candidates.sort((a, b) => Number(b.value.online) - Number(a.value.online)
+      || daemonRank(a.value.kind) - daemonRank(b.value.kind)
+      || b.lastActive - a.lastActive
+      || a.value.device.localeCompare(b.value.device));
+    const targets = candidates.map(({ value }) => value);
     return { collection: id, grant: row.grant_id, targets, ...(targets.length === 0 ? { reason: "no_device_registered" } : {}) };
   });
 
@@ -91,6 +128,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
        WHERE g.user_id = $1 AND g.application_id = $2 AND g.application_installation_id = $3
          AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
          AND (g.collection_id IS NULL OR (col.enabled = true AND col.present = true AND col.authority_state = 'active'))
+         AND (g.hosted_collection_id IS NULL OR (hc.authority_state = 'active' AND hc.quarantined_at IS NULL))
        ORDER BY display_name, g.id`,
       [self.user_id, self.application_id, self.installation]
     );

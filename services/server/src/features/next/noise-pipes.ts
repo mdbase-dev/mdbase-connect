@@ -100,6 +100,12 @@ export class NoisePipes {
     socket.once("close", () => void this.detach(socket, "connector_offline"));
   }
 
+  /** Read-only reachability hint, never pipe admission authority. */
+  isBound(socket: WebSocket, generation: string, deviceId: string): boolean {
+    const state = this.sockets.get(socket);
+    return socket.readyState === 1 && state?.generation === generation && state.deviceId === deviceId;
+  }
+
   private async open(socket: WebSocket, data: Uint8Array): Promise<void> {
     const state = this.sockets.get(socket);
     let request: { pipe_id?: unknown; collection_id?: unknown; grant_id?: unknown; device_id?: unknown; device_noise_pk?: unknown };

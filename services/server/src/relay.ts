@@ -773,10 +773,10 @@ export class RelayHub {
     if (!session.ready || this.connectors.get(connectorId) !== session) {
       return brokerError("unavailable", "connector_offline", "The computer hosting this collection is offline.");
     }
+    if (command.kind === "device_presence") return this.nextDevices?.presence(session.socket, generation, command.message) ?? { version: 1, ok: true, value: false };
     if (command.kind === "authorize") {
       if (!this.authorizationHandler) throw new Error("The approval service is not registered.");
-      const value = await this.authorizationHandler({ connectorId, generation }, command.message);
-      return { version: 1, ok: true, value };
+      return { version: 1, ok: true, value: await this.authorizationHandler({ connectorId, generation }, command.message) };
     }
     const upgradeError = connectorUpgradeError(command.message, session.capabilities);
     if (upgradeError) return upgradeError;
