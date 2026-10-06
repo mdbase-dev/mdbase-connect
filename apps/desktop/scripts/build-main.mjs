@@ -19,7 +19,9 @@ await build({
     "src/main/update-coordinator.ts",
     "src/main/update-download.ts",
     "src/main/update-policy.ts",
-    "src/main/update-state.ts"
+    "src/main/update-state.ts",
+    "src/main/takeover-handoff.ts",
+    "src/main/next-daemon.ts"
   ],
   bundle: true,
   platform: "node",

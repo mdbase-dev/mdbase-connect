@@ -50,6 +50,9 @@ function backend(overrides = {}) {
     channel: "beta",
     platformKey: "darwin-arm64",
     packaged: true,
+    async takeoverState() {
+      return { state: "none", claimedFolders: [] };
+    },
     async reconcileInstalledRuntime() {
       events.push("reconcile");
       return null;
@@ -337,6 +340,101 @@ test("startup retains the transaction when recovery returns unhealthy", async ()
   assert.equal(persisted.transaction.phase, "recovering");
   assert.match(persisted.transaction.error, /Rollback is not healthy/);
   assert.equal(persisted.last_known_good_runtime, undefined);
+});
+
+for (const phase of ["started", "complete"]) {
+  test(`${phase} takeover never reconciles or recovers and keeps app updates working`, async () => {
+    const { path, store } = await fixture();
+    const previous = new UpdateCoordinator(store, backend());
+    await previous.initialize();
+    await previous.check();
+    await previous.install();
+    const runtime = backend({ takeoverState: async () => ({ state: phase, claimedFolders: [] }) });
+    const coordinator = new UpdateCoordinator(new UpdateStateStore(path), runtime);
+    assert.equal((await coordinator.initialize()).phase, "handed_off");
+    assert.deepEqual(runtime.events, []);
+    assert.equal(JSON.parse(await readFile(path, "utf8")).transaction, undefined);
+    assert.equal(await coordinator.mayStartOldDaemon(), false);
+    assert.ok(coordinator.daemonStartupBlock());
+    assert.equal((await coordinator.check()).phase, "ready");
+    await coordinator.install();
+    assert.deepEqual(runtime.events, ["find", "stage", "install"]);
+  });
+}
+
+test("postponed takeover leaves a stopped runtime stopped and defers recovery", async () => {
+  const { path, store } = await fixture();
+  let options;
+  const runtime = backend({
+    takeoverState: async () => ({ state: "postponed", claimedFolders: [] }),
+    async reconcileInstalledRuntime(_rollback, value) { options = value; }
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  assert.deepEqual(options, { startStopped: false });
+  assert.equal(await coordinator.mayStartOldDaemon(), false);
+  assert.equal(coordinator.daemonStartupBlock(), null);
+  const previous = new UpdateCoordinator(store, backend());
+  await previous.initialize();
+  await previous.check();
+  const restarted = new UpdateCoordinator(new UpdateStateStore(path), runtime);
+  assert.equal((await restarted.initialize()).phase, "recovery");
+  assert.deepEqual(runtime.events, []);
+  assert.ok(JSON.parse(await readFile(path, "utf8")).transaction);
+});
+
+test("unreadable takeover state blocks startup and a failed re-read blocks checking", async () => {
+  const { store } = await fixture();
+  let fail = false;
+  const runtime = backend({ takeoverState: async () => {
+    if (fail) throw new Error("unreadable record");
+    return { state: "none", claimedFolders: [] };
+  } });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  fail = true;
+  const status = await coordinator.check();
+  assert.equal(status.phase, "failed");
+  assert.equal(status.can_check, false);
+  assert.equal(await coordinator.mayStartOldDaemon(), false);
+  assert.ok(coordinator.daemonStartupBlock());
+  assert.deepEqual(runtime.events, ["reconcile"]);
+  const boot = new UpdateCoordinator(store, runtime);
+  assert.equal((await boot.initialize()).phase, "failed");
+  assert.deepEqual(runtime.events, ["reconcile"]);
+});
+
+test("takeover phase never regresses and an uneventful update check preserves the notice", async () => {
+  const { store } = await fixture();
+  let phase = "started";
+  const runtime = backend({
+    takeoverState: async () => ({ state: phase, claimedFolders: [] }),
+    findLatest: async () => null
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  for (const next of ["none", "postponed", "complete", "started", "none"]) {
+    phase = next;
+    assert.equal(await coordinator.mayStartOldDaemon(), false);
+    assert.equal((await coordinator.check()).phase, "handed_off");
+  }
+  assert.equal(coordinator.takeoverPhase(), "complete");
+});
+
+test("takeover beginning after staging prevents stopping and rollback on app install failure", async () => {
+  const { store } = await fixture();
+  let phase = "none";
+  const runtime = backend({
+    takeoverState: async () => ({ state: phase, claimedFolders: [] }),
+    installAutomatic() { this.events.push("install"); throw new Error("app install failed"); }
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  await coordinator.check();
+  phase = "started";
+  await assert.rejects(coordinator.install(), /app install failed/);
+  assert.equal(coordinator.status().phase, "handed_off");
+  assert.deepEqual(runtime.events, ["reconcile", "find", "prepare", "stage", "install"]);
 });
 
 test("a stop failure invokes recovery and clears the transaction", async () => {

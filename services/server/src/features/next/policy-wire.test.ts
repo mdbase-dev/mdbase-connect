@@ -79,6 +79,13 @@ describe("mdbase-next policy wire", () => {
     expect(Buffer.from(encodePolicyPayload(fixtureCert, 1791300000000, ops)).toString("hex")).toBe(PRIVATE_SYNC_OPS);
   });
 
+  it("encodes approval-request as wire.cddl op 13 {0: 13, 1: device, 2: sas_commit}", () => {
+    const payload = Buffer.from(encodePolicyPayload(fixtureCert, 1791300000000, [{ op: "approval-request", device, sasCommit: fill(0x5c, 32) }])).toString("hex");
+    // The same bytes as mdbase-next's PolicyOp::ApprovalRequest (#144): map(3), key 0 = 13.
+    expect(payload).toContain(`81a3000d0150${device.replaceAll("-", "")}025820${"5c".repeat(32)}`);
+    expect(() => encodePolicyPayload(fixtureCert, 1, [{ op: "approval-request", device, sasCommit: fill(1, 31) }])).toThrow(/sas_commit/);
+  });
+
   it("computes the digests the root and owner devices sign (policy/*.digests.txt)", () => {
     const toHex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
     expect(toHex(certDigest(fixtureCert))).toBe("cd94bc8c53b4744dda7b3d0fb9517b5457c90bc5b63397b15e2843d63d0d023e");
