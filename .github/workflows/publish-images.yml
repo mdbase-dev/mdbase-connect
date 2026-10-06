@@ -8,6 +8,16 @@ on:
       - completed
   workflow_dispatch:
     inputs:
+      operation:
+        description: Publish images or sign the reviewed LAB trust extension
+        required: true
+        default: images
+        type: choice
+        options: [images, lab-trust]
+      image_publication_run_id:
+        description: Existing successful image-bundle run (lab-trust only)
+        required: false
+        type: string
       source_commit:
         description: Full release commit to rebuild and attest
         required: true
@@ -35,8 +45,8 @@ env:
 jobs:
   changes:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.event == 'push' &&
+      (github.event_name == 'workflow_dispatch' && inputs.operation != 'lab-trust') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
@@ -316,5 +326,103 @@ jobs:
           path: |
             ${{ runner.temp }}/release-bundle.json
             ${{ runner.temp }}/release-bundle.sigstore.json
+          if-no-files-found: error
+          retention-days: 90
+
+  lab-trust-bundle:
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'lab-trust'
+    name: Sign reviewed LAB trust assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IMAGE_PUBLICATION_RUN_ID: ${{ inputs.image_publication_run_id }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - id: publisher-qualification
+        name: Require qualified main-branch publisher code
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_REPOSITORY" = mdbase-dev/mdbase-connect
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$IMAGE_PUBLICATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RELEASE_TAG" =~ ^v0\.1\.0-beta\.[1-9][0-9]*$ ]]
+          scripts/ci/verify-qualified-commit "$GITHUB_SHA"
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Authenticate the existing immutable image release bundle
+        run: |
+          mkdir "$RUNNER_TEMP/image-release"
+          gh run download "$IMAGE_PUBLICATION_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name release-bundle --dir "$RUNNER_TEMP/image-release"
+          cosign verify-blob \
+            --certificate-identity 'https://github.com/mdbase-dev/mdbase-connect/.github/workflows/publish-images.yml@refs/heads/main' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --bundle "$RUNNER_TEMP/image-release/release-bundle.sigstore.json" \
+            "$RUNNER_TEMP/image-release/release-bundle.json"
+          jq -e --arg commit "$SOURCE_COMMIT" --arg tag "$RELEASE_TAG" \
+            --argjson run "$IMAGE_PUBLICATION_RUN_ID" '
+            .schemaVersion==1 and .repository=="mdbase-dev/mdbase-connect"
+            and .commit==$commit and ("v"+.version)==$tag
+            and .publication.workflow=="publish-images.yml" and .publication.runId==$run
+          ' "$RUNNER_TEMP/image-release/release-bundle.json" >/dev/null
+          publication=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$IMAGE_PUBLICATION_RUN_ID")
+          attempt=$(jq -er .publication.runAttempt "$RUNNER_TEMP/image-release/release-bundle.json")
+          jq -e --arg commit "$SOURCE_COMMIT" --argjson attempt "$attempt" '
+            .head_sha==$commit and .status=="completed" and .conclusion=="success"
+            and (.event=="workflow_run" or .event=="workflow_dispatch")
+            and .path==".github/workflows/publish-images.yml" and .run_attempt==$attempt
+          ' <<<"$publication" >/dev/null
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          path: image-source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require exact full qualification of the original release
+        working-directory: image-source
+        run: |
+          run=$(jq -er .qualification.runId "$RUNNER_TEMP/image-release/release-bundle.json")
+          ../scripts/ci/verify-qualified-commit "$SOURCE_COMMIT" "$run"
+          attempt=$(jq -er .qualification.runAttempt "$RUNNER_TEMP/image-release/release-bundle.json")
+          actual=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq .run_attempt)
+          test "$actual" = "$attempt"
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @mdbase-dev/connect-protocol build
+      - name: Validate reference payload and construct release-linked trust inventory
+        env:
+          PUBLISHER_QUALIFICATION_RUN_ID: ${{ steps.publisher-qualification.outputs.run_id }}
+        run: |
+          export PUBLISHER_QUALIFICATION_RUN_ATTEMPT
+          PUBLISHER_QUALIFICATION_RUN_ATTEMPT=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PUBLISHER_QUALIFICATION_RUN_ID" --jq .run_attempt)
+          pnpm --filter @mdbase/connect-server exec tsx \
+            ../../scripts/build-release-trust-bundle.mts \
+            "$RUNNER_TEMP/image-release/release-bundle.json" "$RUNNER_TEMP/release-trust"
+          cp "$RUNNER_TEMP/image-release/release-bundle.sigstore.json" \
+            "$RUNNER_TEMP/release-trust/image-release-bundle.sigstore.json"
+      - name: Sign trust inventory using the existing protected workflow identity
+        run: |
+          cosign sign-blob --yes \
+            --bundle "$RUNNER_TEMP/release-trust/release-trust-bundle.sigstore.json" \
+            "$RUNNER_TEMP/release-trust/release-trust-bundle.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-trust-bundle
+          path: ${{ runner.temp }}/release-trust/
           if-no-files-found: error
           retention-days: 90
