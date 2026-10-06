@@ -141,13 +141,9 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
       const saved = previous ? JSON.parse(previous) as TimerChannelRegistration & { grantId?: string } : null;
       const installationId = options.installationId ?? (saved && saved.grantId === initial.grantId ? saved.installationId : undefined) ?? randomBase64Url(24);
       if (typeof installationId !== "string" || !/^[A-Za-z0-9._:-]{1,200}$/u.test(installationId)) throw fail();
-      // Persist the opaque installation before a possible uncertain POST; neither
-      // FCM credentials nor subscription endpoints/keys are stored here.
-      check();
-      internals.storage.setItem(storageKey, JSON.stringify({
-        installationId, grantId: initial.grantId,
-        ...(saved && saved.grantId === initial.grantId && saved.channelId ? { channelId: saved.channelId } : {})
-      }));
+      if (saved && saved.grantId === initial.grantId && !saved.channelId) {
+        throw connectError("operation_failed", "Channel registration requires reconciliation before replacement.", { operationOutcome: "unknown" });
+      }
       let data: unknown;
       if (native) {
         const token = (options as FcmTimerOptions).token;
@@ -169,10 +165,21 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
         if (!sub.endpoint || !sub.keys?.p256dh || !sub.keys.auth) throw fail();
         data = { installation_id: installationId, criteria, subscription: { endpoint: sub.endpoint, expirationTime: sub.expirationTime ?? null, keys: sub.keys } };
       }
+      // Retain the original uncertain installation, never an ACK from a different
+      // target. Preserve the previous opaque target for explicit cleanup, not replay.
+      check();
+      const sameTarget = saved && saved.grantId === initial.grantId && saved.installationId === installationId;
+      const previousTarget = saved && saved.grantId === initial.grantId && !sameTarget && saved.channelId
+        ? { channelId: saved.channelId, installationId: saved.installationId } : undefined;
+      internals.storage.setItem(storageKey, JSON.stringify({
+        installationId, grantId: initial.grantId,
+        ...(sameTarget && saved.channelId ? { channelId: saved.channelId } : {}),
+        ...(previousTarget ? { previousTarget } : {})
+      }));
       const result = await request("/v1/notifications/channels", "POST", data) as { channel_id?: string };
       if (typeof result.channel_id !== "string" || !UUID.test(result.channel_id)) throw fail();
       check(); const registration = { channelId: result.channel_id, installationId, criteria };
-      internals.storage.setItem(storageKey, JSON.stringify({ ...registration, grantId: initial.grantId }));
+      internals.storage.setItem(storageKey, JSON.stringify({ ...registration, grantId: initial.grantId, ...(previousTarget ? { previousTarget } : {}) }));
       return registration;
     });
   const unregister = async (native: boolean, worker: ServiceWorkerRegistration | undefined, options: ConnectRequestOptions) =>

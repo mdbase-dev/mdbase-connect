@@ -147,6 +147,23 @@ describe("fixed retained app timer HTTP port", () => {
     await expect(f.port.unregisterFcm({})).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
     expect(fetch).toHaveBeenCalledTimes(1); // No fake remote-delete success.
   });
+  it("never borrows an old channel ACK after an uncertain new installation", async () => {
+    const f = fixture();
+    vi.spyOn(f.client["internals"], "register").mockResolvedValue({ notifications: {
+      criteria: [{ id: "test.fire" }], native_delivery: { mode: "managed_fcm" }
+    } } as unknown as Application);
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ channel_id: CHANNEL }))
+      .mockRejectedValueOnce(new TypeError("response lost after new channel admitted"));
+    await f.port.registerFcm({ token: "old-synthetic", installationId: "old-install" });
+    await expect(f.port.registerFcm({ token: "new-synthetic", installationId: "new-install" })).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    await expect(f.port.unregisterFcm({})).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    await expect(f.port.registerFcm({ token: "third-synthetic", installationId: "third-install" })).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    expect(fetch).toHaveBeenCalledTimes(2); // No DELETE of OLD, no hidden replacement/retry.
+    const stored = Array.from({ length: f.storage.length }, (_, i) => f.storage.getItem(f.storage.key(i)!)).join(" ");
+    expect(stored).toContain("new-install"); expect(stored).toContain("old-install"); expect(stored).toContain(CHANNEL);
+    for (const credential of ["old-synthetic", "new-synthetic", "third-synthetic"]) expect(stored).not.toContain(credential);
+    expect(stored).not.toContain("third-install");
+  });
   it("registers FCM on the existing fixed channel route with declared metadata", async () => {
     const f = fixture();
     vi.spyOn(f.client["internals"], "register").mockResolvedValue({ notifications: {
