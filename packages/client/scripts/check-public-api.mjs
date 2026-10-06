@@ -7,6 +7,7 @@ const entries = {
   root: resolve(packageRoot, "src/index.ts"),
   advanced: resolve(packageRoot, "src/advanced.ts"),
   crypto: resolve(packageRoot, "src/crypto-entry.ts"),
+  timers: resolve(packageRoot, "src/control-timers.ts"),
   testing: resolve(packageRoot, "../testing/src/index.ts")
 };
 
@@ -24,7 +25,7 @@ if (process.argv.includes("--write")) {
 } else {
   const expected = JSON.parse(await readFile(resolve(packageRoot, "public-api.json"), "utf8"));
   assert.deepEqual(report, expected, "Generated public API inventory is stale; run pnpm generate:public-api (review entry-point changes, not this generated file)");
-  process.stdout.write("Reviewed public API inventory matches root, /advanced, /crypto, and connect-testing.\n");
+  process.stdout.write("Reviewed public API inventory matches root, /advanced, /crypto, /timers, and connect-testing.\n");
 }
 
 function exportedNames(source) {
