@@ -267,6 +267,9 @@ describePg("private collections", () => {
     const response = await enrol(second, collection, await enrolProof(second, collection, sas));
     expect(response.statusCode, response.body).toBe(200);
     expect(response.json()).toMatchObject({ collection_id: collection, enrolled_at: 2, approval: "pending", device: { device_id: second.device } });
+    // The exact appended genesis, for the enrolling device to verify and pin.
+    const appended = (await db.query<{ item: Buffer }>("SELECT item FROM next_policy_batches WHERE collection_id = $1 AND seq = 1", [collection])).rows[0];
+    expect(response.json().genesis).toEqual({ seq: 1, item: appended.item.toString("hex") });
     const items = log.logs.get(collection.replaceAll("-", ""))!;
     const [op] = opsOf(items[1]!);
     expect(field(op!, 0)).toBe(2);
