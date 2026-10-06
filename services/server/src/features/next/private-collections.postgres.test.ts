@@ -11,7 +11,7 @@ import { certToJson, ed25519RawPublicKey, loadPolicySigner, parseNextControlPlan
 import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { certDigest, chainHash, decodeCbor, encodeCbor, keyId, type Cbor, type Decoded, type PolicyOp } from "./policy-wire.js";
 import { inTransaction, refuse } from "./bootstrap-common.js";
-import { privateCreateDigest, privateDeviceEnrolDigest, registerPrivateCollectionRoutes } from "./private-collections.js";
+import { privateApprovalRequestDigest, privateCreateDigest, privateDeviceEnrolDigest, registerPrivateCollectionRoutes } from "./private-collections.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -141,6 +141,13 @@ describePg("private collections", () => {
     const digest = privateDeviceEnrolDigest({ challenge: Buffer.from(challenge, "hex"), connector: who.connector.id, device: who.device, collection, sasCommit: Buffer.from(commit, "hex") });
     return { device_id: who.device, challenge, sig: hex(sign(null, digest, who.key)), sas_commit: commit };
   }
+  async function renewProof(who: Who, collection: string, sas: string) {
+    const { challenge } = await issueDeviceChallenge(db, who.connector.id);
+    const digest = privateApprovalRequestDigest({ challenge: Buffer.from(challenge, "hex"), connector: who.connector.id, device: who.device, collection, sasCommit: Buffer.from(sas, "hex") });
+    return { device_id: who.device, challenge, sig: hex(sign(null, digest, who.key)), sas_commit: sas };
+  }
+  const renew = (who: Who, collection: string, payload: unknown) =>
+    app.inject({ method: "POST", url: `/v1/next/collections/${collection}/private/devices/approval-request`, headers: who.headers, payload });
   const create = (who: Who, payload: unknown) => app.inject({ method: "POST", url: "/v1/next/collections/private", headers: who.headers, payload });
   const enrol = (who: Who, collection: string, payload: unknown) =>
     app.inject({ method: "POST", url: `/v1/next/collections/${collection}/private/devices`, headers: who.headers, payload });
@@ -332,5 +339,70 @@ describePg("private collections", () => {
     await db.query("UPDATE next_collections SET runtime = 'next' WHERE collection_id = $1", [create2]);
     await db.query("UPDATE next_collections SET left_sync_at = now() WHERE collection_id = $1", [create2]);
     expect((await enrol(third, create2, await enrolProof(third, create2, sas))).json().error.code).toBe("not_current_private");
+  });
+
+  it("appends a CP-signed approval-request for an enrolled device's fresh commitment", async () => {
+    const owner = await identity();
+    const collection = await created(owner);
+    const second = await identity(owner.connector.user_id);
+    expect((await renew(second, collection, await renewProof(second, collection, commit()))).json().error.code).toBe("not_enrolled");
+    const initial = commit();
+    expect((await enrol(second, collection, await enrolProof(second, collection, initial))).statusCode).toBe(200);
+    expect((await renew(second, collection, await renewProof(second, collection, initial))).json().error.code).toBe("stale_commitment");
+    const sas = commit();
+    const response = await renew(second, collection, await renewProof(second, collection, sas));
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({ collection_id: collection, requested_at: 3, approval: "logged" });
+    const items = log.logs.get(collection.replaceAll("-", ""))!;
+    const [op] = opsOf(items[2]!);
+    expect(field(op!, 0)).toBe(13);
+    expect(hex(field(op!, 1) as Uint8Array)).toBe(second.device.replaceAll("-", ""));
+    expect(hex(field(op!, 2) as Uint8Array)).toBe(sas);
+    // A retry of the same commitment reuses it; a new one is a new request.
+    expect((await renew(second, collection, await renewProof(second, collection, sas))).json().requested_at).toBe(3);
+    expect(items.length).toBe(3);
+    const b = commit();
+    expect((await renew(second, collection, await renewProof(second, collection, b))).json().requested_at).toBe(4);
+    // A, B, then A again: stale, never the old position and never re-queued.
+    expect((await renew(second, collection, await renewProof(second, collection, sas))).json().error.code).toBe("stale_commitment");
+    // The enrolment's own commitment is stale too.
+    expect(items.length).toBe(4);
+    // B is current: a retry reuses it.
+    expect((await renew(second, collection, await renewProof(second, collection, b))).json().requested_at).toBe(4);
+    // The proof binds the commitment.
+    const p = await renewProof(second, collection, sas);
+    expect((await renew(second, collection, { ...p, sas_commit: commit() })).json().error.code).toBe("invalid_proof");
+    // An enrolment proof never requests.
+    const e = await enrolProof(second, collection, sas);
+    expect((await renew(second, collection, e)).json().error.code).toBe("invalid_proof");
+  });
+
+  it("answers superseded when a newer commitment lands while the request is read back", async () => {
+    const owner = await identity();
+    const collection = await created(owner);
+    const second = await identity(owner.connector.user_id);
+    expect((await enrol(second, collection, await enrolProof(second, collection, commit()))).statusCode).toBe(200);
+    const a = commit();
+    const payload = await renewProof(second, collection, a);
+    log.onRead = async () => { await queue(collection, [{ op: "approval-request", device: second.device, sasCommit: Buffer.from(commit(), "hex") }]); };
+    expect((await renew(second, collection, payload)).json().error.code).toBe("superseded");
+  });
+
+  it("refuses approval requests for revoked devices, removed members and cloud copies", async () => {
+    const owner = await identity();
+    const collection = await created(owner);
+    const second = await identity(owner.connector.user_id);
+    expect((await enrol(second, collection, await enrolProof(second, collection, commit()))).statusCode).toBe(200);
+    // Another account's device, even one enrolled, never asks for this account.
+    const stranger = await identity();
+    expect((await renew(stranger, collection, await renewProof(stranger, collection, commit()))).json().error.code).toBe("not_member");
+    await queue(collection, [{ op: "device-revoke", device: second.device }]);
+    expect((await renew(second, collection, await renewProof(second, collection, commit()))).json().error.code).toBe("device_revoked");
+    const owned = await created(owner);
+    await queue(owned, [{ op: "member-remove", account: owner.connector.user_id }]);
+    expect((await renew(owner, owned, await renewProof(owner, owned, commit()))).json().error.code).toBe("not_member");
+    const cloud = randomUUID();
+    await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','cloud_copy',$3)", [cloud, owner.connector.user_id, Buffer.from(config.policyCert.root_key_id, "hex")]);
+    expect((await renew(owner, cloud, await renewProof(owner, cloud, commit()))).json().error.code).toBe("not_current_private");
   });
 });

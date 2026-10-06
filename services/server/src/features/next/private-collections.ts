@@ -7,8 +7,12 @@
 // - Device enrol (`POST /v1/next/collections/:id/private/devices`): a registered device
 //   of a current member account is enrolled, carrying its SAS commitment
 //   (`device-enrol` key 7). It holds no key until an existing keyed device approves it
-//   (SAS commit-then-reveal) and appends a `key_grant`. A changed commitment travels
-//   as the device's own `approval-request`, never through here.
+//   (SAS commit-then-reveal) and appends a `key_grant`.
+// - Approval request (`POST /v1/next/collections/:id/private/devices/approval-request`):
+//   an enrolled device asks, with its own signature, for a fresh SAS commitment; the
+//   control plane appends the CP-signed `approval-request` (op 13: device and
+//   commitment only, no enrolment or keys). The replica applies it only for an
+//   active, unkeyed user device.
 //
 // The control plane never approves, never grants and never holds a collection key. It
 // enrols with its policy key and mints log credentials, nothing more.
@@ -36,6 +40,31 @@ export function privateDeviceEnrolDigest(input: { challenge: Uint8Array; connect
     input.challenge, uuidBytes(input.connector), uuidBytes(input.device), uuidBytes(input.collection), input.sasCommit
   ]));
 }
+
+/** `H("mdbase/v1/private-approval-request", cbor[challenge, connector, device, collection, sas_commit])`, signed by the enrolled device. */
+export function privateApprovalRequestDigest(input: { challenge: Uint8Array; connector: string; device: string; collection: string; sasCommit: Uint8Array }): Uint8Array {
+  return domainHash("mdbase/v1/private-approval-request", encodeCbor([
+    input.challenge, uuidBytes(input.connector), uuidBytes(input.device), uuidBytes(input.collection), input.sasCommit
+  ]));
+}
+
+/**
+ * This device's latest approval request (outbox order, then op order), with its
+ * batch: the only one a retry may reuse. One row at most, projected in SQL.
+ */
+const LATEST_APPROVAL_REQUEST = `SELECT e.value->'sasCommit'->>'$hex' AS commit, b.seq, b.item, b.state
+  FROM next_policy_outbox o
+  LEFT JOIN next_policy_batches b ON b.id = o.batch_id
+  CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY AS e(value, ord)
+  WHERE o.collection_id = $1 AND o.ops->'ops' @> $2::jsonb
+    AND e.value->>'op' = 'approval-request' AND e.value->>'device' = $3
+  ORDER BY o.id DESC, e.ord DESC LIMIT 1`;
+/** Any earlier commitment of this device: its enrolment's or a previous request's. */
+const EARLIER_COMMITMENT = `SELECT 1 FROM next_policy_outbox o
+  WHERE o.collection_id = $1 AND (o.ops->'ops' @> $2::jsonb OR o.ops->'ops' @> $3::jsonb) LIMIT 1`;
+type LatestRequest = { commit: string; seq: string | null; item: Buffer | null; state: string | null };
+const latestRequest = async (client: { query: DatabaseConnection["query"] }, collection: string, device: string) =>
+  (await client.query<LatestRequest>(LATEST_APPROVAL_REQUEST, [collection, JSON.stringify([{ op: "approval-request", device }]), device])).rows[0];
 
 /** Whether the collection already exists: false when free, true when this owner's private collection, else refused. */
 async function existing(client: DatabaseConnection, collection: string, owner: string): Promise<boolean> {
@@ -243,6 +272,83 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
     } catch (error) {
       if (error instanceof CreateError && error.status !== 503) return refuse(reply, error, "The private collection is not current for this device.");
       return reply.code(503).send(apiError("not_ready", "The enrolment is not verified; retry with a fresh proof."));
+    }
+  });
+
+  // ---- Approval request: an enrolled device's fresh SAS commitment. ----
+  app.post<{ Params: { id: string }; Body: Proof & { sas_commit: string } }>("/v1/next/collections/:id/private/devices/approval-request", {
+    ...limited,
+    schema: {
+      params: { type: "object", required: ["id"], properties: { id: uuid } },
+      body: {
+        type: "object", additionalProperties: false, required: ["device_id", "challenge", "sig", "sas_commit"],
+        properties: { ...proof, sas_commit: { type: "string", pattern: "^[0-9a-f]{64}$" } }
+      }
+    }
+  }, async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return reply;
+    const collection = request.params.id.toLowerCase();
+    const body = { ...request.body, device_id: request.body.device_id.toLowerCase() };
+    const sasCommit = Buffer.from(body.sas_commit, "hex");
+    if (collection === NIL || body.device_id === NIL) return reply.code(400).send(apiError("invalid_request", "Nil identifiers are not accepted."));
+    const digest = (challenge: Uint8Array) => privateApprovalRequestDigest({ challenge, connector: connector.id, device: body.device_id, collection, sasCommit });
+    const checks = async (client: DatabaseConnection, d: Device) => {
+      await currentIdentity(client, connector, body.device_id, d);
+      await currentPrivate(client, collection);
+      await currentMember(client, collection, connector.user_id);
+      await refuseRevoked(client, collection, body.device_id);
+      // Only for this account's device, enrolled with exactly these keys and
+      // acknowledged by the log. The op itself carries no enrolment.
+      const enrolled = await client.query(
+        `SELECT 1 FROM next_policy_outbox o JOIN next_policy_batches b ON b.id = o.batch_id
+          WHERE o.collection_id = $1 AND b.state = 'appended' AND o.ops->'ops' @> $2::jsonb LIMIT 1`,
+        [collection, exactEnrolment(body.device_id, connector.user_id, d)]
+      );
+      if (!enrolled.rows.length) throw new CreateError(409, "not_enrolled");
+    };
+    let device: Device;
+    try {
+      device = await inTransaction(options.db, async (client) => {
+        await lock(client, collection);
+        const requesting = await authenticate(client, body, connector, digest);
+        await checks(client, requesting);
+        // A retry of this device's LATEST commitment reuses it. Any earlier one (its
+        // enrolment's, or a superseded request: A, B, then A again) is stale and
+        // refused: a revealed commitment is never reused.
+        const latest = await latestRequest(client, collection, body.device_id);
+        if (latest?.commit !== body.sas_commit) {
+          const hexCommit = { $hex: body.sas_commit };
+          const earlier = await client.query(EARLIER_COMMITMENT, [collection,
+            JSON.stringify([{ op: "approval-request", device: body.device_id, sasCommit: hexCommit }]),
+            JSON.stringify([{ op: "device-enrol", device: body.device_id, sasCommit: hexCommit }])]);
+          if (earlier.rows.length) throw new CreateError(409, "stale_commitment");
+          if (!(await queueNextPolicy(client, collection, [{ op: "approval-request", device: body.device_id, sasCommit }]))) {
+            throw new CreateError(409, "not_current_private");
+          }
+        }
+        return requesting;
+      });
+    } catch (error) {
+      return refuse(reply, error, "The approval request was not queued; retry with a fresh proof.");
+    }
+    try {
+      await options.emitter.drainCollection(collection);
+      const row = await latestRequest(options.db, collection, body.device_id);
+      // A concurrent request may have superseded this commitment while we waited.
+      if (row?.commit !== body.sas_commit) throw new CreateError(409, "superseded");
+      const batch = await appendedBatch(collection, row);
+      return await inTransaction(options.db, async (client) => {
+        await checks(client, device);
+        // Still this device's latest request when answered.
+        const current = await latestRequest(client, collection, body.device_id);
+        if (current?.commit !== body.sas_commit || Number(current.seq) !== batch.seq) throw new CreateError(409, "superseded");
+        return { collection_id: collection, requested_at: batch.seq, approval: "logged" };
+      });
+    } catch (error) {
+      if (error instanceof CreateError && error.status !== 503) return refuse(reply, error, "The private collection is not current for this device.");
+      return reply.code(503).send(apiError("not_ready", "The approval request is not verified; retry with a fresh proof."));
     }
   });
 }
