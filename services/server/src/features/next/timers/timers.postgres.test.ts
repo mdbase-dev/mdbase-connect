@@ -90,6 +90,36 @@ suite("timer service on PostgreSQL", () => {
     expect(Number(signals.rows[0].count)).toBe(50);
   });
 
+  it("demonstrates why repeating a desired snapshot is not original receipt recovery", async () => {
+    const grantId = await grant();
+    const resolved = (await legacyTimerGrantResolver.resolve(db, grantId))!;
+    const desired = [desiredTimer({ id: "original", fire_at: new Date(Date.now() + 3_600_000).toISOString() })];
+    const run = async (timers: typeof desired) => {
+      const connection = await db.connect();
+      try {
+        await connection.query("BEGIN");
+        await lockNamespace(connection, grantId, "uncertain");
+        const result = await reconcileTimers(connection, resolved, "uncertain", "task.reminder", timers);
+        await connection.query("COMMIT");
+        return result;
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally {
+        connection.release();
+      }
+    };
+    // Treat the first committed HTTP response as lost. Another intent then cancels
+    // its timer. Reissuing the old body is a NEW effect, not recovering that reply.
+    const original = await run(desired);
+    expect(original.timers[0]).toMatchObject({ status: "scheduled", generation: 1 });
+    expect((await run([])).cancelled_ids).toEqual(["original"]);
+    const replayed = await run(desired);
+    expect(replayed.timers[0]).toMatchObject({ status: "scheduled", generation: 2 });
+    expect(replayed).not.toEqual(original);
+    expect(replayed.cancelled_ids).toEqual([]);
+  });
+
   it("serializes concurrent reconciles of one namespace", async () => {
     const grantId = await grant();
     const resolved = (await legacyTimerGrantResolver.resolve(db, grantId))!;
