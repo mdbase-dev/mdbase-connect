@@ -226,6 +226,7 @@
 .collection-rail .connection-footer {
   min-height: 44px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
@@ -267,4 +268,41 @@
   .collection-rail nav .rail-tree-row .folder-disclosure,
   .collection-rail nav .rail-tree-row .folder-disclosure-spacer { width: 28px; }
   .collection-rail nav .rail-tree-row .rail-row-menu { opacity: 1; pointer-events: auto; }
+}
+
+/* mdbase-next holds and conflicts: changes waiting for the user's decision. */
+.collection-rail .sync-review {
+  flex: 1 0 100%;
+  display: grid;
+  gap: var(--space-2);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.collection-rail .sync-review h2 {
+  margin: 0;
+  color: var(--color-warning-text, oklch(43% 0.055 69));
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+}
+.collection-rail .sync-review ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.collection-rail .sync-review li p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+  overflow-wrap: anywhere;
+}
+.collection-rail .sync-review li strong {
+  color: var(--ink);
+}
+.collection-rail .sync-review [role="group"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
 }

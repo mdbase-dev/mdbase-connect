@@ -69,7 +69,9 @@ import type {
   CollectionSessionSnapshot,
   ConnectionSummary,
   CreateNoteInput,
-  NoteDocument
+  HoldResolution,
+  NoteDocument,
+  SyncAttention
 } from "./model";
 import {
   editableNote,
@@ -94,7 +96,7 @@ import {
 } from "./note-session";
 import { filterLabel, filterScopeLabel, loadNoteSort, saveNoteSort, sortNotes, loadPinnedNotes, savePinnedNotes, type NoteFilter, type NoteRowStatus, type NoteSelection, type NoteSort } from "./note-list-view";
 import { NoteList } from "./NoteList";
-import { noteRowStatus } from "./note-mutation-presentation";
+import { holdLabel, noteRowStatus } from "./note-mutation-presentation";
 import {
   NotePreviewCard,
   useNotePreview
@@ -179,8 +181,12 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     contentComplete,
     contentIndexing,
     contentLoaded,
-    contentError
+    contentError,
+    hasMore: moreNotes,
+    loadingMore: loadingMoreNotes,
+    sync: syncStatus
   } = collectionIndex;
+  const loadMoreNotes = useCallback(() => { void indexController.loadMore(); }, [indexController]);
   const [phase, setPhase] = useState<AppPhase>("starting");
   const [description, setDescription] = useState<CollectionDescription>();
   const [sessionSnapshot, setSessionSnapshot] = useState<CollectionSessionSnapshot>(() => gateway.sessionSnapshot());
@@ -268,6 +274,20 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     setNoticeState(message ? { message, tone } : undefined);
     if (message && tone !== "info") signalMdbaseMark(tone === "error" ? "error" : "saved");
   }, []);
+  // Optimistic writes the replica rejects after the editor moved on (mdbase-next only).
+  useEffect(() => gateway.onBackgroundProblem?.((message) => setNotice(message)), [gateway, setNotice]);
+  const [syncAttention, setSyncAttention] = useState<SyncAttention>();
+  useEffect(() => {
+    if (phase !== "ready" || !gateway.onSyncAttention) return;
+    const stop = gateway.onSyncAttention(setSyncAttention);
+    return () => { stop(); setSyncAttention(undefined); };
+  }, [gateway, phase]);
+  const resolveHold = useCallback(async (id: string, how: HoldResolution) => {
+    try { await gateway.resolveHold?.(id, how); } catch (error) { setNotice(gatewayError(error)); }
+  }, [gateway, setNotice]);
+  const resolveConflict = useCallback(async (key: string, choice: "kept" | "lost") => {
+    try { await gateway.resolveConflict?.(key, choice); } catch (error) { setNotice(gatewayError(error)); }
+  }, [gateway, setNotice]);
   const publishTypeDescription = useCallback((next: CollectionDescription) => {
     workspaceCollectionId.current = next.collectionId;
     typeDescriptorsRef.current = next.types;
@@ -1736,6 +1756,12 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     const status = noteRowStatus(session);
     if (status) noteStatuses.set(session.document.path, status);
   }
+  for (const note of allNotes) {
+    if (noteStatuses.has(note.path)) continue;
+    // A held note never looks silently stuck: say why, and the rail offers the fix.
+    if (note.hold) noteStatuses.set(note.path, { label: holdLabel(note.hold), tone: "error", busy: false });
+    else if (note.syncState === "pending") noteStatuses.set(note.path, { label: "Waiting to sync", tone: "quiet", busy: false });
+  }
   return <div
     className={`app-shell surface-${surface} pane-${mobilePane}${focusMode ? " focus-mode" : ""}${focusMode && preferences.typewriterScrolling ? " typewriter-mode" : ""}${inspectorVisible ? " inspector-visible" : ""}${layout.collectionCollapsed ? " collection-pane-collapsed" : ""}${hasListPane && layout.listCollapsed ? " list-pane-collapsed" : ""}${hasListPane ? "" : " no-list-pane"}${resizingPane ? " resizing-pane" : ""}`}
     style={{
@@ -1766,6 +1792,10 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       onSettings={() => selectSurface("settings")}
       connectionState={connectionState}
       connectionIssue={connectionIssue}
+      sync={syncStatus}
+      attention={syncAttention}
+      onResolveHold={gateway.resolveHold ? resolveHold : undefined}
+      onResolveConflict={gateway.resolveConflict ? resolveConflict : undefined}
       directAccess={connectionSummary?.directAccess}
       directAccessBusy={directAccessBusy}
       onRequestDirectAccess={() => void requestDirectAccess()}
@@ -1828,6 +1858,9 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
         onDelete={(path) => { if (listSelection.paths.length > 1 && listSelection.paths.includes(path)) void deleteSelectedNotes(listSelection.paths); else void requestDelete(path); }}
         onCreate={canCreateNotes ? beginCreate : undefined}
         onCollections={() => returnToMobilePane("collections")}
+        hasMore={moreNotes}
+        loadingMore={loadingMoreNotes}
+        onLoadMore={moreNotes ? loadMoreNotes : undefined}
         leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl pane="list" label="Hide notes sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
       />}

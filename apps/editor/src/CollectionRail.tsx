@@ -13,13 +13,14 @@ import { FolderChangeDialog, type FolderChangeActions } from "./FolderChangeDial
 import { FOLDER_PATH_MIME } from "./folder-change";
 import { RailDropTarget } from "./RailDropTarget";
 import { EditorRail } from "./EditorRail";
-import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
+import type { CollectionFile, CollectionSyncStatus, ConnectionSummary, HoldResolution, NoteSummary, SyncAttention } from "./model";
+import { holdActions, holdLabel } from "./note-mutation-presentation";
 import type { ConnectionState } from "./app-state-types";
 import { folderTree, type FolderTreeNode } from "./note";
 import type { NoteFilter } from "./note-list-view";
 
 
-export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, onSwitch, onCollapse, onPlanFolderChange, onChangeFolder }: {
+export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, sync, attention, onResolveHold, onResolveConflict, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, onSwitch, onCollapse, onPlanFolderChange, onChangeFolder }: {
   collectionId: string;
   name: string;
   count: number;
@@ -31,6 +32,12 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   surface: "notes" | "types" | "settings";
   connectionState: ConnectionState;
   connectionIssue?: string;
+  /** mdbase-next: "confirmed through N, plus pending". */
+  sync?: CollectionSyncStatus;
+  /** mdbase-next: holds and conflicts waiting for a decision. */
+  attention?: SyncAttention;
+  onResolveHold?: (id: string, how: HoldResolution) => Promise<void>;
+  onResolveConflict?: (key: string, choice: "kept" | "lost") => Promise<void>;
   directAccess?: ConnectionSummary["directAccess"];
   directAccessBusy: boolean;
   onFilter: (filter?: NoteFilter) => void;
@@ -64,9 +71,10 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     onMoveFolder={moveFolder}
     notesSelected={surface === "notes" && !activeFilter}
     footer={<>
+      {attention && onResolveHold && onResolveConflict && <SyncReview attention={attention} onResolveHold={onResolveHold} onResolveConflict={onResolveConflict} />}
       {directAccess === "permission_required" && connectionState === "connected"
         ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? "Checking…" : "Use this computer"}</button>
-        : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : connectionState === "reconnecting" ? "Reconnecting" : "Sync stopped"}</span></p>}
+        : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : connectionState === "reconnecting" ? "Reconnecting" : "Sync stopped"}</span>{sync && <span title={`Confirmed through log position ${sync.confirmedThrough}`}>{syncSummary(sync)}</span>}</p>}
       {connectionState !== "connected" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
     </>}
   >
@@ -301,4 +309,43 @@ export function connectWorkspaceUrl(collectionId: string): string {
   if (server) url.searchParams.set("server", server);
   url.searchParams.set("collection", collectionId);
   return `${url.pathname}${url.search}`;
+}
+
+/** "Confirmed through N, plus pending", in words. */
+export function syncSummary(sync: CollectionSyncStatus): string {
+  const waiting = sync.pending ? ` · ${sync.pending.toLocaleString()} waiting to sync` : " · All changes synced";
+  return sync.unresolved ? `${waiting} · ${sync.unresolved.toLocaleString()} to review` : waiting;
+}
+
+/** Holds and conflicts, each with its resolutions. Renders nothing when there are none. */
+function SyncReview({ attention, onResolveHold, onResolveConflict }: {
+  attention: SyncAttention;
+  onResolveHold: (id: string, how: HoldResolution) => Promise<void>;
+  onResolveConflict: (key: string, choice: "kept" | "lost") => Promise<void>;
+}) {
+  const [busy, setBusy] = useState<string>();
+  const count = attention.holds.length + attention.conflicts.length;
+  if (!count) return null;
+  const run = (key: string, action: () => Promise<void>) => {
+    setBusy(key);
+    void action().finally(() => setBusy((current) => current === key ? undefined : current));
+  };
+  return <section className="sync-review" aria-label="Changes to review">
+    <h2>{count === 1 ? "1 change to review" : `${count.toLocaleString()} changes to review`}</h2>
+    <ul>
+      {attention.holds.map((hold) => <li key={`hold-${hold.id}`}>
+        <p><strong>{hold.path}</strong> · {holdLabel(hold.reason)}{hold.saves ? ` · ${hold.saves.toLocaleString()} ${hold.saves === 1 ? "save" : "saves"} waiting` : ""}</p>
+        <div role="group" aria-label={`Resolve ${hold.path}`}>{holdActions(hold).map(({ how, label }) =>
+          <button key={how} className="mdbase-button is-secondary" disabled={busy !== undefined} aria-busy={busy === `hold-${hold.id}` || undefined}
+            onClick={() => run(`hold-${hold.id}`, () => onResolveHold(hold.id, how))}>{label}</button>)}</div>
+      </li>)}
+      {attention.conflicts.map((conflict) => <li key={conflict.key}>
+        <p><strong>{conflict.path ?? "A note"}</strong> · {conflict.field ?? conflict.kind} changed in two places. Kept {conflict.kept}; the other change was {conflict.lost}.</p>
+        <div role="group" aria-label={`Resolve ${conflict.path ?? "conflict"}`}>
+          <button className="mdbase-button is-secondary" disabled={busy !== undefined} onClick={() => run(conflict.key, () => onResolveConflict(conflict.key, "kept"))}>Keep current</button>
+          {conflict.restorable && <button className="mdbase-button is-secondary" disabled={busy !== undefined} onClick={() => run(conflict.key, () => onResolveConflict(conflict.key, "lost"))}>Use the other change</button>}
+        </div>
+      </li>)}
+    </ul>
+  </section>;
 }

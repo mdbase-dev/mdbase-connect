@@ -1,0 +1,9 @@
+{
+  "reason": "An opt-in mdbase-next backend for the editor, beside the Connect gateway until cutover. Six editor files, each a separate boundary: the CollectionGateway implementation on @mdbase-dev/sdk, the windowed live-query note observation, the mapping of the SDK's 15 error codes onto the editor's Connect-keyed error UI, the isolated (proposed) control-plane access seam, the lazily loaded backend entry that keeps the SDK out of the default bundle, and the MemoryReplica demo source. The Connect gateway, its observer and the demo gateway are removed at cutover. The hold/conflict review types and presentation helpers are exported from the existing model and presentation modules (no new files).",
+  "growth": {
+    "productionFiles": 6,
+    "relativeImports": 16,
+    "typeScriptExportDeclarations": 28,
+    "apps/editor": 6
+  }
+}

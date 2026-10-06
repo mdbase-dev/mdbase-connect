@@ -17,7 +17,7 @@ const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: tru
 
 import { matchesCommandShortcut } from "./editor-commands";
 
-export function NoteList({ entries: sourceEntries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, search, searchQuery, searchContexts, sort, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onCreate, onCollections }: {
+export function NoteList({ entries: sourceEntries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, search, searchQuery, searchContexts, sort, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onCreate, onCollections, hasMore, loadingMore, onLoadMore }: {
   entries: CollectionBrowserEntry[];
   selection?: NoteSelection;
   onSelection?: (selection: NoteSelection) => void;
@@ -67,6 +67,10 @@ export function NoteList({ entries: sourceEntries, selection, onSelection, selec
   onDelete?: (path: string) => void;
   onCreate?: () => void;
   onCollections: () => void;
+  /** Windowed (mdbase-next) lists: more notes exist beyond what is loaded. */
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const revealedEntry = useRef<string | undefined>(undefined);
@@ -99,6 +103,11 @@ export function NoteList({ entries: sourceEntries, selection, onSelection, selec
     overscan: 8,
     getItemKey: (index) => listItems[index].key
   });
+  const lastVisibleIndex = virtualizer.getVirtualItems().at(-1)?.index ?? -1;
+  // Widen the live window as the reader nears its end.
+  useEffect(() => {
+    if (hasMore && !loadingMore && onLoadMore && lastVisibleIndex >= listItems.length - 20) onLoadMore();
+  }, [hasMore, lastVisibleIndex, listItems.length, loadingMore, onLoadMore]);
   const selectedEntryIndex = useMemo(() => entries.findIndex((entry) => entry.kind === "note"
     ? entry.path === focusedPath && !selectedFilePath
     : entry.path === selectedFilePath), [entries, selectedFilePath, focusedPath]);
@@ -201,6 +210,7 @@ export function NoteList({ entries: sourceEntries, selection, onSelection, selec
         </button></ContextMenu>;
       })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status">Reading notes and files…</div> : <div className="list-empty"><p>{structureError ? "Notes could not finish loading." : search && contentError ? "Search is incomplete." : search ? "No notes or files found." : "This collection is empty."}</p>{!search && !structureError && onCreate && <button onClick={onCreate}>Create the first note</button>}</div>}
     </div>
+    {hasMore && onLoadMore && <button className="mdbase-button is-tertiary" disabled={loadingMore} aria-busy={loadingMore || undefined} onClick={onLoadMore}>{loadingMore ? "Loading more notes…" : "Load more notes"}</button>}
   </section>;
 }
 
