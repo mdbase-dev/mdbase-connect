@@ -1,0 +1,9 @@
+{
+  "reason": "Coordinator-approved opt-in nextClientKey authorization extension. One internal client module validates the new HTTPS-only option and signs the retained Noise public key using the existing per-grant P-256 signer; it preserves the v5 identity/manifest/binding/PKCE pipeline and exposes no private signer to the caller. The existing repeated web/device binding prefix is shared in its original field order to stay within the unchanged browser bundle ceiling. Legacy form bytes and signing counts remain unchanged when absent.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 9,
+    "typeScriptExportDeclarations": 4,
+    "packages/client": 1
+  }
+}

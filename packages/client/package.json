@@ -26,6 +26,10 @@
     "./crypto": {
       "types": "./dist/crypto-entry.d.ts",
       "import": "./dist/crypto-entry.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js"
     }
   },
   "files": [

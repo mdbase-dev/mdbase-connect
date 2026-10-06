@@ -293,6 +293,13 @@
     "signAuthorityRequest",
     "validateGrantEncryption"
   ],
+  "next": [
+    "AuthenticatedRelayByteDuplex",
+    "MdbaseNext",
+    "NextRouteResponse",
+    "NextRouteTarget",
+    "mdbaseNext"
+  ],
   "testing": [
     "ConnectTestOutcomeError",
     "MdbaseBrowserFixtureController",
