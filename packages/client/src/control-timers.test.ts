@@ -171,6 +171,56 @@ describe("fixed retained app timer HTTP port", () => {
     for (const credential of ["old-synthetic", "new-synthetic", "third-synthetic"]) expect(stored).not.toContain(credential);
     expect(stored).not.toContain("third-install");
   });
+  it("a paused WebPush registration cannot overwrite a concurrently unknown target", async () => {
+    const f = fixture();
+    vi.spyOn(f.client["internals"], "register").mockResolvedValue({ notifications: { criteria: [{ id: "test.fire" }] } } as unknown as Application);
+    const worker = { pushManager: { getSubscription: async () => ({ toJSON: () => ({
+      endpoint: "https://push.example.test", keys: { auth: "synthetic", p256dh: "synthetic" }
+    }) }) } } as unknown as ServiceWorkerRegistration;
+    const vapid = () => Response.json({ public_key: Buffer.from([4, ...new Uint8Array(64)]).toString("base64url") });
+    let started!: () => void, resume!: (response: Response) => void, keys = 0;
+    const entered = new Promise<void>(resolve => { started = resolve; });
+    const pending = new Promise<Response>(resolve => { resume = resolve; });
+    const postTargets: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).endsWith("vapid-public-key")) { if (++keys === 2) { started(); return pending; } return vapid(); }
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      const body = JSON.parse(String(init?.body)); postTargets.push(body.installation_id);
+      if (body.installation_id === "new-install") throw new TypeError("new admitted; response lost");
+      return Response.json({ channel_id: CHANNEL });
+    });
+    await f.port.registerWebPush({ serviceWorker: worker, installationId: "old-install" });
+    const paused = f.port.registerWebPush({ serviceWorker: worker, installationId: "old-install" });
+    await entered;
+    await f.port.unregisterWebPush(undefined, {});
+    await expect(f.port.registerWebPush({ serviceWorker: worker, installationId: "new-install" })).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    resume(vapid());
+    await expect(paused).rejects.toMatchObject({ code: "authority_authorization_changed", problem: { operation_outcome: "not_sent" } });
+    expect(postTargets).toEqual(["old-install", "new-install"]);
+    const key = `${f.client["internals"].notificationKey(COLLECTION, "web_push")}:control-timers`;
+    expect(f.storage.getItem(key)).toContain("new-install"); expect(f.storage.getItem(key)).not.toContain("old-install");
+  });
+  it("a late DELETE ACK cannot erase a concurrently uncertain registration", async () => {
+    const f = fixture();
+    vi.spyOn(f.client["internals"], "register").mockResolvedValue({ notifications: {
+      criteria: [{ id: "test.fire" }], native_delivery: { mode: "managed_fcm" }
+    } } as unknown as Application);
+    let started!: () => void, resume!: (response: Response) => void, posts = 0;
+    const entered = new Promise<void>(resolve => { started = resolve; });
+    const deletion = new Promise<Response>(resolve => { resume = resolve; });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      if (init?.method === "DELETE") { started(); return deletion; }
+      if (++posts === 1) return Response.json({ channel_id: CHANNEL });
+      throw new TypeError("replacement admitted; response lost");
+    });
+    await f.port.registerFcm({ token: "synthetic", installationId: "same-install" });
+    const removing = f.port.unregisterFcm({}); await entered;
+    await expect(f.port.registerFcm({ token: "replacement", installationId: "same-install" })).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    const key = `${f.client["internals"].notificationKey(COLLECTION, "fcm")}:control-timers`;
+    const retained = f.storage.getItem(key); resume(new Response(null, { status: 204 }));
+    await expect(removing).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    expect(f.storage.getItem(key)).toBe(retained); expect(retained).toContain("same-install");
+  });
   it("does not erase a previous experimental multi-target acknowledgement", async () => {
     const f = fixture();
     vi.spyOn(f.client["internals"], "register").mockResolvedValue({ notifications: {

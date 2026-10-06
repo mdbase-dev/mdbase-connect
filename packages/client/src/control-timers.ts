@@ -173,13 +173,21 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
       // Persist only this target. A different acknowledged installation must
       // first be explicitly unregistered; uncertain targets cannot be replaced.
       check();
-      internals.storage.setItem(storageKey, JSON.stringify({
+      if (internals.storage.getItem(storageKey) !== previous) {
+        throw connectError("authority_authorization_changed", "Channel registration context changed.", { operationOutcome: "not_sent" });
+      }
+      const pending = JSON.stringify({
         installationId, grantId: initial.grantId,
         ...(saved && saved.grantId === initial.grantId && saved.installationId === installationId && saved.channelId ? { channelId: saved.channelId } : {})
-      }));
+      });
+      internals.storage.setItem(storageKey, pending);
       const result = await request("/v1/notifications/channels", "POST", data) as { channel_id?: string };
       if (typeof result.channel_id !== "string" || !UUID.test(result.channel_id)) throw fail();
-      check(); const registration = { channelId: result.channel_id, installationId, criteria };
+      check();
+      if (internals.storage.getItem(storageKey) !== pending) {
+        throw connectError("authority_authorization_changed", "Channel registration context changed.");
+      }
+      const registration = { channelId: result.channel_id, installationId, criteria };
       internals.storage.setItem(storageKey, JSON.stringify({ ...registration, grantId: initial.grantId }));
       return registration;
     });
@@ -196,9 +204,23 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
         }
         if (!UUID.test(r.channelId)) throw fail();
         await request(`/v1/notifications/channels/${r.channelId}`, "DELETE", undefined, true); check();
+        if (internals.storage.getItem(key) !== saved) {
+          throw connectError("authority_authorization_changed", "Channel registration context changed.");
+        }
         internals.storage.removeItem(key);
       }
-      if (worker) { const sub = await worker.pushManager.getSubscription(); check(); if (sub) { await sub.unsubscribe(); check(); } }
+      if (worker) {
+        const sub = await worker.pushManager.getSubscription(); check();
+        if (internals.storage.getItem(key) !== null) {
+          throw connectError("authority_authorization_changed", "Channel registration context changed.");
+        }
+        if (sub) {
+          await sub.unsubscribe(); check();
+          if (internals.storage.getItem(key) !== null) {
+            throw connectError("authority_authorization_changed", "Channel registration context changed.");
+          }
+        }
+      }
     });
   return Object.freeze({
     list: (ns, o) => run(o, false, request => request(`${prefix}/${segment(ns, NS)}`)),
