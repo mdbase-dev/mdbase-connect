@@ -1,0 +1,6 @@
+{
+  "reason": "The private approval-request route (replica #144 owner, 2026-10-05 22:52: the logged approval-request is CP-signed, requested by the device's own signature) adds one export, its device-proof digest, beside the other private-collection digests. It reuses the private-collection module, its shared helpers and the existing outbox; the wire op is one more PolicyOp variant.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}

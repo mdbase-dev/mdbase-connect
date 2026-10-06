@@ -120,11 +120,13 @@ export function instant(value: Date | string): string {
 }
 
 export function timerView(row: TimerRow, includeData: boolean): TimerView {
+  const generation = Number(row.generation);
+  if (!Number.isSafeInteger(generation) || generation < 1) throw new Error("Invalid persisted timer generation.");
   const view: TimerView = {
     id: row.timer_id,
     criterion_id: row.criterion_id,
     fire_at: instant(row.fire_at),
-    generation: Number(row.generation),
+    generation,
     status: row.status,
     created_at: instant(row.created_at),
     updated_at: instant(row.updated_at),

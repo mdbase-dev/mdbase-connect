@@ -135,7 +135,8 @@ interface DesktopUpdateStatus {
     | "external"
     | "installing"
     | "recovery"
-    | "failed";
+    | "failed"
+    | "handed_off";
   current_version: string;
   channel: "stable" | "beta";
   target_version?: string;
