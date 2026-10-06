@@ -95,7 +95,8 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
       const check = () => {
         if (budget.signal.aborted) throw requestAbortReason(budget.signal);
         const current = transport.currentToken();
-        if (!current || JSON.stringify(current) !== snapshot || origin(transport["serverUrl"]) !== server) {
+        if (!current || !Number.isFinite(current.expiresAt) || current.expiresAt <= Date.now()
+          || JSON.stringify(current) !== snapshot || origin(transport["serverUrl"]) !== server) {
           throw connectError("authority_authorization_changed", "The retained timer consent changed.");
         }
       };

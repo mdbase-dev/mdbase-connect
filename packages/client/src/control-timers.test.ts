@@ -6,12 +6,13 @@ import type { Application } from "./internal-types.js";
 const SERVER = "https://cp.example.test", MANIFEST = "https://app.example.test/app.json";
 const COLLECTION = "0192f3a4-6000-7abc-8def-0123456789ab", GRANT = "0192f3a4-6000-7abc-8def-0123456789ad";
 const CHANNEL = "0192f3a4-6000-7abc-8def-0123456789af";
-function fixture() {
+function fixture(refreshable = false) {
   const storage = new MemoryStorage();
   const key = `mdbase-connect:${SERVER}:${MANIFEST}:token:${COLLECTION}`;
   const token = { version: 1, accessToken: "public-synthetic-token", clientId: GRANT, collectionId: COLLECTION,
     collectionName: "test", operations: ["query"], scope: { contracts: [], access: "full_collection" },
-    expiresAt: Date.now() + 3_600_000, grantId: GRANT, keyHandle: "synthetic-key", applicationOrigin: "https://app.example.test", savedAt: 1 };
+    expiresAt: Date.now() + 3_600_000, grantId: GRANT, keyHandle: "synthetic-key", applicationOrigin: "https://app.example.test", savedAt: 1,
+    ...(refreshable ? { refreshToken: "public-synthetic-refresh", refreshExpiresAt: Date.now() + 7_200_000 } : {}) };
   storage.setItem(key, JSON.stringify(token));
   const client = new MdbaseConnect({ serverUrl: SERVER, manifest: MANIFEST, redirectUri: "https://app.example.test/",
     storage, directAccess: "disabled", relayEncryption: "disabled" });
@@ -49,6 +50,25 @@ describe("fixed retained app timer HTTP port", () => {
     });
     const pending = f.port.reconcile("ns", body, {});
     body.timers[0]!.id = "replacement"; resume(); await pending;
+  });
+  it.each(["lease", "response", "body"])("refuses known access expiry after %s even with refreshable consent", async phase => {
+    let clock = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const f = fixture(true);
+    vi.spyOn(f.client["internals"], "acquireGrantKeyLease").mockImplementation(async () => {
+      await Promise.resolve(); if (phase === "lease") clock = f.token.expiresAt + 1; return f.release;
+    });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      if (phase === "response") clock = f.token.expiresAt + 1;
+      if (phase !== "body") return Response.json({ namespace: "ns", timers: [] });
+      return new Response(new ReadableStream({ pull(controller) {
+        clock = f.token.expiresAt + 1;
+        controller.enqueue(new TextEncoder().encode('{"namespace":"ns","timers":[]}')); controller.close();
+      } }), { headers: { "content-type": "application/json" } });
+    });
+    await expect(f.port.list("ns", {})).rejects.toMatchObject({ code: "authority_authorization_changed" });
+    expect(fetch).toHaveBeenCalledTimes(phase === "lease" ? 0 : 1);
+    expect(f.release).toHaveBeenCalledTimes(1);
+    expect(f.storage.getItem(f.key)).toContain("public-synthetic-refresh"); // No refresh/adoption.
   });
   it("refuses a different grant between calls without adopting authority", async () => {
     const f = fixture(); f.storage.setItem(f.key, JSON.stringify({ ...f.token, grantId: CHANNEL }));
