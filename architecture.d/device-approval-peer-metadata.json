@@ -1,0 +1,9 @@
+{
+  "reason": "Provide the actual signed opaque peer-metadata boundary missing from native requester/approver composition. A bounded canonical codec, ephemeral queue and fixed registrar reuse device-origin Ed25519/H, paired connector authentication and existing current-identity/membership/enrolment checks. This is not a parallel app/log pipe, generic HTTP adapter or applied-policy approval witness. Candidate identities remain retained through signed expiry after ACK; PRIVATE approval and grant scheduling remain separately denied.",
+  "growth": {
+    "productionFiles": 3,
+    "relativeImports": 14,
+    "typeScriptExportDeclarations": 8,
+    "services/server": 3
+  }
+}
