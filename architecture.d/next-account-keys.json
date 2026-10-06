@@ -1,0 +1,9 @@
+{
+  "reason": "AK1 account keys (private e2e multi-device enrolment) add one flag-gated next route module: opaque per-account bundle storage with a persistent per-account rate limit, strict mode, and recovery-device enrolment. It reuses the existing bootstrap device proofs, policy outbox and AuthRateLimiter; the server never decrypts bundles or keys devices. Exported digest helpers are the client-signed proof formats, exported for tests and clients.",
+  "growth": {
+    "productionFiles": 1,
+    "typeScriptExportDeclarations": 10,
+    "relativeImports": 10,
+    "services/server": 1
+  }
+}
