@@ -482,6 +482,10 @@ describe("local-to-hosted authority transfer", () => {
         recoveryAttempts++;
         if (recoveryUnavailable) throw new HostedProviderUnavailableError(new Error("[test] fence response lost"));
       },
+      expireAuthorityImport: async () => {
+        abortAttempts += 1;
+        if (abortUnavailable) throw new HostedProviderUnavailableError(new Error("[test] expiry response lost"));
+      },
       abortAuthorityImport: async () => {
         abortAttempts += 1;
         if (abortUnavailable) throw new HostedProviderUnavailableError(new Error("[test] abort response lost"));

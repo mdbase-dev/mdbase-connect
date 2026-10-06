@@ -22,6 +22,27 @@ impl HostedProvider {
         collection_id: Uuid,
         authority_epoch: u64,
     ) -> ApiResult<()> {
+        self.reconcile_authority_import_abort(transfer_id, collection_id, authority_epoch, false)
+            .await
+    }
+
+    pub async fn expire_authority_import(
+        &self,
+        transfer_id: Uuid,
+        collection_id: Uuid,
+        authority_epoch: u64,
+    ) -> ApiResult<()> {
+        self.reconcile_authority_import_abort(transfer_id, collection_id, authority_epoch, true)
+            .await
+    }
+
+    async fn reconcile_authority_import_abort(
+        &self,
+        transfer_id: Uuid,
+        collection_id: Uuid,
+        authority_epoch: u64,
+        expired_only: bool,
+    ) -> ApiResult<()> {
         if authority_epoch <= 1 {
             return Err(ApiError::bad_request(
                 "invalid_authority_epoch",
@@ -41,6 +62,29 @@ impl HostedProvider {
         }
         let cleanup = match authority_import_row(&mut transaction, transfer_id).await {
             Ok(row) => {
+                if expired_only {
+                    match authority_import_state(&row, "import_state")? {
+                        ProviderAuthorityImportState::Completed => {
+                            return Err(ApiError::conflict(
+                                "authority_import_completed",
+                                "Completed authority import cannot expire.",
+                            ))
+                        }
+                        ProviderAuthorityImportState::Indexing => {
+                            return Err(ApiError::conflict(
+                                "authority_import_indexing",
+                                "An indexing authority import cannot expire.",
+                            ))
+                        }
+                        _ => {}
+                    }
+                    if row.get::<DateTime<Utc>, _>("expires_at") > Utc::now() {
+                        return Err(ApiError::conflict(
+                            "authority_import_not_expired",
+                            "Authority import has not expired.",
+                        ));
+                    }
+                }
                 if row.get::<Uuid, _>("collection_id") != collection_id
                     || row.get::<i64, _>("next_authority_epoch") != epoch
                     || row.get::<String, _>("collection_state") != "importing"

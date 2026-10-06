@@ -32,6 +32,7 @@ import { validateLabFixtureConfig } from "./features/next/lab-fixture-config.js"
 import { loadPolicySigner, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 import { NextRelayDevices } from "./features/next/devices.js";
 import { NoisePipes, registerNoisePipeClientRoute } from "./features/next/noise-pipes.js";
+import { registerCollectionLogTokenRoute } from "./features/next/collection-log-token.js";
 import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
 import { registerNextRouteRoutes } from "./features/next/route-routes.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
@@ -53,6 +54,8 @@ import { approveHostedAuthorization } from "./features/authorizations/hosted-app
 import { registerAuthorityAdoptionRoutes } from "./features/authority-adoption/routes.js";
 import { registerHostedToLocalTransferRoutes } from "./features/authority-transfer/hosted-to-local-routes.js";
 import { registerLocalToHostedTransferRoutes } from "./features/authority-transfer/local-to-hosted-routes.js";
+import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
+import { AuthorityTransferRecoveryWorker } from "./features/authority-transfer/recovery-worker.js";
 import { registerLocalFileRoutes } from "./features/files/local-routes.js";
 import { registerAuthorityConflictRoutes } from "./features/connectors/authority-conflict-routes.js";
 import { registerBetaAccessRoutes } from "./features/beta-access/routes.js";
@@ -203,6 +206,12 @@ export async function buildApp(options: BuildOptions) {
   const hostedReference = options.hostedReferenceAuthority
     ? new HostedAuthorityRegistry(options.db)
     : undefined;
+  const authorityTransferRecovery = options.hostedCollections
+    ? new AuthorityTransferRecoveryWorker(
+        () => recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference),
+        () => app.log.error("authority transfer recovery failed; retrying on next pass")
+      )
+    : undefined;
   const applicationReconciliation = new ApplicationReconciliationWorker(
     options.db,
     relay,
@@ -286,6 +295,7 @@ export async function buildApp(options: BuildOptions) {
     await usageRetention.close();
     await applicationReconciliation.close();
     await providerRevocations?.close();
+    await authorityTransferRecovery?.close();
     await nextPolicyEmitter?.close();
     await timers?.close();
     await notifications?.close();
@@ -302,6 +312,7 @@ export async function buildApp(options: BuildOptions) {
   applicationReconciliation.start();
   nextPolicyEmitter?.start();
   providerRevocations?.start();
+  authorityTransferRecovery?.start();
 
   app.addHook("onRequest", async (request, reply) => {
     if (
@@ -523,6 +534,7 @@ export async function buildApp(options: BuildOptions) {
     relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
     const nextLog = new LogServiceClient(options.nextControlPlane.logService);
     registerNextDeviceRoutes(app, { db: options.db, log: nextLog });
+    registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
     if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, tailscaleAuth: options.tailscaleAuth });

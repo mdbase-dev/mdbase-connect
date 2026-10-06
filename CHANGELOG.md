@@ -4,6 +4,42 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.129
+
+### Added
+
+- In opt-in mdbase-next account mode, successful pairing identifies the approved
+  account. Explicitly negotiated grants and activation carry consenting account
+  identity without changing legacy projections or default capabilities.
+
+### Changed
+
+- mdbase-next routing returns only devices of the account that granted the app,
+  always uses `wss:` outside loopback development, and orders targets by online
+  status, daemon preference, then recent activity. `online` is a read-only hint from
+  the current device-bound relay owner, not a recent policy acknowledgement or
+  authorization proof. Local routing still has one desktop/CLI device; mobile
+  registration is not added. The app collection list leaves out hosted collections
+  that are not active or are quarantined.
+
+### Fixed
+
+- Prevent hosted transfer expiry and recovery races from discarding renewed imports
+  or in-flight activation. Cleanup applies only to the winning transfer and its
+  exact candidates.
+- Account overview and hosted control reads no longer run transfer cleanup. Hosted
+  expiry runs in bounded background batches. Update Connect and its hosted provider
+  together; an older provider leaves expiry pending rather than falling back to
+  ordinary cancellation. Explicit user cancellation remains available.
+
+- Browser clients can preflight authenticated PUT requests, including timer writes,
+  without changing allowed origins, credentials, or endpoint authorization.
+
+- Fix request signing for opt-in mdbase-next log integrations, binding signatures
+  to the current request method, path, collection, token, body and nonce.
+
+- Prevent deadlocks between hosted projection batch persistence and concurrent projection startup by acquiring collection locks before generation locks.
+
 ## 0.1.0-beta.128
 
 ### Added
