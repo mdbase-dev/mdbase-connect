@@ -21,8 +21,10 @@ and issuer `https://token.actions.githubusercontent.com`. It also checks release
 source/version/publication run and attempt, successful workflow/CI qualification
 and immutable images. Any other publisher needs its own explicitly reviewed,
 pinned identity. This is not a new Ed25519 release key or an arbitrary Cosign cert.
-Ops owns the inventory schema/publisher/verifier extension; current inventory v1
-contains no NEXT trust assets and therefore cannot authorize NEXT pins.
+Ops owns the inventory schema/publisher/verifier extension. The image inventory v1
+contains no NEXT trust assets and therefore cannot authorize NEXT pins by itself.
+The [release-linked trust inventory](next-trust-release.md) binds its immutable
+bytes to a separately signed LAB asset using the same existing publisher identity.
 
 After authenticating the manifest, pass its digest and independently expected
 release/environment/origin/source context to `validateNextTrustPayload`. Never
@@ -73,5 +75,5 @@ Trust pins authenticate candidate genesis/certificates; they do not establish
 membership, deliver an epoch key, or make a replica Ready. Compare expected
 genesis to the actual log, verify actual ordered policy/current membership and
 keying/catch-up/freshness/lease dependencies separately. Expired historical
-certificates do not become current credentials. No operational pins or signed
-NEXT trust payload are published by this change.
+certificates do not become current credentials. The schema/vector/reference
+validator alone publish no authenticated NEXT trust asset.

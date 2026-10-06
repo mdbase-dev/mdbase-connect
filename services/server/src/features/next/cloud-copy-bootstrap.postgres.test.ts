@@ -395,6 +395,11 @@ describePg("cloud-copy bootstrap", () => {
     expect(response.statusCode, response.body).toBe(200);
     const result = response.json();
     expect(result.enrolled_at).toBe(2);
+    // The exact appended genesis, for the joining device to verify and pin.
+    expect(result.genesis.seq).toBe(1);
+    const appended = (await db.query<{ item: Buffer }>("SELECT item FROM next_policy_batches WHERE collection_id = $1 AND seq = 1", [collection])).rows[0];
+    expect(result.genesis.item).toBe(appended.item.toString("hex"));
+    expect(typeof result.log_url).toBe("string");
     const claims = decodeCbor(Buffer.from(result.device.token.split(".")[0], "hex"));
     expect(hex(field(claims, 1) as Uint8Array)).toBe(who.device.replaceAll("-", ""));
     expect(hex(field(claims, 5) as Uint8Array)).toBe(collection.replaceAll("-", ""));

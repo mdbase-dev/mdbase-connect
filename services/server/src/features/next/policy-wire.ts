@@ -127,7 +127,9 @@ export type PolicyOp =
   | { op: "cp-key-revoke"; keyId: Uint8Array; revokedFrom: number; rootSignature: Uint8Array }
   | { op: "migration-cutover"; legacyCollection: string; revoked: string[]; cutoverAt: number }
   | { op: "freeze"; frozen: boolean; reason?: string }
-  | { op: "root-handover"; newRoot: Uint8Array; ownerDevice: string; moveId: string; ownerSignature: Uint8Array };
+  | { op: "root-handover"; newRoot: Uint8Array; ownerDevice: string; moveId: string; ownerSignature: Uint8Array }
+  /** A new SAS commitment for an active, unkeyed user device (sealed-envelope.md §5.3). */
+  | { op: "approval-request"; device: string; sasCommit: Uint8Array };
 
 function sized(bytes: Uint8Array, size: number, name: string): Uint8Array {
   if (bytes.length !== size) throw new Error(`${name} must be ${size} bytes`);
@@ -167,6 +169,8 @@ function encodeOp(op: PolicyOp): StructMap {
       return struct([[0, 10], [1, uuidBytes(op.legacyCollection)], [2, op.revoked.map(uuidBytes)], [3, op.cutoverAt]]);
     case "freeze":
       return struct([[0, 11], [1, op.frozen], [2, op.reason]]);
+    case "approval-request":
+      return struct([[0, 13], [1, uuidBytes(op.device)], [2, sized(op.sasCommit, 32, "sas_commit")]]);
     case "root-handover":
       return struct([[0, 12], [1, sized(op.newRoot, 32, "new_root")], [2, uuidBytes(op.ownerDevice)], [3, uuidBytes(op.moveId)], [4, sized(op.ownerSignature, 64, "signature")]]);
   }
