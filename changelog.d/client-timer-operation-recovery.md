@@ -1,0 +1,7 @@
+## Added
+
+- Add fixed signed original-operation timer reconcile and read-only receipt
+  lookup to the optional timers port. Retain the original factory credential
+  snapshot, correlate UUIDv7/revision through the paired SDK and keep lookup
+  failures as original-outcome unknown. No automatic replay, replacement IDs,
+  authority adoption or provider/PRIVATE activation.

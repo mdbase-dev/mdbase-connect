@@ -293,6 +293,13 @@
     "signAuthorityRequest",
     "validateGrantEncryption"
   ],
+  "timers": [
+    "ConnectAppTimersPort",
+    "FcmTimerOptions",
+    "TimerChannelRegistration",
+    "WebPushTimerOptions",
+    "appTimers"
+  ],
   "testing": [
     "ConnectTestOutcomeError",
     "MdbaseBrowserFixtureController",
