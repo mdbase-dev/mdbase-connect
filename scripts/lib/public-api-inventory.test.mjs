@@ -15,7 +15,8 @@ test("API inventory regenerates deterministically, verifies source changes, and 
     "packages/client/src/index.ts": 'export { Original as Alias, type Item } from "./source.js";\nexport const value = 1;\n',
     "packages/client/src/advanced.ts": "export interface Advanced {}\n",
     "packages/client/src/crypto-entry.ts": "export function encrypt() {}\n",
-    "packages/testing/src/index.ts": "export class Fake {}\n"
+    "packages/testing/src/index.ts": "export class Fake {}\n",
+    "packages/client/src/control.ts": "export function controlEntry() {}\n"
   };
   for (const [file, text] of Object.entries(files)) {
     await mkdir(path.dirname(path.join(root, file)), { recursive: true });
@@ -25,7 +26,7 @@ test("API inventory regenerates deterministically, verifies source changes, and 
   const inventory = path.join(root, "packages/client/public-api.json");
   run("--write");
   const first = await readFile(inventory, "utf8");
-  assert.deepEqual(JSON.parse(first), { root: ["Alias", "Item", "value"], advanced: ["Advanced"], crypto: ["encrypt"], testing: ["Fake"] });
+  assert.deepEqual(JSON.parse(first), { root: ["Alias", "Item", "value"], advanced: ["Advanced"], crypto: ["encrypt"], testing: ["Fake"], control: ["controlEntry"] });
   run("--write");
   assert.equal(await readFile(inventory, "utf8"), first);
   run();

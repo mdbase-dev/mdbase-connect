@@ -1,0 +1,9 @@
+{
+  "reason": "Optional /control entry reads one fixed authenticated account metadata GET before any data/setup request. Reuses the retained private grant key/lease and AuthorityProofV1; no generic request, token or signing export and no classic root import growth.",
+  "growth": {
+    "productionFiles": 1,
+    "typeScriptExportDeclarations": 2,
+    "relativeImports": 7,
+    "packages/client": 1
+  }
+}

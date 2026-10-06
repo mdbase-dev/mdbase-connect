@@ -28,8 +28,9 @@ try {
   }
 
   const fixture = await readFile(resolve(packageRoot, "test/public-api/exports.ts"), "utf8");
+  const controlFixture = await readFile(resolve(packageRoot, "test/public-api/control.ts"), "utf8");
   await writeFile(resolve(temporary, "package.json"), JSON.stringify({ type: "module" }));
-  await writeFile(resolve(temporary, "fixture.ts"), `${fixture}\n
+  await writeFile(resolve(temporary, "fixture.ts"), `${fixture}\n${controlFixture}\n
 import {
   connectFailure as testingFailure,
   connectProblem as testingProblem,
@@ -56,7 +57,7 @@ void installMdbaseBrowserFixture;
     include: ["fixture.ts"]
   }, null, 2));
   await execute(resolve(packageRoot, "node_modules/.bin/tsc"), ["-p", resolve(temporary, "tsconfig.json")]);
-  process.stdout.write("Packed root, /advanced, /crypto, and connect-testing boundaries compile.\n");
+  process.stdout.write("Packed root, /advanced, /crypto, /control, and connect-testing boundaries compile.\n");
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }
