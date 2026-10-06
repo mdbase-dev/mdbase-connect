@@ -8,8 +8,10 @@ import { requireConnector } from "../../platform/request-authentication.js";
 import { DeviceRegistrationError, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { GrantApprovalReportError, reportGrantApproval } from "./grant-approval.js";
 import type { LogServiceClient } from "./log-service-client.js";
+import { registerApprovalPeerRoutes } from "./approval-peer-routes.js";
 
 export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: DatabasePool; log: Pick<LogServiceClient, "controlItemAt"> }): void {
+  registerApprovalPeerRoutes(app, options.db);
   const rateLimit = { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } };
   app.post("/v1/next/devices/challenge", rateLimit, async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);
