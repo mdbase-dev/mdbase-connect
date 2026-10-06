@@ -134,7 +134,7 @@ describe("bare retained accountBackend", () => {
     vi.useFakeTimers();
     try {
       vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-        enter(); return new Response(new ReadableStream({ cancel: cancelled }));
+        enter(); return new Response(new ReadableStream({ cancel: cancelled }), { headers: { "content-type": "application/json" } });
       });
       const pending = accountBackend(f.connection, { timeoutMs });
       const rejected = expect(pending).rejects.toMatchObject({ code: "timeout" });
