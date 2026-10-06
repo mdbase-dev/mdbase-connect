@@ -13,7 +13,8 @@
 //   `device-revoke` for every active recovery device of the account in every current
 //   private collection. Each collection's keyed devices then rekey it out (replica).
 // - `POST /v1/next/collections/:id/private/account-key-device`: enrol the account's
-//   recovery device of that collection (kind `recovery`, all-zero Noise key), with a
+//   recovery device of that collection (kind `recovery`, all-zero Noise key) for a
+//   member account (any role: a viewer's devices need the key to read), with a
 //   proof of possession over the complete public tuple by the recovery signing key.
 //
 // The server never sees the account secret or the password, never decrypts a bundle,
@@ -25,7 +26,7 @@ import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
 import {
-  authenticate, CreateError, currentIdentity, ENROLMENT, enrolmentKey, inTransaction, lock, NIL, refuse, refuseRevoked,
+  authenticate, CreateError, currentIdentity, currentMember, ENROLMENT, enrolmentKey, inTransaction, lock, NIL, refuse, refuseRevoked,
   type Connector, type Device, type Proof
 } from "./bootstrap-common.js";
 import type { LogServiceClient } from "./log-service-client.js";
@@ -113,26 +114,6 @@ export function checkBundleShape(bundle: Uint8Array, keyId: Uint8Array): boolean
 type Row = { mode: "password" | "strict"; version: string; key_id: Buffer | null; bundle: Buffer | null };
 const accountRow = (client: DatabaseConnection, user: string, lockMode: "UPDATE" | "SHARE") =>
   client.query<Row>(`SELECT mode, version, key_id, bundle FROM next_account_keys WHERE user_id = $1 FOR ${lockMode}`, [user]).then((r) => r.rows[0]);
-
-/** The account is a current member with a writer role (owner or editor), as the log requires for `key_grant`. */
-async function currentWriter(client: DatabaseConnection, collection: string, account: string): Promise<void> {
-  const latest = await client.query<{ op: string; role: string | null }>(
-    `SELECT e.value->>'op' AS op, e.value->>'role' AS role
-       FROM next_policy_outbox o
-       LEFT JOIN next_policy_batches b ON b.id = o.batch_id
-       CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY AS e(value, ord)
-      WHERE o.collection_id = $1
-        AND (o.ops->'ops' @> $2::jsonb OR o.ops->'ops' @> $3::jsonb)
-        AND e.value->>'account' = $4
-        AND (e.value->>'op' = 'member-remove' OR (e.value->>'op' = 'member-set' AND b.state = 'appended'))
-      ORDER BY o.id DESC, e.ord DESC
-      LIMIT 1`,
-    [collection, JSON.stringify([{ op: "member-set", account }]), JSON.stringify([{ op: "member-remove", account }]), account]
-  );
-  const row = latest.rows[0];
-  if (row?.op !== "member-set") throw new CreateError(409, "not_member");
-  if (row.role !== "owner" && row.role !== "editor") throw new CreateError(403, "not_writer");
-}
 
 async function currentPrivate(client: DatabaseConnection, collection: string): Promise<void> {
   const current = await client.query(
@@ -373,7 +354,7 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
       const checks = async (client: DatabaseConnection, d: Device) => {
         await currentIdentity(client, connector, body.device_id, d);
         await currentPrivate(client, collection);
-        await currentWriter(client, collection, account);
+        await currentMember(client, collection, account);
         await refuseRevoked(client, collection, body.device_id);
         await refuseRevoked(client, collection, body.recovery_device);
         const row = await accountRow(client, account, "SHARE");
