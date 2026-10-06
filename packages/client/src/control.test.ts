@@ -127,6 +127,23 @@ describe("bare retained accountBackend", () => {
     await expect(accountBackend(f.connection)).rejects.toMatchObject({ code: "authority_authorization_changed" });
     expect(fetch).not.toHaveBeenCalled(); expect(f.release).toHaveBeenCalledTimes(1);
   });
+  it.each([undefined, null, 30_000])("caps metadata timeoutMs=%s at 10s with reader/lease cleanup", async timeoutMs => {
+    const f = await fixture(); let enter!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    const cancelled = vi.fn();
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+        enter(); return new Response(new ReadableStream({ cancel: cancelled }));
+      });
+      const pending = accountBackend(f.connection, { timeoutMs });
+      const rejected = expect(pending).rejects.toMatchObject({ code: "timeout" });
+      await entered;
+      await vi.advanceTimersByTimeAsync(9_999); expect(cancelled).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1); await rejected;
+      expect(cancelled).toHaveBeenCalledTimes(1); expect(f.release).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
   it("pre-abort prevents signing, leases and requests", async () => {
     const f = await fixture(); const controller = new AbortController(); controller.abort();
     const get = vi.spyOn(f.keyStore, "get"); const fetch = vi.spyOn(globalThis, "fetch");

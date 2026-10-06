@@ -80,7 +80,10 @@ export async function accountBackend(
     // Internal bracket seam, not public credential, key or generic request access.
     const transport = connection["transport"];
     const server = origin(transport["serverUrl"]); // Before credentials/key access.
-    return await withCooperativeRequestBudget(options, 10_000, async budget => {
+    return await withCooperativeRequestBudget({
+      ...options,
+      timeoutMs: options.timeoutMs == null ? 10_000 : Math.min(options.timeoutMs, 10_000)
+    }, 10_000, async budget => {
       const token = transport.currentToken();
       if (!token) throw connectError("not_authorized", "Retained consent is required to select an account backend.");
       const expected = binding(token);
