@@ -13,6 +13,15 @@ export async function openDatabase(
   if (!databaseUrl || databaseUrl === "memory") {
     const { DataType, newDb } = await import("pg-mem");
     const memory = newDb({ autoCreateForeignKeyIndices: true });
+    // Schema compatibility only for the fixed timer namespace CHECK; real
+    // PostgreSQL tests qualify constraints and transaction/lock semantics.
+    memory.public.registerOperator({
+      operator: "~", left: DataType.text, right: DataType.text, returns: DataType.bool,
+      implementation: (value: string, pattern: string) => {
+        if (pattern !== "^[A-Za-z0-9._-]{1,64}$") throw new Error("Unsupported memory regex constraint.");
+        return value.length >= 1 && value.length <= 64 && !/[^A-Za-z0-9._-]/u.test(value);
+      }
+    });
     memory.public.registerFunction({
       name: "pg_advisory_xact_lock",
       args: [DataType.integer],
@@ -42,6 +51,12 @@ export async function openDatabase(
       args: [DataType.bytea],
       returns: DataType.integer,
       implementation: (value: Uint8Array) => value.length
+    });
+    memory.public.registerFunction({
+      name: "octet_length",
+      args: [DataType.text],
+      returns: DataType.integer,
+      implementation: (value: string) => Buffer.byteLength(value, "utf8")
     });
     memory.public.registerFunction({
       name: "gen_random_uuid",

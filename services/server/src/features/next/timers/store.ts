@@ -28,6 +28,10 @@ export async function lockNamespace(
   grantId: string,
   namespace: string
 ): Promise<void> {
+  // Grant-wide lock first: revision namespace capacity and receipt quotas must
+  // serialize across namespaces. Imports take grant/namespace pairs in order.
+  const grantDigest = createHash("sha256").update(`mdbase/v1/timer-receipts\0${grantId}`).digest();
+  await db.query("SELECT pg_advisory_xact_lock($1, $2)", [grantDigest.readInt32BE(0), grantDigest.readInt32BE(4)]);
   const digest = createHash("sha256")
     .update(`mdbase/v1/timer-namespace\0${grantId}\0${namespace}`)
     .digest();
@@ -35,6 +39,24 @@ export async function lockNamespace(
     digest.readInt32BE(0),
     digest.readInt32BE(4)
   ]);
+}
+
+/** Advance every accepted intent, including no-op cancellation/reconciliation. */
+export async function advanceTimerIntent(db: DatabaseQueryable, grantId: string, namespace: string): Promise<number> {
+  const existing = await db.query("SELECT intent_revision FROM next_timer_namespace_intents WHERE grant_id = $1 AND namespace = $2", [grantId, namespace]);
+  if (!existing.rows.length) {
+    const count = await db.query<{ count: string | number }>("SELECT count(*) AS count FROM next_timer_namespace_intents WHERE grant_id = $1", [grantId]);
+    if (Number(count.rows[0].count) >= 256) throw new TimerError(429, "rate_limited", "Timer namespace capacity reached.");
+  }
+  const rows = await db.query<{ intent_revision: string | number }>(
+    `INSERT INTO next_timer_namespace_intents (grant_id, namespace, intent_revision)
+       VALUES ($1, $2, 1)
+     ON CONFLICT (grant_id, namespace) DO UPDATE
+       SET intent_revision = next_timer_namespace_intents.intent_revision + 1
+       WHERE next_timer_namespace_intents.intent_revision < 9007199254740991
+     RETURNING intent_revision`, [grantId, namespace]);
+  if (rows.rows.length !== 1) throw new TimerError(413, "too_large", "Timer namespace revision exhausted.");
+  return Number(rows.rows[0].intent_revision);
 }
 
 export async function listTimers(
@@ -87,6 +109,14 @@ export async function putTimer(
   desired: DesiredTimer
 ): Promise<TimerView> {
   assertData(grant, desired.data);
+  await advanceTimerIntent(db, grant.grantId, namespace);
+  return putTimerRow(db, grant, namespace, criterionId, desired);
+}
+
+async function putTimerRow(
+  db: DatabaseQueryable, grant: TimerGrant, namespace: string,
+  criterionId: string, desired: DesiredTimer
+): Promise<TimerView> {
   const existing = await selectTimer(db, grant.grantId, namespace, desired.id);
   const fireAt = desired.fireAt.toISOString();
   const data = desired.data === null ? null : JSON.stringify(desired.data);
@@ -109,6 +139,9 @@ export async function putTimer(
   ) {
     return timerView(existing, dataPermitted(grant));
   }
+  const generation = Number(existing.generation);
+  if (!Number.isSafeInteger(generation) || generation < 1) throw new Error("Invalid persisted timer generation.");
+  if (generation === Number.MAX_SAFE_INTEGER) throw new TimerError(413, "too_large", "Timer generation exhausted.");
   const updated = await db.query<TimerRow>(
     `UPDATE next_timers
      SET criterion_id = $4, fire_at = $5, generation = $6, status = 'scheduled',
@@ -121,7 +154,7 @@ export async function putTimer(
       desired.id,
       criterionId,
       fireAt,
-      Number(existing.generation) + 1,
+      generation + 1,
       data
     ]
   );
@@ -136,6 +169,7 @@ export async function cancelTimer(
   timerId: string,
   generation?: number
 ): Promise<boolean> {
+  await advanceTimerIntent(db, grant.grantId, namespace);
   const existing = await selectTimer(db, grant.grantId, namespace, timerId);
   if (!existing || !(ACTIVE_STATUSES as readonly string[]).includes(existing.status)) return false;
   if (generation !== undefined && Number(existing.generation) !== generation) return false;
@@ -170,9 +204,10 @@ export async function reconcileTimers(
     ids.add(timer.id);
     assertData(grant, timer.data);
   }
+  await advanceTimerIntent(db, grant.grantId, namespace);
   const timers: TimerView[] = [];
   for (const timer of desired) {
-    timers.push(await putTimer(db, grant, namespace, criterionId, timer));
+    timers.push(await putTimerRow(db, grant, namespace, criterionId, timer));
   }
   const active = await db.query<{ timer_id: string }>(
     `SELECT timer_id FROM next_timers
@@ -280,8 +315,9 @@ export async function importTimer(
   const data = dataPermitted(grant) && timer.data !== undefined && timer.data !== null
     ? JSON.stringify(timer.data)
     : null;
-  // Checked first as well as ON CONFLICT, which alone is the concurrency guard.
+  await lockNamespace(db, grant.grantId, timer.namespace);
   if (await selectTimer(db, grant.grantId, timer.namespace, timer.id)) return false;
+  await advanceTimerIntent(db, grant.grantId, timer.namespace);
   const inserted = await db.query(
     `INSERT INTO next_timers
        (grant_id, namespace, timer_id, criterion_id, fire_at, generation, status, data)

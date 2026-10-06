@@ -259,7 +259,10 @@ export async function importLegacyTimers(
   try {
     await connection.query("BEGIN");
     const grants = new Map<string, TimerGrant | null>();
-    for (const timer of timers) {
+    // Global grant locks precede namespace locks; imports acquire them in a
+    // deterministic order so multi-grant batches cannot invert the lock order.
+    for (const timer of [...timers].sort((a, b) => a.grant_id.localeCompare(b.grant_id)
+      || a.namespace.localeCompare(b.namespace) || a.id.localeCompare(b.id))) {
       if (!grants.has(timer.grant_id)) {
         grants.set(timer.grant_id, await resolver.resolve(connection, timer.grant_id));
       }
