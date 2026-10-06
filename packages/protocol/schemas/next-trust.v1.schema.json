@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdbase.dev/schemas/next-trust.v1.schema.json",
+  "title": "NEXT public trust payload v1 (authenticated release asset)",
+  "description": "Canonical UTF-8 JSON, at most 65536 bytes. Authenticate the external release bundle and asset digest first. This schema is not a signature verifier. Semantic key-ID, certificate, time, ordering and environment/source checks are mandatory.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "environment", "control_plane_origin", "log_origin", "issued_at", "source", "roots", "policy_keys"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "environment": {"enum": ["lab", "staging", "production"]},
+    "control_plane_origin": {"$ref": "#/$defs/origin"},
+    "log_origin": {"$ref": "#/$defs/origin"},
+    "issued_at": {"$ref": "#/$defs/time"},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository", "commit", "version"],
+      "properties": {
+        "repository": {"const": "mdbase-dev/mdbase-connect"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "version": {"type": "string", "pattern": "^[0-9A-Za-z.+-]{1,64}$"}
+      }
+    },
+    "roots": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"$ref": "#/$defs/root"}},
+    "policy_keys": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/policy"}}
+  },
+  "$defs": {
+    "origin": {"type": "string", "maxLength": 512, "pattern": "^https://[^/?#@\\s]+$"},
+    "time": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "key_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "public_key": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "root": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key_id", "public_key"],
+      "properties": {"key_id": {"$ref": "#/$defs/key_id"}, "public_key": {"$ref": "#/$defs/public_key"}}
+    },
+    "certificate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["policy_public_key", "not_before", "not_after", "root_key_id", "signature"],
+      "properties": {
+        "policy_public_key": {"$ref": "#/$defs/public_key"},
+        "not_before": {"$ref": "#/$defs/time"},
+        "not_after": {"$ref": "#/$defs/time"},
+        "root_key_id": {"$ref": "#/$defs/key_id"},
+        "signature": {"type": "string", "pattern": "^[0-9a-f]{128}$"}
+      }
+    },
+    "policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key_id", "certificate"],
+      "properties": {"key_id": {"$ref": "#/$defs/key_id"}, "certificate": {"$ref": "#/$defs/certificate"}}
+    }
+  }
+}
