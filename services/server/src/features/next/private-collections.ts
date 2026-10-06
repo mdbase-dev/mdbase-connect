@@ -255,10 +255,19 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
         ENROLMENT, [collection, exactPrivateEnrolment(body.device_id, connector.user_id, device, sasCommit)]
       )).rows[0];
       const batch = await appendedBatch(collection, row);
+      // The enrolling device pins the collection's genesis before it trusts the log.
+      const genesisRow = (await options.db.query<{ seq: string | null; item: Buffer | null; state: string | null }>(
+        "SELECT seq, item, state FROM next_policy_batches WHERE collection_id = $1 AND seq = 1 ORDER BY id LIMIT 1", [collection]
+      )).rows[0];
+      const genesis = await appendedBatch(collection, genesisRow);
       return await inTransaction(options.db, async (client) => {
         await checks(client, device);
         // An existing keyed device approves this one (SAS) and grants it the key next.
-        return { collection_id: collection, enrolled_at: batch.seq, approval: "pending", device: mint(body.device_id, device.sign_pk, collection) };
+        return {
+          collection_id: collection, enrolled_at: batch.seq, approval: "pending", log_url: options.next.logService.url,
+          genesis: { seq: 1, item: genesis.item.toString("hex") },
+          device: mint(body.device_id, device.sign_pk, collection)
+        };
       });
     } catch (error) {
       if (error instanceof CreateError && error.status !== 503) return refuse(reply, error, "The private collection is not current for this device.");
