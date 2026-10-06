@@ -49,9 +49,6 @@ import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError, apiError } from "../../platform/http-errors.js";
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { bearerToken } from "../../platform/request-authentication.js";
-import {
-  recoverExpiredAuthorityTransfers
-} from "../authority-transfer/lifecycle.js";
 import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { assertOperationsAllowedByApplication } from "../grants/policy.js";
 
@@ -112,11 +109,6 @@ export async function hostedControlSnapshot(
       pending_authorizations: []
     };
   }
-  await recoverExpiredAuthorityTransfers(
-    options.db,
-    options.hostedProvider,
-    hostedReference
-  );
   const catalog = await listHostedCollectionsVisibleToUser(
     options.db,
     userId

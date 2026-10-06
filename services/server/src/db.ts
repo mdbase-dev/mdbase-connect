@@ -38,6 +38,12 @@ export async function openDatabase(
       implementation: () => true
     });
     memory.public.registerFunction({
+      name: "octet_length",
+      args: [DataType.bytea],
+      returns: DataType.integer,
+      implementation: (value: Uint8Array) => value.length
+    });
+    memory.public.registerFunction({
       name: "gen_random_uuid",
       returns: DataType.uuid,
       impure: true,
