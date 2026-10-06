@@ -6,8 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
 import {
-  accountKeyDeviceDigest, accountKeyEnrolDigest, accountKeyFetchDigest, accountKeyPutDigest, accountKeyStrictDigest, checkBundleShape,
-  recoveryDeviceId, registerAccountKeyRoutes
+  accountKeyDeviceDigest, accountKeyEnrolDigest, accountKeyFetchDigest, accountKeyPutDigest, accountKeyRewrapDigest, accountKeyStrictDigest,
+  checkBundleShape, recoveryDeviceId, registerAccountKeyRoutes
 } from "./account-keys.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { LogServiceClient } from "./log-service-client.js";
@@ -21,6 +21,8 @@ const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APP
 const describePg = testUrl && approved ? describe : describe.skip;
 const field = (value: Decoded, key: number) => value instanceof Map ? value.get(key) : undefined;
 const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
+/** `accountKeyRewrapDigest` of the fixed inputs above; the Rust test pins the same value. */
+const REWRAP_VECTOR = "74681c1a46f7d3aefc16a5ad665cc61da891bfcbfba11f02b713831a238f5155";
 const rawX = () => (generateKeyPairSync("x25519").publicKey.export({ format: "der", type: "spki" }) as Buffer).subarray(-32);
 
 /** A well-formed AK1 v1 bundle for `keyId` (the server checks shape only). */
@@ -37,6 +39,10 @@ describe("account key bundle shape", () => {
     expect(checkBundleShape(bundleFor(id), randomBytes(32))).toBe(false);
     expect(checkBundleShape(Buffer.alloc(513), id)).toBe(false);
     expect(checkBundleShape(Buffer.from(encodeCbor({ struct: [[0, 2]] } as Cbor)), id)).toBe(false);
+  });
+  it("pins the rewrap digest the replica signs", () => {
+    const d = accountKeyRewrapDigest({ account: "33333333-3333-4333-8333-333333333333", bundle: Buffer.alloc(100, 6), expectedVersion: 3 });
+    expect(hex(d)).toBe(REWRAP_VECTOR);
   });
   it("derives recovery device IDs as the replica does", () => {
     const collection = "4c18af2e-b04a-4b77-b83e-493c3695962e";
@@ -129,6 +135,7 @@ describePg("account keys", () => {
     await admin?.end();
   });
 
+  const proofKeys = new Map<string, ReturnType<typeof generateKeyPairSync>["privateKey"]>();
   async function identity(user = randomUUID()) {
     const connector = { id: randomUUID(), user_id: user };
     const token = randomUUID();
@@ -143,7 +150,10 @@ describePg("account keys", () => {
       device_id: device, kind: "desktop", sign_pk: hex(signPk), kem_pk: hex(kemPk), noise_pk: hex(noisePk), challenge: registration.challenge,
       sig: hex(sign(null, deviceRegistrationDigest({ challenge: Buffer.from(registration.challenge, "hex"), connectorId: connector.id, deviceId: device, signPk, kemPk, noisePk }), key))
     });
-    return { connector, device, key, headers: { authorization: `Bearer ${token}` } };
+    // The account's proof key (derived from R by clients); one per account here.
+    const proof = proofKeys.get(user) ?? generateKeyPairSync("ed25519").privateKey;
+    proofKeys.set(user, proof);
+    return { connector, device, key, proof, headers: { authorization: `Bearer ${token}` } };
   }
   type Who = Awaited<ReturnType<typeof identity>>;
   const challenge = async (who: Who) => (await issueDeviceChallenge(db, who.connector.id)).challenge;
@@ -153,13 +163,16 @@ describePg("account keys", () => {
     const sig = hex(sign(null, accountKeyFetchDigest({ challenge: Buffer.from(c, "hex"), connector: who.connector.id, device: who.device, account: who.connector.user_id }), who.key));
     return app.inject({ method: "GET", url: "/v1/next/account-key", headers: { ...who.headers, "x-mdbase-device-id": who.device, "x-mdbase-challenge": c, "x-mdbase-signature": sig } });
   }
-  async function put(who: Who, expected: number, id: Buffer, bundle = bundleFor(id)) {
+  async function put(who: Who, expected: number, id: Buffer, bundle = bundleFor(id), opts: { proof?: "none" | "wrong" } = {}) {
     const c = await challenge(who);
     const sig = hex(sign(null, accountKeyPutDigest({
       challenge: Buffer.from(c, "hex"), connector: who.connector.id, device: who.device, account: who.connector.user_id, expectedVersion: expected, keyId: id, bundle
     }), who.key));
+    const signer = opts.proof === "wrong" ? generateKeyPairSync("ed25519").privateKey : who.proof;
+    const proof_sig = hex(sign(null, accountKeyRewrapDigest({ account: who.connector.user_id, bundle, expectedVersion: expected }), signer));
     return app.inject({ method: "PUT", url: "/v1/next/account-key", headers: who.headers, payload: {
-      device_id: who.device, challenge: c, sig, expected_version: expected, key_id: hex(id), bundle: hex(bundle)
+      device_id: who.device, challenge: c, sig, expected_version: expected, key_id: hex(id), bundle: hex(bundle),
+      proof_pk: hex(ed25519RawPublicKey(who.proof)), ...(opts.proof === "none" ? {} : { proof_sig })
     } });
   }
   async function strict(who: Who, expected: number) {
@@ -212,10 +225,25 @@ describePg("account keys", () => {
     const got = (await fetchKey(who)).json();
     expect(got).toEqual({ mode: "password", version: 2, key_id: hex(id), bundle: hex(bundle) });
     expect((await put(who, 1, id)).json().error.code).toBe("version_conflict");
+    // Replacing a bundle needs proof of R, not only a signed-in device.
+    expect((await put(who, 2, id, bundleFor(id), { proof: "none" })).json().error.code).toBe("account_key_proof_required");
+    expect((await put(who, 2, id, bundleFor(id), { proof: "wrong" })).json().error.code).toBe("account_key_proof_required");
     expect((await put(who, 2, randomBytes(32))).json().error.code).toBe("rotate_requires_strict");
     expect((await put(who, 2, id, Buffer.alloc(40))).statusCode).toBe(400);
     // Another account sees nothing of it.
     expect((await fetchKey(await identity())).json()).toEqual({ mode: "none", version: 0 });
+  });
+
+  it("serializes concurrent first writes: exactly one creates, none overwrites", async () => {
+    const who = await identity();
+    const sibling = await identity(who.connector.user_id);
+    const [a, b] = [randomBytes(32), randomBytes(32)];
+    const results = await Promise.all([put(who, 0, a), put(sibling, 0, b)]);
+    const ok = results.filter((r) => r.statusCode === 200);
+    expect(ok.length, results.map((r) => r.body).join(" | ")).toBe(1);
+    expect(results.find((r) => r.statusCode !== 200)!.json().error.code).toBe("version_conflict");
+    const winner = ok[0]!.json().key_id;
+    expect((await fetchKey(who)).json().key_id).toBe(winner);
   });
 
   it("needs a fresh device proof bound to the request", async () => {
@@ -233,9 +261,21 @@ describePg("account keys", () => {
       challenge: Buffer.from(c2, "hex"), connector: who.connector.id, device: who.device, account: who.connector.user_id, expectedVersion: 0, keyId: id, bundle: bundleFor(id)
     }), who.key));
     const swapped = await app.inject({ method: "PUT", url: "/v1/next/account-key", headers: who.headers, payload: {
-      device_id: who.device, challenge: c2, sig, expected_version: 0, key_id: hex(id), bundle: hex(bundleFor(id))
+      device_id: who.device, challenge: c2, sig, expected_version: 0, key_id: hex(id), bundle: hex(bundleFor(id)),
+      proof_pk: hex(ed25519RawPublicKey(who.proof))
     } });
     expect(swapped.statusCode).toBe(403);
+  });
+
+  it("serves status without the bundle and without spending the fetch budget", async () => {
+    const who = await identity();
+    const id = randomBytes(32);
+    await put(who, 0, id);
+    for (let i = 0; i < 12; i++) {
+      const res = await app.inject({ method: "GET", url: "/v1/next/account-key/status", headers: who.headers });
+      expect(res.json()).toEqual({ mode: "password", version: 1, key_id: hex(id) });
+    }
+    expect((await fetchKey(who)).statusCode).toBe(200);
   });
 
   it("rate-limits fetches per account across devices", async () => {

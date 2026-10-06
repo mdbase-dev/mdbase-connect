@@ -6,9 +6,12 @@
 //   bundle. The device proof travels in headers (a GET has no body). Rate-limited per
 //   account (persistent, escalating) as well as per IP: the bundle is guessable offline
 //   if the password is weak, so fetches are scarce and audited.
+// - `GET /v1/next/account-key/status`: mode, version and key id only (no bundle), for
+//   status displays; not on the account's fetch budget.
 // - `PUT /v1/next/account-key`: create, re-wrap (same key id: a password change) or,
 //   only from strict mode or with no bundle, rotate (a new key id). Compare-and-set on
-//   the version.
+//   the version. Replacing an existing bundle also needs a signature by the proof key
+//   derived from R and registered with the bundle (security 11:09 (d)).
 // - `POST /v1/next/account-key/strict`: delete the bundle, record strict mode, and queue a
 //   `device-revoke` for every active recovery device of the account in every current
 //   private collection. Each collection's keyed devices then rekey it out (replica).
@@ -19,7 +22,7 @@
 //
 // The server never sees the account secret or the password, never decrypts a bundle,
 // and never keys a device: a device keys itself from the account key, in the log.
-import { verify } from "node:crypto";
+import { createHash, verify } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { AuthRateLimiter, type AuthRateLimitRule } from "../../auth-rate-limit.js";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
@@ -53,6 +56,15 @@ export function accountKeyPutDigest(i: {
   return domainHash("mdbase/v1/account-key-put", encodeCbor([
     i.challenge, uuidBytes(i.connector), uuidBytes(i.device), uuidBytes(i.account), i.expectedVersion, i.keyId, i.bundle
   ]));
+}
+
+/**
+ * The account key's proof over a bundle replacement (security 11:09 (d)), signed by
+ * the key derived from R: `H("mdbase/v1/account-key-rewrap", cbor[account, sha256(bundle), expected_version])`.
+ */
+export function accountKeyRewrapDigest(i: { account: string; bundle: Uint8Array; expectedVersion: number }): Uint8Array {
+  const digest = createHash("sha256").update(i.bundle).digest();
+  return domainHash("mdbase/v1/account-key-rewrap", encodeCbor([uuidBytes(i.account), digest, i.expectedVersion]));
 }
 
 /** `H("mdbase/v1/account-key-strict", cbor[challenge, connector, device, account, expected_version])`. */
@@ -111,9 +123,18 @@ export function checkBundleShape(bundle: Uint8Array, keyId: Uint8Array): boolean
     && Buffer.from(value.get(4) as Uint8Array).equals(Buffer.from(keyId));
 }
 
-type Row = { mode: "password" | "strict"; version: string; key_id: Buffer | null; bundle: Buffer | null };
+/**
+ * The per-account write lock (transaction-scoped advisory lock). Every account-key
+ * write and every recovery-device enrolment takes it FIRST, before any collection
+ * lock, so strict/enrol cannot invert lock order, and a first write (no row yet to
+ * lock FOR UPDATE) is serialized too.
+ */
+const lockAccount = (client: DatabaseConnection, user: string) =>
+  client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text, 20261006))", [user]);
+
+type Row = { mode: "password" | "strict"; version: string; key_id: Buffer | null; bundle: Buffer | null; proof_pk: Buffer | null };
 const accountRow = (client: DatabaseConnection, user: string, lockMode: "UPDATE" | "SHARE") =>
-  client.query<Row>(`SELECT mode, version, key_id, bundle FROM next_account_keys WHERE user_id = $1 FOR ${lockMode}`, [user]).then((r) => r.rows[0]);
+  client.query<Row>(`SELECT mode, version, key_id, bundle, proof_pk FROM next_account_keys WHERE user_id = $1 FOR ${lockMode}`, [user]).then((r) => r.rows[0]);
 
 async function currentPrivate(client: DatabaseConnection, collection: string): Promise<void> {
   const current = await client.query(
@@ -165,6 +186,24 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
     return device;
   }
 
+  // ---- Status: metadata only (no bundle), not on the account's fetch budget. ----
+  app.get("/v1/next/account-key/status", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return reply;
+    try {
+      const row = await inTransaction(options.db, async (client) => {
+        const current = await client.query("SELECT 1 FROM users WHERE id = $1 AND suspended_at IS NULL FOR SHARE", [connector.user_id]);
+        if (!current.rows.length) throw new CreateError(403, "identity_not_current");
+        return accountRow(client, connector.user_id, "SHARE");
+      });
+      if (!row) return { mode: "none", version: 0 };
+      return { mode: row.mode, version: Number(row.version), ...(row.key_id ? { key_id: row.key_id.toString("hex") } : {}) };
+    } catch (error) {
+      return refuse(reply, error, "The account key status is unavailable; retry.");
+    }
+  });
+
   // ---- Fetch: the proof is in headers; a GET has no body. ----
   app.get("/v1/next/account-key", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     reply.header("cache-control", "no-store");
@@ -205,11 +244,14 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
   });
 
   // ---- Put: create, re-wrap (same key id) or rotate (only from strict or none). ----
-  app.put<{ Body: Proof & { expected_version: number; key_id: string; bundle: string } }>("/v1/next/account-key", {
+  app.put<{ Body: Proof & { expected_version: number; key_id: string; bundle: string; proof_pk: string; proof_sig?: string } }>("/v1/next/account-key", {
     ...limited,
     schema: { body: {
-      type: "object", additionalProperties: false, required: ["device_id", "challenge", "sig", "expected_version", "key_id", "bundle"],
-      properties: { ...proof, expected_version: version, key_id: hex32, bundle: { type: "string", pattern: "^([0-9a-f]{2}){1,512}$" } }
+      type: "object", additionalProperties: false, required: ["device_id", "challenge", "sig", "expected_version", "key_id", "bundle", "proof_pk"],
+      properties: {
+        ...proof, expected_version: version, key_id: hex32, bundle: { type: "string", pattern: "^([0-9a-f]{2}){1,512}$" },
+        proof_pk: hex32, proof_sig: { type: "string", pattern: "^[0-9a-f]{128}$" }
+      }
     } }
   }, async (request, reply) => {
     reply.header("cache-control", "no-store");
@@ -233,18 +275,40 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
       }
       const next = await inTransaction(options.db, async (client) => {
         await currentIdentity(client, connector, body.device_id, device);
+        await lockAccount(client, account);
         const row = await accountRow(client, account, "UPDATE");
         const current = row ? Number(row.version) : 0;
         if (current !== body.expected_version) throw new CreateError(409, "version_conflict");
         // A new key id while recovery devices of the old one may still be active is a
         // rotation without revocation: only from strict mode (or the first setup).
         if (row?.mode === "password" && !row.key_id!.equals(keyId)) throw new CreateError(409, "rotate_requires_strict");
+        // Replacing a bundle needs proof of R (its registered proof key), not only
+        // a signed-in device: a device alone cannot overwrite it with junk.
+        const proofPk = Buffer.from(body.proof_pk, "hex");
+        if (row?.mode === "password") {
+          if (!row.proof_pk!.equals(proofPk) || !body.proof_sig) throw new CreateError(403, "account_key_proof_required");
+          let ok = false;
+          try {
+            ok = verify(null, accountKeyRewrapDigest({ account, bundle, expectedVersion: body.expected_version }),
+              ed25519PublicKeyObject(proofPk), Buffer.from(body.proof_sig, "hex"));
+          } catch {
+            ok = false;
+          }
+          if (!ok) throw new CreateError(403, "account_key_proof_required");
+        }
         const version = current + 1;
-        await client.query(
-          `INSERT INTO next_account_keys (user_id, mode, version, key_id, bundle, updated_at) VALUES ($1, 'password', $2, $3, $4, now())
-           ON CONFLICT (user_id) DO UPDATE SET mode = 'password', version = $2, key_id = $3, bundle = $4, updated_at = now()`,
-          [account, version, keyId, bundle]
-        );
+        // Explicit create-or-CAS-update under the account lock: never an upsert that
+        // could overwrite a row another request created.
+        const written = row
+          ? await client.query(
+            `UPDATE next_account_keys SET mode = 'password', version = $2, key_id = $3, bundle = $4, proof_pk = $5, updated_at = now()
+             WHERE user_id = $1 AND version = $6`,
+            [account, version, keyId, bundle, Buffer.from(body.proof_pk, "hex"), current])
+          : await client.query(
+            `INSERT INTO next_account_keys (user_id, mode, version, key_id, bundle, proof_pk, updated_at)
+             VALUES ($1, 'password', $2, $3, $4, $5, now()) ON CONFLICT (user_id) DO NOTHING`,
+            [account, version, keyId, bundle, Buffer.from(body.proof_pk, "hex")]);
+        if (written.rowCount !== 1) throw new CreateError(409, "version_conflict");
         return version;
       });
       request.log.info({ event: "next_account_key_put", account, device: body.device_id, version: next }, "account key stored");
@@ -281,15 +345,19 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
       }
       result = await inTransaction(options.db, async (client) => {
         await currentIdentity(client, connector, body.device_id, device);
+        await lockAccount(client, account);
         const row = await accountRow(client, account, "UPDATE");
         const current = row ? Number(row.version) : 0;
         if (current !== body.expected_version) throw new CreateError(409, "version_conflict");
         const version = current + 1;
-        await client.query(
-          `INSERT INTO next_account_keys (user_id, mode, version, key_id, bundle, updated_at) VALUES ($1, 'strict', $2, NULL, NULL, now())
-           ON CONFLICT (user_id) DO UPDATE SET mode = 'strict', version = $2, key_id = NULL, bundle = NULL, updated_at = now()`,
-          [account, version]
-        );
+        const written = row
+          ? await client.query(
+            `UPDATE next_account_keys SET mode = 'strict', version = $2, key_id = NULL, bundle = NULL, proof_pk = NULL, updated_at = now()
+             WHERE user_id = $1 AND version = $3`, [account, version, current])
+          : await client.query(
+            `INSERT INTO next_account_keys (user_id, mode, version, updated_at) VALUES ($1, 'strict', $2, now())
+             ON CONFLICT (user_id) DO NOTHING`, [account, version]);
+        if (written.rowCount !== 1) throw new CreateError(409, "version_conflict");
         // Enrolment of new recovery devices is refused from here on (mode check), so
         // this set cannot grow while the revocations are queued.
         const active = (await client.query<{ collection: string; device: string }>(ACTIVE_RECOVERY, [account])).rows;
@@ -363,6 +431,8 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
       let device: Device;
       try {
         device = await inTransaction(options.db, async (client) => {
+          // Account lock before the collection lock: the same order strict uses.
+          await lockAccount(client, account);
           await lock(client, collection);
           const caller = await authenticate(client, body, connector, digest);
           await checks(client, caller);
@@ -387,6 +457,7 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
         const external = seq !== null && row?.state === "appended" ? await options.log.controlItemAt(collection, seq) : null;
         if (seq === null || !row?.item || !external || !row.item.equals(Buffer.from(external))) throw new CreateError(503, "not_ready");
         return await inTransaction(options.db, async (client) => {
+          await lockAccount(client, account);
           await checks(client, device);
           // Appended is not keyed: the caller keys it in the log after checking the
           // enrolment carries exactly the keys it derived (SEC-014).

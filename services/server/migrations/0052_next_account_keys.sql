@@ -11,7 +11,11 @@ CREATE TABLE next_account_keys (
   version bigint NOT NULL CHECK (version >= 1 AND version <= 9007199254740991),
   key_id bytea CHECK (key_id IS NULL OR octet_length(key_id) = 32),
   bundle bytea CHECK (bundle IS NULL OR octet_length(bundle) BETWEEN 1 AND 512),
+  -- Ed25519 public key derived from R (HKDF salt account, "mdbase/v1/account-key-proof"):
+  -- replacing a bundle needs its signature, so a device alone cannot overwrite it.
+  proof_pk bytea CHECK (proof_pk IS NULL OR octet_length(proof_pk) = 32),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CHECK ((mode = 'password') = (bundle IS NOT NULL)),
-  CHECK ((bundle IS NULL) = (key_id IS NULL))
+  CHECK ((bundle IS NULL) = (key_id IS NULL)),
+  CHECK ((bundle IS NULL) = (proof_pk IS NULL))
 );
