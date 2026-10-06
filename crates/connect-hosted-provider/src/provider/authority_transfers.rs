@@ -272,6 +272,25 @@ impl HostedProvider {
         &self,
         transfer_id: Uuid,
     ) -> ApiResult<ProviderAuthorityTransfer> {
+        self.abort_authority_transfer_in_mode(transfer_id, None)
+            .await
+    }
+
+    pub async fn expire_authority_transfer(
+        &self,
+        transfer_id: Uuid,
+        collection_id: Uuid,
+        authority_epoch: u64,
+    ) -> ApiResult<ProviderAuthorityTransfer> {
+        self.abort_authority_transfer_in_mode(transfer_id, Some((collection_id, authority_epoch)))
+            .await
+    }
+
+    async fn abort_authority_transfer_in_mode(
+        &self,
+        transfer_id: Uuid,
+        expiry_binding: Option<(Uuid, u64)>,
+    ) -> ApiResult<ProviderAuthorityTransfer> {
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
             r#"SELECT id, collection_id, replica_id, final_head, next_authority_epoch,
@@ -295,6 +314,22 @@ impl HostedProvider {
                 "authority_transfer_completed",
                 "Completed authority transfer cannot be cancelled.",
             ));
+        }
+        if let Some((collection_id, authority_epoch)) = expiry_binding {
+            if transfer.collection_id != collection_id
+                || transfer.authority_epoch != authority_epoch
+            {
+                return Err(ApiError::conflict(
+                    "authority_transfer_conflict",
+                    "Authority transfer binding does not match.",
+                ));
+            }
+            if transfer.expires_at > Utc::now() {
+                return Err(ApiError::conflict(
+                    "authority_transfer_not_expired",
+                    "Authority transfer has not expired.",
+                ));
+            }
         }
         if transfer.state == ProviderAuthorityTransferState::Prepared {
             sqlx::query(
