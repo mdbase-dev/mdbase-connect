@@ -89,6 +89,20 @@ describe("fixed retained app timer HTTP port", () => {
     expect(cancel).toHaveBeenCalledTimes(1); expect(f.release).toHaveBeenCalledTimes(1);
     await expect(f.port.list("ns", {})).rejects.toMatchObject({ code: "operation_cancelled" });
   });
+  it.each([undefined, null, 30_000])("enforces the 10s CP metadata cap for timeoutMs=%s", async timeoutMs => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture(); let aborted = false;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => new Promise((_resolve, reject) => {
+        init!.signal!.addEventListener("abort", () => { aborted = true; reject(init!.signal!.reason); }, { once: true });
+      }));
+      const request = f.port.list("tasks", { timeoutMs });
+      const rejected = expect(request).rejects.toMatchObject({ code: "timeout" });
+      await vi.advanceTimersByTimeAsync(9_999); expect(aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1); await rejected;
+      expect(aborted).toBe(true); expect(f.release).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
   it("a late browser subscription after close is unsubscribed and cannot register a channel", async () => {
     const f = fixture(); const unsubscribe = vi.fn(async () => true);
     vi.spyOn(f.client["internals"], "register").mockResolvedValue({ notifications: { criteria: [{ id: "test.fire" }] } } as unknown as Application);

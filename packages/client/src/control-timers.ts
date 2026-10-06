@@ -83,7 +83,10 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
   const run = async <T>(options: ConnectRequestOptions, write: boolean,
     operation: (request: (path: string, method?: string, data?: unknown, noBody?: boolean) => Promise<unknown>, check: () => void, signal: AbortSignal) => Promise<T>): Promise<T> => {
     const signal = options.signal ? AbortSignal.any([options.signal, lifetime.signal]) : lifetime.signal;
-    return withCooperativeRequestBudget({ ...options, signal }, 30_000, async budget => {
+    return withCooperativeRequestBudget({
+      ...options, signal,
+      timeoutMs: options.timeoutMs == null ? 10_000 : Math.min(options.timeoutMs, 10_000)
+    }, 10_000, async budget => {
       const token = transport.currentToken();
       if (!token || identity(token) !== pinned || !Number.isFinite(token.expiresAt) || token.expiresAt <= Date.now()) {
         throw connectError("not_authorized", "The retained timer consent is unavailable.");
