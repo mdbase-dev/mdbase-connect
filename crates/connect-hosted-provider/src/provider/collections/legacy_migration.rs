@@ -4,15 +4,15 @@
 //! - `migrating`: every mutation, upload and read is refused (they all require
 //!   `state = 'active'`). Entering it takes the collection row lock, so it waits for
 //!   in-flight writers, which hold that lock until they commit.
-//! - `migrated`: the same, plus deletion and compaction are refused until
-//!   `legacy_retain_until`, at least 30 days after cutover.
+//! - `migrated`: the same, plus deletion, compaction and blob removal are refused until
+//!   `legacy_retain_until`, at least 90 days after cutover (Callum, 2026-10-06).
 //! - Rollback restores exactly the replicas revoked since the migration started.
 
 use super::*;
 use chrono::Duration as ChronoDuration;
 
 /// Minimum retention of a migrated collection's legacy rows and objects.
-const LEGACY_RETENTION_MIN_DAYS: i64 = 30;
+const LEGACY_RETENTION_MIN_DAYS: i64 = 90;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -76,13 +76,20 @@ impl HostedProvider {
     ///
     /// Allowed: active → migrating → migrated, and back (rollback). Repeating the
     /// current state is a no-op, except that `migrated` may extend its retention.
-    /// `migrated` requires `retain_until` at least 30 days ahead, and retention is
+    /// `migrated` requires `retain_until` at least 90 days ahead, and retention is
     /// never shortened.
+    ///
+    /// Rollback before cutover (`migrating` → `active`) is direct. After cutover
+    /// (`migrated` → `active`) the runbook must first reverse-export and verify the
+    /// collection at R (mdbase-next `docs/ship/migration.md` §6.2) and say so with
+    /// `reverse_verified`; the provider cannot check that itself, so it refuses the
+    /// transition without the explicit statement.
     pub async fn set_legacy_migration_state(
         &self,
         collection_id: Uuid,
         target: &str,
         retain_until: Option<DateTime<Utc>>,
+        reverse_verified: bool,
     ) -> ApiResult<LegacyMigrationStatus> {
         use LegacyMigrationState::{Active, Migrated, Migrating};
         let target = requested_state(target)?;
@@ -107,6 +114,12 @@ impl HostedProvider {
                     | (Migrated, Migrating)
                     | (Migrated, Active)
             );
+        if (current, target) == (Migrated, Active) && !reverse_verified {
+            return Err(ApiError::conflict(
+                "legacy_rollback_unverified",
+                "Rolling back a migrated collection needs the reverse export verified at R first (reverse_verified).",
+            ));
+        }
         if !allowed {
             return Err(ApiError::conflict(
                 "legacy_migration_transition_invalid",
@@ -128,7 +141,7 @@ impl HostedProvider {
                 if requested < Utc::now() + ChronoDuration::days(LEGACY_RETENTION_MIN_DAYS) {
                     return Err(ApiError::bad_request(
                         "legacy_retention_too_short",
-                        "Legacy collections are retained for at least 30 days after cutover.",
+                        "Legacy collections are retained for at least 90 days after cutover.",
                     ));
                 }
                 Some(retained.map_or(requested, |existing| existing.max(requested)))

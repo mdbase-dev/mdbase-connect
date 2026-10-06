@@ -22,6 +22,9 @@ struct SetLegacyMigrationState {
     state: String,
     #[serde(default)]
     retain_until: Option<DateTime<Utc>>,
+    /// Required true for `migrated` → `active`: the runbook verified the reverse export at R.
+    #[serde(default)]
+    reverse_verified: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,7 +54,12 @@ async fn set_legacy_migration_state(
     state.authorize_internal(&headers)?;
     let status = state
         .provider
-        .set_legacy_migration_state(collection_id, &input.state, input.retain_until)
+        .set_legacy_migration_state(
+            collection_id,
+            &input.state,
+            input.retain_until,
+            input.reverse_verified,
+        )
         .await?;
     Ok(Json(json!(status)))
 }

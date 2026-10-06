@@ -283,9 +283,20 @@ impl HostedProvider {
     }
 
     pub async fn delete_pending_blobs(&self, limit: u32) -> ApiResult<usize> {
+        // Objects of a collection retained for the mdbase-next migration (migrating,
+        // or migrated until legacy_retain_until) stay queued but are never removed,
+        // whatever queued them: rollback needs every object referenced at cutover,
+        // including version history. Blob keys are `v1/blobs/<collection>/...`.
         let rows = sqlx::query(
-            r#"SELECT object_key FROM hosted_provider_blob_deletions
-               ORDER BY created_at LIMIT $1"#,
+            r#"SELECT d.object_key FROM hosted_provider_blob_deletions d
+               WHERE NOT EXISTS (
+                 SELECT 1 FROM hosted_provider_collections c
+                 WHERE (c.state = 'migrating'
+                        OR (c.state = 'migrated'
+                            AND (c.legacy_retain_until IS NULL OR c.legacy_retain_until > now())))
+                   AND d.object_key LIKE 'v1/blobs/' || c.id::text || '/%'
+               )
+               ORDER BY d.created_at LIMIT $1"#,
         )
         .bind(i64::from(limit.clamp(1, 1_000)))
         .fetch_all(&self.pool)

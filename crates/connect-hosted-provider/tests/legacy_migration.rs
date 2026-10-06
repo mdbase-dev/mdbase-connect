@@ -53,7 +53,7 @@ async fn migrating_refuses_writes_and_rollback_reopens_them() {
     let id = fixture.collection_id;
 
     let status = provider
-        .set_legacy_migration_state(id, "migrating", None)
+        .set_legacy_migration_state(id, "migrating", None, false)
         .await
         .unwrap();
     assert!(status.started_at.is_some());
@@ -72,7 +72,7 @@ async fn migrating_refuses_writes_and_rollback_reopens_them() {
 
     // Rollback before cutover reopens writes.
     provider
-        .set_legacy_migration_state(id, "active", None)
+        .set_legacy_migration_state(id, "active", None, false)
         .await
         .unwrap();
     provider
@@ -83,33 +83,33 @@ async fn migrating_refuses_writes_and_rollback_reopens_them() {
 
 #[tokio::test]
 #[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
-async fn migrated_needs_thirty_days_of_retention_and_never_shortens_it() {
+async fn migrated_needs_ninety_days_of_retention_and_never_shortens_it() {
     let database = DisposablePostgres::from_projection_env().await;
     let fixture = FileLifecycleFixture::new(database.url()).await;
     let provider = &fixture.provider;
     let id = fixture.collection_id;
 
     let skipped = provider
-        .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(31)))
+        .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(31)), false)
         .await
         .unwrap_err();
     assert_eq!(skipped.code, "legacy_migration_transition_invalid");
     provider
-        .set_legacy_migration_state(id, "migrating", None)
+        .set_legacy_migration_state(id, "migrating", None, false)
         .await
         .unwrap();
     let short = provider
-        .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(10)))
+        .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(45)), false)
         .await
         .unwrap_err();
     assert_eq!(short.code, "legacy_retention_too_short");
-    let long = Utc::now() + Duration::days(45);
+    let long = Utc::now() + Duration::days(120);
     provider
-        .set_legacy_migration_state(id, "migrated", Some(long))
+        .set_legacy_migration_state(id, "migrated", Some(long), false)
         .await
         .unwrap();
     let again = provider
-        .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(31)))
+        .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(91)), false)
         .await
         .unwrap();
     assert_eq!(
@@ -120,6 +120,14 @@ async fn migrated_needs_thirty_days_of_retention_and_never_shortens_it() {
     let deletion = provider.delete_collection(id).await.unwrap_err();
     assert_eq!(deletion.code, "legacy_collection_retained");
 
+    // After cutover, rollback needs the reverse export verified at R (§6.2).
+    let unverified = provider
+        .set_legacy_migration_state(id, "active", None, false)
+        .await
+        .unwrap_err();
+    assert_eq!(unverified.code, "legacy_rollback_unverified");
+    assert_eq!(state_of(&fixture).await, "migrated");
+
     // Once retention has passed, the collection can be deleted.
     sqlx::query(
         "UPDATE hosted_provider_collections SET legacy_retain_until = now() - interval '1 second' WHERE id = $1",
@@ -129,6 +137,71 @@ async fn migrated_needs_thirty_days_of_retention_and_never_shortens_it() {
     .await
     .unwrap();
     provider.delete_collection(id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn retained_collections_keep_their_queued_blob_deletions() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+    let key = format!("v1/blobs/{id}/{}", Uuid::now_v7());
+    let other = format!("v1/blobs/{}/{}", Uuid::now_v7(), Uuid::now_v7());
+    let queued = |key: &str| async move {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM hosted_provider_blob_deletions WHERE object_key = $1 AND attempts = 0",
+        )
+        .bind(key)
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap()
+    };
+    provider
+        .set_legacy_migration_state(id, "migrating", None, false)
+        .await
+        .unwrap();
+    // Queued before or during the freeze, from any cause: the worker leaves it alone.
+    sqlx::query(
+        "INSERT INTO hosted_provider_blob_deletions (object_key, byte_length, reason) VALUES ($1, 1, 'test'), ($2, 1, 'test')",
+    )
+    .bind(&key)
+    .bind(&other)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let _ = provider.delete_pending_blobs(10).await;
+    assert_eq!(
+        queued(&key).await,
+        1,
+        "a retained collection's object stays queued"
+    );
+    assert_eq!(
+        queued(&other).await,
+        0,
+        "other collections' queue entries are processed"
+    );
+    provider
+        .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(91)), false)
+        .await
+        .unwrap();
+    let _ = provider.delete_pending_blobs(10).await;
+    assert_eq!(queued(&key).await, 1, "still retained after cutover");
+    // Rollback (before H9 it is direct) releases the entry to the worker again.
+    provider
+        .set_legacy_migration_state(id, "migrating", None, false)
+        .await
+        .unwrap();
+    provider
+        .set_legacy_migration_state(id, "active", None, false)
+        .await
+        .unwrap();
+    let _ = provider.delete_pending_blobs(10).await;
+    assert_eq!(
+        queued(&key).await,
+        0,
+        "an active collection's entry is attempted"
+    );
 }
 
 #[tokio::test]
@@ -150,7 +223,7 @@ async fn rollback_restores_only_replicas_revoked_during_the_migration() {
     // A replica revoked before the migration stays revoked.
     provider.revoke_replica(mirror).await.unwrap();
     provider
-        .set_legacy_migration_state(id, "migrating", None)
+        .set_legacy_migration_state(id, "migrating", None, false)
         .await
         .unwrap();
     let restored = provider
