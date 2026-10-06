@@ -29,6 +29,7 @@ import { selectiveSyncPolicy } from "./selective-sync-input";
 import { createTrayImage } from "./tray-image";
 import { UpdateCoordinator } from "./update-coordinator";
 import { UpdateStateStore } from "./update-state";
+import { bundledNextDaemon, ensureNextDaemon, nextDaemonRunner, rolloutAllowsLocalTakeover } from "./next-daemon";
 
 guardDesktopProcessOutput();
 
@@ -130,7 +131,14 @@ async function startAgent(runtime = updater!.daemonStartupRuntime()): Promise<vo
       requestAgent<AgentPing>(controlEndpoint(), "ping", undefined, timeoutMs),
     endpointIsUnavailable,
     incompatibleDaemon,
-    launch: () => launchDaemon(runtime.binary ?? connectBinary(), daemonPaths!, app.isPackaged)
+    launch: async () => {
+      // The new daemon may have taken over since startup; never revive the old one.
+      if (!(await updater!.mayStartOldDaemon())) {
+        throw new Error(updater!.daemonStartupBlock() ??
+          "The connector stays stopped while mdbase finishes moving your collections.");
+      }
+      await launchDaemon(runtime.binary ?? connectBinary(), daemonPaths!, app.isPackaged);
+    }
   });
 }
 
@@ -907,8 +915,17 @@ app.whenReady().then(async () => {
     },
     blockedReason: () => updater!.daemonStartupBlock()
   });
+  let launchAtLoginRetired = false;
   updater.subscribe((status) => {
-    if (status.phase === "installing" || status.phase === "recovery") {
+    if (status.phase === "handed_off") {
+      localHealthLabel = "Managed by mdbase";
+      // After a complete takeover this app has nothing left to run at login.
+      if (updater!.takeoverPhase() === "complete" && !launchAtLoginRetired) {
+        launchAtLoginRetired = true;
+        void setLaunchAtLogin(false).catch((error) =>
+          console.warn("Could not turn off launch at login after the mdbase takeover:", error));
+      }
+    } else if (status.phase === "installing" || status.phase === "recovery") {
       localHealthLabel = "Local connector updating";
     } else if (status.phase === "failed" && !status.can_check) {
       localHealthLabel = "Local connector needs attention";
@@ -922,13 +939,31 @@ app.whenReady().then(async () => {
   handleDeepLink(process.argv.find((value) => value.startsWith("mdbase-connect://")));
   try {
     await bootGate.ready();
+    if (app.isPackaged && daemonPaths!.target === "installed_service" &&
+        ["none", "postponed"].includes(updater.takeoverPhase())) {
+      void (async () => {
+        const bundled = await bundledNextDaemon(process.resourcesPath, process.platform);
+        if (!bundled) return;
+        const rollout = await requestAgent<unknown>(controlEndpoint(), "next.rollout", undefined, 20_000);
+        if (!rolloutAllowsLocalTakeover(rollout)) return;
+        const result = await ensureNextDaemon(nextDaemonRunner(bundled.binary), bundled.version);
+        console.info("Bundled mdbase daemon:", result.outcome, result.version);
+        // Installation may complete the takeover during this session.
+        await updater!.mayStartOldDaemon();
+      })().catch((error) => console.warn("Could not install the bundled mdbase daemon:", error));
+    }
   } catch (error) {
-    localHealthLabel = "Local connector needs attention";
-    refreshTrayMenu();
-    dialog.showErrorBox(
-      "mdbase connect could not start",
-      error instanceof Error ? error.message : String(error)
-    );
+    if (["started", "complete", "postponed"].includes(updater.takeoverPhase())) {
+      // Not a failure: mdbase owns the collections now (or is moving them).
+      refreshTrayMenu();
+    } else {
+      localHealthLabel = "Local connector needs attention";
+      refreshTrayMenu();
+      dialog.showErrorBox(
+        "mdbase connect could not start",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
   }
   const initialUpdateCheck = setTimeout(() => void bootGate.check(() => updater!.check(false)).catch(() => undefined), 30_000);
   initialUpdateCheck.unref();

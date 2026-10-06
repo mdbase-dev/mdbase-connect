@@ -92,6 +92,11 @@ function App() {
   const [authorizationTarget, setAuthorizationTarget] = useState<string | null>(storedAuthorizationTarget);
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
+  // Once mdbase has taken over, this app stays a shell for its own updates.
+  const [takeoverNotice, setTakeoverNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (updateStatus?.phase === "handed_off") setTakeoverNotice(updateStatus.message);
+  }, [updateStatus]);
   const [collections, setCollections] = useState<CollectionSummary[]>([]);
   const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
@@ -441,7 +446,19 @@ function App() {
           <PairingPanel resumeAuthorization={authorizationTarget !== null} completing={pairingRestart} onPaired={onPaired} />
         </div>}
 
-        {cloud === null ? <ConnectionProgress /> : route === "overview" ? (
+        {takeoverNotice !== null && updateStatus ? (
+          <section className="authority-history" role="status" aria-live="polite">
+            <strong>Your collections have moved to mdbase</strong>
+            <span>{takeoverNotice}</span>
+            {updateStatus.phase !== "handed_off" && <small>{updateStatus.message}</small>}
+            {(updateStatus.can_check || updateStatus.can_install) && <div className="collection-config-actions">
+              <button className="quiet-action" disabled={busy} onClick={() => void act(async () => {
+                if (updateStatus.can_install) await window.mdbaseConnect.installUpdate();
+                else setNotice((await window.mdbaseConnect.checkForUpdates()).message);
+              })}>{updateStatus.can_install ? "Install this app's update" : "Check for app updates"}</button>
+            </div>}
+          </section>
+        ) : cloud === null ? <ConnectionProgress /> : route === "overview" ? (
           <Overview
             status={status}
             cloud={cloud}
