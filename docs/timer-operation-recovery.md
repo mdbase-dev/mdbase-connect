@@ -21,7 +21,9 @@ Mutation, revision and metadata-only receipt commit together. Receipt results ex
 
 New operation admission requires the UUIDv7 timestamp within five minutes of server time. `operation_not_admitted` with reason `operation_clock_window` describes clock-window rejection without guessing CP time; its original outcome remains unknown. Retained lookup and exact replay are not subject to this initial-admission window.
 
-Receipts are retained for seven days, with write-side cleanup only. Missing older identities cannot execute again. Namespace revisions are never reset or pruned. Atomic grant limits are 8,192 receipts, 32 MiB of receipt metadata and 256 namespaces; capacity failures reject the whole transaction. Read-only lookup neither cleans up nor creates namespaces or wakes the timer worker.
+Receipts are retained for seven days, with write-side cleanup only. Missing older identities cannot execute again. Namespace revisions are never reset or pruned. Atomic grant limits are 8,192 receipts, 32 MiB of receipt metadata and 256 namespaces; capacity failures reject the whole transaction. Prospective and final stored-byte charges use PostgreSQL's `jsonb::text` representation, matching the existing stored sum; compact wire JSON has its separate response bound. Read-only lookup neither cleans up nor creates namespaces or wakes the timer worker.
+
+Legacy cutover imports acquire grant/namespace locks before reading current authority. Active account/grant and existing collection-mode rows remain share-locked; scope, criterion and service credential are rechecked after waits and before COMMIT. Changed or PRIVATE authority cannot publish stale imported timer data or advance an intent.
 
 ## Qualification
 

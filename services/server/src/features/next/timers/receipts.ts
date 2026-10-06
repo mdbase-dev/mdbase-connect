@@ -38,6 +38,14 @@ export interface TimerReceiptAuthority {
   // inferred member/owner/backend marker. PRIVATE dependencies still deny.
   termsDigest: Buffer;
 }
+// Quota and the persisted CHECK charge PostgreSQL's jsonb::text, not compact
+// wire JSON. Measure the SAME representation before the mutator and afterwards.
+async function storedMetadataBytes(db: DatabaseQueryable, encoded: string): Promise<number> {
+  const row = (await db.query<{ bytes: number }>(
+    "SELECT octet_length($1::text::jsonb::text) AS bytes", [encoded])).rows[0];
+  if (!row || !Number.isSafeInteger(row.bytes) || row.bytes < 0) throw new Error("Invalid timer receipt byte measurement.");
+  return row.bytes;
+}
 function conflict(): never {
   throw new TimerError(409, "operation_conflict", "The timer operation identity or intent is no longer applicable.");
 }
@@ -134,8 +142,11 @@ export async function recordTimerReconcile(
     cancelled_ids: active.rows.filter(t => !ids.has(t.timer_id)).map(t => t.timer_id),
     timers: input.desired.map(t => ({ id: t.id, criterion_id: input.criterionId, fire_at: t.fireAt.toISOString(),
       generation: Number.MAX_SAFE_INTEGER, status: "cancelled", created_at: "0".repeat(32), updated_at: "0".repeat(32), fired_at: "0".repeat(32) })) };
-  const forecastBytes = Buffer.byteLength(JSON.stringify(forecast));
-  if (forecastBytes > MAX_RESULT_BYTES) throw new TimerError(413, "too_large", "Timer receipt metadata exceeds capacity.");
+  const forecastJson = JSON.stringify(forecast);
+  const forecastBytes = await storedMetadataBytes(db, forecastJson);
+  if (Buffer.byteLength(forecastJson) > MAX_RESULT_BYTES || forecastBytes > MAX_RESULT_BYTES) {
+    throw new TimerError(413, "too_large", "Timer receipt metadata exceeds capacity.");
+  }
   // Cleanup is write-side only, after new-operation admission. Expired identities
   // are not reused and namespace intent revisions are never reset or pruned.
   await db.query("DELETE FROM next_timer_operation_receipts WHERE grant_id = $1 AND committed_at < $2",
@@ -156,7 +167,9 @@ export async function recordTimerReconcile(
     created_at: t.created_at, updated_at: t.updated_at, fired_at: t.fired_at
   })) };
   const encoded = JSON.stringify(metadata);
-  if (Buffer.byteLength(encoded) > MAX_RESULT_BYTES || Number(quota.rows[0].bytes) + Buffer.byteLength(encoded) > MAX_RECEIPT_BYTES_PER_GRANT) {
+  const storedBytes = await storedMetadataBytes(db, encoded);
+  if (Buffer.byteLength(encoded) > MAX_RESULT_BYTES || storedBytes > MAX_RESULT_BYTES
+    || Number(quota.rows[0].bytes) + storedBytes > MAX_RECEIPT_BYTES_PER_GRANT) {
     throw new TimerError(413, "too_large", "Timer receipt metadata exceeds capacity.");
   }
   const current = await authenticate();

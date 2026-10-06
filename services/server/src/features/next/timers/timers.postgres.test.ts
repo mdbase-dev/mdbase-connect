@@ -4,7 +4,7 @@ import rawBody from "fastify-raw-body";
 import { AUTHORITY_PROOF_HEADERS, AUTHORITY_PROOF_VERSION, MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { authorityProofMessage } from "../../../authority-proof.js";
 import { tokenHash } from "../../../security.js";
-import { registerTimerRoutes } from "./routes.js";
+import { importLegacyTimers, registerTimerRoutes } from "./routes.js";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../../db.js";
@@ -95,6 +95,19 @@ suite("timer service on PostgreSQL", () => {
       throw error;
     } finally { connection.release(); }
   }
+
+  it("measures PostgreSQL stored-jsonb spacing for a cancellation-only receipt", async () => {
+    const metadata = { namespace: "receipts", timers: [], cancelled_ids: ["cancel-a", "cancel-b", "cancel-c"] };
+    const compact = JSON.stringify(metadata);
+    const count = (await db.query<{ stored: number; compact: number }>(
+      "SELECT octet_length($1::text::jsonb::text) AS stored, octet_length($1::text) AS compact", [compact])).rows[0];
+    console.log("PostgreSQL cancellation receipt bytes", { compact: count.compact, stored: count.stored });
+    expect(count.compact).toBe(Buffer.byteLength(compact));
+    expect(count.stored).toBeGreaterThan(count.compact);
+    const existing = 32 * 1024 * 1024 - count.compact;
+    expect(existing + count.compact).toBe(32 * 1024 * 1024);
+    expect(existing + count.stored).toBeGreaterThan(32 * 1024 * 1024);
+  });
 
   async function recoveryFixture() {
     const grantId = await grant();
@@ -210,6 +223,51 @@ suite("timer service on PostgreSQL", () => {
     await expect(transaction(connection => recordTimerReconcile(connection, f.grantId, "receipts", { ...f.input, desired },
       f.authority, async () => { mutated = true; throw new Error("Unexpected mutation."); }))).rejects.toMatchObject({ statusCode: 413 });
     expect(mutated).toBe(false);
+    expect(await lookupTimerReceipt(db, f.grantId, "receipts", f.input.operationId, await f.authority())).toBeNull();
+  });
+
+  it("rejects a cancellation-only receipt near stored-byte quota before any mutator effect", async () => {
+    const f = await recoveryFixture();
+    const cancelled = ["cancel-a", "cancel-b", "cancel-c"];
+    await transaction(async connection => {
+      const current = (await f.authority()).grant;
+      await reconcileTimers(connection, current, "receipts", f.input.criterionId,
+        cancelled.map(id => ({ ...f.desired[0], id })));
+    });
+    const proposed = JSON.stringify({ namespace: "receipts", timers: [], cancelled_ids: cancelled });
+    const limit = 32 * 1024 * 1024;
+    // Seed ordinary-shaped historical metadata to the exact compact-only
+    // admission edge. Counts/charges below are ACTUAL PostgreSQL, not a fake quota.
+    const budget = limit - Buffer.byteLength(proposed);
+    const base = (await db.query<{ bytes: number }>("SELECT octet_length($1::text::jsonb::text) AS bytes",
+      [JSON.stringify({ namespace: "receipts", timers: [], cancelled_ids: [] })])).rows[0].bytes;
+    function metadataForCharge(bytes: number): string {
+      const n = Math.ceil((bytes - base + 2) / 132);
+      const ids = Array.from({ length: n - 1 }, (_, i) => `timer-${i}-`.padEnd(128, "x"));
+      let last = bytes - base - (n - 1) * 132 - 2;
+      if (last < 1) { ids[0] = ids[0].slice(0, -3); last += 3; }
+      return JSON.stringify({ namespace: "receipts", timers: [], cancelled_ids: [...ids, "z".repeat(last)] });
+    }
+    const full = 1_000_000, copies = Math.floor(budget / full);
+    const seed = async (metadata: string, ids: string[]) => db.query(
+      `INSERT INTO next_timer_operation_receipts (grant_id, operation_id, namespace, request_digest,
+         terms_digest, expected_revision, committed_revision, result_metadata)
+       SELECT $1, op, 'receipts', $3, $3, 0, 1, $4::jsonb FROM unnest($2::uuid[]) AS op`,
+      [f.grantId, ids, f.termsDigest, metadata]);
+    await seed(metadataForCharge(full), Array.from({ length: copies }, () => operation()));
+    await seed(metadataForCharge(budget - copies * full), [operation()]);
+    const before = (await db.query<{ bytes: string }>(
+      "SELECT sum(octet_length(result_metadata::text)) AS bytes FROM next_timer_operation_receipts WHERE grant_id = $1", [f.grantId])).rows[0];
+    expect(Number(before.bytes)).toBe(budget);
+    let mutated = false;
+    await expect(transaction(connection => recordTimerReconcile(connection, f.grantId, "receipts",
+      { ...f.input, expectedRevision: 1, desired: [] }, f.authority,
+      async current => { mutated = true; return reconcileTimers(connection, current, "receipts", f.input.criterionId, []); })))
+      .rejects.toMatchObject({ statusCode: 413 });
+    expect(mutated).toBe(false);
+    const state = await db.query("SELECT status, generation FROM next_timers WHERE grant_id = $1", [f.grantId]);
+    expect(state.rows).toHaveLength(3);
+    expect(state.rows.every(row => row.status === "scheduled" && Number(row.generation) === 1)).toBe(true);
     expect(await lookupTimerReceipt(db, f.grantId, "receipts", f.input.operationId, await f.authority())).toBeNull();
   });
 
@@ -353,6 +411,30 @@ suite("timer service on PostgreSQL", () => {
     } finally {
       await blocker.query("ROLLBACK"); blocker.release(); await f.app.close();
     }
+  });
+
+  it.each(["revocation", "suspension", "private"])('skips an import after %s during a real namespace lock wait', async kind => {
+    const f = await recoveryFixture();
+    const owner = (await db.query<{ user_id: string; local_id: string }>(
+      "SELECT g.user_id, c.local_id FROM grants g JOIN collections c ON c.id = g.collection_id WHERE g.id = $1", [f.grantId])).rows[0];
+    const blocker = await db.connect();
+    try {
+      await blocker.query("BEGIN");
+      await lockNamespace(blocker, f.grantId, "receipts");
+      const pending = importLegacyTimers(db, legacyTimerGrantResolver, [{ grant_id: f.grantId,
+        namespace: "receipts", id: "legacy", criterion_id: f.input.criterionId, fire_at: f.desired[0].fireAt.toISOString() }]);
+      await waitForMetadataLock();
+      if (kind === "revocation") await db.query("UPDATE grants SET revoked_at = clock_timestamp() WHERE id = $1", [f.grantId]);
+      else if (kind === "suspension") await db.query("UPDATE users SET suspended_at = clock_timestamp() WHERE id = $1", [owner.user_id]);
+      else await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','private',$3)",
+        [owner.local_id, owner.user_id, Buffer.alloc(16)]); // source-state fixture, not applied approval/genesis
+      await blocker.query("COMMIT");
+      expect(await pending).toEqual({ imported: 0, existing: 0, skipped: 1 });
+      const timers = await db.query("SELECT count(*) FROM next_timers WHERE grant_id = $1", [f.grantId]);
+      const revisions = await db.query("SELECT count(*) FROM next_timer_namespace_intents WHERE grant_id = $1", [f.grantId]);
+      expect(Number(timers.rows[0].count)).toBe(0);
+      expect(Number(revisions.rows[0].count)).toBe(0);
+    } finally { await blocker.query("ROLLBACK"); blocker.release(); }
   });
 
   it("fires each due generation exactly once across concurrent workers", async () => {
