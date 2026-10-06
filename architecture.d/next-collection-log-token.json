@@ -1,0 +1,9 @@
+{
+  "reason": "Synced daemon collections need to renew their device's role-0 log token. One feature module holds the route: connector auth, device proof in its own domain over the existing challenge table, and every currentness check plus the mint in one locked transaction, reusing LogServiceClient.mintToken. No new transport or credential store; app.ts mounts it with the next control plane.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 7,
+    "typeScriptExportDeclarations": 2,
+    "services/server": 1
+  }
+}
