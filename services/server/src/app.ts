@@ -24,6 +24,7 @@ import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
 import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
+import { registerAccountKeyRoutes } from "./features/next/account-keys.js";
 import { registerPrivateCollectionRoutes } from "./features/next/private-collections.js";
 import { registerNextHostedRoutes } from "./features/next/hosted-routes.js";
 import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
@@ -539,6 +540,10 @@ export async function buildApp(options: BuildOptions) {
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
     if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, tailscaleAuth: options.tailscaleAuth });
     if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog });
+    // AK1 account keys: private only, and only with a persistent per-account rate limit.
+    if (options.nextControlPlane.privateBootstrap && options.authRateLimitSecret) registerAccountKeyRoutes(app, {
+      db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, rateLimitSecret: options.authRateLimitSecret
+    });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
     registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
