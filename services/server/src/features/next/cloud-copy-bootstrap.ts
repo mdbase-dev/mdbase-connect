@@ -322,12 +322,19 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
         ENROLMENT, [collection, exactEnrolment(body.device_id, connector.user_id, device)]
       )).rows[0];
       const batch = await appendedBatch(collection, row);
+      // The joining device pins the collection's genesis before it trusts the log:
+      // the exact seq-1 bytes the log returns (candidate bytes; it verifies them).
+      const genesis = await appendedGenesis(collection);
       return await inTransaction(options.db, async (client) => {
         await currentIdentity(client, connector, body.device_id, device);
         await currentCloudCopy(client, collection, connector.user_id);
         await refuseRevoked(client, collection, body.device_id);
         // Hosted (or escrow) wraps the current epoch key to this device next.
-        return { collection_id: collection, enrolled_at: batch.seq, device: mint(body.device_id, device.sign_pk, collection) };
+        return {
+          collection_id: collection, enrolled_at: batch.seq, log_url: options.next.logService.url,
+          genesis: { seq: 1, item: genesis.item.toString("hex") },
+          device: mint(body.device_id, device.sign_pk, collection)
+        };
       });
     } catch (error) {
       if (error instanceof CreateError && error.status !== 503) return refuse(reply, error, "The cloud copy is not current for this device.");
