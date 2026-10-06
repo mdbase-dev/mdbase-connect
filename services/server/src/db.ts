@@ -59,6 +59,12 @@ export async function openDatabase(
       implementation: (value: string) => Buffer.byteLength(value, "utf8")
     });
     memory.public.registerFunction({
+      name: "clock_timestamp",
+      returns: DataType.timestamptz,
+      impure: true,
+      implementation: () => new Date()
+    });
+    memory.public.registerFunction({
       name: "gen_random_uuid",
       returns: DataType.uuid,
       impure: true,
@@ -74,6 +80,13 @@ export async function openDatabase(
     // pg-mem cannot execute this one PostgreSQL locking CTE. Recognize its
     // private marker and preserve equivalent single-process test semantics.
     memory.public.interceptQueries((sql) => {
+      if (sql.trimStart().startsWith("/* mdbase:timer-authority-current:v1 */")) {
+        // pg-mem accepts FOR SHARE but not its OF alias list. It cannot qualify
+        // locks/currentness; real PostgreSQL HTTP wait/revocation tests do that.
+        const aliases = /\s+FOR SHARE OF (?:tok, g, u|g, u)\s*;?$/u;
+        if (!aliases.test(sql)) throw new Error("Unexpected timer authority locking shape.");
+        return memory.public.many(sql.replace("/* mdbase:timer-authority-current:v1 */", "").replace(aliases, " FOR SHARE"));
+      }
       const marker = "/* mdbase:application-reconciliation-claim:v1 */";
       if (!sql.trimStart().startsWith(marker)) return null;
       const lockClause = /\s+FOR UPDATE SKIP LOCKED/g;

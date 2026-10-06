@@ -1,7 +1,12 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
+import Fastify from "fastify";
+import rawBody from "fastify-raw-body";
+import { AUTHORITY_PROOF_HEADERS, AUTHORITY_PROOF_VERSION, MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
+import { authorityProofMessage } from "../../../authority-proof.js";
+import { tokenHash } from "../../../security.js";
+import { registerTimerRoutes } from "./routes.js";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { createDatabase, type DatabasePool } from "../../../db.js";
 import { legacyTimerGrantResolver } from "./grants.js";
 import { desiredTimer, TimerError } from "./model.js";
@@ -32,6 +37,7 @@ suite("timer service on PostgreSQL", () => {
     admin = new pg.Pool({ connectionString: url.toString() });
     await admin.query(`CREATE SCHEMA "${schema}"`);
     url.searchParams.set("options", `-csearch_path=${schema}`);
+    url.searchParams.set("application_name", schema);
     db = await createDatabase(url.toString());
   }, 60_000);
 
@@ -236,6 +242,117 @@ suite("timer service on PostgreSQL", () => {
       async () => { mutated = true; throw new Error("Unexpected mutation."); }))).rejects.toMatchObject({ statusCode: 403 });
     expect(mutated).toBe(false);
     expect(await lookupTimerReceipt(db, f.grantId, "receipts", f.input.operationId, await f.authority())).toBeNull();
+  });
+
+  async function httpFixture() {
+    const f = await recoveryFixture();
+    await db.query("UPDATE grants SET operations = $2::jsonb WHERE id = $1", [f.grantId, JSON.stringify(["reconcile_timers", "cancel_timer", "list_timers", "put_timer"])]);
+    const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    const jwk = keys.publicKey.export({ format: "jwk" });
+    const publicKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x!, "base64url"), Buffer.from(jwk.y!, "base64url")]).toString("base64url");
+    const token = randomUUID();
+    await db.query("UPDATE grants SET proof_public_key = $2 WHERE id = $1", [f.grantId, publicKey]);
+    await db.query("INSERT INTO access_tokens (id, token_hash, grant_id, expires_at) VALUES ($1, $2, $3, $4)",
+      [randomUUID(), tokenHash(token), f.grantId, new Date(Date.now() + 600_000).toISOString()]);
+    const resolved = (await f.authority()).grant;
+    const collection = resolved.collectionIds[0];
+    const base = `/v1/next/collections/${collection}/timers/receipts`;
+    const app = Fastify();
+    await app.register(rawBody, { global: false, encoding: "utf8", runFirst: true });
+    let loseResponse = false, writes = 0;
+    app.addHook("onSend", async (request, reply, payload) => {
+      if (loseResponse && request.method === "POST" && request.url.endsWith("/reconcile")) {
+        loseResponse = false;
+        reply.raw.destroy(); // Handler has COMMITTED; the client receives no ACK.
+      }
+      return payload;
+    });
+    registerTimerRoutes(app, { db, onWrite: () => { writes++; } });
+    const origin = await app.listen({ host: "127.0.0.1", port: 0 });
+    const request = async (method: string, path: string, data?: unknown, signingBody?: string) => {
+      const body = data === undefined ? undefined : JSON.stringify(data);
+      const timestamp = Math.floor(Date.now() / 1_000), nonce = randomUUID();
+      const signature = sign("sha256", Buffer.from(authorityProofMessage({ method, target: path, body: signingBody ?? body,
+        credential: token, timestamp, nonce })), { key: keys.privateKey, dsaEncoding: "ieee-p1363" }).toString("base64url");
+      return fetch(origin + path, { method, body, headers: { authorization: `Bearer ${token}`,
+        ...(body === undefined ? {} : { "content-type": "application/json" }), [AUTHORITY_PROOF_HEADERS.version]: String(AUTHORITY_PROOF_VERSION),
+        [AUTHORITY_PROOF_HEADERS.timestamp]: String(timestamp), [AUTHORITY_PROOF_HEADERS.nonce]: nonce,
+        [AUTHORITY_PROOF_HEADERS.signature]: signature } });
+    };
+    const body = { criterion_id: "task.reminder", timers: [{ id: "original", fire_at: f.desired[0].fireAt.toISOString() }],
+      recovery: { protocol_version: 1, operation_id: f.input.operationId, expected_revision: 0 } };
+    return { ...f, app, origin, base, request, body, token, writes: () => writes, lose: () => { loseResponse = true; } };
+  }
+
+  it("recovers an actual lost HTTP response after COMMIT using authenticated read-only lookup", async () => {
+    const f = await httpFixture();
+    try {
+      f.lose();
+      await expect(f.request("POST", `${f.base}/reconcile`, f.body)).rejects.toThrow();
+      expect(f.writes()).toBe(1);
+      const cancelled = await f.request("DELETE", `${f.base}/original`);
+      expect(cancelled.status).toBe(200);
+      const beforeLookup = f.writes();
+      const recovered = await f.request("GET", `${f.base}/operations/${f.input.operationId}`);
+      expect(recovered.status).toBe(200);
+      expect(recovered.headers.get("cache-control")).toBe("no-store");
+      const answer = await recovered.json() as { outcome: string; receipt: { result: { timers: unknown[] } } };
+      expect(answer.outcome).toBe("committed");
+      expect(answer.receipt.result.timers[0]).toMatchObject({ id: "original", generation: 1, status: "scheduled" });
+      expect(f.writes()).toBe(beforeLookup); // No put/cancel/reconcile/worker wake.
+      const rows = await db.query("SELECT generation, status FROM next_timers WHERE grant_id = $1", [f.grantId]);
+      expect(rows.rows.map(row => ({ ...row, generation: Number(row.generation) }))).toEqual([{ generation: 1, status: "cancelled" }]);
+      const missing = await f.request("GET", `${f.base}/operations/${operation()}`);
+      expect(await missing.json()).toMatchObject({ outcome: "unknown" });
+      expect(f.writes()).toBe(beforeLookup);
+    } finally { await f.app.close(); }
+  });
+
+  it("requires the retained grant signing key and proof over exact original recovery body", async () => {
+    const f = await httpFixture();
+    try {
+      const path = `${f.base}/reconcile`;
+      const missing = await fetch(f.origin + path, { method: "POST", headers: { authorization: `Bearer ${f.token}`, "content-type": "application/json" }, body: JSON.stringify(f.body) });
+      expect(missing.status).toBe(401);
+      expect((await f.request("POST", path, f.body, "{}")).status).toBe(401);
+      expect(f.writes()).toBe(0);
+      const receipts = await db.query("SELECT count(*) FROM next_timer_operation_receipts WHERE grant_id = $1", [f.grantId]);
+      expect(Number(receipts.rows[0].count)).toBe(0);
+      expect((await f.request("POST", path, f.body)).status).toBe(200);
+      await db.query("UPDATE grants SET scope = '{\"contracts\":[],\"synthetic_changed_scope\":true}'::jsonb WHERE id = $1", [f.grantId]);
+      expect((await f.request("GET", `${f.base}/operations/${f.input.operationId}`)).status).toBe(409);
+    } finally { await f.app.close(); }
+  });
+
+  async function waitForMetadataLock(): Promise<void> {
+    for (let i = 0; i < 100; i++) {
+      const rows = await admin.query("SELECT count(*) FROM pg_stat_activity WHERE application_name = $1 AND wait_event = 'advisory'", [schema]);
+      if (Number(rows.rows[0].count) > 0) return;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    throw new Error("HTTP metadata request never waited on the owned PostgreSQL lock.");
+  }
+
+  it.each(["expiry", "revocation"])("denies %s that occurs while HTTP recovery waits on a real namespace lock", async kind => {
+    const f = await httpFixture();
+    const blocker = await db.connect();
+    try {
+      await blocker.query("BEGIN");
+      await lockNamespace(blocker, f.grantId, "receipts");
+      const pending = f.request("POST", `${f.base}/reconcile`, f.body);
+      await waitForMetadataLock();
+      if (kind === "expiry") await db.query("UPDATE access_tokens SET expires_at = clock_timestamp() - interval '1 second' WHERE token_hash = $1", [tokenHash(f.token)]);
+      else await db.query("UPDATE grants SET revoked_at = clock_timestamp() WHERE id = $1", [f.grantId]);
+      await blocker.query("COMMIT");
+      expect((await pending).status).toBe(401);
+      expect(f.writes()).toBe(0);
+      const receipts = await db.query("SELECT count(*) FROM next_timer_operation_receipts WHERE grant_id = $1", [f.grantId]);
+      expect(Number(receipts.rows[0].count)).toBe(0);
+      const timers = await db.query("SELECT count(*) FROM next_timers WHERE grant_id = $1", [f.grantId]);
+      expect(Number(timers.rows[0].count)).toBe(0);
+    } finally {
+      await blocker.query("ROLLBACK"); blocker.release(); await f.app.close();
+    }
   });
 
   it("fires each due generation exactly once across concurrent workers", async () => {

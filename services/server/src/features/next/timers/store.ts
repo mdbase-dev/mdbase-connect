@@ -192,8 +192,11 @@ export async function reconcileTimers(
   grant: TimerGrant,
   namespace: string,
   criterionId: string,
-  desired: DesiredTimer[]
+  desired: DesiredTimer[],
+  deadline = Infinity
 ): Promise<{ namespace: string; timers: TimerView[]; cancelled_ids: string[] }> {
+  const checkDeadline = () => { if (Date.now() >= deadline) throw new TimerError(503, "busy", "Timer metadata deadline exceeded."); };
+  checkDeadline();
   const ids = new Set<string>();
   for (const timer of desired) {
     if (ids.has(timer.id)) {
@@ -207,6 +210,7 @@ export async function reconcileTimers(
   await advanceTimerIntent(db, grant.grantId, namespace);
   const timers: TimerView[] = [];
   for (const timer of desired) {
+    checkDeadline();
     timers.push(await putTimerRow(db, grant, namespace, criterionId, timer));
   }
   const active = await db.query<{ timer_id: string }>(
@@ -217,6 +221,7 @@ export async function reconcileTimers(
   );
   const cancelled: string[] = [];
   for (const { timer_id } of active.rows) {
+    checkDeadline();
     if (ids.has(timer_id)) continue;
     await db.query(
       `UPDATE next_timers SET status = 'cancelled', updated_at = now()
