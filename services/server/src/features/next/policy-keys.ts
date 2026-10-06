@@ -32,6 +32,13 @@ export interface NextControlPlaneConfig {
   logService: LogServiceConfig;
   /** Bearer tokens of the hosted replica and escrow deployments, per kind; absent until deployed. */
   serviceTokens: { hosted?: string; escrow?: string };
+  /**
+   * Outbound: where the control plane asks each deployment to generate its service
+   * device when an owner creates a cloud copy. Set only by MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1;
+   * these tokens authenticate the control plane to the deployment and differ from the
+   * inbound `serviceTokens`.
+   */
+  cloudCopyBootstrap?: { hosted: { url: string; token: string }; escrow: { url: string; token: string } };
   labFixtures?: LabFixtureConfig;
 }
 
@@ -111,12 +118,30 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
   const hosted = serviceToken("MDBASE_NEXT_HOSTED_INTERNAL_TOKEN");
   const escrow = serviceToken("MDBASE_NEXT_ESCROW_INTERNAL_TOKEN");
   if (hosted && hosted === escrow) throw new Error("The hosted and escrow internal tokens must differ.");
+  const bootstrap = env.MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP?.trim() ?? "";
+  if (bootstrap !== "" && bootstrap !== "0" && bootstrap !== "1") throw new Error("MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP must be 0 or 1.");
+  let cloudCopyBootstrap: NextControlPlaneConfig["cloudCopyBootstrap"];
+  if (bootstrap === "1") {
+    const deployment = (kind: "HOSTED" | "ESCROW") => {
+      const url = env[`MDBASE_NEXT_${kind}_SERVICE_URL`]?.trim() ?? "";
+      const token = serviceToken(`MDBASE_NEXT_${kind}_SERVICE_TOKEN`);
+      if (!url || !token) throw new Error(`MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1 requires MDBASE_NEXT_${kind}_SERVICE_URL and MDBASE_NEXT_${kind}_SERVICE_TOKEN.`);
+      if (new URL(url).protocol !== "https:") throw new Error(`MDBASE_NEXT_${kind}_SERVICE_URL must use https.`);
+      return { url, token };
+    };
+    if (!hosted || !escrow) throw new Error("MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1 requires MDBASE_NEXT_HOSTED_INTERNAL_TOKEN and MDBASE_NEXT_ESCROW_INTERNAL_TOKEN.");
+    cloudCopyBootstrap = { hosted: deployment("HOSTED"), escrow: deployment("ESCROW") };
+    if (new Set([hosted, escrow, cloudCopyBootstrap.hosted.token, cloudCopyBootstrap.escrow.token]).size !== 4) {
+      throw new Error("Inbound and outbound service tokens must all differ.");
+    }
+  }
   return {
     rootPublicKey: hexBytes(root, 32, "MDBASE_NEXT_ROOT_PUBLIC_KEY"),
     policyPrivateKeyPem: pem,
     policyCert: parsedCert,
     logService: { url: logServiceUrl, tokenIssuerKeyPem, transportKeyPem },
     serviceTokens: { ...(hosted ? { hosted } : {}), ...(escrow ? { escrow } : {}) },
+    ...(cloudCopyBootstrap ? { cloudCopyBootstrap } : {}),
     ...(labFixtures ? { labFixtures } : {}),
   };
 }
