@@ -52,6 +52,8 @@ import { approveHostedAuthorization } from "./features/authorizations/hosted-app
 import { registerAuthorityAdoptionRoutes } from "./features/authority-adoption/routes.js";
 import { registerHostedToLocalTransferRoutes } from "./features/authority-transfer/hosted-to-local-routes.js";
 import { registerLocalToHostedTransferRoutes } from "./features/authority-transfer/local-to-hosted-routes.js";
+import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
+import { AuthorityTransferRecoveryWorker } from "./features/authority-transfer/recovery-worker.js";
 import { registerLocalFileRoutes } from "./features/files/local-routes.js";
 import { registerAuthorityConflictRoutes } from "./features/connectors/authority-conflict-routes.js";
 import { registerBetaAccessRoutes } from "./features/beta-access/routes.js";
@@ -202,6 +204,12 @@ export async function buildApp(options: BuildOptions) {
   const hostedReference = options.hostedReferenceAuthority
     ? new HostedAuthorityRegistry(options.db)
     : undefined;
+  const authorityTransferRecovery = options.hostedCollections
+    ? new AuthorityTransferRecoveryWorker(
+        () => recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference),
+        () => app.log.error("authority transfer recovery failed; retrying on next pass")
+      )
+    : undefined;
   const applicationReconciliation = new ApplicationReconciliationWorker(
     options.db,
     relay,
@@ -285,6 +293,7 @@ export async function buildApp(options: BuildOptions) {
     await usageRetention.close();
     await applicationReconciliation.close();
     await providerRevocations?.close();
+    await authorityTransferRecovery?.close();
     await nextPolicyEmitter?.close();
     await timers?.close();
     await notifications?.close();
@@ -301,6 +310,7 @@ export async function buildApp(options: BuildOptions) {
   applicationReconciliation.start();
   nextPolicyEmitter?.start();
   providerRevocations?.start();
+  authorityTransferRecovery?.start();
 
   app.addHook("onRequest", async (request, reply) => {
     if (

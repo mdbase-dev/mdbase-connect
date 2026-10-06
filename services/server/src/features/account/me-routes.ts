@@ -16,7 +16,6 @@ import type { RelayHub } from "../../relay.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
 import { requireUser } from "../../platform/request-authentication.js";
 import { sqlPlaceholders } from "../../platform/sql.js";
-import { recoverExpiredAuthorityTransfers } from "../authority-transfer/lifecycle.js";
 import { liveAuthorizationCollections } from "../authorizations/local-collections.js";
 import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { requiresHostedCollection } from "../grants/policy.js";
@@ -59,13 +58,6 @@ export function registerAccountOverviewRoute(
       options.tailscaleAuth
     );
     if (!authenticated) return;
-    if (options.hostedCollections) {
-      await recoverExpiredAuthorityTransfers(
-        options.db,
-        options.hostedProvider,
-        options.hostedReference
-      );
-    }
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
     const connectors = await options.db.query<AccountConnectorRow>(
       `SELECT c.id, c.name, c.last_seen_at, c.created_at,
