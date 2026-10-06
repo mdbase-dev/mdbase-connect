@@ -147,22 +147,42 @@ describe("fixed retained app timer HTTP port", () => {
     await expect(f.port.unregisterFcm({})).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
     expect(fetch).toHaveBeenCalledTimes(1); // No fake remote-delete success.
   });
-  it("never borrows an old channel ACK after an uncertain new installation", async () => {
+  it("requires acknowledged unregistration before another installation and fences uncertain replacements", async () => {
     const f = fixture();
     vi.spyOn(f.client["internals"], "register").mockResolvedValue({ notifications: {
       criteria: [{ id: "test.fire" }], native_delivery: { mode: "managed_fcm" }
     } } as unknown as Application);
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ channel_id: CHANNEL }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockRejectedValueOnce(new TypeError("response lost after new channel admitted"));
     await f.port.registerFcm({ token: "old-synthetic", installationId: "old-install" });
+    for (const installationId of ["new-install", "third-install"]) {
+      await expect(f.port.registerFcm({ token: "replacement-synthetic", installationId })).rejects.toMatchObject({ problem: { operation_outcome: "not_sent" } });
+    }
+    expect(fetch).toHaveBeenCalledTimes(1); // OLD acknowledgement cannot be overwritten.
+    await f.port.unregisterFcm({});
+    expect(fetch.mock.calls[1]![0]).toBe(`${SERVER}/v1/notifications/channels/${CHANNEL}`);
     await expect(f.port.registerFcm({ token: "new-synthetic", installationId: "new-install" })).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
     await expect(f.port.unregisterFcm({})).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
     await expect(f.port.registerFcm({ token: "third-synthetic", installationId: "third-install" })).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
-    expect(fetch).toHaveBeenCalledTimes(2); // No DELETE of OLD, no hidden replacement/retry.
+    expect(fetch).toHaveBeenCalledTimes(3); // No old-target DELETE, no unknown retry.
     const stored = Array.from({ length: f.storage.length }, (_, i) => f.storage.getItem(f.storage.key(i)!)).join(" ");
-    expect(stored).toContain("new-install"); expect(stored).toContain("old-install"); expect(stored).toContain(CHANNEL);
+    expect(stored).toContain("new-install"); expect(stored).not.toContain("old-install");
     for (const credential of ["old-synthetic", "new-synthetic", "third-synthetic"]) expect(stored).not.toContain(credential);
     expect(stored).not.toContain("third-install");
+  });
+  it("does not erase a previous experimental multi-target acknowledgement", async () => {
+    const f = fixture();
+    vi.spyOn(f.client["internals"], "register").mockResolvedValue({ notifications: {
+      criteria: [{ id: "test.fire" }], native_delivery: { mode: "managed_fcm" }
+    } } as unknown as Application);
+    const key = `${f.client["internals"].notificationKey(COLLECTION, "fcm")}:control-timers`;
+    const retained = JSON.stringify({ grantId: GRANT, channelId: CHANNEL, installationId: "current",
+      previousTarget: { channelId: "0192f3a4-6000-7abc-8def-0123456789b0", installationId: "previous" } });
+    f.storage.setItem(key, retained); const fetch = vi.spyOn(globalThis, "fetch");
+    await expect(f.port.unregisterFcm({})).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    await expect(f.port.registerFcm({ token: "synthetic", installationId: "current" })).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    expect(fetch).not.toHaveBeenCalled(); expect(f.storage.getItem(key)).toBe(retained);
   });
   it("registers FCM on the existing fixed channel route with declared metadata", async () => {
     const f = fixture();

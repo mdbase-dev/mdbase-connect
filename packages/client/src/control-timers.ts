@@ -138,11 +138,16 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
       if (native && application.notifications?.native_delivery?.mode !== "managed_fcm") throw fail();
       const storageKey = `${internals.notificationKey(initial.collectionId, native ? "fcm" : "web_push")}:control-timers`;
       const previous = internals.storage.getItem(storageKey);
-      const saved = previous ? JSON.parse(previous) as TimerChannelRegistration & { grantId?: string } : null;
+      const saved = previous ? JSON.parse(previous) as TimerChannelRegistration & { grantId?: string; previousTarget?: unknown } : null;
       const installationId = options.installationId ?? (saved && saved.grantId === initial.grantId ? saved.installationId : undefined) ?? randomBase64Url(24);
       if (typeof installationId !== "string" || !/^[A-Za-z0-9._:-]{1,200}$/u.test(installationId)) throw fail();
-      if (saved && saved.grantId === initial.grantId && !saved.channelId) {
-        throw connectError("operation_failed", "Channel registration requires reconciliation before replacement.", { operationOutcome: "unknown" });
+      if (saved && saved.grantId === initial.grantId) {
+        if (!saved.channelId || saved.previousTarget !== undefined) {
+          throw connectError("operation_failed", "Channel registration requires reconciliation before replacement.", { operationOutcome: "unknown" });
+        }
+        if (saved.installationId !== installationId) {
+          throw connectError("operation_failed", "Unregister the acknowledged installation before replacing it.", { operationOutcome: "not_sent" });
+        }
       }
       let data: unknown;
       if (native) {
@@ -165,21 +170,17 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
         if (!sub.endpoint || !sub.keys?.p256dh || !sub.keys.auth) throw fail();
         data = { installation_id: installationId, criteria, subscription: { endpoint: sub.endpoint, expirationTime: sub.expirationTime ?? null, keys: sub.keys } };
       }
-      // Retain the original uncertain installation, never an ACK from a different
-      // target. Preserve the previous opaque target for explicit cleanup, not replay.
+      // Persist only this target. A different acknowledged installation must
+      // first be explicitly unregistered; uncertain targets cannot be replaced.
       check();
-      const sameTarget = saved && saved.grantId === initial.grantId && saved.installationId === installationId;
-      const previousTarget = saved && saved.grantId === initial.grantId && !sameTarget && saved.channelId
-        ? { channelId: saved.channelId, installationId: saved.installationId } : undefined;
       internals.storage.setItem(storageKey, JSON.stringify({
         installationId, grantId: initial.grantId,
-        ...(sameTarget && saved.channelId ? { channelId: saved.channelId } : {}),
-        ...(previousTarget ? { previousTarget } : {})
+        ...(saved && saved.grantId === initial.grantId && saved.installationId === installationId && saved.channelId ? { channelId: saved.channelId } : {})
       }));
       const result = await request("/v1/notifications/channels", "POST", data) as { channel_id?: string };
       if (typeof result.channel_id !== "string" || !UUID.test(result.channel_id)) throw fail();
       check(); const registration = { channelId: result.channel_id, installationId, criteria };
-      internals.storage.setItem(storageKey, JSON.stringify({ ...registration, grantId: initial.grantId, ...(previousTarget ? { previousTarget } : {}) }));
+      internals.storage.setItem(storageKey, JSON.stringify({ ...registration, grantId: initial.grantId }));
       return registration;
     });
   const unregister = async (native: boolean, worker: ServiceWorkerRegistration | undefined, options: ConnectRequestOptions) =>
@@ -187,9 +188,9 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
       const key = `${internals.notificationKey(initial.collectionId, native ? "fcm" : "web_push")}:control-timers`;
       const saved = internals.storage.getItem(key);
       if (saved) {
-        const r = JSON.parse(saved) as TimerChannelRegistration & { grantId?: string };
+        const r = JSON.parse(saved) as TimerChannelRegistration & { grantId?: string; previousTarget?: unknown };
         if (r.grantId !== initial.grantId) throw fail();
-        if (!r.channelId) {
+        if (!r.channelId || r.previousTarget !== undefined) {
           // An uncertain registration is not proof that no remote channel exists.
           throw connectError("operation_failed", "Channel registration requires reconciliation before removal.", { operationOutcome: "unknown" });
         }
