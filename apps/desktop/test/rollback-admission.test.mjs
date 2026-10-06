@@ -41,6 +41,7 @@ async function fixture(t, failTarget = true) {
       platform: "darwin", arch: "arm64", userDataDirectory: directory,
       binaryPath: () => binary, stateDirectory: () => directory,
       target: () => "installed_service", endpoint: () => join(directory, "control.sock") });
+    result.takeoverState = async () => ({ state: "none", claimedFolders: [] });
     // Only the native process boundary is simulated. Recovery, reconciliation,
     // persisted state, version checks and gate admission are production code.
     result.runCli = async (file, command) => {
@@ -81,6 +82,28 @@ async function fixture(t, failTarget = true) {
   }
   return { store, path, transaction, previous, binary, process, commands, backend, gate };
 }
+
+for (const arrival of ["before-status", "after-status", "after-stop"]) {
+  test(`runtime activation rechecks takeover ${arrival} and never installs`, async t => {
+    const f = await fixture(t, false);
+    f.process.running = true;
+    const backend = f.backend();
+    let reads = 0;
+    const after = { "before-status": 0, "after-status": 1, "after-stop": 2 }[arrival];
+    backend.takeoverState = async () => ({ state: reads++ >= after ? "started" : "none", claimedFolders: [] });
+    await assert.rejects(backend.activateRuntime(f.binary, currentVersion), /stays stopped/);
+    assert.equal(f.commands.some(([, command]) => command === "install"), false);
+    assert.equal(f.commands.some(([, command]) => command === "stop"), arrival === "after-stop");
+  });
+}
+
+test("takeover read failures block runtime activation before native lifecycle work", async t => {
+  const f = await fixture(t, false);
+  const backend = f.backend();
+  backend.takeoverState = async () => { throw new Error("Untrusted takeover record"); };
+  await assert.rejects(backend.activateRuntime(f.binary, currentVersion), /Untrusted takeover/);
+  assert.deepEqual(f.commands, []);
+});
 
 for (const rollback of [false, true]) {
   test(`verified ${rollback ? "rollback" : "target"} admits ordinary IPC and survives fresh startup`, async t => {
