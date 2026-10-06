@@ -85,6 +85,7 @@ mod encrypted_requests;
 mod file_transfers;
 mod files;
 mod grants;
+mod grants_authority;
 mod identity;
 mod migrations;
 mod mutation_journal;
@@ -103,9 +104,8 @@ use authority_store::{AuthorityStore, AuthorityWritePriority};
 pub use encrypted_requests::{
     encrypted_request_fingerprint, EncryptedReplayClass, EncryptedRequestClaim,
 };
-pub use grants::{
-    canonical_policy_authority_digest, RemotePolicyAuthority, RemotePolicyAuthorityMode,
-};
+pub use grants::{RemotePolicyAuthority, RemotePolicyAuthorityMode};
+pub use grants_authority::canonical_policy_authority_digest;
 use identity::{
     assert_local_authority_folder, claimed_by_newer_runtime, clear_collection_identity,
     collection_display_name, ensure_collection_id, normalized_optional, read_collection_id,

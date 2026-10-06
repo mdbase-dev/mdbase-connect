@@ -77,11 +77,13 @@ export function registerLocalOperationRoutes(
         connector_id: string;
         local_id: string;
         encryption: GrantEncryption | null;
+        next_noise: unknown;
+        account_backend: unknown;
         contracts: ConnectContractRequirements;
       }>(
         `SELECT g.id AS grant_id, g.user_id, g.application_id,
                 g.application_installation_id, g.collection_id, g.operations,
-                g.encryption,
+                g.encryption, g.next_noise, u.account_backend,
                 g.application_authorization->'binding'->'contracts' AS contracts,
                 col.connector_id, col.local_id
          FROM access_tokens tok
@@ -109,6 +111,9 @@ export function registerLocalOperationRoutes(
           "Access token is invalid or expired."
         ));
       }
+      if (grant.next_noise !== null || grant.account_backend !== "legacy") {
+        return reply.code(426).send(apiError("noise_transport_required", "This grant requires its authenticated Noise transport."));
+      }
       if (!grant.operations.includes(params.operation)) {
         return reply.code(403).send(insufficientAccessError(
           [params.operation],
@@ -131,7 +136,7 @@ export function registerLocalOperationRoutes(
               "This grant requires grant encryption profile 1."
             ));
           }
-          let routedGrant = grant;
+          let routedGrant: LocalGrant = grant;
           if (!matchesGrantEncryption(
             envelope,
             { ...grant, encryption: grant.encryption },

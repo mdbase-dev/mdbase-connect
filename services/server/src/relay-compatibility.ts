@@ -352,3 +352,39 @@ function parseConnectorVersion(value: string): {
     prerelease: match[4]?.split(".") ?? []
   };
 }
+
+/**
+ * Bumps the connector's relay generation for an accepted handshake and records the
+ * negotiated policy mode. Returns no row when the connector is revoked, its user is
+ * suspended, or a legacy_ack_v0 connector tries to regress a negotiated lease.
+ */
+export async function negotiateRelayGeneration(
+  db: DatabaseQueryable, connectorId: string, hello: RelayHello, mode: "lease_v1" | "legacy_ack_v0"
+): Promise<{ relay_generation: string | number } | undefined> {
+    const updated = await db.query<{ relay_generation: string | number }>(
+    `UPDATE connectors
+     SET last_seen_at = now(), relay_generation = relay_generation + 1,
+         connector_version = $2,
+         policy_lease_negotiated_at = CASE
+           WHEN $3 = 'lease_v1'
+             THEN COALESCE(policy_lease_negotiated_at, now())
+           ELSE policy_lease_negotiated_at END,
+         latest_policy_mode = $3,
+         latest_policy_mode_at = now(),
+         last_incompatible_at = NULL,
+         incompatibility_code = NULL,
+         minimum_connector_version = CASE WHEN $3 = 'legacy_ack_v0' THEN $4 ELSE NULL END,
+         connector_update_url = CASE WHEN $3 = 'legacy_ack_v0' THEN $5 ELSE NULL END
+     WHERE id = $1 AND revoked_at IS NULL
+       AND ($3 = 'lease_v1' OR (
+         policy_lease_negotiated_at IS NULL
+         AND policy_lease_adopted_at IS NULL
+       ))
+       AND user_id IN (SELECT id FROM users WHERE suspended_at IS NULL)
+     RETURNING relay_generation`,
+    [connectorId, hello.connector_version, mode,
+      POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION, CONNECTOR_UPDATE_URL]
+  );
+  const row = updated.rows[0];
+  return updated.rows[0];
+}

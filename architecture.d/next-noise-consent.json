@@ -1,0 +1,11 @@
+{
+  "reason": "Persisted five-field Noise consent replaces reconstruction from current registration or absent legacy encryption. One server helper (consent-transport) validates the original account/device/collection binding, reused by approval, token issuance and relay projection. The relay's Noise device selection, lease pinning and activation gate live in relay-noise-consent, and the connector-generation handshake UPDATE moved to relay-compatibility, keeping relay.ts under its line budget. Native account metadata is stored unchanged for policy-digest reconstruction; the existing canonical digest function moves to one small module to keep the grant store below its file cap. Public signatures are unchanged; the additional Rust declaration is a re-export, not a new authority API. Legacy consent remains explicit and native NEXT activation still requires its separate validated consumer.",
+  "growth": {
+    "productionFiles": 3,
+    "relativeImports": 17,
+    "rustPublicDeclarations": 1,
+    "typeScriptExportDeclarations": 9,
+    "crates/connect-core": 1,
+    "services/server": 2
+  }
+}

@@ -534,6 +534,9 @@ describe("database migrations", () => {
       CREATE TABLE grants (
         id uuid PRIMARY KEY,
         user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        collection_id uuid,
+        hosted_collection_id uuid,
+        encryption jsonb,
         hosted_replica_id uuid
       );
       CREATE TABLE audit_events (

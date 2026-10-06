@@ -9,6 +9,9 @@ pub(super) fn parse_application_scope(encoded: &str) -> Result<GrantScope, Conne
 pub(super) fn validate_grant_application_authorization(
     grant: &GrantPolicy,
 ) -> Result<(), ConnectError> {
+    if grant.account_id.is_some_and(|account| account.is_nil()) {
+        return Err(invalid_grant_security("consenting account must not be nil"));
+    }
     if grant.scope.access != mdbase_connect_protocol::ApplicationAccess::FullCollection
         || !grant.scope.contracts.is_empty()
     {

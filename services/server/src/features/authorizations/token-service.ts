@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type {
   FileCapability,
   GrantEncryption,
-  GrantScope
+  GrantScope,
+  NextNoiseAuthorization
 } from "@mdbase-dev/connect-protocol";
 import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
@@ -20,6 +21,7 @@ import type { HostedProviderClient } from "../../hosted-provider.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { authorityUrl } from "../../platform/authority-url.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
+import { currentNextNoiseAuthorization } from "../next/consent-transport.js";
 import { normalizedApplicationOrigin } from "./redirects.js";
 
 export async function issueApplicationTokens(
@@ -38,6 +40,7 @@ export async function issueApplicationTokens(
   scope: GrantScope;
   grant_id: string;
   encryption: GrantEncryption | null;
+  next_noise?: NextNoiseAuthorization;
   file_capability: FileCapability | null;
   application_origin: string;
   authority?: {
@@ -60,6 +63,8 @@ export async function issueApplicationTokens(
     operations: string[];
     scope: GrantScope;
     encryption: GrantEncryption | null;
+    next_noise: unknown;
+    account_backend: unknown;
     file_capability: FileCapability | null;
     proof_public_key: string | null;
     application_origin: string;
@@ -77,6 +82,7 @@ export async function issueApplicationTokens(
             COALESCE(col.display_name, hosted.display_name) AS collection_name,
             g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
             g.operations, g.scope, g.encryption, g.file_capability,
+            g.next_noise, u.account_backend,
             g.proof_public_key, g.membership_id, g.membership_policy_id,
             g.membership_policy_revision,
             replica.membership_id AS replica_membership_id,
@@ -126,6 +132,16 @@ export async function issueApplicationTokens(
       ),
       "application.authorize"
     );
+  }
+  let nextNoise: NextNoiseAuthorization | undefined;
+  const current = grant.rows[0];
+  if (current.next_noise !== null) {
+    if (current.encryption || current.hosted_collection_id || !current.local_authority_row_id) {
+      throw new RequestValidationError("The Noise device authorization is no longer current.");
+    }
+    nextNoise = await currentNextNoiseAuthorization(db, current.next_noise, current.user_id, current.collection_id);
+  } else if (current.account_backend !== "legacy") {
+    throw new RequestValidationError("This grant must be explicitly reauthorized for the account backend.");
   }
   const accessToken = randomToken("mdb");
   const refreshToken = randomToken("ref");
@@ -188,6 +204,7 @@ export async function issueApplicationTokens(
     scope: grant.rows[0].scope,
     grant_id: grantId,
     encryption: grant.rows[0].encryption,
+    ...(nextNoise ? { next_noise: nextNoise } : {}),
     file_capability: grant.rows[0].file_capability,
     application_origin: normalizedApplicationOrigin(grant.rows[0].application_origin),
     ...(authority ? { authority } : {})

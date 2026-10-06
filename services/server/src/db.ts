@@ -52,6 +52,15 @@ export async function openDatabase(
       returns: DataType.integer,
       implementation: (value: Uint8Array) => value.length
     });
+    // Scalar schema function only; real PostgreSQL tests qualify the CHECK.
+    // pg-mem does not distinguish SQL NULL from JSON null for this argument.
+    memory.public.registerFunction({
+      name: "jsonb_typeof",
+      args: [DataType.jsonb],
+      returns: DataType.text,
+      implementation: (value: unknown) => value === null ? "null"
+        : Array.isArray(value) ? "array" : typeof value
+    });
     memory.public.registerFunction({
       name: "octet_length",
       args: [DataType.text],

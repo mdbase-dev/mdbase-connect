@@ -10,7 +10,7 @@ import {
   CONNECT_CONTRACT_SUPPORT, CONTROL_PROTOCOL_VERSION,
   isConnectProblem, normalizeConnectProblem,
   OPERATION_TRANSPORT_PROTOCOL_VERSION, POLICY_FRESHNESS_LEASE_CAPABILITY,
-  POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION, PROTOCOL_USAGE_REPORT_CAPABILITY,
+  PROTOCOL_USAGE_REPORT_CAPABILITY,
   RELAY_CAPABILITIES, APPLICATION_DECLARATION_EVIDENCE_CAPABILITY
 } from "@mdbase-dev/connect-protocol";
 import type { NextRelayDevices } from "./features/next/devices.js";
@@ -22,6 +22,7 @@ import {
 } from "./relay-broker.js";
 import { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 import { RelayFileBridge } from "./relay-file.js";
+import { noiseActivationReply, noisePushAuthority, selectNoiseConsentDevice } from "./relay-noise-consent.js";
 import { observeConnectorPolicyStage, reportConnectorRelayClose, resolvePolicyAppliedAck, type PolicyMode } from "./relay-policy.js";
 import {
   ExactPolicyPublisher, handlePolicyPushCommand, RelayPolicySession,
@@ -30,7 +31,7 @@ import {
 import type { WebSocket } from "ws";
 import { recordConnectorProtocolUsage } from "./protocol-telemetry.js";
 import {
-  CONNECTOR_UPDATE_URL, currentRelayGeneration, lockAuthorizationGeneration,
+  currentRelayGeneration, lockAuthorizationGeneration, negotiateRelayGeneration,
   receiveRelayHello, recordIncompatibleRelay, rejectIncompatibleRelay, rejectUnavailableRelay,
   relayCapabilityMismatch, relayContractMismatch, relaySupportsContracts, relayAuthorizationAuthority, nextAccountNegotiated, type RelayHello
 } from "./relay-compatibility.js";
@@ -127,31 +128,7 @@ export class RelayHub {
     const mode: PolicyMode = hello.capabilities.includes(POLICY_FRESHNESS_LEASE_CAPABILITY)
       ? "lease_v1"
       : "legacy_ack_v0";
-    const updated = await this.db.query<{ relay_generation: string | number }>(
-      `UPDATE connectors
-       SET last_seen_at = now(), relay_generation = relay_generation + 1,
-           connector_version = $2,
-           policy_lease_negotiated_at = CASE
-             WHEN $3 = 'lease_v1'
-               THEN COALESCE(policy_lease_negotiated_at, now())
-             ELSE policy_lease_negotiated_at END,
-           latest_policy_mode = $3,
-           latest_policy_mode_at = now(),
-           last_incompatible_at = NULL,
-           incompatibility_code = NULL,
-           minimum_connector_version = CASE WHEN $3 = 'legacy_ack_v0' THEN $4 ELSE NULL END,
-           connector_update_url = CASE WHEN $3 = 'legacy_ack_v0' THEN $5 ELSE NULL END
-       WHERE id = $1 AND revoked_at IS NULL
-         AND ($3 = 'lease_v1' OR (
-           policy_lease_negotiated_at IS NULL
-           AND policy_lease_adopted_at IS NULL
-         ))
-         AND user_id IN (SELECT id FROM users WHERE suspended_at IS NULL)
-       RETURNING relay_generation`,
-      [connectorId, hello.connector_version, mode,
-        POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION, CONNECTOR_UPDATE_URL]
-    );
-    const row = updated.rows[0];
+    const row = await negotiateRelayGeneration(this.db, connectorId, hello, mode);
     if (!row) {
       await rejectUnavailableRelay(
         this.db, connectorId, socket, hello, mode === "legacy_ack_v0",
@@ -190,21 +167,24 @@ export class RelayHub {
           && session.generation === identity.generation
           && session.socket === identity.socket
           && identity.socket.readyState === 1,
-        push: (identity, isStillCurrent, initial) =>
-          (mode === "lease_v1" ? this.leasePolicyPublisher : this.legacyPolicyPublisher).push(
+        push: (identity, isStillCurrent, initial) => {
+          const noise = noisePushAuthority(hello.capabilities, this.nextDevices, identity.socket, isStillCurrent);
+          return (mode === "lease_v1" ? this.leasePolicyPublisher : this.legacyPolicyPublisher).push(
             {
-              connectorId: identity.connectorId, generation: identity.generation, isStillCurrent,
+              connectorId: identity.connectorId, generation: identity.generation, isStillCurrent: noise.isStillCurrent,
               declarationEvidence: hello.capabilities.includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY)
                 && hello.contract_support.semantic_capabilities.includes(2),
               nextDevice: this.nextDevices?.negotiated(hello.capabilities) ?? false,
-              nextAccount: nextAccountNegotiated(hello.capabilities)
+              nextAccount: nextAccountNegotiated(hello.capabilities),
+              noiseDevice: noise.noiseDevice
             },
             (message) => this.sendToConnector(
               identity.socket, identity.connectorId, undefined, message.request_id,
               message, undefined, "policy_applied", message.revision, identity.generation,
               mode, initial
             )
-          ),
+          );
+        },
         renewalFailed: () => {
           // Payload-free: connector identities and provider errors are not log data.
           console.warn("connector policy renewal failed", { class: "delivery_unavailable" });
@@ -538,6 +518,11 @@ export class RelayHub {
     return relayAuthorizationAuthority(this.closed ? undefined : this.connectors.get(connectorId), required);
   }
 
+  /** Exact local owner mode; absent legacy encryption is never mode authority. */
+  nextNoiseConsentDevice(connectorId: string, generation: string): string | undefined {
+    return selectNoiseConsentDevice(this.closed ? undefined : this.connectors.get(connectorId), this.nextDevices, generation);
+  }
+
   async assertAuthorizationAuthority(
     connectorId: string, generation: string, required: ConnectContractRequirements,
     transaction?: DatabaseQueryable
@@ -783,7 +768,8 @@ export class RelayHub {
     if (upgradeError) return upgradeError;
     const activation = command.message as { type?: string; grant?: GrantPolicy } | null;
     if (activation?.type === "authorization_activation_request") {
-      const projected = await projectActivationGrant(this.db, connectorId, command, session);
+      const projected = await projectActivationGrant(this.db, connectorId, command,
+        { ...session, nextDeviceId: this.nextDevices?.boundDevice(session.socket) });
       if (!projected.ok) return projected.reply;
       command = projected.command;
       if (await this.currentGeneration(connectorId) !== generation
@@ -791,6 +777,9 @@ export class RelayHub {
           || !session.ready || session.policy.isStopped) {
         return brokerError("unavailable", "connector_offline", "The computer hosting this collection is offline.");
       }
+      const refused = noiseActivationReply((command.message as { grant: GrantPolicy }).grant,
+        () => this.nextNoiseConsentDevice(connectorId, generation));
+      if (refused) return refused;
     }
     const requestId = requestIdFromMessage(command.message);
     if (!requestId) {
