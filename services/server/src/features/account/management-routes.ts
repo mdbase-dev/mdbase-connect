@@ -29,6 +29,7 @@ import {
 } from "../../platform/request-authentication.js";
 import { requireSameOrigin } from "../../platform/request-security.js";
 import { clearSessionCookies } from "../../platform/session-cookies.js";
+import { readAccountBackend, registerAccountBackendRoute } from "./backend-routes.js";
 
 interface AccountManagementRoutesOptions {
   db: DatabasePool;
@@ -68,6 +69,7 @@ export function registerAccountManagementRoutes(
     options.authenticationPolicy
   );
 
+  registerAccountBackendRoute(app, options.db);
   app.get("/v1/account", async (request, reply) => {
     reply.header("cache-control", "no-store");
     const user = await requireUser(
@@ -130,7 +132,9 @@ export function registerAccountManagementRoutes(
       options.tailscaleAuth ? "tailscale" : "session"
     );
     const methodCount = methods.external + Number(methods.password);
+    const backend = await readAccountBackend(options.db, user.id);
     return {
+      backend,
       user: {
         id: user.id,
         name: user.name,

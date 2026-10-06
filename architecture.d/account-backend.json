@@ -1,0 +1,9 @@
+{
+  "reason": "A minimal grant-authenticated account backend reader is a separate metadata boundary from the session-only account management response. It reuses the existing authority request proof verifier and exposes only a route registrar and the reader shared by the portal; no new crypto, app setter, transport fallback or data operation is added.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 6,
+    "typeScriptExportDeclarations": 2,
+    "services/server": 1
+  }
+}
