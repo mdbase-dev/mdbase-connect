@@ -55,6 +55,9 @@ pub enum ControlCommand {
     /// Additive local-only v1 administration command; never an application operation.
     #[serde(rename = "collections.recover-writes-v1")]
     CollectionRecoverWrites(CollectionRecoverWritesParams),
+    /// Bridge-only local administration; queries rollout using the connector credential.
+    #[serde(rename = "next.rollout")]
+    NextRollout,
     #[serde(rename = "access.snapshot")]
     AccessSnapshot,
     #[serde(rename = "access.pause")]
