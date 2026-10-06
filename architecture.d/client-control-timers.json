@@ -1,0 +1,9 @@
+{
+  "reason": "Optional /timers entry supplies only the existing fixed control-plane timer and specific WebPush/FCM operations for a retained app consent. It keeps credentials and leases private, bounds metadata, preserves uncertain writes and has no classic root import or data-transport fallback.",
+  "growth": {
+    "productionFiles": 1,
+    "typeScriptExportDeclarations": 5,
+    "relativeImports": 5,
+    "packages/client": 1
+  }
+}
