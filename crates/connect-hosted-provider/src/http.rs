@@ -1,3 +1,8 @@
+mod authority_expiry;
+use authority_expiry::{
+    expire_authority_import, expire_authority_transfer, reconcile_authority_import_cancellation,
+};
+
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, OriginalUri, Path, Query, Request, State},
@@ -242,6 +247,14 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/internal/v1/authority-transfers/{transfer_id}",
             post(complete_authority_transfer).delete(abort_authority_transfer),
+        )
+        .route(
+            "/internal/v1/authority-transfers/{transfer_id}/expire",
+            post(expire_authority_transfer),
+        )
+        .route(
+            "/internal/v1/authority-imports/{import_id}/expire",
+            post(expire_authority_import),
         )
         .route(
             "/internal/v1/authority-imports",
@@ -547,32 +560,6 @@ async fn complete_authority_import(
     Ok(Json(serde_json::to_value(import).map_err(|error| {
         ApiError::internal(format!("Authority import could not serialize: {error}"))
     })?))
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReconcileAuthorityImportCancellation {
-    collection_id: Uuid,
-    authority_epoch: u64,
-}
-
-async fn reconcile_authority_import_cancellation(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<Uuid>,
-    Json(input): Json<ReconcileAuthorityImportCancellation>,
-) -> ApiResult<Json<Value>> {
-    state.authorize_internal(&headers)?;
-    state
-        .provider
-        .reconcile_authority_import_cancellation(id, input.collection_id, input.authority_epoch)
-        .await?;
-    Ok(Json(json!({
-        "transfer_id": id,
-        "collection_id": input.collection_id,
-        "authority_epoch": input.authority_epoch,
-        "cancelled": true
-    })))
 }
 
 async fn abort_authority_import(

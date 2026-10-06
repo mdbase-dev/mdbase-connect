@@ -117,6 +117,7 @@ fn stat_round_trips_over_encrypted_relay_and_revocation_denies_metadata() {
     );
     registry
         .replace_grants(&[GrantPolicy {
+            account_id: None,
             application_declaration: None,
             id: grant.id,
             application_id: grant.application_id,

@@ -5,6 +5,7 @@ import {
   randomUUID,
   sign
 } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import type {
   CollectionOperation,
   LegacyMdbaseAppManifest,
@@ -61,7 +62,57 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
+// Derive browser request verbs from SDK route implementations and transport method
+// contracts, including prepared uploads whose method is forwarded rather than literal
+// at fetch(). Do not maintain a second fixed list that misses a new SDK verb.
+function browserSdkMethods(): string[] {
+  const methods = new Set<string>();
+  function directory(url: URL): void {
+    for (const entry of readdirSync(url, { withFileTypes: true })) {
+      const path = new URL(entry.name, url);
+      if (entry.isDirectory()) directory(new URL(`${entry.name}/`, url));
+      else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+        const source = readFileSync(path, "utf8");
+        // Literal request fields and named method type unions are the SDK's
+        // HTTP route/transport declarations; forwarded prepared.method is
+        // covered by its typed literal declaration too.
+        for (const declaration of source.matchAll(/(?:\bmethod|["']method["'])\s*:\s*((?:["'][A-Z]+["']\s*\|\s*)*["'][A-Z]+["'])/g)) {
+          for (const literal of declaration[1]!.matchAll(/["']([A-Z]+)["']/g)) methods.add(literal[1]!);
+        }
+      }
+    }
+  }
+  directory(new URL("../../../packages/client/src/", import.meta.url));
+  return [...methods].sort();
+}
+
 describe("mdbase connect server", () => {
+  it.each(["https://mdbase-l11-lab.pages.dev", "https://application.example"])("advertises every browser SDK method in unauthenticated preflight from %s", async (origin) => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({ db, publicUrl: "https://connect.example" });
+    resources.push(() => app.close());
+    const sdkMethods = browserSdkMethods();
+    expect(sdkMethods.length).toBeGreaterThan(0);
+    for (const method of sdkMethods) {
+      const response = await app.inject({
+        method: "OPTIONS",
+        url: "/v1/next/collections/00000000-0000-4000-8000-000000000000/timers/lab-l11/preflight-only",
+        headers: {
+          origin,
+          "access-control-request-method": method,
+          "access-control-request-headers": "authorization,content-type"
+        }
+      });
+      expect(response.statusCode).toBe(204);
+      expect(response.headers["access-control-allow-origin"]).toBe(origin);
+      const methods = String(response.headers["access-control-allow-methods"]).split(",").map((value) => value.trim());
+      expect(methods).toContain(method);
+      const headers = String(response.headers["access-control-allow-headers"]).split(",").map((value) => value.trim().toLowerCase());
+      expect(headers).toEqual(expect.arrayContaining(["authorization", "content-type"]));
+    }
+  });
+
   it("permits management mutations from the configured editor origin", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());

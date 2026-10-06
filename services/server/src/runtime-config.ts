@@ -4,6 +4,7 @@ import type { HostedProviderConfig } from "./hosted-provider.js";
 import type { RelayBrokerConfig } from "./relay-broker.js";
 import type { VapidConfig } from "./web-push.js";
 import type { WebhookSigningConfig } from "./webhook.js";
+import { parsePushTargetSealerEnv, type PushTargetSealerConfig } from "./features/next/push-target-seal.js";
 import { loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 
 export type RegistrationMode = "closed" | "invite" | "open";
@@ -52,6 +53,10 @@ export interface RuntimeConfig {
   webhookSigning: WebhookSigningConfig | null;
   /** mdbase-next control plane (policy signing); null or absent when disabled. */
   nextControlPlane?: NextControlPlaneConfig | null;
+  /** mdbase-next opaque timer service (MDBASE_NEXT_TIMERS=1). */
+  nextTimers?: boolean;
+  /** Push targets sealed at rest (MDBASE_NEXT_PUSH_TOKEN_KEY); null when off. */
+  pushTargetSeal?: PushTargetSealerConfig | null;
 }
 
 export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
@@ -394,7 +399,9 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
           previousPublicKeys: webhookPreviousPublicKeys
         }
       : null,
-    nextControlPlane: parseNextControlPlaneEnv(env)
+    nextControlPlane: parseNextControlPlaneEnv(env),
+    nextTimers: parseNextTimersEnv(env),
+    pushTargetSeal: parsePushTargetSealerEnv(env)
   });
 }
 
@@ -598,4 +605,12 @@ function normalizeRelayBrokerServer(value: string): string {
   const url = new URL(value.includes("://") ? value : `nats://${value}`);
   if (!url.port) url.port = "4222";
   return url.toString();
+}
+
+function parseNextTimersEnv(env: NodeJS.ProcessEnv): boolean {
+  const value = env.MDBASE_NEXT_TIMERS?.trim() ?? "";
+  if (value !== "" && value !== "0" && value !== "1") {
+    throw new Error("MDBASE_NEXT_TIMERS must be 0 or 1.");
+  }
+  return value === "1";
 }

@@ -60,6 +60,25 @@ impl AgentState {
                 .expect("agent status must serialize")
             }),
             ControlCommand::DaemonShutdown => Ok(serde_json::json!({"stopping": true})),
+            ControlCommand::NextRollout => {
+                // No account IDs or tokens cross the desktop boundary. A missing
+                // endpoint, signed-out profile or failed request keeps rollout closed.
+                let allowed = match self.cloud() {
+                    Ok(cloud) => cloud
+                        .connector_request::<serde_json::Value>(
+                            reqwest::Method::GET,
+                            "/v1/next/rollout",
+                            None,
+                        )
+                        .await
+                        .ok()
+                        .is_some_and(|value| {
+                            value.get("local_takeover") == Some(&serde_json::Value::Bool(true))
+                        }),
+                    Err(_) => false,
+                };
+                Ok(serde_json::json!({"local_takeover": allowed}))
+            }
             ControlCommand::CollectionList => self
                 .registry
                 .list()

@@ -32,13 +32,13 @@ import { recordConnectorProtocolUsage } from "./protocol-telemetry.js";
 import {
   CONNECTOR_UPDATE_URL, currentRelayGeneration, lockAuthorizationGeneration,
   receiveRelayHello, recordIncompatibleRelay, rejectIncompatibleRelay, rejectUnavailableRelay,
-  relayCapabilityMismatch, relayContractMismatch, relaySupportsContracts, relayAuthorizationAuthority, type RelayHello
+  relayCapabilityMismatch, relayContractMismatch, relaySupportsContracts, relayAuthorizationAuthority, nextAccountNegotiated, type RelayHello
 } from "./relay-compatibility.js";
 import { grantIdFromMessage, hasPendingOperationCapacity } from "./relay-admission.js";
 import {
   brokerError, brokerProblem, encryptedRequestFromMessage, expectedResponseType,
   connectorUpgradeError, matchesEncryptedMetadata, relayExecutionTimeoutProblem,
-  relayMessageMayMutate, requestIdFromMessage, validProtocolUsageEntries
+  relayMessageMayMutate, requestIdFromMessage, validProtocolUsageEntries, projectActivationGrant
 } from "./relay-routing.js";
 import type {
   ConnectorRelaySession as ConnectorSession,
@@ -112,7 +112,7 @@ export class RelayHub {
       ? relayContractMismatch(hello.contract_support)
       : undefined;
     const capabilityMismatch = hello
-      ? relayCapabilityMismatch(hello.capabilities)
+      ? relayCapabilityMismatch(hello.capabilities, this.nextDevices !== undefined)
       : undefined;
     if (!hello
         || hello.protocol_version !== CONTROL_PROTOCOL_VERSION
@@ -196,7 +196,8 @@ export class RelayHub {
               connectorId: identity.connectorId, generation: identity.generation, isStillCurrent,
               declarationEvidence: hello.capabilities.includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY)
                 && hello.contract_support.semantic_capabilities.includes(2),
-              nextDevice: this.nextDevices?.negotiated(hello.capabilities) ?? false
+              nextDevice: this.nextDevices?.negotiated(hello.capabilities) ?? false,
+              nextAccount: nextAccountNegotiated(hello.capabilities)
             },
             (message) => this.sendToConnector(
               identity.socket, identity.connectorId, undefined, message.request_id,
@@ -773,26 +774,22 @@ export class RelayHub {
     if (!session.ready || this.connectors.get(connectorId) !== session) {
       return brokerError("unavailable", "connector_offline", "The computer hosting this collection is offline.");
     }
+    if (command.kind === "device_presence") return this.nextDevices?.presence(session.socket, generation, command.message) ?? { version: 1, ok: true, value: false };
     if (command.kind === "authorize") {
       if (!this.authorizationHandler) throw new Error("The approval service is not registered.");
-      const value = await this.authorizationHandler({ connectorId, generation }, command.message);
-      return { version: 1, ok: true, value };
+      return { version: 1, ok: true, value: await this.authorizationHandler({ connectorId, generation }, command.message) };
     }
     const upgradeError = connectorUpgradeError(command.message, session.capabilities);
     if (upgradeError) return upgradeError;
     const activation = command.message as { type?: string; grant?: GrantPolicy } | null;
     if (activation?.type === "authorization_activation_request") {
-      const grant = activation.grant;
-      if (!grant?.application_authorization
-          || !relaySupportsContracts(session, grant.application_authorization.binding.contracts)
-          || (grant.application_authorization.binding.contracts.semantic_capabilities === 2
-            && grant.application_declaration == null)) {
-        return brokerError("connector", "capability_contract_incompatible",
-          "The selected authority cannot activate this exact authorization contract.");
-      }
-      if (!session.capabilities.includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY)) {
-        const { application_declaration: _omitted, ...legacyGrant } = grant;
-        command = { ...command, message: { ...activation, grant: legacyGrant } };
+      const projected = await projectActivationGrant(this.db, connectorId, command, session);
+      if (!projected.ok) return projected.reply;
+      command = projected.command;
+      if (await this.currentGeneration(connectorId) !== generation
+          || this.connectors.get(connectorId) !== session || session.socket.readyState !== 1
+          || !session.ready || session.policy.isStopped) {
+        return brokerError("unavailable", "connector_offline", "The computer hosting this collection is offline.");
       }
     }
     const requestId = requestIdFromMessage(command.message);

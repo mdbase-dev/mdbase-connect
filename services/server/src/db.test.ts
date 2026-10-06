@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,6 +17,19 @@ import {
 
 const resources: Array<() => Promise<void>> = [];
 
+async function expectedMigrationIds(): Promise<string[]> {
+  const files = (await readdir(new URL("../migrations/", import.meta.url), { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".sql"))
+    .map((entry) => entry.name);
+  for (const filename of files) expect(filename).toMatch(/^\d{4}[a-z]?_[a-z0-9_]+\.sql$/);
+  const ids = files.map((filename) => filename.slice(0, -4)).sort();
+  expect(ids).not.toContain("0000_legacy_baseline");
+  // This immutable data repair is operator-run after predecessor writers drain,
+  // not a startup migration (migrations.ts). Preserve that explicit exception.
+  expect(ids).toContain("0036_authority_import_source_repair");
+  return ["0000_legacy_baseline", ...ids.filter((id) => id !== "0036_authority_import_source_repair")];
+}
+
 afterEach(async () => {
   while (resources.length) await resources.pop()?.();
 });
@@ -29,56 +42,7 @@ describe("database migrations", () => {
     const applied = await db.query<{ id: string }>(
       "SELECT id FROM schema_migrations ORDER BY id"
     );
-    expect(applied.rows.map(({ id }) => id)).toEqual([
-      "0000_legacy_baseline",
-      "0001_collaboration_foundations",
-      "0001a_authentication_foundations",
-      "0002_instance_administration",
-      "0003_authorization_request_collection",
-      "0004_separate_application_keys",
-      "0005_notification_contract_versions",
-      "0006_notification_event_ids",
-      "0007_beta_access_requests",
-      "0007_oauth_login_state_foundation",
-      "0008_account_management",
-      "0009_grant_file_capabilities",
-      "0010_beta_entitlements_and_email",
-      "0011_application_authorization_trust",
-      "0012_notification_contract_digests",
-      "0013_signed_tofu_application_identity",
-      "0014_connector_compatibility",
-      "0015_authorization_binding_v3",
-      "0016_authorization_binding_v4",
-      "0017_split_replica_entitlements",
-      "0018_account_onboarding",
-      "0019_authorization_binding_v5_compatibility",
-      "0020_protocol_usage_telemetry",
-      "0021_device_authorization_origin",
-      "0022_account_creation_email_claims",
-      "0022_collection_membership_foundations",
-      "0022a_local_collection_identity_backfill",
-      "0023_grant_replica_membership_binding",
-      "0023_open_beta_entitlement",
-      "0024_account_deletion_consistency",
-      "0024_hosted_collection_invitations_and_seats",
-      "0025_application_reconciliation_jobs",
-      "0026_connector_policy_freshness",
-      "0027_connector_policy_lease_adoption",
-      "0028_application_declaration",
-      "0029_external_signup",
-      "0030_sharing_cleanup_seat_reservations",
-      "0031_authority_import_abort_receipts",
-      "0032_local_revocation_confirmation",
-      "0033_collection_created_at",
-      "0034_email_announcements_and_unsubscribe",
-      "0035_portable_people",
-      "0037_collection_unavailable_reason",
-      "0038_next_policy_outbox",
-      "0039_free_entitlement_profile",
-      "0040_next_devices",
-      "0041_next_collections_left_sync",
-      "0042_next_client_key_attestations"
-    ]);
+    expect(applied.rows.map(({ id }) => id)).toEqual(await expectedMigrationIds());
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
        WHERE table_name = 'hosted_replicas'
@@ -676,56 +640,7 @@ describe("database migrations", () => {
     const applied = await db.query<{ id: string }>(
       "SELECT id FROM schema_migrations ORDER BY id"
     );
-    expect(applied.rows.map(({ id }) => id)).toEqual([
-      "0000_legacy_baseline",
-      "0001_collaboration_foundations",
-      "0001a_authentication_foundations",
-      "0002_instance_administration",
-      "0003_authorization_request_collection",
-      "0004_separate_application_keys",
-      "0005_notification_contract_versions",
-      "0006_notification_event_ids",
-      "0007_beta_access_requests",
-      "0007_oauth_login_state_foundation",
-      "0008_account_management",
-      "0009_grant_file_capabilities",
-      "0010_beta_entitlements_and_email",
-      "0011_application_authorization_trust",
-      "0012_notification_contract_digests",
-      "0013_signed_tofu_application_identity",
-      "0014_connector_compatibility",
-      "0015_authorization_binding_v3",
-      "0016_authorization_binding_v4",
-      "0017_split_replica_entitlements",
-      "0018_account_onboarding",
-      "0019_authorization_binding_v5_compatibility",
-      "0020_protocol_usage_telemetry",
-      "0021_device_authorization_origin",
-      "0022_account_creation_email_claims",
-      "0022_collection_membership_foundations",
-      "0022a_local_collection_identity_backfill",
-      "0023_grant_replica_membership_binding",
-      "0023_open_beta_entitlement",
-      "0024_account_deletion_consistency",
-      "0024_hosted_collection_invitations_and_seats",
-      "0025_application_reconciliation_jobs",
-      "0026_connector_policy_freshness",
-      "0027_connector_policy_lease_adoption",
-      "0028_application_declaration",
-      "0029_external_signup",
-      "0030_sharing_cleanup_seat_reservations",
-      "0031_authority_import_abort_receipts",
-      "0032_local_revocation_confirmation",
-      "0033_collection_created_at",
-      "0034_email_announcements_and_unsubscribe",
-      "0035_portable_people",
-      "0037_collection_unavailable_reason",
-      "0038_next_policy_outbox",
-      "0039_free_entitlement_profile",
-      "0040_next_devices",
-      "0041_next_collections_left_sync",
-      "0042_next_client_key_attestations"
-    ]);
+    expect(applied.rows.map(({ id }) => id)).toEqual(await expectedMigrationIds());
   });
 
   it("repairs the beta.13 production authorization schema additively", async () => {

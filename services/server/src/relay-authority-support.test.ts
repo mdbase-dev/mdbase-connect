@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY, APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, CONNECT_CONTRACT_SUPPORT,
+import { APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY, APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, CONNECT_CONTRACT_SUPPORT, NEXT_ACCOUNT_CAPABILITY, POLICY_FRESHNESS_LEASE_CAPABILITY,
   authorizationContractRequirements } from "@mdbase-dev/connect-protocol";
 import { ConnectorOperationError, RelayHub, RelayUnavailableError } from "./relay.js";
 import { relaySupportsContracts } from "./relay-compatibility.js";
@@ -9,7 +9,7 @@ function fixture() {
   const sessions = new Map<string, any>();
   Object.assign(hub, { connectors: sessions, closed: false,
     currentGeneration: async (id: string) => sessions.get(id)?.generation ?? null });
-  const current = () => ({ ready: true, generation: "1", socket: { readyState: 1 },
+  const current = () => ({ ready: true, generation: "1", socket: { readyState: 1 }, policy: { isStopped: false },
     capabilities: [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY],
     contractSupport: structuredClone(CONNECT_CONTRACT_SUPPORT) });
   sessions.set("selected", current());
@@ -88,6 +88,32 @@ describe("exact selected local authority", () => {
     await hub.activateAuthorization("selected", input);
     expect(messages[1].grant.application_declaration).toEqual({ retained: "complete" });
   });
+  it.each(["replaced", "closed", "unready", "stopped", "generation"])("refuses activation after account lookup when the exact session becomes %s", async (state) => {
+    const { hub, sessions } = fixture();
+    const selected = sessions.get("selected");
+    selected.mode = "lease_v1";
+    selected.capabilities = [NEXT_ACCOUNT_CAPABILITY, "next_device_v1", POLICY_FRESHNESS_LEASE_CAPABILITY];
+    let sent = false;
+    Object.assign(hub, {
+      db: { query: async () => {
+        if (state === "replaced") sessions.set("selected", { ...selected });
+        if (state === "closed") selected.socket.readyState = 3;
+        if (state === "unready") selected.ready = false;
+        if (state === "stopped") selected.policy.isStopped = true;
+        if (state === "generation") selected.generation = "2";
+        return { rows: [{ user_id: "11111111-1111-4111-8111-111111111111" }] };
+      } },
+      sendToConnector: async () => { sent = true; return { ok: true }; }
+    });
+    const reply = await (hub as any).handleBrokerCommand("selected", "1", {
+      version: 1, kind: "deliver", message: { type: "authorization_activation_request", grant: {
+        id: "fixture", collection_id: "fixture", application_authorization: { binding: { contracts: v1 } }
+      } }
+    });
+    expect(reply.ok).toBe(false);
+    expect(sent).toBe(false);
+  });
+
   it("rejects a generation switch or capability loss between approval and publication", async () => {
     const { hub, sessions } = fixture();
     const selected = hub.authorizationAuthority("selected", v2);

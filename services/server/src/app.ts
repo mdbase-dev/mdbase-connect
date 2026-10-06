@@ -23,11 +23,19 @@ import { HostedAuthorityRegistry } from "./hosted.js";
 import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
+import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
+import { registerAccountKeyRoutes } from "./features/next/account-keys.js";
+import { registerPrivateCollectionRoutes } from "./features/next/private-collections.js";
 import { registerNextHostedRoutes } from "./features/next/hosted-routes.js";
+import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
+import { registerLabFixtureRoutes } from "./features/next/lab-fixture-routes.js";
+import { validateLabFixtureConfig } from "./features/next/lab-fixture-config.js";
 import { loadPolicySigner, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 import { NextRelayDevices } from "./features/next/devices.js";
 import { NoisePipes, registerNoisePipeClientRoute } from "./features/next/noise-pipes.js";
+import { registerCollectionLogTokenRoute } from "./features/next/collection-log-token.js";
 import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
+import { registerNextRouteRoutes } from "./features/next/route-routes.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { NotificationService, type NotificationTransports } from "./notifications.js";
 import { RelayHub } from "./relay.js";
@@ -47,6 +55,8 @@ import { approveHostedAuthorization } from "./features/authorizations/hosted-app
 import { registerAuthorityAdoptionRoutes } from "./features/authority-adoption/routes.js";
 import { registerHostedToLocalTransferRoutes } from "./features/authority-transfer/hosted-to-local-routes.js";
 import { registerLocalToHostedTransferRoutes } from "./features/authority-transfer/local-to-hosted-routes.js";
+import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
+import { AuthorityTransferRecoveryWorker } from "./features/authority-transfer/recovery-worker.js";
 import { registerLocalFileRoutes } from "./features/files/local-routes.js";
 import { registerAuthorityConflictRoutes } from "./features/connectors/authority-conflict-routes.js";
 import { registerBetaAccessRoutes } from "./features/beta-access/routes.js";
@@ -62,6 +72,10 @@ import { registerHostedSharingRoutes } from "./features/hosted/sharing-routes.js
 import { registerReferenceSyncRoutes } from "./features/hosted/reference-sync-routes.js";
 import { registerMirrorPairingRoutes } from "./features/mirrors/pairing-routes.js";
 import { registerNotificationRoutes } from "./features/notifications/routes.js";
+import type { PushTargetSealer } from "./features/next/push-target-seal.js";
+import type { TimerGrantResolver } from "./features/next/timers/grants.js";
+import { registerTimerRoutes } from "./features/next/timers/routes.js";
+import { TimerWorker, notificationsConsumer } from "./features/next/timers/worker.js";
 import { registerOnboardingRoutes } from "./features/onboarding/routes.js";
 import { registerPeopleRoutes } from "./features/account/people-routes.js";
 import { registerLocalOperationRoutes } from "./features/operations/local-routes.js";
@@ -106,10 +120,20 @@ interface BuildOptions {
     publicKey?: string;
     transports: NotificationTransports;
     pollIntervalMs?: number;
+    /** Seals push targets at rest (MDBASE_NEXT_PUSH_TOKEN_KEY). */
+    pushTargetSealer?: PushTargetSealer;
+  };
+  /** mdbase-next opaque timer service (MDBASE_NEXT_TIMERS=1). */
+  nextTimers?: {
+    pollIntervalMs?: number;
+    resolver?: TimerGrantResolver;
   };
 }
 
 export async function buildApp(options: BuildOptions) {
+  if (options.nextControlPlane?.labFixtures) validateLabFixtureConfig(
+    options.nextControlPlane.labFixtures, options.environment, options.publicUrl ?? ""
+  );
   const app = Fastify({
     logger: process.env.NODE_ENV !== "test",
     // OAuth callbacks carry short-lived credentials in the query string.
@@ -136,7 +160,25 @@ export async function buildApp(options: BuildOptions) {
         options.db,
         options.notifications.transports,
         options.notifications.pollIntervalMs,
-        (error) => app.log.error({ err: error }, "notification delivery worker failed")
+        (error) => app.log.error({ err: error }, "notification delivery worker failed"),
+        options.notifications.pushTargetSealer,
+        options.nextTimers?.resolver
+      )
+    : undefined;
+  const timers = options.nextTimers
+    ? new TimerWorker(
+        options.db,
+        [notificationsConsumer(() => {
+          void notifications?.drainOnce().catch(
+            (error) => app.log.error({ err: error }, "notification delivery worker failed")
+          );
+        }, options.nextTimers.resolver)],
+        {
+          pollIntervalMs: options.nextTimers.pollIntervalMs,
+          resolver: options.nextTimers.resolver,
+          onError: (error) => app.log.error({ err: error }, "timer worker failed"),
+          onMetric: (metric) => app.log.warn(metric, "privacy-safe Connect metric")
+        }
       )
     : undefined;
   const scheduledEmails = options.emailTransport
@@ -164,6 +206,12 @@ export async function buildApp(options: BuildOptions) {
   }
   const hostedReference = options.hostedReferenceAuthority
     ? new HostedAuthorityRegistry(options.db)
+    : undefined;
+  const authorityTransferRecovery = options.hostedCollections
+    ? new AuthorityTransferRecoveryWorker(
+        () => recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference),
+        () => app.log.error("authority transfer recovery failed; retrying on next pass")
+      )
     : undefined;
   const applicationReconciliation = new ApplicationReconciliationWorker(
     options.db,
@@ -234,7 +282,7 @@ export async function buildApp(options: BuildOptions) {
   await app.register(cors, {
     origin: true,
     credentials: true,
-    methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"]
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
   });
   await app.register(websocket);
   app.addContentTypeParser(
@@ -248,12 +296,15 @@ export async function buildApp(options: BuildOptions) {
     await usageRetention.close();
     await applicationReconciliation.close();
     await providerRevocations?.close();
+    await authorityTransferRecovery?.close();
     await nextPolicyEmitter?.close();
+    await timers?.close();
     await notifications?.close();
     noisePipes?.close();
     await relay.close();
   });
   notifications?.start();
+  timers?.start();
   // Test hook intentionally drains the same production worker; it does not
   // bypass leases, cursors, result rows, or provider/relay behavior.
   app.decorate("drainApplicationReconciliation", () =>
@@ -262,6 +313,7 @@ export async function buildApp(options: BuildOptions) {
   applicationReconciliation.start();
   nextPolicyEmitter?.start();
   providerRevocations?.start();
+  authorityTransferRecovery?.start();
 
   app.addHook("onRequest", async (request, reply) => {
     if (
@@ -419,8 +471,17 @@ export async function buildApp(options: BuildOptions) {
     service: notifications,
     publicKey: options.notifications?.publicKey,
     transports: options.notifications?.transports,
-    hostedProvider: options.hostedProvider
+    hostedProvider: options.hostedProvider,
+    grantResolver: options.nextTimers?.resolver
   });
+  if (timers) {
+    registerTimerRoutes(app, {
+      db: options.db,
+      resolver: options.nextTimers?.resolver,
+      hostedProvider: options.hostedProvider,
+      onWrite: () => timers.wake()
+    });
+  }
   registerLifecycleDiagnosticRoute(app, {
     db: options.db,
     hostedProvider: options.hostedProvider
@@ -472,9 +533,23 @@ export async function buildApp(options: BuildOptions) {
   });
   if (options.nextControlPlane) {
     relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
-    registerNextDeviceRoutes(app, { db: options.db });
+    const nextLog = new LogServiceClient(options.nextControlPlane.logService);
+    registerNextDeviceRoutes(app, { db: options.db, log: nextLog });
+    registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
-    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens });
+    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
+    if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, tailscaleAuth: options.tailscaleAuth });
+    if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog });
+    // AK1 account keys: private only, and only with a persistent per-account rate limit.
+    if (options.nextControlPlane.privateBootstrap && options.authRateLimitSecret) registerAccountKeyRoutes(app, {
+      db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, rateLimitSecret: options.authRateLimitSecret
+    });
+    registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
+    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker });
+    if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
+      db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,
+      environment: options.environment, publicUrl, emitter: nextPolicyEmitter!
+    });
   }
   registerConnectorRelayRoute(app, { db: options.db, relay });
   registerApplicationRoutes(app, {
@@ -519,5 +594,5 @@ export async function buildApp(options: BuildOptions) {
   scheduledEmails?.start();
   usageRetention.start();
 
-  return { app, relay };
+  return { app, relay, timers };
 }

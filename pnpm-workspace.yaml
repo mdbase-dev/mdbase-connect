@@ -46,30 +46,26 @@ overrides:
   "undici@>=7.0.0 <7.29.1": "7.29.1"
   "tar@<7.5.21": "7.5.21"
   "tmp@<0.2.6": "0.2.7"
+  "http-cache-semantics@<=4.2.0": "4.3.0"
+  "source-map-js@>=1.0.0 <1.2.2": "1.2.2"
+  "vue@>=3.0.0 <3.5.42": "3.5.42"
+  "@vue/server-renderer@>=3.0.0 <3.5.42": "3.5.42"
 
-# appdmg only uses image-size for PNG DMG backgrounds. The affected ICNS,
-# JXL, and HEIF parsers are not reachable there, and the advisory's patched
-# image-size 2.0.3 release has not yet been published to npm.
+# appdmg only uses image-size for PNG DMG backgrounds; the affected ICNS,
+# JXL, and HEIF parsers are not reachable there. Patched image-size 2.0.3
+# is now published, but changes the callable/file-path API used by appdmg.
+# Qualify that adapter transition before removing this scoped exception.
 #
 # GHSA-vfj7-8cjw-p6xm (braces, stack exhaustion from deeply nested patterns)
 # is reached only through @electron-forge at desktop build time, where
 # fast-glob expands Forge's own configured patterns; no untrusted pattern
-# reaches it and it is not in a shipped runtime.
-# GHSA-ch52-4w7c-c8xp (http-cache-semantics, max-stale handling can disclose
-# cross-user cached responses) is reached through @electron-forge at build time
-# and, at runtime, through sigstore's TUF client (tuf-js > make-fetch-happen)
-# in the desktop release verifier (apps/desktop/src/main/release-source.ts).
-# That client caches only public Sigstore trust metadata in one OS user's
-# trust-cache directory; there is no cache shared between users, so the
-# cross-user disclosure cannot occur.
-# Neither advisory has a patched release (braces 3.0.3 and
-# http-cache-semantics 4.2.0 are the latest); remove both once patches publish.
+# reaches it and it is not in a shipped runtime. Braces 3.0.3 remains latest;
+# remove its exception when a patched release is published.
 auditConfig:
   ignoreGhsas:
     - GHSA-w3rx-r6r6-pgpr
     - GHSA-5p2g-fcmc-qvqq
     - GHSA-vfj7-8cjw-p6xm
-    - GHSA-ch52-4w7c-c8xp
 
 minimumReleaseAgeExclude:
   - hono@4.13.7

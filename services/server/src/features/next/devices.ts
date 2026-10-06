@@ -12,11 +12,22 @@ import {
   type ApplicationCapabilityId
 } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "../../database-types.js";
+import type { RelayBrokerReply } from "../../relay-broker.js";
+import { ConnectorOperationError } from "../../relay-errors.js";
 import { NOISE_PIPE_CAPABILITY, type NoisePipes } from "./noise-pipes.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, uuidBytes } from "./policy-wire.js";
 
 export const NEXT_DEVICE_CAPABILITY = "next_device_v1";
+
+/** Stored consenting identity, not collection/device owner or client metadata. */
+export function withAccountId<T extends object>(grant: T, accountId: unknown): T & { account_id: string } {
+  if (typeof accountId !== "string" || accountId === "00000000-0000-0000-0000-000000000000"
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(accountId)) {
+    throw new ConnectorOperationError("capability_contract_incompatible", "The account-bound grant requires a canonical nonzero account UUID.");
+  }
+  return { ...grant, account_id: accountId };
+}
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 export class DeviceRegistrationError extends Error {
@@ -221,6 +232,17 @@ export class NextRelayDevices {
     state.deviceId = deviceId;
     if (state.pipes) await this.pipes!.attach(socket, connectorId, sessionId, deviceId);
     reply({ type: "device_bound", device_id: deviceId, noise_pipes: state.pipes });
+  }
+
+  /** Internal owner query; never pushes policy, opens a pipe, or sends a daemon frame. */
+  presence(socket: WebSocket, generation: string, message: unknown): RelayBrokerReply {
+    const body = message as { device_id?: unknown } | null;
+    if (!body || typeof body !== "object" || Object.keys(body).length !== 1
+        || typeof body.device_id !== "string"
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(body.device_id)) {
+      return { version: 1, ok: false, error: { kind: "internal", code: "invalid_broker_command", message: "The relay command was invalid." } };
+    }
+    return { version: 1, ok: true, value: this.pipes?.isBound(socket, generation, body.device_id) ?? false };
   }
 
   boundDevice(socket: WebSocket): string | undefined {

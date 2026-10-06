@@ -1,0 +1,9 @@
+{
+  "reason": "Private collection create and private device enrol (coordinator 2026-10-06: control reviews) are one feature module beside the cloud-copy routes. The proof, current-identity, membership, transaction, enrolment-lookup and refusal helpers that both use move out of cloud-copy-bootstrap.ts into bootstrap-common.ts unchanged, so the two route modules share one audited implementation instead of copying it; most new export declarations are those existing helpers becoming module exports. Both routes go through registerNextCollection/queueNextPolicy and the existing challenge table; no new transport, table or credential store. app.ts mounts the private routes only with MDBASE_NEXT_PRIVATE_BOOTSTRAP=1.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 14,
+    "typeScriptExportDeclarations": 23,
+    "services/server": 2
+  }
+}

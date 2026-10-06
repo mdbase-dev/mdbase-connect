@@ -1,0 +1,9 @@
+{
+  "reason": "The final legacy desktop bridge needs two native boundaries: read-only machine/folder takeover detection and bundled-new-daemon lifecycle. They replace old daemon reconciliation after takeover, keeping the app updater independent. Remove this bridge with the legacy 0.1 release line after migration retirement.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 4,
+    "typeScriptExportDeclarations": 23,
+    "apps/desktop": 2
+  }
+}

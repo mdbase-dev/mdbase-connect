@@ -37,6 +37,8 @@ export const CONTRACT_SETUP_CAPABILITY = "contract-setup-v1" as const;
 export const FILE_RELAY_CAPABILITY = "file-relay-v1" as const;
 export const PROTOCOL_USAGE_REPORT_CAPABILITY = "protocol-usage-report-v1" as const;
 export const POLICY_FRESHNESS_LEASE_CAPABILITY = "policy-freshness-lease-v1" as const;
+/** Opt-in raw account-bound next policy projection; never a legacy default. */
+export const NEXT_ACCOUNT_CAPABILITY = "next_account_v1" as const;
 /** Advertised beta capabilities are intentionally broader than the beta baseline. */
 export const RELAY_REQUIRED_CAPABILITIES = [
   "application-authorization-v4",
@@ -332,6 +334,8 @@ export type MdbaseOperationResponse<Result = unknown> =
     };
 
 export interface GrantPolicy {
+  /** Consenting account UUID; mandatory only in negotiated next_account_v1 mode. */
+  account_id?: string;
   /** Complete normalized JSON evidence; never independent operation authority. */
   application_declaration?: unknown;
   id: string;

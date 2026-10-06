@@ -106,14 +106,21 @@ export class LogServiceClient {
     if (!/^[0-9a-f]{64}$/u.test(nonceHex)) throw new LogServiceError("unavailable", "nonce");
     this.requestId += 1;
     const body = encodeCbor(struct([[0, 0], [1, this.requestId], [2, method], [3, params]]));
-    const digest = domainHash("mdbase/v1/item-sig", Buffer.concat([
-      Buffer.from("ls-http"), Buffer.from(nonceHex, "hex"), Buffer.from(method), Buffer.of(0), createHash("sha256").update(body).digest(),
+    const token = this.controlPlaneToken();
+    const collectionField = field(field(decodeCbor(body), 3)!, 0);
+    const collection = collectionField instanceof Uint8Array && collectionField.length === 16
+      ? collectionField : new Uint8Array(16);
+    // auth::http_digest: method is the LS RPC method, not HTTP POST.
+    const digest = domainHash("mdbase/v1/ls-http", Buffer.concat([
+      Buffer.from(method), Buffer.of(0), Buffer.from("/v1/rpc"), Buffer.of(0), collection,
+      createHash("sha256").update(token, "utf8").digest(), createHash("sha256").update(body).digest(),
+      Buffer.from(nonceHex, "hex"),
     ]));
     const frame = decodeCbor(await this.fetchBytes("/v1/rpc", {
       method: "POST",
       headers: {
         "content-type": "application/vnd.mdbase.v1+cbor",
-        authorization: `Bearer ${this.controlPlaneToken()}`,
+        authorization: `Bearer ${token}`,
         "x-mdbase-nonce": nonceHex,
         "x-mdbase-sig": Buffer.from(sign(null, digest, this.transport)).toString("hex"),
       },
@@ -128,6 +135,17 @@ export class LogServiceClient {
     const result = field(frame, 2);
     if (field(frame, 0) !== 1 || result === undefined) throw new Error("malformed log service response");
     return result;
+  }
+
+  /** Exact-position control read; control items are never compacted. */
+  async controlItemAt(collection: string, seq: number): Promise<Uint8Array | null> {
+    const result = await this.rpc("read", struct([[0, uuidBytes(collection)], [1, seq - 1], [2, 1], [3, 1]]));
+    const items = field(result, 0);
+    if (!Array.isArray(items)) throw new Error("malformed control read response");
+    if (items.length === 0) return null;
+    const item = items[0];
+    if (!Array.isArray(item) || typeof item[0] !== "number" || !(item[1] instanceof Uint8Array)) throw new Error("malformed control item response");
+    return item[0] === seq ? item[1] : null;
   }
 
   async head(collection: string): Promise<{ seq: number; chain: Uint8Array }> {
@@ -148,6 +166,10 @@ export class LogServiceClient {
   /** `create_log`: idempotent for the same genesis bytes; `invalid`/`exists` for a different genesis. */
   async createLog(collection: string, genesis: Uint8Array): Promise<void> {
     await this.rpc("create_log", struct([[0, uuidBytes(collection)], [1, genesis]]));
+  }
+
+  async setQuota(collection: string, quotas: { storageBytes: number; itemsPerSecond: number; bytesPerSecond: number; burstItems: number }): Promise<void> {
+    await this.rpc("set_quota", struct([[0, uuidBytes(collection)], [1, [quotas.storageBytes, quotas.itemsPerSecond, quotas.bytesPerSecond, quotas.burstItems]]]));
   }
 
   async deleteLog(collection: string): Promise<void> {

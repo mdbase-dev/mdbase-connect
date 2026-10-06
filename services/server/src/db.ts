@@ -13,6 +13,15 @@ export async function openDatabase(
   if (!databaseUrl || databaseUrl === "memory") {
     const { DataType, newDb } = await import("pg-mem");
     const memory = newDb({ autoCreateForeignKeyIndices: true });
+    // Schema compatibility only for the fixed timer namespace CHECK; real
+    // PostgreSQL tests qualify constraints and transaction/lock semantics.
+    memory.public.registerOperator({
+      operator: "~", left: DataType.text, right: DataType.text, returns: DataType.bool,
+      implementation: (value: string, pattern: string) => {
+        if (pattern !== "^[A-Za-z0-9._-]{1,64}$") throw new Error("Unsupported memory regex constraint.");
+        return value.length >= 1 && value.length <= 64 && !/[^A-Za-z0-9._-]/u.test(value);
+      }
+    });
     memory.public.registerFunction({
       name: "pg_advisory_xact_lock",
       args: [DataType.integer],
@@ -38,6 +47,24 @@ export async function openDatabase(
       implementation: () => true
     });
     memory.public.registerFunction({
+      name: "octet_length",
+      args: [DataType.bytea],
+      returns: DataType.integer,
+      implementation: (value: Uint8Array) => value.length
+    });
+    memory.public.registerFunction({
+      name: "octet_length",
+      args: [DataType.text],
+      returns: DataType.integer,
+      implementation: (value: string) => Buffer.byteLength(value, "utf8")
+    });
+    memory.public.registerFunction({
+      name: "clock_timestamp",
+      returns: DataType.timestamptz,
+      impure: true,
+      implementation: () => new Date()
+    });
+    memory.public.registerFunction({
       name: "gen_random_uuid",
       returns: DataType.uuid,
       impure: true,
@@ -53,6 +80,13 @@ export async function openDatabase(
     // pg-mem cannot execute this one PostgreSQL locking CTE. Recognize its
     // private marker and preserve equivalent single-process test semantics.
     memory.public.interceptQueries((sql) => {
+      if (sql.trimStart().startsWith("/* mdbase:timer-authority-current:v1 */")) {
+        // pg-mem accepts FOR SHARE but not its OF alias list. It cannot qualify
+        // locks/currentness; real PostgreSQL HTTP wait/revocation tests do that.
+        const aliases = /\s+FOR SHARE OF (?:tok, g, u|g, u)\s*;?$/u;
+        if (!aliases.test(sql)) throw new Error("Unexpected timer authority locking shape.");
+        return memory.public.many(sql.replace("/* mdbase:timer-authority-current:v1 */", "").replace(aliases, " FOR SHARE"));
+      }
       const marker = "/* mdbase:application-reconciliation-claim:v1 */";
       if (!sql.trimStart().startsWith(marker)) return null;
       const lockClause = /\s+FOR UPDATE SKIP LOCKED/g;

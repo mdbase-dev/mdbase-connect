@@ -830,6 +830,7 @@ impl CollectionRegistry {
                     .map(|row| {
                         let row = row?;
                         Ok(GrantPolicy {
+                            account_id: None,
                             application_declaration: row
                                 .17
                                 .as_deref()

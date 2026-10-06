@@ -208,6 +208,8 @@ export interface ExactPolicyAuthority {
   declarationEvidence?: boolean;
   /** The connector negotiated `next_device_v1`: grants carry their Noise fields. */
   nextDevice?: boolean;
+  /** Explicit next_account_v1 mode; never inferred from next_device_v1 alone. */
+  nextAccount?: boolean;
   connectorId: string;
   generation: string;
   isStillCurrent(): boolean;
@@ -237,7 +239,8 @@ export class ExactPolicyPublisher {
       () => this.isOpen() && authority.isStillCurrent(),
       this.mode,
       authority.declarationEvidence === true,
-      authority.nextDevice === true
+      authority.nextDevice === true,
+      authority.nextAccount === true
     ));
     if (!message || !await observeConnectorPolicyStage(
       "generation_after_build", () => this.isCurrent(authority)

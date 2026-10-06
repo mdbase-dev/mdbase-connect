@@ -8,7 +8,7 @@ import { canonicalSha256 } from "./canonical-json.js";
 import type { DatabasePool } from "./db.js";
 import { ConnectorOperationError } from "./relay-errors.js";
 import { normalizedApplicationOrigin } from "./features/authorizations/redirects.js";
-import { clientFingerprint, grantCapabilityGroups } from "./features/next/devices.js";
+import { clientFingerprint, grantCapabilityGroups, withAccountId } from "./features/next/devices.js";
 
 const MAX_POLICY_SEQUENCE = BigInt(Number.MAX_SAFE_INTEGER);
 const POLICY_STAGE_DELAY_MS = 2_000;
@@ -261,8 +261,12 @@ export async function buildPolicySnapshot(
   isStillCurrent: () => boolean = () => true,
   mode: PolicyMode = "lease_v1",
   declarationEvidence = false,
-  nextDevice = false
+  nextDevice = false,
+  nextAccount = false
 ): Promise<PolicySnapshot | null> {
+  if (nextAccount && (!nextDevice || mode !== "lease_v1")) {
+    throw new ConnectorOperationError("capability_contract_incompatible", "Account-bound grants require next devices and a negotiated policy lease.");
+  }
   const connection = await observeConnectorPolicyStage("database_checkout", () => db.connect());
   const rollback = () => observeConnectorPolicyStage(
     "transaction_rollback", () => connection.query("ROLLBACK")
@@ -314,7 +318,7 @@ export async function buildPolicySnapshot(
       [connectorId, String(active.rows[0].policy_sequence)]
     );
     const grants = await observeConnectorPolicyStage("grant_inventory", () => connection.query<{
-      id: string; application_id: string; application_name: string;
+      id: string; user_id: string; application_id: string; application_name: string;
       application_distribution: "web" | "portable"; application_homepage: string;
       application_project_url: string | null; application_origin: string;
       application_icon: string | null; local_id: string; collection_name: string;
@@ -324,7 +328,7 @@ export async function buildPolicySnapshot(
       application_declaration: unknown | null;
       notification_criteria: unknown[]; created_at: Date | string; client_pk: Buffer | null; client_key_signature: Buffer | null;
     }>(
-      `SELECT g.id, g.application_id, a.name AS application_name,
+      `SELECT g.id, g.user_id, g.application_id, a.name AS application_name,
               a.distribution AS application_distribution,
               a.homepage AS application_homepage,
               a.project_url AS application_project_url,
@@ -353,7 +357,8 @@ export async function buildPolicySnapshot(
     const leaseIssuedAtMs = new Date(active.rows[0].database_now).getTime();
     const policyGrants = grants.rows.map((grant) => {
       const normalized = normalizePolicyGrant({ ...grant, collection_id: grant.local_id }, declarationEvidence);
-      return nextDevice ? { ...normalized, ...nextDeviceGrantFields(grant) } : normalized;
+      const projected = nextDevice ? { ...normalized, ...nextDeviceGrantFields(grant) } : normalized;
+      return nextAccount ? withAccountId(projected, grant.user_id) : projected;
     });
     await observeConnectorPolicyStage("transaction_commit", () => connection.query("COMMIT"));
     if (mode === "legacy_ack_v0") {

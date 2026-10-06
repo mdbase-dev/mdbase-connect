@@ -115,12 +115,10 @@ impl HostedProvider {
             crate::test_hooks::AuthorityImportHookPoint::BeforeSecondPhaseLock,
         )
         .await;
-        // A projection batch takes the generation row before reading the
-        // collection. The import finalizer deliberately takes the exact import
-        // and collection locks first, then probes the generation with NOWAIT to
-        // avoid inverting that order into a deadlock. Yield the whole lock set
-        // and retry only that typed contention while the request still has a
-        // bounded budget.
+        // Projection batches and the import finalizer both lock collection
+        // before generation. Keep the NOWAIT generation probe for other row
+        // contention: yield the whole lock set and retry only that typed
+        // contention while the request still has a bounded budget.
         // Keep this well inside the provider client's 15-second request
         // deadline; longer generation work is resumed by the exact-ID client
         // handoff below the public authority operation.

@@ -247,6 +247,7 @@
       "additionalProperties": false,
       "required": ["id", "application_id", "collection_id", "operations", "scope", "application_name", "application_distribution", "application_homepage", "application_origin", "collection_name", "created_at", "encryption", "application_authorization"],
       "properties": {
+        "account_id": { "$ref": "#/$defs/uuid" },
         "id": { "$ref": "#/$defs/uuid" },
         "application_id": { "$ref": "#/$defs/uuid" },
         "collection_id": { "$ref": "#/$defs/uuid" },

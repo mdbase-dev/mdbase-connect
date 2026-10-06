@@ -1,0 +1,10 @@
+{
+  "reason": "One versioned public trust asset replaces provisional roots-only/unsigned LAB formats. The isolated reference validator reuses existing keyId and policy-certificate crypto; authenticated release-bundle verification and runtime admission remain their existing ownership boundaries, not new fallback mechanisms.",
+  "growth": {
+    "productionFiles": 2,
+    "typeScriptExportDeclarations": 4,
+    "relativeImports": 3,
+    "services/server": 1,
+    "packages/protocol": 1
+  }
+}

@@ -658,6 +658,9 @@ pub async fn serve(
 mod tests;
 
 #[cfg(test)]
+mod next_rollout_tests;
+
+#[cfg(test)]
 mod authority_recovery_tests;
 
 #[cfg(windows)]

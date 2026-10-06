@@ -62,6 +62,7 @@ describe("account management", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.json()).toEqual(expect.objectContaining({
+      backend: "legacy",
       authentication: expect.objectContaining({
         current_provider: "session",
         identities: [expect.objectContaining({

@@ -1,6 +1,6 @@
 {
   "name": "@mdbase/connect-server",
-  "version": "0.1.0-beta.127",
+  "version": "0.1.0-beta.129",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "dev": "tsx watch src/index.ts",
     "migrate": "node dist/migrate.js",
     "next:cp-cert": "node dist/features/next/cp-cert-cli.js",
+    "next:timers": "node dist/features/next/timers/cli.js",
     "start": "node dist/index.js",
     "test": "node ../../scripts/ci/vitest.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"

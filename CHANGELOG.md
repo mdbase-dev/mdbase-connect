@@ -4,6 +4,193 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.129
+
+### Added
+
+- In opt-in mdbase-next account mode, successful pairing identifies the approved
+  account. Explicitly negotiated grants and activation carry consenting account
+  identity without changing legacy projections or default capabilities.
+
+### Changed
+
+- mdbase-next routing returns only devices of the account that granted the app,
+  always uses `wss:` outside loopback development, and orders targets by online
+  status, daemon preference, then recent activity. `online` is a read-only hint from
+  the current device-bound relay owner, not a recent policy acknowledgement or
+  authorization proof. Local routing still has one desktop/CLI device; mobile
+  registration is not added. The app collection list leaves out hosted collections
+  that are not active or are quarantined.
+
+### Fixed
+
+- Prevent hosted transfer expiry and recovery races from discarding renewed imports
+  or in-flight activation. Cleanup applies only to the winning transfer and its
+  exact candidates.
+- Account overview and hosted control reads no longer run transfer cleanup. Hosted
+  expiry runs in bounded background batches. Update Connect and its hosted provider
+  together; an older provider leaves expiry pending rather than falling back to
+  ordinary cancellation. Explicit user cancellation remains available.
+
+- Browser clients can preflight authenticated PUT requests, including timer writes,
+  without changing allowed origins, credentials, or endpoint authorization.
+
+- Fix request signing for opt-in mdbase-next log integrations, binding signatures
+  to the current request method, path, collection, token, body and nonce.
+
+- Prevent deadlocks between hosted projection batch persistence and concurrent projection startup by acquiring collection locks before generation locks.
+
+## 0.1.0-beta.128
+
+### Added
+
+- A `free_v1` entitlement profile for the mdbase-next free plan: one synced
+  collection, a provisional 250 MB storage cap, one member seat and files up to
+  100 MB. No account holds it until an operator runs
+  `auth-admin entitlements backfill-free`, which grants it to every account in
+  bounded, idempotent batches. Beta accounts keep their limits, because effective
+  limits are the maximum across an account's profiles.
+
+- With `MDBASE_NEXT_CONTROL_PLANE=1`, an app can register its mdbase-next Noise key
+  at consent with `client_noise_key`, an attestation signed by the grant signing key
+  that its authorization binding certifies. The server verifies it and refuses weak
+  keys, then copies it to the grant on local and hosted approval. Daemons receive the
+  key and its attestation in the grant feed, and the consent screen shows the key's
+  fingerprint. Authorization bindings stay at v5, so today's connectors are
+  unaffected.
+
+- With `MDBASE_NEXT_CONTROL_PLANE=1`, a connector can register an mdbase-next device
+  with proof of possession of its signing key (`POST /v1/next/devices/challenge`,
+  `POST /v1/next/devices`), and bind it to its relay socket with `device_bind`.
+  Connectors that negotiate `next_device_v1` receive each grant's capability groups,
+  Noise client key and fingerprint in their policy snapshots. Existing connectors see
+  no change.
+
+- With `MDBASE_NEXT_CONTROL_PLANE=1`, a daemon reports a device's approval of a grant
+  on a private synced collection (`POST /v1/next/grants/:grantId/approval`), with the
+  capabilities the user approved and the app key's fingerprint. The report is signed by
+  the device key and checked against the log. The control plane honours only the
+  approved capabilities, keeps the earliest approval in log order, and stops counting
+  an approval when the grant's terms change.
+
+- With `MDBASE_NEXT_CONTROL_PLANE=1` and `MDBASE_NEXT_HOSTED_INTERNAL_TOKEN` or
+  `MDBASE_NEXT_ESCROW_INTERNAL_TOKEN` set, the hosted replica can read each
+  collection's state (`standard`, `private`, `local` or `unknown`; a collection that
+  has left sync, marked in the new `next_collections.left_sync_at`, is `unknown`) from
+  `/internal/v1/next/collections/:id/state` and the batch
+  `/internal/v1/next/collections/states`.
+
+- Add separately authorized, hard LAB-environment/origin-guarded disposable private-log fixtures using ordinary registered device proofs and the configured policy certificate. Fixtures have bounded quotas, short-lived collection-scoped tokens, exact creator-owned cleanup and durable tombstones. The routes are absent unless explicitly configured in LAB.
+
+- With `MDBASE_NEXT_CONTROL_PLANE=1`, the relay carries mdbase-next Noise sessions
+  between apps and daemons (`GET /v1/next/relay/client` and `noise_pipe_v1` on the
+  connector socket). The relay forwards opaque bytes, routes only to the named
+  device's currently bound socket and checks the device's registered Noise key. It
+  works across instances through the relay broker.
+- An open relay pipe re-checks its app token and grant every 30 seconds and closes at
+  both ends once either is revoked, as a backstop to the daemon's own revocation.
+  It also closes when authorization cannot be revalidated.
+
+- With `MDBASE_NEXT_CONTROL_PLANE=1`, the server keeps an outbox of mdbase-next
+  policy ops, written in the same transaction as the change that implies them, and
+  appends them as signed policy items to each collection's hosted log. Lost responses
+  are retried with the same bytes, a moved head rebuilds the item, and refusals park
+  the collection's queue. Private-sync collections can never enrol a hosted or escrow
+  device. Requires `MDBASE_NEXT_LOG_SERVICE_URL`, `MDBASE_NEXT_LOG_TOKEN_SIGNING_KEY`
+  and `MDBASE_NEXT_LOG_TRANSPORT_KEY`.
+
+- Behind the disabled-by-default next control-plane flag, periodically verify acknowledged policy positions and reissue missing policy batches with their original operations and subjects.
+- Accept authenticated owner-connector hints that only schedule verification, and report parked policy work as unready.
+
+- The server can sign mdbase-next policy items with a control-plane policy key
+  certified by an offline root. It is off unless `MDBASE_NEXT_CONTROL_PLANE=1`; when
+  on, startup checks the key, its certificate and its expiry, and every item is
+  refused outside the certificate window. `next:cp-cert` issues certificates and
+  key revocations offline, always from structured input that it prints before
+  signing.
+
+- With `MDBASE_NEXT_CONTROL_PLANE=1`, `GET /v1/next/collections/:id/route` tells an
+  app with an access token where to open its mdbase-next Noise session. Each target is
+  `{kind, device, noise_pk, url, relay_collection}`; for a local collection that is its
+  daemon, through the relay. Grants without a registered Noise key get
+  `409 client_key_required`.
+- `GET /v1/next/apps/collections` lists the collections the calling app installation
+  can switch between, one per active grant, with their state and whether they can be
+  routed over Noise.
+
+- The server can run the mdbase-next opaque timer service. It is off unless
+  `MDBASE_NEXT_TIMERS=1`. Apps put, cancel, list and reconcile one-shot timers
+  with their access token, under
+  `/v1/next/collections/:collection/timers/:namespace`. The service stores only a
+  timer ID, a criterion and a UTC time, plus optional `data` for hosted (cloud
+  copy) collections. Each fired generation is one fired-timer event. Push and
+  webhook delivery consume those events through the existing notification
+  service.
+- `next:timers copy-hosted` copies a hosted collection's active timers at
+  cutover.
+- Push channel targets (Web Push endpoints and keys, FCM tokens) can be sealed at
+  rest with AES-256-GCM by setting `MDBASE_NEXT_PUSH_TOKEN_KEY` and
+  `MDBASE_NEXT_PUSH_TOKEN_KEY_ID`. `next:timers seal-push-targets` seals
+  existing rows. `unseal-push-targets` restores plaintext before rolling back to
+  a release that predates sealing.
+- Push channel registration and push and webhook delivery refuse grants on
+  mdbase-next private-sync collections until device approval can be checked.
+
+### Changed
+
+- This beta brings the collection-availability, mirror-handoff, activity-log and
+  background-polling fixes to users upgrading from beta126. Beta127's prepared
+  changes are included; beta127 was not published.
+- Preparatory mdbase-next server features remain disabled in managed staging and
+  production. This release does not migrate collections to the new runtime or
+  enable its control plane, encrypted relay sessions or timers.
+- Server upgrades apply additive control-plane migrations 0037–0046 plus 0045a,
+  even with mdbase-next features disabled. Migration 0039 adds the `free_v1`
+  entitlement profile but assigns it to no accounts; no entitlement backfill is
+  part of this release. An image rollback leaves the added schema and profile in
+  place rather than reversing these migrations.
+
+- A local collection whose folder a newer mdbase runtime has claimed is now
+  reported as claimed instead of paused. Operations fail with
+  `collection_claimed_by_newer_runtime`, whose message no longer includes the
+  folder's absolute path; `collection list` shows `claimed`; `doctor` warns;
+  the desktop app explains the move and offers removal; and the inventory sent
+  to the server carries `unavailable_reason: "claimed_by_newer_runtime"`. The
+  daemon stops polling the collection and releases its runtime instead of
+  logging a warning every second, and the collection can now be removed from
+  Connect. Invalid role-marker messages also no longer include absolute paths.
+
+- `watch`, and the `observe` and `connection.watch` APIs built on it, now poll
+  for changes at most once a minute while the browser page is hidden, and poll
+  immediately when it becomes visible again. Outside browsers, and in visible
+  pages, the requested `pollIntervalMs` is unchanged.
+
+### Fixed
+
+- The connector's local application activity log no longer grows without
+  bound: it keeps the newest 10,000 entries, pruning older ones as new
+  entries are recorded (at most 1,000 per entry, so a large existing log
+  shrinks gradually). Listing activity reads the newest entries directly
+  instead of sorting the whole log. No registry migration is required.
+
+- An application whose grant is still valid now receives HTTP 409
+  `collection_unavailable` with `details.reason` (`paused` or
+  `claimed_by_newer_runtime`) when its local collection is unavailable,
+  instead of a misleading 401 "Access token is invalid or expired." The
+  server stores the reason reported by connectors (migration
+  `0037_collection_unavailable_reason`), and the Connect portal shows
+  "Moved to newer runtime" instead of "Paused" for a collection a newer
+  mdbase runtime has claimed.
+
+### Security
+
+- Hosted mirrors now re-check the folder's `.mdbase/connect-role.json` marker
+  before every sync. If a newer mdbase runtime has claimed the folder (a v2 or
+  later marker), the mirror stops with `collection_claimed_by_newer_runtime`
+  instead of uploading the folder's changes, and `mirror remove` leaves that
+  marker in place. Previously a running mirror kept syncing a claimed folder
+  and removal deleted the claim.
+
 ## 0.1.0-beta.127
 
 ### Added
