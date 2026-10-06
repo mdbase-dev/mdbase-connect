@@ -241,7 +241,8 @@ describePg("account keys", () => {
     const results = await Promise.all([put(who, 0, a), put(sibling, 0, b)]);
     const ok = results.filter((r) => r.statusCode === 200);
     expect(ok.length, results.map((r) => r.body).join(" | ")).toBe(1);
-    expect(results.find((r) => r.statusCode !== 200)!.json().error.code).toBe("version_conflict");
+    // The loser waited on the account lock: a conflict, or busy under a slow lock wait.
+    expect(["version_conflict", "busy"]).toContain(results.find((r) => r.statusCode !== 200)!.json().error.code);
     const winner = ok[0]!.json().key_id;
     expect((await fetchKey(who)).json().key_id).toBe(winner);
   });
@@ -318,14 +319,21 @@ describePg("account keys", () => {
     const { recovery } = await enrolRecovery(who, collection);
     const res = await strict(who, 1);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json()).toEqual({ mode: "strict", version: 2, revocations: [{ collection_id: collection, device_id: recovery }] });
+    expect(res.json()).toEqual({
+      mode: "strict", version: 2, revocations: [{ collection_id: collection, device_id: recovery }],
+      recovery_devices: [{ collection_id: collection, device_id: recovery }]
+    });
+    // Re-running strict revokes nothing new but still lists the authoritative set.
+    const again = (await strict(who, 2)).json();
+    expect(again.revocations).toEqual([]);
+    expect(again.recovery_devices).toEqual([{ collection_id: collection, device_id: recovery }]);
     const [op] = lastOps(collection);
     expect(field(op!, 0)).toBe(3); // device-revoke
     expect(hex(field(op!, 1) as Uint8Array)).toBe(recovery.replaceAll("-", ""));
-    expect((await fetchKey(who)).json()).toEqual({ mode: "strict", version: 2 });
+    expect((await fetchKey(who)).json()).toEqual({ mode: "strict", version: 3 });
     expect((await enrolRecovery(who, collection)).res.json().error.code).toBe("strict_mode");
     // Leaving strict mode is setup again, with a new key.
-    expect((await put(who, 2, randomBytes(32))).json()).toMatchObject({ mode: "password", version: 3 });
-    expect((await strict(who, 2)).json().error.code).toBe("version_conflict");
+    expect((await put(who, 3, randomBytes(32))).json()).toMatchObject({ mode: "password", version: 4 });
+    expect((await strict(who, 3)).json().error.code).toBe("version_conflict");
   });
 });

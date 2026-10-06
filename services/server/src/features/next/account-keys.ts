@@ -150,6 +150,18 @@ const exactRecoveryEnrolment = (device: string, account: string, signPk: Buffer,
   signPublicKey: { $hex: signPk.toString("hex") }, kemPublicKey: { $hex: kemPk.toString("hex") }, noisePublicKey: { $hex: ZERO_NOISE.toString("hex") }
 }]);
 
+/**
+ * Every recovery device ever enrolled for `account` in current private collections,
+ * revoked or not: the authoritative set strict mode must see revoked and rekeyed.
+ */
+const ALL_RECOVERY = `SELECT DISTINCT o.collection_id::text AS collection, e.value->>'device' AS device
+   FROM next_policy_outbox o
+   JOIN next_collections c ON c.collection_id = o.collection_id
+   CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') e(value)
+  WHERE c.sync = 'private' AND c.runtime = 'next' AND c.left_sync_at IS NULL
+    AND e.value->>'op' = 'device-enrol' AND e.value->>'kind' = 'recovery' AND e.value->>'account' = $1
+  ORDER BY 1, 2`;
+
 /** Active recovery devices of `account` in current private collections (enrolled, never revoked). */
 const ACTIVE_RECOVERY = `SELECT DISTINCT o.collection_id::text AS collection, e.value->>'device' AS device
    FROM next_policy_outbox o
@@ -335,7 +347,9 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
     const digest = (challenge: Uint8Array) => accountKeyStrictDigest({
       challenge, connector: connector.id, device: body.device_id, account, expectedVersion: body.expected_version
     });
-    let result: { version: number; revocations: Array<{ collection: string; device: string }> };
+    let result: {
+      version: number; revocations: Array<{ collection: string; device: string }>; all: Array<{ collection: string; device: string }>;
+    };
     try {
       const device = await inTransaction(options.db, (client) => proven(client, body, connector, digest));
       const retry = await allowed("next-account-key-write", account, ACCOUNT_KEY_WRITE_LIMIT);
@@ -368,7 +382,8 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
             throw new CreateError(409, "not_current_private");
           }
         }
-        return { version, revocations: active };
+        const all = (await client.query<{ collection: string; device: string }>(ALL_RECOVERY, [account])).rows;
+        return { version, revocations: active, all };
       });
     } catch (error) {
       return refuse(reply, error, "Strict mode was not set; fetch the current version and retry with a fresh proof.");
@@ -378,7 +393,10 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
     for (const collection of new Set(result.revocations.map((r) => r.collection))) await options.emitter.drainCollection(collection).catch(() => undefined);
     return {
       mode: "strict", version: result.version,
-      revocations: result.revocations.map((r) => ({ collection_id: r.collection, device_id: r.device }))
+      revocations: result.revocations.map((r) => ({ collection_id: r.collection, device_id: r.device })),
+      // Authoritative and complete: strict is done only when ALL of these are revoked
+      // and rekeyed in their collections.
+      recovery_devices: result.all.map((r) => ({ collection_id: r.collection, device_id: r.device }))
     };
   });
 
