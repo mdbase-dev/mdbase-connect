@@ -1,0 +1,9 @@
+{
+  "reason": "The timer receipt store is the durable boundary replacing unsafe desired-state replay as original-operation recovery. Existing timer intent writers share one revision mechanism; fixed HTTP handlers reuse AuthorityProofV1 and existing token/grant/account authorization. The store adds bounded immutable metadata and two narrow operations, not a generic request adapter or PRIVATE authorization fallback.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 8,
+    "typeScriptExportDeclarations": 5,
+    "services/server": 1
+  }
+}
