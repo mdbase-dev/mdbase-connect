@@ -26,6 +26,10 @@
     "./crypto": {
       "types": "./dist/crypto-entry.d.ts",
       "import": "./dist/crypto-entry.js"
+    },
+    "./control": {
+      "types": "./dist/control.d.ts",
+      "import": "./dist/control.js"
     }
   },
   "files": [

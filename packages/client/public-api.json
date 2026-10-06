@@ -293,6 +293,10 @@
     "signAuthorityRequest",
     "validateGrantEncryption"
   ],
+  "control": [
+    "AccountBackendInfo",
+    "accountBackend"
+  ],
   "testing": [
     "ConnectTestOutcomeError",
     "MdbaseBrowserFixtureController",
