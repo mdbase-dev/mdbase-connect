@@ -200,7 +200,7 @@ describe("fixed retained app timer HTTP port", () => {
     const key = `${f.client["internals"].notificationKey(COLLECTION, "web_push")}:control-timers`;
     expect(f.storage.getItem(key)).toContain("new-install"); expect(f.storage.getItem(key)).not.toContain("old-install");
   });
-  it("a late DELETE ACK cannot erase a concurrently uncertain registration", async () => {
+  it("a pending DELETE fences concurrent same-installation registration", async () => {
     const f = fixture();
     vi.spyOn(f.client["internals"], "register").mockResolvedValue({ notifications: {
       criteria: [{ id: "test.fire" }], native_delivery: { mode: "managed_fcm" }
@@ -218,8 +218,54 @@ describe("fixed retained app timer HTTP port", () => {
     await expect(f.port.registerFcm({ token: "replacement", installationId: "same-install" })).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
     const key = `${f.client["internals"].notificationKey(COLLECTION, "fcm")}:control-timers`;
     const retained = f.storage.getItem(key); resume(new Response(null, { status: 204 }));
+    await removing;
+    expect(posts).toBe(1); expect(retained).toContain('"pending":true');
+    expect(f.storage.getItem(key)).toBeNull();
+  });
+  it("uncertain same-installation updates retain old identity but cannot reuse it as a current ACK", async () => {
+    const f = fixture();
+    vi.spyOn(f.client["internals"], "register").mockResolvedValue({ notifications: {
+      criteria: [{ id: "test.fire" }], native_delivery: { mode: "managed_fcm" }
+    } } as unknown as Application);
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ channel_id: CHANNEL }))
+      .mockRejectedValueOnce(new TypeError("update admitted, response lost"));
+    await f.port.registerFcm({ token: "synthetic", installationId: "same-install" });
+    const key = `${f.client["internals"].notificationKey(COLLECTION, "fcm")}:control-timers`;
+    const first = JSON.parse(f.storage.getItem(key)!);
+    await expect(f.port.registerFcm({ token: "changed", installationId: "same-install" })).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    const retained = f.storage.getItem(key)!; const pending = JSON.parse(retained);
+    expect(pending.channelId).toBe(CHANNEL); expect(pending.pending).toBe(true);
+    expect(pending.operationNonce).not.toBe(first.operationNonce);
+    await expect(f.port.unregisterFcm({})).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    await expect(f.port.registerFcm({ token: "retry", installationId: "same-install" })).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    expect(fetch).toHaveBeenCalledTimes(2); expect(f.storage.getItem(key)).toBe(retained);
+    // Pre-nonce development pending markers lacked criteria: do not treat their
+    // carried old channel ID as an acknowledgement either.
+    const legacy = JSON.stringify({ installationId: "same-install", grantId: GRANT, channelId: CHANNEL });
+    f.storage.setItem(key, legacy);
+    await expect(f.port.unregisterFcm({})).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    await expect(f.port.registerFcm({ token: "retry", installationId: "same-install" })).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
+    expect(fetch).toHaveBeenCalledTimes(2); expect(f.storage.getItem(key)).toBe(legacy);
+  });
+  it("late DELETE ACK cannot erase a foreign changed pending marker", async () => {
+    const f = fixture();
+    vi.spyOn(f.client["internals"], "register").mockResolvedValue({ notifications: {
+      criteria: [{ id: "test.fire" }], native_delivery: { mode: "managed_fcm" }
+    } } as unknown as Application);
+    let resume!: (response: Response) => void, started!: () => void;
+    const entered = new Promise<void>(resolve => { started = resolve; });
+    const deletion = new Promise<Response>(resolve => { resume = resolve; });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      if (init?.method === "DELETE") { started(); return deletion; }
+      return Response.json({ channel_id: CHANNEL });
+    });
+    await f.port.registerFcm({ token: "synthetic", installationId: "same-install" });
+    const removing = f.port.unregisterFcm({}); await entered;
+    const key = `${f.client["internals"].notificationKey(COLLECTION, "fcm")}:control-timers`;
+    const other = JSON.stringify({ ...JSON.parse(f.storage.getItem(key)!), operationNonce: "foreign-generation" });
+    f.storage.setItem(key, other); resume(new Response(null, { status: 204 }));
     await expect(removing).rejects.toMatchObject({ problem: { operation_outcome: "unknown" } });
-    expect(f.storage.getItem(key)).toBe(retained); expect(retained).toContain("same-install");
+    expect(f.storage.getItem(key)).toBe(other);
   });
   it("does not erase a previous experimental multi-target acknowledgement", async () => {
     const f = fixture();

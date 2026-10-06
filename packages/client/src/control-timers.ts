@@ -138,11 +138,11 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
       if (native && application.notifications?.native_delivery?.mode !== "managed_fcm") throw fail();
       const storageKey = `${internals.notificationKey(initial.collectionId, native ? "fcm" : "web_push")}:control-timers`;
       const previous = internals.storage.getItem(storageKey);
-      const saved = previous ? JSON.parse(previous) as TimerChannelRegistration & { grantId?: string; previousTarget?: unknown } : null;
+      const saved = previous ? JSON.parse(previous) as TimerChannelRegistration & { grantId?: string; previousTarget?: unknown; pending?: boolean; operationNonce?: string } : null;
       const installationId = options.installationId ?? (saved && saved.grantId === initial.grantId ? saved.installationId : undefined) ?? randomBase64Url(24);
       if (typeof installationId !== "string" || !/^[A-Za-z0-9._:-]{1,200}$/u.test(installationId)) throw fail();
       if (saved && saved.grantId === initial.grantId) {
-        if (!saved.channelId || saved.previousTarget !== undefined) {
+        if (!saved.channelId || saved.previousTarget !== undefined || saved.pending || !Array.isArray(saved.criteria)) {
           throw connectError("operation_failed", "Channel registration requires reconciliation before replacement.", { operationOutcome: "unknown" });
         }
         if (saved.installationId !== installationId) {
@@ -176,8 +176,9 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
       if (internals.storage.getItem(storageKey) !== previous) {
         throw connectError("authority_authorization_changed", "Channel registration context changed.", { operationOutcome: "not_sent" });
       }
+      const operationNonce = randomBase64Url(24);
       const pending = JSON.stringify({
-        installationId, grantId: initial.grantId,
+        installationId, grantId: initial.grantId, pending: true, operationNonce,
         ...(saved && saved.grantId === initial.grantId && saved.installationId === installationId && saved.channelId ? { channelId: saved.channelId } : {})
       });
       internals.storage.setItem(storageKey, pending);
@@ -188,7 +189,7 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
         throw connectError("authority_authorization_changed", "Channel registration context changed.");
       }
       const registration = { channelId: result.channel_id, installationId, criteria };
-      internals.storage.setItem(storageKey, JSON.stringify({ ...registration, grantId: initial.grantId }));
+      internals.storage.setItem(storageKey, JSON.stringify({ ...registration, grantId: initial.grantId, operationNonce }));
       return registration;
     });
   const unregister = async (native: boolean, worker: ServiceWorkerRegistration | undefined, options: ConnectRequestOptions) =>
@@ -196,15 +197,19 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
       const key = `${internals.notificationKey(initial.collectionId, native ? "fcm" : "web_push")}:control-timers`;
       const saved = internals.storage.getItem(key);
       if (saved) {
-        const r = JSON.parse(saved) as TimerChannelRegistration & { grantId?: string; previousTarget?: unknown };
+        const r = JSON.parse(saved) as TimerChannelRegistration & { grantId?: string; previousTarget?: unknown; pending?: boolean; operationNonce?: string };
         if (r.grantId !== initial.grantId) throw fail();
-        if (!r.channelId || r.previousTarget !== undefined) {
+        if (!r.channelId || r.previousTarget !== undefined || r.pending || !Array.isArray(r.criteria)) {
           // An uncertain registration is not proof that no remote channel exists.
           throw connectError("operation_failed", "Channel registration requires reconciliation before removal.", { operationOutcome: "unknown" });
         }
         if (!UUID.test(r.channelId)) throw fail();
+        // Serialize mutations through a unique pending marker, including DELETE.
+        // An old channel ID is not a receipt for an uncertain same-target update.
+        const pending = JSON.stringify({ ...r, pending: true, operationNonce: randomBase64Url(24) });
+        internals.storage.setItem(key, pending);
         await request(`/v1/notifications/channels/${r.channelId}`, "DELETE", undefined, true); check();
-        if (internals.storage.getItem(key) !== saved) {
+        if (internals.storage.getItem(key) !== pending) {
           throw connectError("authority_authorization_changed", "Channel registration context changed.");
         }
         internals.storage.removeItem(key);
