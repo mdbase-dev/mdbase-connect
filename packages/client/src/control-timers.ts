@@ -4,6 +4,7 @@ import type { ConnectRequestOptions } from "./operation-types.js";
 import { connectError, MdbaseConnectError } from "./errors.js";
 import { base64UrlBytes, bytesToBase64Url, randomBase64Url } from "./base64.js";
 import { requestAbortReason, withCooperativeRequestBudget } from "./request-budget.js";
+import { signAuthorityRequest } from "./crypto.js";
 
 export interface TimerChannelRegistration { channelId: string; installationId: string; criteria: string[] }
 export interface WebPushTimerOptions extends ConnectRequestOptions {
@@ -16,6 +17,9 @@ export interface ConnectAppTimersPort {
   put(namespace: string, id: string, body: { criterion_id: string; fire_at: string }, options: ConnectRequestOptions): Promise<unknown>;
   cancel(namespace: string, id: string, generation: number | undefined, options: ConnectRequestOptions): Promise<unknown>;
   reconcile(namespace: string, body: { criterion_id: string; timers: { id: string; fire_at: string }[] }, options: ConnectRequestOptions): Promise<unknown>;
+  reconcileWithReceipt(namespace: string, body: { criterion_id: string; timers: { id: string; fire_at: string }[];
+    recovery: { protocol_version: 1; operation_id: string; expected_revision: number } }, options: ConnectRequestOptions): Promise<unknown>;
+  lookupOperation(namespace: string, operationId: string, options: ConnectRequestOptions): Promise<unknown>;
   registerWebPush(options: WebPushTimerOptions): Promise<TimerChannelRegistration>;
   unregisterWebPush(serviceWorker: ServiceWorkerRegistration | undefined, options: ConnectRequestOptions): Promise<void>;
   registerFcm(options: FcmTimerOptions): Promise<TimerChannelRegistration & { transport: "fcm" }>;
@@ -23,6 +27,7 @@ export interface ConnectAppTimersPort {
   close(): void;
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const UUID7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const NS = /^[A-Za-z0-9._-]{1,64}$/u;
 const ID = /^[A-Za-z0-9._:-]{1,128}$/u;
 const fail = () => connectError("invalid_request", "Invalid opaque timer or channel input.");
@@ -78,17 +83,18 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
     t.operations, t.scope, t.encryption, (t as { nextNoise?: unknown }).nextNoise,
     t.authority && [t.authority.replicaId, t.authority.operationsUrl, t.authority.syncUrl, t.authority.filesUrl, t.authority.proofPublicKey]
   ]);
-  const pinned = identity(initial), lifetime = new AbortController();
+  const pinned = identity(initial), retainedRecovery = JSON.stringify(initial), lifetime = new AbortController();
   const prefix = `/v1/next/collections/${initial.collectionId}/timers`;
   const run = async <T>(options: ConnectRequestOptions, write: boolean,
-    operation: (request: (path: string, method?: string, data?: unknown, noBody?: boolean) => Promise<unknown>, check: () => void, signal: AbortSignal) => Promise<T>): Promise<T> => {
+    operation: (request: (path: string, method?: string, data?: unknown, noBody?: boolean) => Promise<unknown>, check: () => void, signal: AbortSignal) => Promise<T>, signed = false): Promise<T> => {
     const signal = options.signal ? AbortSignal.any([options.signal, lifetime.signal]) : lifetime.signal;
     return withCooperativeRequestBudget({
       ...options, signal,
       timeoutMs: options.timeoutMs == null ? 10_000 : Math.min(options.timeoutMs, 10_000)
     }, 10_000, async budget => {
       const token = transport.currentToken();
-      if (!token || identity(token) !== pinned || !Number.isFinite(token.expiresAt) || token.expiresAt <= Date.now()) {
+      if (!token || identity(token) !== pinned || (signed && JSON.stringify(token) !== retainedRecovery)
+        || !Number.isFinite(token.expiresAt) || token.expiresAt <= Date.now()) {
         throw connectError("not_authorized", "The retained timer consent is unavailable.");
       }
       const snapshot = JSON.stringify(token), leases = transport["grantKeyLeases"](); let dispatched = false;
@@ -106,15 +112,30 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
         const request = async (path: string, method = "GET", data?: unknown, noBody = false): Promise<unknown> => {
           check(); const body = data === undefined ? undefined : JSON.stringify(data);
           if (body && new TextEncoder().encode(body).length > 2 * 1024 * 1024) throw fail();
+          let proof: Record<string, string> = {};
+          if (signed) {
+            const store = transport["keyStore"], key = await store.get(token.keyHandle!);
+            check();
+            const point = key?.signingPublicKey;
+            if (!key || key.handle !== token.keyHandle || !point || !/^[A-Za-z0-9_-]{87}$/u.test(point)) {
+              throw connectError("missing_grant_key", "Retained timer recovery proof key is unavailable.");
+            }
+            const bytes = base64UrlBytes(point);
+            if (bytes.length !== 65 || bytes[0] !== 4 || bytesToBase64Url(bytes) !== point) throw fail();
+            proof = await signAuthorityRequest(store, token.keyHandle!, point, { method, target: path, credential: token.accessToken, ...(body === undefined ? {} : { body }) });
+            check();
+          }
           dispatched ||= write && method !== "GET";
           const response = await fetch(server + path, { method, signal: budget.signal, redirect: "error", credentials: "omit", cache: "no-store",
-            headers: { authorization: `Bearer ${token.accessToken}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+            headers: { authorization: `Bearer ${token.accessToken}`, ...proof, ...(body === undefined ? {} : { "content-type": "application/json" }) },
             ...(body === undefined ? {} : { body }) });
           try {
             check();
             if (!response.ok) throw connectError(response.status === 401 || response.status === 403 ? "not_authorized" : "operation_failed",
               "Control-plane timer or channel request failed.", { status: response.status,
-                operationOutcome: dispatched && response.status >= 500 ? "unknown" : "rejected" });
+                // A recovery rejection cannot prove the ORIGINAL identity had no effect
+                // (including operation_clock_window). Keep its intent fenced.
+                operationOutcome: dispatched && (signed || response.status >= 500) ? "unknown" : "rejected" });
             const result = noBody ? undefined : await boundedJSON(response, budget.signal);
             check(); return result;
           } finally { if (!response.body?.locked) await response.body?.cancel().catch(() => {}); }
@@ -243,6 +264,24 @@ export function appTimers(connection: MdbaseConnection): ConnectAppTimersPort {
       const timers = body.timers.map(t => { segment(t.id, ID); return { id: t.id, fire_at: desired({ criterion_id: c, fire_at: t.fire_at }).fire_at }; });
       if (new Set(timers.map(t => t.id)).size !== timers.length) throw fail();
       return run(o, true, request => request(path, "POST", { criterion_id: c, timers }));
+    },
+    reconcileWithReceipt: (ns, body, o) => {
+      const path = `${prefix}/${segment(ns, NS)}/reconcile`, c = body.criterion_id;
+      const { protocol_version: version, operation_id: operationId, expected_revision: revision } = body.recovery;
+      segment(operationId, UUID7);
+      if (version !== 1 || !Number.isSafeInteger(revision) || revision < 0 || revision === Number.MAX_SAFE_INTEGER
+        || typeof c !== "string" || !c.length || c.length > 100 || !Array.isArray(body.timers) || body.timers.length > 10_000) throw fail();
+      const timers = body.timers.map(t => { segment(t.id, ID); return { id: t.id, fire_at: desired({ criterion_id: c, fire_at: t.fire_at }).fire_at }; });
+      if (new Set(timers.map(t => t.id)).size !== timers.length) throw fail();
+      const input = { criterion_id: c, timers, recovery: { protocol_version: 1, operation_id: operationId, expected_revision: revision } };
+      return run(o, true, request => request(path, "POST", input), true);
+    },
+    lookupOperation: (ns, operationId, o) => {
+      const path = `${prefix}/${segment(ns, NS)}/operations/${segment(operationId, UUID7)}`;
+      return run(o, false, request => request(path), true).catch(() => {
+        // Failure of this READ proves nothing about the ORIGINAL mutation.
+        throw connectError("operation_failed", "Original timer operation could not be recovered.", { operationOutcome: "unknown" });
+      });
     },
     registerWebPush: o => registration({ ...o, criteria: o.criteria ? [...o.criteria] : undefined }, false),
     unregisterWebPush: (worker, o) => unregister(false, worker, o),
