@@ -24,6 +24,7 @@ import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
 import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
+import { registerPrivateCollectionRoutes } from "./features/next/private-collections.js";
 import { registerNextHostedRoutes } from "./features/next/hosted-routes.js";
 import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
 import { registerLabFixtureRoutes } from "./features/next/lab-fixture-routes.js";
@@ -537,6 +538,7 @@ export async function buildApp(options: BuildOptions) {
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
     if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, tailscaleAuth: options.tailscaleAuth });
+    if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
     registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
