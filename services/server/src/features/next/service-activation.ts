@@ -34,7 +34,8 @@ async function accepted(response: Response): Promise<boolean> {
 export async function activatePendingServices(
   db: DatabaseQueryable,
   deployments: NonNullable<NextControlPlaneConfig["cloudCopyBootstrap"]>,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  collectionId?: string
 ): Promise<void> {
   const pending = await db.query<{ collection_id: string; kind: ServiceKind; batch_id: string }>(
     `SELECT device.collection_id::text, device.kind, latest.id::text AS batch_id FROM next_service_devices device
@@ -47,7 +48,8 @@ export async function activatePendingServices(
        AND parent.sync = 'cloud_copy' AND parent.left_sync_at IS NULL
        AND EXISTS (SELECT 1 FROM next_policy_batches batch WHERE batch.collection_id = device.collection_id
          AND batch.seq = 1 AND batch.state = 'appended' AND batch.lost_at IS NULL)
-     ORDER BY device.activation_next_at, device.collection_id, device.kind LIMIT $1`, [LIMIT]
+     ${collectionId ? "AND device.collection_id = $2::uuid" : ""}
+     ORDER BY device.activation_next_at, device.collection_id, device.kind LIMIT $1`, collectionId ? [LIMIT, collectionId] : [LIMIT]
   );
   await Promise.all(pending.rows.map(async ({ collection_id: collection, kind, batch_id: batch }) => {
     const deployment = deployments[kind];

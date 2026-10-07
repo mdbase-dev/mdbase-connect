@@ -36,6 +36,20 @@ describePg("service activation persisted retries (dedicated local Postgres)", ()
     }
     return collection;
   }
+  it("foreground scope bypasses an older unrelated catch-up queue", async () => {
+    const backlog = await Promise.all([fixture(),fixture(),fixture()]);
+    for (const id of backlog) await db.query("UPDATE next_service_devices SET activation_next_at=now()-interval '1 day' WHERE collection_id=$1",[id]);
+    const target=await fixture();
+    const sent:string[]=[];
+    await activatePendingServices(db,deployments,async (_url,init)=> {
+      sent.push(JSON.parse(String(init?.body)).collection as string);return Response.json({activated:true});
+    },target);
+    expect(sent).toEqual([target,target]);
+    expect((await db.query("SELECT 1 FROM next_service_devices WHERE collection_id=$1 AND activation_batch_id>0",[target])).rows).toHaveLength(2);
+    for (const id of backlog) expect((await db.query("SELECT 1 FROM next_service_devices WHERE collection_id=$1 AND activation_batch_id=0",[id])).rows).toHaveLength(2);
+    // Keep independent test fixtures quiet after proving the exact scope.
+    for (const id of backlog) await activatePendingServices(db,deployments,async()=>Response.json({activated:true}),id);
+  });
   it("only activates after appended genesis and acknowledges each role once", async () => {
     const collection = await fixture("sending"); let calls = 0;
     const fetcher: typeof fetch = async () => { calls++; return Response.json({ activated: true }); };

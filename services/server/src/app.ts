@@ -244,7 +244,7 @@ export async function buildApp(options: BuildOptions) {
         2_000,
         Date.now,
         serviceDeployments
-          ? () => activatePendingServices(options.db, serviceDeployments)
+          ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId)
           : undefined
       )
     : undefined;
