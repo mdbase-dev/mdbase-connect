@@ -122,7 +122,8 @@ export class PolicyEmitter {
     private readonly signer: PolicySigner,
     private readonly onError: (error: unknown, collectionId?: string) => void = () => undefined,
     private readonly pollIntervalMs = 2_000,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly activateServices: () => Promise<void> = async () => undefined
   ) {}
 
   start(): void {
@@ -181,6 +182,9 @@ export class PolicyEmitter {
         this.onError(error, collectionId);
       }
     }
+    // Durable service-device rows select only verified appended genesis batches.
+    // Retry activation even when there was no new policy work this poll.
+    await this.activateServices();
     return appended;
   }
 

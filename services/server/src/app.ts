@@ -23,6 +23,7 @@ import { HostedAuthorityRegistry } from "./hosted.js";
 import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
+import { activatePendingServices } from "./features/next/service-activation.js";
 import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
 import { registerAccountKeyRoutes } from "./features/next/account-keys.js";
 import { registerPrivateCollectionRoutes } from "./features/next/private-collections.js";
@@ -233,12 +234,18 @@ export async function buildApp(options: BuildOptions) {
       )
     : undefined;
 
+  const serviceDeployments = options.nextControlPlane?.cloudCopyBootstrap;
   const nextPolicyEmitter = options.nextControlPlane
     ? new PolicyEmitter(
         options.db,
         new LogServiceClient(options.nextControlPlane.logService),
         loadPolicySigner(options.nextControlPlane, Date.now()),
-        (error, collectionId) => app.log.error({ err: error, collectionId }, "mdbase-next policy emission failed")
+        (error, collectionId) => app.log.error({ err: error, collectionId }, "mdbase-next policy emission failed"),
+        2_000,
+        Date.now,
+        serviceDeployments
+          ? () => activatePendingServices(options.db, serviceDeployments)
+          : undefined
       )
     : undefined;
 
