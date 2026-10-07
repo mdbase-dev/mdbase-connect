@@ -1,0 +1,7 @@
+{
+  "reason": "Represent the existing mobile/app-runtime policy tags exactly for authenticated per-installation registration. One registered-device kind type replaces desktop/CLI-only copies, and one canonical numeric mapper replaces the peer tuple's incorrect non-desktop-to-CLI fallback while preserving policy wire bytes. The route imports only that kind type. No new package, endpoint, generic adapter, or authorization fallback; global/package/public-surface ceilings unchanged.",
+  "growth": {
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 2
+  }
+}

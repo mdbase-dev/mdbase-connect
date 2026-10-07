@@ -11,11 +11,11 @@ import { validateLabFixtureConfig, type LabFixtureConfig } from "./lab-fixture-c
 import { LogServiceClient, LogServiceError, LOG_TOKEN_LIFETIME_MS } from "./log-service-client.js";
 import { ed25519PublicKeyObject, loadPolicySigner, type NextControlPlaneConfig } from "./policy-keys.js";
 import { PolicyEmitter, registerNextCollection } from "./policy-outbox.js";
-import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
+import { domainHash, encodeCbor, uuidBytes, type RegisteredDeviceKind } from "./policy-wire.js";
 
 const TTL_MS = 2 * 60 * 60_000;
 interface Proof { fixture_id: string; device_id: string; challenge: string; sig: string; label?: string }
-interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: "desktop" | "cli" }
+interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: RegisteredDeviceKind }
 interface Fixture { owner_user_id: string; connector_id: string; device_id: string; label: string; expires_at: Date; deleting_at: Date | null; deleted_at: Date | null }
 class FixtureError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }

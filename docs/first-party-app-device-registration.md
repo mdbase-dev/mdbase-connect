@@ -1,0 +1,17 @@
+# First-party app device kinds
+
+Coordinator 2026-10-07T11:58Z approved clients authorship (control retired) of genuine mobile (wire1) for Capacitor and app-runtime (wire2) for web app per-installation registration. Desktop0/CLI3 remain unchanged; hosted4/escrow5/recovery6 are still NOT registrable through the connector device route. No application grant or same-account inference substitutes for the authenticating host's dedicated connector credential. Never adopt a daemon's connector/device/private keys.
+
+`POST /v1/next/devices` still requires real connector ownership, fresh one-use challenge and Ed25519 proof over the fixed `mdbase/v1/cp-enrol` transcript, with exact sign/KEM/Noise public keys. One device per connector and immutable keys remain. Kind never authorizes membership, grants, readiness, key custody or plaintext serving. Existing desktop policy/limits unchanged. Wire kinds already existed; no slot allocation or policy re-encoding change.
+
+Migration0055 replaces ONLY the named kind CHECK with desktop/mobile/app-runtime/cli; no old SQL/checksum edits, row rewrites, identity adoption or credential reset. Old servers still read these textual values; a deployment rollback cannot make their old registration parser accept new app kinds. Do not drop the extended CHECK with existing app rows. The memory DB adapter names the original fixed CHECK exactly like PostgreSQL so the same migration replaces it instead of layering a still-desktop-only check. It does not bypass either constraint; real PostgreSQL tests independently qualify it.
+
+Bootstrap, exact enrolment/log-token, approval-peer metadata and route types preserve actual app kinds. Canonical numeric mapping is reused by policy encoding and peer tuples, replacing the old `non-desktop => CLI3` fallback. Routing ordering stays online first, desktop/CLI priority, activity, UUID. Metadata routing remains non-authoritative; no automatic provider switch.
+
+Qualification on Node24.19.0:
+- Full `pnpm ci:local --node` green (install/version/release/audit/generated/architecture/build/typecheck/test/package audit). Exact growth declaration permits only one relative type import and two internal server exports; no global/package budgets widened.
+- Rust CI equivalents through rcargo: workspace clippy/tests771 passed,117 existing ignored, formatting/feature graph + four retry/harness tests pass. No Rust/dependency/pin changes.
+- 87 focused cases all actually run, including fresh dedicated loopback PostgreSQL registration, single-use/immutable/connector-binding/reserved-kind negatives, acknowledged exact app enrolment before token mint (kind drift refuses), mobile/app-runtime peer kind1/2 (kind drift refuses), legacy policy fixture byte equality, migration memory CHECK and existing route ordering.
+- `pnpm e2e --no-prepare` local connector/control/browser/grant MVP path passes using freshly rcargo-built/pulled CLI and prebuilt Node packages (not local Cargo); private loopback fixtures only.
+
+This is CP kind support, not the protected native cp-enrol/Noise-custody implementation, deployed registration, paired signed-policy activation, TaskNotes/provider/AK1 activation, mobile/OPFS/power-loss or physical durability acceptance. The app SDK/native signer still requires its separate coordinator-approved fixed purpose and independent protected Noise identity. No generic signer, seed export, KEM/Noise key reuse or new public-key discovery API.

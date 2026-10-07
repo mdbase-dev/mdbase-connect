@@ -25,12 +25,12 @@ import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
-import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
+import { domainHash, encodeCbor, uuidBytes, type RegisteredDeviceKind } from "./policy-wire.js";
 
 const NIL = "00000000-0000-0000-0000-000000000000";
 
 interface Body { device_id: string; challenge: string; sig: string }
-interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: "desktop" | "cli" }
+interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: RegisteredDeviceKind }
 
 class Refused extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }

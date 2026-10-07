@@ -80,6 +80,12 @@ export async function openDatabase(
     // pg-mem cannot execute this one PostgreSQL locking CTE. Recognize its
     // private marker and preserve equivalent single-process test semantics.
     memory.public.interceptQueries((sql) => {
+      // pg-mem does not use PostgreSQL's automatic CHECK name. Name ONLY the
+      // original fixed device-kind CHECK so migration0055 replaces it exactly,
+      // without editing historical SQL/checksums or weakening either constraint.
+      if (sql.includes("CREATE TABLE next_devices (") && sql.includes("kind text NOT NULL CHECK (kind IN ('desktop', 'cli'))")) {
+        return memory.public.many(sql.replace("kind text NOT NULL CHECK (kind IN ('desktop', 'cli'))", "kind text NOT NULL CONSTRAINT next_devices_kind_check CHECK (kind IN ('desktop', 'cli'))"));
+      }
       if (sql.trimStart().startsWith("/* mdbase:timer-authority-current:v1 */")) {
         // pg-mem accepts FOR SHARE but not its OF alias list. It cannot qualify
         // locks/currentness; real PostgreSQL HTTP wait/revocation tests do that.

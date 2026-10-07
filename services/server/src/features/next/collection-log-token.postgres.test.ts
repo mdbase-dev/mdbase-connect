@@ -9,7 +9,7 @@ import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "
 import { LOG_TOKEN_LIFETIME_MS, LogServiceClient } from "./log-service-client.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
-import { decodeCbor, type Decoded } from "./policy-wire.js";
+import { decodeCbor, type Decoded, type RegisteredDeviceKind } from "./policy-wire.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -46,7 +46,7 @@ describePg("collection log-token refresh", () => {
     await admin?.end();
   });
 
-  async function identity(user = randomUUID()) {
+  async function identity(user = randomUUID(), kind: RegisteredDeviceKind = "desktop") {
     const connector = { id: randomUUID(), user_id: user };
     const token = randomUUID();
     const device = randomUUID();
@@ -57,14 +57,14 @@ describePg("collection log-token refresh", () => {
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Daemon',$3)", [connector.id, user, tokenHash(token)]);
     const reg = await issueDeviceChallenge(db, connector.id);
     await registerDevice(db, connector, {
-      device_id: device, kind: "desktop", sign_pk: hex(signPk), kem_pk: hex(kemPk), noise_pk: hex(noisePk), challenge: reg.challenge,
+      device_id: device, kind, sign_pk: hex(signPk), kem_pk: hex(kemPk), noise_pk: hex(noisePk), challenge: reg.challenge,
       sig: hex(sign(null, deviceRegistrationDigest({ challenge: Buffer.from(reg.challenge, "hex"), connectorId: connector.id, deviceId: device, signPk, kemPk, noisePk }), key))
     });
-    return { connector, device, key, signPk, kemPk, noisePk, headers: { authorization: `Bearer ${token}` } };
+    return { kind, connector, device, key, signPk, kemPk, noisePk, headers: { authorization: `Bearer ${token}` } };
   }
   type Who = Awaited<ReturnType<typeof identity>>;
   const enrol = (who: Who, kemPk = who.kemPk) => ({
-    op: "device-enrol" as const, device: who.device, account: who.connector.user_id, kind: "desktop" as const,
+    op: "device-enrol" as const, device: who.device, account: who.connector.user_id, kind: who.kind,
     signPublicKey: who.signPk, kemPublicKey: kemPk, noisePublicKey: who.noisePk
   });
 
@@ -128,6 +128,15 @@ describePg("collection log-token refresh", () => {
       expect(Buffer.from(field(d, 2) as Uint8Array)).toEqual(who.signPk);
       expect(hex(field(d, 5) as Uint8Array)).toBe(c.replaceAll("-", ""));
     }
+  });
+
+  it.each(["mobile", "app-runtime"] as const)("requires acknowledged exact %s enrolment before token refresh", async kind => {
+    const who = await identity(randomUUID(), kind), c = await collection(who, "private", [who], false);
+    expect((await refresh(who, c, await proof(who, c))).json().error.code).toBe("not_enrolled");
+    await appendPending(c);
+    expect((await refresh(who, c, await proof(who, c))).statusCode).toBe(200);
+    await db.query("UPDATE next_devices SET kind = 'desktop' WHERE id = $1", [who.device]);
+    expect((await refresh(who, c, await proof(who, c))).json().error.code).toBe("not_enrolled");
   });
 
   it("a member's own enrolled device refreshes; a device enrolled for another account does not", async () => {
