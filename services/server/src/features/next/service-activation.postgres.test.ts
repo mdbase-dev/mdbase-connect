@@ -63,6 +63,61 @@ describePg("service activation persisted retries (dedicated local Postgres)", ()
     expect(resumed).toEqual(["escrow.test"]);
     expect(seen.sort()).toEqual(["escrow.test", "hosted.test"]);
   });
+  async function batch(collection: string, seq: number, state = "appended") {
+    return (await db.query<{ id: string }>(`INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state)
+      VALUES($1,$2,$3,$4,$2,$5) RETURNING id::text`, [collection,seq,Buffer.alloc(32),Buffer.from([2]),state])).rows[0]!.id;
+  }
+  it("wakes on committed enrolment and on a repaired batch at a reused log position", async () => {
+    const collection = await fixture(); let calls = 0;
+    const fetcher: typeof fetch = async () => { calls++; return Response.json({ activated: true }); };
+    await activatePendingServices(db,deployments,fetcher); expect(calls).toBe(2);
+    const pending = await batch(collection,3,"sending");
+    await activatePendingServices(db,deployments,fetcher); expect(calls).toBe(2);
+    await db.query("UPDATE next_policy_batches SET state='appended' WHERE id=$1", [pending]);
+    await activatePendingServices(db,deployments,fetcher); expect(calls).toBe(4);
+    await db.query("UPDATE next_policy_batches SET lost_at=now() WHERE id=$1", [pending]);
+    await batch(collection,3);
+    await activatePendingServices(db,deployments,fetcher); expect(calls).toBe(6);
+    await activatePendingServices(db,deployments,fetcher); expect(calls).toBe(6);
+  });
+  it("legacy one-time acknowledgments catch up to a captured batch once", async () => {
+    const collection = await fixture();
+    await db.query("UPDATE next_service_devices SET activated_at=now() WHERE collection_id=$1",[collection]);
+    await batch(collection,3); let calls=0;
+    const fetcher: typeof fetch = async () => { calls++; return Response.json({activated:true}); };
+    await activatePendingServices(db,deployments,fetcher); expect(calls).toBe(2);
+    await activatePendingServices(db,deployments,fetcher); expect(calls).toBe(2);
+  });
+  it("a new committed batch bypasses previous-generation backoff", async () => {
+    const collection = await fixture();
+    await activatePendingServices(db,deployments,async () => new Response(null,{status:503}));
+    await db.query("UPDATE next_service_devices SET activation_next_at=now()+interval '5 minutes' WHERE collection_id=$1", [collection]);
+    const id = await batch(collection,3);
+    let calls = 0;
+    await activatePendingServices(db,deployments,async () => { calls++; return Response.json({ activated: true }); });
+    expect(calls).toBe(2);
+    expect((await db.query<{ ack: string; activation_attempts: number }>(
+      "SELECT activation_batch_id::text AS ack,activation_attempts FROM next_service_devices WHERE collection_id=$1", [collection])).rows)
+      .toEqual([{ack:id,activation_attempts:0},{ack:id,activation_attempts:0}]);
+  });
+  it.each([true,false])("an old HTTP completion (%s) cannot acknowledge or back off a newer batch", async (ok) => {
+    const collection = await fixture();
+    let release!: () => void; let entered!: () => void; let calls = 0;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const ready = new Promise<void>((resolve) => { entered = resolve; });
+    const old = activatePendingServices(db,deployments,async () => {
+      if (++calls===2) entered();
+      await gate;
+      return ok ? Response.json({activated:true}) : new Response(null,{status:503});
+    });
+    await ready;
+    const id = await batch(collection,3);
+    await activatePendingServices(db,deployments,async () => Response.json({ activated: true }));
+    release(); await old;
+    expect((await db.query<{ ack: string; attempt: string; activation_attempts: number }>(
+      "SELECT activation_batch_id::text AS ack,activation_attempt_batch_id::text AS attempt,activation_attempts FROM next_service_devices WHERE collection_id=$1", [collection])).rows)
+      .toEqual([{ack:id,attempt:id,activation_attempts:0},{ack:id,attempt:id,activation_attempts:0}]);
+  });
   it("left-sync and lost-genesis rows never activate", async () => {
     const left = await fixture(), lost = await fixture();
     await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [left]);
