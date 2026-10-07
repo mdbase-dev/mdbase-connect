@@ -28,7 +28,8 @@ suite("grant narrowing HTTP PostgreSQL serialization", () => {
     parsed.searchParams.set("options", `-csearch_path=${schema}`);
     pool = new pg.Pool({ connectionString: parsed.toString(), max: 5, statement_timeout: 5000 });
     // Retained, precommitted policies, not fresh issuance or a gate override.
-    await pool.query(`CREATE TABLE users(id uuid PRIMARY KEY, email text UNIQUE, name text, suspended_at timestamptz);
+    await pool.query(`CREATE TABLE users(id uuid PRIMARY KEY, email text UNIQUE, name text, suspended_at timestamptz,
+        account_backend text NOT NULL DEFAULT 'legacy');
       CREATE TABLE applications(id uuid PRIMARY KEY, requirements jsonb, notifications jsonb,
         provisions jsonb, family_identity text, manifest_digest text, application_declaration jsonb);
       ALTER TABLE applications ADD COLUMN name text DEFAULT 'Race fixture', ADD COLUMN distribution text DEFAULT 'portable',
@@ -42,7 +43,8 @@ suite("grant narrowing HTTP PostgreSQL serialization", () => {
         hosted_replica_id uuid, hosted_collection_id uuid, operations jsonb, encryption jsonb, scope jsonb,
         file_capability jsonb, application_origin text, proof_public_key text, application_authorization jsonb,
         activated_at timestamptz, revoked_at timestamptz, revocation_policy_sequence bigint,
-        revocation_confirmed_at timestamptz, notification_criteria jsonb DEFAULT '[]', created_at timestamptz DEFAULT now());
+        revocation_confirmed_at timestamptz, notification_criteria jsonb DEFAULT '[]', created_at timestamptz DEFAULT now(),
+        next_noise jsonb);
       CREATE TABLE access_tokens(grant_id uuid, revoked_at timestamptz);
       CREATE TABLE refresh_tokens(grant_id uuid, revoked_at timestamptz);
       CREATE TABLE audit_events(id uuid, user_id uuid, event_type text, subject_id uuid, metadata jsonb)`);

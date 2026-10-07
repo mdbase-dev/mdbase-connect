@@ -10,11 +10,14 @@ import {
   type FileAction,
   type GrantEncryption,
   type GrantPolicy,
+  type NextNoiseAuthorization,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
   isSupportedOperationTransport,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
+import { nextNoiseConsentBinding } from "../next/consent-transport.js";
+import { readAccountBackend } from "../account/backend-routes.js";
 import { requireCollectionAction, resolveLocalCollectionAccess, type CollectionAccessContext } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
 import { planCollectionGrant } from "../../grant-planner.js";
@@ -54,6 +57,7 @@ export async function approvePortalAuthorization(
   let applicationDeclarationId = "";
   let applicationManifestDigest = "";
   let grant: GrantPolicy;
+  let nextNoise: NextNoiseAuthorization | undefined;
   let grantAccess: CollectionAccessContext;
   try {
     await connection.query("BEGIN");
@@ -222,12 +226,21 @@ export async function approvePortalAuthorization(
     const operations = plan.operations;
     assertCollectionSupportsOperations(selected.spec_version, operations);
     const scope = plan.scope;
-    if (!selected.relay_public_key) {
+    const backend = await readAccountBackend(connection, input.userId);
+    if (backend === "next") {
+      const noiseDevice = relay.nextNoiseConsentDevice(selected.connector_id, authorityGeneration);
+      if (!noiseDevice) throw new RelayUnavailableError();
+      nextNoise = await nextNoiseConsentBinding(connection, {
+        deviceId: noiseDevice, connectorId: selected.connector_id, accountId: input.userId,
+        collectionId: selected.local_id, authorizationId: input.requestId, proof: pending.application_authorization
+      });
+      if (relay.nextNoiseConsentDevice(selected.connector_id, authorityGeneration) !== noiseDevice) throw new RelayUnavailableError();
+    } else if (!selected.relay_public_key) {
       throw new RequestValidationError(
         "Encrypted application authorization requires an up-to-date connector."
       );
     }
-    const encryption: GrantEncryption = {
+    const encryption: GrantEncryption | undefined = nextNoise ? undefined : {
       protocol_version: GRANT_ENCRYPTION_PROTOCOL_VERSION,
       suite: RELAY_ENCRYPTION_SUITE,
       key_id: `enc_${randomUUID()}`,
@@ -235,7 +248,7 @@ export async function approvePortalAuthorization(
       connector_id: selected.connector_id,
       collection_id: selected.local_id,
       application_agreement_public_key: pending.application_agreement_public_key,
-      connector_agreement_public_key: selected.relay_public_key
+      connector_agreement_public_key: selected.relay_public_key!
     };
     const applicationInstallationId =
       pending.application_authorization.binding.application_installation_id;
@@ -250,9 +263,9 @@ export async function approvePortalAuthorization(
          (id, user_id, application_id, collection_id, operations, scope, encryption,
           file_capability, application_origin, notification_criteria,
           application_authorization, application_installation_id, activated_at,
-          people_permissions)
+          people_permissions, next_noise)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb,
-               $9, $10::jsonb, $11::jsonb, $12, NULL, $13::jsonb)
+               $9, $10::jsonb, $11::jsonb, $12, NULL, $13::jsonb, $14::jsonb)
        RETURNING created_at`,
       [
         grantId,
@@ -267,7 +280,8 @@ export async function approvePortalAuthorization(
         JSON.stringify(pending.notifications.criteria),
         JSON.stringify(pending.application_authorization),
         applicationInstallationId,
-        plan.peoplePermissions ? JSON.stringify(plan.peoplePermissions) : null
+        plan.peoplePermissions ? JSON.stringify(plan.peoplePermissions) : null,
+        nextNoise ? JSON.stringify(nextNoise) : null
       ]
     );
     await connection.query(
@@ -306,7 +320,8 @@ export async function approvePortalAuthorization(
       collection_name: selected.display_name,
       notification_criteria: pending.notifications.criteria,
       created_at: new Date(inserted.rows[0].created_at).toISOString(),
-      encryption,
+      ...(encryption ? { encryption } : {}),
+      ...(nextNoise ? { next_noise: nextNoise } : {}),
       ...(plan.fileCapability ? { file_capability: plan.fileCapability } : {}),
       ...(pending.application_declaration == null
         ? {}

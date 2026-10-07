@@ -9,6 +9,7 @@ import type { DatabasePool } from "./db.js";
 import { ConnectorOperationError } from "./relay-errors.js";
 import { normalizedApplicationOrigin } from "./features/authorizations/redirects.js";
 import { clientFingerprint, grantCapabilityGroups, withAccountId } from "./features/next/devices.js";
+import { currentNextNoiseAuthorization, parseNextNoiseAuthorization } from "./features/next/consent-transport.js";
 
 const MAX_POLICY_SEQUENCE = BigInt(Number.MAX_SAFE_INTEGER);
 const POLICY_STAGE_DELAY_MS = 2_000;
@@ -193,6 +194,7 @@ export interface PolicyGrantSource {
   notification_criteria: unknown[];
   created_at: Date | string;
   encryption?: unknown | null;
+  next_noise?: unknown | null;
   file_capability?: unknown | null;
   application_authorization: ApplicationAuthorizationProof;
   client_pk?: Buffer | null;
@@ -228,6 +230,7 @@ export function normalizePolicyGrant(
     notification_criteria: grant.notification_criteria,
     created_at: policyGrantCreatedAtIso(grant.created_at),
     ...(grant.encryption == null ? {} : { encryption: grant.encryption }),
+    ...(grant.next_noise == null ? {} : { next_noise: parseNextNoiseAuthorization(grant.next_noise) }),
     ...(grant.file_capability == null ? {} : { file_capability: grant.file_capability }),
     // Retain the entire registered normalized JSON, never reconstruct split columns.
     ...(!declarationEvidence || grant.application_declaration == null
@@ -239,8 +242,8 @@ export function normalizePolicyGrant(
 
 /**
  * Fields a `next_device_v1` daemon needs for its access list (interface note
- * 2026-10-04-control-daemon-grant-feed-and-relay.md §3). Absent fields mean the grant
- * works only through the envelope compatibility layer.
+ * 2026-10-04-control-daemon-grant-feed-and-relay.md §3). Legacy grants remain
+ * explicitly encrypted; missing dependencies never authorize a Noise grant.
  */
 function nextDeviceGrantFields(grant: { operations: string[]; client_pk: Buffer | null; client_key_signature: Buffer | null; application_authorization: ApplicationAuthorizationProof }): Record<string, unknown> {
   const capabilities = grantCapabilityGroups(grant.application_authorization.binding.contracts.semantic_capabilities, grant.operations);
@@ -262,7 +265,8 @@ export async function buildPolicySnapshot(
   mode: PolicyMode = "lease_v1",
   declarationEvidence = false,
   nextDevice = false,
-  nextAccount = false
+  nextAccount = false,
+  noiseDevice?: string
 ): Promise<PolicySnapshot | null> {
   if (nextAccount && (!nextDevice || mode !== "lease_v1")) {
     throw new ConnectorOperationError("capability_contract_incompatible", "Account-bound grants require next devices and a negotiated policy lease.");
@@ -323,6 +327,7 @@ export async function buildPolicySnapshot(
       application_project_url: string | null; application_origin: string;
       application_icon: string | null; local_id: string; collection_name: string;
       operations: string[]; scope: GrantScope; encryption: unknown | null;
+      next_noise: unknown | null;
       file_capability: unknown | null;
       application_authorization: ApplicationAuthorizationProof;
       application_declaration: unknown | null;
@@ -336,16 +341,19 @@ export async function buildPolicySnapshot(
                    ELSE g.application_origin END AS application_origin,
               a.icon AS application_icon,
               c.local_id, c.display_name AS collection_name, g.operations, g.scope,
-              g.encryption, g.file_capability, g.application_authorization,
+              g.encryption, g.next_noise, g.file_capability, g.application_authorization,
               a.application_declaration,
               g.notification_criteria, g.created_at,
               ${nextDevice ? "k.client_pk, k.signature AS client_key_signature" : "NULL::bytea AS client_pk, NULL::bytea AS client_key_signature"}
        FROM grants g
        JOIN collections c ON c.id = g.collection_id
        JOIN applications a ON a.id = g.application_id
+       JOIN users gu ON gu.id = g.user_id
        ${nextDevice ? "LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id" : ""}
        WHERE c.connector_id = $1 AND g.revoked_at IS NULL
-         AND g.activated_at IS NOT NULL
+         AND g.activated_at IS NOT NULL AND gu.suspended_at IS NULL
+         AND ((gu.account_backend = 'legacy' AND g.next_noise IS NULL)
+           OR (gu.account_backend = 'next' AND g.next_noise IS NOT NULL))
          AND g.scope->>'access' = 'full_collection'
          AND g.scope->'contracts' = '[]'::jsonb
        ORDER BY g.id`,
@@ -355,11 +363,24 @@ export async function buildPolicySnapshot(
     if (sequenceValue > MAX_POLICY_SEQUENCE) throw new PolicySequenceExhaustedError();
     const sequence = Number(sequenceValue);
     const leaseIssuedAtMs = new Date(active.rows[0].database_now).getTime();
-    const policyGrants = grants.rows.map((grant) => {
+    const policyGrants: Array<Record<string, unknown>> = [];
+    for (const grant of grants.rows) {
+      if (grant.next_noise !== null) {
+        if (!nextDevice || !nextAccount || mode !== "lease_v1" || !noiseDevice
+            || !grant.client_pk || !grant.client_key_signature || grant.encryption
+            || grant.application_authorization.binding.protocol_version !== 5
+            || grant.application_authorization.binding.contracts.semantic_capabilities !== 2) {
+          throw new ConnectorOperationError("capability_contract_incompatible", "Noise policy requires every current device, account, lease and attested client dependency.");
+        }
+        const descriptor = await currentNextNoiseAuthorization(connection, grant.next_noise, grant.user_id, grant.local_id);
+        if (descriptor.connector_id !== connectorId || descriptor.device_id !== noiseDevice) {
+          throw new ConnectorOperationError("capability_contract_incompatible", "The serving Noise device does not match this retained consent.");
+        }
+      }
       const normalized = normalizePolicyGrant({ ...grant, collection_id: grant.local_id }, declarationEvidence);
       const projected = nextDevice ? { ...normalized, ...nextDeviceGrantFields(grant) } : normalized;
-      return nextAccount ? withAccountId(projected, grant.user_id) : projected;
-    });
+      policyGrants.push(nextAccount ? withAccountId(projected, grant.user_id) : projected);
+    }
     await observeConnectorPolicyStage("transaction_commit", () => connection.query("COMMIT"));
     if (mode === "legacy_ack_v0") {
       return {

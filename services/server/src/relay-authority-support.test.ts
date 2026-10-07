@@ -8,6 +8,7 @@ function fixture() {
   const hub = Object.create(RelayHub.prototype) as RelayHub;
   const sessions = new Map<string, any>();
   Object.assign(hub, { connectors: sessions, closed: false,
+    db: { query: async () => ({ rows: [{ user_id: "11111111-1111-4111-8111-111111111111", next_noise: null, account_backend: "legacy" }] }) },
     currentGeneration: async (id: string) => sessions.get(id)?.generation ?? null });
   const current = () => ({ ready: true, generation: "1", socket: { readyState: 1 }, policy: { isStopped: false },
     capabilities: [APPLICATION_DECLARATION_EVIDENCE_CAPABILITY, APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY],
@@ -101,7 +102,7 @@ describe("exact selected local authority", () => {
         if (state === "unready") selected.ready = false;
         if (state === "stopped") selected.policy.isStopped = true;
         if (state === "generation") selected.generation = "2";
-        return { rows: [{ user_id: "11111111-1111-4111-8111-111111111111" }] };
+        return { rows: [{ user_id: "11111111-1111-4111-8111-111111111111", next_noise: null, account_backend: "legacy" }] };
       } },
       sendToConnector: async () => { sent = true; return { ok: true }; }
     });

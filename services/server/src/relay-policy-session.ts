@@ -210,6 +210,8 @@ export interface ExactPolicyAuthority {
   nextDevice?: boolean;
   /** Explicit next_account_v1 mode; never inferred from next_device_v1 alone. */
   nextAccount?: boolean;
+  /** Actual bound owner device, only with explicit Noise-consent negotiation. */
+  noiseDevice?: string;
   connectorId: string;
   generation: string;
   isStillCurrent(): boolean;
@@ -240,7 +242,8 @@ export class ExactPolicyPublisher {
       this.mode,
       authority.declarationEvidence === true,
       authority.nextDevice === true,
-      authority.nextAccount === true
+      authority.nextAccount === true,
+      authority.noiseDevice
     ));
     if (!message || !await observeConnectorPolicyStage(
       "generation_after_build", () => this.isCurrent(authority)

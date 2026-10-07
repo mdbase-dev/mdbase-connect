@@ -21,23 +21,6 @@ pub struct RemotePolicyAuthority {
     pub fresh: bool,
 }
 
-/// Digest the exact normalized policy authority represented by the wire type.
-/// Array order is normalized by grant ID; serde's GrantPolicy representation
-/// decides which optional fields are present, identically to snapshot hashing.
-pub fn canonical_policy_authority_digest(
-    connector_id: Uuid,
-    grants: &[GrantPolicy],
-) -> Result<String, ConnectError> {
-    let mut grants = grants.to_vec();
-    grants.sort_by_key(|grant| grant.id);
-    let body = serde_json::json!({
-        "connector_id": connector_id,
-        "grants": grants,
-    });
-    let canonical = serde_jcs::to_vec(&body)?;
-    Ok(format!("sha256:{:x}", Sha256::digest(canonical)))
-}
-
 #[derive(Debug)]
 struct CurrentPolicySnapshot {
     sequence: u64,
@@ -346,8 +329,8 @@ impl CollectionRegistry {
                            (id, application_id, collection_id, operations, scope, application_name,
                             application_distribution, application_homepage, application_project_url,
                             application_origin, application_icon, collection_name, created_at, encryption,
-                            file_capability, notification_criteria, application_authorization, application_declaration)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                            file_capability, notification_criteria, application_authorization, application_declaration, account_id)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                     )?;
                     for grant in &grants {
                         statement.execute(params![
@@ -377,6 +360,7 @@ impl CollectionRegistry {
                             serde_json::to_string(&grant.notification_criteria)?,
                             serde_json::to_string(&grant.application_authorization)?,
                             grant.application_declaration.as_ref().map(serde_json::to_string).transpose()?,
+                            grant.account_id.map(|id| id.to_string()),
                         ])?;
                     }
                 }
@@ -412,8 +396,8 @@ impl CollectionRegistry {
                        (id, application_id, collection_id, operations, scope, application_name,
                         application_distribution, application_homepage, application_project_url,
                         application_origin, application_icon, collection_name, created_at, encryption,
-                        file_capability, notification_criteria, application_authorization, application_declaration)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                        file_capability, notification_criteria, application_authorization, application_declaration, account_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
                      ON CONFLICT(id) DO UPDATE SET
                        application_id = excluded.application_id,
                        collection_id = excluded.collection_id,
@@ -432,6 +416,7 @@ impl CollectionRegistry {
                        notification_criteria = excluded.notification_criteria,
                        application_authorization = excluded.application_authorization,
                        application_declaration = excluded.application_declaration,
+                       account_id = excluded.account_id,
                        updated_at = CURRENT_TIMESTAMP",
                     params![
                         grant.id.to_string(),
@@ -460,6 +445,7 @@ impl CollectionRegistry {
                         serde_json::to_string(&grant.notification_criteria)?,
                         serde_json::to_string(&grant.application_authorization)?,
                         grant.application_declaration.as_ref().map(serde_json::to_string).transpose()?,
+                        grant.account_id.map(|id| id.to_string()),
                     ],
                 )?;
                 Ok(())
@@ -801,7 +787,7 @@ impl CollectionRegistry {
                             application_name, application_distribution, application_homepage,
                             application_project_url, application_origin, application_icon,
                             collection_name, notification_criteria, created_at, encryption,
-                            file_capability, application_authorization, application_declaration
+                            file_capability, application_authorization, application_declaration, account_id
                      FROM grants ORDER BY id",
                 )?;
                 let grants = statement
@@ -825,12 +811,13 @@ impl CollectionRegistry {
                             row.get::<_, Option<String>>(15)?,
                             row.get::<_, String>(16)?,
                             row.get::<_, Option<String>>(17)?,
+                            row.get::<_, Option<String>>(18)?,
                         ))
                     })?
                     .map(|row| {
                         let row = row?;
                         Ok(GrantPolicy {
-                            account_id: None,
+                            account_id: row.18.map(|id| parse_registry_uuid(&id)).transpose()?,
                             application_declaration: row
                                 .17
                                 .as_deref()

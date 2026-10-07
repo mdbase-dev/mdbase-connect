@@ -37,6 +37,16 @@ export const CONTRACT_SETUP_CAPABILITY = "contract-setup-v1" as const;
 export const FILE_RELAY_CAPABILITY = "file-relay-v1" as const;
 export const PROTOCOL_USAGE_REPORT_CAPABILITY = "protocol-usage-report-v1" as const;
 export const POLICY_FRESHNESS_LEASE_CAPABILITY = "policy-freshness-lease-v1" as const;
+export const NEXT_NOISE_CONSENT_CAPABILITY = "next_noise_consent_v1" as const;
+
+/** Explicit Noise-only local authorization; never inferred from missing encryption. */
+export interface NextNoiseAuthorization {
+  protocol_version: 1;
+  connector_id: string;
+  device_id: string;
+  device_noise_pk: string;
+  collection_id: string;
+}
 /** Opt-in raw account-bound next policy projection; never a legacy default. */
 export const NEXT_ACCOUNT_CAPABILITY = "next_account_v1" as const;
 /** Advertised beta capabilities are intentionally broader than the beta baseline. */
@@ -361,6 +371,8 @@ export interface GrantPolicy {
   notification_criteria?: NotificationCriterion[];
   created_at: string;
   encryption?: GrantEncryption;
+  /** Explicit immutable Noise mode/device tuple, incompatible with legacy encryption. */
+  next_noise?: NextNoiseAuthorization;
   file_capability?: FileCapability;
   application_authorization: ApplicationAuthorizationProof;
 }

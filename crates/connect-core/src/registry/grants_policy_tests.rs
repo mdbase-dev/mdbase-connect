@@ -157,7 +157,8 @@ fn application_declaration_migration_upgrades_existing_authority_without_inventi
     let connection = Connection::open(directory.path().join("authority.sqlite")).unwrap();
     connection
         .execute_batch(
-            "ALTER TABLE grants DROP COLUMN application_declaration;
+            "ALTER TABLE grants DROP COLUMN account_id;
+         ALTER TABLE grants DROP COLUMN application_declaration;
          ALTER TABLE revoked_grant_replay_material DROP COLUMN application_declaration;
          DROP TABLE local_runtime_claims;
          DROP TABLE runtime_claim_recoveries;
@@ -408,4 +409,109 @@ fn protocol_v1_fixture_round_trips_exact_grant_policy_and_digests() {
         fixture["authority_digest"],
         "sha256:141ae510bcd2582cc075046327940a622d68a87355e1f11fb7358bf5fe0803fd"
     );
+}
+
+#[test]
+fn consent_account_upgrade_preserves_legacy_absence_without_backfill() {
+    let directory = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let grant = super::super::tests::signed_test_grant(&registry, vec!["query".into()]);
+    registry
+        .replace_grants(std::slice::from_ref(&grant))
+        .unwrap();
+    drop(registry);
+    let connection = Connection::open(directory.path().join("authority.sqlite")).unwrap();
+    connection
+        .execute_batch(
+            "ALTER TABLE grants DROP COLUMN account_id;
+        DELETE FROM authority_schema_migrations WHERE version = 6;
+        PRAGMA user_version = 5;",
+        )
+        .unwrap();
+    drop(connection);
+    for _ in 0..2 {
+        let registry = CollectionRegistry::open(directory.path()).unwrap();
+        let stored: Option<String> = registry
+            .authority
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT account_id FROM grants WHERE id = ?1",
+                [grant.id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(stored.is_none());
+        assert_eq!(
+            registry
+                .grant_context(grant.id)
+                .unwrap()
+                .unwrap()
+                .operations,
+            grant.operations
+        );
+    }
+}
+
+#[test]
+fn consent_account_upsert_retains_account_and_refuses_nil_without_replacement() {
+    let directory = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let mut grant = super::super::tests::signed_test_grant(&registry, vec!["query".into()]);
+    let account = Uuid::new_v4();
+    grant.account_id = Some(account);
+    registry.upsert_grant(&grant).unwrap();
+    grant.account_id = Some(Uuid::nil());
+    assert!(registry.upsert_grant(&grant).is_err());
+    let stored: String = registry
+        .authority
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT account_id FROM grants WHERE id = ?1",
+            [grant.id.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, account.to_string());
+}
+
+#[test]
+fn consenting_account_survives_authority_digest_reconstruction_and_restart() {
+    // Test-only authenticated-feed metadata, not proof of NEXT activation.
+    for account_id in [
+        None,
+        Some(Uuid::from_u128(0x08080808080848088808080808080808)),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let registry = CollectionRegistry::open(directory.path()).unwrap();
+        let mut grant = super::super::tests::signed_test_grant(&registry, vec!["query".into()]);
+        grant.account_id = account_id;
+        let connector = grant.encryption.as_ref().unwrap().connector_id;
+        let expected =
+            canonical_policy_authority_digest(connector, std::slice::from_ref(&grant)).unwrap();
+        let now = super::super::authority_store::current_time_ms();
+        registry
+            .replace_remote_grants_at_revision(
+                connector,
+                "account-retention",
+                1,
+                now,
+                now + 60_000,
+                std::slice::from_ref(&grant),
+            )
+            .unwrap();
+        let before = registry.remote_policy_authority().unwrap().authority_digest;
+        drop(registry);
+        let reopened = CollectionRegistry::open(directory.path()).unwrap();
+        assert_eq!(before.as_deref(), Some(expected.as_str()));
+        assert_eq!(
+            reopened
+                .remote_policy_authority()
+                .unwrap()
+                .authority_digest
+                .as_deref(),
+            Some(expected.as_str())
+        );
+    }
 }

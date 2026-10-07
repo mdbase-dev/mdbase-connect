@@ -82,7 +82,9 @@ describe("local operation access failures", () => {
           operations: ["read", "query"],
           connector_id: "44444444-4444-4444-8444-444444444444",
           local_id: collectionId,
-          encryption: null
+          encryption: null,
+          next_noise: null,
+          account_backend: "legacy"
         }],
         rowCount: 1
       }))
@@ -185,6 +187,8 @@ function recoveryFixture() {
     operations: ["create", "read"],
     connector_id: connectorId,
     local_id: collectionId,
+    next_noise: null,
+    account_backend: "legacy",
     encryption: {
       protocol_version: 1,
       suite: "P256-HKDF-SHA256-AES256GCM",
