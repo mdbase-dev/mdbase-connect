@@ -1,0 +1,6 @@
+{
+  "reason": "Expose exactly two shared proof digest helpers for the replica-applied strict attestation and its authenticated collection-scoped query/report. They are signed protocol formats reused by focused signature/interoperability tests, not new generic transports or policy evaluators.",
+  "growth": {
+    "typeScriptExportDeclarations": 2
+  }
+}

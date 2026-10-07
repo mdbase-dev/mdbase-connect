@@ -29,7 +29,7 @@ import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
 import {
-  authenticate, CreateError, currentIdentity, currentMember, ENROLMENT, enrolmentKey, inTransaction, lock, NIL, refuse, refuseRevoked,
+  authenticate, CreateError, currentIdentity, currentMember, ENROLMENT, enrolmentKey, exactEnrolment, inTransaction, lock, NIL, refuse, refuseRevoked,
   type Connector, type Device, type Proof
 } from "./bootstrap-common.js";
 import type { LogServiceClient } from "./log-service-client.js";
@@ -73,6 +73,25 @@ export function accountKeyStrictDigest(i: { challenge: Uint8Array; connector: st
     i.challenge, uuidBytes(i.connector), uuidBytes(i.device), uuidBytes(i.account), i.expectedVersion
   ]));
 }
+
+type StrictWitness = {
+  account_id: string; collection_id: string; recovery_device: string; strict_version: number;
+  revoked_at: number; applied_at: number; epoch: number; reporter: string; signature: string;
+};
+const witnessFields = (w: StrictWitness) => [
+  1, uuidBytes(w.account_id), uuidBytes(w.collection_id), uuidBytes(w.recovery_device),
+  w.strict_version, w.revoked_at, w.applied_at, w.epoch, uuidBytes(w.reporter)
+];
+/** A keyed member replica attests APPLIED revoke + valid excluding rekey, not admission. */
+export const accountKeyStrictWitnessDigest = (w: StrictWitness): Uint8Array =>
+  domainHash("mdbase/v1/account-key-strict-witness", encodeCbor(witnessFields(w)));
+/** Device proof for querying/reporting witnesses in exactly one collection. */
+export const accountKeyStrictReportDigest = (i: {
+  challenge: Uint8Array; connector: string; device: string; collection: string; witness?: StrictWitness;
+}): Uint8Array => domainHash("mdbase/v1/account-key-strict-report", encodeCbor([
+  i.challenge, uuidBytes(i.connector), uuidBytes(i.device), uuidBytes(i.collection),
+  i.witness ? [...witnessFields(i.witness), Buffer.from(i.witness.signature, "hex")] : []
+]));
 
 /** `H("mdbase/v1/account-key-device", cbor[challenge, connector, device, collection, recovery_device, sign_pk, kem_pk])`, by the caller's device. */
 export function accountKeyDeviceDigest(i: {
@@ -173,6 +192,34 @@ const ACTIVE_RECOVERY = `SELECT DISTINCT o.collection_id::text AS collection, e.
                      AND r.ops->'ops' @> jsonb_build_array(jsonb_build_object('op', 'device-revoke', 'device', e.value->>'device')))
   ORDER BY 1, 2`;
 
+// The revocation's ACTUAL appended position is only a lower bound on application.
+// A witness is needed even when the CP can read the revoke/rekey from the log.
+const STRICT_TARGETS = `WITH targets AS (${ALL_RECOVERY})
+ SELECT t.collection, t.device, r.seq AS revoked_at,
+        EXISTS(SELECT 1 FROM next_strict_witnesses w
+                WHERE w.user_id = $1::uuid AND w.strict_version = $2
+                  AND w.collection_id = t.collection::uuid AND w.recovery_device = t.device::uuid
+                  AND r.seq IS NOT NULL AND w.revoked_at = r.seq AND w.applied_at >= r.seq) AS complete
+   FROM targets t
+   LEFT JOIN LATERAL (
+     SELECT b.seq FROM next_policy_outbox o JOIN next_policy_batches b ON b.id = o.batch_id
+      WHERE o.collection_id = t.collection::uuid AND b.state = 'appended'
+        AND o.ops->'ops' @> jsonb_build_array(jsonb_build_object('op', 'device-revoke', 'device', t.device))
+      ORDER BY b.seq DESC LIMIT 1
+   ) r ON true
+  ORDER BY t.collection, t.device LIMIT 1025`;
+type StrictTarget = { collection: string; device: string; revoked_at: string | null; complete: boolean };
+async function strictCompletion(client: DatabaseConnection, account: string, version: number) {
+  const targets = (await client.query<StrictTarget>(STRICT_TARGETS, [account, version])).rows;
+  if (targets.length > 1024) throw new CreateError(503, "strict_target_limit");
+  return {
+    complete: targets.every((t) => t.complete),
+    pending: targets.filter((t) => !t.complete).map((t) => ({
+      collection_id: t.collection, device_id: t.device, revoked_at: t.revoked_at === null ? null : Number(t.revoked_at)
+    }))
+  };
+}
+
 export function registerAccountKeyRoutes(app: FastifyInstance, options: {
   db: DatabasePool; next: NextControlPlaneConfig; emitter: PolicyEmitter; rateLimitSecret: string;
   log: Pick<LogServiceClient, "controlItemAt">;
@@ -204,13 +251,17 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return reply;
     try {
-      const row = await inTransaction(options.db, async (client) => {
+      return await inTransaction(options.db, async (client) => {
         const current = await client.query("SELECT 1 FROM users WHERE id = $1 AND suspended_at IS NULL FOR SHARE", [connector.user_id]);
         if (!current.rows.length) throw new CreateError(403, "identity_not_current");
-        return accountRow(client, connector.user_id, "SHARE");
+        await lockAccount(client, connector.user_id);
+        const row = await accountRow(client, connector.user_id, "SHARE");
+        if (!row) return { mode: "none", version: 0 };
+        return {
+          mode: row.mode, version: Number(row.version), ...(row.key_id ? { key_id: row.key_id.toString("hex") } : {}),
+          ...(row.mode === "strict" ? await strictCompletion(client, connector.user_id, Number(row.version)) : {})
+        };
       });
-      if (!row) return { mode: "none", version: 0 };
-      return { mode: row.mode, version: Number(row.version), ...(row.key_id ? { key_id: row.key_id.toString("hex") } : {}) };
     } catch (error) {
       return refuse(reply, error, "The account key status is unavailable; retry.");
     }
@@ -350,8 +401,9 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
     let result: {
       version: number; revocations: Array<{ collection: string; device: string }>; all: Array<{ collection: string; device: string }>;
     };
+    let device: Device;
     try {
-      const device = await inTransaction(options.db, (client) => proven(client, body, connector, digest));
+      device = await inTransaction(options.db, (client) => proven(client, body, connector, digest));
       const retry = await allowed("next-account-key-write", account, ACCOUNT_KEY_WRITE_LIMIT);
       if (retry !== null) {
         reply.header("retry-after", String(retry));
@@ -363,15 +415,19 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
         const row = await accountRow(client, account, "UPDATE");
         const current = row ? Number(row.version) : 0;
         if (current !== body.expected_version) throw new CreateError(409, "version_conflict");
-        const version = current + 1;
-        const written = row
-          ? await client.query(
-            `UPDATE next_account_keys SET mode = 'strict', version = $2, key_id = NULL, bundle = NULL, proof_pk = NULL, updated_at = now()
-             WHERE user_id = $1 AND version = $3`, [account, version, current])
-          : await client.query(
-            `INSERT INTO next_account_keys (user_id, mode, version, updated_at) VALUES ($1, 'strict', $2, now())
-             ON CONFLICT (user_id) DO NOTHING`, [account, version]);
-        if (written.rowCount !== 1) throw new CreateError(409, "version_conflict");
+        // A retry of the SAME strict operation keeps its generation: otherwise
+        // online replicas' already-issued attestations would never complete it.
+        const version = row?.mode === "strict" ? current : current + 1;
+        if (row?.mode !== "strict") {
+          const written = row
+            ? await client.query(
+              `UPDATE next_account_keys SET mode = 'strict', version = $2, key_id = NULL, bundle = NULL, proof_pk = NULL, updated_at = now()
+               WHERE user_id = $1 AND version = $3`, [account, version, current])
+            : await client.query(
+              `INSERT INTO next_account_keys (user_id, mode, version, updated_at) VALUES ($1, 'strict', $2, now())
+               ON CONFLICT (user_id) DO NOTHING`, [account, version]);
+          if (written.rowCount !== 1) throw new CreateError(409, "version_conflict");
+        }
         // Enrolment of new recovery devices is refused from here on (mode check), so
         // this set cannot grow while the revocations are queued.
         const active = (await client.query<{ collection: string; device: string }>(ACTIVE_RECOVERY, [account])).rows;
@@ -391,14 +447,116 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
     request.log.info({ event: "next_account_key_strict", account, device: body.device_id, revoked: result.revocations.length }, "account key strict mode");
     // Best effort: the outbox is durable and the emitter drains it regardless.
     for (const collection of new Set(result.revocations.map((r) => r.collection))) await options.emitter.drainCollection(collection).catch(() => undefined);
-    return {
-      mode: "strict", version: result.version,
-      revocations: result.revocations.map((r) => ({ collection_id: r.collection, device_id: r.device })),
-      // Authoritative and complete: strict is done only when ALL of these are revoked
-      // and rekeyed in their collections.
-      recovery_devices: result.all.map((r) => ({ collection_id: r.collection, device_id: r.device }))
-    };
+    try {
+      return await inTransaction(options.db, async (client) => {
+        await currentIdentity(client, connector, body.device_id, device);
+        await lockAccount(client, account);
+        const row = await accountRow(client, account, "SHARE");
+        if (row?.mode !== "strict" || Number(row.version) !== result.version) throw new CreateError(409, "version_conflict");
+        return {
+          mode: "strict", version: result.version,
+          revocations: result.revocations.map((r) => ({ collection_id: r.collection, device_id: r.device })),
+          recovery_devices: result.all.map((r) => ({ collection_id: r.collection, device_id: r.device })),
+          ...await strictCompletion(client, account, result.version)
+        };
+      });
+    } catch (error) {
+      return refuse(reply, error, "Strict mode is pending; query status with the original account.");
+    }
   });
+
+  // ---- Replica-applied witnesses, queried/reported by any current member host. ----
+  const positive = { ...version, minimum: 1 };
+  app.post<{ Params: { id: string }; Body: Proof & { witness?: StrictWitness } }>(
+    "/v1/next/collections/:id/private/strict-witness", {
+      ...limited,
+      schema: {
+        params: { type: "object", required: ["id"], properties: { id: uuid } },
+        body: { type: "object", additionalProperties: false, required: ["device_id", "challenge", "sig"], properties: {
+          ...proof, witness: {
+            type: "object", additionalProperties: false,
+            required: ["account_id", "collection_id", "recovery_device", "strict_version", "revoked_at", "applied_at", "epoch", "reporter", "signature"],
+            properties: {
+              account_id: uuid, collection_id: uuid, recovery_device: uuid, reporter: uuid,
+              strict_version: positive, revoked_at: positive, applied_at: positive, epoch: positive,
+              signature: { type: "string", pattern: "^[0-9a-f]{128}$" }
+            }
+          }
+        } }
+      }
+    }, async (request, reply) => {
+      reply.header("cache-control", "no-store");
+      const connector = await requireConnector(request, reply, options.db);
+      if (!connector) return reply;
+      const collection = request.params.id.toLowerCase();
+      const body = { ...request.body, device_id: request.body.device_id.toLowerCase() };
+      const witness = body.witness;
+      if (collection === NIL || body.device_id === NIL) return reply.code(400).send(apiError("invalid_request", "Nil identifiers are not accepted."));
+      if (witness && (witness.collection_id.toLowerCase() !== collection || witness.reporter.toLowerCase() !== body.device_id || witness.applied_at < witness.revoked_at)) {
+        return reply.code(400).send(apiError("invalid_witness", "The witness does not name this collection and reporter."));
+      }
+      const digest = (challenge: Uint8Array) => accountKeyStrictReportDigest({
+        challenge, connector: connector.id, device: body.device_id, collection, witness
+      });
+      try {
+        return await inTransaction(options.db, async (client) => {
+          // Same account-before-collection lock order as strict/enrolment.
+          if (witness) await lockAccount(client, witness.account_id);
+          await lock(client, collection);
+          const device = await proven(client, body, connector, digest);
+          await currentPrivate(client, collection);
+          await currentMember(client, collection, connector.user_id);
+          await refuseRevoked(client, collection, body.device_id);
+          const enrolled = (await client.query(ENROLMENT, [collection, exactEnrolment(body.device_id, connector.user_id, device)])).rows[0];
+          if (enrolled?.state !== "appended") throw new CreateError(403, "not_enrolled");
+          if (witness) {
+            if (!verify(null, accountKeyStrictWitnessDigest(witness), ed25519PublicKeyObject(device.sign_pk), Buffer.from(witness.signature, "hex"))) {
+              throw new CreateError(403, "invalid_witness");
+            }
+            const row = await accountRow(client, witness.account_id, "SHARE");
+            if (row?.mode !== "strict" || Number(row.version) !== witness.strict_version) throw new CreateError(409, "version_conflict");
+            const targets = (await client.query<StrictTarget>(STRICT_TARGETS, [witness.account_id, witness.strict_version])).rows;
+            if (targets.length > 1024) throw new CreateError(503, "strict_target_limit");
+            const target = targets.find((t) => t.collection === collection && t.device === witness.recovery_device.toLowerCase());
+            if (target?.revoked_at === null || !target || Number(target.revoked_at) !== witness.revoked_at) throw new CreateError(409, "revocation_not_appended");
+            // This signature is the replica's attestation of VALID APPLICATION.
+            // The CP never evaluates policy or infers application from a log read.
+            await client.query(
+              `INSERT INTO next_strict_witnesses (user_id,collection_id,recovery_device,strict_version,reporter,revoked_at,applied_at,epoch,signature)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+               ON CONFLICT (user_id,collection_id,recovery_device) DO UPDATE SET
+                 strict_version=EXCLUDED.strict_version, reporter=EXCLUDED.reporter, revoked_at=EXCLUDED.revoked_at,
+                 applied_at=EXCLUDED.applied_at, epoch=EXCLUDED.epoch, signature=EXCLUDED.signature`,
+              [witness.account_id, collection, witness.recovery_device, witness.strict_version, witness.reporter,
+                witness.revoked_at, witness.applied_at, witness.epoch, Buffer.from(witness.signature, "hex")]
+            );
+            return { accepted: true };
+          }
+          const accounts = (await client.query<{ account: string; version: string }>(
+            `SELECT DISTINCT a.user_id::text AS account, a.version FROM next_account_keys a
+              JOIN next_policy_outbox o ON o.collection_id = $1
+              CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') e(value)
+             WHERE a.mode = 'strict' AND e.value->>'op' = 'device-enrol' AND e.value->>'kind' = 'recovery'
+               AND e.value->>'account' = a.user_id::text LIMIT 1025`, [collection]
+          )).rows;
+          if (accounts.length > 1024) throw new CreateError(503, "strict_target_limit");
+          const pending = [];
+          for (const account of accounts) {
+            const targets = (await client.query<StrictTarget>(STRICT_TARGETS, [account.account, account.version])).rows;
+            if (targets.length > 1024) throw new CreateError(503, "strict_target_limit");
+            for (const t of targets) if (t.collection === collection && !t.complete && t.revoked_at !== null) {
+              pending.push({ account_id: account.account, collection_id: collection, recovery_device: t.device,
+                strict_version: Number(account.version), revoked_at: Number(t.revoked_at) });
+            }
+            if (pending.length > 1024) throw new CreateError(503, "strict_target_limit");
+          }
+          return { pending };
+        });
+      } catch (error) {
+        return refuse(reply, error, "The applied strict witness was not accepted; query current pending targets.");
+      }
+    }
+  );
 
   // ---- Recovery-device enrolment for one private collection. ----
   app.post<{ Params: { id: string }; Body: Proof & { recovery_device: string; sign_pk: string; kem_pk: string; pop: string } }>(
