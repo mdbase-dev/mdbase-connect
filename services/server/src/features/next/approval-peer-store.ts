@@ -4,14 +4,14 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabasePool, DatabaseConnection } from "../../database-types.js";
 import { authenticate, currentIdentity, currentMember, exactEnrolment, refuseRevoked, lock, inTransaction, CreateError, type Connector, type Proof } from "./bootstrap-common.js";
 import { ApprovalPeerInputError, parseApprovalPeer, verifyApprovalPeerOrigin, type ApprovalPeerDevice, type ApprovalPeer } from "./approval-peer.js";
-import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
+import { domainHash, encodeCbor, uuidBytes, deviceKindNumber, type RegisteredDeviceKind } from "./policy-wire.js";
 
-type Registered = { device: string; account: string; kind: "desktop" | "cli"; sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; connector_id: string };
+type Registered = { device: string; account: string; kind: RegisteredDeviceKind; sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; connector_id: string };
 type Row = { id: string; envelope: Buffer; expires_at: Date };
 const sameTuple = (a: ApprovalPeerDevice, b: ApprovalPeerDevice) => a.device === b.device && a.account === b.account && a.kind === b.kind
   && a.sign_pk.equals(b.sign_pk) && a.kem_pk.equals(b.kem_pk) && a.noise_pk.equals(b.noise_pk);
 function tuple(d: Registered): ApprovalPeerDevice {
-  return { ...d, kind: d.kind === "desktop" ? 0 : 3 };
+  return { ...d, kind: deviceKindNumber(d.kind) };
 }
 function timely(peer: ApprovalPeer): void {
   const left = peer.expiresAt - Date.now();

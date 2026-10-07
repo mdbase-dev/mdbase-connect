@@ -6,7 +6,7 @@ import { registerApprovalPeerRoutes } from "./approval-peer-routes.js";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
-import { domainHash, encodeCbor, uuidBytes, type Cbor } from "./policy-wire.js";
+import { domainHash, encodeCbor, uuidBytes, deviceKindNumber, type RegisteredDeviceKind, type Cbor } from "./policy-wire.js";
 import { queueApprovalPeer, readApprovalPeers } from "./approval-peer-store.js";
 import { lock } from "./bootstrap-common.js";
 
@@ -16,7 +16,7 @@ const suite = url && approved ? describe : describe.skip;
 const schema = `approval_peer_test_${randomUUID().replaceAll("-", "")}`;
 let db: DatabasePool, admin: pg.Pool;
 const struct = (values: Cbor[]): Cbor => ({ struct: values.map((v, i) => [i, v]) });
-type Actor = { user_id: string; id: string; token: string; hash: string; keys: { publicKey: KeyObject; privateKey: KeyObject };
+type Actor = { kind: RegisteredDeviceKind; user_id: string; id: string; token: string; hash: string; keys: { publicKey: KeyObject; privateKey: KeyObject };
   sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; connector: { id: string; user_id: string } };
 
 suite("candidate peer metadata on actual PostgreSQL (not LS/applied policy)", () => {
@@ -31,7 +31,7 @@ suite("candidate peer metadata on actual PostgreSQL (not LS/applied policy)", ()
   }, 60_000);
   afterAll(async () => { await db?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`); await admin.end(); } });
 
-  async function fixture(expiryOffset = 110_000, linked: { a?: Actor; n?: Actor } = {}) {
+  async function fixture(expiryOffset = 110_000, linked: { a?: Actor; n?: Actor } = {}, kind: RegisteredDeviceKind = "cli") {
     const collection = randomUUID();
     async function device() {
       const user_id = randomUUID(), connector_id = randomUUID(), id = randomUUID(), token = `TEST:${randomUUID()}`, hash = tokenHash(token);
@@ -39,8 +39,8 @@ suite("candidate peer metadata on actual PostgreSQL (not LS/applied policy)", ()
       const kem_pk = randomBytes(32), noise_pk = randomBytes(32);
       await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'TEST')", [user_id, `${user_id}@example.test`]);
       await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'TEST',$3)", [connector_id, user_id, hash]);
-      await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,'cli',$4,$5,$6)", [id, connector_id, user_id, sign_pk, kem_pk, noise_pk]);
-      return { user_id, id, token, hash, keys, sign_pk, kem_pk, noise_pk, connector: { id: connector_id, user_id } };
+      await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,$4,$5,$6,$7)", [id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk]);
+      return { kind, user_id, id, token, hash, keys, sign_pk, kem_pk, noise_pk, connector: { id: connector_id, user_id } };
     }
     const a = linked.a ?? await device(), n = linked.n ?? await device();
     await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'next','private',$3)", [collection, a.user_id, Buffer.alloc(16)]);
@@ -48,10 +48,10 @@ suite("candidate peer metadata on actual PostgreSQL (not LS/applied policy)", ()
     const batch = (await db.query<{ id: string }>("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,1,$2,$3,0,'appended') RETURNING id", [collection, Buffer.alloc(32), Buffer.from([0])])).rows[0].id;
     const ops = [a, n].flatMap(d => [
       { op: "member-set", account: d.user_id, role: "owner" },
-      { op: "device-enrol", device: d.id, account: d.user_id, kind: "cli", signPublicKey: { $hex: d.sign_pk.toString("hex") }, kemPublicKey: { $hex: d.kem_pk.toString("hex") }, noisePublicKey: { $hex: d.noise_pk.toString("hex") } }
+      { op: "device-enrol", device: d.id, account: d.user_id, kind: d.kind, signPublicKey: { $hex: d.sign_pk.toString("hex") }, kemPublicKey: { $hex: d.kem_pk.toString("hex") }, noisePublicKey: { $hex: d.noise_pk.toString("hex") } }
     ]);
     await db.query("INSERT INTO next_policy_outbox(collection_id,ops,batch_id) VALUES($1,$2::jsonb,$3)", [collection, JSON.stringify({ ops }), batch]);
-    const d = (x: typeof a) => struct([uuidBytes(x.id), uuidBytes(x.user_id), 3, x.sign_pk, x.kem_pk, x.noise_pk]);
+    const d = (x: typeof a) => struct([uuidBytes(x.id), uuidBytes(x.user_id), deviceKindNumber(x.kind), x.sign_pk, x.kem_pk, x.noise_pk]);
     const peerFor = (generation = randomBytes(32)) => {
       const body = struct([1, 0, struct([uuidBytes(collection), 1, d(a), d(n), randomBytes(32)]), generation, Date.now() + expiryOffset]);
       const signature = sign(null, domainHash("mdbase/v1/device-approval-peer", encodeCbor(body)), a.keys.privateKey);
@@ -74,6 +74,14 @@ suite("candidate peer metadata on actual PostgreSQL (not LS/applied policy)", ()
     }
     throw new Error(`Expected ${count} actual PostgreSQL advisory waiters.`);
   }
+  it.each(["mobile", "app-runtime"] as const)("retains exact numeric %s kind for peer origin and enrolment", async kind => {
+    const f = await fixture(110_000, {}, kind);
+    const queued = await queueApprovalPeer(db, f.a.connector, f.a.hash, f.collection, f.peer);
+    const inbox = await readApprovalPeers(db, f.n.connector, f.n.hash, f.collection, await f.proof(f.n));
+    expect(inbox.messages).toEqual([{ id: queued.id, peer: Buffer.from(f.peer).toString("base64url") }]);
+    await db.query("UPDATE next_devices SET kind = 'cli' WHERE id = $1", [f.a.id]);
+    await expect(queueApprovalPeer(db, f.a.connector, f.a.hash, f.collection, f.peerFor())).rejects.toMatchObject({ code: "peer_not_current" });
+  });
   it("deduplicates opaque bytes and retains consumed identity instead of resurrecting after ACK", async () => {
     const f = await fixture();
     const first = await queueApprovalPeer(db, f.a.connector, f.a.hash, f.collection, f.peer);
