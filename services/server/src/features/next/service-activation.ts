@@ -1,5 +1,6 @@
 // Durable wake after each committed CP policy batch (including enrolments).
 // ACK covers the captured batch, not keying/serving. Coalesce older batches.
+import { createHash } from "node:crypto";
 import type { DatabaseQueryable } from "../../database-types.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import type { ServiceKind } from "./service-devices.js";
@@ -7,6 +8,15 @@ import type { ServiceKind } from "./service-devices.js";
 const LIMIT = 4;
 const TIMEOUT_MS = 8_000;
 const MAX_ACK_BYTES = 1024;
+
+/** LAB diagnosis only; opaque UUIDs are domain-separated before correlation. */
+function wakeCollectionTag(collection: string): string {
+  return createHash("sha256").update("mdbase-service-wake-v1:").update(collection).digest("hex").slice(0, 24);
+}
+function wakeLog(collection: string, role: ServiceKind, phase: "sent" | "outcome" | "retry", facts: { accepted?: boolean; http_status?: number; elapsed_ms?: number } = {}): void {
+  if (process.env.MDBASE_CONNECT_ENVIRONMENT !== "lab") return;
+  try { console.info(JSON.stringify({ event: "next_service_wake", at: new Date().toISOString(), collection_tag: wakeCollectionTag(collection), role, phase, ...facts })); } catch { /* Logging never changes delivery/commit outcomes. */ }
+}
 
 async function accepted(response: Response): Promise<boolean> {
   if (response.status !== 200) { await response.body?.cancel(); return false; }
@@ -55,19 +65,25 @@ export async function activatePendingServices(
     const deployment = deployments[kind];
     const url = new URL("internal/v1/collections/activate", `${deployment.url.replace(/\/+$/u, "")}/`);
     let ok = false;
+    let status: number | undefined;
+    const started = Date.now();
     try {
       if (url.protocol !== "https:" || deployment.token.length < 32) throw new Error("invalid deployment");
+      wakeLog(collection, kind, "sent");
       const response = await fetchImpl(url, { method: "POST", redirect: "manual",
         headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
         body: JSON.stringify({ collection }), signal: AbortSignal.timeout(TIMEOUT_MS) });
+      status = response.status;
       ok = await accepted(response);
     } catch { /* Fixed persisted retry facts only; no response/URL/token/errors stored. */ }
+    wakeLog(collection, kind, "outcome", { accepted: ok, http_status: status, elapsed_ms: Math.max(0, Date.now() - started) });
     if (ok) {
       await db.query(`UPDATE next_service_devices SET activated_at = now(), activation_batch_id = $3::bigint,
           activation_attempt_batch_id = $3::bigint, activation_attempts = 0, activation_next_at = now()
         WHERE collection_id = $1 AND kind = $2 AND activation_batch_id < $3::bigint
           AND activation_attempt_batch_id <= $3::bigint`, [collection, kind, batch]);
     } else {
+      wakeLog(collection, kind, "retry");
       await db.query(`UPDATE next_service_devices SET activation_next_at = now() +
           make_interval(secs => LEAST(300, (2 * power(2, LEAST(
             CASE WHEN activation_attempt_batch_id = $3::bigint THEN activation_attempts ELSE 0 END, 8)))::int)),

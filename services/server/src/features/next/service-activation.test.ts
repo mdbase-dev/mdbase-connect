@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DatabaseQueryable } from "../../database-types.js";
+import { createHash } from "node:crypto";
 import { activatePendingServices } from "./service-activation.js";
 
 const collection = "0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e";
@@ -12,6 +13,21 @@ function database() {
   return { query };
 }
 describe("durable cloud-copy service activation", () => {
+  it("LAB logs correlate only hashed collections and fixed outcome facts", async () => {
+    vi.stubEnv("MDBASE_CONNECT_ENVIRONMENT", "lab");
+    const logs: string[] = []; const logger = vi.spyOn(console, "info").mockImplementation((line: string) => { logs.push(line); });
+    try {
+      await activatePendingServices(database(), deployments, async () => new Response("private response", { status: 503 }));
+      const events = logs.map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(events.filter((e) => e.phase === "sent")).toHaveLength(2);
+      expect(events.filter((e) => e.phase === "retry")).toHaveLength(2);
+      expect(events.filter((e) => e.phase === "outcome").every((e) => e.http_status === 503 && e.accepted === false)).toBe(true);
+      const expectedTag = createHash("sha256").update(`mdbase-service-wake-v1:${collection}`).digest("hex").slice(0, 24);
+      expect(events.every((e) => e.collection_tag === expectedTag)).toBe(true);
+      expect(expectedTag).toMatch(/^[0-9a-f]{24}$/u);
+      for (const forbidden of [collection, deployments.hosted.token, deployments.escrow.token, "private response", "hosted.test", "9007199254740993"]) expect(logs.join("")).not.toContain(forbidden);
+    } finally { logger.mockRestore(); vi.unstubAllEnvs(); }
+  });
   it("authenticates each kind at its exact configured origin and validates acknowledgment", async () => {
     const db = database(); const seen: Request[] = [];
     await activatePendingServices(db, deployments, async (input, init) => {
