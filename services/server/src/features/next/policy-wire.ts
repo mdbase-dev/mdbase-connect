@@ -86,11 +86,14 @@ export function uuidBytes(uuid: string): Uint8Array {
 }
 
 export type CollectionStateName = "e2e" | "cloud-copy";
-export type DeviceKind = "desktop" | "mobile" | "app-runtime" | "cli" | "hosted" | "escrow" | "recovery";
+export type RegisteredDeviceKind = "desktop" | "mobile" | "app-runtime" | "cli";
+export type DeviceKind = RegisteredDeviceKind | "hosted" | "escrow" | "recovery";
 export type MemberRole = "viewer" | "editor" | "owner";
 
 const CSTATE: Record<CollectionStateName, number> = { e2e: 0, "cloud-copy": 1 };
-const DEVICE_KIND: Record<DeviceKind, number> = { desktop: 0, mobile: 1, "app-runtime": 2, cli: 3, hosted: 4, escrow: 5, recovery: 6 };
+const DEVICE_KIND = { desktop: 0, mobile: 1, "app-runtime": 2, cli: 3, hosted: 4, escrow: 5, recovery: 6 } as const satisfies Record<DeviceKind, number>;
+/** Canonical existing policy kind tag; never collapse app devices into CLI. */
+export const deviceKindNumber = <K extends DeviceKind>(kind: K): (typeof DEVICE_KIND)[K] => DEVICE_KIND[kind];
 const ROLE: Record<MemberRole, number> = { viewer: 0, editor: 1, owner: 2 };
 
 export interface CpCert {
@@ -142,7 +145,7 @@ function encodeOp(op: PolicyOp): StructMap {
       return struct([[0, 1], [1, uuidBytes(op.owner)], [2, sized(op.root, 16, "root")], [3, CSTATE[op.state]]]);
     case "device-enrol":
       return struct([
-        [0, 2], [1, uuidBytes(op.device)], [2, uuidBytes(op.account)], [3, DEVICE_KIND[op.kind]],
+        [0, 2], [1, uuidBytes(op.device)], [2, uuidBytes(op.account)], [3, deviceKindNumber(op.kind)],
         [4, sized(op.signPublicKey, 32, "sign_pk")], [5, sized(op.kemPublicKey, 32, "kem_pk")], [6, sized(op.noisePublicKey, 32, "noise_pk")],
         [7, op.sasCommit && sized(op.sasCommit, 32, "sas_commit")], [8, op.localRoot && sized(op.localRoot, 32, "local_root")],
       ]);

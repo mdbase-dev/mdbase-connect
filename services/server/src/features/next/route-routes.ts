@@ -8,6 +8,7 @@
 // daemon has nothing to authenticate the app against.
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import type { RegisteredDeviceKind } from "./policy-wire.js";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
@@ -15,7 +16,7 @@ import { tokenHash } from "../../security.js";
 import { RelayBrokerUnavailableError, type RelayBroker } from "../../relay-broker.js";
 
 export interface RouteTarget {
-  kind: "desktop" | "cli" | "hosted";
+  kind: RegisteredDeviceKind | "hosted";
   device: string;
   noise_pk: string;
   url: string;
@@ -39,7 +40,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const { id } = z.object({ id: z.uuid() }).parse(request.params);
     const token = bearerToken(request);
     if (!token) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
-    const grant = await options.db.query<{ grant_id: string; has_client_key: boolean; device_id: string | null; kind: "desktop" | "cli" | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null }>(
+    const grant = await options.db.query<{ grant_id: string; has_client_key: boolean; device_id: string | null; kind: RegisteredDeviceKind | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null }>(
       `SELECT g.id AS grant_id, (k.grant_id IS NOT NULL) AS has_client_key,
               d.id AS device_id, d.kind, d.noise_pk, col.local_id,
               c.id AS connector_id, c.relay_generation,
@@ -86,7 +87,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     }));
     // Online first, then desktop/CLI daemons before other kinds, then latest
     // activity. UUID is the stable final tie-breaker. Current local authority is
-    // bound 1:1 to a connector/device; mobile registration is not implemented.
+    // bound 1:1 to a connector/device, including per-installation app devices.
     const daemonRank = (kind: RouteTarget["kind"]) => kind === "desktop" || kind === "cli" ? 0 : 1;
     candidates.sort((a, b) => Number(b.value.online) - Number(a.value.online)
       || daemonRank(a.value.kind) - daemonRank(b.value.kind)

@@ -6,14 +6,14 @@ import type { FastifyReply } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
-import type { PolicyOp } from "./policy-wire.js";
+import type { PolicyOp, RegisteredDeviceKind } from "./policy-wire.js";
 
 /** Service devices belong to no account (policy.md: hosted and escrow enrol with the zero account). */
 export const SERVICE_ACCOUNT = "00000000-0000-0000-0000-000000000000";
 export const NIL = SERVICE_ACCOUNT;
 
 export interface Proof { device_id: string; challenge: string; sig: string }
-export interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: "desktop" | "cli" }
+export interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: RegisteredDeviceKind }
 export type Connector = { id: string; user_id: string };
 /** PostgreSQL lock_timeout or statement_timeout: answer busy (fail closed), never the driver error. */
 export const isLockTimeout = (error: unknown) => ["55P03", "57014"].includes(String((error as { code?: unknown } | null)?.code));
@@ -100,7 +100,7 @@ export async function inTransaction<T>(db: DatabasePool, run: (client: DatabaseC
   }
 }
 
-export const enrolOp = (device: string, account: string, d: { kind: "desktop" | "cli" | "hosted" | "escrow"; sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer }): PolicyOp => ({
+export const enrolOp = (device: string, account: string, d: { kind: RegisteredDeviceKind | "hosted" | "escrow"; sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer }): PolicyOp => ({
   op: "device-enrol", device, account, kind: d.kind, signPublicKey: d.sign_pk, kemPublicKey: d.kem_pk, noisePublicKey: d.noise_pk
 });
 

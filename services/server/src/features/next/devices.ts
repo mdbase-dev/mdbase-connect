@@ -118,7 +118,7 @@ export async function registerDevice(
   body: Record<string, unknown>
 ): Promise<{ device_id: string }> {
   const deviceId = typeof body.device_id === "string" && /^[0-9a-f-]{36}$/.test(body.device_id) ? body.device_id : null;
-  const kind = body.kind === "desktop" || body.kind === "cli" ? body.kind : null;
+  const kind = body.kind === "desktop" || body.kind === "mobile" || body.kind === "app-runtime" || body.kind === "cli" ? body.kind : null;
   const signPk = bytes(body.sign_pk, 32);
   const kemPk = bytes(body.kem_pk, 32);
   const noisePk = bytes(body.noise_pk, 32);
