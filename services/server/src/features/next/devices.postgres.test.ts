@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { WebSocket } from "ws";
@@ -18,6 +18,7 @@ import {
   registerDevice
 } from "./devices.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
+import { clientKeyDigest } from "./grant-approval.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -77,10 +78,12 @@ describe("device helpers", () => {
     expect(weakAgreementKey(randomBytes(32))).toBe(false);
   });
 
-  it("computes the daemon's client fingerprint", () => {
+  it("uses the canonical policy client-fp vector and grouped consent display", () => {
+    expect(clientFingerprint(Buffer.alloc(32))).toBe("535b-c237-63ed-cd6a");
     const key = Buffer.alloc(32, 7);
-    const expected = createHash("sha256").update("mdbase/v1/client-fp").update(key).digest("hex").slice(0, 16).match(/.{4}/g)!.join("-");
+    const expected = Buffer.from(clientKeyDigest(key)).toString("hex").slice(0, 16).match(/.{4}/g)!.join("-");
     expect(clientFingerprint(key)).toBe(expected);
+    expect(clientFingerprint(key)).toMatch(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){3}$/);
   });
 });
 
