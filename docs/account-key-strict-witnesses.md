@@ -3,7 +3,8 @@
 Strict completion is an aggregation of device-signed **replica application**
 evidence. Connect never evaluates replica policy, and log admission/readback is
 not an application witness. The full cross-repo contract is mdbase-next
-`docs/ship/interfaces/2026-10-07-shipitems-strict-witnesses.md`.
+`docs/ship/interfaces/2026-10-07-shipitems-strict-witnesses.md`
+(mdbase-next #428; Connect #641).
 
 - `POST /v1/next/account-key/strict` creates a generation and queues recovery-device
   revocations. Repeating strict with its current version keeps that generation.
