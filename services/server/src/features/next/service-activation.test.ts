@@ -7,7 +7,7 @@ const deployments = { hosted: { url: "https://hosted.test", token: "h".repeat(40
 function database() {
   const query = vi.fn<DatabaseQueryable["query"]>();
   const result = (rows: object[]) => ({ rows, rowCount: rows.length, command: "SELECT", oid: 0, fields: [] });
-  query.mockResolvedValueOnce(result([{ collection_id: collection, kind: "hosted" }, { collection_id: collection, kind: "escrow" }]));
+  query.mockResolvedValueOnce(result([{ collection_id: collection, kind: "hosted", batch_id: "9007199254740993" }, { collection_id: collection, kind: "escrow", batch_id: "9007199254740993" }]));
   query.mockResolvedValue(result([]));
   return { query };
 }
@@ -32,7 +32,13 @@ describe("durable cloud-copy service activation", () => {
     expect(selection).toContain("parent.left_sync_at IS NULL");
     expect(selection).toContain("batch.state = 'appended'");
     expect(selection).toContain("batch.lost_at IS NULL");
+    expect(selection).toContain("device.activation_batch_id < latest.id");
+    expect(selection).toContain("device.activation_attempt_batch_id < latest.id");
     expect(db.query.mock.calls[0]![1]).toEqual([4]);
+    expect(db.query.mock.calls.slice(1).map(([,values]) => values)).toEqual([
+      [collection, "hosted", "9007199254740993"], [collection, "escrow", "9007199254740993"]
+    ]);
+    for (const [sql] of db.query.mock.calls.slice(1)) expect(sql).toContain("activation_attempt_batch_id <= $3::bigint");
   });
   it.each(["offline", "redirect", "refused", "not-ack", "extra", "oversized"])("keeps %s pending without persisting arbitrary private error content", async (failure) => {
     const db = database();
@@ -47,7 +53,7 @@ describe("durable cloud-copy service activation", () => {
     expect(db.query.mock.calls.filter(([sql]) => sql.includes("SET activated_at"))).toHaveLength(0);
     const retries = db.query.mock.calls.filter(([sql]) => sql.includes("activation_attempts ="));
     expect(retries).toHaveLength(2);
-    expect(retries.map(([, values]) => values)).toEqual([[collection, "hosted"], [collection, "escrow"]]);
+    expect(retries.map(([, values]) => values)).toEqual([[collection, "hosted", "9007199254740993"], [collection, "escrow", "9007199254740993"]]);
     expect(JSON.stringify(db.query.mock.calls)).not.toContain("private");
   });
   it("idle polls do not contact deployments", async () => {
