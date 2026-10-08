@@ -1,0 +1,7 @@
+{
+  "reason": "Reuse existing log-service transport, permanent denial ledger and bounded control-reader instead of parallel registry adapters/readers. Two relative imports and three INTERNAL exports (page DTO, denial-union reconciler, bounded-byte reader); no new production helper file, configuration, signer, SDK/protocol surface, endpoint or startup-positive permit. Canonical CBOR null is the frozen nil scan cursor, not a compatibility fallback. Registry-only 32KiB/manual redirect bounds preserve unrelated LS and existing 4096-byte JSON control callers. Page transactions retain denial on partial/drift; final generation check is observational, not an effect-time lease.",
+  "growth": {
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 3
+  }
+}

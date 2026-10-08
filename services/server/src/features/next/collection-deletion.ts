@@ -1,9 +1,12 @@
-// CP denial/journal foundation only. No HTTP delete endpoint, native receipt,
+// CP denial/journal foundation only. No HTTP delete endpoint, Deleted ACK,
 // startup-positive permit, purge or physical-erasure claim is supplied here.
 import { randomUUID } from "node:crypto";
-import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
 
 export interface CollectionDeletionFact { collection: string; deletionId: string; lifecycleEpoch: bigint }
+export interface CollectionDeletionPage {
+  generation: bigint; rows: readonly CollectionDeletionFact[]; after: string | null; done: boolean;
+}
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const NIL = "00000000-0000-0000-0000-000000000000";
 const U64 = (1n << 64n) - 1n;
@@ -53,6 +56,44 @@ export async function mergeCollectionDeletionFloors(client: DatabaseConnection, 
   for (const fact of page) await client.query(`INSERT INTO next_collection_deletion_facts
     (collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,$3,'native-registry')
     ON CONFLICT DO NOTHING`,[fact.collection,fact.deletionId,fact.lifecycleEpoch.toString()]);
+}
+
+/** Durably union a bounded current registry traversal before startup consumers.
+ * A returned revision is NOT a permit: Gone/status and effect-time fences are
+ * separate. Any error leaves the caller closed and prior page denials intact. */
+export async function reconcileCollectionDeletionFloors(db: DatabasePool, registry: {registryCollectionDeletions(after: string | null, expected: bigint | null): Promise<CollectionDeletionPage>}): Promise<bigint> {
+  let after: string | null = null, generation: bigint | null = null, confirming = false;
+  for (let pageNumber = 0; pageNumber < 4096 || confirming; pageNumber++) {
+    // The public structural peer is not runtime admission. Capture only these
+    // fields and validate/copy the entire page before any database await.
+    const {generation: observed, after: cursor, done, rows: inputRows} = await registry.registryCollectionDeletions(after,generation);
+    if (typeof observed !== "bigint" || observed < 0n || observed > U64) throw new Error("invalid_collection_deletion_generation");
+    if (generation !== null && observed !== generation) throw new Error("collection_deletion_generation_drift");
+    if (cursor !== null) uuid(cursor);
+    if (!Array.isArray(inputRows) || inputRows.length > 128 || typeof done !== "boolean") throw new Error("invalid_collection_deletion_page");
+    const rows = inputRows.map(checked);
+    let previous: string | null = after;
+    for (const row of rows) {
+      if (previous !== null && row.collection <= previous) throw new Error("invalid_collection_deletion_page");
+      previous = row.collection;
+    }
+    if (cursor !== previous || done !== (rows.length < 128)) throw new Error("invalid_collection_deletion_page");
+    if (confirming) {
+      if (!done || rows.length !== 0) throw new Error("collection_deletion_generation_drift");
+      return observed;
+    }
+    generation = observed;
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      await mergeCollectionDeletionFloors(client,rows);
+      await client.query("COMMIT");
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
+    finally { client.release(); }
+    after = cursor;
+    confirming = done;
+  }
+  throw new Error("collection_deletion_scan_limit");
 }
 
 /** A denial check, not a cached liveness proof. Registration/key/routing callers
