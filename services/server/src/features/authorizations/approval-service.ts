@@ -15,6 +15,7 @@ import {
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
+import { queueNextGrantPolicy } from "../next/grant-policy.js";
 import { requireCollectionAction, resolveLocalCollectionAccess, type CollectionAccessContext } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
 import { planCollectionGrant } from "../../grant-planner.js";
@@ -389,6 +390,7 @@ export async function approvePortalAuthorization(
       [grantId, JSON.stringify(finalScope)]
     );
     grant!.scope = finalScope;
+    await queueNextGrantPolicy(finalize, grantId);
     // Recovery is an exclusive transition for one app installation. Entering
     // the bridge retires every earlier grant; leaving it retires the live
     // recovery grant. Ordinary repeat authorizations keep their independent

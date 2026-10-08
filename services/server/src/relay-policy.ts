@@ -328,7 +328,8 @@ export async function buildPolicySnapshot(
       application_declaration: unknown | null;
       notification_criteria: unknown[]; created_at: Date | string; client_pk: Buffer | null; client_key_signature: Buffer | null;
     }>(
-      `SELECT g.id, g.user_id, g.application_id, a.name AS application_name,
+      `SELECT ${nextDevice ? "COALESCE(binding.log_grant_id, g.id)" : "g.id"} AS id,
+              g.user_id, g.application_id, a.name AS application_name,
               a.distribution AS application_distribution,
               a.homepage AS application_homepage,
               a.project_url AS application_project_url,
@@ -343,11 +344,12 @@ export async function buildPolicySnapshot(
        FROM grants g
        JOIN collections c ON c.id = g.collection_id
        JOIN applications a ON a.id = g.application_id
-       ${nextDevice ? "LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id" : ""}
+       ${nextDevice ? "LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id LEFT JOIN next_collections nc ON nc.collection_id = c.local_id" : ""}
        WHERE c.connector_id = $1 AND g.revoked_at IS NULL
          AND g.activated_at IS NOT NULL
          AND g.scope->>'access' = 'full_collection'
          AND g.scope->'contracts' = '[]'::jsonb
+         ${nextDevice ? "AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)" : ""}
        ORDER BY g.id`,
       [connectorId]
     ));

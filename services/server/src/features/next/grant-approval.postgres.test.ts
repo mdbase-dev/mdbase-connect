@@ -52,6 +52,8 @@ describePostgres("device approvals of private grants", () => {
       [id, JSON.stringify([...READ, ...SCHEDULE])]);
     await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [id, clientPk]);
     await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','private',$3)", [id, id, Buffer.alloc(16)]);
+    // This fixture represents a published immutable log grant, not just SQL intent.
+    await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$1,$1,$2)", [id, Buffer.alloc(32)]);
     const { privateKey } = generateKeyPairSync("ed25519");
     const device = randomUUID();
     await db.query("INSERT INTO next_devices(id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk) VALUES($1,$2,$3,'desktop',$4,$5,$6)",

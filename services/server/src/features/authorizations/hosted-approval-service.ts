@@ -5,6 +5,7 @@ import { assertFreshApplicationAuthorization, type ApplicationRequirements } fro
 import { type ApplicationNotifications, type ApplicationAuthorizationProof, type ApplicationProvisions, type CollectionOperation, type ContractSetupChoice, type FileAction, isSupportedOperationTransport } from "@mdbase-dev/connect-protocol";
 import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
+import { queueNextGrantPolicy } from "../next/grant-policy.js";
 import { requireCollectionAction, resolveHostedCollectionAccess, type CollectionAccessContext } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
 import {
@@ -455,6 +456,7 @@ export async function approveHostedAuthorization(
     );
     // A retained grant reactivated here takes exactly this request's attested key.
     await copyClientNoiseKeyToGrant(connection, input.requestId, grantId);
+    await queueNextGrantPolicy(connection, grantId);
     await audit(connection, input.userId, "authorization.approved", input.requestId, {
       hosted_collection_id: input.collectionId,
       operations,

@@ -41,11 +41,14 @@ suite("grant narrowing HTTP PostgreSQL serialization", () => {
       CREATE TABLE grants(id uuid PRIMARY KEY, user_id uuid, application_id uuid, collection_id uuid,
         hosted_replica_id uuid, hosted_collection_id uuid, operations jsonb, encryption jsonb, scope jsonb,
         file_capability jsonb, application_origin text, proof_public_key text, application_authorization jsonb,
-        activated_at timestamptz, revoked_at timestamptz, revocation_policy_sequence bigint,
+        activated_at timestamptz, revoked_at timestamptz, application_installation_id text, revocation_policy_sequence bigint,
         revocation_confirmed_at timestamptz, notification_criteria jsonb DEFAULT '[]', created_at timestamptz DEFAULT now());
       CREATE TABLE access_tokens(grant_id uuid, revoked_at timestamptz);
       CREATE TABLE refresh_tokens(grant_id uuid, revoked_at timestamptz);
-      CREATE TABLE audit_events(id uuid, user_id uuid, event_type text, subject_id uuid, metadata jsonb)`);
+      CREATE TABLE audit_events(id uuid, user_id uuid, event_type text, subject_id uuid, metadata jsonb);
+      CREATE TABLE next_collections(collection_id uuid PRIMARY KEY, runtime text, sync text, left_sync_at timestamptz);
+      CREATE TABLE next_grant_client_keys(grant_id uuid PRIMARY KEY, client_pk bytea);
+      CREATE TABLE next_grant_bindings(grant_id uuid PRIMARY KEY, collection_id uuid, log_grant_id uuid, terms_digest bytea, active boolean)`);
   });
   afterAll(async () => {
     await pool?.end();
