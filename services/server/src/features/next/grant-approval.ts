@@ -47,6 +47,8 @@ export function grantApprovalReportDigest(collection: string, grant: string, seq
 }
 
 interface GrantContext {
+  id: string;
+  log_grant_id: string;
   user_id: string;
   active: boolean;
   collection: string | null;
@@ -60,7 +62,9 @@ interface GrantContext {
 
 async function grantContext(db: DatabaseQueryable, grantId: string): Promise<GrantContext | null> {
   const result = await db.query<GrantContext>(
-    `SELECT g.user_id, (g.revoked_at IS NULL AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL) AS active,
+    `SELECT g.id, COALESCE(binding.log_grant_id, g.id) AS log_grant_id, g.user_id,
+            (g.revoked_at IS NULL AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL
+             AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)) AS active,
             COALESCE(col.local_id::text, g.hosted_collection_id::text) AS collection, nc.sync,
             g.application_id, g.operations, g.file_capability,
             (g.application_authorization->'binding'->'contracts'->>'semantic_capabilities')::int AS semantic_capabilities,
@@ -70,7 +74,8 @@ async function grantContext(db: DatabaseQueryable, grantId: string): Promise<Gra
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, g.hosted_collection_id::text)
      LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
-     WHERE g.id = $1`,
+     LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
+     WHERE g.id = $1 OR binding.log_grant_id = $1`,
     [grantId]
   );
   return result.rows[0] ?? null;
@@ -79,6 +84,7 @@ async function grantContext(db: DatabaseQueryable, grantId: string): Promise<Gra
 /** SHA-256 of the grant's terms: application, operations, file capability, client key. */
 function termsDigest(grant: GrantContext): Buffer {
   return createHash("sha256").update(JSON.stringify([
+    grant.log_grant_id,
     grant.application_id,
     [...grant.operations].sort(),
     grant.file_capability ?? null,
@@ -121,7 +127,7 @@ export async function reportGrantApproval(
   );
   const signPk = device.rows[0]?.sign_pk;
   if (!signPk) throw new GrantApprovalReportError(403, "device_not_allowed", "The device is not this connector's, or not the grant account's.");
-  if (!verify(null, grantApprovalReportDigest(grant.collection, grantId, seq, capabilities, clientFp), ed25519PublicKeyObject(signPk), sig)) {
+  if (!verify(null, grantApprovalReportDigest(grant.collection, grant.log_grant_id, seq, capabilities, clientFp), ed25519PublicKeyObject(signPk), sig)) {
     throw new GrantApprovalReportError(403, "invalid_signature", "The approval report signature does not verify.");
   }
   const bytes = await log.controlItemAt(grant.collection, seq);
@@ -151,12 +157,12 @@ export async function reportGrantApproval(
      WHERE next_grant_approvals.terms_digest <> EXCLUDED.terms_digest
         OR EXCLUDED.approved_seq < next_grant_approvals.approved_seq
      RETURNING approved_seq, capabilities`,
-    [grantId, deviceId, seq, capabilities, terms, sig]
+    [grant.id, deviceId, seq, capabilities, terms, sig]
   );
   const current = stored.rows[0] ?? (await db.query<{ approved_seq: string; capabilities: string[] }>(
-    "SELECT approved_seq, capabilities FROM next_grant_approvals WHERE grant_id = $1", [grantId]
+    "SELECT approved_seq, capabilities FROM next_grant_approvals WHERE grant_id = $1", [grant.id]
   )).rows[0]!;
-  return { grant_id: grantId, approved_seq: Number(current.approved_seq), capabilities: current.capabilities };
+  return { grant_id: grant.log_grant_id, approved_seq: Number(current.approved_seq), capabilities: current.capabilities };
 }
 
 export interface GrantApproval {
@@ -181,7 +187,7 @@ export async function grantDeviceApproval(db: DatabaseQueryable, grantId: string
      JOIN next_devices d ON d.id = a.device_id
      JOIN connectors c ON c.id = d.connector_id
      WHERE a.grant_id = $1 AND a.terms_digest = $3 AND d.user_id = $2 AND c.revoked_at IS NULL`,
-    [grantId, grant.user_id, termsDigest(grant)]
+    [grant.id, grant.user_id, termsDigest(grant)]
   );
   const capabilities = approval.rows[0]?.capabilities;
   return grant.active && capabilities

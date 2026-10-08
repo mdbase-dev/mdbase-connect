@@ -25,6 +25,8 @@ import {
   scopeForRequirements
 } from "./policy.js";
 
+import { assertNextGrantPermissions, queueNextGrantPolicy } from "../next/grant-policy.js";
+
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
 
 interface ConnectorGrantRouteOptions {
@@ -130,7 +132,13 @@ export function registerConnectorGrantRoutes(
     const input = z.object({
       operations: z.array(operationSchema)
     }).parse(request.body);
-    const current = await options.db.query<{
+    const connection = await options.db.connect();
+    let committed = false;
+    try {
+      await connection.query("BEGIN");
+      await connection.query(`SELECT id FROM grants WHERE id=$1 AND collection_id IN
+        (SELECT id FROM collections WHERE connector_id=$2) FOR UPDATE`, [grantId, connector.id]);
+    const current = await connection.query<{
       requirements: ApplicationRequirements;
       notifications: ApplicationNotifications;
       provisions: ApplicationProvisions;
@@ -150,6 +158,7 @@ export function registerConnectorGrantRoutes(
         "Active grant not found."
       ));
     }
+    await assertNextGrantPermissions(connection, grantId, input.operations);
     assertOperationsAllowedByApplication(
       input.operations,
       current.rows[0].requirements,
@@ -160,7 +169,7 @@ export function registerConnectorGrantRoutes(
       current.rows[0].spec_version,
       input.operations
     );
-    const grant = await options.db.query(
+    const grant = await connection.query(
       `UPDATE grants SET operations = $3::jsonb
        WHERE id = $1 AND revoked_at IS NULL AND activated_at IS NOT NULL
          AND collection_id IN
@@ -174,10 +183,17 @@ export function registerConnectorGrantRoutes(
         "Active grant not found."
       ));
     }
-    await rotateGrantEncryption(options.db, grantId);
+    await rotateGrantEncryption(connection, grantId);
+    await queueNextGrantPolicy(connection, grantId);
+    await connection.query("COMMIT");
+    committed = true;
     await options.relay.pushPolicy(connector.id);
     await audit(options.db, connector.user_id, "grant.updated", grantId, input);
     return { grant: grant.rows[0] };
+    } finally {
+      try { if (!committed) await connection.query("ROLLBACK"); }
+      finally { connection.release(); }
+    }
   });
 
   app.delete("/v1/connectors/grants/:grantId", async (request, reply) => {

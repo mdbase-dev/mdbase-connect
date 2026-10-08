@@ -103,6 +103,8 @@ describePostgres("mdbase-next route endpoint", () => {
     await db.query(`UPDATE collections SET user_id = $2, enabled = true, present = true, authority_state = 'active' WHERE id = $1`, [second, id]);
     await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [second, randomBytes(32)]);
     await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','private',$3)", [second, id, Buffer.alloc(16)]);
+    // Synced discovery requires a published log-grant binding as well as a key.
+    await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$1,$1,$2)", [second, Buffer.alloc(32)]);
     // Another installation's grant is not listed.
     const other = await localGrantFixture(db);
     await db.query(`UPDATE grants SET user_id = $2, application_id = $2, application_installation_id = 'other-installation', activated_at = now() WHERE id = $1`, [other, id]);

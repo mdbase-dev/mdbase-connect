@@ -1,0 +1,9 @@
+{
+  "reason": "One typed grant-policy builder is the canonical Connect-to-log authorization projection: it refuses inexact record/file permissions and rotates the single-use log grant identity atomically on narrowing. Existing approval/narrowing callers share it rather than duplicating grant synthesis. One database revocation trigger covers all raw-SQL bulk/deletion lifecycle paths without adding route-specific revocation wrappers. Route, relay and approval-report consumers translate the stored binding; legacy authority remains unchanged. Real Postgres tests qualify the trigger and transaction semantics; pg-mem is schema-only for this hook.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 9,
+    "typeScriptExportDeclarations": 3,
+    "services/server": 1
+  }
+}

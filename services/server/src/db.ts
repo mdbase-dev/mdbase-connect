@@ -80,6 +80,11 @@ export async function openDatabase(
     // pg-mem cannot execute this one PostgreSQL locking CTE. Recognize its
     // private marker and preserve equivalent single-process test semantics.
     memory.public.interceptQueries((sql) => {
+      // pg-mem cannot execute PL/pgSQL triggers. Schema-only compatibility:
+      // the real Postgres grant-policy suite qualifies every revocation hook,
+      // including raw bulk SQL and cascading deletes (never pg-mem).
+      const grantTrigger = "-- mdbase:next-grant-revoke-trigger:v1";
+      if (sql.includes(grantTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(grantTrigger)));
       // pg-mem does not use PostgreSQL's automatic CHECK name. Name ONLY the
       // original fixed device-kind CHECK so migration0055 replaces it exactly,
       // without editing historical SQL/checksums or weakening either constraint.
