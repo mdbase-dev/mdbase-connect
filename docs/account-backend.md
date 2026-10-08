@@ -4,8 +4,31 @@
 `legacy` for existing and newly created accounts. A deployment's NEXT flag,
 collection encryption mode, transport failure or client preference never selects
 an account backend. The guarded migration/cutover owner sets `next` only after
-account takeover has met its admission/data-preservation requirements. This
-change adds no setter or automatic promotion.
+account takeover has met its admission/data-preservation requirements. There is
+no automatic promotion.
+
+## Staged migration and the flip
+
+The only setter is the hosted migrator's `POST
+/internal/v1/next/migration/accounts/{id}/flip`. It accepts only the hosted
+service token and takes `{collections, evidence_digest}`. In one transaction it
+locks the account and its hosted collections, then refuses with 409 when:
+
+- the account is not in a released cohort;
+- any hosted collection is mid import or transfer (`collections_unsettled`);
+- `collections` is not exactly the account's hosted collections, ignoring
+  transferred ones (`collections_mismatch`).
+
+Otherwise it sets `next` and records the collections and evidence digest in
+`next_migration_account_flips`. A retry with the same evidence returns the same
+flip.
+
+Operators release cohorts with the `next:migration-rollout` CLI. There is no
+user opt-in. The global pause (it starts paused) empties
+`GET /internal/v1/next/migration/candidates`, so no new account starts. It never
+blocks the flip of an account whose collections already migrated. Old agents of
+a flipped account are told to update; the new daemon's takeover moves their
+local folders.
 
 The session-only `GET /v1/account` includes `backend` at the top level. It does
 not become application-grant accessible.
