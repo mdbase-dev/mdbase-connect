@@ -323,7 +323,7 @@ async function proveCurrentRollbackIsNotAuthorized(database) {
     fence_token: token, fence_kind: "rollback", owner_lease_seconds: "7200"
   });
   for (const [predecessor, candidate, expectedError] of [
-    ["37", "38", "final_rollback_blocked: live ledger endpoint 45 is not authorized by pair 37 -> 38"],
+    ["37", "38", "final_rollback_blocked: live ledger endpoint 46 is not authorized by pair 37 -> 38"],
     ["38", "40", "final_rollback_blocked: unsupported migration pair 38 -> 40"],
     ["38", "41", "final_rollback_blocked: unsupported migration pair 38 -> 41"],
     ["41", "42", "final_rollback_blocked: unsupported migration pair 41 -> 42"]
@@ -352,7 +352,7 @@ async function proveCurrentRollbackIsNotAuthorized(database) {
       RAISE EXCEPTION 'test assertion: matching-token fixture cleanup failed';
     END IF;
   END $assert$`);
-  console.log("Current migration 45: historical endpoint and unsupported pairs rejected; admission retained until matching-token fixture cleanup (not rollback qualified)");
+  console.log("Current migration 46: historical endpoint and unsupported pairs rejected; admission retained until matching-token fixture cleanup (not rollback qualified)");
 }
 
 async function proveBeta69CutoverGate(database) {
