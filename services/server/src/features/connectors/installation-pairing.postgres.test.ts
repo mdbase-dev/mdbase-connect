@@ -71,7 +71,7 @@ describePg("installation device sign-in on daemon pairing", () => {
   });
   async function account() {
     const user = randomUUID(), session = randomUUID(), token = randomToken("session");
-    await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Owner')", [user, `${user}@example.test`]);
+    await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'Owner','next')", [user, `${user}@example.test`]);
     await db.query("INSERT INTO sessions(id,user_id,token_hash,provider,account_session_epoch,expires_at) VALUES($1,$2,$3,'password',(SELECT session_epoch FROM users WHERE id=$2),now()+interval '1 hour')", [session, user, tokenHash(token)]);
     return { user, session, headers: { cookie: `mdbase_session=${token}` } };
   }
@@ -117,6 +117,38 @@ describePg("installation device sign-in on daemon pairing", () => {
   function renewal(input:Input):Input {
     return {...input,installation:{...input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),renewal:{request_id:input.installation.request_id,pairing_secret:input.installation.pairing_secret}}};
   }
+  it("refuses legacy account selection without claiming the request or issuing a device", async () => {
+    const owner = await account(), input = original(), flow = await start(input);
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [owner.user]);
+    const refused = await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.code).toBe("installation_legacy_backend");
+    expect(refused.json().error.message).toMatch(/Finish migrating/);
+    expect((await flow.exchange()).json()).toEqual({ status: "pending" });
+    expect((await db.query("SELECT user_id FROM pairing_requests WHERE id=$1", [input.installation.request_id])).rows[0].user_id).toBeNull();
+    expect((await db.query("SELECT device_id FROM installation_device_credentials WHERE pairing_id=$1", [input.installation.request_id])).rows).toEqual([]);
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [owner.user]);
+    expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).statusCode).toBe(200);
+  });
+  it("rechecks backend at attestation, approval and committed exchange replay; cancellation is still allowed", async () => {
+    const f = await prepared();
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [f.owner.user]);
+    const attestation = await app.inject({ method: "POST", url: `${f.flow.base}/attest`, headers: f.flow.bearer, payload: f.proof.payload });
+    expect(attestation.statusCode).toBe(409);
+    expect(attestation.json().error.code).toBe("installation_legacy_backend");
+    expect((await approveDevice(f.flow, f.owner)).json().error.code).toBe("installation_legacy_backend");
+    expect((await f.flow.exchange()).json().error.code).toBe("installation_legacy_backend");
+    expect((await db.query("SELECT device_id FROM installation_device_credentials WHERE pairing_id=$1", [f.input.installation.request_id])).rows).toEqual([]);
+    expect((await app.inject({ method: "POST", url: `${f.flow.base}/deny`, headers: f.owner.headers })).statusCode).toBe(200);
+    const paired = await prepared();
+    expect((await approveDevice(paired.flow, paired.owner)).statusCode).toBe(200);
+    expect((await paired.flow.exchange()).json().status).toBe("paired");
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [paired.owner.user]);
+    const replay = await paired.flow.exchange();
+    expect(replay.statusCode).toBe(409);
+    expect(replay.json().error.code).toBe("installation_legacy_backend");
+    expect(replay.json().token).toBeUndefined();
+  });
   it.each(["app-runtime", "mobile"] as const)("preserves exact %s request through concurrent/lost committed exchange without another device", async kind => {
     const { owner, input, flow, selected, proof } = await prepared(kind);
     expect((await flow.exchange()).json().status).toBe("awaiting_approval");
