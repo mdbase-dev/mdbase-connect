@@ -2,6 +2,8 @@
 // (mdbase-next interface note 2026-10-04-control-hosted-replica.md). Each deployment
 // has its own bearer token, accepted only on these routes; neither is the provider's
 // internal token.
+import { createHash } from "node:crypto";
+import { decodeCbor, uuidBytes, type Decoded } from "./policy-wire.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
@@ -63,14 +65,14 @@ export function serviceKind(request: FastifyRequest, tokens: { hosted?: string; 
  * Null when there is no current record.
  */
 async function withCurrentRecord<T>(
-  db: DatabasePool, collection: string, by: { kind: ServiceKind } | { device: string }, use: (record: ServiceDeviceRecord) => T
+  db: DatabasePool, collection: string, by: { kind: ServiceKind } | { device: string }, use: (record: ServiceDeviceRecord, client: DatabaseQueryable) => T | Promise<T>
 ): Promise<T | null> {
   const client = await db.connect();
   try {
     await client.query("BEGIN");
     await client.query("SET LOCAL lock_timeout = '5s'");
     const record = await loadServiceDevice(client, collection, by);
-    const result = record ? use(record) : null;
+    const result = record ? await use(record, client) : null;
     await client.query("COMMIT");
     return result;
   } catch (error) {
@@ -79,6 +81,38 @@ async function withCurrentRecord<T>(
   } finally {
     client.release();
   }
+}
+
+const ORIGINAL_GENESIS_BYTES_MAX = 64 * 1024;
+const HOSTED_BOOTSTRAP_BYTES_MAX = 128 * 1024;
+class OriginalGenesisUnavailable extends Error {}
+/** Structural admission only, not a second crypto verifier. The deployment must
+ * verify this ORIGINAL signed item with bundled PolicyPins BEFORE any KMS/keys.
+ * Original genesis may predate cloud-copy; it never proves current mode. */
+async function originalGenesis(db: DatabaseQueryable, collection: string) {
+  const rows = await db.query<{state: string; item: Buffer | null}>(
+    `SELECT state, CASE WHEN octet_length(item) BETWEEN 1 AND $2 THEN item ELSE NULL END AS item
+     FROM next_policy_batches WHERE collection_id=$1 AND seq=1 ORDER BY id LIMIT 2 FOR SHARE`,
+    [collection, ORIGINAL_GENESIS_BYTES_MAX],
+  );
+  const row = rows.rows[0];
+  if (rows.rows.length !== 1 || row?.state !== "appended" || !row.item) throw new OriginalGenesisUnavailable();
+  const item = row.item;
+  const bytes = (v: Decoded | undefined, n: number): v is Uint8Array => v instanceof Uint8Array && v.length === n;
+  const shape = (v: Decoded | undefined, keys: number[]): v is Map<number, Decoded> => v instanceof Map && v.size === keys.length && keys.every(k => v.has(k));
+  try {
+    const frame = decodeCbor(item, {maxDepth: 32, canonicalStructs: true});
+    if (!shape(frame, [0,1,2,3,4,6,11,12]) || frame.get(0) !== 1 || frame.get(1) !== 2 || frame.get(3) !== 1 || !bytes(frame.get(2),16) || !Buffer.from(frame.get(2) as Uint8Array).equals(Buffer.from(uuidBytes(collection))) || !bytes(frame.get(4),32) || (frame.get(4) as Uint8Array).some(v => v !== 0) || !bytes(frame.get(6),16) || !bytes(frame.get(12),64)) throw new OriginalGenesisUnavailable();
+    const body = frame.get(11);
+    if (!(body instanceof Uint8Array) || !body.length) throw new OriginalGenesisUnavailable();
+    const payload = decodeCbor(body, {maxDepth: 32, canonicalStructs: true});
+    if (!shape(payload,[0,1,2,3]) || payload.get(0) !== 1 || !Number.isSafeInteger(payload.get(2))) throw new OriginalGenesisUnavailable();
+    const cert = payload.get(1), ops = payload.get(3);
+    if (!shape(cert,[0,1,2,3,4]) || !bytes(cert.get(0),32) || !Number.isSafeInteger(cert.get(1)) || !Number.isSafeInteger(cert.get(2)) || !bytes(cert.get(3),16) || !bytes(cert.get(4),64) || !Array.isArray(ops) || !ops.length) throw new OriginalGenesisUnavailable();
+    const genesis = ops[0];
+    if (!shape(genesis,[0,1,2,3]) || genesis.get(0) !== 1 || !bytes(genesis.get(1),16) || !bytes(genesis.get(2),16) || (genesis.get(3) !== 0 && genesis.get(3) !== 1)) throw new OriginalGenesisUnavailable();
+  } catch { throw new OriginalGenesisUnavailable(); }
+  return {seq: 1 as const, item: item.toString("base64"), hash: createHash("sha256").update(item).digest("hex")};
 }
 
 export function registerNextHostedRoutes(
@@ -110,9 +144,18 @@ export function registerNextHostedRoutes(
     if (!caller) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const { id, kind } = z.object({ id: z.uuid(), kind: z.enum(["hosted", "escrow"]) }).parse(request.params);
     if (kind !== caller) return reply.code(403).send(apiError("wrong_service_kind", "This token reads only its own kind of service device."));
-    const wire = await withCurrentRecord(options.db, id, { kind }, serviceDeviceWire);
-    if (!wire) return notCurrent(reply, id, "The collection has no service device of this kind.");
-    return wire;
+    try {
+      const wire = await withCurrentRecord(options.db, id, { kind }, async (record, client) => {
+        const result = {...serviceDeviceWire(record), genesis: await originalGenesis(client, id)};
+        if (Buffer.byteLength(JSON.stringify(result), "utf8") > HOSTED_BOOTSTRAP_BYTES_MAX) throw new OriginalGenesisUnavailable();
+        return result;
+      });
+      if (!wire) return notCurrent(reply, id, "The collection has no service device of this kind.");
+      return wire;
+    } catch (e) {
+      if (e instanceof OriginalGenesisUnavailable) return reply.code(503).send(apiError("original_genesis_unavailable", "The collection's original registration is not ready."));
+      throw e;
+    }
   });
   // Role-0 log token for a service device, narrowed to one collection (claim 5) and
   // valid for at most LOG_TOKEN_LIFETIME_MS. The deployment refreshes it by asking again.

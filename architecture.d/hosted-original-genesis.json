@@ -1,0 +1,4 @@
+{
+  "reason": "The hosted service-device bootstrap route reuses the existing policy CBOR decoder and UUID encoding through one additional relative import. It returns the original appended signed genesis bytes and exact hash under the existing current collection/service-kind gates, with bounded canonical structural admission before the deployment's separate pinned native verification. No new production file, exported API, package, crypto verifier or shared ratchet change.",
+  "growth": { "relativeImports": 1 }
+}

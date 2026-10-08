@@ -1,4 +1,4 @@
-import { generateKeyPairSync, verify, createHash } from "node:crypto";
+import { generateKeyPairSync, verify, createHash, sign } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { registerNextHostedRoutes } from "./hosted-routes.js";
 import { LOG_TOKEN_LIFETIME_MS, LogServiceClient } from "./log-service-client.js";
-import { decodeCbor } from "./policy-wire.js";
+import { certDigest, decodeCbor, keyId, policyItemSignedDigest, signPolicyItem, type PolicyOp } from "./policy-wire.js";
+import { ed25519RawPublicKey } from "./policy-keys.js";
 import { loadServiceDevice, parseServiceDevice, ServiceDeviceError, storeServiceDevice } from "./service-devices.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -17,6 +18,12 @@ const hosted = "h".repeat(40);
 const escrow = "e".repeat(40);
 const NOW = 1_800_000_000_000;
 const uuidBytes = (id: string) => Buffer.from(id.replaceAll("-", ""), "hex");
+const originRoot = generateKeyPairSync("ed25519"), originPolicy = generateKeyPairSync("ed25519");
+const originUnsigned = {policyPublicKey: ed25519RawPublicKey(originPolicy.publicKey), notBefore: NOW-1000, notAfter: NOW+1000, root: keyId(ed25519RawPublicKey(originRoot.publicKey))};
+const originSigner = {privateKey: originPolicy.privateKey, cert: {...originUnsigned, signature: sign(null, certDigest(originUnsigned), originRoot.privateKey)}};
+function signedOrigin(collection: string, owner: string, state: "e2e" | "cloud-copy" = "cloud-copy", extra: PolicyOp[] = []) {
+  return Buffer.from(signPolicyItem(originSigner, {collection, seq: 1, prev: Buffer.alloc(32), issuedAt: NOW, previousIssuedAt: 0, ops: [{op:"genesis",owner,root:originUnsigned.root,state},...extra]}));
+}
 
 function record(kind: "hosted" | "escrow", device = randomUUID(), fill = 1) {
   return parseServiceDevice({
@@ -46,7 +53,8 @@ describePostgres("service devices", () => {
     db = await createDatabase(url.toString());
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Owner')", [owner, `${owner}@example.test`]);
     for (const [id, sync] of [[ids.standard, "cloud_copy"], [ids.private, "private"], [ids.left, "cloud_copy"], [ids.barrier, "cloud_copy"]]) {
-      await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next',$3,$4)", [id, owner, sync, Buffer.alloc(16)]);
+      await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next',$3,$4)", [id, owner, sync, Buffer.from(originUnsigned.root)]);
+      await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,1,$2,$3,$4,'appended')", [id, Buffer.alloc(32), signedOrigin(id,owner,sync === "private" ? "e2e" : "cloud-copy"), NOW]);
     }
     await storeServiceDevice(db, ids.standard, devices.hosted);
     await storeServiceDevice(db, ids.standard, devices.escrow);
@@ -165,6 +173,12 @@ describePostgres("service devices", () => {
     const own = await get(ids.standard, "hosted", hosted);
     expect(own.statusCode, own.body).toBe(200);
     expect(own.json()).toMatchObject({ kind: "hosted", device_id: devices.hosted.device_id, sign_pk: devices.hosted.sign_pk.toString("hex"), wrapped_keys: devices.hosted.wrapped_keys.toString("base64") });
+    const original = signedOrigin(ids.standard,owner);
+    expect(Object.keys(own.json())).toHaveLength(8);
+    expect(own.json().genesis).toEqual({seq:1,item:original.toString("base64"),hash:createHash("sha256").update(original).digest("hex")});
+    expect(Buffer.from(own.json().genesis.item,"base64")).toEqual(original);
+    const frame = decodeCbor(original) as Map<number, Uint8Array>;
+    expect(verify(null,policyItemSignedDigest(ids.standard,1,Buffer.alloc(32),keyId(originUnsigned.policyPublicKey),frame.get(11)!),originPolicy.publicKey,frame.get(12)!)).toBe(true);
     expect((await get(ids.standard, "escrow", escrow)).json().device_id).toBe(devices.escrow.device_id);
     expect((await get(ids.standard, "escrow", hosted)).statusCode).toBe(403);
     expect((await get(ids.standard, "hosted", "x".repeat(40))).statusCode).toBe(401);
@@ -173,6 +187,37 @@ describePostgres("service devices", () => {
     expect((await get(randomUUID(), "hosted", hosted)).statusCode).toBe(409);
   });
 
+  it("preserves original genesis even if it predates the cloud-copy state", async () => {
+    const fresh = randomUUID(), original = signedOrigin(fresh,owner,"e2e");
+    await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'next','cloud_copy',$3)",[fresh,owner,Buffer.from(originUnsigned.root)]);
+    await storeServiceDevice(db,fresh,record("hosted"));
+    await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,1,$2,$3,$4,'appended')",[fresh,Buffer.alloc(32),original,NOW]);
+    const get = () => app.inject({method:"GET",url:`/internal/v1/next/collections/${fresh}/service-devices/hosted`,headers:{authorization:`Bearer ${hosted}`}});
+    const result = await get(); expect(result.statusCode).toBe(200); expect(result.json().genesis.item).toBe(original.toString("base64"));
+    await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1",[fresh]); expect((await get()).statusCode).toBe(409);
+  });
+  it("refuses missing, nonappended, malformed, foreign, ambiguous or oversized original outcomes", async () => {
+    const original = signedOrigin(ids.standard,owner), get = () => app.inject({method:"GET",url:`/internal/v1/next/collections/${ids.standard}/service-devices/hosted`,headers:{authorization:`Bearer ${hosted}`}});
+    const set = (item:Buffer,state="appended") => db.query("UPDATE next_policy_batches SET item=$2,state=$3 WHERE collection_id=$1 AND seq=1",[ids.standard,item,state]);
+    try {
+      await db.query("UPDATE next_policy_batches SET seq=2 WHERE collection_id=$1 AND seq=1",[ids.standard]); expect((await get()).statusCode).toBe(503);
+      await db.query("UPDATE next_policy_batches SET seq=1 WHERE collection_id=$1 AND seq=2",[ids.standard]);
+      for (const state of ["sending","parked"]) {await set(original,state); expect((await get()).statusCode).toBe(503);}
+      for (const bad of [Buffer.from("a0","hex"),original.subarray(0,original.length-1),Buffer.concat([original,Buffer.from([0])]),signedOrigin(randomUUID(),owner),Buffer.alloc(65537),Buffer.alloc(0)]) {await set(bad); expect((await get()).statusCode).toBe(503);}
+      await set(original);
+      const duplicate = await db.query<{id:string}>("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,1,$2,$3,$4,'appended') RETURNING id",[ids.standard,Buffer.alloc(32),original,NOW]);
+      expect((await get()).statusCode).toBe(503); await db.query("DELETE FROM next_policy_batches WHERE id=$1",[duplicate.rows[0]!.id]);
+      expect((await get()).statusCode).toBe(200);
+    } finally {await set(original);}
+  });
+  it("refuses aggregate record overflow even when the original item is within 64KiB", async () => {
+    const fresh = randomUUID(), original = signedOrigin(fresh,owner,"cloud-copy",[{op:"freeze",frozen:true,reason:"x".repeat(50000)}]);
+    expect(original.length).toBeLessThanOrEqual(65536);
+    await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'next','cloud_copy',$3)",[fresh,owner,Buffer.from(originUnsigned.root)]);
+    await storeServiceDevice(db,fresh,{...record("hosted"),wrapped_keys:Buffer.alloc(65536,7)});
+    await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,1,$2,$3,$4,'appended')",[fresh,Buffer.alloc(32),original,NOW]);
+    const response = await app.inject({method:"GET",url:`/internal/v1/next/collections/${fresh}/service-devices/hosted`,headers:{authorization:`Bearer ${hosted}`}}); expect(response.statusCode).toBe(503);
+  });
   it("mints a role-0 collection-scoped log token for the caller's own device", async () => {
     const mint = (device: string, collection: string, token: string) => app.inject({ method: "POST", url: `/internal/v1/next/service-devices/${device}/log-token`, headers: { authorization: `Bearer ${token}` }, payload: { collection } });
     const response = await mint(devices.hosted.device_id, ids.standard, hosted);
