@@ -10,7 +10,8 @@ export interface User {
   email: string | null;
   name: string;
   login: string | null;
-  authentication_provider?: "github" | "google" | "password" | "session" | "tailscale";
+  authentication_provider?:
+    "github" | "google" | "password" | "session" | "tailscale";
 }
 
 export interface SessionContext {
@@ -30,21 +31,23 @@ export function bearerToken(request: FastifyRequest): string | null {
 
 export async function sessionUser(
   request: FastifyRequest,
-  db: DatabasePool
+  db: DatabasePool,
 ): Promise<User | null> {
   return (await sessionContext(request, db))?.user ?? null;
 }
 
 export async function sessionContext(
   request: FastifyRequest,
-  db: DatabasePool
+  db: DatabasePool,
 ): Promise<SessionContext | null> {
   const token = sessionToken(request);
   if (!token) return null;
-  const result = await db.query<User & {
-    session_id: string;
-    last_seen_at: Date | string;
-  }>(
+  const result = await db.query<
+    User & {
+      session_id: string;
+      last_seen_at: Date | string;
+    }
+  >(
     `SELECT u.id, s.id AS session_id, s.last_seen_at,
             COALESCE(i.email, e.email, u.email) AS email,
             u.name, i.login, s.provider AS authentication_provider
@@ -58,7 +61,7 @@ export async function sessionContext(
        AND s.revoked_at IS NULL
        AND u.suspended_at IS NULL
        AND s.account_session_epoch = u.session_epoch`,
-    [tokenHash(token)]
+    [tokenHash(token)],
   );
   const row = result.rows[0];
   if (!row) return null;
@@ -69,53 +72,50 @@ export async function sessionContext(
          AND revoked_at IS NULL
          AND expires_at > now()
          AND last_seen_at < now() - interval '5 minutes'`,
-      [row.session_id]
+      [row.session_id],
     );
   }
-  const {
-    session_id: sessionId,
-    last_seen_at: _lastSeenAt,
-    ...user
-  } = row;
+  const { session_id: sessionId, last_seen_at: _lastSeenAt, ...user } = row;
   return { user, sessionId };
 }
 
 export async function tailscaleUser(
   request: FastifyRequest,
-  db: DatabasePool
+  db: DatabasePool,
 ): Promise<User | null> {
   const loginHeader = request.headers["tailscale-user-login"];
   const nameHeader = request.headers["tailscale-user-name"];
-  const login = (
-    Array.isArray(loginHeader) ? loginHeader[0] : loginHeader
-  )?.trim().toLowerCase();
+  const login = (Array.isArray(loginHeader) ? loginHeader[0] : loginHeader)
+    ?.trim()
+    .toLowerCase();
   if (!login || login.length > 320) return null;
   const suppliedName = (
     Array.isArray(nameHeader) ? nameHeader[0] : nameHeader
   )?.trim();
   const fallbackName = login.split("@")[0] || login;
-  const name = suppliedName && suppliedName.length <= 100
-    ? suppliedName
-    : fallbackName.slice(0, 100);
+  const name =
+    suppliedName && suppliedName.length <= 100
+      ? suppliedName
+      : fallbackName.slice(0, 100);
   const user = await db.query<User & { suspended_at: string | null }>(
     `INSERT INTO users (id, email, name) VALUES ($1, $2, $3)
      ON CONFLICT(email) DO UPDATE SET name = excluded.name
      RETURNING id, email, name, suspended_at`,
-    [randomUUID(), login, name]
+    [randomUUID(), login, name],
   );
   if (!user.rows[0] || user.rows[0].suspended_at) return null;
   const { suspended_at: _suspendedAt, ...activeUser } = user.rows[0];
   return {
     ...activeUser,
     login: null,
-    authentication_provider: "tailscale"
+    authentication_provider: "tailscale",
   };
 }
 
 export async function authenticatedUser(
   request: FastifyRequest,
   db: DatabasePool,
-  tailscaleAuth = false
+  tailscaleAuth = false,
 ): Promise<User | null> {
   return tailscaleAuth ? tailscaleUser(request, db) : sessionUser(request, db);
 }
@@ -124,7 +124,7 @@ export async function requireUser(
   request: FastifyRequest,
   reply: FastifyReply,
   db: DatabasePool,
-  tailscaleAuth = false
+  tailscaleAuth = false,
 ): Promise<User | null> {
   const user = await authenticatedUser(request, db, tailscaleAuth);
   if (!user) {
@@ -136,7 +136,7 @@ export async function requireUser(
 export async function requireSessionContext(
   request: FastifyRequest,
   reply: FastifyReply,
-  db: DatabasePool
+  db: DatabasePool,
 ): Promise<SessionContext | null> {
   const authenticated = await sessionContext(request, db);
   if (!authenticated) {
@@ -147,7 +147,7 @@ export async function requireSessionContext(
 
 export async function connectorFromRequest(
   request: FastifyRequest,
-  db: DatabasePool
+  db: DatabasePool,
 ): Promise<ConnectorIdentity | null> {
   const token = bearerToken(request);
   if (!token) return null;
@@ -157,22 +157,59 @@ export async function connectorFromRequest(
      JOIN users u ON u.id = c.user_id
      WHERE c.token_hash = $1 AND c.revoked_at IS NULL
        AND u.suspended_at IS NULL`,
-    [tokenHash(token)]
+    [tokenHash(token)],
   );
   return connector.rows[0] ?? null;
+}
+
+/** Explicit installation scope: only next device challenge, cloud-copy bootstrap
+ * and collection log-token routes call this. Legacy/controller/grant routes keep
+ * requireConnector and therefore never admit this bearer. */
+export async function requireInstallationDeviceConnector(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  db: DatabasePool,
+): Promise<ConnectorIdentity | null> {
+  const ordinary = await connectorFromRequest(request, db);
+  if (ordinary) return ordinary;
+  const token = bearerToken(request);
+  if (token) {
+    const result = await db.query<ConnectorIdentity>(
+      `SELECT c.id, c.user_id
+       FROM installation_device_credentials k
+       JOIN installation_device_pairings p ON p.pairing_id = k.pairing_id
+       JOIN pairing_requests r ON r.id = p.pairing_id
+       JOIN connectors c ON c.id = k.connector_id
+       JOIN users u ON u.id = c.user_id
+       JOIN next_devices d ON d.id = k.device_id
+       WHERE k.token_hash = $1 AND c.revoked_at IS NULL
+         AND u.suspended_at IS NULL AND r.revoked_at IS NULL
+         AND r.consumed_at IS NOT NULL AND r.user_id = c.user_id
+         AND p.connector_id = c.id AND p.device_id = d.id
+         AND p.installation_id = k.installation_id
+         AND d.connector_id = c.id AND d.user_id = c.user_id
+         AND d.kind = p.kind AND d.sign_pk = p.sign_pk
+         AND d.kem_pk = p.kem_pk AND d.noise_pk = p.noise_pk`,
+      [tokenHash(token)],
+    );
+    if (result.rows[0]) return result.rows[0];
+  }
+  reply
+    .code(401)
+    .send(apiError("invalid_connector", "Device credential is invalid."));
+  return null;
 }
 
 export async function requireConnector(
   request: FastifyRequest,
   reply: FastifyReply,
-  db: DatabasePool
+  db: DatabasePool,
 ): Promise<ConnectorIdentity | null> {
   const connector = await connectorFromRequest(request, db);
   if (!connector) {
-    reply.code(401).send(apiError(
-      "invalid_connector",
-      "Connector credential is invalid."
-    ));
+    reply
+      .code(401)
+      .send(apiError("invalid_connector", "Connector credential is invalid."));
   }
   return connector;
 }

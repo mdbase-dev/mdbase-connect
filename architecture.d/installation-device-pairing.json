@@ -1,0 +1,9 @@
+{
+  "reason": "One additive installation-device issuer beside the existing daemon pairing routes implements the approved account selection, original native-key attestation, explicit device consent and exact committed-outcome reconciliation. It reuses the existing pairing table/channel, device registration digest, session checks and bounded transaction helper. Its nine internal route-facing declarations plus one explicitly scoped authentication helper do not change published SDK/protocol exports. Only device challenge, cloud-copy bootstrap and collection log-token opt in to installation credentials; controller/relay/grant/private-account routes do not. No new package or hard gate change.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 8,
+    "typeScriptExportDeclarations": 10,
+    "services/server": 1
+  }
+}
