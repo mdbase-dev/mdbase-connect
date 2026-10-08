@@ -7,15 +7,16 @@ export interface CollectionDeletionFact { collection: string; deletionId: string
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const NIL = "00000000-0000-0000-0000-000000000000";
 const U64 = (1n << 64n) - 1n;
-function uuid(value: string): string {
-  if (!UUID.test(value) || value === NIL) throw new Error("invalid_collection_deletion_uuid");
+function uuid(value: unknown): string {
+  if (typeof value !== "string" || value.length !== 36 || value === NIL || !UUID.test(value)) throw new Error("invalid_collection_deletion_uuid");
   return value;
 }
 function checked(fact: CollectionDeletionFact): CollectionDeletionFact {
-  uuid(fact.collection); uuid(fact.deletionId);
-  if (typeof fact.lifecycleEpoch !== "bigint" || fact.lifecycleEpoch < 1n || fact.lifecycleEpoch > U64)
+  const { collection, deletionId, lifecycleEpoch } = fact;
+  uuid(collection); uuid(deletionId);
+  if (typeof lifecycleEpoch !== "bigint" || lifecycleEpoch < 1n || lifecycleEpoch > U64)
     throw new Error("invalid_collection_deletion_epoch");
-  return fact;
+  return { collection, deletionId, lifecycleEpoch };
 }
 interface Row { collection_id: string; deletion_id: string; epoch: string }
 const rowFact = (row: Row): CollectionDeletionFact => checked({collection:row.collection_id,deletionId:row.deletion_id,lifecycleEpoch:BigInt(row.epoch)});
@@ -43,7 +44,7 @@ export async function recordCollectionDeletionIntent(client: DatabaseConnection,
  * identities remain denied; none is an optimistic successful remote receipt. */
 export async function mergeCollectionDeletionFloors(client: DatabaseConnection, facts: readonly CollectionDeletionFact[]): Promise<void> {
   if (!Array.isArray(facts) || facts.length > 128) throw new Error("invalid_collection_deletion_page");
-  const page = facts.map(fact => ({...checked(fact)}));
+  const page = facts.map(checked);
   const seen = new Set<string>();
   for (const fact of page) {
     if (seen.has(fact.collection)) throw new Error("duplicate_collection_deletion_floor");
