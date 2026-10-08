@@ -18,6 +18,7 @@ interface PeopleRoutesOptions {
 
 interface PeopleGrant {
   user_id: string;
+  account_backend: "legacy" | "next";
   public_subject: string;
   name: string;
   collection_id: string | null;
@@ -43,7 +44,7 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
       const bearer = bearerToken(request);
       if (!bearer) return reply.code(401).send(apiError("invalid_token", "An application access token is required."));
       const result = await options.db.query<PeopleGrant>(
-        `SELECT g.user_id, u.public_subject, u.name, g.collection_id,
+        `SELECT g.user_id, u.account_backend, u.public_subject, u.name, g.collection_id,
                 col.local_id AS local_collection_id, g.hosted_collection_id,
                 g.people_permissions,
                 g.membership_id, g.membership_policy_id, g.membership_policy_revision
@@ -53,10 +54,13 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
          JOIN applications app ON app.id = g.application_id
          LEFT JOIN collections col ON col.id = g.collection_id
          LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
+         LEFT JOIN next_collections nc ON nc.collection_id = COALESCE(col.local_id, g.hosted_collection_id)
+         LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id AND binding.collection_id = nc.collection_id
          WHERE tok.token_hash = $1 AND tok.expires_at > now()
            AND tok.revoked_at IS NULL AND g.revoked_at IS NULL
            AND g.activated_at IS NOT NULL AND g.reauthorization_required_at IS NULL
            AND u.suspended_at IS NULL
+           AND (nc.runtime IS NULL OR nc.runtime <> 'next' OR binding.active = true)
            AND COALESCE(col.local_id, g.hosted_collection_id) = $2
            AND (g.collection_id IS NULL OR (col.enabled = true AND col.present = true))
            AND (g.hosted_replica_id IS NULL OR (replica.id IS NOT NULL AND replica.revoked_at IS NULL))
@@ -80,31 +84,34 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
         || !matchesMembershipBinding(grant, membershipBindingForAccess(access))) {
         return reply.code(401).send(apiError("invalid_token", "Current collection membership no longer permits this authorization."));
       }
+      const owner = await options.db.query<{ id: string; public_subject: string; name: string }>(
+        "SELECT id, public_subject, name FROM users WHERE id = $1 AND suspended_at IS NULL",
+        [access.collection.ownerUserId]
+      );
+      if (!owner.rows.length) return reply.code(401).send(apiError("invalid_token", "The collection owner is unavailable."));
       if (permission === "identity") {
         const settingsUrl = personSettingsUrl(options, grant.hosted_collection_id ?? grant.local_collection_id);
         return {
           ...profile(grant),
+          ...(grant.account_backend === "next" ? { account_id: grant.user_id } : {}),
           ...(settingsUrl ? { person_settings_url: settingsUrl } : {})
         } satisfies CurrentAccountResponse;
       }
 
-      const owner = await options.db.query<{ public_subject: string; name: string }>(
-        "SELECT public_subject, name FROM users WHERE id = $1 AND suspended_at IS NULL",
-        [access.collection.ownerUserId]
-      );
-      const members: CollectionMemberProfile[] = owner.rows.map((row) => ({ ...profile(row), role: "owner" }));
+      const members: CollectionMemberProfile[] = owner.rows.map((row) => ({ ...profile(row), ...(grant.account_backend === "next" ? { account_id: row.id } : {}), role: "owner" }));
       if (grant.hosted_collection_id) {
-        const rows = await options.db.query<{ public_subject: string; name: string; role: "viewer" | "editor" }>(
-          `SELECT account.public_subject, account.name, policy.role
+        const rows = await options.db.query<{ id: string; public_subject: string; name: string; role: "viewer" | "editor" }>(
+          `SELECT account.id, account.public_subject, account.name, policy.role
            FROM collection_memberships membership
            JOIN users account ON account.id = membership.user_id
            JOIN collection_membership_policies policy ON policy.id = membership.current_policy_id
+             AND policy.membership_id = membership.id AND policy.revision = membership.current_policy_revision
            WHERE membership.collection_id = $1 AND membership.state = 'active'
              AND membership.revoked_at IS NULL AND account.suspended_at IS NULL
            ORDER BY membership.accepted_at, membership.id`,
           [grant.hosted_collection_id]
         );
-        members.push(...rows.rows.map((row) => ({ ...profile(row), role: row.role })));
+        members.push(...rows.rows.map((row) => ({ ...profile(row), ...(grant.account_backend === "next" ? { account_id: row.id } : {}), role: row.role })));
       }
       return { members };
     });
