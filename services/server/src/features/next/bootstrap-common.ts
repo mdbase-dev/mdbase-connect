@@ -14,7 +14,7 @@ export const NIL = SERVICE_ACCOUNT;
 
 export interface Proof { device_id: string; challenge: string; sig: string }
 export interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: RegisteredDeviceKind }
-export type Connector = { id: string; user_id: string };
+export type Connector = { id: string; user_id: string; installation_device_id?: string };
 /** PostgreSQL lock_timeout or statement_timeout: answer busy (fail closed), never the driver error. */
 export const isLockTimeout = (error: unknown) => ["55P03", "57014"].includes(String((error as { code?: unknown } | null)?.code));
 
@@ -27,6 +27,7 @@ export const lock = (client: DatabaseConnection, collection: string) =>
 
 /** Verify a device's signature over `digest` and consume its challenge. */
 export async function authenticate(client: DatabaseConnection, body: Proof, connector: Connector, digest: (challenge: Uint8Array) => Uint8Array): Promise<Device> {
+  if (connector.installation_device_id && connector.installation_device_id!==body.device_id) throw new CreateError(403,"invalid_proof");
   const device = (await client.query<Device>(
     "SELECT sign_pk, kem_pk, noise_pk, kind FROM next_devices WHERE id = $1 AND connector_id = $2 AND user_id = $3",
     [body.device_id, connector.id, connector.user_id]
@@ -47,6 +48,7 @@ export async function authenticate(client: DatabaseConnection, body: Proof, conn
  * suspension or device removal either happened before (and is refused here) or waits.
  */
 export async function currentIdentity(client: DatabaseConnection, connector: Connector, deviceId: string, device: Device): Promise<void> {
+  if (connector.installation_device_id && connector.installation_device_id!==deviceId) throw new CreateError(403,"identity_not_current");
   const row = await client.query(
     `SELECT 1 FROM connectors c JOIN users u ON u.id = c.user_id
        JOIN next_devices d ON d.connector_id = c.id AND d.user_id = u.id

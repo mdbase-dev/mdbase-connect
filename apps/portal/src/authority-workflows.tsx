@@ -17,6 +17,13 @@ interface DevicePairing {
   attested?: boolean;
   fingerprint?: string | null;
   app_origin?: string;
+  requested_create_collections?: boolean;
+  approved_create_collections?: boolean;
+  approved_collection_ids?: string[];
+  scope_only?: boolean;
+  retained_collection_ids?: string[];
+  retained_create_collections?: boolean;
+  collections?: Array<{collection_id:string;display_name:string;role:string}>;
 }
 export function Pairing({ pairingId }: { pairingId: string }) {
   const [pairing, setPairing] = useState<DevicePairing | null>(null);
@@ -24,12 +31,16 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [collectionIds,setCollectionIds] = useState<string[]>([]);
+  const [createCollections,setCreateCollections] = useState(false);
   const generation = useRef(0);
   const dispatching = useRef(false);
 
   useEffect(() => {
     const current = ++generation.current;
     setPairing(null);
+    setCollectionIds([]);
+    setCreateCollections(false);
     setDeepLink("");
     setError("");
     setBusy(false);
@@ -38,6 +49,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       .then((value) => {
         if (current !== generation.current) return;
         setPairing(value.pairing);
+        setCollectionIds([...new Set([...(value.pairing.retained_collection_ids??[]),...(value.pairing.approved_collection_ids??[])])]);
+        setCreateCollections(value.pairing.retained_create_collections || value.pairing.approved_create_collections || false);
       })
       .catch((reason) => {
         if (current !== generation.current) return;
@@ -59,7 +72,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     try {
       const result = await api<{ deep_link?: string }>(
         `/v1/pairing-requests/${pairingId}/${action}`,
-        { method: "POST", ...(action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint})} : {}) },
+        { method: "POST", ...(action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:collectionIds.filter(id=>!pairing.retained_collection_ids?.includes(id)),create_collections:createCollections && !pairing.retained_create_collections})} : {}) },
       );
       if (current !== generation.current) return;
       if (action === "deny") {
@@ -99,7 +112,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
           <>
             {pairing.approved_at ? (
               <>
-                <h1>Device approved</h1>
+                <h1>{pairing.scope_only ? "Collection access approved" : "Device approved"}</h1>
                 <p>
                   Return to {pairing.connector_name}. It will finish securely.
                   No device credential was displayed or copied.
@@ -108,7 +121,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             ) : (
               <>
                 <p className="eyebrow">
-                  {pairing.kind === "mobile"
+                  {pairing.scope_only ? "Update collection access" : pairing.kind === "mobile"
                     ? "New app device"
                     : "New browser device"}
                 </p>
@@ -149,21 +162,35 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                 ) : (
                   <>
                     <p>
-                      Approve this{" "}
-                      {pairing.kind === "mobile" ? "app" : "browser"} as a
-                      device on your account. It can open your cloud-copy
-                      collections and keep an offline replica on this
-                      installation. This is not an application grant.
+                      {pairing.scope_only ? "Keep this device and update its access." : "Approve this installation as a device."} It can open and keep an offline replica of only the collections you select, including their files and current account/member identity information. This is not an application grant.
                     </p>
                     <p>
                       Device key: <code>{pairing.fingerprint}</code>
                     </p>
+                    <fieldset disabled={busy}>
+                      <legend>Entire collections</legend>
+                      {(pairing.collections??[]).map(collection=>(
+                        <label key={collection.collection_id}>
+                          <input type="checkbox" className="mdbase-checkbox" checked={collectionIds.includes(collection.collection_id)} disabled={pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...ids,collection.collection_id]:ids.filter(id=>id!==collection.collection_id))} />
+                          <span>{collection.display_name} ({collection.role})</span>
+                          <code>{collection.collection_id}</code>
+                        </label>
+                      ))}
+                      {(pairing.retained_collection_ids??[]).filter(id=>!pairing.collections?.some(collection=>collection.collection_id===id)).map(id=><p key={id}>Already approved: <code>{id}</code> (currently unavailable)</p>)}
+                      {!pairing.collections?.length && <p>No current cloud-copy collections are available.</p>}
+                      {(pairing.requested_create_collections || pairing.retained_create_collections) && <label>
+                        <input type="checkbox" className="mdbase-checkbox" checked={createCollections} disabled={pairing.retained_create_collections} onChange={event=>setCreateCollections(event.target.checked)} />
+                        <span>Create new collections</span>
+                      </label>}
+                    </fieldset>
+                    {pairing.scope_only && <p>Already-approved access stays in place. To remove access, use the separate Remove access action: this app will lose access to that collection on all its devices.</p>}
+                    <p>Other existing or future collections are not included. {pairing.requested_create_collections ? "If approved, only collections created by this installation are added to its access automatically." : "This app has not requested permission to create collections."}</p>
                     <button
                       className="button primary"
                       disabled={busy || !pairing.fingerprint}
                       onClick={() => void act("approve")}
                     >
-                      Approve this device
+                      {pairing.scope_only ? "Approve collection access" : "Approve this device"}
                     </button>
                   </>
                 )}

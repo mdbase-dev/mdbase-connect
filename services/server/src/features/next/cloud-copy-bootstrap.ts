@@ -19,10 +19,10 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
-import { requireInstallationDeviceConnector, requireSessionContext, requireUser } from "../../platform/request-authentication.js";
+import { requireInstallationDeviceConnector, requireSessionContext, requireUser, type ConnectorIdentity } from "../../platform/request-authentication.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import {
-  authenticate, CreateError, currentAccount, currentIdentity, currentSession, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment,
+  authenticate, CreateError, currentAccount, currentIdentity, currentMember, currentSession, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment,
   inTransaction, lock, NIL, refuse as refuseCommon, refuseRevoked, SERVICE_ACCOUNT, type Device, type Proof
 } from "./bootstrap-common.js";
 import { type NextControlPlaneConfig } from "./policy-keys.js";
@@ -30,6 +30,7 @@ import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./p
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 import { generateServiceDevice, loadServiceDevice, ServiceDeviceError, storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
 
+import { installationCollections, requireInstallationScope } from "./installation-scope.js";
 const KINDS = ["hosted", "escrow"] as const;
 
 function refuse(reply: FastifyReply, error: unknown, message: string) {
@@ -71,6 +72,14 @@ async function currentCloudCopy(client: DatabaseConnection, collection: string, 
     [collection, owner]
   );
   if (!current.rows.length) throw new CreateError(409, "not_current_cloud_copy");
+}
+
+async function currentJoiningCloudCopy(client: DatabaseConnection, collection: string, connector: ConnectorIdentity): Promise<void> {
+  if (!connector.installation_device_id) return currentCloudCopy(client,collection,connector.user_id);
+  await requireInstallationScope(client,connector,collection);
+  const current = await client.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR UPDATE OF n",[collection]);
+  if (!current.rows.length) throw new CreateError(409,"not_current_cloud_copy");
+  await currentMember(client,collection,connector.user_id);
 }
 
 const publicRecord = (record: ServiceDeviceRecord) => ({
@@ -131,6 +140,20 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
     return { device_id: device, token: options.log.mintToken({ device, signPublicKey: signPk, collection, expiresAt }), expires_at: expiresAt };
   };
+
+  // Metadata is installation-scoped, never an account inventory or readiness claim.
+  app.get("/v1/next/collections", async (request,reply) => {
+    reply.header("cache-control","no-store");
+    const connector = await requireInstallationDeviceConnector(request,reply,options.db);
+    if (!connector) return reply;
+    if (!connector.installation_device_id) return reply.code(403).send(apiError("installation_credential_required","Use an installation credential."));
+    try {
+      return await inTransaction(options.db,async client=> {
+        await requireInstallationScope(client,connector);
+        return {collections:await installationCollections(client,connector.user_id,connector.id)};
+      });
+    } catch (error) { return refuse(reply,error,"The approved collection list is unavailable."); }
+  });
 
   // ---- Service-created: the account, no device. ----
   app.post<{ Body: { collection_id: string } }>("/v1/next/collections/cloud-copy/service", {
@@ -219,7 +242,10 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
       ({ device, exists } = await inTransaction(options.db, async (client) => {
         await lock(client, collection);
         const owner = await authenticate(client, body, connector, digest);
-        return { device: owner, exists: await existing(client, collection, connector.user_id) };
+        await currentIdentity(client,connector,body.device_id,owner);
+        const exists = await existing(client, collection, connector.user_id);
+        await requireInstallationScope(client,connector,exists?collection:undefined,!exists);
+        return { device: owner, exists };
       }));
       if (!exists) {
         const generated = await generateFor(collection);
@@ -228,6 +254,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
         await inTransaction(options.db, async (client) => {
           await lock(client, collection);
           await currentIdentity(client, connector, body.device_id, device);
+          await requireInstallationScope(client,connector,undefined,true);
           // Created concurrently: the retry path rechecks the enrolled device.
           if (await existing(client, collection, connector.user_id)) throw new CreateError(503, "not_ready");
           await registerNextCollection(client, {
@@ -240,6 +267,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
             ]
           });
           for (const record of generated) await storeServiceDevice(client, collection, record);
+          if (connector.installation_device_id) await client.query("INSERT INTO installation_collection_scopes(connector_id,collection_id) VALUES($1,$2)",[connector.id,collection]);
         });
       }
     } catch (error) {
@@ -254,6 +282,8 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
       return await inTransaction(options.db, async (client) => {
         await currentIdentity(client, connector, body.device_id, device);
         await currentCloudCopy(client, collection, connector.user_id);
+        await requireInstallationScope(client,connector,collection);
+        if (connector.installation_device_id) await currentMember(client,collection,connector.user_id);
         await refuseRevoked(client, collection, body.device_id);
         // The requesting device must be the one the genesis enrolled, with the same keys.
         const enrolled = await client.query(
@@ -302,7 +332,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
         await currentIdentity(client, connector, body.device_id, joining);
         // Cloud copy only: a private collection, or one that has left sync, refuses
         // before any policy op exists.
-        await currentCloudCopy(client, collection, connector.user_id);
+        await currentJoiningCloudCopy(client, collection, connector);
         await refuseRevoked(client, collection, body.device_id);
         const prior = (await client.query<{ ops: { ops: Array<Record<string, unknown>> } }>(ENROLMENT, [collection, enrolmentKey(body.device_id)])).rows[0];
         if (prior) {
@@ -327,7 +357,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
       const genesis = await appendedGenesis(collection);
       return await inTransaction(options.db, async (client) => {
         await currentIdentity(client, connector, body.device_id, device);
-        await currentCloudCopy(client, collection, connector.user_id);
+        await currentJoiningCloudCopy(client, collection, connector);
         await refuseRevoked(client, collection, body.device_id);
         // Hosted (or escrow) wraps the current epoch key to this device next.
         return {

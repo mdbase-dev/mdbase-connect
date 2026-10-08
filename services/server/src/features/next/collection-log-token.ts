@@ -22,6 +22,8 @@ import { verify } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
+import { CreateError } from "./bootstrap-common.js";
+import { requireInstallationScope } from "./installation-scope.js";
 import { requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
@@ -75,7 +77,7 @@ export function registerCollectionLogTokenRoute(app: FastifyInstance, options: {
       return answer;
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
-      if (error instanceof Refused) return reply.code(error.status).send(apiError(error.code, "No log token for this device and collection."));
+      if (error instanceof Refused || error instanceof CreateError) return reply.code(error.status).send(apiError(error.code, "No log token for this device and collection."));
       if (isLockTimeout(error)) return reply.code(503).send(apiError("busy", "Retry with a fresh proof."));
       throw error;
     } finally {
@@ -86,12 +88,14 @@ export function registerCollectionLogTokenRoute(app: FastifyInstance, options: {
 
 async function refresh(
   client: DatabaseConnection,
-  connector: { id: string; user_id: string },
+  connector: { id: string; user_id: string; installation_device_id?:string },
   collection: string,
   deviceId: string,
   body: Body,
   options: { log: Pick<LogServiceClient, "mintToken">; now?: () => number }
 ): Promise<{ token: string; expires_at: number }> {
+  if (connector.installation_device_id && connector.installation_device_id!==deviceId) throw new Refused(403,"invalid_proof");
+  await requireInstallationScope(client,connector,collection);
   // Proof, then the single-use challenge.
   const device = (await client.query<Device>(
     "SELECT sign_pk, kem_pk, noise_pk, kind FROM next_devices WHERE id = $1 AND connector_id = $2 AND user_id = $3",
