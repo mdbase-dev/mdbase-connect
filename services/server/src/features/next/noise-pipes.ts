@@ -309,8 +309,12 @@ export function registerNoisePipeClientRoute(
          JOIN users u ON u.id = g.user_id
          JOIN collections col ON col.id = g.collection_id
          JOIN next_grant_client_keys k ON k.grant_id = g.id
+         LEFT JOIN next_collections nc ON nc.collection_id = col.local_id
+         LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
          WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
-           AND g.id::text = $3 AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+           AND COALESCE(binding.log_grant_id, g.id)::text = $3
+           AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)
+           AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
            AND u.suspended_at IS NULL
            AND col.local_id = $2 AND col.enabled = true
            AND col.present = true AND col.authority_state = 'active'`,

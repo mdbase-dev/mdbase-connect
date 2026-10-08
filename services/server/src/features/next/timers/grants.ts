@@ -73,7 +73,8 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
        LEFT JOIN collections c ON c.id = g.collection_id
        LEFT JOIN next_collections nc
          ON nc.collection_id = COALESCE(c.local_id, g.hosted_collection_id)
-       WHERE g.id = $1`,
+       LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id AND binding.active = true
+       WHERE g.id = $1 OR binding.log_grant_id = $1`,
       [grantId]
     );
     const row = result.rows[0];

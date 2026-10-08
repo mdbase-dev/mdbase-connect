@@ -40,8 +40,10 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const { id } = z.object({ id: z.uuid() }).parse(request.params);
     const token = bearerToken(request);
     if (!token) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
-    const grant = await options.db.query<{ grant_id: string; has_client_key: boolean; device_id: string | null; kind: RegisteredDeviceKind | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null }>(
-      `SELECT g.id AS grant_id, (k.grant_id IS NOT NULL) AS has_client_key,
+    const grant = await options.db.query<{ grant_id: string; authorization_grant: string; policy_required: boolean; policy_active: boolean; has_client_key: boolean; device_id: string | null; kind: RegisteredDeviceKind | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null }>(
+      `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
+              (nc.runtime = 'next') AS policy_required, COALESCE(binding.active, false) AS policy_active,
+              (k.grant_id IS NOT NULL) AS has_client_key,
               d.id AS device_id, d.kind, d.noise_pk, col.local_id,
               c.id AS connector_id, c.relay_generation,
               (extract(epoch FROM c.last_seen_at) * 1000)::double precision AS last_active_ms
@@ -51,6 +53,8 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
        JOIN collections col ON col.id = g.collection_id
        JOIN connectors c ON c.id = col.connector_id AND c.revoked_at IS NULL
        LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
+       LEFT JOIN next_collections nc ON nc.collection_id = col.local_id
+       LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
        -- SEC-047: only a device of the account that granted the app.
        LEFT JOIN next_devices d ON d.connector_id = c.id AND d.user_id = g.user_id
        WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
@@ -64,6 +68,9 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     if (!row) return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired for this collection."));
     if (!row.has_client_key) {
       return reply.code(409).send(apiError("client_key_required", "This grant has no registered Noise key; authorize the app again to register one."));
+    }
+    if (row.policy_required && !row.policy_active) {
+      return reply.code(409).send(apiError("application_reauthorization_required", "This grant has no next policy binding; authorize the application again."));
     }
     const candidates = await Promise.all(grant.rows.flatMap((target) => {
       if (!target.device_id || !target.noise_pk || !target.kind) return [];
@@ -94,7 +101,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
       || b.lastActive - a.lastActive
       || a.value.device.localeCompare(b.value.device));
     const targets = candidates.map(({ value }) => value);
-    return { collection: id, grant: row.grant_id, targets, ...(targets.length === 0 ? { reason: "no_device_registered" } : {}) };
+    return { collection: id, grant: row.grant_id, ...(row.authorization_grant && row.authorization_grant !== row.grant_id ? { authorization_grant: row.authorization_grant } : {}), targets, ...(targets.length === 0 ? { reason: "no_device_registered" } : {}) };
   });
 
   // C2: the collections this app installation may switch between, one entry per active
@@ -115,17 +122,19 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const self = caller.rows[0];
     if (!self) return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired."));
     const grants = await options.db.query<{
-      grant_id: string; collection: string; display_name: string; operations: string[];
+      grant_id: string; authorization_grant: string; collection: string; display_name: string; operations: string[];
       sync: "private" | "cloud_copy" | null; routable: boolean;
     }>(
-      `SELECT g.id AS grant_id, COALESCE(col.local_id::text, hc.id::text) AS collection,
+      `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
+              COALESCE(col.local_id::text, hc.id::text) AS collection,
               COALESCE(col.display_name, hc.display_name) AS display_name, g.operations,
-              nc.sync, (k.grant_id IS NOT NULL) AS routable
+              nc.sync, (k.grant_id IS NOT NULL AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)) AS routable
        FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id
        LEFT JOIN hosted_collections hc ON hc.id = g.hosted_collection_id
        LEFT JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, hc.id::text)
        LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
+       LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
        WHERE g.user_id = $1 AND g.application_id = $2 AND g.application_installation_id = $3
          AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
          AND (g.collection_id IS NULL OR (col.enabled = true AND col.present = true AND col.authority_state = 'active'))
@@ -138,6 +147,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
         collection: row.collection,
         name: row.display_name,
         grant: row.grant_id,
+        ...(row.authorization_grant !== row.grant_id ? { authorization_grant: row.authorization_grant } : {}),
         state: row.sync === "cloud_copy" ? "synced" : row.sync === "private" ? "synced_e2e" : "local",
         operations: row.operations,
         routable: row.routable
