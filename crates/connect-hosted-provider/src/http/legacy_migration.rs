@@ -37,7 +37,7 @@ pub(super) fn legacy_migration_routes() -> Router<AppState> {
     Router::new()
         .route(
             "/internal/v1/collections/{collection_id}/legacy-migration",
-            put(set_legacy_migration_state),
+            put(set_legacy_migration_state).get(legacy_migration_drain),
         )
         .route(
             "/internal/v1/collections/{collection_id}/legacy-migration/restore-replicas",
@@ -62,6 +62,16 @@ async fn set_legacy_migration_state(
         )
         .await?;
     Ok(Json(json!(status)))
+}
+
+async fn legacy_migration_drain(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let drain = state.provider.legacy_migration_drain(collection_id).await?;
+    Ok(Json(json!(drain)))
 }
 
 async fn restore_replicas(

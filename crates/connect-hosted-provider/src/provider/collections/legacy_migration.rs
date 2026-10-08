@@ -40,6 +40,28 @@ pub struct LegacyMigrationStatus {
     pub retain_until: Option<DateTime<Utc>>,
 }
 
+/// What the migration driver reads to drain a fenced collection (H6) and to fix
+/// `S_final`: the lifecycle state, the head and the accepted mutations that could
+/// still change it, all from one statement (one snapshot).
+#[derive(Debug, Clone, Serialize)]
+pub struct LegacyMigrationDrain {
+    pub collection_id: Uuid,
+    /// The raw lifecycle state (`active`, `migrating`, `migrated`, or another).
+    pub state: String,
+    pub head: i64,
+    pub started_at: Option<DateTime<Utc>>,
+    pub retain_until: Option<DateTime<Utc>>,
+    /// Accepted mutations (`claimed`/`prepared`) whose lease is still live: their
+    /// request may still be applying. Draining waits for zero. An expired lease
+    /// cannot apply once the collection is fenced: every apply path requires
+    /// `state = 'active'` under the collection row lock that the fence takes.
+    pub in_flight: i64,
+    /// Accepted mutations not yet resolved, live or not.
+    pub unresolved: i64,
+    /// Mutations applied (already in `head`) whose receipt is not yet final.
+    pub applied_unreceipted: i64,
+}
+
 fn requested_state(value: &str) -> ApiResult<LegacyMigrationState> {
     match value {
         "active" => Ok(LegacyMigrationState::Active),
@@ -171,6 +193,42 @@ impl HostedProvider {
             state: target,
             started_at,
             retain_until,
+        })
+    }
+
+    /// The drain status of one collection (H6).
+    pub async fn legacy_migration_drain(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<LegacyMigrationDrain> {
+        let row = sqlx::query(
+            r#"SELECT c.state, c.head, c.legacy_migration_started_at, c.legacy_retain_until,
+                      count(j.request_id) FILTER (
+                        WHERE j.state IN ('claimed', 'prepared') AND j.lease_expires_at > now()
+                      ) AS in_flight,
+                      count(j.request_id) FILTER (
+                        WHERE j.state IN ('claimed', 'prepared')
+                      ) AS unresolved,
+                      count(j.request_id) FILTER (WHERE j.state = 'applied') AS applied
+               FROM hosted_provider_collections c
+               LEFT JOIN hosted_provider_replicas r ON r.collection_id = c.id
+               LEFT JOIN hosted_provider_mutation_journal j ON j.replica_id = r.id
+               WHERE c.id = $1
+               GROUP BY c.id"#,
+        )
+        .bind(collection_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(not_found)?;
+        Ok(LegacyMigrationDrain {
+            collection_id,
+            state: row.get("state"),
+            head: row.get("head"),
+            started_at: row.get("legacy_migration_started_at"),
+            retain_until: row.get("legacy_retain_until"),
+            in_flight: row.get("in_flight"),
+            unresolved: row.get("unresolved"),
+            applied_unreceipted: row.get("applied"),
         })
     }
 

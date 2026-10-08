@@ -36,6 +36,16 @@ async fn state_of(fixture: &FileLifecycleFixture) -> String {
         .unwrap()
 }
 
+async fn queued(fixture: &FileLifecycleFixture, key: &str) -> i64 {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM hosted_provider_blob_deletions WHERE object_key = $1 AND attempts = 0",
+    )
+    .bind(key)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap()
+}
+
 async fn mirror_id(fixture: &FileLifecycleFixture) -> Uuid {
     sqlx::query_scalar("SELECT id FROM hosted_provider_replicas WHERE collection_id = $1")
         .bind(fixture.collection_id)
@@ -112,9 +122,10 @@ async fn migrated_needs_ninety_days_of_retention_and_never_shortens_it() {
         .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(91)), false)
         .await
         .unwrap();
+    // PostgreSQL keeps microseconds.
     assert_eq!(
-        again.retain_until,
-        Some(long),
+        again.retain_until.map(|t| t.timestamp_micros()),
+        Some(long.timestamp_micros()),
         "retention is never shortened"
     );
     let deletion = provider.delete_collection(id).await.unwrap_err();
@@ -148,15 +159,6 @@ async fn retained_collections_keep_their_queued_blob_deletions() {
     let id = fixture.collection_id;
     let key = format!("v1/blobs/{id}/{}", Uuid::now_v7());
     let other = format!("v1/blobs/{}/{}", Uuid::now_v7(), Uuid::now_v7());
-    let queued = |key: &str| async move {
-        sqlx::query_scalar::<_, i64>(
-            "SELECT count(*) FROM hosted_provider_blob_deletions WHERE object_key = $1 AND attempts = 0",
-        )
-        .bind(key)
-        .fetch_one(&fixture.pool)
-        .await
-        .unwrap()
-    };
     provider
         .set_legacy_migration_state(id, "migrating", None, false)
         .await
@@ -172,12 +174,12 @@ async fn retained_collections_keep_their_queued_blob_deletions() {
     .unwrap();
     let _ = provider.delete_pending_blobs(10).await;
     assert_eq!(
-        queued(&key).await,
+        queued(&fixture, &key).await,
         1,
         "a retained collection's object stays queued"
     );
     assert_eq!(
-        queued(&other).await,
+        queued(&fixture, &other).await,
         0,
         "other collections' queue entries are processed"
     );
@@ -186,7 +188,11 @@ async fn retained_collections_keep_their_queued_blob_deletions() {
         .await
         .unwrap();
     let _ = provider.delete_pending_blobs(10).await;
-    assert_eq!(queued(&key).await, 1, "still retained after cutover");
+    assert_eq!(
+        queued(&fixture, &key).await,
+        1,
+        "still retained after cutover"
+    );
     // Rollback (before H9 it is direct) releases the entry to the worker again.
     provider
         .set_legacy_migration_state(id, "migrating", None, false)
@@ -198,7 +204,7 @@ async fn retained_collections_keep_their_queued_blob_deletions() {
         .unwrap();
     let _ = provider.delete_pending_blobs(10).await;
     assert_eq!(
-        queued(&key).await,
+        queued(&fixture, &key).await,
         0,
         "an active collection's entry is attempted"
     );
@@ -281,4 +287,65 @@ async fn rollback_restores_only_replicas_revoked_during_the_migration() {
         .open_file_upload(id, &fixture.token, upload(), None)
         .await
         .expect("the restored mirror writes again");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn drain_status_reports_live_accepted_mutations_until_they_resolve() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+
+    let idle = provider.legacy_migration_drain(id).await.unwrap();
+    assert_eq!(
+        (idle.state.as_str(), idle.in_flight, idle.unresolved),
+        ("active", 0, 0)
+    );
+
+    // An accepted mutation still holding a live lease is in flight.
+    let request = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_mutation_journal
+             (replica_id, request_id, operation_kind, input_schema_version, input_digest,
+              state, process_epoch, lease_owner, lease_expires_at, fencing_generation)
+           VALUES ($1, $2, 'test', 1, '\x00', 'claimed', $3, $3, now() + interval '1 minute', 1)"#,
+    )
+    .bind(mirror)
+    .bind(request)
+    .bind(Uuid::now_v7())
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    provider
+        .set_legacy_migration_state(id, "migrating", None, false)
+        .await
+        .unwrap();
+    let draining = provider.legacy_migration_drain(id).await.unwrap();
+    assert_eq!(draining.state, "migrating");
+    assert_eq!((draining.in_flight, draining.unresolved), (1, 1));
+    assert!(draining.started_at.is_some());
+
+    // Its lease lapses: it can no longer apply (the collection is fenced), so the
+    // drain completes while the row stays visible as unresolved evidence.
+    sqlx::query(
+        "UPDATE hosted_provider_mutation_journal SET lease_expires_at = now() - interval '1 second' WHERE request_id = $1",
+    )
+    .bind(request)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let drained = provider.legacy_migration_drain(id).await.unwrap();
+    assert_eq!((drained.in_flight, drained.unresolved), (0, 1));
+    assert_eq!(
+        drained.head, draining.head,
+        "the head is stable once drained"
+    );
+
+    let missing = provider
+        .legacy_migration_drain(Uuid::now_v7())
+        .await
+        .unwrap_err();
+    assert_eq!(missing.code, "hosted_collection_not_found");
 }

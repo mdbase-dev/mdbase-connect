@@ -7,5 +7,7 @@
   deletion worker never removes a retained collection's objects, whatever queued
   them. Internal routes set the state and restore exactly the replicas revoked since
   the migration started (rollback); rolling back after cutover requires the runbook to
-  state that the reverse export was verified. Nothing calls them until the migration
+  state that the reverse export was verified. A drain status route reports the head and the accepted
+  mutations still holding a live lease, so the migration fixes `S_final` only
+  after in-flight writes resolve. Nothing calls these routes until the migration
   runs.

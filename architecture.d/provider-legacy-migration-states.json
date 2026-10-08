@@ -1,8 +1,8 @@
 {
-  "reason": "The mdbase-next migration needs provider-side freeze, retention and rollback of hosted collections. It sits in its own provider and HTTP modules because provider.rs and http.rs are at the 1,000-line cap; collection deletion moved with it.",
+  "reason": "The mdbase-next migration needs provider-side freeze, retention and rollback of hosted collections. It sits in its own provider and HTTP modules because provider.rs and http.rs are at the 1,000-line cap; collection deletion moved with it. The drain status (H6) adds one public read and its response type, whose fields are the migration driver's drain contract.",
   "growth": {
     "productionFiles": 2,
-    "rustPublicDeclarations": 12,
+    "rustPublicDeclarations": 22,
     "crates/connect-hosted-provider": 2
   }
 }
