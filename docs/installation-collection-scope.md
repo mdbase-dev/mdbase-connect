@@ -2,6 +2,10 @@
 
 First-party installation approval is scoped to explicit cloud-copy UUIDs, not an account inventory or all/future collections. Existing installations start with **no approved collections and no create capability**; historical enrolment alone never supplies consent. Ordinary daemon credentials keep their existing controls. Application grants keep their exact declared people/capability permissions.
 
+## LAB harness origin
+
+The isolated LAB TaskNotes web harness uses the fixed Origin `http://127.0.0.1:48218` (exact host, scheme and port), alongside `https://lab.tasknotes-app.pages.dev`. Only trusted server environment `lab`, `tasknotes-web` and `app-runtime` admit it. No caller-selected environment, wildcard/localhost alias, production/staging fallback or mobile entry is added. The harness must bind that exact loopback host with a strict port and LAB release trust. This source allowlist change is not a LAB deployment or production-origin approval.
+
 ## Initial sign-in and first-run creation
 
 The existing strict `installation` START object adds optional `requested_create_collections: boolean` (default false). Persist this field with the original request/secret/actor before START; changing it on replay or closed-window renewal refuses. The portal displays current named cloud-copy collections for which the selected account is a current member. None is selected by default. It displays **Create new collections** only when requested; that checkbox also defaults to denied. Approval sends `{fingerprint, collection_ids: [<explicit lowercase nonzero UUIDs>], create_collections: boolean}`. The exact approval is immutable; replay cannot change it.

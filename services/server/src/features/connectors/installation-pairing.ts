@@ -45,7 +45,7 @@ const strict = (): never => {
 export function installationApp(environment: string | undefined, appId: string, origin: string | undefined, kind: "app-runtime" | "mobile") {
   const web: Record<string, readonly string[]> = {
     production: ["https://app.tasknotes.dev"],
-    lab: ["https://lab.tasknotes-app.pages.dev"],
+    lab: ["https://lab.tasknotes-app.pages.dev", "http://127.0.0.1:48218"],
     staging: ["https://staging.tasknotes-app.pages.dev"],
   };
   if (!environment || !Object.hasOwn(web, environment) || !origin) return fail("installation_app_not_allowed", 403);
