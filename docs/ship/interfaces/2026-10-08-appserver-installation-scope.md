@@ -6,4 +6,4 @@ Exact request/receipt/digest/currentness/removal semantics: [`docs/installation-
 
 Consumers: clients/TaskNotes first-run and settings, Connect portal/Editor access controls, hostedw native policy revocation. Original connector/device/sign/KEM/Noise keys and bearer are retained; metadata is never readiness. No production activation.
 
-PR: pending publication.
+PR: mdbase-dev/mdbase-connect#659.
