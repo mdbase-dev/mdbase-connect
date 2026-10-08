@@ -62,24 +62,36 @@ export async function mergeCollectionDeletionFloors(client: DatabaseConnection, 
  * A returned revision is NOT a permit: Gone/status and effect-time fences are
  * separate. Any error leaves the caller closed and prior page denials intact. */
 export async function reconcileCollectionDeletionFloors(db: DatabasePool, registry: {registryCollectionDeletions(after: string | null, expected: bigint | null): Promise<CollectionDeletionPage>}): Promise<bigint> {
-  let after: string | null = null, generation: bigint | null = null;
-  for (let pageNumber = 0; pageNumber < 4096; pageNumber++) {
-    const page = await registry.registryCollectionDeletions(after,generation);
-    if (generation !== null && page.generation !== generation) throw new Error("collection_deletion_generation_drift");
-    generation = page.generation;
+  let after: string | null = null, generation: bigint | null = null, confirming = false;
+  for (let pageNumber = 0; pageNumber < 4096 || confirming; pageNumber++) {
+    // The public structural peer is not runtime admission. Capture only these
+    // fields and validate/copy the entire page before any database await.
+    const {generation: observed, after: cursor, done, rows: inputRows} = await registry.registryCollectionDeletions(after,generation);
+    if (typeof observed !== "bigint" || observed < 0n || observed > U64) throw new Error("invalid_collection_deletion_generation");
+    if (generation !== null && observed !== generation) throw new Error("collection_deletion_generation_drift");
+    if (cursor !== null) uuid(cursor);
+    if (!Array.isArray(inputRows) || inputRows.length > 128 || typeof done !== "boolean") throw new Error("invalid_collection_deletion_page");
+    const rows = inputRows.map(checked);
+    let previous: string | null = after;
+    for (const row of rows) {
+      if (previous !== null && row.collection <= previous) throw new Error("invalid_collection_deletion_page");
+      previous = row.collection;
+    }
+    if (cursor !== previous || done !== (rows.length < 128)) throw new Error("invalid_collection_deletion_page");
+    if (confirming) {
+      if (!done || rows.length !== 0) throw new Error("collection_deletion_generation_drift");
+      return observed;
+    }
+    generation = observed;
     const client = await db.connect();
     try {
       await client.query("BEGIN");
-      await mergeCollectionDeletionFloors(client,page.rows);
+      await mergeCollectionDeletionFloors(client,rows);
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; }
     finally { client.release(); }
-    after = page.after;
-    if (page.done) {
-      const final = await registry.registryCollectionDeletions(after,generation);
-      if (final.generation !== generation || !final.done || final.rows.length !== 0 || final.after !== after) throw new Error("collection_deletion_generation_drift");
-      return generation;
-    }
+    after = cursor;
+    confirming = done;
   }
   throw new Error("collection_deletion_scan_limit");
 }
