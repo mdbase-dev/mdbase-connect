@@ -47,6 +47,163 @@ export class RolloutRefused extends Error {
 
 const COHORT_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
+const UUID_CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const DAY_MS = 86_400_000;
+
+const decimal = (max: bigint, positive = false) => z.string().max(20).refine((v) =>
+  /^(0|[1-9][0-9]*)$/.test(v) && BigInt(v) <= max && (!positive || BigInt(v) > 0n));
+const millisecondTime = z.string().length(24).refine((v) => {
+  if (!UTC_MILLISECONDS.test(v)) return false;
+  const ms = Date.parse(v);
+  return Number.isFinite(ms) && new Date(ms).toISOString() === v;
+});
+const archiveBindingSchema = z.object({
+  batch_id: z.string().regex(COHORT_NAME),
+  membership_revision: decimal(9_223_372_036_854_775_807n, true),
+  membership_digest: z.string().regex(HEX64),
+  membership_changed_at: millisecondTime
+}).strict();
+const verifiedArchiveSchema = z.object({
+  schema: z.literal("mdbase-recovery-set/v4"),
+  environment: z.enum(["production", "staging"]),
+  bucket: z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/),
+  prefix: z.string().max(128).regex(/^(staging|production)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}$/),
+  backup_id: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]{0,79}$/),
+  complete_sha256: z.string().regex(HEX64),
+  manifest_sha256: z.string().regex(HEX64),
+  source_commit: z.string().regex(/^[0-9a-f]{40}$/),
+  migration_batch: archiveBindingSchema,
+  archive_created_at: millisecondTime,
+  archive_completed_at: millisecondTime,
+  retention: z.object({
+    mode: z.literal("GOVERNANCE"), days: z.literal(120), retain_until: millisecondTime,
+    inventory_digest: z.string().regex(HEX64), count: decimal(18_446_744_073_709_551_615n, true)
+  }).strict()
+}).strict();
+export type ArchiveBinding = z.infer<typeof archiveBindingSchema>;
+export type VerifiedBatchArchive = z.infer<typeof verifiedArchiveSchema>;
+
+/** Private CP-owned inventory only; never return account/collection lists in the header. */
+export function migrationMembershipDigest(inventory: readonly (readonly [string, readonly string[]])[]): string {
+  const accounts = new Set<string>(), collections = new Set<string>();
+  const uuid = (id: string) => UUID_CANONICAL.test(id) && id !== "00000000-0000-0000-0000-000000000000";
+  const rows = inventory.map(([account, owned]) => {
+    if (!uuid(account) || accounts.has(account)) throw new RolloutRefused("backup_missing", "Invalid batch membership.");
+    accounts.add(account);
+    const ids = owned.map((id) => {
+      if (!uuid(id) || collections.has(id)) throw new RolloutRefused("backup_missing", "Invalid hosted collection coverage.");
+      collections.add(id); return id;
+    }).sort();
+    return [account, ids] as const;
+  }).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  return createHash("sha256").update("mdbase-legacy-batch-membership/v1\n", "ascii").update(JSON.stringify(rows), "utf8").digest("hex");
+}
+
+/** Structural decoding is NOT signature/retention verification; only the dedicated trusted verifier route may accept this result. */
+export function parseVerifiedBatchArchive(body: unknown): VerifiedBatchArchive {
+  const parsed = verifiedArchiveSchema.safeParse(body);
+  if (!parsed.success) throw new RolloutRefused("backup_missing", "A complete verified v4 archive result is required.");
+  const result = parsed.data;
+  if (result.prefix.split("/")[0] !== result.environment || result.prefix.split("/").at(-1) !== result.backup_id) {
+    throw new RolloutRefused("backup_missing", "Archive identity does not match.");
+  }
+  return result;
+}
+
+/** All times come from the verifier or trusted PostgreSQL clock, never retry/acceptance age. */
+export function requireFreshBatchArchive(result: VerifiedBatchArchive, current: ArchiveBinding, acceptedAt: string, now: string, environment: string): void {
+  const fail = () => { throw new RolloutRefused("backup_missing", "Current fresh batch archive evidence is required."); };
+  if (!millisecondTime.safeParse(acceptedAt).success || !millisecondTime.safeParse(now).success || result.environment !== environment) fail();
+  const binding = archiveBindingSchema.safeParse(current);
+  if (!binding.success) return fail();
+  if (result.migration_batch.batch_id !== binding.data.batch_id
+      || result.migration_batch.membership_revision !== binding.data.membership_revision
+      || result.migration_batch.membership_digest !== binding.data.membership_digest
+      || result.migration_batch.membership_changed_at !== binding.data.membership_changed_at) fail();
+  const created = Date.parse(result.archive_created_at), completed = Date.parse(result.archive_completed_at);
+  const accepted = Date.parse(acceptedAt), clock = Date.parse(now), changed = Date.parse(current.membership_changed_at);
+  if (!(changed <= created && created <= completed && completed <= accepted && accepted <= clock)
+      || clock - created >= 7 * DAY_MS || Date.parse(result.retention.retain_until) < completed + 120 * DAY_MS) fail();
+}
+
+async function archiveClock(client: DatabaseQueryable): Promise<string> {
+  const row = (await client.query<{ now: Date }>("SELECT date_trunc('milliseconds', clock_timestamp()) AS now")).rows[0];
+  if (!row) throw new Error("Trusted archive clock is unavailable.");
+  return new Date(row.now).toISOString();
+}
+
+/** Caller holds this transaction's batch lock through inventory/currentness checks. */
+async function readArchiveBinding(client: DatabaseQueryable, name: string): Promise<ArchiveBinding> {
+  const batch = (await client.query<{ revision: string; changed: Date }>(
+    `SELECT membership_revision::text AS revision, membership_changed_at AS changed
+     FROM next_migration_cohorts WHERE name = $1 FOR UPDATE`, [name]
+  )).rows[0];
+  if (!batch) throw new RolloutRefused("cohort_not_found", "Migration cohort not found.", 404);
+  const members = (await client.query<{ account: string; collection: string | null }>(
+    `SELECT m.account_id::text AS account, h.id::text AS collection
+     FROM next_migration_cohort_members m
+     LEFT JOIN hosted_collections h ON h.user_id = m.account_id AND h.authority_state <> 'transferred'
+     WHERE m.cohort = $1 ORDER BY m.account_id, h.id`, [name]
+  )).rows;
+  const inventory = new Map<string, string[]>();
+  for (const row of members) {
+    const ids = inventory.get(row.account) ?? [];
+    if (row.collection !== null) ids.push(row.collection);
+    inventory.set(row.account, ids);
+  }
+  const binding = archiveBindingSchema.safeParse({
+    batch_id: name, membership_revision: batch.revision,
+    membership_digest: migrationMembershipDigest([...inventory]),
+    membership_changed_at: new Date(batch.changed).toISOString()
+  });
+  if (!binding.success) throw new RolloutRefused("backup_missing", "Invalid current batch binding.");
+  return binding.data;
+}
+
+export async function cohortArchiveBinding(db: DatabasePool, name: string): Promise<ArchiveBinding> {
+  return inTransaction(db, (client) => readArchiveBinding(client, name));
+}
+
+/** Dedicated ONE-verifier admin transition only; no caller data is cryptographic authority. */
+export async function acceptCohortArchive(db: DatabasePool, name: string, body: unknown, environment: string | undefined): Promise<{ accepted_at: string }> {
+  const result = parseVerifiedBatchArchive(body);
+  return inTransaction(db, async (client) => {
+    const binding = await readArchiveBinding(client, name);
+    const now = await archiveClock(client);
+    requireFreshBatchArchive(result, binding, now, now, environment ?? "");
+    const old = (await client.query<{ verified_result: unknown; accepted_at: Date }>(
+      `SELECT verified_result, accepted_at FROM next_migration_archive_acceptances
+       WHERE cohort = $1 AND membership_revision = $2::bigint`, [name, binding.membership_revision]
+    )).rows[0];
+    if (old) {
+      if (JSON.stringify(parseVerifiedBatchArchive(old.verified_result)) !== JSON.stringify(result)) {
+        throw new RolloutRefused("backup_conflict", "Another archive was accepted for this batch revision.");
+      }
+      const accepted = new Date(old.accepted_at).toISOString();
+      requireFreshBatchArchive(result, binding, accepted, now, environment ?? "");
+      return { accepted_at: accepted };
+    }
+    await client.query(
+      `INSERT INTO next_migration_archive_acceptances (cohort, membership_revision, verified_result, accepted_at)
+       VALUES ($1, $2::bigint, $3::jsonb, $4::timestamptz)`, [name, binding.membership_revision, JSON.stringify(result), now]
+    );
+    await audit(client, null, "next_migration.backup_accept", null,
+      { cohort: name, membership_revision: binding.membership_revision, complete_sha256: result.complete_sha256 });
+    return { accepted_at: now };
+  });
+}
+
+async function requireCurrentCohortArchive(client: DatabaseQueryable, name: string, environment: string | undefined): Promise<void> {
+  const binding = await readArchiveBinding(client, name);
+  const accepted = (await client.query<{ verified_result: unknown; accepted_at: Date }>(
+    `SELECT verified_result, accepted_at FROM next_migration_archive_acceptances
+     WHERE cohort = $1 AND membership_revision = $2::bigint`, [name, binding.membership_revision]
+  )).rows[0];
+  if (!accepted) throw new RolloutRefused("backup_missing", "A verified current batch archive is required.");
+  requireFreshBatchArchive(parseVerifiedBatchArchive(accepted.verified_result), binding,
+    new Date(accepted.accepted_at).toISOString(), await archiveClock(client), environment ?? "");
+}
 
 export async function rolloutState(db: DatabaseQueryable): Promise<RolloutState> {
   const row = (await db.query<{ paused: boolean; reason: string; changed_by: string; changed_at: Date }>(
@@ -132,22 +289,31 @@ async function inTransaction<T>(db: DatabasePool, run: (client: DatabaseQueryabl
  * The atomic start claim: released, legacy and not paused (the pause is read
  * under the same lock). Idempotent once started; a started account ignores pause.
  */
-export async function startAccountMigration(db: DatabasePool, account: string): Promise<{ account_id: string; started_at: string }> {
+export async function startAccountMigration(db: DatabasePool, account: string, environment?: string): Promise<{ account_id: string; started_at: string }> {
   return inTransaction(db, async (client) => {
-    const row = (await client.query<{ backend: string; released: boolean | null; started_at: Date | null; member: boolean }>(
-      `SELECT u.account_backend AS backend, c.released_at IS NOT NULL AS released, m.started_at,
-              m.account_id IS NOT NULL AS member
-       FROM users u
-       LEFT JOIN next_migration_cohort_members m ON m.account_id = u.id
-       LEFT JOIN next_migration_cohorts c ON c.name = m.cohort
-       WHERE u.id = $1 FOR UPDATE OF u`, [account]
+    const user = (await client.query<{ backend: string }>(
+      "SELECT account_backend AS backend FROM users WHERE id = $1 FOR UPDATE", [account]
     )).rows[0];
-    if (!row) throw new RolloutRefused("account_not_found", "Account not found.", 404);
+    if (!user) throw new RolloutRefused("account_not_found", "Account not found.", 404);
+    // Lock/re-read the member BEFORE its parent, matching membership mutation
+    // order. Never claim from the snapshot of an unlocked outer-joined row.
+    const row = (await client.query<{ cohort: string; started_at: Date | null }>(
+      "SELECT cohort, started_at FROM next_migration_cohort_members WHERE account_id = $1 FOR UPDATE", [account]
+    )).rows[0];
+    if (!row) throw new RolloutRefused("account_not_released", "The account is not in a released migration cohort.");
+    const batch = (await client.query<{ released: boolean }>(
+      "SELECT released_at IS NOT NULL AS released FROM next_migration_cohorts WHERE name = $1 FOR UPDATE", [row.cohort]
+    )).rows[0];
+    if (!batch?.released) throw new RolloutRefused("account_not_released", "The account is not in a released migration cohort.");
+    if (!row.started_at) {
+      if (user.backend !== "legacy") throw new RolloutRefused("account_already_next", "The account already uses the next backend.");
+      const rollout = (await client.query<{ paused: boolean }>("SELECT paused FROM next_migration_rollout WHERE singleton FOR SHARE")).rows[0];
+      if (!rollout || rollout.paused) throw new RolloutRefused("migration_paused", "The migration rollout is paused.");
+    }
+    // H0 currentness/freshness precedes every claim, including idempotent retries.
+    // The batch lock prevents membership/coverage changes committing until claim.
+    await requireCurrentCohortArchive(client, row.cohort, environment);
     if (row.started_at) return { account_id: account, started_at: new Date(row.started_at).toISOString() };
-    if (row.backend !== "legacy") throw new RolloutRefused("account_already_next", "The account already uses the next backend.");
-    if (!row.member || !row.released) throw new RolloutRefused("account_not_released", "The account is not in a released migration cohort.");
-    const rollout = (await client.query<{ paused: boolean }>("SELECT paused FROM next_migration_rollout WHERE singleton FOR SHARE")).rows[0];
-    if (!rollout || rollout.paused) throw new RolloutRefused("migration_paused", "The migration rollout is paused.");
     const started = (await client.query<{ started_at: Date }>(
       "UPDATE next_migration_cohort_members SET started_at = now() WHERE account_id = $1 RETURNING started_at", [account]
     )).rows[0]!;
@@ -360,7 +526,7 @@ export async function addToCohort(db: DatabaseQueryable, name: string, accounts:
 }
 
 /** Routes for the hosted migrator: the dedicated migration token only. */
-export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { db: DatabasePool; token: string }): void {
+export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { db: DatabasePool; token: string; environment?: string }): void {
   const migrator = (request: FastifyRequest) => {
     const presented = bearerToken(request);
     return Boolean(presented) && safeEqual(presented!, options.token);
@@ -369,11 +535,26 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { 
     reply.code(401).send(apiError("invalid_internal_token", "The migration token is required."));
   const refused = (reply: { code(n: number): { send(b: unknown): unknown } }, error: unknown) => {
     if (error instanceof RolloutRefused) return reply.code(error.status).send(apiError(error.code, error.message));
-    if (String((error as { code?: string })?.code) === "55P03") return reply.code(503).send(apiError("busy", "Busy; retry."));
+    if (["55P03", "40P01", "40001"].includes(String((error as { code?: string })?.code))) return reply.code(503).send(apiError("busy", "Busy; retry."));
     throw error;
   };
   const limit = z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) }).strict();
   const idParam = z.object({ id: z.uuid() });
+  const cohortParam = z.object({ name: z.string().regex(COHORT_NAME) }).strict();
+  app.get("/internal/v1/next/migration/cohorts/:name/archive-binding", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    if (!migrator(request)) return deny(reply);
+    const p = cohortParam.safeParse(request.params);
+    if (!p.success) return reply.code(400).send(apiError("invalid_request", "A canonical batch name is required."));
+    try { return await cohortArchiveBinding(options.db, p.data.name); } catch (e) { return refused(reply, e); }
+  });
+  app.post("/internal/v1/next/migration/cohorts/:name/backup-accept", { bodyLimit: 4096 }, async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    if (!migrator(request)) return deny(reply);
+    const p = cohortParam.safeParse(request.params);
+    if (!p.success) return reply.code(400).send(apiError("invalid_request", "A canonical batch name is required."));
+    try { return await acceptCohortArchive(options.db, p.data.name, request.body, options.environment); } catch (e) { return refused(reply, e); }
+  });
   app.get("/internal/v1/next/migration/rollout", async (request, reply) => {
     if (!migrator(request)) return deny(reply);
     reply.header("cache-control", "no-store");
@@ -406,7 +587,7 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { 
     if (!migrator(request)) return deny(reply);
     const p = idParam.safeParse(request.params);
     if (!p.success) return reply.code(400).send(apiError("invalid_request", "An account id is required."));
-    try { return await startAccountMigration(options.db, p.data.id.toLowerCase()); } catch (e) { return refused(reply, e); }
+    try { return await startAccountMigration(options.db, p.data.id.toLowerCase(), options.environment); } catch (e) { return refused(reply, e); }
   });
   app.post("/internal/v1/next/migration/collections/:id/cutover", async (request, reply) => {
     if (!migrator(request)) return deny(reply);
