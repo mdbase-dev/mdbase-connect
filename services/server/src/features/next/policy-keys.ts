@@ -32,6 +32,8 @@ export interface NextControlPlaneConfig {
   logService: LogServiceConfig;
   /** Bearer tokens of the hosted replica and escrow deployments, per kind; absent until deployed. */
   serviceTokens: { hosted?: string; escrow?: string };
+  /** Bearer token of the hosted migrator (MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN): the only caller of the staged-migration routes. Absent: those routes are not mounted. */
+  migrationToken?: string;
   /**
    * Outbound: where the control plane asks each deployment to generate its service
    * device when an owner creates a cloud copy. Set only by MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1;
@@ -120,6 +122,8 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
   const hosted = serviceToken("MDBASE_NEXT_HOSTED_INTERNAL_TOKEN");
   const escrow = serviceToken("MDBASE_NEXT_ESCROW_INTERNAL_TOKEN");
   if (hosted && hosted === escrow) throw new Error("The hosted and escrow internal tokens must differ.");
+  const migration = serviceToken("MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN");
+  if (migration && (migration === hosted || migration === escrow)) throw new Error("The migration internal token must differ from the hosted and escrow tokens.");
   const bootstrap = env.MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP?.trim() ?? "";
   if (bootstrap !== "" && bootstrap !== "0" && bootstrap !== "1") throw new Error("MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP must be 0 or 1.");
   let cloudCopyBootstrap: NextControlPlaneConfig["cloudCopyBootstrap"];
@@ -145,6 +149,7 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
     policyCert: parsedCert,
     logService: { url: logServiceUrl, tokenIssuerKeyPem, transportKeyPem },
     serviceTokens: { ...(hosted ? { hosted } : {}), ...(escrow ? { escrow } : {}) },
+    ...(migration ? { migrationToken: migration } : {}),
     ...(cloudCopyBootstrap ? { cloudCopyBootstrap } : {}),
     ...(privateBootstrap === "1" ? { privateBootstrap: true as const } : {}),
     ...(labFixtures ? { labFixtures } : {}),
