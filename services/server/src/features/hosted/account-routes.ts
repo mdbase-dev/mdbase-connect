@@ -15,6 +15,7 @@ import { requireUser } from "../../platform/request-authentication.js";
 import { ianaTimezoneSchema } from "../../platform/timezones.js";
 import {
   createHostedCollectionForUser,
+  deleteHostedCollectionForUser,
   renameHostedCollectionForUser,
   canManageHostedReplica,
   permitsHostedCollectionAction,
@@ -179,55 +180,8 @@ export function registerHostedAccountRoutes(
       const { collectionId } = z.object({
         collectionId: z.uuid()
       }).parse(request.params);
-      if (!await permitsHostedCollectionAction(
-        options.db,
-        user.id,
-        collectionId,
-        "collection.delete"
-      )) {
-        return hostedCollectionNotFound(reply);
-      }
-      if (options.hostedProvider) {
-        await options.hostedProvider.deleteCollection(collectionId);
-      } else {
-        await options.hostedReference!.delete(collectionId);
-      }
-      const connection = await options.db.connect();
-      try {
-        await connection.query("BEGIN");
-        await connection.query(
-          `DELETE FROM grants
-           WHERE hosted_collection_id = $1`,
-          [collectionId]
-        );
-        const deleted = await connection.query<{ id: string }>(
-          `DELETE FROM hosted_collections
-           WHERE id = $1 AND user_id = $2
-           RETURNING id`,
-          [collectionId, user.id]
-        );
-        if (!deleted.rows[0]) {
-          await connection.query("ROLLBACK");
-          return hostedCollectionNotFound(reply);
-        }
-        await connection.query(
-          "DELETE FROM collection_identities WHERE id = $1",
-          [collectionId]
-        );
-        await audit(
-          connection,
-          user.id,
-          "hosted_collection.deleted",
-          collectionId,
-          {}
-        );
-        await connection.query("COMMIT");
-      } catch (error) {
-        await connection.query("ROLLBACK");
-        throw error;
-      } finally {
-        connection.release();
-      }
+      const deleted = await deleteHostedCollectionForUser(options, options.hostedReference, user.id, collectionId, "account");
+      if (!deleted) return hostedCollectionNotFound(reply);
       return { ok: true };
     }
   );

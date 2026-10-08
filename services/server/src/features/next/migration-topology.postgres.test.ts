@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { HostedAuthorityRegistry } from "../../hosted.js";
 import { deleteAccountLocally, drainDeferredAccountDeletions } from "../../account-management.js";
-import { createHostedCollectionForUser } from "../hosted/service.js";
+import { createHostedCollectionForUser, deleteHostedCollectionForUser, renameHostedCollectionForUser } from "../hosted/service.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
 
@@ -174,6 +174,23 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     await deletion(account);
     expect((await db.query("SELECT 1 FROM users WHERE id=$1", [account])).rowCount).toBe(0);
     expect((await db.query("SELECT 1 FROM next_migration_deferred_account_deletions WHERE account_id=$1", [account])).rowCount).toBe(0);
+  });
+
+  it("blocks rename/delete before effects during freeze and permits them after audited unfreeze", async () => {
+    const account = await user(), name = await batch([account]);
+    const reference = new HostedAuthorityRegistry(db), options = { db, hostedCollections: true };
+    const collection = await createHostedCollectionForUser(options, reference, "https://synthetic.example.test", account, "Before", "mdbase", "UTC");
+    const erase = vi.spyOn(reference, "delete");
+    await setCohortFrozen(db, name, true, "capture", OP);
+    await expect(renameHostedCollectionForUser(options, account, collection.id, "After")).rejects.toMatchObject({ code: "migration_frozen" });
+    await expect(deleteHostedCollectionForUser(options, reference, account, collection.id)).rejects.toMatchObject({ code: "migration_frozen" });
+    expect(erase).not.toHaveBeenCalled();
+    expect((await db.query("SELECT display_name FROM hosted_collections WHERE id=$1", [collection.id])).rows[0].display_name).toBe("Before");
+    await setCohortFrozen(db, name, false, "cancel before acceptance", OP);
+    expect(await renameHostedCollectionForUser(options, account, collection.id, "After")).toMatchObject({ display_name: "After" });
+    expect(await deleteHostedCollectionForUser(options, reference, account, collection.id, "account")).toBe(true);
+    expect(erase).toHaveBeenCalledTimes(1);
+    expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [collection.id])).rowCount).toBe(0);
   });
 
   it("serializes two actual creates and a freeze before effects without a parent-lock upgrade deadlock", async () => {

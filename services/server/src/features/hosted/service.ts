@@ -419,11 +419,15 @@ export async function renameHostedCollectionForUser(
   const connection = await options.db.connect();
   try {
     await connection.query("BEGIN");
-    await connection.query("SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE", [collectionId]);
-    if (!await permitsHostedCollectionAction(connection, userId, collectionId, "collection.rename", true)) {
+    await connection.query("SET LOCAL lock_timeout='5s'");
+    const owner = (await connection.query<{ user_id: string }>("SELECT user_id FROM hosted_collections WHERE id=$1", [collectionId])).rows[0];
+    if (!owner || !await permitsHostedCollectionAction(connection, userId, collectionId, "collection.rename", true)) {
       await connection.query("ROLLBACK");
       return null;
     }
+    await requireAccountNotMigrationFrozen(connection, owner.user_id);
+    const held = (await connection.query<{ user_id: string }>("SELECT user_id FROM hosted_collections WHERE id=$1 FOR UPDATE", [collectionId])).rows[0];
+    if (!held || held.user_id !== owner.user_id) throw new RequestValidationError("Busy; retry.", { statusCode: 409, code: "busy" });
     if (options.hostedProvider) await options.hostedProvider.renameCollection(collectionId, displayName);
     const renamed = await connection.query<{ id: string; display_name: string }>(
       `UPDATE hosted_collections SET display_name = $2
@@ -448,24 +452,23 @@ export async function deleteHostedCollectionForUser(
   options: HostedServiceOptions,
   hostedReference: HostedAuthorityRegistry | undefined,
   userId: string,
-  collectionId: string
+  collectionId: string,
+  source: "desktop" | "account" = "desktop"
 ): Promise<boolean> {
-  if (!await permitsHostedCollectionAction(
-    options.db,
-    userId,
-    collectionId,
-    "collection.delete"
-  )) {
-    return false;
-  }
-  if (options.hostedProvider) {
-    await options.hostedProvider.deleteCollection(collectionId);
-  } else {
-    await hostedReference!.delete(collectionId);
-  }
   const connection = await options.db.connect();
   try {
     await connection.query("BEGIN");
+    await connection.query("SET LOCAL lock_timeout='5s'");
+    const owner = (await connection.query<{ user_id: string }>("SELECT user_id FROM hosted_collections WHERE id=$1", [collectionId])).rows[0];
+    if (!owner || !await permitsHostedCollectionAction(connection, userId, collectionId, "collection.delete")) {
+      await connection.query("ROLLBACK");
+      return false;
+    }
+    await requireAccountNotMigrationFrozen(connection, owner.user_id);
+    const held = (await connection.query<{ user_id: string }>("SELECT user_id FROM hosted_collections WHERE id=$1 FOR UPDATE", [collectionId])).rows[0];
+    if (!held || held.user_id !== owner.user_id) throw new RequestValidationError("Busy; retry.", { statusCode: 409, code: "busy" });
+    if (options.hostedProvider) await options.hostedProvider.deleteCollection(collectionId);
+    else await hostedReference!.delete(collectionId);
     await connection.query(
       `DELETE FROM grants
        WHERE hosted_collection_id = $1`,
@@ -490,7 +493,7 @@ export async function deleteHostedCollectionForUser(
       userId,
       "hosted_collection.deleted",
       collectionId,
-      { source: "desktop" }
+      { source }
     );
     await connection.query("COMMIT");
   } catch (error) {
