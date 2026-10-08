@@ -20,6 +20,7 @@ import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
 import { collectionContractDescriptorSchema } from "./protocol-schemas.js";
 import { z } from "zod";
+import { readBoundedJson } from "./platform/bounded-json.js";
 
 export interface HostedProviderConfig {
   url: string;
@@ -289,10 +290,7 @@ export class HostedProviderClient {
     }
   }
 
-  async projectionStatus(
-    collectionId: string,
-    options?: HostedProviderOperationOptions
-  ): Promise<HostedProjectionStatus> {
+  async projectionStatus(collectionId: string, options?: HostedProviderOperationOptions): Promise<HostedProjectionStatus> {
     const operation = requiredOperation(options);
     const result = await this.request(
       "GET", `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection`, undefined, true, operation
@@ -301,7 +299,7 @@ export class HostedProviderClient {
   }
 
   async legacyMigrationDrain(collectionId: string, options?: HostedProviderOperationOptions): Promise<unknown> {
-    return this.request("GET", `/internal/v1/collections/${z.uuid().parse(collectionId)}/legacy-migration`, undefined, true, options);
+    return this.request("GET", `/internal/v1/collections/${z.uuid().parse(collectionId)}/legacy-migration`, undefined, true, options, response => readBoundedJson(response, 4096));
   }
 
   async advanceProjection(
@@ -768,7 +766,8 @@ export class HostedProviderClient {
     path: string,
     body?: unknown,
     authenticated = true,
-    options?: HostedProviderOperationOptions
+    options?: HostedProviderOperationOptions,
+    readReply: (response: Response) => Promise<unknown> = readResponse
   ): Promise<unknown> {
     const operation = requiredOperation(options);
     let unavailable: unknown;
@@ -794,7 +793,7 @@ export class HostedProviderClient {
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
           signal
         });
-        const value = await readResponse(response);
+        const value = await readReply(response);
         if (response.ok) return value;
         if ([429, 502, 503, 504].includes(response.status) && attempt < 2) {
           retryable = true;

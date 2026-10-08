@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { audit } from "../../platform/audit-events.js";
+import { readBoundedJson } from "../../platform/bounded-json.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
@@ -87,15 +88,7 @@ async function observe(collection: string, device: string, options: Options) {
     body:JSON.stringify({collection,challenge}),
   });
   if (!response.ok || !response.body) { void response.body?.cancel().catch(()=>undefined); throw new Refused("migration_source_unavailable",503); }
-  const reader = response.body.getReader(); const chunks:Uint8Array[]=[]; let length=0;
-  try {
-    for (;;) {
-      const part=await reader.read(); if (part.done) break;
-      length+=part.value.length; if(length>4096){void reader.cancel().catch(()=>undefined);throw new Refused("migration_source_unavailable",503);}
-      chunks.push(part.value);
-    }
-  } finally { reader.releaseLock(); }
-  const parsed = admission.parse(JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(Buffer.concat(chunks))));
+  const parsed = admission.parse(await readBoundedJson(response,4096));
   if (parsed.collection!==collection || parsed.device_id!==device || parsed.challenge!==challenge
       || parsed.applied_head.seq!==parsed.authenticated_head.seq || parsed.applied_head.chain!==parsed.authenticated_head.chain
       || parsed.applied_head.seq==="0") throw new Refused("migration_source_unavailable",503);

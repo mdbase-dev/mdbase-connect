@@ -1,9 +1,9 @@
 {
-  "reason": "Two internal server modules separate canonical migration-source signing with the existing CP key from the authenticated provider/native observation and migration-token-only issuance boundary. Eleven production relative imports and two internal exports; no SDK/protocol inventory, package, lockfile, key custody or configuration growth. SQL metadata identifies the immutable account claim/current exact service device but never supplies native epoch/wake or serving permission. Native verification, current revocation/admission and terminal deletion/rollback fences must independently qualify before activation.",
+  "reason": "Three internal server modules separate canonical migration-source signing with the existing CP key, authenticated provider/native observation and migration-token-only issuance, and the shared bounded small-JSON reader used by both observations. Thirteen production relative imports and three internal exports; no SDK/protocol inventory, package, lockfile, key custody or configuration growth. SQL metadata identifies the immutable account claim/current exact service device but never supplies native epoch/wake or serving permission. Native verification, current revocation/admission and terminal deletion/rollback fences must independently qualify before activation.",
   "growth": {
-    "productionFiles": 2,
-    "relativeImports": 11,
-    "typeScriptExportDeclarations": 2,
-    "services/server": 2
+    "productionFiles": 3,
+    "relativeImports": 13,
+    "typeScriptExportDeclarations": 3,
+    "services/server": 3
   }
 }
