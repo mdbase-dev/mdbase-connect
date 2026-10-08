@@ -1,5 +1,6 @@
 import { provisionedContract, type SetupType } from "@mdbase/connect-ui/contract-setup";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { APPLICATION_SETUP_OPERATIONS } from "@mdbase-dev/connect-protocol";
 import {
   api,
   ApiError,
@@ -14,6 +15,8 @@ import { collectionCompatibility } from "./compatibility";
 import {
   authorizationCapabilityGroups,
   authorizationRequirementsError,
+  nextAuthorizationGroups,
+  selectedNextAuthorizationOperations,
   toggleAuthorizationGroup,
   selectedFileActions,
   selectedPeoplePermissions,
@@ -363,7 +366,8 @@ function DesktopContinuation({ request, onReviewHere }: {
 }
 
 export function ApprovalForm(props: React.ComponentProps<typeof SupportedApprovalForm>) {
-  const error = authorizationRequirementsError(props.request.requirements);
+  const error = authorizationRequirementsError(props.request.requirements)
+    ?? (props.request.account_backend === "next" ? nextAuthorizationGroups(props.request.requirements, props.request.requested_operations).error : undefined);
   if (error) return <div className="message error" role="alert">{error}</div>;
   return <SupportedApprovalForm {...props} />;
 }
@@ -437,12 +441,12 @@ function SupportedApprovalForm({
     [visibleChoices]
   );
   const savedReview = useMemo(() => storedAuthorizationReview(request.id), [request.id]);
+  const jointPermissions = request.account_backend === "next";
   const requestedPermissionGroups = useMemo(
-    () => authorizationCapabilityGroups(
-      request.requirements,
-      request.requested_operations
-    ),
-    [request.requirements, request.requested_operations]
+    () => jointPermissions
+      ? nextAuthorizationGroups(request.requirements, request.requested_operations).groups
+      : authorizationCapabilityGroups(request.requirements, request.requested_operations),
+    [jointPermissions, request.requirements, request.requested_operations]
   );
   const initialSelection = initialAuthorizationSelection(
     compatible.map((choice) => choice.collection.id),
@@ -454,10 +458,9 @@ function SupportedApprovalForm({
   );
   const [reviewing, setReviewing] = useState(initialSelection.reviewing);
   const [chosenOperations, setOperations] = useState(() => {
-    const selected = selectedOperationsForCapabilityGroups(
-      requestedPermissionGroups,
-      savedReview?.operations
-    );
+    const selected = jointPermissions
+      ? selectedNextAuthorizationOperations(requestedPermissionGroups, savedReview?.operations, savedReview?.fileActions)
+      : selectedOperationsForCapabilityGroups(requestedPermissionGroups, savedReview?.operations);
     const grouped = new Set(requestedPermissionGroups.flatMap((group) => group.operations));
     for (const operation of request.requested_operations) {
       if (!grouped.has(operation) && (!savedReview?.operations
@@ -489,14 +492,24 @@ function SupportedApprovalForm({
   const allowedOperations = approval?.available ? approval.operations : undefined;
   const allowedFiles = approval?.available ? approval.file_actions : undefined;
   const permissionGroups = useMemo(() => requestedPermissionGroups.filter((group) =>
-    !allowedOperations || group.operations.every((operation) => allowedOperations.includes(operation))
-  ), [allowedOperations, requestedPermissionGroups]);
-  const operations = useMemo(() => new Set([...chosenOperations].filter((operation) =>
-    !allowedOperations || allowedOperations.includes(operation)
-  )), [allowedOperations, chosenOperations]);
-  const fileActions = useMemo(() => new Set([...chosenFileActions].filter((action) =>
-    !allowedFiles || allowedFiles.includes(action as ApplicationFileAction)
-  )), [allowedFiles, chosenFileActions]);
+    (!allowedOperations || group.operations.every((operation) => allowedOperations.includes(operation)))
+      && (!jointPermissions || !allowedFiles || (group.fileActions ?? []).every(action => allowedFiles.includes(action)))
+  ), [allowedOperations, allowedFiles, jointPermissions, requestedPermissionGroups]);
+  const operations = useMemo(() => {
+    if (!jointPermissions) return new Set([...chosenOperations].filter(operation => !allowedOperations || allowedOperations.includes(operation)));
+    const enabled = permissionGroups.filter(group => group.operations.every(operation => chosenOperations.has(operation)));
+    const selected = new Set(enabled.flatMap(group => group.operations));
+    if (enabled.some(group => group.id === "definitions.manage")) {
+      for (const operation of APPLICATION_SETUP_OPERATIONS) {
+        if (request.requested_operations.includes(operation) && (!allowedOperations || allowedOperations.includes(operation))) selected.add(operation);
+      }
+    }
+    return selected;
+  }, [allowedOperations, chosenOperations, jointPermissions, permissionGroups, request.requested_operations]);
+  const fileActions = useMemo(() => jointPermissions
+    ? new Set(permissionGroups.filter(group => group.operations.every(operation => operations.has(operation))).flatMap(group => group.fileActions ?? []))
+    : new Set([...chosenFileActions].filter(action => !allowedFiles || allowedFiles.includes(action as ApplicationFileAction))),
+  [allowedFiles, chosenFileActions, jointPermissions, operations, permissionGroups]);
   const existingOperations = useMemo(() => new Set(request.existing_access?.find((access) =>
     access.collection_id === collectionId)?.operations ?? []), [collectionId, request.existing_access]);
   const setup = selected ? neededProvisions(request, selected) : [];
@@ -532,16 +545,18 @@ function SupportedApprovalForm({
     group.operations.every((operation) => operations.has(operation))
   );
   const selectedPermissionCount = selectedPermissionGroups.length
-    + (fileActions.size > 0 ? 1 : 0);
+    + (!jointPermissions && fileActions.size > 0 ? 1 : 0);
   const higherImpactLabels = [
     ...selectedPermissionGroups.flatMap((group) =>
       group.higherImpact ? [group.label.toLocaleLowerCase()] : []
     ),
-    ...(fileActions.has("delete") ? ["delete files"] : []),
+    ...(!jointPermissions && fileActions.has("delete") ? ["delete files"] : []),
     ...(peoplePermissions.has("members") ? ["see collection members"] : []),
     ...(hasSetup ? ["changes to collection setup"] : [])
   ];
-  const approvalBlocker = selectedPermissionCount === 0 && !request.requirements.files
+  const approvalBlocker = jointPermissions && requestedPermissionGroups.some(group => group.required && !permissionGroups.includes(group))
+    ? "The collection cannot allow all required record and file permissions together. Choose another collection."
+    : selectedPermissionCount === 0 && (jointPermissions || !request.requirements.files)
     ? "Allow at least one permission to continue."
     : setupContracts.map((contract) => contractSetupProblem(
         contract,

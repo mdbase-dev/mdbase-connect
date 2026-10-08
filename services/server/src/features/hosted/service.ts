@@ -280,6 +280,42 @@ async function hostedTypeCandidates(
   }
 }
 
+/**
+ * Insert a legacy hosted collection row unless the account has flipped to
+ * mdbase-next. The backend is read under a share lock on the users row in the
+ * insert's own transaction, so a concurrent flip (which locks that row for
+ * update) either commits first and this refuses, or waits for this insert and
+ * then sees the collection (and refuses to flip without its cutover).
+ */
+export async function insertLegacyHostedCollection(
+  db: DatabasePool,
+  row: { id: string; userId: string; displayName: string; template: string; providerUrl: string | null; contracts: string }
+): Promise<{ rows: { created_at: string | Date }[] }> {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const backend = (await client.query<{ account_backend: string }>(
+      "SELECT account_backend FROM users WHERE id = $1 FOR SHARE", [row.userId]
+    )).rows[0]?.account_backend;
+    if (backend === "next") {
+      throw new RequestValidationError("This account has moved to mdbase-next; create collections there.");
+    }
+    const inserted = await client.query<{ created_at: string | Date }>(
+      `INSERT INTO hosted_collections
+         (id, user_id, display_name, template, provider_url, contracts)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING created_at`,
+      [row.id, row.userId, row.displayName, row.template, row.providerUrl, row.contracts]
+    );
+    await client.query("COMMIT");
+    return { rows: inserted.rows };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally { client.release(); }
+}
+
 export async function createHostedCollectionForUser(
   options: HostedServiceOptions,
   hostedReference: HostedAuthorityRegistry | undefined,
@@ -297,6 +333,14 @@ export async function createHostedCollectionForUser(
     throw new RequestValidationError("Hosted collections are not enabled.");
   }
   const collectionId = creation.collectionId ?? randomUUID();
+  // A flipped account creates collections in mdbase-next only: nothing would
+  // migrate a legacy hosted collection created after its flip.
+  const backend = (await options.db.query<{ account_backend: string }>(
+    "SELECT account_backend FROM users WHERE id = $1", [userId]
+  )).rows[0]?.account_backend;
+  if (backend === "next") {
+    throw new RequestValidationError("This account has moved to mdbase-next; create collections there.");
+  }
   let insertedAt: string | Date | undefined;
   let wasInserted = false;
   try {
@@ -316,21 +360,14 @@ export async function createHostedCollectionForUser(
     } else {
       await hostedReference!.create(collectionId, template, timezone);
     }
-    const inserted = await options.db.query<{ created_at: string | Date }>(
-      `INSERT INTO hosted_collections
-         (id, user_id, display_name, template, provider_url, contracts)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-       ON CONFLICT (id) DO NOTHING
-       RETURNING created_at`,
-      [
-        collectionId,
-        userId,
-        displayName,
-        template,
-        options.hostedProvider?.url ?? null,
-        JSON.stringify(hostedContractDescriptors(template))
-      ]
-    );
+    const inserted = await insertLegacyHostedCollection(options.db, {
+      id: collectionId,
+      userId,
+      displayName,
+      template,
+      providerUrl: options.hostedProvider?.url ?? null,
+      contracts: JSON.stringify(hostedContractDescriptors(template))
+    });
     insertedAt = inserted.rows[0]?.created_at;
     wasInserted = Boolean(insertedAt);
     if (!insertedAt) {

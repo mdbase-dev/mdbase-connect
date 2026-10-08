@@ -1,0 +1,4 @@
+{
+  "reason": "Two portal helper exports construct next's explicitly declared joint record/file permission groups and restore saved approvals only as complete pairs. Existing legacy controls remain exact; no new production files or policy grouping changes.",
+  "growth": { "typeScriptExportDeclarations": 2 }
+}

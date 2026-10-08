@@ -75,6 +75,8 @@ export interface AuthorityTransfer {
 
 export interface PendingAuthorization {
   id: string;
+  /** Persisted consenting account marker, not inferred from the Noise key. */
+  account_backend?: "legacy" | "next";
   flow: "authorization_code" | "device_code";
   user_code?: string | null;
   requested_operations: string[];

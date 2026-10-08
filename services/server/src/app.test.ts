@@ -1080,6 +1080,12 @@ describe("mdbase connect server", () => {
     expect(pending.statusCode).toBe(200);
     expect(pending.json().authorization.application_name).toBe("Workout Tracker");
     expect(pending.json().authorization.collection_id).toBe(collectionId);
+    expect(pending.json().authorization.account_backend).toBe("legacy");
+    await db.query("UPDATE users SET account_backend='next' WHERE email='callum@example.com'");
+    const nextPending = await app.inject({ method: "GET", url: `/v1/authorization-requests/${requestId}`, headers: { cookie } });
+    expect(nextPending.statusCode).toBe(200);
+    expect(nextPending.json().authorization.account_backend).toBe("next");
+    await db.query("UPDATE users SET account_backend='legacy' WHERE email='callum@example.com'");
     expect(pending.json().collections).toEqual([]);
     expect(pending.json().unavailable_connectors).toContainEqual(
       expect.objectContaining({

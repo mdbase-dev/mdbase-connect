@@ -5,6 +5,7 @@ use super::*;
 impl HostedProvider {
     pub async fn compact_through(&self, collection_id: Uuid, through: u64) -> ApiResult<()> {
         let mut transaction = self.pool.begin().await?;
+        collections::ensure_legacy_data_disposable(&mut transaction, collection_id).await?;
         cleanup_expired_snapshot_leases(&mut *transaction, Some(collection_id)).await?;
         let row = sqlx::query(
             "SELECT head, retained_after FROM hosted_provider_collections WHERE id = $1 FOR UPDATE",
@@ -282,9 +283,20 @@ impl HostedProvider {
     }
 
     pub async fn delete_pending_blobs(&self, limit: u32) -> ApiResult<usize> {
+        // Objects of a collection retained for the mdbase-next migration (migrating,
+        // or migrated until legacy_retain_until) stay queued but are never removed,
+        // whatever queued them: rollback needs every object referenced at cutover,
+        // including version history. Blob keys are `v1/blobs/<collection>/...`.
         let rows = sqlx::query(
-            r#"SELECT object_key FROM hosted_provider_blob_deletions
-               ORDER BY created_at LIMIT $1"#,
+            r#"SELECT d.object_key FROM hosted_provider_blob_deletions d
+               WHERE NOT EXISTS (
+                 SELECT 1 FROM hosted_provider_collections c
+                 WHERE (c.state = 'migrating'
+                        OR (c.state = 'migrated'
+                            AND (c.legacy_retain_until IS NULL OR c.legacy_retain_until > now())))
+                   AND d.object_key LIKE 'v1/blobs/' || c.id::text || '/%'
+               )
+               ORDER BY d.created_at LIMIT $1"#,
         )
         .bind(i64::from(limit.clamp(1, 1_000)))
         .fetch_all(&self.pool)
@@ -306,6 +318,29 @@ impl HostedProvider {
             if claimed.is_none() {
                 transaction.commit().await?;
                 continue;
+            }
+            // Re-check retention under the collection row lock: a collection that
+            // entered `migrating` after the batch was selected keeps its objects,
+            // and the fence (FOR UPDATE) waits for this deletion to finish.
+            if let Some(collection) = key
+                .strip_prefix("v1/blobs/")
+                .and_then(|rest| rest.split('/').next())
+                .and_then(|id| Uuid::parse_str(id).ok())
+            {
+                let retained: bool = sqlx::query_scalar(
+                    r#"SELECT COALESCE((
+                         SELECT state = 'migrating'
+                                OR (state = 'migrated'
+                                    AND (legacy_retain_until IS NULL OR legacy_retain_until > now()))
+                         FROM hosted_provider_collections WHERE id = $1 FOR SHARE), false)"#,
+                )
+                .bind(collection)
+                .fetch_one(&mut *transaction)
+                .await?;
+                if retained {
+                    transaction.commit().await?;
+                    continue;
+                }
             }
             let referenced: bool = sqlx::query_scalar(
                 r#"SELECT EXISTS (

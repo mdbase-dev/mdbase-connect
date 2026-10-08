@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 import {
   authorizationCapabilityGroups, authorizationRequirementsError,
-  selectedOperationsForCapabilityGroups, selectedFileActions, toggleAuthorizationGroup
+  selectedOperationsForCapabilityGroups, selectedFileActions, toggleAuthorizationGroup,
+  nextAuthorizationGroups, selectedNextAuthorizationOperations
 } from "./src/authorization-capabilities.ts";
 
 const server = await createServer({ server: { middlewareMode: true }, appType: "custom" });
@@ -136,6 +137,25 @@ test("v2 required groups are fixed; optional groups atomic; optional files indep
   assert.equal((fileHtml.match(/Higher impact/g) ?? []).length, 1);
 });
 
+test("next permission review has one joint control and retains explicit file scope", () => {
+  const requirements = { contracts: [], capabilities: { contract_version: 2, required: ["collection.read"], optional: ["records.edit", "records.delete"] }, files: { required: ["list", "read"], optional: ["replace", "move", "delete"], scope: { kind: "selected_folders", folders: ["attachments"] } } };
+  const { groups, error } = nextAuthorizationGroups(requirements, ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type", "update", "rename", "delete"]);
+  assert.equal(error, undefined);
+  const selected = selectedNextAuthorizationOperations(groups);
+  const html = list({ groups, selected, files: requirements.files, selectedFiles: new Set(["list", "read", "replace", "move"]) });
+  assert.equal(checkboxes(html), 2);
+  assert.equal(checked(html), 1);
+  assert.match(html, /Read records and files/);
+  assert.match(html, /list file names and read file contents/);
+  assert.match(html, /replace, move, and rename existing files/);
+  assert.match(html, /Delete records and files/);
+  assert.match(html, /Only attachments/);
+  assert.doesNotMatch(html, /aria-label="File permissions"|data-permission="files\./);
+  const summary = render(ui.RequestedAccessSummary, { groups, files: requirements.files });
+  assert.match(summary, /Read records and files/);
+  assert.doesNotMatch(summary, /Work with files|Manage and delete files/);
+});
+
 test("reauthorization marks only permissions the application does not already have", () => {
   const requirements = { contracts: [], capabilities: { contract_version: 2, required: ["collection.read"], optional: ["records.create"] } };
   const read = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type"];
@@ -153,6 +173,13 @@ test("the pre-choice summary names requested access without controls", () => {
   assert.match(html, /Delete records/);
   assert.match(html, /Manage and delete files/);
   assert.doesNotMatch(html, /checkbox/);
+});
+
+test("next record-only request has a visible reauthorization blocker and no approval control", () => {
+  const html = render(ApprovalForm, { request: { account_backend: "next", requirements: { contracts: [], capabilities: { contract_version: 2, required: ["collection.read"] } }, requested_operations: ["read"] } });
+  assert.match(html, /role="alert"/);
+  assert.match(html, /records and their matching file actions/);
+  assert.doesNotMatch(html, /button|checkbox/);
 });
 
 for (const requirements of [

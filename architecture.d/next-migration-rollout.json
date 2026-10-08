@@ -1,0 +1,9 @@
+{
+  "reason": "Staged hosted migration to mdbase-next (decision 3): the rollout tables' reads, the guarded account backend flip (the only setter of account_backend = next) and the hosted migrator's routes in one module, plus the operator CLI that releases cohorts and pauses. The exports are the module's functions, used by the routes, the CLI and the Postgres test. Review fixes add the atomic start claim, per-collection cutover records with server-verified flip evidence, the in-progress list, the quarantine and legacy-creation guards for migrating/flipped accounts, and audited operator changes. It also exports the daemon's automatic-takeover gate and the mirror-join record that the local takeover reads. The guarded legacy hosted-collection insert is exported for its interleaving test.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 9,
+    "typeScriptExportDeclarations": 21,
+    "services/server": 2
+  }
+}
