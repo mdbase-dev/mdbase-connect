@@ -16,13 +16,16 @@
 //   while pending (one projected row, statement-bounded);
 // - an enrolment of exactly this device (account, kind, sign/KEM/Noise keys) is in
 //   an appended policy batch: acknowledged by the log, not merely queued;
-// - no device-revoke for this device exists, appended or pending.
+// - no device-revoke for this device exists, appended or pending;
+// - no permanent CP deletion fact is known for this collection. Absence is NOT
+//   a current native floor/Gone observation, effect-time lease or startup permit.
 // The answer is only `{token, expires_at}`: no keys, no log URL.
 import { verify } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { CreateError } from "./bootstrap-common.js";
+import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { requireInstallationScope } from "./installation-scope.js";
 import { requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
@@ -165,6 +168,13 @@ async function refresh(
     [collection, JSON.stringify([{ op: "device-revoke", device: deviceId }])]
   );
   if (revoked.rows.length) throw new Refused(409, "device_revoked");
+  // Reuse the permanent denial union immediately before mint. Never translate
+  // an unexpected database failure into absence or a successful credential.
+  try { await requireCollectionNotDeleted(client,collection); }
+  catch (error) {
+    if (error instanceof Error && error.message === "collection_deleted") throw new Refused(409,"collection_deleted");
+    throw error;
+  }
   const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
   return {
     token: options.log.mintToken({ device: deviceId, signPublicKey: device.sign_pk, collection, expiresAt }),
