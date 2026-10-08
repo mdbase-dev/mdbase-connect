@@ -564,6 +564,18 @@ describePg("cloud-copy bootstrap", () => {
     await db.query("UPDATE users SET suspended_at=now() WHERE id=$1",[owner.connector.user_id]);
     expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(403);expect((await people(who,collection)).statusCode).toBe(403);expect((await refresh(who,collection)).statusCode).toBe(403);expect((await listed(who)).json().collections).toEqual([]);
   });
+  it("uses only current policy batches for scoped member and exact enrolment authority",async()=>{
+    const owner=await identity(),who=await installation(),collection=randomUUID();
+    expect((await serviceCreate(await session(owner.connector.user_id),collection)).statusCode).toBe(200);
+    await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"viewer"}]);await approveScope(who,collection);
+    expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(200);
+    await db.query("UPDATE next_policy_batches SET lost_at=now() WHERE id IN (SELECT batch_id FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb)",[collection,JSON.stringify([{op:"member-set",account:who.connector.user_id}])]);
+    expect((await listed(who)).json().collections).toEqual([]);expect((await people(who,collection)).statusCode).toBe(409);expect((await refresh(who,collection)).statusCode).toBe(409);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(409);
+    await db.query("UPDATE next_policy_batches SET lost_at=NULL WHERE collection_id=$1",[collection]);
+    await db.query("UPDATE next_policy_batches SET lost_at=now() WHERE id IN (SELECT batch_id FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb)",[collection,JSON.stringify([{op:"device-enrol",device:who.device}])]);
+    expect((await people(who,collection)).statusCode).toBe(409);expect((await refresh(who,collection)).statusCode).toBe(409);
+    const joined=await join(who,collection,await joinProof(who,collection));expect(joined.statusCode,joined.body).toBe(503);expect(joined.body).not.toContain("token");
+  });
   it("rechecks approved scope and native member/device state after log readback before a join/create mint",async()=>{
     const who=await installation(undefined,true),collection=randomUUID();
     log.onRead=async()=>{await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[who.connector.id,collection]);};

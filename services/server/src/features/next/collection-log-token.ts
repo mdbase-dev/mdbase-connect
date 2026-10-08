@@ -136,7 +136,7 @@ async function refresh(
   }]);
   const enrolled = await client.query(
     `SELECT 1 FROM next_policy_outbox o JOIN next_policy_batches b ON b.id = o.batch_id
-     WHERE o.collection_id = $1 AND b.state = 'appended' AND o.ops->'ops' @> $2::jsonb LIMIT 1`,
+     WHERE o.collection_id = $1 AND b.state = 'appended' AND b.lost_at IS NULL AND o.ops->'ops' @> $2::jsonb LIMIT 1`,
     [collection, tuple]
   );
   if (!enrolled.rows.length) throw new Refused(409, "not_enrolled");
@@ -152,7 +152,7 @@ async function refresh(
       WHERE o.collection_id = $1
         AND (o.ops->'ops' @> $2::jsonb OR o.ops->'ops' @> $3::jsonb)
         AND e.value->>'account' = $4
-        AND (e.value->>'op' = 'member-remove' OR (e.value->>'op' = 'member-set' AND b.state = 'appended'))
+        AND (e.value->>'op' = 'member-remove' OR (e.value->>'op' = 'member-set' AND b.state = 'appended' AND b.lost_at IS NULL))
       ORDER BY o.id DESC, e.ord DESC
       LIMIT 1`,
     [collection, JSON.stringify([{ op: "member-set", account: connector.user_id }]),

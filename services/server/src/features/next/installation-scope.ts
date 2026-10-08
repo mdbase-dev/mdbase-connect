@@ -43,7 +43,7 @@ export async function installationCollections(client: DatabaseConnection, accoun
        FROM next_policy_outbox o LEFT JOIN next_policy_batches b ON b.id=o.batch_id
        CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY e(value,ord)
        WHERE o.collection_id=n.collection_id AND e.value->>'account'=$1
-         AND (e.value->>'op'='member-remove' OR (e.value->>'op'='member-set' AND b.state='appended'))
+         AND (e.value->>'op'='member-remove' OR (e.value->>'op'='member-set' AND b.state='appended' AND b.lost_at IS NULL))
        ORDER BY o.id DESC,e.ord DESC LIMIT 1
      ) member
      WHERE n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL
@@ -71,7 +71,7 @@ export async function installationPeople(client: DatabaseConnection, connector: 
   if (!device) throw new CreateError(403,"installation_not_current");
   const enrolled = await client.query(
     `SELECT 1 FROM next_policy_outbox o JOIN next_policy_batches b ON b.id=o.batch_id
-     WHERE o.collection_id=$1 AND b.state='appended' AND o.ops->'ops' @> $2::jsonb LIMIT 1`,
+     WHERE o.collection_id=$1 AND b.state='appended' AND b.lost_at IS NULL AND o.ops->'ops' @> $2::jsonb LIMIT 1`,
     [collection,exactEnrolment(connector.installation_device_id!,connector.user_id,device)]
   );
   if (!enrolled.rows.length) throw new CreateError(409,"not_enrolled");
@@ -88,7 +88,7 @@ export async function installationPeople(client: DatabaseConnection, connector: 
        FROM next_policy_outbox o LEFT JOIN next_policy_batches b ON b.id=o.batch_id
        CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY e(value,ord)
        WHERE o.collection_id=$1 AND e.value->>'account'=u.id::text
-         AND (e.value->>'op'='member-remove' OR (e.value->>'op'='member-set' AND b.state='appended'))
+         AND (e.value->>'op'='member-remove' OR (e.value->>'op'='member-set' AND b.state='appended' AND b.lost_at IS NULL))
        ORDER BY o.id DESC,e.ord DESC LIMIT 1
      ) m ON m.op='member-set' WHERE u.suspended_at IS NULL ORDER BY u.id LIMIT 1001`, [collection]
   );

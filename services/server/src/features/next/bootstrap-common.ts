@@ -108,7 +108,7 @@ export const enrolOp = (device: string, account: string, d: { kind: RegisteredDe
 
 /** The outbox row that enrols `device` in `collection`, if any (any keys, any account). */
 export const ENROLMENT = `SELECT o.ops, b.seq, b.item, b.state FROM next_policy_outbox o
-  LEFT JOIN next_policy_batches b ON b.id = o.batch_id
+  LEFT JOIN next_policy_batches b ON b.id = o.batch_id AND b.lost_at IS NULL
   WHERE o.collection_id = $1 AND o.ops->'ops' @> $2::jsonb ORDER BY o.id LIMIT 1`;
 export const enrolmentKey = (device: string) => JSON.stringify([{ op: "device-enrol", device }]);
 /** The whole immutable enrolment tuple: device, account, kind and all three keys. */
@@ -152,7 +152,7 @@ export async function currentMember(client: DatabaseConnection, collection: stri
       WHERE o.collection_id = $1
         AND (o.ops->'ops' @> $2::jsonb OR o.ops->'ops' @> $3::jsonb)
         AND e.value->>'account' = $4
-        AND (e.value->>'op' = 'member-remove' OR (e.value->>'op' = 'member-set' AND b.state = 'appended'))
+        AND (e.value->>'op' = 'member-remove' OR (e.value->>'op' = 'member-set' AND b.state = 'appended' AND b.lost_at IS NULL))
       ORDER BY o.id DESC, e.ord DESC
       LIMIT 1`,
     [collection, JSON.stringify([{ op: "member-set", account }]), JSON.stringify([{ op: "member-remove", account }]), account]
