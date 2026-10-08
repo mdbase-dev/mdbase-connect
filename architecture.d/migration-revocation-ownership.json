@@ -1,0 +1,6 @@
+{
+  "reason": "The provider records a distinct migration run and atomically owns H8 replica revocation. One public H8 method, two additive lifecycle response fields, and two crate-internal helpers (lock ordering and archived application credentials) support the existing rollback contract without widening generic revocation authority.",
+  "growth": {
+    "rustPublicDeclarations": 5
+  }
+}

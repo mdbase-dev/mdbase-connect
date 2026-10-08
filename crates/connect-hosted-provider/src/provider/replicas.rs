@@ -720,9 +720,10 @@ impl HostedProvider {
 
     pub async fn revoke_replica(&self, replica_id: Uuid) -> ApiResult<()> {
         let mut transaction = self.pool.begin().await?;
+        super::collections::lock_replica_for_revocation(&mut transaction, replica_id).await?;
         archive_application_replay_credential(&mut transaction, replica_id).await?;
         sqlx::query(
-            "UPDATE hosted_provider_replicas SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
+            "UPDATE hosted_provider_replicas SET revoked_at = COALESCE(revoked_at, now()), revoked_by_migration = NULL, migration_revoked_at = NULL WHERE id = $1",
         )
         .bind(replica_id)
         .execute(&mut *transaction)
@@ -977,7 +978,7 @@ async fn reject_legacy_application_replica(
     Ok(())
 }
 
-async fn archive_application_replay_credential(
+pub(in crate::provider) async fn archive_application_replay_credential(
     transaction: &mut Transaction<'_, Postgres>,
     replica_id: Uuid,
 ) -> ApiResult<()> {

@@ -2,7 +2,8 @@ use super::*;
 
 mod legacy_migration;
 pub(in crate::provider) use legacy_migration::{
-    ensure_legacy_data_disposable, refuse_migrating, refuse_migrating_replica,
+    ensure_legacy_data_disposable, lock_replica_for_revocation, refuse_migrating,
+    refuse_migrating_replica,
 };
 
 const COLLECTION_DELETE_DATABASE_RETRIES: usize = 3;

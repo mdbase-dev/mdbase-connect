@@ -33,7 +33,7 @@ struct SetLegacyMigrationState {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RestoreReplicas {
+struct MigrationReplicaIds {
     replica_ids: Vec<Uuid>,
 }
 
@@ -42,6 +42,10 @@ pub(super) fn legacy_migration_routes() -> Router<AppState> {
         .route(
             "/internal/v1/collections/{collection_id}/legacy-migration",
             put(set_legacy_migration_state).get(legacy_migration_drain),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/legacy-migration/revoke-replicas",
+            post(revoke_replicas),
         )
         .route(
             "/internal/v1/collections/{collection_id}/legacy-migration/restore-replicas",
@@ -79,11 +83,25 @@ async fn legacy_migration_drain(
     Ok(Json(json!(drain)))
 }
 
+async fn revoke_replicas(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<MigrationReplicaIds>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let revoked = state
+        .provider
+        .revoke_migration_replicas(collection_id, &input.replica_ids)
+        .await?;
+    Ok(Json(json!({ "revoked": revoked })))
+}
+
 async fn restore_replicas(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(collection_id): Path<Uuid>,
-    Json(input): Json<RestoreReplicas>,
+    Json(input): Json<MigrationReplicaIds>,
 ) -> ApiResult<Json<Value>> {
     state.authorize_internal(&headers)?;
     let restored = state
