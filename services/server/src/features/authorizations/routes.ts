@@ -68,6 +68,7 @@ import {
 } from "./redirects.js";
 import { storeRequestClientNoiseKey, verifiedClientNoiseKey, withClientFingerprint } from "../next/client-key.js";
 import type { AuthorizationRouteOptions } from "./route-options.js";
+import { assertNextGrantPermissions, queueNextGrantPolicy } from "../next/grant-policy.js";
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
 const DEVICE_POLL_INTERVAL_SECONDS = 5;
@@ -378,6 +379,7 @@ export function registerAuthorizationRoutes(
           "Existing access can be narrowed here, but broader access requires a new application request."
         ));
       }
+      await assertNextGrantPermissions(connection, grantId, operations);
       assertOperationsAllowedByApplication(
         operations,
         current.requirements,
@@ -421,6 +423,7 @@ export function registerAuthorizationRoutes(
         [grantId, JSON.stringify(operations)]
       );
       if (current.encryption) await rotateGrantEncryption(connection, grantId);
+      await queueNextGrantPolicy(connection, grantId);
       await connection.query("COMMIT");
       committed = true;
       narrowed = { current, operations, grant: updated.rows[0] };

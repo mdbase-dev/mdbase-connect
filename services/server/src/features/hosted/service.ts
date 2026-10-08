@@ -51,6 +51,7 @@ import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { assertOperationsAllowedByApplication } from "../grants/policy.js";
+import { assertNextGrantPermissions, queueNextGrantPolicy } from "../next/grant-policy.js";
 
 export interface HostedServiceOptions {
   db: DatabasePool;
@@ -566,7 +567,13 @@ export async function narrowHostedGrantForUser(
   grantId: string,
   requestedOperations: string[]
 ): Promise<{ id: string; operations: string[] } | null> {
-  const active = await options.db.query<{
+  const connection = await options.db.connect();
+  let committed = false;
+  let providerAttempt = false;
+  try {
+  await connection.query("BEGIN");
+  await connection.query("SELECT id FROM grants WHERE id=$1 AND user_id=$2 FOR UPDATE", [grantId, userId]);
+  const active = await connection.query<{
     id: string;
     hosted_replica_id: string;
     operations: string[];
@@ -618,6 +625,7 @@ export async function narrowHostedGrantForUser(
       "Existing access can be narrowed here, but broader access requires a new application request."
     );
   }
+  await assertNextGrantPermissions(connection, grantId, operations);
   assertOperationsAllowedByApplication(
     operations,
     current.requirements,
@@ -647,6 +655,7 @@ export async function narrowHostedGrantForUser(
   ].includes(operation)) || current.file_capability?.actions.some((action) =>
     ["add", "replace", "move", "delete"].includes(action)
   ) === true;
+  providerAttempt = true;
   await options.hostedProvider.updateApplicationReplica(
     current.hosted_replica_id,
     {
@@ -672,7 +681,7 @@ export async function narrowHostedGrantForUser(
       applicationAuthorization: current.application_authorization
     }
   );
-  const updated = await options.db.query<{
+  const updated = await connection.query<{
     id: string;
     operations: string[];
   }>(
@@ -680,6 +689,9 @@ export async function narrowHostedGrantForUser(
      WHERE id = $1 RETURNING id, operations`,
     [grantId, JSON.stringify(operations)]
   );
+  await queueNextGrantPolicy(connection, grantId);
+  await connection.query("COMMIT");
+  committed = true;
   await audit(
     options.db,
     userId,
@@ -692,6 +704,15 @@ export async function narrowHostedGrantForUser(
     }
   );
   return updated.rows[0] ?? null;
+  } finally {
+    try { if (!committed) await connection.query("ROLLBACK"); }
+    finally {
+      connection.release();
+      if (!committed && providerAttempt) {
+        await queueHostedGrantRevocation(options.db, userId, grantId, "narrowing_failed");
+      }
+    }
+  }
 }
 
 export async function revokeHostedGrantForUser(
