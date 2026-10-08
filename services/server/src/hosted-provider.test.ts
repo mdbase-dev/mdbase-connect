@@ -32,6 +32,36 @@ function readinessDocument(contractSupport: ConnectContractSupport = CONNECT_CON
 }
 
 describe("hosted provider control client", () => {
+  it("reads migration drain within 4096 bytes before parsing, without response.text", async () => {
+    const id="4c18af2e-b04a-4b77-b83e-493c3695962e";
+    const document={collection_id:id,state:"migrating",head:42,started_at:"2026-10-08T14:00:00Z",retain_until:null,in_flight:0,unresolved:3,applied_unreceipted:2};
+    const json=JSON.stringify(document),bytes=new TextEncoder().encode(json+" ".repeat(4096-json.length));
+    const response=new Response(new ReadableStream<Uint8Array>({start(controller){controller.enqueue(bytes.subarray(0,128));controller.enqueue(bytes.subarray(128));controller.close();}}));
+    const text=vi.spyOn(response,"text");const fetchMock=vi.spyOn(globalThis,"fetch").mockResolvedValue(response);
+    const provider=new HostedProviderClient({url:"https://provider.example",internalToken:"synthetic-test"});
+    await expect(provider.legacyMigrationDrain(id)).resolves.toEqual(document);expect(text).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`https://provider.example/internal/v1/collections/${id}/legacy-migration`);expect(fetchMock.mock.calls[0]?.[1]?.redirect).toBe("manual");
+  });
+  it("cancels every over-limit drain stream before JSON parsing or full buffering", async () => {
+    const cancel=vi.fn(),text=vi.fn();const parse=vi.spyOn(JSON,"parse");
+    vi.spyOn(globalThis,"fetch").mockImplementation(async()=>{
+      let part=0;const response=new Response(new ReadableStream<Uint8Array>({pull(controller){controller.enqueue(new Uint8Array(part++===0?4096:1).fill(32));},cancel},{highWaterMark:0}));
+      vi.spyOn(response,"text").mockImplementation(text);return response;
+    });
+    const provider=new HostedProviderClient({url:"https://provider.example",internalToken:"synthetic-test"});
+    await expect(provider.legacyMigrationDrain("4c18af2e-b04a-4b77-b83e-493c3695962e")).rejects.toBeInstanceOf(HostedProviderUnavailableError);
+    expect(cancel).toHaveBeenCalledTimes(3);expect(text).not.toHaveBeenCalled();expect(parse).not.toHaveBeenCalled();
+  });
+  it("refuses migration-drain redirects without fetching their destination",async()=>{
+    const fetchMock=vi.spyOn(globalThis,"fetch").mockResolvedValue(new Response("{}",{status:302,headers:{location:"https://elsewhere.test/source"}}));
+    const provider=new HostedProviderClient({url:"https://provider.example",internalToken:"synthetic-test"});
+    await expect(provider.legacyMigrationDrain("4c18af2e-b04a-4b77-b83e-493c3695962e")).rejects.toMatchObject({status:302});expect(fetchMock).toHaveBeenCalledTimes(1);expect(fetchMock.mock.calls[0]?.[1]?.redirect).toBe("manual");
+  });
+  it("does not add the small drain limit to unrelated provider responses",async()=>{
+    vi.spyOn(globalThis,"fetch").mockResolvedValue(Response.json({...readinessDocument(),padding:"x".repeat(8192)}));
+    const provider=new HostedProviderClient({url:"https://provider.example",internalToken:"synthetic-test"});
+    await expect(provider.ready()).resolves.toBeUndefined();
+  });
   it("requires versioned authoritative contract metadata support before using a provider", async () => {
     const document = readinessDocument();
     document.provider.capabilities = document.provider.capabilities.filter((capability) => capability !== "contract-metadata-read-v1");
