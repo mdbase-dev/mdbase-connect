@@ -100,16 +100,17 @@ async function active(
   c: Pick<Connection, "query">,
   user: string,
   lock = false,
+  allowLegacy = false,
 ): Promise<void> {
-  if (
-    !(
-      await c.query(
-        `SELECT id FROM users WHERE id=$1 AND suspended_at IS NULL ${lock ? "FOR UPDATE" : ""}`,
-        [user],
-      )
-    ).rows[0]
-  )
-    fail("installation_account_unavailable", 403);
+  const account = (await c.query<{ account_backend: string }>(
+    `SELECT account_backend FROM users WHERE id=$1 AND suspended_at IS NULL ${lock ? "FOR UPDATE" : ""}`,
+    [user],
+  )).rows[0];
+  if (!account) fail("installation_account_unavailable", 403);
+  if (!allowLegacy && account.account_backend === "legacy")
+    throw new InstallationPairingError(409, "installation_legacy_backend", "This account still uses the legacy backend. Finish migrating the account before approving this device sign-in.");
+  if (account.account_backend !== "legacy" && account.account_backend !== "next")
+    throw new Error("Account backend marker is unavailable or invalid.");
 }
 async function ordinary(
   c: Pick<Connection, "query">,
@@ -338,7 +339,8 @@ export async function denyInstallationPairing(
   session: string,
 ) {
   return tx(db, async (c) => {
-    await active(c, user, true);
+    // Cancellation remains possible even if migration was rolled back.
+    await active(c, user, true, true);
     await currentSession(c, session, user);
     const r = await row(c, id, undefined, true);
     live(r);
