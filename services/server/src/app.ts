@@ -556,7 +556,7 @@ export async function buildApp(options: BuildOptions) {
       db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, rateLimitSecret: options.authRateLimitSecret
     });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
-    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker });
+    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
       db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,
       environment: options.environment, publicUrl, emitter: nextPolicyEmitter!

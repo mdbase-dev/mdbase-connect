@@ -1,0 +1,4 @@
+{
+  "reason": "One server helper owns operator-only hosted-origin validation and current enrolled hosted service-device discovery under the cloud-copy parent share lock. Four import edges wire configuration, route discovery and policy-device types; three additional exports expose the two helper functions and preserve the existing RouteTarget type re-export. No new package or public client surface.",
+  "growth": { "productionFiles": 1, "relativeImports": 4, "typeScriptExportDeclarations": 3, "services/server": 1 }
+}
