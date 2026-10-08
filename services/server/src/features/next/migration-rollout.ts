@@ -45,14 +45,15 @@ export class RolloutRefused extends Error {
   constructor(readonly code: string, message: string, readonly status = 409) { super(message); }
 }
 
-const COHORT_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
-const HEX64 = /^[0-9a-f]{64}$/;
-const UUID_CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+// Canonical scalars must consume the entire string without normalization.
+const COHORT_NAME = /^[a-z0-9][a-z0-9-]{0,62}(?![\s\S])/;
+const HEX64 = /^[0-9a-f]{64}(?![\s\S])/;
+const UUID_CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\s\S])/;
+const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z(?![\s\S])/;
 const DAY_MS = 86_400_000;
 
 const decimal = (max: bigint, positive = false) => z.string().max(20).refine((v) =>
-  /^(0|[1-9][0-9]*)$/.test(v) && BigInt(v) <= max && (!positive || BigInt(v) > 0n));
+  /^(0|[1-9][0-9]*)(?![\s\S])/.test(v) && BigInt(v) <= max && (!positive || BigInt(v) > 0n));
 const millisecondTime = z.string().length(24).refine((v) => {
   if (!UTC_MILLISECONDS.test(v)) return false;
   const ms = Date.parse(v);
@@ -67,12 +68,12 @@ const archiveBindingSchema = z.object({
 const verifiedArchiveSchema = z.object({
   schema: z.literal("mdbase-recovery-set/v4"),
   environment: z.enum(["production", "staging"]),
-  bucket: z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/),
-  prefix: z.string().max(128).regex(/^(staging|production)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}$/),
-  backup_id: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]{0,79}$/),
+  bucket: z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9](?![\s\S])/),
+  prefix: z.string().max(128).regex(/^(staging|production)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
+  backup_id: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
   complete_sha256: z.string().regex(HEX64),
   manifest_sha256: z.string().regex(HEX64),
-  source_commit: z.string().regex(/^[0-9a-f]{40}$/),
+  source_commit: z.string().regex(/^[0-9a-f]{40}(?![\s\S])/),
   migration_batch: archiveBindingSchema,
   archive_created_at: millisecondTime,
   archive_completed_at: millisecondTime,

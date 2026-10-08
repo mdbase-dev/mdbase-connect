@@ -51,6 +51,28 @@ describe("H0 typed ONE-verifier metadata (not archive/signature execution)", () 
       expect(() => parseVerifiedBatchArchive(body)).toThrow();
     }
   });
+  it("requires full canonical scalars without trailing controls or normalization", () => {
+    for (const suffix of ["\n", "\r", "\r\n", "\t", "\0", "\u2028", "\u2029", " "]) {
+      const body = fixture();
+      const variants = [
+        { ...body, bucket: body.bucket + suffix },
+        { ...body, backup_id: body.backup_id + suffix, prefix: body.prefix + suffix },
+        { ...body, prefix: body.prefix + suffix },
+        { ...body, source_commit: body.source_commit + suffix },
+        { ...body, complete_sha256: body.complete_sha256 + suffix },
+        { ...body, manifest_sha256: body.manifest_sha256 + suffix },
+        { ...body, migration_batch: { ...binding, batch_id: binding.batch_id + suffix } },
+        { ...body, migration_batch: { ...binding, membership_revision: "1" + suffix } },
+        { ...body, migration_batch: { ...binding, membership_digest: binding.membership_digest + suffix } },
+        { ...body, retention: { ...body.retention, count: "3" + suffix } },
+        { ...body, retention: { ...body.retention, inventory_digest: body.retention.inventory_digest + suffix } }
+      ];
+      for (const value of variants) expect(() => parseVerifiedBatchArchive(value)).toThrow();
+      expect(() => migrationMembershipDigest([[account + suffix, []]])).toThrow();
+      expect(() => migrationMembershipDigest([[account, [collection + suffix]]])).toThrow();
+      expect(() => requireFreshBatchArchive(parseVerifiedBatchArchive(body), { ...binding, batch_id: binding.batch_id + suffix }, now, now, "production")).toThrow();
+    }
+  });
   it("refuses numeric/noncanonical/overflow revisions and inventory counts", () => {
     for (const revision of [1, "0", "01", "+1", "1e3", "9223372036854775808"]) {
       expect(() => parseVerifiedBatchArchive({ ...fixture(), migration_batch: { ...binding, membership_revision: revision } })).toThrow();
