@@ -295,13 +295,13 @@ export class HostedProviderClient {
   ): Promise<HostedProjectionStatus> {
     const operation = requiredOperation(options);
     const result = await this.request(
-      "GET",
-      `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection`,
-      undefined,
-      true,
-      operation
+      "GET", `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection`, undefined, true, operation
     ) as { projection?: HostedProjectionStatus } | undefined;
     return requiredProjectionStatus(result?.projection, collectionId);
+  }
+
+  async legacyMigrationDrain(collectionId: string, options?: HostedProviderOperationOptions): Promise<unknown> {
+    return this.request("GET", `/internal/v1/collections/${z.uuid().parse(collectionId)}/legacy-migration`, undefined, true, options);
   }
 
   async advanceProjection(
@@ -786,6 +786,7 @@ export class HostedProviderClient {
       try {
         const response = await fetch(`${this.endpointUrl}${path}`, {
           method,
+          redirect: "manual",
           headers: {
             ...(authenticated ? { authorization: `Bearer ${this.internalToken}` } : {}),
             ...(body === undefined ? {} : { "content-type": "application/json" })
