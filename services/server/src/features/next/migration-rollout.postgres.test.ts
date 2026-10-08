@@ -3,16 +3,19 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import { quarantineMissingHostedCollection } from "../../hosted-capability-lifecycle.js";
 import {
-  accountMigrationView, addToCohort, createCohort, flipAccountBackend, FlipRefused, migrationCandidates,
-  registerMigrationRolloutRoutes, releaseCohort, rolloutState, setPaused
+  accountMigrationView, addToCohort, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates,
+  migrationsInProgress, recordCollectionCutover, registerMigrationRolloutRoutes, releaseCohort, RolloutRefused,
+  rolloutState, setPaused, startAccountMigration
 } from "./migration-rollout.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
 const describePg = testUrl && approved ? describe : describe.skip;
-const tokens = { hosted: "h".repeat(40), escrow: "e".repeat(40) };
-const evidence = "a".repeat(64);
+const token = "m".repeat(40);
+const OP = "test-operator";
+const digest = (n: number) => n.toString(16).padStart(64, "0");
 
 describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
   let db: DatabasePool; let admin: pg.Pool; let schema: string;
@@ -42,86 +45,142 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     }
     return { user, ids: ids.sort() };
   }
+  /** The control plane's cloud copy with the preserved id (H1). */
+  async function cloudCopy(collection: string, owner: string) {
+    await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'shadow','cloud_copy',$3)", [collection, owner, Buffer.alloc(16)]);
+  }
+  async function released(users: string[]) {
+    const cohort = `c-${randomUUID().slice(0, 8)}`;
+    await createCohort(db, cohort, OP);
+    await addToCohort(db, cohort, users, OP);
+    await releaseCohort(db, cohort, OP);
+    return cohort;
+  }
+  const code = async (p: Promise<unknown>) => {
+    const e = await p.catch((error: unknown) => error);
+    expect(e).toBeInstanceOf(RolloutRefused);
+    return (e as RolloutRefused).code;
+  };
+  /** Cut over every collection of `a` and return the evidence digest. */
+  async function cutAll(a: { user: string; ids: string[] }) {
+    const records = [];
+    for (const [i, id] of a.ids.entries()) {
+      await cloudCopy(id, a.user);
+      await recordCollectionCutover(db, id, 10 + i, digest(i + 1));
+      records.push({ collection_id: id, barrier_f: 10 + i, final_digest: digest(i + 1) });
+    }
+    return flipEvidenceDigest(records);
+  }
 
-  it("starts paused with no cohorts, and only released legacy accounts are candidates", async () => {
+  it("starts paused; start is an atomic claim that the pause refuses; started accounts ignore the pause", async () => {
     expect((await rolloutState(db)).paused).toBe(true);
     const a = await account(), b = await account();
-    const cohort = `c-${randomUUID().slice(0, 8)}`;
-    await createCohort(db, cohort);
-    expect(await addToCohort(db, cohort, [a.user, b.user, randomUUID()])).toHaveLength(2);
+    await released([a.user, b.user]);
     expect(await migrationCandidates(db, 100)).not.toContain(a.user);
-    await setPaused(db, false, "start internal cohort");
-    expect(await migrationCandidates(db, 100)).not.toContain(a.user); // not released
-    expect(await releaseCohort(db, cohort)).toBe(true);
-    expect(await releaseCohort(db, cohort)).toBe(false);
+    expect(await code(startAccountMigration(db, a.user))).toBe("migration_paused");
+    await setPaused(db, false, "start internal cohort", OP);
     expect(await migrationCandidates(db, 100)).toEqual(expect.arrayContaining([a.user, b.user]));
-    const view = (await accountMigrationView(db, a.user))!;
-    expect(view).toMatchObject({ backend: "legacy", cohort, released: true, paused: false, may_start: true, hosted_collections: a.ids, unsettled_collections: [] });
-    // Pause stops new accounts from starting.
-    await setPaused(db, true, "incident");
+    await startAccountMigration(db, a.user);
+    expect(await migrationCandidates(db, 100)).not.toContain(a.user);
+    await setPaused(db, true, "incident", OP);
     expect(await migrationCandidates(db, 100)).toEqual([]);
-    expect((await accountMigrationView(db, a.user))!.may_start).toBe(false);
-    await expect(setPaused(db, false, "  ")).rejects.toThrow();
+    expect(await code(startAccountMigration(db, b.user))).toBe("migration_paused");
+    // In progress whatever the pause; a repeated start is idempotent.
+    expect(await migrationsInProgress(db, 100)).toContain(a.user);
+    expect(await migrationsInProgress(db, 100)).not.toContain(b.user);
+    expect((await startAccountMigration(db, a.user)).account_id).toBe(a.user);
+    expect((await accountMigrationView(db, a.user))!).toMatchObject({ started: true, paused: true, hosted_collections: a.ids });
+    await expect(setPaused(db, false, "  ", OP)).rejects.toThrow();
+    await expect(setPaused(db, false, "x", " ")).rejects.toThrow();
+    const audited = await db.query("SELECT event_type FROM audit_events WHERE event_type LIKE 'next_migration.%'");
+    expect(audited.rows.map((r) => r.event_type)).toEqual(expect.arrayContaining([
+      "next_migration.pause", "next_migration.resume", "next_migration.cohort_create", "next_migration.cohort_add",
+      "next_migration.cohort_release", "next_migration.start"
+    ]));
   });
 
-  it("flips only with exactly the settled hosted collections, idempotently, even while paused", async () => {
+  it("flips only with every hosted collection cut over and verified evidence, even while paused", async () => {
     const a = await account(["active", "active", "transferred"]);
-    const cohort = `c-${randomUUID().slice(0, 8)}`;
-    await createCohort(db, cohort);
-    const refuse = async (collections: string[], code: string, digest = evidence) => {
-      const e = await flipAccountBackend(db, a.user, collections, digest).catch((error: unknown) => error);
-      expect(e).toBeInstanceOf(FlipRefused);
-      expect((e as FlipRefused).code).toBe(code);
-    };
-    await refuse(a.ids, "account_not_released");
-    await addToCohort(db, cohort, [a.user]);
-    await releaseCohort(db, cohort);
-    await setPaused(db, true, "paused mid-cutover");
-    await refuse(a.ids.slice(1), "collections_mismatch");
-    await refuse([...a.ids, randomUUID()], "collections_mismatch");
-    await refuse([a.ids[0]!, a.ids[0]!], "collections_duplicated");
+    await released([a.user]);
+    await setPaused(db, false, "go", OP);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("account_not_started");
+    expect(await code(recordCollectionCutover(db, a.ids[0]!, 10, digest(1)))).toBe("account_not_started");
+    await startAccountMigration(db, a.user);
+    await setPaused(db, true, "paused mid-cutover", OP);
+    // A cutover needs the control plane's cloud copy with the preserved id.
+    expect(await code(recordCollectionCutover(db, a.ids[0]!, 10, digest(1)))).toBe("next_collection_missing");
+    // One collection cut over is not enough.
+    await cloudCopy(a.ids[0]!, a.user);
+    await recordCollectionCutover(db, a.ids[0]!, 10, digest(1));
+    expect(await code(recordCollectionCutover(db, a.ids[0]!, 11, digest(1)))).toBe("cutover_conflict");
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("collections_not_cut_over");
+    await cloudCopy(a.ids[1]!, a.user);
+    await recordCollectionCutover(db, a.ids[1]!, 11, digest(2));
+    expect((await db.query("SELECT runtime FROM next_collections WHERE collection_id=$1", [a.ids[1]])).rows[0].runtime).toBe("next");
+    const evidence = flipEvidenceDigest([
+      { collection_id: a.ids[0]!, barrier_f: 10, final_digest: digest(1) },
+      { collection_id: a.ids[1]!, barrier_f: 11, final_digest: digest(2) }
+    ]);
+    expect(await code(flipAccountBackend(db, a.user, a.ids.slice(1), evidence))).toBe("collections_mismatch");
+    expect(await code(flipAccountBackend(db, a.user, [a.ids[0]!, a.ids[0]!], evidence))).toBe("collections_duplicated");
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(7)))).toBe("evidence_mismatch");
     const flipped = await flipAccountBackend(db, a.user, [...a.ids].reverse(), evidence);
     expect(flipped.backend).toBe("next");
-    expect((await db.query("SELECT account_backend FROM users WHERE id=$1", [a.user])).rows[0].account_backend).toBe("next");
-    // A retry with the same evidence returns the same flip; other evidence is refused.
     expect((await flipAccountBackend(db, a.user, a.ids, evidence)).flipped_at).toBe(flipped.flipped_at);
-    await refuse(a.ids, "account_already_next", "b".repeat(64));
-    // A flipped account is no longer a candidate and cannot join another cohort.
-    await setPaused(db, false, "resume");
-    expect(await migrationCandidates(db, 100)).not.toContain(a.user);
-    expect(await addToCohort(db, cohort, [a.user])).toEqual([]);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(9)))).toBe("account_already_next");
+    expect(await migrationsInProgress(db, 100)).not.toContain(a.user);
+    expect((await db.query("SELECT 1 FROM audit_events WHERE event_type='next_migration.flip' AND user_id=$1", [a.user])).rows).toHaveLength(1);
   });
 
-  it("refuses while a hosted collection is mid import or transfer", async () => {
+  it("refuses unsettled collections; an empty account flips once started", async () => {
     const a = await account(["active", "transferring"]);
-    const cohort = `c-${randomUUID().slice(0, 8)}`;
-    await createCohort(db, cohort); await addToCohort(db, cohort, [a.user]); await releaseCohort(db, cohort);
-    expect((await accountMigrationView(db, a.user))!.unsettled_collections).toHaveLength(1);
-    const e = await flipAccountBackend(db, a.user, a.ids, evidence).catch((error: unknown) => error);
-    expect((e as FlipRefused).code).toBe("collections_unsettled");
-    // An account with no hosted collections flips with an empty list.
     const empty = await account([]);
-    await addToCohort(db, cohort, [empty.user]);
-    expect((await flipAccountBackend(db, empty.user, [], evidence)).backend).toBe("next");
+    await released([a.user, empty.user]);
+    await setPaused(db, false, "go", OP);
+    await startAccountMigration(db, a.user);
+    await startAccountMigration(db, empty.user);
+    expect((await accountMigrationView(db, a.user))!.unsettled_collections).toHaveLength(1);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("collections_unsettled");
+    expect((await flipAccountBackend(db, empty.user, [], flipEvidenceDigest([]))).backend).toBe("next");
   });
 
-  it("serves the hosted migrator only", async () => {
-    const app = Fastify();
-    registerMigrationRolloutRoutes(app, { db, tokens });
+  it("a deleted account is terminal mid-migration; a migrating account is never quarantined", async () => {
     const a = await account(["active"]);
-    const cohort = `c-${randomUUID().slice(0, 8)}`;
-    await createCohort(db, cohort); await addToCohort(db, cohort, [a.user]); await releaseCohort(db, cohort);
-    const get = (url: string, token?: string) => app.inject({ method: "GET", url, headers: token ? { authorization: `Bearer ${token}` } : {} });
-    expect((await get("/internal/v1/next/migration/rollout")).statusCode).toBe(401);
-    expect((await get("/internal/v1/next/migration/rollout", tokens.escrow)).statusCode).toBe(401);
-    expect((await get("/internal/v1/next/migration/rollout", tokens.hosted)).json()).toHaveProperty("paused");
-    expect((await get(`/internal/v1/next/migration/accounts/${a.user}`, tokens.hosted)).json()).toMatchObject({ released: true, hosted_collections: a.ids });
-    expect((await get(`/internal/v1/next/migration/accounts/${randomUUID()}`, tokens.hosted)).statusCode).toBe(404);
-    expect((await get("/internal/v1/next/migration/candidates?limit=1000", tokens.hosted)).statusCode).toBe(400);
-    const flip = (body: unknown) => app.inject({ method: "POST", url: `/internal/v1/next/migration/accounts/${a.user}/flip`, headers: { authorization: `Bearer ${tokens.hosted}` }, payload: body as object });
-    expect((await flip({ collections: a.ids })).statusCode).toBe(400);
-    expect((await flip({ collections: [], evidence_digest: evidence })).statusCode).toBe(409);
-    const ok = await flip({ collections: a.ids, evidence_digest: evidence });
+    await released([a.user]);
+    await setPaused(db, false, "go", OP);
+    await startAccountMigration(db, a.user);
+    // The provider's freeze answers like a missing collection to old paths: never quarantine.
+    const q = await quarantineMissingHostedCollection(db, a.ids[0]!);
+    expect(q).toEqual({ changed: false, grantsRevoked: 0, replicasRevoked: 0 });
+    expect((await db.query("SELECT quarantined_at FROM hosted_collections WHERE id=$1", [a.ids[0]])).rows[0].quarantined_at).toBeNull();
+    // Callum 2026-10-08: account deletion during migration is immediate and terminal.
+    await db.query("DELETE FROM users WHERE id=$1", [a.user]);
+    expect(await migrationsInProgress(db, 100)).not.toContain(a.user);
+    expect(await accountMigrationView(db, a.user)).toBeNull();
+    expect(await code(startAccountMigration(db, a.user))).toBe("account_not_found");
+    expect(await code(flipAccountBackend(db, a.user, [], flipEvidenceDigest([])))).toBe("account_not_found");
+    expect(await code(recordCollectionCutover(db, a.ids[0]!, 1, digest(1)))).toBe("collection_not_found");
+  });
+
+  it("serves the dedicated migration token only", async () => {
+    const app = Fastify();
+    registerMigrationRolloutRoutes(app, { db, token });
+    const a = await account(["active"]);
+    await released([a.user]);
+    await setPaused(db, false, "go", OP);
+    const call = (method: "GET" | "POST", url: string, auth?: string, payload?: object) =>
+      app.inject({ method, url, headers: auth ? { authorization: `Bearer ${auth}` } : {}, ...(payload ? { payload } : {}) });
+    expect((await call("GET", "/internal/v1/next/migration/rollout")).statusCode).toBe(401);
+    expect((await call("GET", "/internal/v1/next/migration/rollout", "h".repeat(40))).statusCode).toBe(401);
+    expect((await call("GET", "/internal/v1/next/migration/rollout", token)).json()).toHaveProperty("paused");
+    expect((await call("GET", "/internal/v1/next/migration/candidates?limit=1000", token)).statusCode).toBe(400);
+    expect((await call("GET", `/internal/v1/next/migration/accounts/${randomUUID()}`, token)).statusCode).toBe(404);
+    expect((await call("POST", `/internal/v1/next/migration/accounts/${a.user}/start`, token)).statusCode).toBe(200);
+    expect((await call("GET", "/internal/v1/next/migration/in-progress", token)).json().accounts).toContain(a.user);
+    const evidence = await cutAll(a);
+    expect((await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids })).statusCode).toBe(400);
+    expect((await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids, evidence_digest: digest(5) })).statusCode).toBe(409);
+    const ok = await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids, evidence_digest: evidence });
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({ backend: "next" });
     await app.close();

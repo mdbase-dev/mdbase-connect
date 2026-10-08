@@ -296,6 +296,14 @@ export async function createHostedCollectionForUser(
     throw new RequestValidationError("Hosted collections are not enabled.");
   }
   const collectionId = creation.collectionId ?? randomUUID();
+  // A flipped account creates collections in mdbase-next only: nothing would
+  // migrate a legacy hosted collection created after its flip.
+  const backend = (await options.db.query<{ account_backend: string }>(
+    "SELECT account_backend FROM users WHERE id = $1", [userId]
+  )).rows[0]?.account_backend;
+  if (backend === "next") {
+    throw new RequestValidationError("This account has moved to mdbase-next; create collections there.");
+  }
   let insertedAt: string | Date | undefined;
   let wasInserted = false;
   try {

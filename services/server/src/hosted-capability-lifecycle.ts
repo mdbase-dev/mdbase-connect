@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { accountMigrating } from "./features/next/migration-rollout.js";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { finalizeReadyMembershipTransitions } from "./collection-membership-lifecycle.js";
 import { audit } from "./platform/audit-events.js";
@@ -257,6 +258,13 @@ export async function quarantineMissingHostedCollection(
     if (!row) {
       await connection.query("ROLLBACK");
       return null;
+    }
+    // A collection of an account whose migration to mdbase-next started is frozen
+    // or migrated by the provider, not missing: never quarantine it (that would
+    // destroy pre-cutover rollback).
+    if (await accountMigrating(connection, row.user_id)) {
+      await connection.query("COMMIT");
+      return { changed: false, grantsRevoked: 0, replicasRevoked: 0 };
     }
     if (row.quarantined_at !== null) {
       await connection.query("COMMIT");
