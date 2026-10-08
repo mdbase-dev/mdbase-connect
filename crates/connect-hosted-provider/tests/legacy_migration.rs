@@ -67,6 +67,7 @@ async fn migrating_refuses_writes_and_rollback_reopens_them() {
         .await
         .unwrap();
     assert!(status.started_at.is_some());
+    assert!(status.migration_id.is_some());
     assert_eq!(state_of(&fixture).await, "migrating");
     let refused = provider
         .open_file_upload(id, &fixture.token, upload(), None)
@@ -304,7 +305,7 @@ async fn retained_collections_keep_their_queued_blob_deletions() {
 
 #[tokio::test]
 #[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
-async fn rollback_restores_only_replicas_revoked_during_the_migration() {
+async fn rollback_restores_only_owned_replicas_and_h8_uses_internal_auth() {
     let database = DisposablePostgres::from_projection_env().await;
     let fixture = FileLifecycleFixture::new(database.url()).await;
     let provider = &fixture.provider;
@@ -330,10 +331,13 @@ async fn rollback_restores_only_replicas_revoked_during_the_migration() {
         .unwrap();
     assert!(restored.is_empty());
 
-    // One revoked at cutover is restored, over HTTP, and writes again after rollback.
-    sqlx::query("UPDATE hosted_provider_replicas SET revoked_at = now() WHERE id = $1")
-        .bind(mirror)
-        .execute(&fixture.pool)
+    // A different, live mirror is revoked by H8 and restored over HTTP.
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    provider
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
         .await
         .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -343,6 +347,27 @@ async fn rollback_restores_only_replicas_revoked_during_the_migration() {
     let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let client = reqwest::Client::new();
+    let revoke_url =
+        format!("http://{address}/internal/v1/collections/{id}/legacy-migration/revoke-replicas");
+    let unauthorized = client
+        .post(&revoke_url)
+        .json(&json!({ "replica_ids": [mirror] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let revoked = client
+        .post(&revoke_url)
+        .bearer_auth(&token)
+        .json(&json!({ "replica_ids": [mirror] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        revoked.json::<Value>().await.unwrap()["revoked"],
+        json!([mirror])
+    );
     let response = client
         .post(format!(
             "http://{address}/internal/v1/collections/{id}/legacy-migration/restore-replicas"
@@ -476,12 +501,22 @@ async fn rollback_restores_revoked_replicas_atomically_and_the_fence_is_not_a_de
         .set_legacy_migration_state(id, "migrating", None, false, &[])
         .await
         .unwrap();
-    // H8 revokes the mirror.
-    sqlx::query("UPDATE hosted_provider_replicas SET revoked_at = now() WHERE id = $1")
-        .bind(mirror)
-        .execute(&fixture.pool)
-        .await
-        .unwrap();
+    // H8 records ownership of the revocation in the same transaction.
+    assert_eq!(
+        provider
+            .revoke_migration_replicas(id, &[mirror])
+            .await
+            .unwrap(),
+        vec![mirror]
+    );
+    assert_eq!(
+        provider
+            .revoke_migration_replicas(id, &[mirror])
+            .await
+            .unwrap(),
+        vec![mirror],
+        "retry is idempotent"
+    );
     // Restore names are only accepted with the rollback itself.
     let wrong = provider
         .set_legacy_migration_state(id, "migrating", None, false, &[mirror])
@@ -511,4 +546,116 @@ async fn rollback_restores_revoked_replicas_atomically_and_the_fence_is_not_a_de
         .open_file_upload(id, &fixture.token, upload(), None)
         .await
         .expect("writes again after rollback");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn independent_or_rewritten_revocations_are_never_restored_by_rollback() {
+    let database = DisposablePostgres::from_projection_env().await;
+    for mode in [
+        "user_before_h8",
+        "user_after_h8",
+        "no_provenance",
+        "rewritten",
+        "old_run",
+        "no_run",
+    ] {
+        let fixture = FileLifecycleFixture::new(database.url()).await;
+        let provider = &fixture.provider;
+        let id = fixture.collection_id;
+        let mirror = mirror_id(&fixture).await;
+        let started = provider
+            .set_legacy_migration_state(id, "migrating", None, false, &[])
+            .await
+            .unwrap();
+        match mode {
+            "user_before_h8" => {
+                provider.revoke_replica(mirror).await.unwrap();
+                assert!(provider
+                    .revoke_migration_replicas(id, &[mirror])
+                    .await
+                    .unwrap()
+                    .is_empty());
+            }
+            "user_after_h8" => {
+                provider
+                    .revoke_migration_replicas(id, &[mirror])
+                    .await
+                    .unwrap();
+                // The user reaffirms the revocation while the collection is fenced.
+                provider.revoke_replica(mirror).await.unwrap();
+                assert!(
+                    provider
+                        .revoke_migration_replicas(id, &[mirror])
+                        .await
+                        .unwrap()
+                        .is_empty(),
+                    "H8 retries cannot adopt a user's revocation"
+                );
+            }
+            "no_provenance" => {
+                sqlx::query("UPDATE hosted_provider_replicas SET revoked_at = now() WHERE id = $1")
+                    .bind(mirror)
+                    .execute(&fixture.pool)
+                    .await
+                    .unwrap();
+            }
+            "rewritten" => {
+                provider
+                    .revoke_migration_replicas(id, &[mirror])
+                    .await
+                    .unwrap();
+                sqlx::query("UPDATE hosted_provider_replicas SET revoked_at = revoked_at + interval '1 second' WHERE id = $1").bind(mirror).execute(&fixture.pool).await.unwrap();
+            }
+            "old_run" => {
+                provider
+                    .revoke_migration_replicas(id, &[mirror])
+                    .await
+                    .unwrap();
+                provider
+                    .set_legacy_migration_state(id, "active", None, false, &[])
+                    .await
+                    .unwrap();
+                let fresh = provider
+                    .set_legacy_migration_state(id, "migrating", None, false, &[])
+                    .await
+                    .unwrap();
+                assert_ne!(fresh.migration_id, started.migration_id);
+            }
+            "no_run" => {
+                provider
+                    .revoke_migration_replicas(id, &[mirror])
+                    .await
+                    .unwrap();
+                sqlx::query("UPDATE hosted_provider_collections SET legacy_migration_id = NULL WHERE id = $1").bind(id).execute(&fixture.pool).await.unwrap();
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            provider
+                .restore_migration_revoked_replicas(id, &[mirror])
+                .await
+                .unwrap()
+                .is_empty(),
+            "{mode}: standalone restore must refuse"
+        );
+        let rolled_back = provider
+            .set_legacy_migration_state(id, "active", None, false, &[mirror])
+            .await
+            .unwrap();
+        assert!(
+            rolled_back.restored.is_empty(),
+            "{mode}: caller's list is not provenance"
+        );
+        let revoked: Option<chrono::DateTime<Utc>> =
+            sqlx::query_scalar("SELECT revoked_at FROM hosted_provider_replicas WHERE id = $1")
+                .bind(mirror)
+                .fetch_one(&fixture.pool)
+                .await
+                .unwrap();
+        assert!(
+            revoked.is_some(),
+            "{mode}: mirror stays revoked; re-link required"
+        );
+    }
 }

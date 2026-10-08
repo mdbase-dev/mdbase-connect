@@ -6,7 +6,7 @@
 //!   in-flight writers, which hold that lock until they commit.
 //! - `migrated`: the same, plus deletion, compaction and blob removal are refused until
 //!   `legacy_retain_until`, at least 90 days after cutover (Callum, 2026-10-06).
-//! - Rollback restores exactly the replicas revoked since the migration started.
+//! - Rollback restores only replicas whose current revocation belongs to this run.
 
 use super::*;
 use chrono::Duration as ChronoDuration;
@@ -36,6 +36,7 @@ impl LegacyMigrationState {
 pub struct LegacyMigrationStatus {
     pub collection_id: Uuid,
     pub state: LegacyMigrationState,
+    pub migration_id: Option<Uuid>,
     pub started_at: Option<DateTime<Utc>>,
     pub retain_until: Option<DateTime<Utc>>,
     /// Replicas restored by this transition (rollback to active).
@@ -50,6 +51,7 @@ pub struct LegacyMigrationDrain {
     pub collection_id: Uuid,
     /// The raw lifecycle state (`active`, `migrating`, `migrated`, or another).
     pub state: String,
+    pub migration_id: Option<Uuid>,
     pub head: i64,
     pub started_at: Option<DateTime<Utc>>,
     pub retain_until: Option<DateTime<Utc>>,
@@ -109,7 +111,7 @@ impl HostedProvider {
     ///   reverse export was verified at R (mdbase-next `docs/ship/migration.md` §6.2).
     ///   Rollback before cutover (`migrating` → `active`, never migrated) is direct.
     /// - `restore_replica_ids`, on a transition to `active`, restores exactly those
-    ///   replicas revoked since the migration started, in the same transaction, so
+    ///   replicas whose unchanged revocation belongs to this run, atomically, so
     ///   a crash can never leave the collection active with its mirrors still
     ///   revoked and no way to restore them.
     pub async fn set_legacy_migration_state(
@@ -122,12 +124,13 @@ impl HostedProvider {
     ) -> ApiResult<LegacyMigrationStatus> {
         use LegacyMigrationState::{Active, Migrated, Migrating};
         let target = requested_state(target)?;
+        check_replica_ids(restore_replica_ids)?;
         let mut transaction = self.pool.begin().await?;
         sqlx::query("SET LOCAL lock_timeout = '5s'")
             .execute(&mut *transaction)
             .await?;
         let row = sqlx::query(
-            r#"SELECT state, legacy_migration_started_at, legacy_retain_until
+            r#"SELECT state, legacy_migration_id, legacy_migration_started_at, legacy_retain_until
                FROM hosted_provider_collections WHERE id = $1 FOR UPDATE"#,
         )
         .bind(collection_id)
@@ -135,6 +138,7 @@ impl HostedProvider {
         .await?
         .ok_or_else(not_found)?;
         let current = migration_state(&row.get::<String, _>("state"))?;
+        let migration_id: Option<Uuid> = row.get("legacy_migration_id");
         let started_at: Option<DateTime<Utc>> = row.get("legacy_migration_started_at");
         let retained: Option<DateTime<Utc>> = row.get("legacy_retain_until");
         let allowed = current == target
@@ -206,13 +210,13 @@ impl HostedProvider {
             Active => None,
         };
         let restored = if target == Active && current != Active && !restore_replica_ids.is_empty() {
-            match started_at {
-                Some(since) => {
-                    restore_revoked_since(
+            match migration_id {
+                Some(run) => {
+                    restore_owned_revocations(
                         &mut transaction,
                         collection_id,
                         restore_replica_ids,
-                        since,
+                        run,
                     )
                     .await?
                 }
@@ -221,6 +225,11 @@ impl HostedProvider {
         } else {
             Vec::new()
         };
+        let migration_id = match target {
+            Active => None,
+            _ if current == Active => Some(Uuid::now_v7()),
+            _ => migration_id,
+        };
         let started_at = match target {
             Active => None,
             _ if current == Active => Some(Utc::now()),
@@ -228,19 +237,21 @@ impl HostedProvider {
         };
         sqlx::query(
             r#"UPDATE hosted_provider_collections
-               SET state = $2, legacy_migration_started_at = $3, legacy_retain_until = $4
+               SET state = $2, legacy_migration_started_at = $3, legacy_retain_until = $4, legacy_migration_id = $5
                WHERE id = $1"#,
         )
         .bind(collection_id)
         .bind(target.as_str())
         .bind(started_at)
         .bind(retain_until)
+        .bind(migration_id)
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
         Ok(LegacyMigrationStatus {
             collection_id,
             state: target,
+            migration_id,
             started_at,
             retain_until,
             restored,
@@ -253,7 +264,7 @@ impl HostedProvider {
         collection_id: Uuid,
     ) -> ApiResult<LegacyMigrationDrain> {
         let row = sqlx::query(
-            r#"SELECT c.state, c.head, c.legacy_migration_started_at, c.legacy_retain_until,
+            r#"SELECT c.state, c.head, c.legacy_migration_id, c.legacy_migration_started_at, c.legacy_retain_until,
                       count(j.request_id) FILTER (
                         WHERE j.state IN ('claimed', 'prepared') AND j.lease_expires_at > now()
                       ) AS in_flight,
@@ -274,6 +285,7 @@ impl HostedProvider {
         Ok(LegacyMigrationDrain {
             collection_id,
             state: row.get("state"),
+            migration_id: row.get("legacy_migration_id"),
             head: row.get("head"),
             started_at: row.get("legacy_migration_started_at"),
             retain_until: row.get("legacy_retain_until"),
@@ -283,18 +295,60 @@ impl HostedProvider {
         })
     }
 
-    /// Rollback: clear `revoked_at` for exactly the listed replicas of a migrating or
-    /// migrated collection, and only those revoked since the migration started. A
-    /// replica the user revoked before the migration stays revoked. Returns the
-    /// restored IDs.
+    /// H8: revoke only currently live replicas and record this provider run as
+    /// the owner of the revocation in the same transaction. A retry does not
+    /// adopt a revocation made by a user or another provider path.
+    pub async fn revoke_migration_replicas(
+        &self,
+        collection_id: Uuid,
+        replica_ids: &[Uuid],
+    ) -> ApiResult<Vec<Uuid>> {
+        check_replica_ids(replica_ids)?;
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout = '5s'")
+            .execute(&mut *transaction)
+            .await?;
+        let row = sqlx::query("SELECT state, legacy_migration_id FROM hosted_provider_collections WHERE id = $1 FOR UPDATE")
+            .bind(collection_id).fetch_optional(&mut *transaction).await?.ok_or_else(not_found)?;
+        if row.get::<String, _>("state") != "migrating" {
+            return Err(ApiError::conflict(
+                "legacy_migration_not_started",
+                "Migration replica revocation requires a fenced collection.",
+            ));
+        }
+        let run = row
+            .get::<Option<Uuid>, _>("legacy_migration_id")
+            .ok_or_else(|| {
+                ApiError::conflict(
+                    "legacy_migration_not_started",
+                    "The migration has no provider run identity.",
+                )
+            })?;
+        let live: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM hosted_provider_replicas WHERE collection_id = $1 AND id = ANY($2) AND revoked_at IS NULL ORDER BY id FOR UPDATE")
+            .bind(collection_id).bind(replica_ids).fetch_all(&mut *transaction).await?;
+        for id in &live {
+            crate::provider::replicas::archive_application_replay_credential(&mut transaction, *id)
+                .await?;
+        }
+        sqlx::query("UPDATE hosted_provider_replicas SET revoked_at = now(), revoked_by_migration = $3, migration_revoked_at = now() WHERE collection_id = $1 AND id = ANY($2) AND revoked_at IS NULL")
+            .bind(collection_id).bind(&live).bind(run).execute(&mut *transaction).await?;
+        let owned = sqlx::query_scalar("SELECT id FROM hosted_provider_replicas WHERE collection_id = $1 AND id = ANY($2) AND revoked_by_migration = $3 AND revoked_at = migration_revoked_at ORDER BY id")
+            .bind(collection_id).bind(replica_ids).bind(run).fetch_all(&mut *transaction).await?;
+        transaction.commit().await?;
+        Ok(owned)
+    }
+
+    /// Rollback: restore only listed replicas whose current revocation is owned
+    /// by this run. Independent and pre-existing revocations stay revoked.
     pub async fn restore_migration_revoked_replicas(
         &self,
         collection_id: Uuid,
         replica_ids: &[Uuid],
     ) -> ApiResult<Vec<Uuid>> {
+        check_replica_ids(replica_ids)?;
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
-            r#"SELECT state, legacy_migration_started_at
+            r#"SELECT state, legacy_migration_id, legacy_migration_started_at
                FROM hosted_provider_collections WHERE id = $1 FOR UPDATE"#,
         )
         .bind(collection_id)
@@ -302,38 +356,66 @@ impl HostedProvider {
         .await?
         .ok_or_else(not_found)?;
         let started_at: Option<DateTime<Utc>> = row.get("legacy_migration_started_at");
-        let started_at = match (migration_state(&row.get::<String, _>("state"))?, started_at) {
+        match (migration_state(&row.get::<String, _>("state"))?, started_at) {
             (LegacyMigrationState::Active, _) | (_, None) => {
                 return Err(ApiError::conflict(
                     "legacy_migration_not_started",
                     "Replicas are restored only while a migration can be rolled back.",
                 ))
             }
-            (_, Some(started_at)) => started_at,
+            (_, Some(_)) => (),
         };
-        let restored =
-            restore_revoked_since(&mut transaction, collection_id, replica_ids, started_at).await?;
+        let restored = match row.get::<Option<Uuid>, _>("legacy_migration_id") {
+            Some(run) => {
+                restore_owned_revocations(&mut transaction, collection_id, replica_ids, run).await?
+            }
+            None => Vec::new(),
+        };
         transaction.commit().await?;
         Ok(restored)
     }
 }
 
-/// Clear `revoked_at` for the listed replicas revoked at or after `since`.
-async fn restore_revoked_since(
+/// Serialize independent revocations with migration revoke/restore using the
+/// same collection-first lock order. Revocation remains allowed while fenced.
+pub(in crate::provider) async fn lock_replica_for_revocation(
+    transaction: &mut Transaction<'_, Postgres>,
+    replica_id: Uuid,
+) -> ApiResult<()> {
+    let _: Option<Uuid> = sqlx::query_scalar(
+        "SELECT c.id FROM hosted_provider_collections c JOIN hosted_provider_replicas r ON r.collection_id = c.id WHERE r.id = $1 FOR UPDATE OF c",
+    ).bind(replica_id).fetch_optional(&mut **transaction).await?;
+    Ok(())
+}
+
+fn check_replica_ids(ids: &[Uuid]) -> ApiResult<()> {
+    if ids.len() > 1000 {
+        return Err(ApiError::bad_request(
+            "legacy_replica_limit",
+            "At most 1000 replica IDs are accepted per migration request.",
+        ));
+    }
+    Ok(())
+}
+
+/// Clear only an unchanged, migration-owned revocation from the current run.
+async fn restore_owned_revocations(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
     replica_ids: &[Uuid],
-    since: DateTime<Utc>,
+    run: Uuid,
 ) -> ApiResult<Vec<Uuid>> {
     Ok(sqlx::query_scalar(
-        r#"UPDATE hosted_provider_replicas SET revoked_at = NULL
+        r#"UPDATE hosted_provider_replicas
+           SET revoked_at = NULL, revoked_by_migration = NULL, migration_revoked_at = NULL
            WHERE collection_id = $1 AND id = ANY($2)
-             AND revoked_at IS NOT NULL AND revoked_at >= $3
+             AND revoked_at IS NOT NULL AND revoked_by_migration = $3
+             AND revoked_at = migration_revoked_at
            RETURNING id"#,
     )
     .bind(collection_id)
     .bind(replica_ids)
-    .bind(since)
+    .bind(run)
     .fetch_all(&mut **transaction)
     .await?)
 }
