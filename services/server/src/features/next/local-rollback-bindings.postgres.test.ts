@@ -76,6 +76,16 @@ pgDescribe("fenced local rollback bindings (isolated real Postgres)", () => {
     expect((await db.query("SELECT account_backend FROM users WHERE id=$1", [f.old])).rows[0].account_backend).toBe("next");
     expect((await db.query("SELECT revoked_at FROM connectors WHERE id=$1", [f.old])).rows[0].revoked_at).not.toBeNull();
   });
+  it("uses local collection identity, not the Connect row ID", async () => {
+    const f = await fixture(); const local = randomUUID();
+    await db.query("UPDATE collections SET local_id=$2 WHERE id=$1", [f.old, local]);
+    await db.query("UPDATE grants SET encryption=$2::jsonb WHERE id=$1",
+      [f.old, JSON.stringify({ ...f.encryption, collection_id: local })]);
+    const response = await post(f, { ...f.input, collection_id: local, legacy_collection_ids: [local] });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().collection_id).toBe(local);
+    expect(response.json().bindings[0].grant_id).toBe(f.old);
+  });
   it("serializes concurrent same-ID requests without rotating twice", async () => {
     const f = await fixture(); const replies = await Promise.all([post(f), post(f)]);
     expect(replies.map(r => r.statusCode)).toEqual([200, 200]);
@@ -117,8 +127,9 @@ pgDescribe("fenced local rollback bindings (isolated real Postgres)", () => {
       const f = await fixture(); const first = (await post(f)).json();
       if (change === "revoke") await db.query("UPDATE grants SET revoked_at=now() WHERE id=$1", [f.old]);
       if (change === "narrow") await db.query("UPDATE grants SET encryption=jsonb_set(encryption,'{scope_epoch}','5') WHERE id=$1", [f.old]);
-      if (change === "new") await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,encryption,activated_at)
-        VALUES($1,$2,$2,$2,'[]',$3::jsonb,now())`, [randomUUID(), f.old, JSON.stringify(f.encryption)]);
+      if (change === "new") await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,scope,encryption,activated_at,application_installation_id,application_authorization)
+        SELECT $1,user_id,application_id,collection_id,operations,scope,$3::jsonb,now(),application_installation_id,application_authorization FROM grants WHERE id=$2`,
+        [randomUUID(), f.old, JSON.stringify(f.encryption)]);
       const replay = await post(f); expect(replay.statusCode).toBe(409);
       expect(replay.json().error.code).toBe("rollback_bindings_changed");
       expect((await db.query("SELECT response FROM next_local_rollback_bindings WHERE collection_id=$1 AND rollback_id=$2", [f.old, f.input.rollback_id])).rows[0].response).toEqual(first);
@@ -134,8 +145,9 @@ pgDescribe("fenced local rollback bindings (isolated real Postgres)", () => {
   it("malformed or exhausted legacy binding aborts atomically", async () => {
     const f = await fixture();
     const other = randomUUID();
-    await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,encryption,activated_at)
-      VALUES($1,$2,$2,$2,'[]',$3::jsonb,now())`, [other, f.old, JSON.stringify({ ...f.encryption, scope_epoch: Number.MAX_SAFE_INTEGER })]);
+    await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,scope,encryption,activated_at,application_installation_id,application_authorization)
+      SELECT $1,user_id,application_id,collection_id,operations,scope,$3::jsonb,now(),application_installation_id,application_authorization FROM grants WHERE id=$2`,
+      [other, f.old, JSON.stringify({ ...f.encryption, scope_epoch: Number.MAX_SAFE_INTEGER })]);
     expect((await post(f)).statusCode).toBe(409); expect(await encryption(f.old)).toEqual(f.encryption);
     expect((await db.query("SELECT count(*) FROM next_local_rollback_bindings WHERE collection_id=$1", [f.old])).rows[0].count).toBe("0");
   });
