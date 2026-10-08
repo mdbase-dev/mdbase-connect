@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   certDigest,
   chainHash,
+  decodeCbor,
+  deviceKindNumber,
   encodeCbor,
   encodePolicyItem,
   encodePolicyPayload,
@@ -44,6 +46,13 @@ const PRIVATE_SYNC_OPS = "a4000101a50058209c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c
 const POLICY_ITEM = "a80001010202504c18af2eb04a4b77b83e493c3695962e030104582000000000000000000000000000000000000000000000000000000000000000000650ce7ee39cb8c5c4b32f954bf04d50757d0b41a00c58405b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b";
 
 describe("mdbase-next policy wire", () => {
+  it.each([["desktop", 0], ["mobile", 1], ["app-runtime", 2], ["cli", 3]] as const)("preserves the existing %s enrolment kind tag %i", (kind, tag) => {
+    const payload = decodeCbor(encodePolicyPayload(fixtureCert, 1791100000000, [
+      { op: "device-enrol", device, account: owner, kind, signPublicKey: fill(1,32), kemPublicKey: fill(2,32), noisePublicKey: fill(3,32) }
+    ]));
+    expect(deviceKindNumber(kind)).toBe(tag);
+    expect(((payload as Map<number, unknown>).get(3) as Map<number, unknown>[])[0].get(3)).toBe(tag);
+  });
   it("encodes the genesis fixture byte for byte", () => {
     const ops: PolicyOp[] = [
       { op: "genesis", owner, root: fixtureCert.root, state: "e2e" },
@@ -110,6 +119,17 @@ describe("mdbase-next policy wire", () => {
     expect(() => encodeCbor("a\ud800b")).toThrow(/well-formed/);
   });
 
+  it("can bound nesting and require canonical policy struct encoding without changing legacy decoding", () => {
+    const nested = hex("81818100");
+    expect(decodeCbor(nested)).toEqual([[[0]]]);
+    expect(() => decodeCbor(nested,{maxDepth:1})).toThrow(/nesting/);
+    expect(decodeCbor(nested,{maxDepth:3,canonicalStructs:true})).toEqual([[[0]]]);
+    for (const noncanonical of [hex("1801"),hex("a201000000"),hex("a1616101")]) {
+      expect(() => decodeCbor(noncanonical)).not.toThrow();
+      expect(() => decodeCbor(noncanonical,{maxDepth:32,canonicalStructs:true})).toThrow(/noncanonical/);
+    }
+    expect(() => decodeCbor(hex("00"),{maxDepth:-1})).toThrow(/depth bound/);
+  });
   it("signs an item that verifies under the certified policy key", () => {
     const { root, signerConfig } = environment(Date.now());
     const policy = loadPolicySigner(signerConfig, Date.now());

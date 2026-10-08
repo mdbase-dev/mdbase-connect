@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { WebSocket } from "ws";
@@ -18,6 +18,7 @@ import {
   registerDevice
 } from "./devices.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
+import { clientKeyDigest } from "./grant-approval.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -44,6 +45,16 @@ function fakeSocket() {
 }
 
 describe("device helpers", () => {
+  it.each(["mobile", "app-runtime"])("applies the exact extended %s CHECK in the memory schema adapter", async kind => {
+    const db = await createDatabase("memory");
+    try {
+      const connectorId = await localGrantFixture(db), deviceId = randomUUID();
+      expect(await registerDevice(db, { id: connectorId, user_id: connectorId }, await registration(db, connectorId, deviceId, deviceKeys(), kind))).toEqual({ device_id: deviceId });
+      expect((await db.query("SELECT kind FROM next_devices WHERE id = $1", [deviceId])).rows[0].kind).toBe(kind);
+      await expect(db.query("UPDATE next_devices SET kind = 'hosted' WHERE id = $1", [deviceId])).rejects.toThrow();
+      expect((await db.query("SELECT kind FROM next_devices WHERE id = $1", [deviceId])).rows[0].kind).toBe(kind);
+    } finally { await db.end(); }
+  });
   it("derives v2 capability groups exactly and never offers offline.replica", () => {
     expect(grantCapabilityGroups(2, ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type", "create", "sync"]))
       .toEqual(["collection.read", "records.create"]);
@@ -67,14 +78,16 @@ describe("device helpers", () => {
     expect(weakAgreementKey(randomBytes(32))).toBe(false);
   });
 
-  it("computes the daemon's client fingerprint", () => {
+  it("uses the canonical policy client-fp vector and grouped consent display", () => {
+    expect(clientFingerprint(Buffer.alloc(32))).toBe("535b-c237-63ed-cd6a");
     const key = Buffer.alloc(32, 7);
-    const expected = createHash("sha256").update("mdbase/v1/client-fp").update(key).digest("hex").slice(0, 16).match(/.{4}/g)!.join("-");
+    const expected = Buffer.from(clientKeyDigest(key)).toString("hex").slice(0, 16).match(/.{4}/g)!.join("-");
     expect(clientFingerprint(key)).toBe(expected);
+    expect(clientFingerprint(key)).toMatch(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){3}$/);
   });
 });
 
-describePostgres("mdbase-next daemon devices", () => {
+describePostgres("mdbase-next registered devices", () => {
   let admin: pg.Pool;
   let db: DatabasePool;
   let schema: string;
@@ -115,6 +128,27 @@ describePostgres("mdbase-next daemon devices", () => {
     const other = await localGrantFixture(db);
     const stolen = await registration(db, connectorId, randomUUID(), deviceKeys());
     await expect(registerDevice(db, { id: other, user_id: other }, stolen)).rejects.toMatchObject({ code: "invalid_device" });
+  });
+
+  it.each(["mobile", "app-runtime"])("registers per-installation %s identity with the same proof/one-use/immutable-key gates", async kind => {
+    const connectorId = await localGrantFixture(db), connector = { id: connectorId, user_id: connectorId };
+    const keys = deviceKeys(), deviceId = randomUUID();
+    const body = await registration(db, connectorId, deviceId, keys, kind);
+    expect(await registerDevice(db, connector, body)).toEqual({ device_id: deviceId });
+    expect((await db.query("SELECT kind FROM next_devices WHERE id = $1", [deviceId])).rows[0].kind).toBe(kind);
+    await expect(registerDevice(db, connector, body)).rejects.toMatchObject({ code: "challenge_invalid" });
+    expect(await registerDevice(db, connector, await registration(db, connectorId, deviceId, keys, kind))).toEqual({ device_id: deviceId });
+    await expect(registerDevice(db, connector, await registration(db, connectorId, deviceId, deviceKeys(), kind))).rejects.toMatchObject({ code: "device_keys_changed" });
+    await expect(registerDevice(db, connector, await registration(db, connectorId, randomUUID(), keys, kind))).rejects.toMatchObject({ code: "device_already_bound" });
+    const other = await localGrantFixture(db);
+    await expect(registerDevice(db, { id: other, user_id: other }, await registration(db, connectorId, deviceId, keys, kind))).rejects.toMatchObject({ code: "invalid_device" });
+  });
+
+  it.each(["hosted", "escrow", "recovery", "web", 1, 2, null])("refuses reserved/unknown/nonstring registration kind %s", async kind => {
+    const connectorId = await localGrantFixture(db), deviceId = randomUUID();
+    const body = { ...await registration(db, connectorId, deviceId, deviceKeys()), kind };
+    await expect(registerDevice(db, { id: connectorId, user_id: connectorId }, body)).rejects.toMatchObject({ code: "invalid_device" });
+    expect((await db.query("SELECT id FROM next_devices WHERE id = $1", [deviceId])).rows).toEqual([]);
   });
 
   it("binds a relay socket only with the device key, the session nonce and an active connector", async () => {

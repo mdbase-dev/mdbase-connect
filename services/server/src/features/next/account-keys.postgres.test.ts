@@ -7,6 +7,7 @@ import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
 import {
   accountKeyDeviceDigest, accountKeyEnrolDigest, accountKeyFetchDigest, accountKeyPutDigest, accountKeyRewrapDigest, accountKeyStrictDigest,
+  accountKeyStrictReportDigest, accountKeyStrictWitnessDigest,
   checkBundleShape, recoveryDeviceId, registerAccountKeyRoutes
 } from "./account-keys.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
@@ -43,6 +44,18 @@ describe("account key bundle shape", () => {
   it("pins the rewrap digest the replica signs", () => {
     const d = accountKeyRewrapDigest({ account: "33333333-3333-4333-8333-333333333333", bundle: Buffer.alloc(100, 6), expectedVersion: 3 });
     expect(hex(d)).toBe(REWRAP_VECTOR);
+  });
+  it("pins the replica witness and whole-report proof digests", () => {
+    const uuid = (byte: number) => {
+      const h = Buffer.alloc(16, byte).toString("hex");
+      return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+    };
+    const witness = { account_id:uuid(1), collection_id:uuid(2), recovery_device:uuid(3), strict_version:7,
+      revoked_at:11, applied_at:12, epoch:3, reporter:uuid(4), signature:"00".repeat(64) };
+    expect(hex(accountKeyStrictWitnessDigest(witness))).toBe("ae322af8d0e5001a0bc752bedcfd9d721dd3355b379a6fb8b06da4b777713953");
+    const input = { challenge:Buffer.alloc(32,5), connector:uuid(6), device:uuid(4), collection:uuid(2) };
+    expect(hex(accountKeyStrictReportDigest(input))).toBe("ca6ac42770c1a008b97e9e5279f0d969668d5e74abdb0e7f11944f8e847afa0b");
+    expect(hex(accountKeyStrictReportDigest({ ...input, witness }))).toBe("48169641c7f004ee96994c9e1d446cb27dcb5c118bfb980bff789750e8b356d4");
   });
   it("derives recovery device IDs as the replica does", () => {
     const collection = "4c18af2e-b04a-4b77-b83e-493c3695962e";
@@ -207,6 +220,22 @@ describePg("account keys", () => {
     } });
     return { res, recovery, signPk, kemPk };
   }
+  async function strictReport(who: Who, collection: string, witness?: Parameters<typeof accountKeyStrictWitnessDigest>[0]) {
+    const c = await challenge(who);
+    const sig = hex(sign(null, accountKeyStrictReportDigest({
+      challenge: Buffer.from(c, "hex"), connector: who.connector.id, device: who.device, collection, witness
+    }), who.key));
+    return app.inject({ method: "POST", url: `/v1/next/collections/${collection}/private/strict-witness`, headers: who.headers,
+      payload: { device_id: who.device, challenge: c, sig, ...(witness ? { witness } : {}) } });
+  }
+  function appliedWitness(who: Who, target: { account_id: string; collection_id: string; recovery_device: string; strict_version: number; revoked_at: number }) {
+    // CP tests exercise aggregation/signatures; this is a synthetic member's
+    // attestation, not a claim that this JS fixture runs the replica evaluator.
+    const witness = { ...target, applied_at: target.revoked_at + 1, epoch: 2, reporter: who.device, signature: "" };
+    witness.signature = hex(sign(null, accountKeyStrictWitnessDigest(witness), who.key));
+    return witness;
+  }
+  const status = (who: Who) => app.inject({ method: "GET", url: "/v1/next/account-key/status", headers: who.headers });
   const opsOf = (item: Buffer | Uint8Array) => field(decodeCbor(field(decodeCbor(Buffer.from(item)), 11) as Uint8Array), 3) as Decoded[];
   const lastOps = (collection: string) => {
     const items = log.logs.get(collection.replaceAll("-", ""))!;
@@ -241,7 +270,8 @@ describePg("account keys", () => {
     const results = await Promise.all([put(who, 0, a), put(sibling, 0, b)]);
     const ok = results.filter((r) => r.statusCode === 200);
     expect(ok.length, results.map((r) => r.body).join(" | ")).toBe(1);
-    expect(results.find((r) => r.statusCode !== 200)!.json().error.code).toBe("version_conflict");
+    // The loser waited on the account lock: a conflict, or busy under a slow lock wait.
+    expect(["version_conflict", "busy"]).toContain(results.find((r) => r.statusCode !== 200)!.json().error.code);
     const winner = ok[0]!.json().key_id;
     expect((await fetchKey(who)).json().key_id).toBe(winner);
   });
@@ -311,6 +341,66 @@ describePg("account keys", () => {
     expect((await enrolRecovery(stranger, collection)).res.json().error.code).toBe("not_member");
   });
 
+  it("aggregates applied witnesses across devices that host disjoint private collections", async () => {
+    const a = await identity();
+    const b = await identity(a.connector.user_id);
+    const ca = await createPrivate(a);
+    const cb = await createPrivate(b);
+    await put(a, 0, randomBytes(32));
+    await enrolRecovery(a, ca);
+    await enrolRecovery(b, cb);
+    const started = await strict(a, 1);
+    expect(started.statusCode, started.body).toBe(200);
+    expect(started.json().complete).toBe(false);
+    expect(started.json().pending).toHaveLength(2);
+    const pa = await strictReport(a, ca);
+    const pb = await strictReport(b, cb);
+    expect(pa.statusCode, pa.body).toBe(200);
+    expect(pb.statusCode, pb.body).toBe(200);
+    const wa = appliedWitness(a, pa.json().pending[0]);
+    const wb = appliedWitness(b, pb.json().pending[0]);
+    expect((await strictReport(a, ca, wa)).json()).toEqual({ accepted: true });
+    expect((await status(a)).json().complete).toBe(false);
+    expect((await status(a)).json().pending).toEqual([{
+      collection_id: cb, device_id: wb.recovery_device, revoked_at: wb.revoked_at
+    }]);
+    expect((await strictReport(b, cb, wb)).json()).toEqual({ accepted: true });
+    expect((await status(a)).json()).toEqual({ mode: "strict", version: 2, complete: true, pending: [] });
+    expect((await status(b)).json()).toEqual({ mode: "strict", version: 2, complete: true, pending: [] });
+    // Retry keeps completed evidence; one device need not host both collections.
+    expect((await strict(a, 2)).json()).toMatchObject({ version: 2, complete: true, pending: [] });
+  });
+
+  it("refuses tampered and old-generation witnesses without completing pending targets", async () => {
+    const who = await identity();
+    const collection = await createPrivate(who);
+    await put(who, 0, randomBytes(32));
+    await enrolRecovery(who, collection);
+    await strict(who, 1);
+    const pending = (await strictReport(who, collection)).json().pending[0];
+    const witness = appliedWitness(who, pending);
+    const tampered = { ...witness, epoch: witness.epoch + 1 };
+    expect((await strictReport(who, collection, tampered)).json().error.code).toBe("invalid_witness");
+    expect((await status(who)).json().complete).toBe(false);
+    // Moving back to password and then strict creates a distinct generation.
+    expect((await put(who, 2, randomBytes(32))).statusCode).toBe(200);
+    expect((await strict(who, 3)).json().version).toBe(4);
+    expect((await strictReport(who, collection, witness)).json().error.code).toBe("version_conflict");
+    expect((await status(who)).json().complete).toBe(false);
+    const current = (await strictReport(who, collection)).json().pending[0];
+    expect(current.strict_version).toBe(4);
+    expect((await strictReport(who, collection, appliedWitness(who, current))).json()).toEqual({ accepted: true });
+    expect((await status(who)).json().complete).toBe(true);
+  });
+
+  it("completes an empty recovery set explicitly at the control plane", async () => {
+    const who = await identity();
+    const result = await strict(who, 0);
+    expect(result.statusCode, result.body).toBe(200);
+    expect(result.json()).toMatchObject({ version: 1, complete: true, pending: [] });
+    expect((await status(who)).json()).toEqual({ mode: "strict", version: 1, complete: true, pending: [] });
+  });
+
   it("strict mode drops the bundle, revokes the account's recovery devices and refuses new ones", async () => {
     const who = await identity();
     const collection = await createPrivate(who);
@@ -318,10 +408,21 @@ describePg("account keys", () => {
     const { recovery } = await enrolRecovery(who, collection);
     const res = await strict(who, 1);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json()).toEqual({ mode: "strict", version: 2, revocations: [{ collection_id: collection, device_id: recovery }] });
+    expect(res.json()).toEqual({
+      mode: "strict", version: 2, revocations: [{ collection_id: collection, device_id: recovery }],
+      recovery_devices: [{ collection_id: collection, device_id: recovery }],
+      complete: false, pending: [{ collection_id: collection, device_id: recovery,
+        revoked_at: log.logs.get(collection.replaceAll("-", ""))!.length }]
+    });
+    // Re-running strict revokes nothing new but still lists the authoritative set.
+    const again = (await strict(who, 2)).json();
+    expect(again.revocations).toEqual([]);
+    expect(again.recovery_devices).toEqual([{ collection_id: collection, device_id: recovery }]);
     const [op] = lastOps(collection);
     expect(field(op!, 0)).toBe(3); // device-revoke
     expect(hex(field(op!, 1) as Uint8Array)).toBe(recovery.replaceAll("-", ""));
+    expect(again.version).toBe(2); // same operation, same witness generation
+    expect(again.complete).toBe(false); // admission cannot complete it
     expect((await fetchKey(who)).json()).toEqual({ mode: "strict", version: 2 });
     expect((await enrolRecovery(who, collection)).res.json().error.code).toBe("strict_mode");
     // Leaving strict mode is setup again, with a new key.

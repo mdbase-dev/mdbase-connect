@@ -46,6 +46,8 @@ describe("client Noise key attestation", () => {
     const key = randomBytes(32);
     expect(withClientFingerprint({ id: "r", client_pk: key })).toEqual({ id: "r", client_fingerprint: clientFingerprint(key) });
     expect(withClientFingerprint({ id: "r", client_pk: null })).toEqual({ id: "r", client_fingerprint: null });
+    expect(withClientFingerprint({ id: "r", client_pk: Buffer.alloc(32) }))
+      .toEqual({ id: "r", client_fingerprint: "535b-c237-63ed-cd6a" });
   });
 
   it("pins the attested message bytes", () => {

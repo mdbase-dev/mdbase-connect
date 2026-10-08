@@ -22,15 +22,15 @@ import { verify } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
-import { requireConnector } from "../../platform/request-authentication.js";
+import { requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
-import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
+import { domainHash, encodeCbor, uuidBytes, type RegisteredDeviceKind } from "./policy-wire.js";
 
 const NIL = "00000000-0000-0000-0000-000000000000";
 
 interface Body { device_id: string; challenge: string; sig: string }
-interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: "desktop" | "cli" }
+interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: RegisteredDeviceKind }
 
 class Refused extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -60,7 +60,7 @@ export function registerCollectionLogTokenRoute(app: FastifyInstance, options: {
     }
   }, async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const connector = await requireConnector(request, reply, options.db);
+    const connector = await requireInstallationDeviceConnector(request, reply, options.db);
     if (!connector) return reply;
     const collection = request.params.id.toLowerCase();
     const device = request.body.device_id.toLowerCase();

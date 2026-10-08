@@ -4,7 +4,7 @@
 import type { FastifyInstance } from "fastify";
 import type { DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
-import { requireConnector } from "../../platform/request-authentication.js";
+import { requireConnector, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { DeviceRegistrationError, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { GrantApprovalReportError, reportGrantApproval } from "./grant-approval.js";
 import type { LogServiceClient } from "./log-service-client.js";
@@ -14,7 +14,7 @@ export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: Da
   registerApprovalPeerRoutes(app, options.db);
   const rateLimit = { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } };
   app.post("/v1/next/devices/challenge", rateLimit, async (request, reply) => {
-    const connector = await requireConnector(request, reply, options.db);
+    const connector = await requireInstallationDeviceConnector(request, reply, options.db);
     if (!connector) return reply;
     return issueDeviceChallenge(options.db, connector.id);
   });

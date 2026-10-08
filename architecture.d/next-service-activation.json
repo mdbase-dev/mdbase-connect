@@ -1,0 +1,9 @@
+{
+  "reason": "One lifecycle module activates already-enrolled cloud-copy service devices after appended genesis and retries from durable service-device rows. It runs inside the existing policy-emitter polling lifecycle, reuses existing deployment URLs/tokens, and stores acknowledgment/backoff facts rather than adding a credential store or timer abstraction. The sole export is the drain callback; HTTP acknowledgment is bounded and activation is idempotent.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 4,
+    "typeScriptExportDeclarations": 1,
+    "services/server": 1
+  }
+}

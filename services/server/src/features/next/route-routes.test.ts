@@ -5,7 +5,7 @@ import { RelayBrokerUnavailableError } from "../../relay-broker.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
 
 // Synthetic rowsets exercise ordering only. PostgreSQL currently permits just one
-// desktop/CLI device per local authority; this does NOT add mobile registration.
+// registered device per local authority; these are not live admission proofs.
 const device = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`;
 
 async function route(rows: Array<{ device: number; kind?: string; active?: number | null }>, online: number[] = [], result?: unknown, failure?: Error, publicUrl = "https://connect.example") {
@@ -37,7 +37,7 @@ describe("route target metadata handler (hermetic)", () => {
     expect(request).toHaveBeenCalledWith(id, "7", { version: 1, kind: "device_presence", message: { device_id: device(2) } }, 1_000);
   });
 
-  it("ranks daemon candidates before synthetic future mobile, after online priority", async () => {
+  it("ranks daemon candidates before app devices, after online priority", async () => {
     const { response } = await route([{ device: 1, kind: "mobile", active: 100 }, { device: 2, active: 1 }, { device: 3, kind: "cli", active: 2 }], [1, 2, 3]);
     expect(response.json().targets.map((t: { device: string }) => t.device)).toEqual([device(3), device(2), device(1)]);
     const onlineMobile = await route([{ device: 1, kind: "mobile", active: 1 }, { device: 2, active: 100 }], [1]);

@@ -122,7 +122,8 @@ export class PolicyEmitter {
     private readonly signer: PolicySigner,
     private readonly onError: (error: unknown, collectionId?: string) => void = () => undefined,
     private readonly pollIntervalMs = 2_000,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly activateServices: (collectionId?: string) => Promise<void> = async () => undefined
   ) {}
 
   start(): void {
@@ -181,6 +182,9 @@ export class PolicyEmitter {
         this.onError(error, collectionId);
       }
     }
+    // Durable service-device rows select only verified appended genesis batches.
+    // Retry activation even when there was no new policy work this poll.
+    await this.activateServices();
     return appended;
   }
 
@@ -190,7 +194,15 @@ export class PolicyEmitter {
     let rebuilds = 0;
     for (;;) {
       const outcome = await this.step(collectionId);
-      if (outcome === "appended") appended += 1;
+      if (outcome === "appended") {
+        appended += 1;
+        // Foreground create/enrol routes call this method, not drainAll().
+        // step() has released its policy lock; wake only this committed
+        // collection now, without waiting for the historical verification scan.
+        // A wake failure cannot undo or fail an already committed policy append.
+        try { await this.activateServices(collectionId); }
+        catch (error) { this.onError(error, collectionId); }
+      }
       else if (outcome !== "rebuild" || ++rebuilds > MAX_REBUILDS) return appended;
     }
   }

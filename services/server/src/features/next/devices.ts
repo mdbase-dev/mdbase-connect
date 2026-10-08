@@ -5,7 +5,7 @@
 // possession of its signing key. The device needs no log. On the connector relay
 // socket it proves the socket is its own with `device_bind` before any Noise pipe is
 // routed to it, and its policy snapshots gain the Noise fields of each grant.
-import { createHash, randomBytes, verify as edVerify } from "node:crypto";
+import { randomBytes, verify as edVerify } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
   APPLICATION_CAPABILITY_DEFINITIONS,
@@ -118,7 +118,7 @@ export async function registerDevice(
   body: Record<string, unknown>
 ): Promise<{ device_id: string }> {
   const deviceId = typeof body.device_id === "string" && /^[0-9a-f-]{36}$/.test(body.device_id) ? body.device_id : null;
-  const kind = body.kind === "desktop" || body.kind === "cli" ? body.kind : null;
+  const kind = body.kind === "desktop" || body.kind === "mobile" || body.kind === "app-runtime" || body.kind === "cli" ? body.kind : null;
   const signPk = bytes(body.sign_pk, 32);
   const kemPk = bytes(body.kem_pk, 32);
   const noisePk = bytes(body.noise_pk, 32);
@@ -262,8 +262,8 @@ export function grantCapabilityGroups(semanticCapabilities: number | undefined, 
     group !== "offline.replica" && APPLICATION_CAPABILITY_DEFINITIONS[group].every((operation) => granted.has(operation)));
 }
 
-/** The fingerprint the daemon (#88) and the consent screen show: first 8 bytes of `SHA-256("mdbase/v1/client-fp" ‖ client_pk)`. */
+/** Canonical policy.md H(client-fp) prefix: first 16 hex, xxxx-xxxx-xxxx-xxxx. */
 export function clientFingerprint(clientPk: Uint8Array): string {
-  const hex = createHash("sha256").update("mdbase/v1/client-fp").update(clientPk).digest("hex").slice(0, 16);
+  const hex = Buffer.from(domainHash("mdbase/v1/client-fp", clientPk)).toString("hex").slice(0, 16);
   return hex.match(/.{4}/g)!.join("-");
 }
