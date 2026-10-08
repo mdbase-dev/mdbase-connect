@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabaseConnection, type DatabasePool } from "../../db.js";
-import { mergeCollectionDeletionFloors, recordCollectionDeletionIntent, requireCollectionNotDeleted, type CollectionDeletionFact } from "./collection-deletion.js";
+import { mergeCollectionDeletionFloors, recordCollectionDeletionIntent, requireCollectionNotDeleted, reconcileCollectionDeletionFloors, type CollectionDeletionFact } from "./collection-deletion.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -69,6 +69,36 @@ describePg("permanent CP deletion denial facts (dedicated local Postgres, no nat
   it("failed surrounding transaction leaves no acknowledged intent/page effects",async()=>{
     const value=fact();await expect(tx(async c=>{await mergeCollectionDeletionFloors(c,[value]);throw new Error("synthetic crash before commit");})).rejects.toThrow("synthetic crash");
     await requireCollectionNotDeleted(db,value.collection);expect(await rows(value.collection)).toHaveLength(0);
+  });
+  it("commits 130-row pinned pages and requires a final unchanged-generation empty check",async()=>{
+    const values=Array.from({length:130},(_,i)=>({...fact(max),collection:`${(1000+i).toString(16).padStart(8,"0")}-0000-4000-8000-000000000000`}));
+    let calls=0;
+    const registry={registryCollectionDeletions:async(after:string|null,expected:bigint|null)=>{
+      const index=calls++;
+      expect(expected).toBe(index===0?null:max);
+      expect(after).toBe(index===0?null:index===1?values[127]!.collection:values[129]!.collection);
+      return index===0?{generation:max,rows:values.slice(0,128),after:values[127]!.collection,done:false}
+        :{generation:max,rows:index===1?values.slice(128):[],after:values[129]!.collection,done:true};
+    }};
+    expect(await reconcileCollectionDeletionFloors(db,registry)).toBe(max);expect(calls).toBe(3);
+    for(const value of [values[0]!,values[127]!,values[129]!]){
+      expect((await rows(value.collection))[0]?.epoch).toBe(max.toString());await expect(requireCollectionNotDeleted(db,value.collection)).rejects.toThrow("collection_deleted");
+    }
+  });
+  it("partial, final-check drift and restart preserve committed denial facts without returning a completed scan",async()=>{
+    for(const failure of ["partial","final-drift"]){
+      const value=fact(), values=failure==="partial"?[value,...Array.from({length:127},()=>fact())].sort((a,b)=>a.collection.localeCompare(b.collection)):[value];
+      const cursor=values.at(-1)!.collection;let calls=0;
+      const registry={registryCollectionDeletions:async()=>{
+        if(calls++===0)return{generation:7n,rows:values,after:cursor,done:values.length<128};
+        if(failure==="partial")throw new Error("synthetic peer unavailable");
+        return{generation:8n,rows:[],after:cursor,done:true};
+      }};
+      await expect(reconcileCollectionDeletionFloors(db,registry)).rejects.toThrow(failure==="partial"?"synthetic peer unavailable":"generation_drift");
+      expect(await rows(value.collection)).toHaveLength(1);await expect(requireCollectionNotDeleted(db,value.collection)).rejects.toThrow("collection_deleted");
+      let retry=0;const current={registryCollectionDeletions:async()=>{const first=retry++===0;return{generation:8n,rows:first?values:[],after:cursor,done:!first||values.length<128};}};
+      expect(await reconcileCollectionDeletionFloors(db,current)).toBe(8n);expect(await rows(value.collection)).toHaveLength(1);
+    }
   });
   it("DB constraints reject nil identity and out-of-range epochs; no cascade references exist",async()=>{
     for(const epoch of ["0","18446744073709551616"]){await expect(db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,$3,'native-registry')",[randomUUID(),randomUUID(),epoch])).rejects.toThrow();}

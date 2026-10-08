@@ -8,7 +8,7 @@
 // `policy-wire.test.ts`, copied from mdbase-next `conformance/wire/`.
 import { createHash, sign as edSign, type KeyObject } from "node:crypto";
 
-export type Cbor = number | bigint | boolean | string | Uint8Array | Cbor[] | StructMap;
+export type Cbor = null | number | bigint | boolean | string | Uint8Array | Cbor[] | StructMap;
 /** A struct map: unsigned integer keys, encoded in ascending order. Absent fields are omitted. */
 export type StructMap = { readonly struct: ReadonlyArray<readonly [number, Cbor | undefined]> };
 
@@ -29,7 +29,8 @@ function head(major: number, value: bigint, out: number[]): void {
 }
 
 function encodeInto(value: Cbor, out: number[]): void {
-  if (typeof value === "number" || typeof value === "bigint") {
+  if (value === null) out.push(0xf6);
+  else if (typeof value === "number" || typeof value === "bigint") {
     if (typeof value === "number" && !Number.isSafeInteger(value)) throw new Error("mdb-cbor/1 encoder accepts integers only");
     const n = BigInt(value);
     if (n >= 0n) head(0, n, out);
@@ -306,7 +307,7 @@ export function decodeCbor(bytes: Uint8Array, options?: { maxDepth: number; cano
       if (info === 20) return false;
       if (info === 21) return true;
       if (info === 22) return null;
-      if (info === 27) return Buffer.from(take(8)).readDoubleBE(0);
+      if (info === 27 && !canonicalStructs) return Buffer.from(take(8)).readDoubleBE(0);
       throw new Error("CBOR simple value outside mdb-cbor/1");
     }
     const arg = argument(info);

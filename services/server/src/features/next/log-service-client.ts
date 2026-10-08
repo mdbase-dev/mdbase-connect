@@ -9,6 +9,8 @@
 import { createHash, createPrivateKey, sign, type KeyObject } from "node:crypto";
 import { decodeCbor, domainHash, encodeCbor, uuidBytes, type Cbor, type Decoded } from "./policy-wire.js";
 import { ed25519RawPublicKey, type LogServiceConfig } from "./policy-keys.js";
+import type { CollectionDeletionFact, CollectionDeletionPage } from "./collection-deletion.js";
+import { readBoundedBytes } from "../../platform/bounded-json.js";
 
 export const LOG_TOKEN_LIFETIME_MS = 15 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -20,7 +22,7 @@ export type AppendResult =
 
 /** An error frame from the log service (log-service-api.md §10). */
 export class LogServiceError extends Error {
-  constructor(readonly code: string, readonly reason: string | undefined) {
+  constructor(readonly code: string, readonly reason: string | undefined, readonly details?: Decoded) {
     super(`log service ${code}${reason ? ` (${reason})` : ""}`);
   }
 
@@ -52,6 +54,32 @@ function bytesField(value: Decoded, key: number): Uint8Array {
   const result = field(value, key);
   if (!(result instanceof Uint8Array)) throw new Error(`log service response field ${key} is not bytes`);
   return result;
+}
+
+const DELETION_REPLY_BYTES = 32 * 1024;
+const deletionUnavailable = (): never => { throw new LogServiceError("unavailable", "collection_deletion_floor_unavailable"); };
+function deletionFields(value: Decoded, count: number): Map<number | string, Decoded> {
+  if (!(value instanceof Map) || value.size !== count || [...value.keys()].some((key, index) => key !== index)) return deletionUnavailable();
+  return value;
+}
+function deletionUint(value: Decoded | undefined, positive = false): bigint {
+  if (typeof value !== "bigint" && !(typeof value === "number" && Number.isSafeInteger(value))) return deletionUnavailable();
+  const n = BigInt(value);
+  if (n < (positive ? 1n : 0n) || n > (1n << 64n) - 1n) return deletionUnavailable();
+  return n;
+}
+function deletionUuid(value: Decoded | undefined): string {
+  if (!(value instanceof Uint8Array) || value.length !== 16 || value.every(byte => byte === 0)) return deletionUnavailable();
+  const hex = Buffer.from(value).toString("hex");
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
+function deletionUuidBytes(value: string): Uint8Array {
+  if (typeof value !== "string" || value.length !== 36 || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(value) || value === "00000000-0000-0000-0000-000000000000") throw new Error("invalid_collection_deletion_uuid");
+  return uuidBytes(value);
+}
+function deletionRow(value: Decoded): CollectionDeletionFact {
+  if (!Array.isArray(value) || value.length !== 3) return deletionUnavailable();
+  return {collection:deletionUuid(value[0]),deletionId:deletionUuid(value[1]),lifecycleEpoch:deletionUint(value[2],true)};
 }
 
 export class LogServiceClient {
@@ -92,20 +120,24 @@ export class LogServiceClient {
     return this.cached.token;
   }
 
-  private async fetchBytes(path: string, init: RequestInit): Promise<Uint8Array> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-    const body = new Uint8Array(await response.arrayBuffer());
+  private async fetchBytes(path: string, init: RequestInit, limit?: number): Promise<Uint8Array> {
+    const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, ...(limit === undefined ? {} : {redirect:"manual"}), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    if (limit !== undefined && response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      throw new LogServiceError("unavailable", "redirect");
+    }
+    const body = limit === undefined ? new Uint8Array(await response.arrayBuffer()) : await readBoundedBytes(response, limit);
     if (!response.ok && !(response.headers.get("content-type") ?? "").includes("cbor")) {
       throw new LogServiceError(response.status >= 500 ? "unavailable" : "invalid", `http_${response.status}`);
     }
     return body;
   }
 
-  private async rpc(method: string, params: Cbor): Promise<Decoded> {
-    const nonceHex = new TextDecoder().decode(await this.fetchBytes("/v1/nonce", { method: "GET" })).trim();
+  private async rpc(method: string, params: Cbor, deletion = false): Promise<Decoded> {
+    const nonceHex = new TextDecoder().decode(await this.fetchBytes("/v1/nonce", { method: "GET" }, deletion ? 256 : undefined)).trim();
     if (!/^[0-9a-f]{64}$/u.test(nonceHex)) throw new LogServiceError("unavailable", "nonce");
-    this.requestId += 1;
-    const body = encodeCbor(struct([[0, 0], [1, this.requestId], [2, method], [3, params]]));
+    const requestId = ++this.requestId;
+    const body = encodeCbor(struct([[0, 0], [1, requestId], [2, method], [3, params]]));
     const token = this.controlPlaneToken();
     const collectionField = field(field(decodeCbor(body), 3)!, 0);
     const collection = collectionField instanceof Uint8Array && collectionField.length === 16
@@ -125,12 +157,13 @@ export class LogServiceClient {
         "x-mdbase-sig": Buffer.from(sign(null, digest, this.transport)).toString("hex"),
       },
       body: Buffer.from(body),
-    }));
+    }, deletion ? DELETION_REPLY_BYTES : undefined), deletion ? {canonicalStructs:true,maxDepth:12} : undefined);
+    if (deletion && (!(frame instanceof Map) || frame.size !== 3 || field(frame,0) !== 1 || field(frame,1) !== requestId || (frame.has(2) === frame.has(3)))) return deletionUnavailable();
     const error = field(frame, 3);
     if (error !== undefined) {
       const code = field(error, 0);
       const reason = field(error, 1);
-      throw new LogServiceError(typeof code === "string" ? code : "invalid", typeof reason === "string" ? reason : undefined);
+      throw new LogServiceError(typeof code === "string" ? code : "invalid", typeof reason === "string" ? reason : undefined, field(error, 4));
     }
     const result = field(frame, 2);
     if (field(frame, 0) !== 1 || result === undefined) throw new Error("malformed log service response");
@@ -170,6 +203,39 @@ export class LogServiceClient {
 
   async setQuota(collection: string, quotas: { storageBytes: number; itemsPerSecond: number; bytesPerSecond: number; burstItems: number }): Promise<void> {
     await this.rpc("set_quota", struct([[0, uuidBytes(collection)], [1, [quotas.storageBytes, quotas.itemsPerSecond, quotas.bytesPerSecond, quotas.burstItems]]]));
+  }
+
+  /** CP-only permanent nil floor. A matching floor is NOT a Gone/Deleted ACK. */
+  async recordCollectionDeletion(fact: CollectionDeletionFact): Promise<{fact:CollectionDeletionFact;generation:bigint}> {
+    const {collection,deletionId,lifecycleEpoch} = fact;
+    const collectionBytes = deletionUuidBytes(collection), deletionBytes = deletionUuidBytes(deletionId);
+    if (typeof lifecycleEpoch !== "bigint") throw new Error("invalid_collection_deletion_epoch");
+    const epoch = deletionUint(lifecycleEpoch,true);
+    const result = deletionFields(await this.rpc("registry_record_collection_deletion", struct([
+      [0,new Uint8Array(16)],[1,collectionBytes],[2,deletionBytes],[3,epoch],
+    ]),true),5);
+    const actual = deletionRow([result.get(1)!,result.get(2)!,result.get(3)!]);
+    if (result.get(0) !== 1 || actual.collection !== collection || actual.deletionId !== deletionId || actual.lifecycleEpoch !== epoch) return deletionUnavailable();
+    return {fact:actual,generation:deletionUint(result.get(4))};
+  }
+
+  /** Generation-pinned keyset page; never a cached positive liveness permit. */
+  async registryCollectionDeletions(after: string | null = null, expected: bigint | null = null): Promise<CollectionDeletionPage> {
+    const cursor = after === null ? null : deletionUuidBytes(after);
+    if (after !== null && expected === null) throw new Error("collection_deletion_generation_required");
+    if (expected !== null && typeof expected !== "bigint") throw new Error("invalid_collection_deletion_generation");
+    const generation = expected === null ? null : deletionUint(expected);
+    const result = deletionFields(await this.rpc("registry_collection_deletions", struct([
+      [0,new Uint8Array(16)],[1,cursor],[2,generation],
+    ]),true),5);
+    const revision = deletionUint(result.get(1)), values = result.get(2), done = result.get(4);
+    if (result.get(0) !== 1 || (expected !== null && revision !== expected) || !Array.isArray(values) || values.length > 128 || typeof done !== "boolean" || done !== (values.length < 128)) return deletionUnavailable();
+    const rows = values.map(deletionRow);
+    let previous = after;
+    for (const row of rows) { if (previous !== null && row.collection <= previous) return deletionUnavailable(); previous = row.collection; }
+    const next = result.get(3) === null ? null : deletionUuid(result.get(3));
+    if (next !== previous) return deletionUnavailable();
+    return {generation:revision,rows,after:next,done};
   }
 
   async deleteLog(collection: string): Promise<void> {
