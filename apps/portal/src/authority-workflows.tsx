@@ -113,7 +113,11 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     : "New browser device"}
                 </p>
                 <h1>{pairing.connector_name}</h1>
-                <p>Verified app origin: <code>{pairing.app_origin}</code></p>
+                <p>Requested from <code>{pairing.app_origin}</code></p>
+                <p>
+                  Approve only if you started sign-in in this app right now.
+                  The origin shown here is not proof of who made the request.
+                </p>
                 {!pairing.account_selected ? (
                   <>
                     <p>
