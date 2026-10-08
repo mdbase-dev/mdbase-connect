@@ -162,11 +162,15 @@ export async function startAccountMigration(db: DatabasePool, account: string): 
  * account and the control plane's cloud copy with the preserved ID, owned by the
  * account. Idempotent for the same values.
  */
+export interface CutoverFacts { s_final: number; cutover_seq: number; barrier_f: number; final_digest: string }
+
 export async function recordCollectionCutover(
-  db: DatabasePool, collection: string, barrierF: number, finalDigest: string
+  db: DatabasePool, collection: string, facts: CutoverFacts
 ): Promise<{ collection_id: string; account_id: string }> {
-  if (!Number.isSafeInteger(barrierF) || barrierF <= 0 || !HEX64.test(finalDigest)) {
-    throw new RolloutRefused("invalid_request", "barrier_f and a hex final_digest are required.", 400);
+  const { s_final: sFinal, cutover_seq: cutoverSeq, barrier_f: barrierF, final_digest: finalDigest } = facts;
+  if (![sFinal, cutoverSeq, barrierF].every(Number.isSafeInteger) || sFinal < 0 || cutoverSeq <= 0
+      || barrierF < cutoverSeq || !HEX64.test(finalDigest)) {
+    throw new RolloutRefused("invalid_request", "s_final, cutover_seq <= barrier_f and a hex final_digest are required.", 400);
   }
   return inTransaction(db, async (client) => {
     const owner = (await client.query<{ account: string }>(
@@ -185,21 +189,23 @@ export async function recordCollectionCutover(
        FROM next_collections WHERE collection_id = $1 FOR UPDATE`, [collection, account]
     )).rows[0];
     if (!next?.ok) throw new RolloutRefused("next_collection_missing", "No cloud copy with the preserved id owned by the account.");
-    const existing = (await client.query<{ barrier_f: string; final_digest: string }>(
-      "SELECT barrier_f::text, final_digest FROM next_migration_collections WHERE collection_id = $1", [collection]
+    const existing = (await client.query<{ s_final: string; cutover_seq: string; barrier_f: string; final_digest: string }>(
+      "SELECT s_final::text, cutover_seq::text, barrier_f::text, final_digest FROM next_migration_collections WHERE collection_id = $1", [collection]
     )).rows[0];
     if (existing) {
-      if (existing.barrier_f !== String(barrierF) || existing.final_digest !== finalDigest) {
+      if (existing.barrier_f !== String(barrierF) || existing.final_digest !== finalDigest
+          || existing.s_final !== String(sFinal) || existing.cutover_seq !== String(cutoverSeq)) {
         throw new RolloutRefused("cutover_conflict", "A different cutover is already recorded.");
       }
       return { collection_id: collection, account_id: account };
     }
     await client.query(
-      "INSERT INTO next_migration_collections (collection_id, account_id, barrier_f, final_digest) VALUES ($1, $2, $3, $4)",
-      [collection, account, barrierF, finalDigest]
+      `INSERT INTO next_migration_collections (collection_id, account_id, s_final, cutover_seq, barrier_f, final_digest)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [collection, account, sFinal, cutoverSeq, barrierF, finalDigest]
     );
     await client.query("UPDATE next_collections SET runtime = 'next' WHERE collection_id = $1", [collection]);
-    await audit(client, account, "next_migration.cutover", collection, { barrier_f: barrierF, final_digest: finalDigest });
+    await audit(client, account, "next_migration.cutover", collection, facts);
     return { collection_id: collection, account_id: account };
   });
 }
@@ -268,6 +274,39 @@ export async function flipAccountBackend(
     await audit(client, account, "next_migration.flip", account, { collections: named, evidence_digest: evidenceDigest });
     return { account_id: account, backend: "next", flipped_at: new Date(flipped.flipped_at).toISOString() };
   });
+}
+
+/**
+ * The daemon's automatic-takeover gate (decision 3). True only once the account
+ * flipped: its hosted collections are cut over and its apps re-consent on next.
+ * A daemon treats an unreachable or unparseable answer as false (fail closed); a
+ * manual install alone never migrates anything.
+ */
+export async function localTakeoverAllowed(db: DatabaseQueryable, account: string): Promise<{ local_takeover: boolean; account_backend: "legacy" | "next" | null }> {
+  const backend = (await db.query<{ account_backend: string }>(
+    "SELECT account_backend FROM users WHERE id = $1 AND suspended_at IS NULL", [account]
+  )).rows[0]?.account_backend;
+  const known = backend === "legacy" || backend === "next" ? backend : null;
+  return { local_takeover: known === "next", account_backend: known };
+}
+
+/**
+ * The mirror-join facts of one migrated collection for its owner's daemon: the
+ * preserved collection ID, legacy S_final, the new log's cutover position (join
+ * sync point C), barrier F and the live digest at F. Record and file IDs are the
+ * legacy IDs; contents are byte-identical (revision / whole plaintext SHA-256).
+ */
+export async function collectionMigrationRecord(db: DatabaseQueryable, collection: string, account: string) {
+  const row = (await db.query<{ s_final: string; cutover_seq: string; barrier_f: string; final_digest: string; cutover_at: Date }>(
+    `SELECT s_final::text, cutover_seq::text, barrier_f::text, final_digest, cutover_at
+     FROM next_migration_collections WHERE collection_id = $1 AND account_id = $2`, [collection, account]
+  )).rows[0];
+  if (!row) return null;
+  return {
+    collection_id: collection, legacy_collection_id: collection, ids_preserved: true,
+    s_final: Number(row.s_final), cutover_seq: Number(row.cutover_seq), barrier_f: Number(row.barrier_f),
+    final_digest: row.final_digest, cutover_at: new Date(row.cutover_at).toISOString()
+  };
 }
 
 /** Whether an account's migration started (or finished): its hosted collections must never be quarantined as missing. */
@@ -372,10 +411,13 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { 
   app.post("/internal/v1/next/migration/collections/:id/cutover", async (request, reply) => {
     if (!migrator(request)) return deny(reply);
     const p = idParam.safeParse(request.params);
-    const body = z.object({ barrier_f: z.number().int().positive(), final_digest: z.string() }).strict().safeParse(request.body);
-    if (!p.success || !body.success) return reply.code(400).send(apiError("invalid_request", "barrier_f and final_digest are required."));
+    const body = z.object({
+      s_final: z.number().int().nonnegative(), cutover_seq: z.number().int().positive(),
+      barrier_f: z.number().int().positive(), final_digest: z.string()
+    }).strict().safeParse(request.body);
+    if (!p.success || !body.success) return reply.code(400).send(apiError("invalid_request", "s_final, cutover_seq, barrier_f and final_digest are required."));
     try {
-      return await recordCollectionCutover(options.db, p.data.id.toLowerCase(), body.data.barrier_f, body.data.final_digest);
+      return await recordCollectionCutover(options.db, p.data.id.toLowerCase(), body.data);
     } catch (e) { return refused(reply, e); }
   });
   app.post("/internal/v1/next/migration/accounts/:id/flip", async (request, reply) => {

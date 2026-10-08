@@ -39,7 +39,11 @@ CREATE INDEX next_migration_members_by_cohort
 CREATE TABLE next_migration_collections (
   collection_id uuid PRIMARY KEY REFERENCES hosted_collections(id) ON DELETE CASCADE,
   account_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  barrier_f bigint NOT NULL CHECK (barrier_f > 0),
+  -- The drained legacy head the import reflects, the new log's
+  -- migration-cutover item (old mirrors' join sync point C) and barrier F.
+  s_final bigint NOT NULL CHECK (s_final >= 0),
+  cutover_seq bigint NOT NULL CHECK (cutover_seq > 0),
+  barrier_f bigint NOT NULL CHECK (barrier_f >= cutover_seq),
   final_digest text NOT NULL,
   cutover_at timestamptz NOT NULL DEFAULT now()
 );

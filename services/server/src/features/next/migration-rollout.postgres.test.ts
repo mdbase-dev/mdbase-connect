@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { quarantineMissingHostedCollection } from "../../hosted-capability-lifecycle.js";
 import {
-  accountMigrationView, addToCohort, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates,
+  accountMigrationView, addToCohort, collectionMigrationRecord, localTakeoverAllowed, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates,
   migrationsInProgress, recordCollectionCutover, registerMigrationRolloutRoutes, releaseCohort, RolloutRefused,
   rolloutState, setPaused, startAccountMigration
 } from "./migration-rollout.js";
@@ -16,6 +16,7 @@ const describePg = testUrl && approved ? describe : describe.skip;
 const token = "m".repeat(40);
 const OP = "test-operator";
 const digest = (n: number) => n.toString(16).padStart(64, "0");
+const facts = (barrier: number, final: string) => ({ s_final: 3, cutover_seq: barrier, barrier_f: barrier, final_digest: final });
 
 describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
   let db: DatabasePool; let admin: pg.Pool; let schema: string;
@@ -66,7 +67,7 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     const records = [];
     for (const [i, id] of a.ids.entries()) {
       await cloudCopy(id, a.user);
-      await recordCollectionCutover(db, id, 10 + i, digest(i + 1));
+      await recordCollectionCutover(db, id, facts(10 + i, digest(i + 1)));
       records.push({ collection_id: id, barrier_f: 10 + i, final_digest: digest(i + 1) });
     }
     return flipEvidenceDigest(records);
@@ -104,18 +105,20 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     await released([a.user]);
     await setPaused(db, false, "go", OP);
     expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("account_not_started");
-    expect(await code(recordCollectionCutover(db, a.ids[0]!, 10, digest(1)))).toBe("account_not_started");
+    expect(await code(recordCollectionCutover(db, a.ids[0]!, facts(10, digest(1))))).toBe("account_not_started");
     await startAccountMigration(db, a.user);
     await setPaused(db, true, "paused mid-cutover", OP);
     // A cutover needs the control plane's cloud copy with the preserved id.
-    expect(await code(recordCollectionCutover(db, a.ids[0]!, 10, digest(1)))).toBe("next_collection_missing");
+    expect(await code(recordCollectionCutover(db, a.ids[0]!, facts(10, digest(1))))).toBe("next_collection_missing");
     // One collection cut over is not enough.
     await cloudCopy(a.ids[0]!, a.user);
-    await recordCollectionCutover(db, a.ids[0]!, 10, digest(1));
-    expect(await code(recordCollectionCutover(db, a.ids[0]!, 11, digest(1)))).toBe("cutover_conflict");
+    await recordCollectionCutover(db, a.ids[0]!, facts(10, digest(1)));
+    expect(await code(recordCollectionCutover(db, a.ids[0]!, facts(11, digest(1))))).toBe("cutover_conflict");
+    expect(await collectionMigrationRecord(db, a.ids[0]!, a.user)).toMatchObject({ ids_preserved: true, s_final: 3, cutover_seq: 10, barrier_f: 10 });
+    expect(await localTakeoverAllowed(db, a.user)).toEqual({ local_takeover: false, account_backend: "legacy" });
     expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("collections_not_cut_over");
     await cloudCopy(a.ids[1]!, a.user);
-    await recordCollectionCutover(db, a.ids[1]!, 11, digest(2));
+    await recordCollectionCutover(db, a.ids[1]!, facts(11, digest(2)));
     expect((await db.query("SELECT runtime FROM next_collections WHERE collection_id=$1", [a.ids[1]])).rows[0].runtime).toBe("next");
     const evidence = flipEvidenceDigest([
       { collection_id: a.ids[0]!, barrier_f: 10, final_digest: digest(1) },
@@ -129,6 +132,8 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     expect((await flipAccountBackend(db, a.user, a.ids, evidence)).flipped_at).toBe(flipped.flipped_at);
     expect(await code(flipAccountBackend(db, a.user, a.ids, digest(9)))).toBe("account_already_next");
     expect(await migrationsInProgress(db, 100)).not.toContain(a.user);
+    expect(await localTakeoverAllowed(db, a.user)).toEqual({ local_takeover: true, account_backend: "next" });
+    expect(await localTakeoverAllowed(db, randomUUID())).toEqual({ local_takeover: false, account_backend: null });
     expect((await db.query("SELECT 1 FROM audit_events WHERE event_type='next_migration.flip' AND user_id=$1", [a.user])).rows).toHaveLength(1);
   });
 
@@ -159,7 +164,7 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     expect(await accountMigrationView(db, a.user)).toBeNull();
     expect(await code(startAccountMigration(db, a.user))).toBe("account_not_found");
     expect(await code(flipAccountBackend(db, a.user, [], flipEvidenceDigest([])))).toBe("account_not_found");
-    expect(await code(recordCollectionCutover(db, a.ids[0]!, 1, digest(1)))).toBe("collection_not_found");
+    expect(await code(recordCollectionCutover(db, a.ids[0]!, facts(1, digest(1))))).toBe("collection_not_found");
   });
 
   it("serves the dedicated migration token only", async () => {
@@ -180,6 +185,7 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     const evidence = await cutAll(a);
     expect((await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids })).statusCode).toBe(400);
     expect((await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids, evidence_digest: digest(5) })).statusCode).toBe(409);
+    expect((await call("POST", `/internal/v1/next/migration/collections/${a.ids[0]}/cutover`, token, { barrier_f: 1, final_digest: digest(1) })).statusCode).toBe(400);
     const ok = await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids, evidence_digest: evidence });
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({ backend: "next" });
