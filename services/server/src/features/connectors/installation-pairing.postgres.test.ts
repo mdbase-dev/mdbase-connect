@@ -196,7 +196,19 @@ describePg("installation device sign-in on daemon pairing", () => {
     const next = renewal(input);
     const freshWithoutOriginal = {...next,installation:{...next.installation,renewal:undefined}};
     expect((await app.inject({method:"POST",url:"/v1/pairing-requests",payload:freshWithoutOriginal,headers:originHeaders(input)})).statusCode).toBe(409);
-    const renewed = await start(next), outcome = (await renewed.exchange()).json();
+    const renewed = await start(next);
+    if (state === "denied") {
+      expect((await renewed.exchange()).json()).toEqual({status:"pending"});
+      const inspected = await app.inject({method:"GET",url:renewed.base,headers:owner.headers});
+      expect(inspected.json().pairing.account_selected).toBe(false);
+      expect((await approveDevice(renewed,owner,clientFingerprint(Buffer.from(proof.payload.sign_pk,"hex")))).statusCode).toBe(409);
+      const other = await account();
+      expect((await app.inject({method:"POST",url:`${renewed.base}/select-account`,headers:other.headers})).statusCode).toBe(403);
+      expect((await renewed.exchange()).json()).toEqual({status:"pending"});
+      expect((await db.query("SELECT account_selected_at FROM installation_device_pairings WHERE pairing_id=$1",[next.installation.request_id])).rows[0].account_selected_at).toBeNull();
+      expect((await app.inject({method:"POST",url:`${renewed.base}/select-account`,headers:owner.headers})).statusCode).toBe(200);
+    }
+    const outcome = (await renewed.exchange()).json();
     expect(outcome.status).toBe("awaiting_approval"); expect(outcome.connector_id).toBe(selected.connector_id); expect(outcome.account_id).toBe(owner.user); expect(outcome.challenge).toBe(selected.challenge);
     expect((await flow.exchange()).statusCode).toBe(404);
     expect((await attest(next,outcome)).result.statusCode).toBe(409);

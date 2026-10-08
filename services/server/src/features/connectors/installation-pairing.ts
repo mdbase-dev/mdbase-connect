@@ -182,8 +182,9 @@ export async function startInstallationPairing(
       } else if (input.renewal) return fail("installation_original_window_required");
       await c.query("INSERT INTO pairing_requests(id,secret_hash,connector_name,user_id,expires_at) VALUES($1,$2,$3,$4,now()+interval '10 minutes')", [input.request_id,tokenHash(input.pairing_secret),app.name,prior?.user_id??null]);
       // A renewed window retains the SAME attested key, challenge, connector,
-      // account and signature. No native re-sign/rebind or second device.
-      await c.query("INSERT INTO installation_device_pairings(pairing_id,previous_pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,sign_pk,kem_pk,noise_pk,registration_sig,attested_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)", [input.request_id,prior?.id??null,input.installation_id,input.device_id,prior?.connector_id??randomUUID(),app.id,app.origin,input.kind,prior?.challenge??randomBytes(32),prior?.account_selected_at??null,prior?.sign_pk??null,prior?.kem_pk??null,prior?.noise_pk??null,prior?.registration_sig??null,prior?.attested_at??null]);
+      // account and signature. A denial requires explicit SAME-account selection
+      // again before approval; expiry alone retains the previous selection.
+      await c.query("INSERT INTO installation_device_pairings(pairing_id,previous_pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,sign_pk,kem_pk,noise_pk,registration_sig,attested_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)", [input.request_id,prior?.id??null,input.installation_id,input.device_id,prior?.connector_id??randomUUID(),app.id,app.origin,input.kind,prior?.challenge??randomBytes(32),prior?.revoked_at?null:prior?.account_selected_at??null,prior?.sign_pk??null,prior?.kem_pk??null,prior?.noise_pk??null,prior?.registration_sig??null,prior?.attested_at??null]);
     }
     const r = await row(c,input.request_id,input.pairing_secret,true);
     if (r.installation_id!==input.installation_id || r.device_id!==input.device_id || r.kind!==input.kind || r.app_id!==app.id || r.app_origin!==app.origin || r.previous_pairing_id!==(input.renewal?.request_id??null)) return fail("installation_original_binding_changed");
@@ -380,7 +381,7 @@ export async function exchangeInstallationPairing(
 ) {
   return tx(db, async (c) => {
     const initial = await row(c, id, secret);
-    if (!initial.user_id) {
+    if (!initial.user_id || !initial.account_selected_at) {
       live(initial);
       return { status: "pending" as const };
     }
