@@ -645,12 +645,13 @@ export function registerAuthorizationRoutes(
     const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
     const authorization = await options.db.query(
       `SELECT ar.id, ar.flow, ar.user_code, ar.requested_operations,
-              ar.collection_id, ar.expires_at,
+              ar.collection_id, ar.expires_at, consenting.account_backend,
               a.id AS application_id, a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon,
               a.requirements, a.provisions, a.notifications,
               ${options.nextClientKeys ? "ck.client_pk" : "NULL::bytea"} AS client_pk
        FROM authorization_requests ar JOIN applications a ON a.id = ar.application_id
+       JOIN users consenting ON consenting.id = ar.user_id
        ${options.nextClientKeys ? "LEFT JOIN next_authorization_client_keys ck ON ck.request_id = ar.id" : ""}
        WHERE ar.id = $1 AND ar.user_id = $2 AND ar.expires_at > now()
          AND ar.completed_at IS NULL AND ar.denied_at IS NULL`,

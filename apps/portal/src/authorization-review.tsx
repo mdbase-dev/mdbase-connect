@@ -50,7 +50,7 @@ export function RequestedAccessSummary({ groups, files, people }: {
   people?: PeopleRequirement;
 }) {
   const items = groups.map((group) => ({ id: group.id, label: group.label, higherImpact: group.higherImpact }));
-  if (files) {
+  if (files && !groups.some(group => group.fileActions !== undefined)) {
     const actions = "actions" in files ? files.actions : [...files.required, ...(files.optional ?? [])];
     const deletes = actions.some((action) => HIGHER_IMPACT_FILE_ACTIONS.has(action));
     items.push({ id: "files", label: deletes ? "Manage and delete files" : "Work with files", higherImpact: deletes });
@@ -129,6 +129,7 @@ export function PermissionList({
   onTogglePeople(permission: string): void;
 }) {
   const reauthorizing = Boolean(existingOperations && existingOperations.size > 0);
+  const jointPermissions = groups.some(group => group.fileActions !== undefined);
   const fileRows = files ? "actions" in files
     ? files.actions.map((action) => ({ action, locked: true, required: false }))
     : [
@@ -155,10 +156,10 @@ export function PermissionList({
     </ul>}
     {files && <div className="permission-files">
       <p className="permission-files-heading">
-        <strong>Files</strong>
-        <small>{fileScopeDescription(files)}{"actions" in files ? " These actions are approved together." : ""}</small>
+        <strong>{jointPermissions ? "File scope" : "Files"}</strong>
+        <small>{fileScopeDescription(files)}{jointPermissions ? " File actions are included in the collection permissions above." : "actions" in files ? " These actions are approved together." : ""}</small>
       </p>
-      <ul className="permission-list" aria-label="File permissions">
+      {!jointPermissions && <ul className="permission-list" aria-label="File permissions">
         {fileRows.map(({ action, locked, required }) => <PermissionRow
           key={action}
           id={`files.${action}`}
@@ -171,7 +172,7 @@ export function PermissionList({
           disabled={disabled}
           onToggle={() => onToggleFile(action)}
         />)}
-      </ul>
+      </ul>}
     </div>}
     {people && <div className="permission-files">
       <p className="permission-files-heading">
