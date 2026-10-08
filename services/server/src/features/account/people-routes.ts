@@ -4,7 +4,9 @@ import { z } from "zod";
 import { resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../../collection-access.js";
 import { matchesMembershipBinding, membershipBindingForAccess } from "../../collection-membership-binding.js";
 import type { DatabasePool } from "../../db.js";
-import { bearerToken } from "../../platform/request-authentication.js";
+import { bearerToken, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
+import { inTransaction, refuse } from "../next/bootstrap-common.js";
+import { installationPeople } from "../next/installation-scope.js";
 import { apiError } from "../../platform/http-errors.js";
 import { tokenHash } from "../../security.js";
 
@@ -43,6 +45,13 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
       const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
       const bearer = bearerToken(request);
       if (!bearer) return reply.code(401).send(apiError("invalid_token", "An application access token is required."));
+      if (bearer.startsWith("idev_")) {
+        const connector = await requireInstallationDeviceConnector(request,reply,options.db);
+        if (!connector) return reply;
+        if (!connector.installation_device_id) return reply.code(403).send(apiError("installation_credential_required","Use an installation credential."));
+        try { return await inTransaction(options.db,client=>installationPeople(client,connector,collectionId.toLowerCase(),permission,issuer)); }
+        catch (error) { return refuse(reply,error,"This installation cannot read this collection's people."); }
+      }
       const result = await options.db.query<PeopleGrant>(
         `SELECT g.user_id, u.account_backend, u.public_subject, u.name, g.collection_id,
                 col.local_id AS local_collection_id, g.hosted_collection_id,
