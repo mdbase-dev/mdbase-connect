@@ -35,6 +35,20 @@ afterEach(async () => {
 });
 
 describe("database migrations", () => {
+  it("round-trips every byte through pool and checked-out memory parameters", async () => {
+    const db = await createDatabase("memory");
+    const bytes = Buffer.from(Array.from({length:256},(_,i)=>i));
+    try {
+      expect((await db.query("SELECT $1::bytea AS bytes",[bytes])).rows[0].bytes).toEqual(bytes);
+      const client = await db.connect();
+      try {
+        // Synthetic random-byte fixture that deterministically crashed pg-mem's
+        // lexer when its adapter interpolated it as an escaped UTF-8 literal.
+        const escaped = Buffer.from("75c20b4027594e205c09c6e78954ae703d05f950b21c9616872c64c687424f98", "hex");
+        expect((await client.query("SELECT $1::bytea AS bytes, $2::text AS label",[escaped,"unmodified"])).rows[0]).toEqual({bytes:escaped,label:"unmodified"});
+      } finally { client.release(); }
+    } finally { await db.end(); }
+  });
   it("records the legacy baseline and applies ordered SQL migrations once", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());

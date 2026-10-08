@@ -117,8 +117,26 @@ export async function openDatabase(
         .replaceAll("job.", "");
       return memory.public.many(compatible);
     });
+    // pg-mem's pg adapter stringifies Buffer parameters as UTF-8 SQL literals:
+    // bytes can be lost, and random backslashes can crash its escape-string lexer.
+    // Hex parameters retain every byte; decode is confined to this memory adapter.
+    memory.public.registerFunction({
+      name: "decode", args: [DataType.text, DataType.text], returns: DataType.bytea,
+      implementation: (value: string, format: string) => {
+        if (format !== "hex" || !/^(?:[0-9a-f]{2})*$/u.test(value)) throw new Error("Unsupported memory bytea encoding.");
+        return Buffer.from(value, "hex");
+      }
+    });
     const adapter = memory.adapters.createPg();
     pool = new adapter.Pool() as unknown as DatabasePool;
+    const query = pool.query.bind(pool);
+    pool.query = (text, values) => {
+      if (!values?.some(Buffer.isBuffer)) return query(text, values);
+      const encoded = values.map(value => Buffer.isBuffer(value) ? value.toString("hex") : value);
+      const sql = text.replace(/\$(\d+)/gu, (parameter, index: string) =>
+        Buffer.isBuffer(values[Number(index) - 1]) ? `decode(${parameter},'hex')` : parameter);
+      return query(sql, encoded);
+    };
   } else {
     const postgres = new pg.Pool(postgresPoolConfig(databaseUrl));
     // pg-pool owns errors while a client is idle, but removes its listener on
