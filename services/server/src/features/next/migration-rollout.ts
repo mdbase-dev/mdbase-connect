@@ -23,6 +23,7 @@ import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
+import { drainDeferredAccountDeletions } from "../../account-management.js";
 
 export interface RolloutState { paused: boolean; reason: string; changed_by: string; changed_at: string }
 
@@ -135,12 +136,13 @@ async function archiveClock(client: DatabaseQueryable): Promise<string> {
 }
 
 /** Caller holds this transaction's batch lock through inventory/currentness checks. */
-async function readArchiveBinding(client: DatabaseQueryable, name: string): Promise<ArchiveBinding> {
-  const batch = (await client.query<{ revision: string; changed: Date }>(
-    `SELECT membership_revision::text AS revision, membership_changed_at AS changed
+async function readArchiveBinding(client: DatabaseQueryable, name: string): Promise<{ binding: ArchiveBinding; frozenAt: string }> {
+  const batch = (await client.query<{ revision: string; changed: Date; frozen_at: Date | null }>(
+    `SELECT membership_revision::text AS revision, membership_changed_at AS changed, frozen_at
      FROM next_migration_cohorts WHERE name = $1 FOR UPDATE`, [name]
   )).rows[0];
   if (!batch) throw new RolloutRefused("cohort_not_found", "Migration cohort not found.", 404);
+  if (batch.frozen_at === null) throw new RolloutRefused("backup_missing", "Migration topology must be frozen before archive capture.");
   const members = (await client.query<{ account: string; collection: string | null }>(
     `SELECT m.account_id::text AS account, h.id::text AS collection
      FROM next_migration_cohort_members m
@@ -159,18 +161,21 @@ async function readArchiveBinding(client: DatabaseQueryable, name: string): Prom
     membership_changed_at: new Date(batch.changed).toISOString()
   });
   if (!binding.success) throw new RolloutRefused("backup_missing", "Invalid current batch binding.");
-  return binding.data;
+  return { binding: binding.data, frozenAt: new Date(batch.frozen_at).toISOString() };
 }
 
 export async function cohortArchiveBinding(db: DatabasePool, name: string): Promise<ArchiveBinding> {
-  return inTransaction(db, (client) => readArchiveBinding(client, name));
+  return (await inTransaction(db, (client) => readArchiveBinding(client, name))).binding;
 }
 
 /** Dedicated ONE-verifier admin transition only; no caller data is cryptographic authority. */
 export async function acceptCohortArchive(db: DatabasePool, name: string, body: unknown, environment: string | undefined): Promise<{ accepted_at: string }> {
   const result = parseVerifiedBatchArchive(body);
   return inTransaction(db, async (client) => {
-    const binding = await readArchiveBinding(client, name);
+    const { binding, frozenAt } = await readArchiveBinding(client, name);
+    if (Date.parse(result.archive_created_at) < Date.parse(frozenAt)) {
+      throw new RolloutRefused("backup_missing", "Archive capture must follow the topology freeze.");
+    }
     const now = await archiveClock(client);
     requireFreshBatchArchive(result, binding, now, now, environment ?? "");
     const old = (await client.query<{ verified_result: unknown; accepted_at: Date }>(
@@ -196,13 +201,17 @@ export async function acceptCohortArchive(db: DatabasePool, name: string, body: 
 }
 
 async function requireCurrentCohortArchive(client: DatabaseQueryable, name: string, environment: string | undefined): Promise<void> {
-  const binding = await readArchiveBinding(client, name);
+  const { binding, frozenAt } = await readArchiveBinding(client, name);
   const accepted = (await client.query<{ verified_result: unknown; accepted_at: Date }>(
     `SELECT verified_result, accepted_at FROM next_migration_archive_acceptances
      WHERE cohort = $1 AND membership_revision = $2::bigint`, [name, binding.membership_revision]
   )).rows[0];
   if (!accepted) throw new RolloutRefused("backup_missing", "A verified current batch archive is required.");
-  requireFreshBatchArchive(parseVerifiedBatchArchive(accepted.verified_result), binding,
+  const result = parseVerifiedBatchArchive(accepted.verified_result);
+  if (Date.parse(result.archive_created_at) < Date.parse(frozenAt)) {
+    throw new RolloutRefused("backup_missing", "Archive capture must follow the current topology freeze.");
+  }
+  requireFreshBatchArchive(result, binding,
     new Date(accepted.accepted_at).toISOString(), await archiveClock(client), environment ?? "");
 }
 
@@ -395,7 +404,7 @@ export async function flipAccountBackend(
   const named = [...new Set(collections.map((c) => c.toLowerCase()))].sort();
   if (named.length !== collections.length) throw new RolloutRefused("collections_duplicated", "A collection is named twice.");
   if (!HEX64.test(evidenceDigest)) throw new RolloutRefused("invalid_request", "A hex evidence_digest is required.", 400);
-  return inTransaction(db, async (client) => {
+  const result = await inTransaction(db, async (client) => {
     const user = (await client.query<{ backend: string; started: boolean | null }>(
       `SELECT u.account_backend AS backend, m.started_at IS NOT NULL AS started
        FROM users u LEFT JOIN next_migration_cohort_members m ON m.account_id = u.id
@@ -408,11 +417,19 @@ export async function flipAccountBackend(
         [account]
       )).rows[0];
       if (flip && flip.evidence_digest === evidenceDigest && [...flip.collections].sort().join() === named.join()) {
-        return { account_id: account, backend: "next", flipped_at: new Date(flip.flipped_at).toISOString() };
+        return { account_id: account, backend: "next" as const, flipped_at: new Date(flip.flipped_at).toISOString() };
       }
       throw new RolloutRefused("account_already_next", "The account already uses the next backend with other evidence.");
     }
     if (!user.started) throw new RolloutRefused("account_not_started", "The account's migration has not started.");
+    const member = (await client.query<{ cohort: string }>(
+      "SELECT cohort FROM next_migration_cohort_members WHERE account_id=$1 FOR SHARE", [account]
+    )).rows[0];
+    if (!member) throw new RolloutRefused("account_not_started", "The account's migration has not started.");
+    const batch = (await client.query<{ frozen_at: Date | null; revision: string }>(
+      "SELECT frozen_at,membership_revision::text AS revision FROM next_migration_cohorts WHERE name=$1 FOR UPDATE", [member.cohort]
+    )).rows[0];
+    if (!batch) throw new Error("Migration membership has no cohort.");
     // Lock the hosted collections: none may change authority during the flip, and
     // creation of new ones is refused for a next account (the users row lock orders it).
     const held = (await client.query<{ id: string; authority_state: string; barrier_f: string | null; final_digest: string | null; runtime: string | null }>(
@@ -439,8 +456,18 @@ export async function flipAccountBackend(
        VALUES ($1, $2::uuid[], $3) RETURNING flipped_at`, [account, named, evidenceDigest]
     )).rows[0]!;
     await audit(client, account, "next_migration.flip", account, { collections: named, evidence_digest: evidenceDigest });
-    return { account_id: account, backend: "next", flipped_at: new Date(flipped.flipped_at).toISOString() };
+    // A claimed/started account is NOT a final flip. Release durable deletion
+    // work only when EVERY current batch member has its validated flip record.
+    const unfinished = (await client.query(
+      `SELECT 1 FROM next_migration_cohort_members m JOIN users u ON u.id=m.account_id
+       LEFT JOIN next_migration_account_flips f ON f.account_id=m.account_id
+       WHERE m.cohort=$1 AND (u.account_backend<>'next' OR f.account_id IS NULL) LIMIT 1`, [member.cohort]
+    )).rows.length;
+    if (!unfinished && batch.frozen_at !== null) await releaseDeferredDeletions(client, member.cohort, batch.revision, batch.frozen_at);
+    return { account_id: account, backend: "next" as const, flipped_at: new Date(flipped.flipped_at).toISOString() };
   });
+  await drainDeferredAccountDeletions(db);
+  return result;
 }
 
 /**
@@ -514,16 +541,59 @@ export async function releaseCohort(db: DatabaseQueryable, name: string, actor: 
   return released;
 }
 /** Add legacy accounts to a cohort; one already in a cohort, or already next, is skipped. Returns those added. */
-export async function addToCohort(db: DatabaseQueryable, name: string, accounts: readonly string[], actor: string): Promise<string[]> {
+export async function addToCohort(db: DatabasePool, name: string, accounts: readonly string[], actor: string): Promise<string[]> {
   const by = actorOf(actor);
-  const r = await db.query<{ account_id: string }>(
-    `INSERT INTO next_migration_cohort_members (account_id, cohort)
-     SELECT u.id, $1 FROM users u WHERE u.id = ANY($2::uuid[]) AND u.account_backend = 'legacy'
-     ON CONFLICT (account_id) DO NOTHING RETURNING account_id::text`, [name, accounts]
+  return inTransaction(db, async (client) => {
+    // Mutation guards share-lock the user even if it has no membership yet.
+    // Assignment takes that same row first, in stable order, before its parent.
+    await client.query("SELECT id FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE", [accounts]);
+    const batch = (await client.query<{ frozen_at: Date | null }>(
+      "SELECT frozen_at FROM next_migration_cohorts WHERE name = $1 FOR UPDATE", [name]
+    )).rows[0];
+    if (!batch) throw new RolloutRefused("cohort_not_found", "Migration cohort not found.", 404);
+    if (batch.frozen_at !== null) throw new RolloutRefused("migration_frozen", "Migration topology is frozen.");
+    const r = await client.query<{ account_id: string }>(
+      `INSERT INTO next_migration_cohort_members (account_id, cohort)
+       SELECT u.id, $1 FROM users u WHERE u.id = ANY($2::uuid[]) AND u.account_backend = 'legacy'
+       ON CONFLICT (account_id) DO NOTHING RETURNING account_id::text`, [name, accounts]
+    );
+    const added = r.rows.map((row) => row.account_id);
+    await audit(client, null, "next_migration.cohort_add", null, { cohort: name, added: added.length, skipped: accounts.length - added.length, actor: by });
+    return added;
+  });
+}
+
+/** Freeze once; unfreeze is audited and forbidden after acceptance of the current revision. */
+export async function setCohortFrozen(db: DatabasePool, name: string, frozen: boolean, reason: string, actor: string): Promise<{ frozen_at: string | null }> {
+  const by = actorOf(actor);
+  if (!reason.trim() || reason.length > 500) throw new Error("A reason of 1-500 characters is required.");
+  const result = await inTransaction(db, async (client) => {
+    const batch = (await client.query<{ frozen_at: Date | null; revision: string }>(
+      "SELECT frozen_at, membership_revision::text AS revision FROM next_migration_cohorts WHERE name = $1 FOR UPDATE", [name]
+    )).rows[0];
+    if (!batch) throw new RolloutRefused("cohort_not_found", "Migration cohort not found.", 404);
+    if (!frozen && (await client.query(
+      "SELECT 1 FROM next_migration_archive_acceptances WHERE cohort = $1 AND membership_revision = $2::bigint", [name, batch.revision]
+    )).rows.length) throw new RolloutRefused("migration_frozen", "Migration topology is frozen.");
+    if (frozen === (batch.frozen_at !== null)) return { frozen_at: batch.frozen_at === null ? null : new Date(batch.frozen_at).toISOString() };
+    const row = (await client.query<{ frozen_at: Date | null }>(
+      "UPDATE next_migration_cohorts SET frozen_at = CASE WHEN $2 THEN date_trunc('milliseconds', clock_timestamp()) ELSE NULL END WHERE name = $1 RETURNING frozen_at", [name, frozen]
+    )).rows[0]!;
+    await audit(client, null, frozen ? "next_migration.freeze" : "next_migration.unfreeze", null,
+      { cohort: name, membership_revision: batch.revision, actor: by, reason });
+    if (!frozen && batch.frozen_at !== null) await releaseDeferredDeletions(client, name, batch.revision, batch.frozen_at);
+    return { frozen_at: row.frozen_at === null ? null : new Date(row.frozen_at).toISOString() };
+  });
+  if (!frozen) await drainDeferredAccountDeletions(db);
+  return result;
+}
+
+/** Caller holds the cohort FOR UPDATE; erasure cascades must not erase this barrier. */
+async function releaseDeferredDeletions(client: DatabaseQueryable, name: string, revision: string, frozenAt: Date): Promise<void> {
+  await client.query(
+    `UPDATE next_migration_deferred_account_deletions SET ready_at=now(),ready_revision=$2::bigint
+     WHERE cohort=$1 AND ready_at IS NULL AND membership_revision<=$2::bigint AND frozen_at=$3`, [name, revision, frozenAt]
   );
-  const added = r.rows.map((row) => row.account_id);
-  await audit(db, null, "next_migration.cohort_add", null, { cohort: name, added: added.length, skipped: accounts.length - added.length, actor: by });
-  return added;
 }
 
 /** Routes for the hosted migrator: the dedicated migration token only. */
@@ -542,6 +612,16 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { 
   const limit = z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) }).strict();
   const idParam = z.object({ id: z.uuid() });
   const cohortParam = z.object({ name: z.string().regex(COHORT_NAME) }).strict();
+  for (const frozen of [true, false]) {
+    app.post(`/internal/v1/next/migration/cohorts/:name/${frozen ? "freeze" : "unfreeze"}`, { bodyLimit: 4096 }, async (request, reply) => {
+      reply.header("cache-control", "no-store");
+      if (!migrator(request)) return deny(reply);
+      const p = cohortParam.safeParse(request.params);
+      const b = z.object({ actor: z.string().trim().min(1).max(200), reason: z.string().trim().min(1).max(500) }).strict().safeParse(request.body);
+      if (!p.success || !b.success) return reply.code(400).send(apiError("invalid_request", "Canonical batch, actor and reason are required."));
+      try { return await setCohortFrozen(options.db, p.data.name, frozen, b.data.reason, b.data.actor); } catch (e) { return refused(reply, e); }
+    });
+  }
   app.get("/internal/v1/next/migration/cohorts/:name/archive-binding", async (request, reply) => {
     reply.header("cache-control", "no-store");
     if (!migrator(request)) return deny(reply);

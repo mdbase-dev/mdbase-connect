@@ -4,7 +4,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, migrationMembershipDigest,
-  registerMigrationRolloutRoutes, releaseCohort, setPaused, startAccountMigration, type ArchiveBinding } from "./migration-rollout.js";
+  registerMigrationRolloutRoutes, releaseCohort, setCohortFrozen, setPaused, startAccountMigration, type ArchiveBinding } from "./migration-rollout.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -38,6 +38,7 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
   async function batch(users: string[]) {
     const name = `b-${randomUUID().slice(0, 8)}`;
     await createCohort(db, name, OP); await addToCohort(db, name, users, OP); await releaseCohort(db, name, OP);
+    await setCohortFrozen(db, name, true, "synthetic archive capture", OP);
     return name;
   }
   async function collection(owner: string) {
@@ -98,7 +99,9 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     await acceptCohortArchive(db, name, await metadata(name, binding), "production");
     await startAccountMigration(db, account, "production");
     const another = await user();
-    await expect(addToCohort(db, name, [another], OP)).rejects.toThrow(/out of range/);
+    await expect(addToCohort(db, name, [another], OP)).rejects.toMatchObject({ code: "migration_frozen" });
+    // Privileged raw-SQL fault injection still exercises the H0 overflow guard.
+    await expect(db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [another, name])).rejects.toThrow(/out of range/);
     expect((await cohortArchiveBinding(db, name)).membership_revision).toBe(binding.membership_revision);
   });
 
@@ -106,7 +109,10 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     const account = await user(), name = await batch([account]), body = await metadata(name);
     const accepted = await acceptCohortArchive(db, name, body, "production");
     const claim = await startAccountMigration(db, account, "production");
-    await addToCohort(db, name, [await user()], OP);
+    const another = await user();
+    await expect(addToCohort(db, name, [another], OP)).rejects.toMatchObject({ code: "migration_frozen" });
+    // H0 remains fail-closed even on privileged out-of-band topology drift.
+    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [another, name]);
     await expect(startAccountMigration(db, account, "production")).rejects.toMatchObject({ code: "backup_missing" });
     expect(new Date(await startedAt(account)).toISOString()).toBe(claim.started_at);
     const stored = (await db.query("SELECT accepted_at FROM next_migration_archive_acceptances WHERE cohort=$1", [name])).rows[0];

@@ -21,6 +21,7 @@ import type { GitHubAuthConfig } from "./github-auth.js";
 import type { GoogleAuthConfig } from "./google-auth.js";
 import { HostedAuthorityRegistry } from "./hosted.js";
 import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
+import { drainDeferredAccountDeletions } from "./account-management.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
 import { activatePendingServices } from "./features/next/service-activation.js";
@@ -211,12 +212,13 @@ export async function buildApp(options: BuildOptions) {
   const hostedReference = options.hostedReferenceAuthority
     ? new HostedAuthorityRegistry(options.db)
     : undefined;
-  const authorityTransferRecovery = options.hostedCollections
-    ? new AuthorityTransferRecoveryWorker(
-        () => recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference),
-        () => app.log.error("authority transfer recovery failed; retrying on next pass")
-      )
-    : undefined;
+  const authorityTransferRecovery = new AuthorityTransferRecoveryWorker(
+    async () => {
+      await drainDeferredAccountDeletions(options.db);
+      if (options.hostedCollections) await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    },
+    () => app.log.error("account deletion / authority recovery failed; retrying on next pass")
+  );
   const applicationReconciliation = new ApplicationReconciliationWorker(
     options.db,
     relay,
@@ -324,7 +326,8 @@ export async function buildApp(options: BuildOptions) {
   applicationReconciliation.start();
   nextPolicyEmitter?.start();
   providerRevocations?.start();
-  authorityTransferRecovery?.start();
+  authorityTransferRecovery.start();
+  void authorityTransferRecovery.drainOnce().catch(() => app.log.error("account deletion / authority recovery startup pass failed; retrying"));
 
   app.addHook("onRequest", async (request, reply) => {
     if (
