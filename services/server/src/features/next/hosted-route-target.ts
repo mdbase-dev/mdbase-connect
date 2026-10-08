@@ -28,18 +28,23 @@ export function hostedClientOrigin(value: string): string {
 
 interface HostedRouteGrant {
   grant_id: string;
+  authorization_grant: string;
+  policy_required: boolean;
+  policy_active: boolean;
   has_client_key: boolean;
   hosted_device: string | null;
   hosted_noise_pk: Buffer | null;
 }
 
-/** Snapshot metadata under the current cloud-copy row's share lock. Neither a
+/** Snapshot metadata under a statement-level cloud-copy row share lock. Neither a
  * recorded service device, an appended enrolment nor an activation ACK is readiness.
  * The last appended device op must still be enrolment of this exact hosted key.
  */
 export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: string, collection: string, origin: string): Promise<{ grant: HostedRouteGrant; target: RouteTarget | null } | null> {
   const rows = await db.query<HostedRouteGrant>(
-    `SELECT g.id AS grant_id, (key.grant_id IS NOT NULL) AS has_client_key,
+    `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
+            true AS policy_required, COALESCE(binding.active, false) AS policy_active,
+            (key.grant_id IS NOT NULL) AS has_client_key,
             CASE WHEN enrolled.op->>'op' = 'device-enrol' AND enrolled.op->>'kind' = 'hosted'
                    AND enrolled.op->'noisePublicKey'->>'$hex' = encode(device.noise_pk, 'hex')
                  THEN device.device_id::text END AS hosted_device,
@@ -54,6 +59,7 @@ export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: stri
      JOIN next_collections parent ON parent.collection_id::text = COALESCE(col.local_id::text, hc.id::text)
      JOIN users owner ON owner.id = parent.owner_user_id AND owner.suspended_at IS NULL
      LEFT JOIN next_grant_client_keys key ON key.grant_id = g.id
+     LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id AND binding.collection_id = parent.collection_id
      LEFT JOIN next_service_devices device ON device.collection_id = parent.collection_id AND device.kind = 'hosted'
      LEFT JOIN LATERAL (
        SELECT entry.op FROM next_policy_outbox queued
@@ -83,7 +89,7 @@ export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: stri
   const grant = rows.rows[0];
   if (!grant) return null;
   const pk = grant.hosted_noise_pk;
-  if (!grant.hosted_device || /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(grant.hosted_device)
+  if (!grant.policy_active || !grant.hosted_device || /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(grant.hosted_device)
       || !pk || pk.length !== 32 || pk.every(byte => byte === 0)) return { grant, target: null };
   const url = new URL("/v1/hosted/app", hostedClientOrigin(origin));
   url.searchParams.set("collection", collection.toLowerCase());
