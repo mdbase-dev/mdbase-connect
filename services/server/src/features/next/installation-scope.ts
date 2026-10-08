@@ -22,14 +22,16 @@ export async function requireInstallationScope(client: DatabaseConnection, conne
   if (!row.rows[0]) throw new CreateError(403,"installation_not_current");
   if (create && !row.rows[0].create_collections) throw new CreateError(409,"installation_create_consent_required");
   if (collection) {
-    const scope = await client.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 FOR SHARE", [connector.id,collection]);
+    const scope = await client.query(
+      `SELECT 1 FROM installation_collection_scopes s JOIN next_collections n ON n.collection_id=s.collection_id JOIN users owner ON owner.id=n.owner_user_id
+       WHERE s.connector_id=$1 AND s.collection_id=$2 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR SHARE OF s,n,owner`, [connector.id,collection]);
     if (!scope.rows.length) throw new CreateError(403,"installation_collection_not_approved");
   }
 }
 
 /** Scoped metadata, not an enrolment/readiness assertion. Used by the portal before
  * approval and the installation's list after approval. No arbitrary future scope. */
-export async function installationCollections(client: DatabaseConnection, account: string, connector?: string) {
+export async function installationCollections(client: DatabaseConnection, account: string, connector?: string, device?: string) {
   const rows = await client.query<{collection_id:string;display_name:string;role:"owner"|"editor"|"viewer"}>(
     `SELECT n.collection_id,
        COALESCE((SELECT h.display_name FROM hosted_collections h WHERE h.id=n.collection_id),
@@ -47,7 +49,8 @@ export async function installationCollections(client: DatabaseConnection, accoun
      WHERE n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL
        AND owner.suspended_at IS NULL AND member.op='member-set'
        AND ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM installation_collection_scopes s WHERE s.connector_id=$2 AND s.collection_id=n.collection_id))
-     ORDER BY n.collection_id LIMIT 1001`, [account,connector??null]
+       AND ($3::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM next_policy_outbox o WHERE o.collection_id=n.collection_id AND o.ops->'ops' @> jsonb_build_array(jsonb_build_object('op','device-revoke','device',$3::uuid::text))))
+     ORDER BY n.collection_id LIMIT 1001`, [account,connector??null,device??null]
   );
   if (rows.rows.length>1000) throw new CreateError(409,"installation_scope_limit");
   return rows.rows;

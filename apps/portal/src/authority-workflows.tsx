@@ -33,6 +33,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [busy, setBusy] = useState(false);
   const [collectionIds,setCollectionIds] = useState<string[]>([]);
   const [createCollections,setCreateCollections] = useState(false);
+  const [removingId,setRemovingId] = useState("");
+  const [revokingId,setRevokingId] = useState("");
   const generation = useRef(0);
   const dispatching = useRef(false);
 
@@ -63,7 +65,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     };
   }, [pairingId, attempt]);
 
-  async function act(action: "approve" | "select-account" | "deny") {
+  async function act(action: "approve" | "select-account" | "deny" | "remove-access") {
     if (dispatching.current || !pairing) return;
     const current = generation.current;
     dispatching.current = true;
@@ -72,13 +74,14 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     try {
       const result = await api<{ deep_link?: string }>(
         `/v1/pairing-requests/${pairingId}/${action}`,
-        { method: "POST", ...(action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:collectionIds.filter(id=>!pairing.retained_collection_ids?.includes(id)),create_collections:createCollections && !pairing.retained_create_collections})} : {}) },
+        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:collectionIds.filter(id=>!pairing.retained_collection_ids?.includes(id)),create_collections:createCollections && !pairing.retained_create_collections})} : {}) },
       );
       if (current !== generation.current) return;
       if (action === "deny") {
         location.href = "/";
         return;
       }
+      if(action==="remove-access"){setRevokingId(removingId);setRemovingId("");}
       if (pairing.installation_device) setAttempt((value) => value + 1);
       else if (result.deep_link) setDeepLink(result.deep_link);
     } catch (reason) {
@@ -170,20 +173,29 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     <fieldset disabled={busy}>
                       <legend>Entire collections</legend>
                       {(pairing.collections??[]).map(collection=>(
-                        <label key={collection.collection_id}>
+                        <div key={collection.collection_id}>
+                        <label>
                           <input type="checkbox" className="mdbase-checkbox" checked={collectionIds.includes(collection.collection_id)} disabled={pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...ids,collection.collection_id]:ids.filter(id=>id!==collection.collection_id))} />
                           <span>{collection.display_name} ({collection.role})</span>
                           <code>{collection.collection_id}</code>
                         </label>
+                        {pairing.scope_only && pairing.retained_collection_ids?.includes(collection.collection_id) && <button type="button" className="button secondary" onClick={()=>setRemovingId(collection.collection_id)}>Remove access</button>}
+                        </div>
                       ))}
-                      {(pairing.retained_collection_ids??[]).filter(id=>!pairing.collections?.some(collection=>collection.collection_id===id)).map(id=><p key={id}>Already approved: <code>{id}</code> (currently unavailable)</p>)}
+                      {(pairing.retained_collection_ids??[]).filter(id=>!pairing.collections?.some(collection=>collection.collection_id===id)).map(id=><div key={id}><p>Already approved: <code>{id}</code> (currently unavailable)</p><button type="button" className="button secondary" onClick={()=>setRemovingId(id)}>Remove access</button></div>)}
                       {!pairing.collections?.length && <p>No current cloud-copy collections are available.</p>}
                       {(pairing.requested_create_collections || pairing.retained_create_collections) && <label>
                         <input type="checkbox" className="mdbase-checkbox" checked={createCollections} disabled={pairing.retained_create_collections} onChange={event=>setCreateCollections(event.target.checked)} />
                         <span>Create new collections</span>
                       </label>}
                     </fieldset>
-                    {pairing.scope_only && <p>Already-approved access stays in place. To remove access, use the separate Remove access action: this app will lose access to that collection on all its devices.</p>}
+                    {pairing.scope_only && <p>Already-approved access stays in place. Removal is a separate revocation, not part of re-consent.</p>}
+                    {removingId && <div role="group" aria-label="Confirm removal">
+                      <p>This app will lose access to {pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??removingId} on all its devices. Those devices cannot rejoin this collection; previously downloaded data cannot be erased.</p>
+                      <button className="button secondary" disabled={busy} onClick={()=>setRemovingId("")}>Keep access</button>
+                      <button className="button primary" disabled={busy} onClick={()=>void act("remove-access")}>Remove access to this collection</button>
+                    </div>}
+                    {revokingId && <p role="status">Revoking this app's access to <code>{revokingId}</code>. New access requests are refused immediately; device access is being revoked in the collection log.</p>}
                     <p>Other existing or future collections are not included. {pairing.requested_create_collections ? "If approved, only collections created by this installation are added to its access automatically." : "This app has not requested permission to create collections."}</p>
                     <button
                       className="button primary"

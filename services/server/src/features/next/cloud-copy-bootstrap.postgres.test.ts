@@ -5,6 +5,8 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
+import { registerPeopleRoutes } from "../account/people-routes.js";
+import { collectionLogTokenDigest, registerCollectionLogTokenRoute } from "./collection-log-token.js";
 import { cloudCopyCreateDigest, cloudCopyJoinDigest, registerCloudCopyRoutes } from "./cloud-copy-bootstrap.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { collectionDirectory } from "./hosted-routes.js";
@@ -144,6 +146,7 @@ describePg("cloud-copy bootstrap", () => {
   const deployments = new Deployments();
   const client = new LogServiceClient(config.logService, log.fetch);
   const app = Fastify();
+  let emitter:PolicyEmitter;
 
   beforeAll(async () => {
     const url = new URL(testUrl!);
@@ -153,9 +156,11 @@ describePg("cloud-copy bootstrap", () => {
     await admin.query(`CREATE SCHEMA "${schema}"`);
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
-    const emitter = new PolicyEmitter(db, client, loadPolicySigner(config, Date.now()));
+    emitter = new PolicyEmitter(db, client, loadPolicySigner(config, Date.now()));
     await app.register(cookie);
     registerCloudCopyRoutes(app, { db, next: config, emitter, log: client, fetchImpl: deployments.fetch });
+    registerCollectionLogTokenRoute(app,{db,log:client});
+    registerPeopleRoutes(app,{db,issuer:"https://identity.test",publicUrl:"https://connect.test"});
   }, 60_000);
   afterAll(async () => {
     await app.close(); await db?.end();
@@ -489,6 +494,84 @@ describePg("cloud-copy bootstrap", () => {
     expect(again.json().error.code).toBe("device_revoked");
   });
 
+  async function installation(user=randomUUID(),canCreate=false) {
+    const who=await identity(user),token=`idev_${randomUUID()}`;
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1",[user]);
+    await db.query("UPDATE next_devices SET kind='app-runtime' WHERE id=$1",[who.device]);
+    await db.query("UPDATE connectors SET token_hash=$2 WHERE id=$1",[who.connector.id,tokenHash(randomUUID())]);
+    await db.query("INSERT INTO installation_device_credentials(pairing_id,connector_id,device_id,installation_id,token_hash,app_id,app_origin,kind,sign_pk,kem_pk,noise_pk,create_collections) SELECT $1,$2,id,$3,$4,'tasknotes-web','https://lab.tasknotes-app.pages.dev',kind,sign_pk,kem_pk,noise_pk,$5 FROM next_devices WHERE id=$6",[randomUUID(),who.connector.id,randomUUID(),tokenHash(token),canCreate,who.device]);
+    return {...who,headers:{authorization:`Bearer ${token}`}};
+  }
+  async function approveScope(who:Who,collection:string){await db.query("INSERT INTO installation_collection_scopes(connector_id,collection_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[who.connector.id,collection]);}
+  async function policy(collection:string,ops:Parameters<typeof queueNextPolicy>[2],drain=true){
+    const c=await db.connect();try{await c.query("BEGIN");expect(await queueNextPolicy(c,collection,ops)).toBe(true);await c.query("COMMIT");}finally{c.release();}
+    if(drain) await emitter.drainCollection(collection);
+  }
+  const listed=(who:Who)=>app.inject({method:"GET",url:"/v1/next/collections",headers:who.headers});
+  const people=(who:Who,collection:string,permission="identity")=>app.inject({method:"GET",url:`/v1/authorities/${collection}/${permission}`,headers:who.headers});
+  async function refreshProof(who:Who,collection:string){
+    const {challenge}=await issueDeviceChallenge(db,who.connector.id);
+    const digest=collectionLogTokenDigest({challenge:Buffer.from(challenge,"hex"),connector:who.connector.id,device:who.device,collection});
+    return {device_id:who.device,challenge,sig:hex(sign(null,digest,who.key))};
+  }
+  async function refresh(who:Who,collection:string){return app.inject({method:"POST",url:`/v1/next/collections/${collection}/log-token`,headers:who.headers,payload:await refreshProof(who,collection)});}
+  it("requires requested create consent and atomically scopes only the new UUID to its creator",async()=>{
+    const who=await installation(),collection=randomUUID(),calls=deployments.calls;
+    const denied=await create(who,await proof(who,collection)); expect(denied.statusCode,denied.body).toBe(409);expect(denied.json().error.code).toBe("installation_create_consent_required");expect(deployments.calls).toBe(calls);expect(await registered(collection)).toBe(false);
+    await db.query("UPDATE installation_device_credentials SET create_collections=true WHERE connector_id=$1",[who.connector.id]);
+    const result=await create(who,await proof(who,collection));expect(result.statusCode,result.body).toBe(200);
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[who.connector.id])).rows).toEqual([{collection_id:collection}]);
+    const other=randomUUID();expect((await serviceCreate(await session(who.connector.user_id),other)).statusCode).toBe(200);
+    const list=await listed(who);expect(list.statusCode,list.body).toBe(200);expect(list.json().collections).toEqual([{collection_id:collection,display_name:collection,role:"owner"}]);
+    expect((await join(who,other,await joinProof(who,other))).statusCode).toBe(403);
+    expect((await refresh(who,other)).statusCode).toBe(403);expect((await people(who,other)).statusCode).toBe(403);
+    expect((await create(who,await proof(who,collection))).statusCode).toBe(200);
+    const sibling=await installation(who.connector.user_id,true);
+    expect((await listed(sibling)).json().collections).toEqual([]);
+    expect((await join(sibling,collection,await joinProof(sibling,collection))).statusCode).toBe(403);
+  });
+  it("rechecks create capability/credential after generation and rolls back genesis plus scope on refusal",async()=>{
+    for(const changed of ["capability","credential"]){
+      const who=await installation(undefined,true),collection=randomUUID();
+      deployments.during=async()=>{await db.query(changed==="capability"?"UPDATE installation_device_credentials SET create_collections=false WHERE connector_id=$1":"DELETE FROM installation_device_credentials WHERE connector_id=$1",[who.connector.id]);};
+      const response=await create(who,await proof(who,collection));expect(response.statusCode,response.body).toBe(changed==="capability"?409:403);expect(await registered(collection)).toBe(false);
+      expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([]);
+    }
+  });
+  it.each(["editor","viewer"] as const)("joins an approved current non-owner %s without widening scope or native membership",async role=>{
+    const owner=await identity(),who=await installation(),collection=randomUUID();
+    expect((await serviceCreate(await session(owner.connector.user_id),collection)).statusCode).toBe(200);
+    await policy(collection,[{op:"member-set",account:who.connector.user_id,role}]);
+    await approveScope(who,collection);
+    expect((await people(who,collection)).statusCode).toBe(409); // consent alone does not enrol
+    const response=await join(who,collection,await joinProof(who,collection));expect(response.statusCode,response.body).toBe(200);
+    expect((await refresh(who,collection)).statusCode).toBe(200);
+    const identityResult=await people(who,collection);expect(identityResult.statusCode,identityResult.body).toBe(200);expect(identityResult.json()).toMatchObject({issuer:"https://identity.test",account_id:who.connector.user_id,name:"Owner",subject:expect.any(String)});
+    const members=await people(who,collection,"members");expect(members.statusCode,members.body).toBe(200);expect(members.json().members.map((m:{account_id:string;role:string})=>[m.account_id,m.role]).sort()).toEqual([[owner.connector.user_id,"owner"],[who.connector.user_id,role]].sort());
+    await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1",[who.connector.id]);
+    expect((await people(who,collection)).statusCode).toBe(403);expect((await refresh(who,collection)).statusCode).toBe(403);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(403);
+    expect((await listed(who)).json().collections).toEqual([]); // historical enrolment never widens scope
+  });
+  it("refuses pending member additions/removals and owner suspension; ordinary non-owner daemons remain owner-only",async()=>{
+    const owner=await identity(),who=await installation(),collection=randomUUID();expect((await serviceCreate(await session(owner.connector.user_id),collection)).statusCode).toBe(200);await approveScope(who,collection);
+    await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"editor"}],false);
+    expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(409);
+    await emitter.drainCollection(collection);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(200);
+    const daemon=await identity(who.connector.user_id);expect((await join(daemon,collection,await joinProof(daemon,collection))).statusCode).toBe(409);
+    await policy(collection,[{op:"member-remove",account:who.connector.user_id}],false);
+    expect((await refresh(who,collection)).statusCode).toBe(409);expect((await people(who,collection)).statusCode).toBe(409);expect((await listed(who)).json().collections).toEqual([]);
+    await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"editor"}]);
+    await db.query("UPDATE users SET suspended_at=now() WHERE id=$1",[owner.connector.user_id]);
+    expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(403);expect((await people(who,collection)).statusCode).toBe(403);expect((await refresh(who,collection)).statusCode).toBe(403);expect((await listed(who)).json().collections).toEqual([]);
+  });
+  it("rechecks approved scope and native member/device state after log readback before a join/create mint",async()=>{
+    const who=await installation(undefined,true),collection=randomUUID();
+    log.onRead=async()=>{await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[who.connector.id,collection]);};
+    const created=await create(who,await proof(who,collection));expect(created.statusCode,created.body).toBe(403);expect(created.body).not.toContain("token");
+    await approveScope(who,collection);
+    log.onRead=async()=>{await policy(collection,[{op:"member-remove",account:who.connector.user_id}],false);};
+    const joined=await join(who,collection,await joinProof(who,collection));expect(joined.statusCode,joined.body).toBe(409);expect(joined.body).not.toContain("token");
+  });
   it("rechecks the session after generation: a sign-out or session-epoch bump refuses", async () => {
     const who = await identity();
     const headers = await session(who.connector.user_id);

@@ -22,6 +22,7 @@ import {
   approveInstallationPairing,
   exchangeInstallationPairing,
   denyInstallationPairing,
+  removeInstallationAccess,
   installationApp,
 } from "./installation-pairing.js";
 import { CreateError, isLockTimeout } from "../next/bootstrap-common.js";
@@ -274,6 +275,13 @@ export function registerConnectorPairingRoutes(
   );
 
   if (options.installationDevices) {
+    app.post("/v1/pairing-requests/:pairingId/remove-access",async (request,reply)=>{
+      const session=await requireSessionContext(request,reply,options.db);
+      if(!session)return;
+      const {pairingId}=z.object({pairingId:originalUuid}).parse(request.params);
+      const {collection_id}=z.object({collection_id:originalUuid,confirm:z.literal(true)}).strict().parse(request.body);
+      return installationResult(reply,()=>removeInstallationAccess(options.db,pairingId,session.user.id,session.sessionId,collection_id));
+    });
     app.post(
       "/v1/pairing-requests/:pairingId/select-account",
       async (request, reply) => {

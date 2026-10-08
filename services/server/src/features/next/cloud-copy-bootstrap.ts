@@ -150,7 +150,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     try {
       return await inTransaction(options.db,async client=> {
         await requireInstallationScope(client,connector);
-        return {collections:await installationCollections(client,connector.user_id,connector.id)};
+        return {collections:await installationCollections(client,connector.user_id,connector.id,connector.installation_device_id)};
       });
     } catch (error) { return refuse(reply,error,"The approved collection list is unavailable."); }
   });

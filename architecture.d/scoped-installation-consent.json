@@ -1,0 +1,9 @@
+{
+  "reason": "One internal server helper centralizes dedicated installation UUID scope, bounded metadata discovery and exact current people enrolment gates shared by create/join/log-token/people. The existing pairing channel implements explicitly requested create consent and additive same-actor re-consent, preserving ordinary daemon and application-grant boundaries. One additional route-facing removal function queues real per-collection grant/device revocations rather than abusing re-consent. Four internal declarations, eleven relative imports and one server file; no package, SDK/protocol inventory, lockfile or weakened hard gate.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 11,
+    "typeScriptExportDeclarations": 4,
+    "services/server": 1
+  }
+}

@@ -12,9 +12,10 @@ import {
   weakAgreementKey,
 } from "../next/devices.js";
 import { ed25519PublicKeyObject } from "../next/policy-keys.js";
-import { currentMember, currentSession, inTransaction } from "../next/bootstrap-common.js";
+import { currentMember, currentSession, inTransaction, lock, refuseRevoked } from "../next/bootstrap-common.js";
 import type { ConnectorIdentity } from "../../platform/request-authentication.js";
 import { installationCollections, requireInstallationScope } from "../next/installation-scope.js";
+import { queueNextPolicy } from "../next/policy-outbox.js";
 export class InstallationPairingError extends Error {
   constructor(
     readonly status: number,
@@ -253,7 +254,7 @@ export async function inspectInstallationPairing(
       scope_only: r.scope_only,
       retained_collection_ids: r.scope_only ? (await db.query<{collection_id:string}>("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1 ORDER BY collection_id",[r.connector_id])).rows.map(row=>row.collection_id) : [],
       retained_create_collections: r.scope_only ? (await db.query<{create_collections:boolean}>("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[r.connector_id])).rows[0]?.create_collections??false : false,
-      collections: r.account_selected_at ? await tx(db,c=>installationCollections(c,user)) : [],
+      collections: r.account_selected_at ? await tx(db,c=>installationCollections(c,user,undefined,r.device_id)) : [],
     },
   };
 }
@@ -366,6 +367,7 @@ export async function approveInstallationPairing(
         const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR SHARE OF n,owner",[collection]);
         if (!current.rows.length) return fail("installation_collection_unavailable",403);
         await currentMember(c,collection,user);
+        await refuseRevoked(c,collection,r.device_id);
       }
       await c.query("UPDATE installation_device_pairings SET approved_collection_ids=$2,approved_create_collections=$3,approved_session_epoch=(SELECT session_epoch FROM users WHERE id=$4) WHERE pairing_id=$1",[id,ids,consent.create_collections,user]);
       await c.query(
@@ -402,6 +404,40 @@ export async function denyInstallationPairing(
     return { ok: true };
   });
 }
+/** Separate explicit removal, never an implicit re-consent side effect. One fixed
+ * first-party app family, one account and one collection; all its installations.
+ * Native revocation is permanent for these device/collection pairs. */
+export async function removeInstallationAccess(db:DatabasePool,id:string,user:string,session:string,collection:string) {
+  return tx(db,async c=>{
+    await currentSession(c,session,user);
+    const r=await row(c,id,undefined,true);
+    live(r);
+    if (!r.scope_only || r.user_id!==user || !["tasknotes-web","tasknotes-mobile"].includes(r.app_id)) return fail("installation_account_changed",403);
+    await lock(c,collection);
+    const target=await c.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime='next' FOR UPDATE",[collection]);
+    if (!target.rows.length) return fail("installation_collection_unavailable",404);
+    // Fixed declaration family, not the caller-controlled display name or origin.
+    // #653's database hook enqueues each immutable log grant's revoke atomically.
+    await c.query(`UPDATE grants g SET revoked_at=now() FROM applications a
+      WHERE a.id=g.application_id AND a.family_identity='bundle:dev.tasknotes.app'
+        AND g.user_id=$1 AND g.revoked_at IS NULL
+        AND (g.hosted_collection_id=$2 OR g.collection_id IN (SELECT id FROM collections WHERE local_id=$2))`,[user,collection]);
+    const installations=await c.query<{connector_id:string;device_id:string}>(
+      `SELECT k.connector_id,k.device_id FROM installation_device_credentials k JOIN connectors c ON c.id=k.connector_id
+       WHERE c.user_id=$1 AND k.app_id IN ('tasknotes-web','tasknotes-mobile') ORDER BY k.connector_id FOR UPDATE OF k`,[user]);
+    for (const k of installations.rows) {
+      const enrolled=await c.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1",[collection,JSON.stringify([{op:"device-enrol",device:k.device_id}])]);
+      const revoked=await c.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1",[collection,JSON.stringify([{op:"device-revoke",device:k.device_id}])]);
+      if (enrolled.rows.length && !revoked.rows.length) {
+        if (!await queueNextPolicy(c,collection,[{op:"device-revoke",device:k.device_id}])) return fail("installation_collection_unavailable",409);
+      }
+      await c.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[k.connector_id,collection]);
+    }
+    await audit(c,user,"device.installation_access_removed",collection,{app_id:r.app_id});
+    return {ok:true,state:"revoking" as const,collection_id:collection};
+  });
+}
+
 /** Secret-capability KDF, not a device signer. No reversible bearer in server DB.
  * Original immutable public outcome + the SAME authenticated pairing secret
  * reproduce the SAME scoped credential after a lost committed response. */
@@ -434,6 +470,7 @@ async function persistScope(c: Connection, r: Row): Promise<void> {
     const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR UPDATE OF n",[collection]);
     if (!current.rows.length) return fail("installation_collection_unavailable",403);
     await currentMember(c,collection,r.user_id!);
+    await refuseRevoked(c,collection,r.device_id);
   }
   for (const collection of r.approved_collection_ids)
     await c.query("INSERT INTO installation_collection_scopes(connector_id,collection_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[r.connector_id,collection]);
