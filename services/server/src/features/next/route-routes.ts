@@ -14,22 +14,11 @@ import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { tokenHash } from "../../security.js";
 import { RelayBrokerUnavailableError, type RelayBroker } from "../../relay-broker.js";
+import { hostedClientOrigin, hostedRouteTarget, type RouteTarget } from "./hosted-route-target.js";
+export type { RouteTarget } from "./hosted-route-target.js";
 
-export interface RouteTarget {
-  kind: RegisteredDeviceKind | "hosted";
-  device: string;
-  noise_pk: string;
-  url: string;
-  /**
-   * Snapshot hint: the current relay owner reports this device's Noise-capable
-   * socket bound. Not admission authority; a target can disconnect immediately.
-   */
-  online: boolean;
-  /** For relay targets: the collection ID `pipe_auth` names. Absent for direct targets. */
-  relay_collection?: string;
-}
-
-export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request"> }): void {
+export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string }): void {
+  const hostedOrigin = options.hostedClientUrl ? hostedClientOrigin(options.hostedClientUrl) : undefined;
   // Always `wss:`, except for a loopback development server (SDK request).
   const relayUrl = new URL("/v1/next/relay/client", options.publicUrl);
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(relayUrl.hostname);
@@ -40,6 +29,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const { id } = z.object({ id: z.uuid() }).parse(request.params);
     const token = bearerToken(request);
     if (!token) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
+    const hosted = hostedOrigin ? await hostedRouteTarget(options.db, tokenHash(token), id, hostedOrigin) : null;
     const grant = await options.db.query<{ grant_id: string; authorization_grant: string; policy_required: boolean; policy_active: boolean; has_client_key: boolean; device_id: string | null; kind: RegisteredDeviceKind | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null }>(
       `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
               (nc.runtime = 'next') AS policy_required, COALESCE(binding.active, false) AS policy_active,
@@ -64,7 +54,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
          AND col.present = true AND col.authority_state = 'active'`,
       [tokenHash(token), id]
     );
-    const row = grant.rows[0];
+    const row = grant.rows[0] ?? hosted?.grant;
     if (!row) return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired for this collection."));
     if (!row.has_client_key) {
       return reply.code(409).send(apiError("client_key_required", "This grant has no registered Noise key; authorize the app again to register one."));
@@ -101,6 +91,9 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
       || b.lastActive - a.lastActive
       || a.value.device.localeCompare(b.value.device));
     const targets = candidates.map(({ value }) => value);
+    // Preferred direct target, never an assertion of serving readiness. Daemon
+    // ordering/fallbacks below it are unchanged.
+    if (hosted?.target) targets.unshift(hosted.target);
     return { collection: id, grant: row.grant_id, ...(row.authorization_grant && row.authorization_grant !== row.grant_id ? { authorization_grant: row.authorization_grant } : {}), targets, ...(targets.length === 0 ? { reason: "no_device_registered" } : {}) };
   });
 

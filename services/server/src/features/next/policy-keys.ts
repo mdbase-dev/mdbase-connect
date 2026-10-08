@@ -7,6 +7,7 @@
 import { createPrivateKey, createPublicKey, verify as edVerify, type KeyObject } from "node:crypto";
 import { certDigest, keyId, type CpCert, type PolicySigner } from "./policy-wire.js";
 import { parseLabFixtureConfig, type LabFixtureConfig } from "./lab-fixture-config.js";
+import { hostedClientOrigin } from "./hosted-route-target.js";
 
 /** Refuse to start when the certificate expires within this window. */
 const MIN_CERT_REMAINING_MS = 7 * 24 * 60 * 60 * 1000;
@@ -41,6 +42,8 @@ export interface NextControlPlaneConfig {
   cloudCopyBootstrap?: { hosted: { url: string; token: string }; escrow: { url: string; token: string } };
   /** Private collection create and device enrol routes; set only by MDBASE_NEXT_PRIVATE_BOOTSTRAP=1. */
   privateBootstrap?: true;
+  /** Trusted direct Noise endpoint origin; discovery is not live admission. */
+  hostedClientUrl?: string;
   labFixtures?: LabFixtureConfig;
 }
 
@@ -147,6 +150,7 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
     serviceTokens: { ...(hosted ? { hosted } : {}), ...(escrow ? { escrow } : {}) },
     ...(cloudCopyBootstrap ? { cloudCopyBootstrap } : {}),
     ...(privateBootstrap === "1" ? { privateBootstrap: true as const } : {}),
+    ...(env.MDBASE_NEXT_HOSTED_CLIENT_URL?.trim() ? { hostedClientUrl: hostedClientOrigin(env.MDBASE_NEXT_HOSTED_CLIENT_URL.trim()) } : {}),
     ...(labFixtures ? { labFixtures } : {}),
   };
 }
