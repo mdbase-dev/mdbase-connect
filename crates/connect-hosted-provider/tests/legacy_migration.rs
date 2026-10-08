@@ -63,7 +63,7 @@ async fn migrating_refuses_writes_and_rollback_reopens_them() {
     let id = fixture.collection_id;
 
     let status = provider
-        .set_legacy_migration_state(id, "migrating", None, false)
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
         .await
         .unwrap();
     assert!(status.started_at.is_some());
@@ -74,15 +74,13 @@ async fn migrating_refuses_writes_and_rollback_reopens_them() {
         .expect_err("uploads are refused while migrating");
     assert_eq!(refused.status.as_u16(), 404, "{refused:?}");
 
-    // Deletion and compaction keep the legacy data while migrating.
-    let deletion = provider.delete_collection(id).await.unwrap_err();
-    assert_eq!(deletion.code, "legacy_collection_retained");
+    // Compaction keeps the legacy data while migrating.
     let compaction = provider.compact_through(id, 0).await.unwrap_err();
     assert_eq!(compaction.code, "legacy_collection_retained");
 
     // Rollback before cutover reopens writes.
     provider
-        .set_legacy_migration_state(id, "active", None, false)
+        .set_legacy_migration_state(id, "active", None, false, &[])
         .await
         .unwrap();
     provider
@@ -100,26 +98,44 @@ async fn migrated_needs_ninety_days_of_retention_and_never_shortens_it() {
     let id = fixture.collection_id;
 
     let skipped = provider
-        .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(31)), false)
+        .set_legacy_migration_state(
+            id,
+            "migrated",
+            Some(Utc::now() + Duration::days(31)),
+            false,
+            &[],
+        )
         .await
         .unwrap_err();
     assert_eq!(skipped.code, "legacy_migration_transition_invalid");
     provider
-        .set_legacy_migration_state(id, "migrating", None, false)
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
         .await
         .unwrap();
     let short = provider
-        .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(45)), false)
+        .set_legacy_migration_state(
+            id,
+            "migrated",
+            Some(Utc::now() + Duration::days(45)),
+            false,
+            &[],
+        )
         .await
         .unwrap_err();
     assert_eq!(short.code, "legacy_retention_too_short");
     let long = Utc::now() + Duration::days(120);
     provider
-        .set_legacy_migration_state(id, "migrated", Some(long), false)
+        .set_legacy_migration_state(id, "migrated", Some(long), false, &[])
         .await
         .unwrap();
     let again = provider
-        .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(91)), false)
+        .set_legacy_migration_state(
+            id,
+            "migrated",
+            Some(Utc::now() + Duration::days(91)),
+            false,
+            &[],
+        )
         .await
         .unwrap();
     // PostgreSQL keeps microseconds.
@@ -128,26 +144,84 @@ async fn migrated_needs_ninety_days_of_retention_and_never_shortens_it() {
         Some(long.timestamp_micros()),
         "retention is never shortened"
     );
-    let deletion = provider.delete_collection(id).await.unwrap_err();
-    assert_eq!(deletion.code, "legacy_collection_retained");
+    let compaction = provider.compact_through(id, 0).await.unwrap_err();
+    assert_eq!(compaction.code, "legacy_collection_retained");
 
     // After cutover, rollback needs the reverse export verified at R (§6.2).
     let unverified = provider
-        .set_legacy_migration_state(id, "active", None, false)
+        .set_legacy_migration_state(id, "active", None, false, &[])
         .await
         .unwrap_err();
     assert_eq!(unverified.code, "legacy_rollback_unverified");
     assert_eq!(state_of(&fixture).await, "migrated");
+}
 
-    // Once retention has passed, the collection can be deleted.
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn deletion_is_terminal_during_retention_purges_and_refuses_rollback() {
+    // Callum 2026-10-08: an account (or collection) deleted during migration is
+    // deleted immediately; retention does not apply and rollback cannot revive it.
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+    let key = format!("v1/blobs/{id}/{}", Uuid::now_v7());
+    provider
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
+        .await
+        .unwrap();
+    provider
+        .set_legacy_migration_state(
+            id,
+            "migrated",
+            Some(Utc::now() + Duration::days(91)),
+            false,
+            &[],
+        )
+        .await
+        .unwrap();
     sqlx::query(
-        "UPDATE hosted_provider_collections SET legacy_retain_until = now() - interval '1 second' WHERE id = $1",
+        "INSERT INTO hosted_provider_blob_deletions (object_key, byte_length, reason) VALUES ($1, 1, 'test')",
     )
-    .bind(id)
+    .bind(&key)
     .execute(&fixture.pool)
     .await
     .unwrap();
-    provider.delete_collection(id).await.unwrap();
+    let _ = provider.delete_pending_blobs(10).await;
+    assert_eq!(queued(&fixture, &key).await, 1, "retained while migrated");
+
+    provider
+        .delete_collection(id)
+        .await
+        .expect("deletion overrides retention");
+    // The retained objects are released to the deletion worker (purged).
+    let _ = provider.delete_pending_blobs(10).await;
+    assert_eq!(queued(&fixture, &key).await, 0, "purged after deletion");
+    // No rollback path accepts a deleted collection.
+    for target in ["active", "migrating"] {
+        let refused = provider
+            .set_legacy_migration_state(id, target, None, true, &[])
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                refused.code.as_str(),
+                "collection_not_migratable" | "hosted_collection_not_found"
+            ),
+            "{refused:?}"
+        );
+    }
+    let restore = provider
+        .restore_migration_revoked_replicas(id, &[Uuid::now_v7()])
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            restore.code.as_str(),
+            "collection_not_migratable" | "hosted_collection_not_found"
+        ),
+        "{restore:?}"
+    );
 }
 
 #[tokio::test]
@@ -160,7 +234,7 @@ async fn retained_collections_keep_their_queued_blob_deletions() {
     let key = format!("v1/blobs/{id}/{}", Uuid::now_v7());
     let other = format!("v1/blobs/{}/{}", Uuid::now_v7(), Uuid::now_v7());
     provider
-        .set_legacy_migration_state(id, "migrating", None, false)
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
         .await
         .unwrap();
     // Queued before or during the freeze, from any cause: the worker leaves it alone.
@@ -184,7 +258,13 @@ async fn retained_collections_keep_their_queued_blob_deletions() {
         "other collections' queue entries are processed"
     );
     provider
-        .set_legacy_migration_state(id, "migrated", Some(Utc::now() + Duration::days(91)), false)
+        .set_legacy_migration_state(
+            id,
+            "migrated",
+            Some(Utc::now() + Duration::days(91)),
+            false,
+            &[],
+        )
         .await
         .unwrap();
     let _ = provider.delete_pending_blobs(10).await;
@@ -193,13 +273,25 @@ async fn retained_collections_keep_their_queued_blob_deletions() {
         1,
         "still retained after cutover"
     );
-    // Rollback (before H9 it is direct) releases the entry to the worker again.
+    // Once cut over, going back through `migrating` does not reopen it: the
+    // rollback to active needs the verified reverse export (review B1).
     provider
-        .set_legacy_migration_state(id, "migrating", None, false)
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
         .await
         .unwrap();
+    let bypass = provider
+        .set_legacy_migration_state(id, "active", None, false, &[])
+        .await
+        .unwrap_err();
+    assert_eq!(bypass.code, "legacy_rollback_unverified");
+    let _ = provider.delete_pending_blobs(10).await;
+    assert_eq!(
+        queued(&fixture, &key).await,
+        1,
+        "still retained while migrating"
+    );
     provider
-        .set_legacy_migration_state(id, "active", None, false)
+        .set_legacy_migration_state(id, "active", None, true, &[])
         .await
         .unwrap();
     let _ = provider.delete_pending_blobs(10).await;
@@ -229,7 +321,7 @@ async fn rollback_restores_only_replicas_revoked_during_the_migration() {
     // A replica revoked before the migration stays revoked.
     provider.revoke_replica(mirror).await.unwrap();
     provider
-        .set_legacy_migration_state(id, "migrating", None, false)
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
         .await
         .unwrap();
     let restored = provider
@@ -319,10 +411,22 @@ async fn drain_status_reports_live_accepted_mutations_until_they_resolve() {
     .await
     .unwrap();
     provider
-        .set_legacy_migration_state(id, "migrating", None, false)
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
         .await
         .unwrap();
     let draining = provider.legacy_migration_drain(id).await.unwrap();
+    // The provider itself refuses cutover while a write is in flight (review M1).
+    let early = provider
+        .set_legacy_migration_state(
+            id,
+            "migrated",
+            Some(Utc::now() + Duration::days(91)),
+            false,
+            &[],
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(early.code, "legacy_migration_not_drained");
     assert_eq!(draining.state, "migrating");
     assert_eq!((draining.in_flight, draining.unresolved), (1, 1));
     assert!(draining.started_at.is_some());
@@ -338,6 +442,16 @@ async fn drain_status_reports_live_accepted_mutations_until_they_resolve() {
     .unwrap();
     let drained = provider.legacy_migration_drain(id).await.unwrap();
     assert_eq!((drained.in_flight, drained.unresolved), (0, 1));
+    provider
+        .set_legacy_migration_state(
+            id,
+            "migrated",
+            Some(Utc::now() + Duration::days(91)),
+            false,
+            &[],
+        )
+        .await
+        .expect("drained: cutover allowed");
     assert_eq!(
         drained.head, draining.head,
         "the head is stable once drained"
@@ -348,4 +462,53 @@ async fn drain_status_reports_live_accepted_mutations_until_they_resolve() {
         .await
         .unwrap_err();
     assert_eq!(missing.code, "hosted_collection_not_found");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_restores_revoked_replicas_atomically_and_the_fence_is_not_a_deletion() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    provider
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
+        .await
+        .unwrap();
+    // H8 revokes the mirror.
+    sqlx::query("UPDATE hosted_provider_replicas SET revoked_at = now() WHERE id = $1")
+        .bind(mirror)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    // Restore names are only accepted with the rollback itself.
+    let wrong = provider
+        .set_legacy_migration_state(id, "migrating", None, false, &[mirror])
+        .await
+        .unwrap_err();
+    assert_eq!(wrong.code, "legacy_restore_requires_rollback");
+    // Rotating a token on a frozen collection answers the distinct migrating
+    // code, never the not-found that the control plane treats as deletion.
+    let rotate = provider
+        .rotate_replica_token(mirror, &"t".repeat(40), None)
+        .await
+        .unwrap_err();
+    assert_eq!(rotate.code, "collection_migrating");
+    let status = provider
+        .set_legacy_migration_state(id, "active", None, false, &[mirror])
+        .await
+        .unwrap();
+    assert_eq!(status.restored, vec![mirror]);
+    let revoked: Option<chrono::DateTime<Utc>> =
+        sqlx::query_scalar("SELECT revoked_at FROM hosted_provider_replicas WHERE id = $1")
+            .bind(mirror)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert!(revoked.is_none(), "restored in the same transaction");
+    provider
+        .open_file_upload(id, &fixture.token, upload(), None)
+        .await
+        .expect("writes again after rollback");
 }

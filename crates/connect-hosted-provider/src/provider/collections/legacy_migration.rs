@@ -38,6 +38,8 @@ pub struct LegacyMigrationStatus {
     pub state: LegacyMigrationState,
     pub started_at: Option<DateTime<Utc>>,
     pub retain_until: Option<DateTime<Utc>>,
+    /// Replicas restored by this transition (rollback to active).
+    pub restored: Vec<Uuid>,
 }
 
 /// What the migration driver reads to drain a fenced collection (H6) and to fix
@@ -98,24 +100,32 @@ impl HostedProvider {
     ///
     /// Allowed: active → migrating → migrated, and back (rollback). Repeating the
     /// current state is a no-op, except that `migrated` may extend its retention.
-    /// `migrated` requires `retain_until` at least 90 days ahead, and retention is
-    /// never shortened.
     ///
-    /// Rollback before cutover (`migrating` → `active`) is direct. After cutover
-    /// (`migrated` → `active`) the runbook must first reverse-export and verify the
-    /// collection at R (mdbase-next `docs/ship/migration.md` §6.2) and say so with
-    /// `reverse_verified`; the provider cannot check that itself, so it refuses the
-    /// transition without the explicit statement.
+    /// - `migrated` requires `retain_until` at least 90 days ahead (never shortened)
+    ///   and a drained collection: no accepted mutation may still hold a live lease.
+    /// - Once a collection has been `migrated` (it has `legacy_retain_until`), it was
+    ///   cut over: returning to `active` by any path (directly, or through
+    ///   `migrating`) requires `reverse_verified`, the runbook's statement that the
+    ///   reverse export was verified at R (mdbase-next `docs/ship/migration.md` §6.2).
+    ///   Rollback before cutover (`migrating` → `active`, never migrated) is direct.
+    /// - `restore_replica_ids`, on a transition to `active`, restores exactly those
+    ///   replicas revoked since the migration started, in the same transaction, so
+    ///   a crash can never leave the collection active with its mirrors still
+    ///   revoked and no way to restore them.
     pub async fn set_legacy_migration_state(
         &self,
         collection_id: Uuid,
         target: &str,
         retain_until: Option<DateTime<Utc>>,
         reverse_verified: bool,
+        restore_replica_ids: &[Uuid],
     ) -> ApiResult<LegacyMigrationStatus> {
         use LegacyMigrationState::{Active, Migrated, Migrating};
         let target = requested_state(target)?;
         let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout = '5s'")
+            .execute(&mut *transaction)
+            .await?;
         let row = sqlx::query(
             r#"SELECT state, legacy_migration_started_at, legacy_retain_until
                FROM hosted_provider_collections WHERE id = $1 FOR UPDATE"#,
@@ -136,12 +146,6 @@ impl HostedProvider {
                     | (Migrated, Migrating)
                     | (Migrated, Active)
             );
-        if (current, target) == (Migrated, Active) && !reverse_verified {
-            return Err(ApiError::conflict(
-                "legacy_rollback_unverified",
-                "Rolling back a migrated collection needs the reverse export verified at R first (reverse_verified).",
-            ));
-        }
         if !allowed {
             return Err(ApiError::conflict(
                 "legacy_migration_transition_invalid",
@@ -151,6 +155,36 @@ impl HostedProvider {
                     target.as_str()
                 ),
             ));
+        }
+        let cut_over = current == Migrated || retained.is_some();
+        if target == Active && current != Active && cut_over && !reverse_verified {
+            return Err(ApiError::conflict(
+                "legacy_rollback_unverified",
+                "Rolling back a collection that was cut over needs the reverse export verified at R first (reverse_verified).",
+            ));
+        }
+        if !restore_replica_ids.is_empty() && (target != Active || current == Active) {
+            return Err(ApiError::bad_request(
+                "legacy_restore_requires_rollback",
+                "Replicas are restored only by the rollback to active.",
+            ));
+        }
+        if (current, target) == (Migrating, Migrated) {
+            let in_flight: i64 = sqlx::query_scalar(
+                r#"SELECT count(*) FROM hosted_provider_mutation_journal j
+                   JOIN hosted_provider_replicas r ON r.id = j.replica_id
+                   WHERE r.collection_id = $1 AND j.state IN ('claimed', 'prepared')
+                     AND j.lease_expires_at > now()"#,
+            )
+            .bind(collection_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+            if in_flight > 0 {
+                return Err(ApiError::conflict(
+                    "legacy_migration_not_drained",
+                    "Accepted writes are still in flight; drain before cutover.",
+                ));
+            }
         }
         let retain_until = match target {
             Migrated => {
@@ -170,6 +204,22 @@ impl HostedProvider {
             }
             Migrating => retained,
             Active => None,
+        };
+        let restored = if target == Active && current != Active && !restore_replica_ids.is_empty() {
+            match started_at {
+                Some(since) => {
+                    restore_revoked_since(
+                        &mut transaction,
+                        collection_id,
+                        restore_replica_ids,
+                        since,
+                    )
+                    .await?
+                }
+                None => Vec::new(),
+            }
+        } else {
+            Vec::new()
         };
         let started_at = match target {
             Active => None,
@@ -193,6 +243,7 @@ impl HostedProvider {
             state: target,
             started_at,
             retain_until,
+            restored,
         })
     }
 
@@ -260,25 +311,73 @@ impl HostedProvider {
             }
             (_, Some(started_at)) => started_at,
         };
-        let restored: Vec<Uuid> = sqlx::query_scalar(
-            r#"UPDATE hosted_provider_replicas SET revoked_at = NULL
-               WHERE collection_id = $1 AND id = ANY($2)
-                 AND revoked_at IS NOT NULL AND revoked_at >= $3
-               RETURNING id"#,
-        )
-        .bind(collection_id)
-        .bind(replica_ids)
-        .bind(started_at)
-        .fetch_all(&mut *transaction)
-        .await?;
+        let restored =
+            restore_revoked_since(&mut transaction, collection_id, replica_ids, started_at).await?;
         transaction.commit().await?;
         Ok(restored)
     }
 }
 
-/// Refuse deletion and compaction of a collection whose legacy data must be kept:
-/// while it migrates, and after cutover until its retention ends. Call inside the
-/// transaction that deletes or compacts; it locks the collection row.
+/// Clear `revoked_at` for the listed replicas revoked at or after `since`.
+async fn restore_revoked_since(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    replica_ids: &[Uuid],
+    since: DateTime<Utc>,
+) -> ApiResult<Vec<Uuid>> {
+    Ok(sqlx::query_scalar(
+        r#"UPDATE hosted_provider_replicas SET revoked_at = NULL
+           WHERE collection_id = $1 AND id = ANY($2)
+             AND revoked_at IS NOT NULL AND revoked_at >= $3
+           RETURNING id"#,
+    )
+    .bind(collection_id)
+    .bind(replica_ids)
+    .bind(since)
+    .fetch_all(&mut **transaction)
+    .await?)
+}
+
+/// The fence's answer to a legacy client or control-plane call on a migrating or
+/// migrated collection: distinct from `hosted_collection_not_found`, so nothing
+/// mistakes the freeze for deletion (and quarantines the collection).
+fn collection_migrating() -> ApiError {
+    ApiError::conflict(
+        "collection_migrating",
+        "The hosted collection is moving to mdbase-next; update the client.",
+    )
+}
+
+/// Refuse a legacy replica change on a collection in `state` if it is migrating
+/// or migrated, with the distinct code.
+pub(in crate::provider) fn refuse_migrating(state: &str) -> ApiResult<()> {
+    if matches!(state, "migrating" | "migrated") {
+        return Err(collection_migrating());
+    }
+    Ok(())
+}
+
+/// [`refuse_migrating`] for the collection of `replica_id`.
+pub(in crate::provider) async fn refuse_migrating_replica(
+    transaction: &mut Transaction<'_, Postgres>,
+    replica_id: Uuid,
+) -> ApiResult<()> {
+    let state: Option<String> = sqlx::query_scalar(
+        r#"SELECT c.state FROM hosted_provider_replicas r
+           JOIN hosted_provider_collections c ON c.id = r.collection_id
+           WHERE r.id = $1"#,
+    )
+    .bind(replica_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    state.map_or(Ok(()), |s| refuse_migrating(&s))
+}
+
+/// Refuse compaction of a collection whose legacy data must be kept: while it
+/// migrates, and after cutover until its retention ends. Call inside the
+/// compaction transaction; it locks the collection row. Deletion is not refused:
+/// a user's deletion (of the collection or the account) is terminal, overrides
+/// retention and purges the retained data.
 pub(in crate::provider) async fn ensure_legacy_data_disposable(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
@@ -302,7 +401,7 @@ pub(in crate::provider) async fn ensure_legacy_data_disposable(
     if retained {
         return Err(ApiError::conflict(
             "legacy_collection_retained",
-            "The collection is retained for migration rollback and cannot be deleted or compacted yet.",
+            "The collection is retained for migration rollback and cannot be compacted yet.",
         ));
     }
     Ok(())

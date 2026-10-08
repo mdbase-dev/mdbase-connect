@@ -1,7 +1,9 @@
 use super::*;
 
 mod legacy_migration;
-pub(in crate::provider) use legacy_migration::ensure_legacy_data_disposable;
+pub(in crate::provider) use legacy_migration::{
+    ensure_legacy_data_disposable, refuse_migrating, refuse_migrating_replica,
+};
 
 const COLLECTION_DELETE_DATABASE_RETRIES: usize = 3;
 const COLLECTION_DELETE_RETRY_BACKOFF_MS: u64 = 25;
@@ -376,8 +378,11 @@ impl HostedProvider {
     }
 
     async fn delete_collection_transaction(&self, collection_id: Uuid) -> ApiResult<()> {
+        // Deletion is the user's terminal decision and overrides migration
+        // retention (Callum, 2026-10-08): the collection moves to `deleting`, which
+        // releases its queued objects to the deletion worker, and no rollback path
+        // accepts it again.
         let mut transaction = self.pool.begin().await?;
-        ensure_legacy_data_disposable(&mut transaction, collection_id).await?;
         sqlx::query("UPDATE hosted_provider_collections SET state = 'deleting' WHERE id = $1")
             .bind(collection_id)
             .execute(&mut *transaction)

@@ -64,6 +64,10 @@ pub(super) enum HostedCollectionState {
     Transferring,
     Transferred,
     Deleting,
+    /// Frozen for the mdbase-next migration (provider migration 0046).
+    Migrating,
+    /// Cut over to mdbase-next; read-only and retained.
+    Migrated,
 }
 
 impl TryFrom<&str> for HostedCollectionState {
@@ -77,6 +81,8 @@ impl TryFrom<&str> for HostedCollectionState {
             "transferring" => Ok(Self::Transferring),
             "transferred" => Ok(Self::Transferred),
             "deleting" => Ok(Self::Deleting),
+            "migrating" => Ok(Self::Migrating),
+            "migrated" => Ok(Self::Migrated),
             _ => Err(ApiError::internal(
                 "Stored hosted collection authority state is invalid.",
             )),

@@ -319,6 +319,29 @@ impl HostedProvider {
                 transaction.commit().await?;
                 continue;
             }
+            // Re-check retention under the collection row lock: a collection that
+            // entered `migrating` after the batch was selected keeps its objects,
+            // and the fence (FOR UPDATE) waits for this deletion to finish.
+            if let Some(collection) = key
+                .strip_prefix("v1/blobs/")
+                .and_then(|rest| rest.split('/').next())
+                .and_then(|id| Uuid::parse_str(id).ok())
+            {
+                let retained: bool = sqlx::query_scalar(
+                    r#"SELECT COALESCE((
+                         SELECT state = 'migrating'
+                                OR (state = 'migrated'
+                                    AND (legacy_retain_until IS NULL OR legacy_retain_until > now()))
+                         FROM hosted_provider_collections WHERE id = $1 FOR SHARE), false)"#,
+                )
+                .bind(collection)
+                .fetch_one(&mut *transaction)
+                .await?;
+                if retained {
+                    transaction.commit().await?;
+                    continue;
+                }
+            }
             let referenced: bool = sqlx::query_scalar(
                 r#"SELECT EXISTS (
                      SELECT 1 FROM hosted_provider_files WHERE object_key = $1

@@ -25,6 +25,10 @@ struct SetLegacyMigrationState {
     /// Required true for `migrated` → `active`: the runbook verified the reverse export at R.
     #[serde(default)]
     reverse_verified: bool,
+    /// On rollback to `active`: the replicas revoked at H8, restored in the same
+    /// transaction.
+    #[serde(default)]
+    restore_replica_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +63,7 @@ async fn set_legacy_migration_state(
             &input.state,
             input.retain_until,
             input.reverse_verified,
+            &input.restore_replica_ids,
         )
         .await?;
     Ok(Json(json!(status)))
