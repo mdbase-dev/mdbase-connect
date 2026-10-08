@@ -22,7 +22,7 @@ import { verify } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
-import { requireConnector } from "../../platform/request-authentication.js";
+import { requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, encodeCbor, uuidBytes, type RegisteredDeviceKind } from "./policy-wire.js";
@@ -60,7 +60,7 @@ export function registerCollectionLogTokenRoute(app: FastifyInstance, options: {
     }
   }, async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const connector = await requireConnector(request, reply, options.db);
+    const connector = await requireInstallationDeviceConnector(request, reply, options.db);
     if (!connector) return reply;
     const collection = request.params.id.toLowerCase();
     const device = request.body.device_id.toLowerCase();

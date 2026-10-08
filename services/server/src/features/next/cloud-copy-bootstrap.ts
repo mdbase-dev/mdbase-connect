@@ -19,7 +19,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
-import { requireConnector, requireSessionContext, requireUser } from "../../platform/request-authentication.js";
+import { requireInstallationDeviceConnector, requireSessionContext, requireUser } from "../../platform/request-authentication.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import {
   authenticate, CreateError, currentAccount, currentIdentity, currentSession, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment,
@@ -206,7 +206,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     } }
   }, async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const connector = await requireConnector(request, reply, options.db);
+    const connector = await requireInstallationDeviceConnector(request, reply, options.db);
     if (!connector) return reply;
     const body = { ...request.body, collection_id: request.body.collection_id.toLowerCase(), device_id: request.body.device_id.toLowerCase() };
     const collection = body.collection_id;
@@ -286,7 +286,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     }
   }, async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const connector = await requireConnector(request, reply, options.db);
+    const connector = await requireInstallationDeviceConnector(request, reply, options.db);
     if (!connector) return reply;
     const collection = request.params.id.toLowerCase();
     const body = { ...request.body, device_id: request.body.device_id.toLowerCase() };

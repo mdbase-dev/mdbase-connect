@@ -408,7 +408,9 @@ export async function buildApp(options: BuildOptions) {
   registerConnectorPairingRoutes(app, {
     db: options.db,
     publicUrl,
-    tailscaleAuth: options.tailscaleAuth
+    tailscaleAuth: options.tailscaleAuth,
+    installationDevices: !!options.nextControlPlane,
+    installationEnvironment: options.environment
   });
   registerAccountSessionRoutes(app, {
     db: options.db,
