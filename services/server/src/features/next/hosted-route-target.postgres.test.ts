@@ -9,6 +9,7 @@ import { createHostedCollectionMembership } from "../../collection-policy.js";
 import { LocalRelayBroker } from "../../relay-broker.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
+import { queueNextGrantPolicy } from "./grant-policy.js";
 import { parseServiceDevice, storeServiceDevice } from "./service-devices.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { certDigest, chainHash, keyId, signPolicyItem, type PolicyOp } from "./policy-wire.js";
@@ -50,7 +51,7 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
     await db.query("UPDATE next_policy_outbox SET batch_id=$2 WHERE collection_id=$1 AND batch_id IS NULL", [id, batch]);
     return batch;
   }
-  async function fixture(options: { hostedOnly?: boolean; sync?: "private" | "cloud_copy"; runtime?: "shadow" | "next"; appended?: boolean; daemon?: boolean } = {}) {
+  async function fixture(options: { hostedOnly?: boolean; sync?: "private" | "cloud_copy"; runtime?: "shadow" | "next"; appended?: boolean; daemon?: boolean; narrowable?: boolean } = {}) {
     const id = await localGrantFixture(db); const token = `at_${randomUUID()}`;
     await db.query("UPDATE grants SET activated_at=now(), operations=$2, file_capability=$3, application_installation_id=$4, application_authorization=$5 WHERE id=$1", [id,
       JSON.stringify(APPLICATION_CAPABILITY_DEFINITIONS["collection.read"]), JSON.stringify({ kind: "files", protocol_version: 1, actions: ["list", "read"], scope: { kind: "collection" } }), randomUUID(),
@@ -69,10 +70,14 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
     await registerNextCollection(db, { collectionId: id, ownerUserId: id, runtime: options.runtime ?? "next", sync, rootKeyId: unsigned.root, ops });
     if (sync === "cloud_copy") await storeServiceDevice(db, id, record);
     const batch = await append(id, 1, ops, options.appended === false ? "sending" : "appended");
+    if (options.narrowable) await db.query("UPDATE grants SET operations=$2,file_capability=$3 WHERE id=$1", [id,
+      JSON.stringify([...APPLICATION_CAPABILITY_DEFINITIONS["collection.read"], ...APPLICATION_CAPABILITY_DEFINITIONS["records.create"]]),
+      JSON.stringify({ kind: "files", protocol_version: 1, actions: ["list", "read", "add"], scope: { kind: "collection" } })]);
+    const logGrant = await queueNextGrantPolicy(db, id);
     const daemon = randomUUID();
     if (options.daemon) await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$2,'desktop',$3,$4,$5)", [daemon, id, randomBytes(32), randomBytes(32), randomBytes(32)]);
     const route = (collection = id, bearer = token) => app.inject({ method: "GET", url: `/v1/next/collections/${collection}/route`, headers: { authorization: `Bearer ${bearer}` } });
-    return { id, token, record, batch, daemon, route };
+    return { id, token, record, batch, daemon, logGrant, route };
   }
 
   it("puts the exact fixed-path hosted target first and preserves daemon fallback; online remains false", async () => {
@@ -89,9 +94,36 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
     const f = await fixture({ hostedOnly: true });
     const response = await f.route();
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ collection: f.id, grant: f.id, targets: [{ kind: "hosted", device: f.record.device_id }] });
+    expect(response.json()).toMatchObject({ collection: f.id, grant: f.logGrant, authorization_grant: f.id, targets: [{ kind: "hosted", device: f.record.device_id }] });
     await db.query("UPDATE hosted_collections SET authority_state='transferring' WHERE id=$1", [f.id]);
     expect((await f.route()).statusCode).toBe(401);
+  });
+
+  it("hosted-only routes require an active binding and return only the replacement log UUID after narrowing", async () => {
+    const f = await fixture({ hostedOnly: true, narrowable: true });
+    expect((await f.route()).json()).toMatchObject({ grant: f.logGrant, authorization_grant: f.id });
+    const client = await db.connect(); let narrowed: string | null;
+    try {
+      await client.query("BEGIN");
+      await client.query("UPDATE grants SET operations=$2,file_capability=$3 WHERE id=$1", [f.id,
+        JSON.stringify(APPLICATION_CAPABILITY_DEFINITIONS["collection.read"]),
+        JSON.stringify({ kind: "files", protocol_version: 1, actions: ["list", "read"], scope: { kind: "collection" } })]);
+      narrowed = await queueNextGrantPolicy(client, f.id);
+      await client.query("COMMIT");
+    } finally { await client.query("ROLLBACK"); client.release(); }
+    expect(narrowed!).not.toBe(f.logGrant);
+    const response = await f.route();
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ grant: narrowed!, authorization_grant: f.id, targets: [{ kind: "hosted" }] });
+    expect(response.json().grant).not.toBe(f.logGrant);
+    expect((await f.route(f.id, f.logGrant!)).statusCode).toBe(401);
+    const outbox = (await db.query<{ ops: { ops: { op: string; grant: string }[] } }>("SELECT ops FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id DESC LIMIT 1", [f.id])).rows[0]!;
+    expect(outbox.ops.ops.map(({ op, grant }) => ({ op, grant }))).toEqual([{ op: "grant-revoke", grant: f.logGrant }, { op: "grant", grant: narrowed! }]);
+    await db.query("UPDATE next_grant_bindings SET active=false WHERE grant_id=$1", [f.id]);
+    expect((await f.route()).statusCode).toBe(409);
+    expect((await f.route()).json().error.code).toBe("application_reauthorization_required");
+    await db.query("DELETE FROM next_grant_bindings WHERE grant_id=$1", [f.id]);
+    expect((await f.route()).statusCode).toBe(409);
   });
 
   it("a recorded/pending/lost enrolment does not create a target, and a later appended revoke removes it", async () => {
