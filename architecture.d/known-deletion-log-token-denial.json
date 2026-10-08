@@ -1,0 +1,6 @@
+{
+  "reason": "Reuse the existing permanent deletion-denial helper immediately before role-0 token mint in the existing locked transaction. One relative import, no new production helper files/exports/config/schema/signers. Any known fact denies; database failure is never absence. Absent local facts do not establish native currentness, an effect-time lease, startup permission or complete serving fences.",
+  "growth": {
+    "relativeImports": 1
+  }
+}
