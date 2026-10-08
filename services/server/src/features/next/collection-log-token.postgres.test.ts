@@ -26,6 +26,7 @@ describePg("collection log-token refresh", () => {
   let schema: string;
   const issuer = generateKeyPairSync("ed25519");
   const app = Fastify();
+  let mintCalls=0;
 
   beforeAll(async () => {
     const url = new URL(testUrl!);
@@ -38,7 +39,7 @@ describePg("collection log-token refresh", () => {
     const transport = generateKeyPairSync("ed25519").privateKey;
     const log = new LogServiceClient({ url: "https://log.example.test", tokenIssuerKeyPem: issuer.privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
       transportKeyPem: transport.export({ format: "pem", type: "pkcs8" }).toString() }, async () => { throw new Error("no network"); });
-    registerCollectionLogTokenRoute(app, { db, log, now: () => NOW });
+    registerCollectionLogTokenRoute(app, { db, log:{mintToken:claims=>{mintCalls++;return log.mintToken(claims);}}, now: () => NOW });
   }, 60_000);
   afterAll(async () => {
     await app.close(); await db?.end();
@@ -263,6 +264,46 @@ describePg("collection log-token refresh", () => {
     expect(await code()).toBe("not_member");
   });
 
+  it.each([
+    ["private","cp-intent"],["private","native-registry"],["private","conflicting"],
+    ["cloud_copy","cp-intent"],["cloud_copy","native-registry"],["cloud_copy","conflicting"]
+  ] as const)("denies known %s deletion facts (%s) despite eligible restored CP rows, for owner and member",async(sync,authority)=>{
+    const owner=await identity(), member=await identity(), c=await collection(owner,sync,[owner,member]);
+    const max=((1n<<64n)-1n).toString();
+    await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority,actor_id) VALUES($1,$2,$3,$4,$5)",
+      [c,randomUUID(),authority==="cp-intent"?"1":max,authority==="cp-intent"?"cp-intent":"native-registry",owner.connector.user_id]);
+    if(authority==="conflicting")await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'cp-intent')",[c,randomUUID()]);
+    // Restored/live collection metadata cannot remove the separate permanent fact.
+    await db.query("UPDATE next_collections SET runtime='next',left_sync_at=NULL WHERE collection_id=$1",[c]);
+    const before=mintCalls;
+    for(const who of [owner,member]){
+      const reply=await refresh(who,c,await proof(who,c));
+      expect(reply.statusCode).toBe(409);expect(reply.json().error.code).toBe("collection_deleted");
+      expect(reply.json().token).toBeUndefined();expect(reply.json().expires_at).toBeUndefined();
+      expect(reply.headers["cache-control"]).toBe("no-store");
+    }
+    expect(mintCalls).toBe(before);
+    const other=await collection(owner,sync,[owner]);
+    expect((await refresh(owner,other,await proof(owner,other))).statusCode).toBe(200);
+    expect(mintCalls).toBe(before+1);
+    expect((await db.query("SELECT count(*)::int AS n FROM next_collection_deletion_facts WHERE collection_id=$1",[c])).rows[0].n).toBe(authority==="conflicting"?2:1);
+  });
+  it("never mints when the permanent denial lookup fails unexpectedly",async()=>{
+    const who=await identity(),c=await collection(who,"cloud_copy",[who]),payload=await proof(who,c),before=mintCalls;
+    const connect=db.connect;
+    db.connect=async()=>{
+      const client=await connect.call(db),query=client.query.bind(client);
+      client.query=(text,values)=>text==="SELECT 1 FROM next_collection_deletion_facts WHERE collection_id=$1 LIMIT 1"
+        ?Promise.reject(new Error("synthetic deletion-ledger failure")):query(text,values);
+      return client;
+    };
+    try {
+      const reply=await refresh(who,c,payload);
+      expect(reply.statusCode).toBe(500);expect(reply.json().token).toBeUndefined();expect(mintCalls).toBe(before);
+    } finally {db.connect=connect;}
+    expect((await refresh(who,c,payload)).statusCode).toBe(200); // rollback preserved the unused proof
+    expect(mintCalls).toBe(before+1);
+  });
   it("refuses a collection not served by the next runtime", async () => {
     const who = await identity();
     const c = await collection(who, "cloud_copy", [who]);
