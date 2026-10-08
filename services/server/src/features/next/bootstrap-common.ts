@@ -139,8 +139,8 @@ export function refuse(reply: FastifyReply, error: unknown, message: string) {
 
 /**
  * The account is a current member of the collection: its latest effective membership
- * op (outbox order, then op order within the batch) is a member-set acknowledged by
- * the log. A member-remove is effective even while pending; a pending member-set is
+ * op (native batch position, then row/op order) is a member-set acknowledged by
+ * the log. Queued/lost removals deny immediately; a pending member-set is
  * not. One row at most, projected in SQL.
  */
 export async function currentMember(client: DatabaseConnection, collection: string, account: string): Promise<void> {
@@ -153,7 +153,8 @@ export async function currentMember(client: DatabaseConnection, collection: stri
         AND (o.ops->'ops' @> $2::jsonb OR o.ops->'ops' @> $3::jsonb)
         AND e.value->>'account' = $4
         AND (e.value->>'op' = 'member-remove' OR (e.value->>'op' = 'member-set' AND b.state = 'appended' AND b.lost_at IS NULL))
-      ORDER BY o.id DESC, e.ord DESC
+      ORDER BY CASE WHEN b.state = 'appended' AND b.lost_at IS NULL THEN 0 ELSE 1 END DESC,
+        b.seq DESC NULLS LAST, o.id DESC, e.ord DESC
       LIMIT 1`,
     [collection, JSON.stringify([{ op: "member-set", account }]), JSON.stringify([{ op: "member-remove", account }]), account]
   );

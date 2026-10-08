@@ -22,6 +22,8 @@ The portal's **Remove access** confirmation states: “This app will lose access
 
 `GET /v1/next/collections` with the installation bearer returns `{collections:[{collection_id,display_name,role}]}` for approved current cloud-copy UUIDs and current native membership only. Display-name fallback is the UUID if Connect has no named metadata. No bearer/key/path/readiness is returned; metadata is not keyed or readable qualification. Ordinary daemon/account credentials are not admitted by this installation list.
 
+Membership follows current non-lost native batch positions, then row/op order, not recovery outbox IDs. Queued or lost removals deny immediately; lost additions/enrolments are not current authority.
+
 `POST /v1/next/collections/:id/devices` keeps its existing cloud-copy-join digest/body. Installation join requires explicit UUID scope plus the account's current native owner/editor/viewer membership (acknowledged member-set, pending removal denies), the exact approved device, active owner/account/credential, current cloud copy and no device-revoke. It cannot add membership, widen scope, join private collections or change keys. Recheck after log/network awaits before minting. Ordinary daemon join remains owner-only.
 
 `POST /v1/next/collections/:id/log-token` keeps its existing digest/body and requires approved UUID scope in addition to its existing current exact acknowledged enrolment/member/device checks. Scope removal/currentness failures never mint.

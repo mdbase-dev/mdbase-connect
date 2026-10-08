@@ -564,6 +564,19 @@ describePg("cloud-copy bootstrap", () => {
     await db.query("UPDATE users SET suspended_at=now() WHERE id=$1",[owner.connector.user_id]);
     expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(403);expect((await people(who,collection)).statusCode).toBe(403);expect((await refresh(who,collection)).statusCode).toBe(403);expect((await listed(who)).json().collections).toEqual([]);
   });
+  it("projects member roles in native append order when recovery rows outrank fresh outbox IDs",async()=>{
+    const owner=await identity(),who=await installation(),collection=randomUUID();
+    expect((await serviceCreate(await session(owner.connector.user_id),collection)).statusCode).toBe(200);
+    await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"viewer"}]);await approveScope(who,collection);
+    const original=(await db.query<{ops:unknown;batch_id:string}>("SELECT ops,batch_id FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb",[collection,JSON.stringify([{op:"member-set",account:who.connector.user_id,role:"viewer"}])])).rows[0]!;
+    await queueNextPolicy(db,collection,[{op:"member-set",account:who.connector.user_id,role:"editor"}]);
+    await db.query("INSERT INTO next_policy_outbox(collection_id,ops,reissue_of) VALUES($1,$2,$3)",[collection,JSON.stringify(original.ops),original.batch_id]);
+    await emitter.drainCollection(collection);
+    expect((await listed(who)).json().collections).toEqual([expect.objectContaining({collection_id:collection,role:"editor"})]);
+    expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(200);
+    const members=await people(who,collection,"members");expect(members.statusCode,members.body).toBe(200);
+    expect(members.json().members).toContainEqual(expect.objectContaining({account_id:who.connector.user_id,role:"editor"}));
+  });
   it("uses only current policy batches for scoped member and exact enrolment authority",async()=>{
     const owner=await identity(),who=await installation(),collection=randomUUID();
     expect((await serviceCreate(await session(owner.connector.user_id),collection)).statusCode).toBe(200);

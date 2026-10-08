@@ -140,9 +140,8 @@ async function refresh(
     [collection, tuple]
   );
   if (!enrolled.rows.length) throw new Refused(409, "not_enrolled");
-  // The account is a current member: its latest effective membership op, in outbox
-  // order then op order within the batch, is a member-set acknowledged by the log.
-  // A member-remove is effective even while pending; a pending member-set is not.
+  // Derive current membership from native append order, not recovery/outbox IDs.
+  // Queued/lost removals deny immediately; additions need a current appended batch.
   // One row at most, projected in SQL.
   const latest = await client.query<{ op: string }>(
     `SELECT e.value->>'op' AS op
@@ -153,7 +152,8 @@ async function refresh(
         AND (o.ops->'ops' @> $2::jsonb OR o.ops->'ops' @> $3::jsonb)
         AND e.value->>'account' = $4
         AND (e.value->>'op' = 'member-remove' OR (e.value->>'op' = 'member-set' AND b.state = 'appended' AND b.lost_at IS NULL))
-      ORDER BY o.id DESC, e.ord DESC
+      ORDER BY CASE WHEN b.state = 'appended' AND b.lost_at IS NULL THEN 0 ELSE 1 END DESC,
+        b.seq DESC NULLS LAST, o.id DESC, e.ord DESC
       LIMIT 1`,
     [collection, JSON.stringify([{ op: "member-set", account: connector.user_id }]),
       JSON.stringify([{ op: "member-remove", account: connector.user_id }]), connector.user_id]

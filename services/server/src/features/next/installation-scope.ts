@@ -44,7 +44,8 @@ export async function installationCollections(client: DatabaseConnection, accoun
        CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY e(value,ord)
        WHERE o.collection_id=n.collection_id AND e.value->>'account'=$1
          AND (e.value->>'op'='member-remove' OR (e.value->>'op'='member-set' AND b.state='appended' AND b.lost_at IS NULL))
-       ORDER BY o.id DESC,e.ord DESC LIMIT 1
+       ORDER BY CASE WHEN b.state='appended' AND b.lost_at IS NULL THEN 0 ELSE 1 END DESC,
+         b.seq DESC NULLS LAST,o.id DESC,e.ord DESC LIMIT 1
      ) member
      WHERE n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL
        AND owner.suspended_at IS NULL AND member.op='member-set'
@@ -89,7 +90,8 @@ export async function installationPeople(client: DatabaseConnection, connector: 
        CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY e(value,ord)
        WHERE o.collection_id=$1 AND e.value->>'account'=u.id::text
          AND (e.value->>'op'='member-remove' OR (e.value->>'op'='member-set' AND b.state='appended' AND b.lost_at IS NULL))
-       ORDER BY o.id DESC,e.ord DESC LIMIT 1
+       ORDER BY CASE WHEN b.state='appended' AND b.lost_at IS NULL THEN 0 ELSE 1 END DESC,
+         b.seq DESC NULLS LAST,o.id DESC,e.ord DESC LIMIT 1
      ) m ON m.op='member-set' WHERE u.suspended_at IS NULL ORDER BY u.id LIMIT 1001`, [collection]
   );
   if (members.rows.length>1000) throw new CreateError(409,"installation_scope_limit");
