@@ -252,7 +252,7 @@ impl HostedProvider {
         .execute(&mut *transaction)
         .await?;
         sqlx::query(
-            "UPDATE hosted_provider_replicas SET revoked_at = COALESCE(revoked_at, now()) WHERE collection_id = $1",
+            "UPDATE hosted_provider_replicas SET revoked_at = COALESCE(revoked_at, now()), revoked_by_migration = NULL, migration_revoked_at = NULL WHERE collection_id = $1",
         )
         .bind(transfer.collection_id)
         .execute(&mut *transaction)

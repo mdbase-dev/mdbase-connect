@@ -67,18 +67,14 @@ impl HostedProvider {
         let requested_token_hash = token_hash(&input.token);
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
-            r#"SELECT max_mirror_replicas, max_application_replicas
+            r#"SELECT max_mirror_replicas, max_application_replicas, state
                FROM hosted_provider_collections WHERE id = $1 FOR UPDATE"#,
         )
         .bind(collection_id)
         .fetch_optional(&mut *transaction)
         .await?
-        .ok_or_else(|| {
-            ApiError::not_found(
-                "hosted_collection_not_found",
-                "Hosted collection not found.",
-            )
-        })?;
+        .ok_or_else(files::hosted_collection_not_found)?;
+        collections::refuse_migrating(&collection.get::<String, _>("state"))?;
         let (max_replicas, quota_code, quota_message) = match input.purpose {
             ReplicaPurpose::Mirror => (
                 number(
@@ -304,6 +300,7 @@ impl HostedProvider {
             ));
         }
         let mut transaction = self.pool.begin().await?;
+        collections::refuse_migrating_replica(&mut transaction, replica_id).await?;
         reject_legacy_application_replica(&mut transaction, replica_id).await?;
         archive_application_replay_credential(&mut transaction, replica_id).await?;
         let result = sqlx::query(
@@ -723,9 +720,10 @@ impl HostedProvider {
 
     pub async fn revoke_replica(&self, replica_id: Uuid) -> ApiResult<()> {
         let mut transaction = self.pool.begin().await?;
+        super::collections::lock_replica_for_revocation(&mut transaction, replica_id).await?;
         archive_application_replay_credential(&mut transaction, replica_id).await?;
         sqlx::query(
-            "UPDATE hosted_provider_replicas SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
+            "UPDATE hosted_provider_replicas SET revoked_at = COALESCE(revoked_at, now()), revoked_by_migration = NULL, migration_revoked_at = NULL WHERE id = $1",
         )
         .bind(replica_id)
         .execute(&mut *transaction)
@@ -980,7 +978,7 @@ async fn reject_legacy_application_replica(
     Ok(())
 }
 
-async fn archive_application_replay_credential(
+pub(in crate::provider) async fn archive_application_replay_credential(
     transaction: &mut Transaction<'_, Postgres>,
     replica_id: Uuid,
 ) -> ApiResult<()> {

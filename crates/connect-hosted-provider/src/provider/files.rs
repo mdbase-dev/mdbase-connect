@@ -532,7 +532,7 @@ pub(super) fn classify_media(path: &str) -> (FileMediaClass, Option<String>) {
     (class, Some(media_type.to_string()))
 }
 
-fn hosted_collection_not_found() -> ApiError {
+pub(super) fn hosted_collection_not_found() -> ApiError {
     ApiError::not_found(
         "hosted_collection_not_found",
         "Hosted collection not found.",

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { pruneUsageHistory } from "../../usage-report.js";
+import { registerErrorHandler } from "../../platform/error-handler.js";
 import { connectorFromRequest, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { clientFingerprint, deviceRegistrationDigest } from "../next/devices.js";
 import { ed25519RawPublicKey } from "../next/policy-keys.js";
@@ -52,6 +53,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     await app.register(cookie);
+    registerErrorHandler(app);
     registerConnectorPairingRoutes(app, { db, publicUrl: "https://connect.test", installationDevices: true, installationEnvironment: "lab" });
     registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null } });
     app.get("/test/installation-scope", async (request, reply) => {
@@ -71,12 +73,12 @@ describePg("installation device sign-in on daemon pairing", () => {
   });
   async function account() {
     const user = randomUUID(), session = randomUUID(), token = randomToken("session");
-    await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Owner')", [user, `${user}@example.test`]);
+    await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'Owner','next')", [user, `${user}@example.test`]);
     await db.query("INSERT INTO sessions(id,user_id,token_hash,provider,account_session_epoch,expires_at) VALUES($1,$2,$3,'password',(SELECT session_epoch FROM users WHERE id=$2),now()+interval '1 hour')", [session, user, tokenHash(token)]);
     return { user, session, headers: { cookie: `mdbase_session=${token}` } };
   }
   function original(kind: "app-runtime" | "mobile" = "app-runtime") {
-    return { connector_name: "Caller-supplied name is not app identity", installation: { request_id: randomUUID(), pairing_secret: randomToken("pair"), installation_id: randomUUID(), device_id: randomUUID(), kind, app_id: kind === "mobile" ? "tasknotes-mobile" : "tasknotes-web" } };
+    return { connector_name: "Caller-supplied name is not app identity", installation: { request_id: randomUUID(), pairing_secret: randomToken("pair"), installation_id: randomUUID(), device_id: randomUUID(), kind, app_id: kind === "mobile" ? "tasknotes-mobile" : "tasknotes-web", requested_create_collections:false, reconsent:false } };
   }
   type Input = ReturnType<typeof original> & {installation: ReturnType<typeof original>["installation"] & {renewal?: {request_id:string;pairing_secret:string}}};
   const originHeaders = (input:Input) => ({origin:input.installation.kind === "mobile" ? "capacitor://app.tasknotes.dev" : webOrigin});
@@ -85,17 +87,17 @@ describePg("installation device sign-in on daemon pairing", () => {
     const bearer = { authorization: `Bearer ${input.installation.pairing_secret}` };
     return { base, bearer, exchange: () => app.inject({ method: "POST", url: `${base}/exchange`, headers: bearer }) };
   }
-  async function start(input: Input) {
-    const result = await app.inject({ method: "POST", url: "/v1/pairing-requests", payload: input, headers:originHeaders(input) });
+  async function start(input: Input, origin = originHeaders(input).origin) {
+    const result = await app.inject({ method: "POST", url: "/v1/pairing-requests", payload: input, headers:{origin} });
     expect(result.statusCode).toBe(201);
     expect(result.json().verification_uri).toBe(`https://connect.test/pair/${input.installation.request_id}`);
     expect(result.json().app_name).toBe("TaskNotes");
     expect(result.headers["cache-control"]).toBe("no-store");
     return channel(input);
   }
-  async function approveDevice(flow: ReturnType<typeof channel>, owner: Awaited<ReturnType<typeof account>>, fingerprint?:string) {
+  async function approveDevice(flow: ReturnType<typeof channel>, owner: Awaited<ReturnType<typeof account>>, fingerprint?:string, consent={collection_ids:[] as string[],create_collections:false}) {
     const inspected = await app.inject({method:"GET",url:flow.base,headers:owner.headers});
-    return app.inject({method:"POST",url:`${flow.base}/approve`,headers:owner.headers,payload:{fingerprint:fingerprint??inspected.json().pairing?.fingerprint??"0000-0000-0000-0000"}});
+    return app.inject({method:"POST",url:`${flow.base}/approve`,headers:owner.headers,payload:{fingerprint:fingerprint??inspected.json().pairing?.fingerprint??"0000-0000-0000-0000",...consent}});
   }
   async function attest(input: Input, selected: Record<string, string>, privateKey = generateKeyPairSync("ed25519").privateKey) {
     const sign_pk = Buffer.from(ed25519RawPublicKey(privateKey)).toString("hex"), kem_pk = rawX(), noise_pk = rawX();
@@ -105,8 +107,10 @@ describePg("installation device sign-in on daemon pairing", () => {
     const result = await app.inject({ method: "POST", url: `${flow.base}/attest`, headers: flow.bearer, payload });
     return { payload, result };
   }
-  async function prepared(kind: "app-runtime" | "mobile" = "app-runtime") {
-    const owner = await account(), input = original(kind), flow = await start(input);
+  async function prepared(kind: "app-runtime" | "mobile" = "app-runtime", create=false, existingOwner?:Awaited<ReturnType<typeof account>>, origin?:string) {
+    const owner = existingOwner??await account(), input = original(kind);
+    input.installation.requested_create_collections=create;
+    const flow = await start(input, origin);
     expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).statusCode).toBe(200);
     const selected = (await flow.exchange()).json();
     expect(selected.status).toBe("account_selected"); expect(selected.account_id).toBe(owner.user); expect(selected.token).toBeUndefined();
@@ -117,6 +121,38 @@ describePg("installation device sign-in on daemon pairing", () => {
   function renewal(input:Input):Input {
     return {...input,installation:{...input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),renewal:{request_id:input.installation.request_id,pairing_secret:input.installation.pairing_secret}}};
   }
+  it("refuses legacy account selection without claiming the request or issuing a device", async () => {
+    const owner = await account(), input = original(), flow = await start(input);
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [owner.user]);
+    const refused = await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.code).toBe("installation_legacy_backend");
+    expect(refused.json().error.message).toMatch(/Finish migrating/);
+    expect((await flow.exchange()).json()).toEqual({ status: "pending" });
+    expect((await db.query("SELECT user_id FROM pairing_requests WHERE id=$1", [input.installation.request_id])).rows[0].user_id).toBeNull();
+    expect((await db.query("SELECT device_id FROM installation_device_credentials WHERE pairing_id=$1", [input.installation.request_id])).rows).toEqual([]);
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [owner.user]);
+    expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).statusCode).toBe(200);
+  });
+  it("rechecks backend at attestation, approval and committed exchange replay; cancellation is still allowed", async () => {
+    const f = await prepared();
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [f.owner.user]);
+    const attestation = await app.inject({ method: "POST", url: `${f.flow.base}/attest`, headers: f.flow.bearer, payload: f.proof.payload });
+    expect(attestation.statusCode).toBe(409);
+    expect(attestation.json().error.code).toBe("installation_legacy_backend");
+    expect((await approveDevice(f.flow, f.owner)).json().error.code).toBe("installation_legacy_backend");
+    expect((await f.flow.exchange()).json().error.code).toBe("installation_legacy_backend");
+    expect((await db.query("SELECT device_id FROM installation_device_credentials WHERE pairing_id=$1", [f.input.installation.request_id])).rows).toEqual([]);
+    expect((await app.inject({ method: "POST", url: `${f.flow.base}/deny`, headers: f.owner.headers })).statusCode).toBe(200);
+    const paired = await prepared();
+    expect((await approveDevice(paired.flow, paired.owner)).statusCode).toBe(200);
+    expect((await paired.flow.exchange()).json().status).toBe("paired");
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [paired.owner.user]);
+    const replay = await paired.flow.exchange();
+    expect(replay.statusCode).toBe(409);
+    expect(replay.json().error.code).toBe("installation_legacy_backend");
+    expect(replay.json().token).toBeUndefined();
+  });
   it.each(["app-runtime", "mobile"] as const)("preserves exact %s request through concurrent/lost committed exchange without another device", async kind => {
     const { owner, input, flow, selected, proof } = await prepared(kind);
     expect((await flow.exchange()).json().status).toBe("awaiting_approval");
@@ -136,7 +172,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect(counts.rows[0]).toEqual({ devices: 1, credentials: 1 });
     expect((await db.query("SELECT kind FROM next_devices WHERE id=$1", [input.installation.device_id])).rows[0].kind).toBe(kind);
     const headers = { authorization: `Bearer ${discarded.token}` };
-    expect((await app.inject({ method: "GET", url: "/test/installation-scope", headers })).json()).toEqual({ id: selected.connector_id, user_id: owner.user });
+    expect((await app.inject({ method: "GET", url: "/test/installation-scope", headers })).json()).toEqual({ id: selected.connector_id, user_id: owner.user, installation_device_id:input.installation.device_id });
     expect((await app.inject({ method: "POST", url: "/v1/next/devices/challenge", headers })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/test/controller-scope", headers })).statusCode).toBe(401);
     expect((await app.inject({ method: "POST", url: "/v1/next/devices", headers, payload: {} })).statusCode).toBe(401);
@@ -250,6 +286,145 @@ describePg("installation device sign-in on daemon pairing", () => {
     const strict = await account(), strictInput=original(), strictFlow=await start(strictInput); await db.query("INSERT INTO next_account_keys(user_id,mode,version) VALUES($1,'strict',1)",[strict.user]);
     expect((await app.inject({method:"POST",url:`${strictFlow.base}/select-account`,headers:strict.headers})).statusCode).toBe(403);
     const transition = await prepared(); expect((await approveDevice(transition.flow,transition.owner)).statusCode).toBe(200); await db.query("INSERT INTO next_account_keys(user_id,mode,version) VALUES($1,'strict',1)",[transition.owner.user]); expect((await transition.flow.exchange()).statusCode).toBe(403);
+  });
+  async function scopeCollection(owner:string, member=owner) {
+    const collection=randomUUID();
+    await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'next','cloud_copy',$3)",[collection,owner,Buffer.alloc(32)]);
+    const batch=(await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,1,$2,$3,1,'appended') RETURNING id",[collection,Buffer.alloc(32),Buffer.alloc(1)])).rows[0].id;
+    const ops=[{op:"member-set",account:owner,role:"owner"},...(member===owner?[]:[{op:"member-set",account:member,role:"editor"}])];
+    await db.query("INSERT INTO next_policy_outbox(collection_id,ops,batch_id) VALUES($1,$2,$3)",[collection,JSON.stringify({version:1,ops}),batch]);
+    return collection;
+  }
+  it("persists only explicit UUIDs/create consent and refuses changed or undeclared approval",async()=>{
+    const p=await prepared(); const approved=await scopeCollection(p.owner.user), other=await scopeCollection(p.owner.user);
+    expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[approved],create_collections:true})).statusCode).toBe(400);
+    expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[approved],create_collections:false})).statusCode).toBe(200);
+    expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[other],create_collections:false})).statusCode).toBe(409);
+    const result=await p.flow.exchange(); expect(result.statusCode,result.body).toBe(200);
+    expect(result.json()).toMatchObject({collection_ids:[approved],create_collections:false});
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([{collection_id:approved}]);
+    expect((await db.query("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].create_collections).toBe(false);
+  });
+  it("refuses foreign/private/left UUID approval and membership lost before exchange without issuing credentials",async()=>{
+    const p=await prepared(), other=await account(); const foreign=await scopeCollection(other.user), priv=await scopeCollection(p.owner.user), left=await scopeCollection(p.owner.user);
+    await db.query("UPDATE next_collections SET sync='private' WHERE collection_id=$1",[priv]);
+    await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1",[left]);
+    for (const id of [foreign,priv,left,randomUUID()]) expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[id],create_collections:false})).statusCode).toBeGreaterThanOrEqual(400);
+    const member=await scopeCollection(other.user,p.owner.user);
+    expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[member],create_collections:false})).statusCode).toBe(200);
+    await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",[member,JSON.stringify({version:1,ops:[{op:"member-remove",account:p.owner.user}]})]);
+    expect((await p.flow.exchange()).statusCode).toBe(409);
+    expect((await db.query("SELECT connector_id FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+  });
+  async function rescope(p:Awaited<ReturnType<typeof prepared>>,token:string,create=false,origin=originHeaders(p.input).origin) {
+    const input={...p.input,installation:{...p.input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),reconsent:true,requested_create_collections:create}};
+    const result=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{origin,authorization:`Bearer ${token}`},payload:input});
+    expect(result.statusCode,result.body).toBe(201);
+    return {input,flow:channel(input)};
+  }
+  it("adds scope with unchanged credential/actor even after original window deletion; lost committed replies never reapply additions",async()=>{
+    const p=await prepared("mobile",true), first=await scopeCollection(p.owner.user), added=await scopeCollection(p.owner.user);
+    expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[first],create_collections:true})).statusCode).toBe(200);
+    const original=(await p.flow.exchange()).json();
+    await db.query("DELETE FROM pairing_requests WHERE id=$1",[p.input.installation.request_id]);
+    const next=await rescope(p,original.token);
+    const inspected=(await app.inject({method:"GET",url:next.flow.base,headers:p.owner.headers})).json().pairing;
+    expect(inspected).toMatchObject({scope_only:true,attested:true,retained_collection_ids:[first],retained_create_collections:true,fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex"))});
+    expect((await next.flow.exchange()).json().status).toBe("awaiting_approval");
+    expect((await approveDevice(next.flow,p.owner,undefined,{collection_ids:[added],create_collections:false})).statusCode).toBe(200);
+    const responses=await Promise.all([next.flow.exchange(),next.flow.exchange()]);
+    for(const response of responses){ expect(response.statusCode,response.body).toBe(200); expect(response.json()).toMatchObject({status:"scope_updated",added_collection_ids:[added],approved_create_collections:false,connector_id:p.selected.connector_id,device_id:p.input.installation.device_id}); expect(response.json().token).toBeUndefined(); expect(response.json().registration).toBeUndefined(); }
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1 ORDER BY collection_id",[p.selected.connector_id])).rows.map(r=>r.collection_id)).toEqual([first,added].sort());
+    expect((await db.query("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].create_collections).toBe(true);
+    await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[p.selected.connector_id,added]);
+    expect((await next.flow.exchange()).statusCode).toBe(200);
+    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[p.selected.connector_id,added])).rows).toEqual([]);
+    expect((await app.inject({method:"POST",url:"/v1/next/devices/challenge",headers:{authorization:`Bearer ${original.token}`}})).statusCode).toBe(200);
+    expect((await db.query("SELECT count(*)::int AS n FROM next_devices WHERE connector_id=$1",[p.selected.connector_id])).rows[0].n).toBe(1);
+  });
+  it("preserves the approved LAB loopback binding through initial/additive consent and explicit removal",async()=>{
+    const origin="http://127.0.0.1:48218", p=await prepared("app-runtime",true,undefined,origin);
+    const first=await scopeCollection(p.owner.user), added=await scopeCollection(p.owner.user);
+    const inspected=(await app.inject({method:"GET",url:p.flow.base,headers:p.owner.headers})).json().pairing;
+    expect(inspected).toMatchObject({app_origin:origin,app_id:"tasknotes-web",connector_name:"TaskNotes"});
+    expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[first],create_collections:true})).statusCode).toBe(200);
+    const issued=await p.flow.exchange(); expect(issued.statusCode).toBe(200);
+    const original=issued.json(), headers={authorization:`Bearer ${original.token}`};
+    expect(publicOutcome(original)).toMatchObject({status:"paired",connector_id:p.selected.connector_id,collection_ids:[first],create_collections:true});
+    expect((await app.inject({method:"POST",url:"/v1/next/devices/challenge",headers})).statusCode).toBe(200);
+    expect((await app.inject({method:"GET",url:"/test/controller-scope",headers})).statusCode).toBe(401);
+    const before=(await db.query("SELECT app_origin,kind,token_hash,sign_pk,kem_pk,noise_pk FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0];
+    expect(before).toMatchObject({app_origin:origin,kind:"app-runtime"});
+    const changed=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{origin:webOrigin},payload:p.input});
+    expect(changed.statusCode).toBe(409);
+    expect(changed.json().error.code).toBe("installation_original_binding_changed");
+    const next=await rescope(p,original.token,false,origin);
+    expect((await approveDevice(next.flow,p.owner,undefined,{collection_ids:[added],create_collections:false})).statusCode).toBe(200);
+    const committed=await next.flow.exchange(); expect(committed.statusCode).toBe(200);
+    const replay=await next.flow.exchange(); expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toEqual(committed.json());
+    expect(committed.json()).toMatchObject({status:"scope_updated",added_collection_ids:[added],approved_create_collections:false,connector_id:p.selected.connector_id,device_id:p.input.installation.device_id});
+    expect(committed.json().token).toBeUndefined(); expect(committed.json().registration).toBeUndefined();
+    const scopes=()=>db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1 ORDER BY collection_id",[p.selected.connector_id]);
+    expect((await scopes()).rows.map(r=>r.collection_id)).toEqual([first,added].sort());
+    const remove=()=>app.inject({method:"POST",url:`${next.flow.base}/remove-access`,headers:p.owner.headers,payload:{collection_id:first,confirm:true}});
+    expect((await remove()).statusCode).toBe(200); expect((await remove()).statusCode).toBe(200);
+    expect((await scopes()).rows.map(r=>r.collection_id)).toEqual([added]);
+    expect((await p.flow.exchange()).statusCode).toBe(200); expect((await next.flow.exchange()).statusCode).toBe(200);
+    expect((await scopes()).rows.map(r=>r.collection_id)).toEqual([added]);
+    expect((await db.query("SELECT app_origin,kind,token_hash,sign_pk,kem_pk,noise_pk FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0]).toEqual(before);
+    expect((await db.query("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].create_collections).toBe(true);
+    expect((await db.query("SELECT count(*)::int AS n FROM next_devices WHERE connector_id=$1",[p.selected.connector_id])).rows[0].n).toBe(1);
+    expect((await app.inject({method:"POST",url:"/v1/next/devices/challenge",headers})).statusCode).toBe(200);
+  });
+  it("re-consent requires existing exact credential and current approval epoch; denial changes no existing access",async()=>{
+    const p=await prepared(); expect((await approveDevice(p.flow,p.owner)).statusCode).toBe(200); const original=(await p.flow.exchange()).json();
+    const input={...p.input,installation:{...p.input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),reconsent:true}};
+    expect((await app.inject({method:"POST",url:"/v1/pairing-requests",headers:originHeaders(input),payload:input})).statusCode).toBe(401);
+    expect((await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{...originHeaders(input),authorization:`Bearer ${original.token}`},payload:{...input,installation:{...input.installation,device_id:randomUUID()}}})).statusCode).toBe(409);
+    const next=await rescope(p,original.token,true);
+    expect((await approveDevice(next.flow,p.owner,undefined,{collection_ids:[],create_collections:true})).statusCode).toBe(200);
+    await db.query("UPDATE users SET session_epoch=session_epoch+1 WHERE id=$1",[p.owner.user]);
+    expect((await next.flow.exchange()).statusCode).toBe(403);
+    expect((await db.query("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].create_collections).toBe(false);
+    const fresh=await account();
+    expect((await approveDevice(next.flow,fresh)).statusCode).toBeGreaterThanOrEqual(400);
+  });
+  it("explicit Remove access revokes the app's grants and enrolled devices for one collection across its installations, atomically and idempotently",async()=>{
+    const p=await prepared("mobile",true),collection=await scopeCollection(p.owner.user);
+    expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[collection],create_collections:true})).statusCode).toBe(200);
+    const original=(await p.flow.exchange()).json(), sibling=await prepared("app-runtime",false,p.owner);
+    expect((await approveDevice(sibling.flow,p.owner,undefined,{collection_ids:[collection],create_collections:false})).statusCode).toBe(200);expect((await sibling.flow.exchange()).statusCode).toBe(200);
+    for(const installed of [p,sibling]) {
+      const keys=installed.proof.payload;
+      const ops=[{op:"device-enrol",device:installed.input.installation.device_id,account:p.owner.user,kind:installed.input.installation.kind,signPublicKey:{$hex:keys.sign_pk},kemPublicKey:{$hex:keys.kem_pk},noisePublicKey:{$hex:keys.noise_pk}}];
+      await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",[collection,JSON.stringify({version:1,ops})]);
+    }
+    const local=randomUUID();
+    await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version) VALUES($1,$2,$3,$4,'Tasks','0.3.0')",[local,p.owner.user,p.selected.connector_id,collection]);
+    async function grant(family:string,user=p.owner.user){
+      const id=randomUUID(),appId=randomUUID(),log=randomUUID();
+      await db.query("INSERT INTO applications(id,canonical_identity,family_identity,name,homepage,redirect_uris) VALUES($1,$2,$3,'Not trusted for identity','https://example.test','[]')",[appId,randomUUID(),family]);
+      await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,scope,application_installation_id,application_authorization) VALUES($1,$2,$3,$4,'["read"]','{"access":"full_collection","contracts":[]}', $5,'{"binding":{"protocol_version":4,"contracts":{"semantic_capabilities":1}}}')`,[id,user,appId,local,randomUUID()]);
+      await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$2,$3,$4)",[id,collection,log,Buffer.alloc(32)]);
+      return {id,log};
+    }
+    const target=await grant("bundle:dev.tasknotes.app"), unrelated=await grant("bundle:other.app"), stranger=await account(), foreign=await grant("bundle:dev.tasknotes.app",stranger.user);
+    const next=await rescope(p,original.token);
+    const remove=(headers=p.owner.headers,confirm=true)=>app.inject({method:"POST",url:`${next.flow.base}/remove-access`,headers,payload:{collection_id:collection,confirm}});
+    expect((await remove(stranger.headers)).statusCode).toBe(403);expect((await remove(p.owner.headers,false)).statusCode).toBe(400);
+    const result=await remove();expect(result.statusCode,result.body).toBe(200);expect(result.json()).toMatchObject({collection_id:collection,state:"revoking"});
+    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([]);
+    expect((await db.query("SELECT active FROM next_grant_bindings WHERE grant_id=$1",[target.id])).rows[0].active).toBe(false);
+    for(const id of [unrelated.id,foreign.id]) expect((await db.query("SELECT revoked_at FROM grants WHERE id=$1",[id])).rows[0].revoked_at).toBeNull();
+    const revokes=(await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id",[collection])).rows.flatMap(row=>row.ops.ops).filter((op:{op:string})=>op.op.endsWith("revoke"));
+    expect(revokes).toEqual([{op:"grant-revoke",grant:target.log},...([p,sibling].sort((a,b)=>a.selected.connector_id.localeCompare(b.selected.connector_id)).map(installed=>({op:"device-revoke",device:installed.input.installation.device_id})))]);
+    expect((await remove()).statusCode).toBe(200);
+    expect((await db.query("SELECT count(*)::int AS n FROM next_policy_outbox WHERE collection_id=$1",[collection])).rows[0].n).toBe(1+2+3);
+    expect((await approveDevice(next.flow,p.owner,undefined,{collection_ids:[collection],create_collections:false})).statusCode).toBe(409);
+    expect((await db.query("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].create_collections).toBe(true);
+    expect((await p.flow.exchange()).statusCode).toBe(200); // receipt replay cannot reapply removed scope
+    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([]);
   });
   it("keeps original daemon pairing response and one-shot exchange semantics", async () => {
     const owner = await account();

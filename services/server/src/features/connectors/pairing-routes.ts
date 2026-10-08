@@ -8,6 +8,7 @@ import { apiError } from "../../platform/http-errors.js";
 import {
   bearerToken,
   requireSessionContext,
+  requireInstallationDeviceConnector,
   requireUser,
 } from "../../platform/request-authentication.js";
 
@@ -21,6 +22,7 @@ import {
   approveInstallationPairing,
   exchangeInstallationPairing,
   denyInstallationPairing,
+  removeInstallationAccess,
   installationApp,
 } from "./installation-pairing.js";
 import { CreateError, isLockTimeout } from "../next/bootstrap-common.js";
@@ -96,6 +98,8 @@ export function registerConnectorPairingRoutes(
             .object({
               request_id: originalUuid,
               app_id: z.string().min(1).max(64),
+              requested_create_collections: z.boolean().optional(),
+              reconsent: z.boolean().optional(),
               renewal: z.object({request_id:originalUuid,pairing_secret:z.string().regex(/^pair_[A-Za-z0-9_-]{43}$/)}).strict().optional(),
               pairing_secret: z.string().regex(/^pair_[A-Za-z0-9_-]{43}$/),
               installation_id: originalUuid,
@@ -106,12 +110,15 @@ export function registerConnectorPairingRoutes(
         })
         .strict()
         .parse(request.body);
+      const existingConnector = input.installation.reconsent ? await requireInstallationDeviceConnector(request,reply,options.db) : undefined;
+      if (input.installation.reconsent && !existingConnector) return reply;
       return installationResult(reply, async () => {
         const result = await startInstallationPairing(
           options.db,
           input.installation,
           installationApp(options.installationEnvironment,input.installation.app_id,request.headers.origin,input.installation.kind),
           options.publicUrl,
+          existingConnector??undefined,
         );
         return reply.code(201).send(result);
       });
@@ -215,7 +222,11 @@ export function registerConnectorPairingRoutes(
             );
         const session = await requireSessionContext(request, reply, options.db);
         if (!session) return;
-        const {fingerprint}=z.object({fingerprint:z.string().regex(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){3}$/)}).strict().parse(request.body);
+        const {fingerprint,collection_ids,create_collections}=z.object({
+          fingerprint:z.string().regex(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){3}$/),
+          collection_ids:z.array(originalUuid).max(1000).default([]),
+          create_collections:z.boolean().default(false),
+        }).strict().parse(request.body);
         return installationResult(reply, () =>
           approveInstallationPairing(
             options.db,
@@ -223,6 +234,7 @@ export function registerConnectorPairingRoutes(
             session.user.id,
             session.sessionId,
             fingerprint,
+            {collection_ids,create_collections},
           ),
         );
       }
@@ -263,6 +275,13 @@ export function registerConnectorPairingRoutes(
   );
 
   if (options.installationDevices) {
+    app.post("/v1/pairing-requests/:pairingId/remove-access",async (request,reply)=>{
+      const session=await requireSessionContext(request,reply,options.db);
+      if(!session)return;
+      const {pairingId}=z.object({pairingId:originalUuid}).parse(request.params);
+      const {collection_id}=z.object({collection_id:originalUuid,confirm:z.literal(true)}).strict().parse(request.body);
+      return installationResult(reply,()=>removeInstallationAccess(options.db,pairingId,session.user.id,session.sessionId,collection_id));
+    });
     app.post(
       "/v1/pairing-requests/:pairingId/select-account",
       async (request, reply) => {
@@ -353,7 +372,7 @@ export function registerConnectorPairingRoutes(
             secret,
           );
           return reply
-            .code(result.status === "paired" ? 200 : 202)
+            .code(result.status === "paired" || result.status === "scope_updated" ? 200 : 202)
             .send(result);
         });
       }

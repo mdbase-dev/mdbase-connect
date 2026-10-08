@@ -29,6 +29,7 @@ import { registerAccountKeyRoutes } from "./features/next/account-keys.js";
 import { registerPrivateCollectionRoutes } from "./features/next/private-collections.js";
 import { registerNextHostedRoutes } from "./features/next/hosted-routes.js";
 import { registerMigrationRolloutRoutes } from "./features/next/migration-rollout.js";
+import { registerMigrationSourceWitnessRoutes } from "./features/next/migration-source.js";
 import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
 import { registerLabFixtureRoutes } from "./features/next/lab-fixture-routes.js";
 import { validateLabFixtureConfig } from "./features/next/lab-fixture-config.js";
@@ -37,6 +38,7 @@ import { NextRelayDevices } from "./features/next/devices.js";
 import { NoisePipes, registerNoisePipeClientRoute } from "./features/next/noise-pipes.js";
 import { registerCollectionLogTokenRoute } from "./features/next/collection-log-token.js";
 import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
+import { registerLocalRollbackBindingRoutes } from "./features/next/local-rollback-bindings.js";
 import { registerNextRouteRoutes } from "./features/next/route-routes.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { NotificationService, type NotificationTransports } from "./notifications.js";
@@ -236,11 +238,12 @@ export async function buildApp(options: BuildOptions) {
     : undefined;
 
   const serviceDeployments = options.nextControlPlane?.cloudCopyBootstrap;
+  const nextPolicySigner = options.nextControlPlane ? loadPolicySigner(options.nextControlPlane, Date.now()) : undefined;
   const nextPolicyEmitter = options.nextControlPlane
     ? new PolicyEmitter(
         options.db,
         new LogServiceClient(options.nextControlPlane.logService),
-        loadPolicySigner(options.nextControlPlane, Date.now()),
+        nextPolicySigner!,
         (error, collectionId) => app.log.error({ err: error, collectionId }, "mdbase-next policy emission failed"),
         2_000,
         Date.now,
@@ -545,10 +548,14 @@ export async function buildApp(options: BuildOptions) {
     relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
     const nextLog = new LogServiceClient(options.nextControlPlane.logService);
     registerNextDeviceRoutes(app, { db: options.db, log: nextLog });
+    registerLocalRollbackBindingRoutes(app, options.db);
     registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
-    if (options.nextControlPlane.migrationToken) registerMigrationRolloutRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken });
+    if (options.nextControlPlane.migrationToken) {
+      registerMigrationRolloutRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken });
+      registerMigrationSourceWitnessRoutes(app, { db: options.db, next: options.nextControlPlane, signer: nextPolicySigner!, provider: options.hostedProvider });
+    }
     if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, tailscaleAuth: options.tailscaleAuth });
     if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog });
     // AK1 account keys: private only, and only with a persistent per-account rate limit.
@@ -556,7 +563,7 @@ export async function buildApp(options: BuildOptions) {
       db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, rateLimitSecret: options.authRateLimitSecret
     });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
-    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker });
+    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
       db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,
       environment: options.environment, publicUrl, emitter: nextPolicyEmitter!

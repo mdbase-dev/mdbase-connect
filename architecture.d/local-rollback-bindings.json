@@ -1,0 +1,9 @@
+{
+  "reason": "One native migration preparation route owns the transaction boundary and immutable per-collection rollback receipt. It reuses the existing encryption rotation and transaction/refusal helpers; it does not create a second grant authorization model or reactivate old authority. Real PostgreSQL tests qualify deduplication, atomicity, current identity/inventory and changed-binding refusal.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 7,
+    "typeScriptExportDeclarations": 1,
+    "services/server": 1
+  }
+}
