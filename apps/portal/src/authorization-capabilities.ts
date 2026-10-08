@@ -12,6 +12,8 @@ export interface AuthorizationCapabilityGroup {
   label: string;
   description: string;
   operations: string[];
+  /** Present only for next's jointly consented record/file capability groups. */
+  fileActions?: readonly ApplicationFileAction[];
   required: boolean;
   higherImpact: boolean;
 }
@@ -147,6 +149,49 @@ export function selectedOperationsForCapabilityGroups(
       ? group.operations
       : []
   ));
+}
+
+const NEXT_FILES: Partial<Record<ApplicationCapabilityId, readonly ApplicationFileAction[]>> = {
+  "collection.read": ["list", "read"], "records.create": ["add"],
+  "records.edit": ["replace", "move"], "records.delete": ["delete"]
+};
+const NEXT_COPY: Partial<Record<ApplicationCapabilityId, { label: string; description: string }>> = {
+  "collection.read": { label: "Read records and files", description: "Open, search, validate, and follow records and saved views; list file names and read file contents." },
+  "records.create": { label: "Create records and add files", description: "Add new records and files to this collection." },
+  "records.edit": { label: "Edit records and files", description: "Change, move, and rename records; replace, move, and rename existing files." },
+  "records.delete": { label: "Delete records and files", description: "Permanently delete records and files from this collection." }
+};
+
+/** Refuse undeclared rights instead of manufacturing file or record consent. */
+export function nextAuthorizationGroups(requirements: ApplicationRequirements, requested: readonly string[]): { groups: AuthorizationCapabilityGroup[]; error?: string } {
+  const groups = authorizationCapabilityGroups(requirements, requested);
+  const refuse = { groups: [], error: "This application must update its permissions and request access again. The next runtime requires records and their matching file actions to be approved together." };
+  if (authorizationRequirementsError(requirements) || requirements.capabilities?.contract_version !== 2) return refuse;
+  const files = requirements.files;
+  if (files && "actions" in files) return refuse;
+  const declaredFiles = new Set(files ? [...files.required, ...(files.optional ?? [])] : []);
+  const requiredFiles = new Set(files?.required ?? []);
+  const result = groups.map(group => {
+    const id = group.id as ApplicationCapabilityId;
+    const fileActions = NEXT_FILES[id] ?? [];
+    return { ...group, ...NEXT_COPY[id], fileActions, required: group.required || fileActions.some(action => requiredFiles.has(action)) };
+  });
+  if (result.some(group => group.id === "offline.replica" || !group.fileActions.every(action => declaredFiles.has(action)))
+      || [...requiredFiles].some(action => !result.some(group => group.fileActions.includes(action)))) return refuse;
+  return { groups: result };
+}
+
+/** Optional saved groups restore only when both halves were explicitly approved. */
+export function selectedNextAuthorizationOperations(groups: readonly AuthorizationCapabilityGroup[], savedOperations?: readonly string[], savedFiles?: readonly string[]): Set<string> {
+  const operations = selectedOperationsForCapabilityGroups(groups, savedOperations);
+  if (savedOperations || savedFiles) {
+    for (const group of groups) {
+      if (!group.required && !(group.fileActions ?? []).every(action => savedFiles?.includes(action))) {
+        for (const operation of group.operations) operations.delete(operation);
+      }
+    }
+  }
+  return operations;
 }
 
 export const HIGHER_IMPACT_FILE_ACTIONS: ReadonlySet<ApplicationFileAction> = new Set(["delete"]);
