@@ -164,6 +164,20 @@ pgDescribe("next grant policy lifecycle (real Postgres)", () => {
     expect(await pending(c.id)).toMatchObject([{ op: "grant" }, { op: "grant-revoke", grant: third }]);
   });
 
+  it("immediate owner-account deletion succeeds and leaves no binding or outbox rows", async () => {
+    const { id } = await fixture();
+    expect(await transaction(c => queueNextGrantPolicy(c, id))).not.toBeNull();
+    expect(await pending(id)).toHaveLength(1);
+    expect((await db.query("SELECT active FROM next_grant_bindings WHERE grant_id=$1", [id])).rows).toEqual([{ active: true }]);
+    // Both the grant and its collection cascade from this owner. The grant's
+    // BEFORE DELETE revoke hook must not create an orphan during that cascade.
+    await expect(db.query("DELETE FROM users WHERE id=$1", [id])).resolves.toMatchObject({ rowCount: 1 });
+    expect((await db.query("SELECT id FROM grants WHERE id=$1", [id])).rows).toEqual([]);
+    expect((await db.query("SELECT collection_id FROM next_collections WHERE collection_id=$1", [id])).rows).toEqual([]);
+    expect((await db.query("SELECT grant_id FROM next_grant_bindings WHERE grant_id=$1 OR collection_id=$1", [id])).rows).toEqual([]);
+    expect(await pending(id)).toEqual([]);
+  });
+
   it("cascading member-account cleanup revokes a grant on a surviving collection", async () => {
     const { id } = await fixture(); const member = randomUUID();
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Member')", [member, `${member}@example.test`]);

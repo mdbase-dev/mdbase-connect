@@ -6,7 +6,7 @@ Connect's OAuth grant ID remains the stable control-plane reference for tokens, 
 - Hosted approval (new or retained) and local approval finalization queue policy after activation and attested Noise-key copy, in the same transaction.
 - Portal, connector and desktop-hosted narrowing queue `grant-revoke old` + `grant new` in **one outbox row** and update the binding atomically. An unchanged projection is idempotent; reactivation of a revoked binding allocates a fresh UUID.
 - Revocation/deletion of a `grants` row runs one database lifecycle trigger. It queues the active log UUID's revocation and marks its binding inactive in the originating transaction. This covers user/provider revocation, manifest retirement, inventory/conflict/transfer/suspension bulk SQL and cascading deletion. Duplicate requests do not append a second revoke. The trigger never creates authority.
-- Legacy/shadow/device-log grants do not emit policy. Existing next grants without a binding must reauthorize; no migration backfill invents user consent.
+- Legacy/shadow/device-log grants do not emit policy. Existing next grants without a binding are inactive until explicit reauthorization; no migration backfill invents user consent.
 - The existing policy emitter signs/appends the queued intent. A binding or discovery response is not proof of appended policy or live admission. The Noise endpoint enforces confirmed policy.
 
 ## No authority broadening
