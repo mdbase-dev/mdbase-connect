@@ -6,9 +6,9 @@ import { createDatabase, type DatabasePool } from "../../db.js";
 import { quarantineMissingHostedCollection } from "../../hosted-capability-lifecycle.js";
 import { insertLegacyHostedCollection } from "../hosted/service.js";
 import {
-  accountMigrationView, addToCohort, collectionMigrationRecord, localTakeoverAllowed, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates,
+  acceptCohortArchive, cohortArchiveBinding, accountMigrationView, addToCohort, collectionMigrationRecord, localTakeoverAllowed, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates,
   migrationsInProgress, recordCollectionCutover, registerMigrationRolloutRoutes, releaseCohort, RolloutRefused,
-  rolloutState, setPaused, startAccountMigration
+  rolloutState, setPaused, startAccountMigration as claimAccountMigration
 } from "./migration-rollout.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -18,6 +18,7 @@ const token = "m".repeat(40);
 const OP = "test-operator";
 const digest = (n: number) => n.toString(16).padStart(64, "0");
 const facts = (barrier: number, final: string) => ({ s_final: 3, cutover_seq: barrier, barrier_f: barrier, final_digest: final });
+const startAccountMigration = (db: DatabasePool, account: string) => claimAccountMigration(db, account, "production");
 
 describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
   let db: DatabasePool; let admin: pg.Pool; let schema: string;
@@ -56,6 +57,18 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     await createCohort(db, cohort, OP);
     await addToCohort(db, cohort, users, OP);
     await releaseCohort(db, cohort, OP);
+    // Synthetic trusted-verifier metadata only: these PG tests do not execute
+    // Sigstore/provider/archive verification, which belongs to the ONE verifier.
+    const binding = await cohortArchiveBinding(db, cohort);
+    const clock = new Date((await db.query("SELECT date_trunc('milliseconds', clock_timestamp()) AS now")).rows[0].now).toISOString();
+    await acceptCohortArchive(db, cohort, {
+      schema: "mdbase-recovery-set/v4", environment: "production", bucket: "test-migration-archives",
+      prefix: `production/2026/10/08/${cohort}`, backup_id: cohort,
+      complete_sha256: digest(90), manifest_sha256: digest(91), source_commit: "a".repeat(40),
+      migration_batch: binding, archive_created_at: clock, archive_completed_at: clock,
+      retention: { mode: "GOVERNANCE", days: 120,
+        retain_until: new Date(Date.parse(clock) + 120 * 86_400_000).toISOString(), inventory_digest: digest(92), count: "3" }
+    }, "production");
     return cohort;
   }
   const code = async (p: Promise<unknown>) => {
@@ -170,7 +183,7 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
 
   it("serves the dedicated migration token only", async () => {
     const app = Fastify();
-    registerMigrationRolloutRoutes(app, { db, token });
+    registerMigrationRolloutRoutes(app, { db, token, environment: "production" });
     const a = await account(["active"]);
     await released([a.user]);
     await setPaused(db, false, "go", OP);

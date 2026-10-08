@@ -83,6 +83,12 @@ export async function openDatabase(
       // pg-mem cannot execute PL/pgSQL triggers. Schema-only compatibility:
       // the real Postgres grant-policy suite qualifies every revocation hook,
       // including raw bulk SQL and cascading deletes (never pg-mem).
+      // Only migration0062's schema prefix is adapted; no trigger/currentness
+      // authority is emulated. Its real PostgreSQL suite is mandatory.
+      const archiveTrigger = "-- mdbase:next-migration-archive-triggers:v1";
+      if (sql.includes(archiveTrigger)) return memory.public.many(
+        sql.slice(0, sql.indexOf(archiveTrigger)).replace("DEFAULT date_trunc('milliseconds', clock_timestamp())", "DEFAULT now()")
+      );
       const grantTrigger = "-- mdbase:next-grant-revoke-trigger:v1";
       if (sql.includes(grantTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(grantTrigger)));
       // pg-mem does not use PostgreSQL's automatic CHECK name. Name ONLY the
