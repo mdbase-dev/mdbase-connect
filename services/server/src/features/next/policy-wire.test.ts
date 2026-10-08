@@ -119,6 +119,17 @@ describe("mdbase-next policy wire", () => {
     expect(() => encodeCbor("a\ud800b")).toThrow(/well-formed/);
   });
 
+  it("can bound nesting and require canonical policy struct encoding without changing legacy decoding", () => {
+    const nested = hex("81818100");
+    expect(decodeCbor(nested)).toEqual([[[0]]]);
+    expect(() => decodeCbor(nested,{maxDepth:1})).toThrow(/nesting/);
+    expect(decodeCbor(nested,{maxDepth:3,canonicalStructs:true})).toEqual([[[0]]]);
+    for (const noncanonical of [hex("1801"),hex("a201000000"),hex("a1616101")]) {
+      expect(() => decodeCbor(noncanonical)).not.toThrow();
+      expect(() => decodeCbor(noncanonical,{maxDepth:32,canonicalStructs:true})).toThrow(/noncanonical/);
+    }
+    expect(() => decodeCbor(hex("00"),{maxDepth:-1})).toThrow(/depth bound/);
+  });
   it("signs an item that verifies under the certified policy key", () => {
     const { root, signerConfig } = environment(Date.now());
     const policy = loadPolicySigner(signerConfig, Date.now());

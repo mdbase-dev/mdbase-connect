@@ -272,7 +272,10 @@ export type Decoded = number | bigint | boolean | null | string | Uint8Array | D
  * Decode one `mdb-cbor/1` item (log-service responses). Rejects what the profile
  * forbids: indefinite lengths, tags, `undefined`, non-64-bit floats and trailing bytes.
  */
-export function decodeCbor(bytes: Uint8Array): Decoded {
+export function decodeCbor(bytes: Uint8Array, options?: { maxDepth: number; canonicalStructs?: boolean }): Decoded {
+  const canonicalStructs = options?.canonicalStructs === true;
+  const maxDepth = options?.maxDepth ?? Infinity;
+  if (options && (!Number.isSafeInteger(maxDepth) || maxDepth < 0)) throw new Error("invalid CBOR depth bound");
   let at = 0;
   const take = (n: number) => {
     if (at + n > bytes.length) throw new Error("truncated CBOR");
@@ -286,6 +289,7 @@ export function decodeCbor(bytes: Uint8Array): Decoded {
     if (size === 0) throw new Error("indefinite or reserved CBOR length");
     let value = 0n;
     for (const b of take(size)) value = (value << 8n) | BigInt(b);
+    if (canonicalStructs && (value < 24n || (size > 1 && value < 0x100n) || (size > 2 && value < 0x10000n) || (size > 4 && value < 0x100000000n))) throw new Error("noncanonical CBOR argument");
     return value;
   };
   const int = (value: bigint): number | bigint => (value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value);
@@ -293,7 +297,8 @@ export function decodeCbor(bytes: Uint8Array): Decoded {
     if (value > BigInt(bytes.length)) throw new Error("CBOR length exceeds input");
     return Number(value);
   };
-  const item = (): Decoded => {
+  const item = (depth = 0): Decoded => {
+    if (depth > maxDepth) throw new Error("CBOR nesting exceeds bound");
     const initial = take(1)[0]!;
     const major = initial >> 5;
     const info = initial & 0x1f;
@@ -310,14 +315,19 @@ export function decodeCbor(bytes: Uint8Array): Decoded {
       case 1: return int(-1n - arg);
       case 2: return Uint8Array.from(take(length(arg)));
       case 3: return new TextDecoder("utf-8", { fatal: true }).decode(take(length(arg)));
-      case 4: return Array.from({ length: length(arg) }, () => item());
+      case 4: return Array.from({ length: length(arg) }, () => item(depth + 1));
       case 5: {
         const map = new Map<number | string, Decoded>();
+        let previous = -1;
         for (let i = 0, n = length(arg); i < n; i += 1) {
-          const key = item();
+          const key = item(depth + 1);
           if (typeof key !== "number" && typeof key !== "string") throw new Error("CBOR map key outside mdb-cbor/1");
+          if (canonicalStructs) {
+            if (typeof key !== "number" || !Number.isSafeInteger(key) || key <= previous) throw new Error("noncanonical CBOR struct key");
+            previous = key;
+          }
           if (map.has(key)) throw new Error("duplicate CBOR map key");
-          map.set(key, item());
+          map.set(key, item(depth + 1));
         }
         return map;
       }
