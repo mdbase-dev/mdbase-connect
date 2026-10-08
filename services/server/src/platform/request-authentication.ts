@@ -22,6 +22,8 @@ export interface SessionContext {
 export interface ConnectorIdentity {
   id: string;
   user_id: string;
+  /** Present only for a dedicated installation credential; never downgrade after an await. */
+  installation_device_id?: string;
 }
 
 export function bearerToken(request: FastifyRequest): string | null {
@@ -175,7 +177,7 @@ export async function requireInstallationDeviceConnector(
   const token = bearerToken(request);
   if (token) {
     const result = await db.query<ConnectorIdentity>(
-      `SELECT c.id, c.user_id
+      `SELECT c.id, c.user_id, k.device_id AS installation_device_id
        FROM installation_device_credentials k
        JOIN connectors c ON c.id = k.connector_id
        JOIN users u ON u.id = c.user_id

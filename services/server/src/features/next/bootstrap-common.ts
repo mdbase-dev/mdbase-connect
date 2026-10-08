@@ -14,7 +14,7 @@ export const NIL = SERVICE_ACCOUNT;
 
 export interface Proof { device_id: string; challenge: string; sig: string }
 export interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: RegisteredDeviceKind }
-export type Connector = { id: string; user_id: string };
+export type Connector = { id: string; user_id: string; installation_device_id?: string };
 /** PostgreSQL lock_timeout or statement_timeout: answer busy (fail closed), never the driver error. */
 export const isLockTimeout = (error: unknown) => ["55P03", "57014"].includes(String((error as { code?: unknown } | null)?.code));
 
@@ -27,6 +27,7 @@ export const lock = (client: DatabaseConnection, collection: string) =>
 
 /** Verify a device's signature over `digest` and consume its challenge. */
 export async function authenticate(client: DatabaseConnection, body: Proof, connector: Connector, digest: (challenge: Uint8Array) => Uint8Array): Promise<Device> {
+  if (connector.installation_device_id && connector.installation_device_id!==body.device_id) throw new CreateError(403,"invalid_proof");
   const device = (await client.query<Device>(
     "SELECT sign_pk, kem_pk, noise_pk, kind FROM next_devices WHERE id = $1 AND connector_id = $2 AND user_id = $3",
     [body.device_id, connector.id, connector.user_id]
@@ -47,6 +48,7 @@ export async function authenticate(client: DatabaseConnection, body: Proof, conn
  * suspension or device removal either happened before (and is refused here) or waits.
  */
 export async function currentIdentity(client: DatabaseConnection, connector: Connector, deviceId: string, device: Device): Promise<void> {
+  if (connector.installation_device_id && connector.installation_device_id!==deviceId) throw new CreateError(403,"identity_not_current");
   const row = await client.query(
     `SELECT 1 FROM connectors c JOIN users u ON u.id = c.user_id
        JOIN next_devices d ON d.connector_id = c.id AND d.user_id = u.id
@@ -106,7 +108,7 @@ export const enrolOp = (device: string, account: string, d: { kind: RegisteredDe
 
 /** The outbox row that enrols `device` in `collection`, if any (any keys, any account). */
 export const ENROLMENT = `SELECT o.ops, b.seq, b.item, b.state FROM next_policy_outbox o
-  LEFT JOIN next_policy_batches b ON b.id = o.batch_id
+  LEFT JOIN next_policy_batches b ON b.id = o.batch_id AND b.lost_at IS NULL
   WHERE o.collection_id = $1 AND o.ops->'ops' @> $2::jsonb ORDER BY o.id LIMIT 1`;
 export const enrolmentKey = (device: string) => JSON.stringify([{ op: "device-enrol", device }]);
 /** The whole immutable enrolment tuple: device, account, kind and all three keys. */
@@ -137,8 +139,8 @@ export function refuse(reply: FastifyReply, error: unknown, message: string) {
 
 /**
  * The account is a current member of the collection: its latest effective membership
- * op (outbox order, then op order within the batch) is a member-set acknowledged by
- * the log. A member-remove is effective even while pending; a pending member-set is
+ * op (native batch position, then row/op order) is a member-set acknowledged by
+ * the log. Queued/lost removals deny immediately; a pending member-set is
  * not. One row at most, projected in SQL.
  */
 export async function currentMember(client: DatabaseConnection, collection: string, account: string): Promise<void> {
@@ -150,8 +152,9 @@ export async function currentMember(client: DatabaseConnection, collection: stri
       WHERE o.collection_id = $1
         AND (o.ops->'ops' @> $2::jsonb OR o.ops->'ops' @> $3::jsonb)
         AND e.value->>'account' = $4
-        AND (e.value->>'op' = 'member-remove' OR (e.value->>'op' = 'member-set' AND b.state = 'appended'))
-      ORDER BY o.id DESC, e.ord DESC
+        AND (e.value->>'op' = 'member-remove' OR (e.value->>'op' = 'member-set' AND b.state = 'appended' AND b.lost_at IS NULL))
+      ORDER BY CASE WHEN b.state = 'appended' AND b.lost_at IS NULL THEN 0 ELSE 1 END DESC,
+        b.seq DESC NULLS LAST, o.id DESC, e.ord DESC
       LIMIT 1`,
     [collection, JSON.stringify([{ op: "member-set", account }]), JSON.stringify([{ op: "member-remove", account }]), account]
   );
