@@ -18,6 +18,8 @@ current_provider_upgrade() {
   upgrade_wait_http "$UPGRADE_PROVIDER_URL/ready" 'current provider upgrade' 30 2
   candidate_max=$(rollback_sql 'SELECT max(version) FROM _sqlx_migrations WHERE success')
   [[ $candidate_max =~ ^[0-9]+$ && $candidate_max -ge $predecessor_max ]]
+  # Upgrading existing replicas must not invent migration revocation ownership.
+  [[ $(rollback_sql 'SELECT count(*) FROM hosted_provider_replicas WHERE revoked_by_migration IS NOT NULL OR migration_revoked_at IS NOT NULL') == 0 ]]
   [[ $(inventory authority) == "$baseline" ]]
   [[ $(rollback_sql "SELECT md5(jsonb_agg(to_jsonb(m) ORDER BY version)::text) FROM _sqlx_migrations m WHERE version <= $predecessor_max") == "$prefix" ]]
   probe replay

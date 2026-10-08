@@ -133,8 +133,11 @@ retained_v2_run() (
       # resource, file/version/change and outbox bytes. Full collection snapshots
       # above additionally retain operational projection-publication diagnostics;
       # their first materialization and updated_at are not authority rewriting.
+      # Migration 47 adds nullable ownership fields. Treat their absence in a
+      # predecessor as NULL, retaining any actual ownership values. Full-schema
+      # restart/rollback comparisons remain unchanged.
       printf '%s\n' "$snapshot" | jq -c --arg scope "${1:-full}" \
-        '(.collections |= map(.id)) | if $scope == "authority" then del(.ledger, .cancellations) else . end' |
+        '(.collections |= map(.id)) | if $scope == "authority" then del(.ledger, .cancellations) | (.replicas |= map({revoked_by_migration:null,migration_revoked_at:null} + .)) else . end' |
         sha256sum | cut -d ' ' -f 1
     }
     start_previous_provider "$previous" false
