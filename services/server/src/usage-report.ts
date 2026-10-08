@@ -576,7 +576,10 @@ export async function pruneUsageHistory(
       "DELETE FROM authorization_requests WHERE expires_at < $1 AND grant_id IS NULL"
     ),
     pairing_requests: await deleted(
-      "DELETE FROM pairing_requests WHERE expires_at < $1"
+      `DELETE FROM pairing_requests WHERE expires_at < $1
+         AND (consumed_at IS NULL OR id NOT IN (
+           SELECT pairing_id FROM installation_device_pairings
+         ))`
     )
   };
 }

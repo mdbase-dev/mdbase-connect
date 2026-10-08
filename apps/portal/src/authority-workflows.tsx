@@ -16,6 +16,7 @@ interface DevicePairing {
   account_selected?: boolean;
   attested?: boolean;
   fingerprint?: string | null;
+  app_origin?: string;
 }
 export function Pairing({ pairingId }: { pairingId: string }) {
   const [pairing, setPairing] = useState<DevicePairing | null>(null);
@@ -58,7 +59,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     try {
       const result = await api<{ deep_link?: string }>(
         `/v1/pairing-requests/${pairingId}/${action}`,
-        { method: "POST" },
+        { method: "POST", ...(action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint})} : {}) },
       );
       if (current !== generation.current) return;
       if (action === "deny") {
@@ -112,6 +113,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     : "New browser device"}
                 </p>
                 <h1>{pairing.connector_name}</h1>
+                <p>Verified app origin: <code>{pairing.app_origin}</code></p>
                 {!pairing.account_selected ? (
                   <>
                     <p>

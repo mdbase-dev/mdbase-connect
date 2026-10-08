@@ -177,19 +177,14 @@ export async function requireInstallationDeviceConnector(
     const result = await db.query<ConnectorIdentity>(
       `SELECT c.id, c.user_id
        FROM installation_device_credentials k
-       JOIN installation_device_pairings p ON p.pairing_id = k.pairing_id
-       JOIN pairing_requests r ON r.id = p.pairing_id
        JOIN connectors c ON c.id = k.connector_id
        JOIN users u ON u.id = c.user_id
        JOIN next_devices d ON d.id = k.device_id
        WHERE k.token_hash = $1 AND c.revoked_at IS NULL
-         AND u.suspended_at IS NULL AND r.revoked_at IS NULL
-         AND r.consumed_at IS NOT NULL AND r.user_id = c.user_id
-         AND p.connector_id = c.id AND p.device_id = d.id
-         AND p.installation_id = k.installation_id
+         AND u.suspended_at IS NULL
          AND d.connector_id = c.id AND d.user_id = c.user_id
-         AND d.kind = p.kind AND d.sign_pk = p.sign_pk
-         AND d.kem_pk = p.kem_pk AND d.noise_pk = p.noise_pk`,
+         AND d.kind = k.kind AND d.sign_pk = k.sign_pk
+         AND d.kem_pk = k.kem_pk AND d.noise_pk = k.noise_pk`,
       [tokenHash(token)],
     );
     if (result.rows[0]) return result.rows[0];

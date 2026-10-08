@@ -36,6 +36,21 @@ const strict = (): never => {
     "this account uses strict device approval; add this device from your desktop",
   );
 };
+/** Fixed first-party identities. Environment picks the map, never arbitrary
+ * caller URLs. Native origins match TaskNotes Capacitor's declared hostname/
+ * scheme; Origin is mandatory (including native), with no missing-origin bypass. */
+export function installationApp(environment: string | undefined, appId: string, origin: string | undefined, kind: "app-runtime" | "mobile") {
+  const web: Record<string, readonly string[]> = {
+    production: ["https://app.tasknotes.dev"],
+    lab: ["https://lab.tasknotes-app.pages.dev"],
+    staging: ["https://staging.tasknotes-app.pages.dev"],
+  };
+  if (!environment || !Object.hasOwn(web, environment) || !origin) return fail("installation_app_not_allowed", 403);
+  const allowed = appId === "tasknotes-web" && kind === "app-runtime" ? web[environment]
+    : appId === "tasknotes-mobile" && kind === "mobile" ? ["https://app.tasknotes.dev", "capacitor://app.tasknotes.dev"] : [];
+  if (!allowed.includes(origin)) return fail("installation_app_not_allowed", 403);
+  return Object.freeze({ id: appId, origin, name: "TaskNotes" });
+}
 type Connection = Awaited<ReturnType<DatabasePool["connect"]>>;
 interface Row {
   id: string;
@@ -46,6 +61,10 @@ interface Row {
   consumed_at: Date | string | null;
   expires_at: Date | string;
   installation_id: string;
+  previous_pairing_id: string | null;
+  app_id: string;
+  app_origin: string;
+  revoked_at: Date | string | null;
   device_id: string;
   connector_id: string;
   kind: "app-runtime" | "mobile";
@@ -63,9 +82,10 @@ async function row(
   id: string,
   secret?: string,
   lock = false,
+  includeRevoked = false,
 ): Promise<Row> {
   const found = await c.query<Row>(
-    `SELECT p.*, i.installation_id,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,i.sign_pk,i.kem_pk,i.noise_pk,i.registration_sig,i.attested_at FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id WHERE p.id=$1 AND p.revoked_at IS NULL ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
+    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,i.sign_pk,i.kem_pk,i.noise_pk,i.registration_sig,i.attested_at FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
     [id, ...(secret === undefined ? [] : [tokenHash(secret)])],
   );
   const r = found.rows[0];
@@ -115,6 +135,9 @@ function selection(r: Row) {
     kind: r.kind,
     challenge: r.challenge.toString("hex"),
     approval_mode: "password-ak1" as const,
+    app_id: r.app_id,
+    app_origin: r.app_origin,
+    expires_at: new Date(r.expires_at).getTime(),
   };
 }
 export async function installationPairingExists(
@@ -130,52 +153,42 @@ export async function installationPairingExists(
 }
 export async function startInstallationPairing(
   db: DatabasePool,
-  input: {
-    request_id: string;
-    pairing_secret: string;
-    connector_name: string;
-    installation_id: string;
-    device_id: string;
-    kind: "app-runtime" | "mobile";
-  },
+  input: { request_id: string; pairing_secret: string; installation_id: string; device_id: string; kind: "app-runtime" | "mobile"; renewal?: { request_id: string; pairing_secret: string } },
+  app: ReturnType<typeof installationApp>,
   publicUrl: string,
 ) {
-  return tx(db, async (c) => {
-    const created = await c.query(
-      "INSERT INTO pairing_requests(id,secret_hash,connector_name,expires_at) VALUES($1,$2,$3,now()+interval '10 minutes') ON CONFLICT(id) DO NOTHING RETURNING id",
-      [input.request_id, tokenHash(input.pairing_secret), input.connector_name],
-    );
-    if (created.rowCount === 1)
-      await c.query(
-        "INSERT INTO installation_device_pairings(pairing_id,installation_id,device_id,connector_id,kind,challenge) VALUES($1,$2,$3,$4,$5,$6)",
-        [
-          input.request_id,
-          input.installation_id,
-          input.device_id,
-          randomUUID(),
-          input.kind,
-          randomBytes(32),
-        ],
-      );
-    const r = await row(c, input.request_id, input.pairing_secret, true);
-    if (
-      r.connector_name !== input.connector_name ||
-      r.installation_id !== input.installation_id ||
-      r.device_id !== input.device_id ||
-      r.kind !== input.kind
-    )
-      fail("installation_original_binding_changed");
+  return tx(db, async c => {
+    // Serialize both identifiers, in a stable order. A new attempt may not
+    // replace an active window or a registered actor, including cross-ID drift.
+    for (const key of [`installation:${input.installation_id}`, `device:${input.device_id}`].sort())
+      await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,20261008))", [key]);
+    const already = await c.query("SELECT id FROM pairing_requests WHERE id=$1", [input.request_id]);
+    if (!already.rows[0]) {
+      const priorIds = await c.query<{pairing_id:string}>("SELECT pairing_id FROM installation_device_pairings WHERE installation_id=$1 OR device_id=$2", [input.installation_id,input.device_id]);
+      const registered = await c.query("SELECT device_id FROM installation_device_credentials WHERE installation_id=$1 OR device_id=$2", [input.installation_id,input.device_id]);
+      if (registered.rows[0]) return fail("installation_already_registered");
+      let prior: Row | null = null;
+      if (priorIds.rows.length) {
+        if (!input.renewal) return fail("installation_original_window_required");
+        prior = await row(c,input.renewal.request_id,input.renewal.pairing_secret,true,true);
+        if (prior.consumed_at || (!prior.revoked_at && new Date(prior.expires_at).getTime()>Date.now())) return fail("installation_window_not_closed");
+        if (prior.installation_id!==input.installation_id || prior.device_id!==input.device_id || prior.kind!==input.kind || prior.app_id!==app.id || prior.app_origin!==app.origin) return fail("installation_original_binding_changed");
+        // Only the latest closed window can be renewed. An already-created
+        // successor blocks a parallel renewal, even if its parent was denied.
+        const successors = await c.query("SELECT pairing_id FROM installation_device_pairings WHERE previous_pairing_id=$1", [prior.id]);
+        if (successors.rows[0]) return fail("installation_original_window_required");
+        if (prior.user_id) { await active(c,prior.user_id); await ordinary(c,prior.user_id); }
+        await c.query("UPDATE pairing_requests SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1", [prior.id]);
+      } else if (input.renewal) return fail("installation_original_window_required");
+      await c.query("INSERT INTO pairing_requests(id,secret_hash,connector_name,user_id,expires_at) VALUES($1,$2,$3,$4,now()+interval '10 minutes')", [input.request_id,tokenHash(input.pairing_secret),app.name,prior?.user_id??null]);
+      // A renewed window retains the SAME attested key, challenge, connector,
+      // account and signature. No native re-sign/rebind or second device.
+      await c.query("INSERT INTO installation_device_pairings(pairing_id,previous_pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,sign_pk,kem_pk,noise_pk,registration_sig,attested_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)", [input.request_id,prior?.id??null,input.installation_id,input.device_id,prior?.connector_id??randomUUID(),app.id,app.origin,input.kind,prior?.challenge??randomBytes(32),prior?.account_selected_at??null,prior?.sign_pk??null,prior?.kem_pk??null,prior?.noise_pk??null,prior?.registration_sig??null,prior?.attested_at??null]);
+    }
+    const r = await row(c,input.request_id,input.pairing_secret,true);
+    if (r.installation_id!==input.installation_id || r.device_id!==input.device_id || r.kind!==input.kind || r.app_id!==app.id || r.app_origin!==app.origin || r.previous_pairing_id!==(input.renewal?.request_id??null)) return fail("installation_original_binding_changed");
     if (!r.consumed_at) live(r);
-    return {
-      pairing_id: r.id,
-      pairing_secret: input.pairing_secret,
-      verification_uri: `${publicUrl}/pair/${r.id}`,
-      expires_in: Math.max(
-        0,
-        Math.floor((new Date(r.expires_at).getTime() - Date.now()) / 1000),
-      ),
-      installation_device: true,
-    };
+    return {pairing_id:r.id,pairing_secret:input.pairing_secret,verification_uri:`${publicUrl}/pair/${r.id}`,expires_in:Math.max(0,Math.floor((new Date(r.expires_at).getTime()-Date.now())/1000)),installation_device:true,app_id:r.app_id,app_origin:r.app_origin,app_name:r.connector_name};
   });
 }
 export async function inspectInstallationPairing(
@@ -196,6 +209,8 @@ export async function inspectInstallationPairing(
       expires_at: r.expires_at,
       installation_device: true,
       kind: r.kind,
+      app_id: r.app_id,
+      app_origin: r.app_origin,
       account_selected: !!r.account_selected_at,
       attested: !!r.attested_at,
       fingerprint: r.sign_pk ? clientFingerprint(r.sign_pk) : null,
@@ -290,6 +305,7 @@ export async function approveInstallationPairing(
   id: string,
   user: string,
   session: string,
+  fingerprint: string,
 ) {
   return tx(db, async (c) => {
     await active(c, user, true);
@@ -299,9 +315,10 @@ export async function approveInstallationPairing(
     live(r);
     if (r.user_id !== user || !r.account_selected_at || !r.attested_at)
       fail("installation_attestation_required");
+    if (!r.sign_pk || fingerprint !== clientFingerprint(r.sign_pk)) return fail("installation_fingerprint_changed", 403);
     if (!r.approved_at) {
       await c.query(
-        "UPDATE pairing_requests SET approved_at=now() WHERE id=$1",
+        "UPDATE pairing_requests SET approved_at=now(),expires_at=GREATEST(expires_at,now()+interval '10 minutes') WHERE id=$1",
         [id],
       );
       await audit(c, user, "device.installation_approved", id, {
@@ -347,6 +364,8 @@ function credential(r: Row, secret: string): string {
         r.device_id,
         r.installation_id,
         r.kind,
+        r.app_id,
+        r.app_origin,
         r.sign_pk!.toString("hex"),
         r.kem_pk!.toString("hex"),
         r.noise_pk!.toString("hex"),
@@ -401,8 +420,8 @@ export async function exchangeInstallationPairing(
         ],
       );
       await c.query(
-        "INSERT INTO installation_device_credentials(pairing_id,connector_id,device_id,installation_id,token_hash) VALUES($1,$2,$3,$4,$5)",
-        [id, r.connector_id, r.device_id, r.installation_id, tokenHash(token)],
+        "INSERT INTO installation_device_credentials(pairing_id,connector_id,device_id,installation_id,token_hash,app_id,app_origin,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+        [id, r.connector_id, r.device_id, r.installation_id, tokenHash(token),r.app_id,r.app_origin,r.kind,r.sign_pk,r.kem_pk,r.noise_pk],
       );
       await c.query(
         "UPDATE pairing_requests SET consumed_at=now() WHERE id=$1",

@@ -409,7 +409,8 @@ export async function buildApp(options: BuildOptions) {
     db: options.db,
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
-    installationDevices: !!options.nextControlPlane
+    installationDevices: !!options.nextControlPlane,
+    installationEnvironment: options.environment
   });
   registerAccountSessionRoutes(app, {
     db: options.db,

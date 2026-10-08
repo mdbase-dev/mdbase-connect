@@ -21,6 +21,7 @@ import {
   approveInstallationPairing,
   exchangeInstallationPairing,
   denyInstallationPairing,
+  installationApp,
 } from "./installation-pairing.js";
 import { CreateError, isLockTimeout } from "../next/bootstrap-common.js";
 async function installationResult(
@@ -66,6 +67,7 @@ interface ConnectorPairingRoutesOptions {
   tailscaleAuth?: boolean;
   /** SAME approval channel, enabled only with next control-plane support. */
   installationDevices?: boolean;
+  installationEnvironment?: string;
 }
 
 export function registerConnectorPairingRoutes(
@@ -89,10 +91,12 @@ export function registerConnectorPairingRoutes(
           );
       const input = z
         .object({
-          connector_name: z.string().trim().min(1).max(100),
+          connector_name: z.string().trim().min(1).max(100).optional(),
           installation: z
             .object({
               request_id: originalUuid,
+              app_id: z.string().min(1).max(64),
+              renewal: z.object({request_id:originalUuid,pairing_secret:z.string().regex(/^pair_[A-Za-z0-9_-]{43}$/)}).strict().optional(),
               pairing_secret: z.string().regex(/^pair_[A-Za-z0-9_-]{43}$/),
               installation_id: originalUuid,
               device_id: originalUuid,
@@ -105,7 +109,8 @@ export function registerConnectorPairingRoutes(
       return installationResult(reply, async () => {
         const result = await startInstallationPairing(
           options.db,
-          { connector_name: input.connector_name, ...input.installation },
+          input.installation,
+          installationApp(options.installationEnvironment,input.installation.app_id,request.headers.origin,input.installation.kind),
           options.publicUrl,
         );
         return reply.code(201).send(result);
@@ -210,12 +215,14 @@ export function registerConnectorPairingRoutes(
             );
         const session = await requireSessionContext(request, reply, options.db);
         if (!session) return;
+        const {fingerprint}=z.object({fingerprint:z.string().regex(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){3}$/)}).strict().parse(request.body);
         return installationResult(reply, () =>
           approveInstallationPairing(
             options.db,
             pairingId,
             session.user.id,
             session.sessionId,
+            fingerprint,
           ),
         );
       }
