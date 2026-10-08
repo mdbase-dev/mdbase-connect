@@ -82,7 +82,7 @@ const verifiedArchiveSchema = z.object({
   }).strict()
 }).strict();
 export type ArchiveBinding = z.infer<typeof archiveBindingSchema>;
-export type VerifiedBatchArchive = z.infer<typeof verifiedArchiveSchema>;
+type VerifiedBatchArchive = z.infer<typeof verifiedArchiveSchema>;
 
 /** Private CP-owned inventory only; never return account/collection lists in the header. */
 export function migrationMembershipDigest(inventory: readonly (readonly [string, readonly string[]])[]): string {

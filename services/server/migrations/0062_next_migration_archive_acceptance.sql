@@ -81,3 +81,7 @@ CREATE TRIGGER next_migration_archive_immutable
 CREATE TRIGGER next_migration_cohort_permanent
   BEFORE DELETE ON next_migration_cohorts
   FOR EACH ROW EXECUTE FUNCTION next_migration_archive_immutable();
+CREATE TRIGGER next_migration_cohort_name_permanent
+  BEFORE UPDATE OF name ON next_migration_cohorts
+  FOR EACH ROW WHEN (OLD.name IS DISTINCT FROM NEW.name)
+  EXECUTE FUNCTION next_migration_archive_immutable();

@@ -82,6 +82,12 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     await expect(db.query("DELETE FROM next_migration_archive_acceptances WHERE cohort=$1", [name])).rejects.toThrow(/immutable/);
     const empty = await batch([]);
     await expect(db.query("DELETE FROM next_migration_cohorts WHERE name=$1", [empty])).rejects.toThrow(/immutable/);
+    // No members/acceptance/FK protects this empty batch: name identity itself
+    // must be permanent. An unchanged UPDATE remains legal and inert.
+    const binding = await cohortArchiveBinding(db, empty);
+    await expect(db.query("UPDATE next_migration_cohorts SET name=$1 WHERE name=$2", [`${empty}-renamed`, empty])).rejects.toThrow(/immutable/);
+    await db.query("UPDATE next_migration_cohorts SET name=name WHERE name=$1", [empty]);
+    expect(await cohortArchiveBinding(db, empty)).toEqual(binding);
   });
 
   it("keeps BIGINT revisions lossless and refuses revision overflow instead of wrapping", async () => {

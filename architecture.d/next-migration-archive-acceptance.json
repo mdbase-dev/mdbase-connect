@@ -1,6 +1,6 @@
 {
-  "reason": "H0 replaces the rollout module's ungated start/retry with one current batch/immutable acceptance/freshness check. Seven internal server exports: two strict v4 metadata types, three pure codec/digest/freshness functions qualified by Python golden vectors, and two transaction wrappers for the existing migration-token-only verifier/header routes. No new production module, package, signer, SDK/protocol surface or environment setting. Additive0062 holds membership revisions and append-only verifier metadata; PostgreSQL triggers invalidate coverage/ownership and enforce permanent batches. BuildOptions.environment is propagated without Host fallback. pg-mem adapts only0062's schema prefix and does not qualify triggers/locks; real-PG tests cover these.",
+  "reason": "H0 replaces the rollout module's ungated start/retry with one current batch/immutable acceptance/freshness check. Six internal server exports: the batch-binding type, three pure codec/digest/freshness functions qualified by Python golden vectors, and two transaction wrappers for the existing migration-token-only verifier/header routes. No new production module, package, signer, SDK/protocol surface or environment setting. Additive0062 holds membership revisions and append-only verifier metadata; PostgreSQL triggers invalidate coverage/ownership and enforce permanent batches. BuildOptions.environment is propagated without Host fallback. pg-mem adapts only0062's schema prefix and does not qualify triggers/locks; real-PG tests cover these.",
   "growth": {
-    "typeScriptExportDeclarations": 7
+    "typeScriptExportDeclarations": 6
   }
 }
