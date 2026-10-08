@@ -4,6 +4,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { quarantineMissingHostedCollection } from "../../hosted-capability-lifecycle.js";
+import { insertLegacyHostedCollection } from "../hosted/service.js";
 import {
   accountMigrationView, addToCohort, collectionMigrationRecord, localTakeoverAllowed, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates,
   migrationsInProgress, recordCollectionCutover, registerMigrationRolloutRoutes, releaseCohort, RolloutRefused,
@@ -190,5 +191,31 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({ backend: "next" });
     await app.close();
+  });
+
+  it("a legacy collection create racing a flip never lands on a next account", async () => {
+    const a = await account([]);
+    const row = (id: string) => ({ id, userId: a.user, displayName: "C", template: "mdbase", providerUrl: null, contracts: "[]" });
+    // A flip in progress holds the user row for update.
+    const flip = await db.connect();
+    await flip.query("BEGIN");
+    await flip.query("SELECT 1 FROM users WHERE id=$1 FOR UPDATE", [a.user]);
+    const racing = insertLegacyHostedCollection(db, row(randomUUID())).then(() => "inserted", (e: unknown) => String(e));
+    await new Promise((r) => setTimeout(r, 200));
+    await flip.query("UPDATE users SET account_backend='next' WHERE id=$1", [a.user]);
+    await flip.query("COMMIT");
+    flip.release();
+    expect(await racing).toMatch(/moved to mdbase-next/);
+    expect((await db.query("SELECT count(*)::int AS n FROM hosted_collections WHERE user_id=$1", [a.user])).rows[0].n).toBe(0);
+    // And after the flip, plainly refused.
+    await expect(insertLegacyHostedCollection(db, row(randomUUID()))).rejects.toThrow(/moved to mdbase-next/);
+    // The other order: the create commits first, then the flip sees the collection
+    // (and, with no recorded cutover, refuses).
+    const b = await account([]);
+    await released([b.user]);
+    await setPaused(db, false, "go", OP);
+    await startAccountMigration(db, b.user);
+    await insertLegacyHostedCollection(db, { ...row(randomUUID()), userId: b.user });
+    expect(await code(flipAccountBackend(db, b.user, [], flipEvidenceDigest([])))).toBe("collections_mismatch");
   });
 });
