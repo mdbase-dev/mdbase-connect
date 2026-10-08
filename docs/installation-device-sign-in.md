@@ -28,7 +28,7 @@ No plaintext bearer or pairing secret is stored in the server database. The orig
 
 Credential lifetime belongs to the connector/device, not pairing-window retention. Credentials have no cascading foreign key to either pairing table and authentication reads their exact approved public tuple independently. The daily 395-day cleanup excludes consumed installation windows. Administrative deletion of a window alone cannot revoke the credential; connector revocation or account suspension can.
 
-An explicitly expired/denied **unconsumed** window may be renewed with a new request ID and secret plus `installation.renewal: {request_id:<previous window>, pairing_secret:<previous protected secret>}`. It requires the original authenticated capability and exact installation/device/kind/app/origin. It preserves the previous account, connector, attested key tuple, original challenge and signature, but resets approval and creates a new ten-minute consent window. No native re-sign/rebind or new device is needed. An active window, registered actor, wrong prior capability/binding or parallel second successor refuses. The expired/denied window itself remains closed. This is explicit renewal, never a blind new-actor retry.
+An explicitly expired/denied **unconsumed** window may be renewed with a new request ID and secret plus `installation.renewal: {request_id:<previous window>, pairing_secret:<previous protected secret>}`. It requires the original authenticated capability and exact installation/device/kind/app/origin. It preserves the previous account, connector, attested key tuple, original challenge and signature, but resets approval and creates a new ten-minute consent window. After a denial, the renewed window also requires explicit selection of the **same** account again: exchange remains `pending` and approval refuses until that selection; account replacement is not allowed. Expiry alone retains the previous selection. No native re-sign/rebind or new device is needed. An active window, registered actor, wrong prior capability/binding or parallel second successor refuses. The expired/denied window itself remains closed. This is explicit renewal, never a blind new-actor retry.
 
 ## Explicit credential scope
 
@@ -37,6 +37,8 @@ The installation bearer is admitted only by:
 - `/v1/next/devices/challenge`;
 - device-owned cloud-copy creation and owner-device join;
 - collection log-token minting (the ordinary fixed device proof and membership checks remain required).
+
+`mobile` and `app-runtime` kinds carry identical endpoint authority; kind is immutable platform/identity metadata, not a permission or security boundary.
 
 It is not a desktop/controller bearer and is not admitted by ordinary connector management, inventory, relay, grant approval, device re-registration, private bootstrap or account-key routes. CP/log requests omit cookies. Log calls receive only the log token, never the installation credential. The public registration receipt must be protected before native acknowledgement/adoption. Device approval does not establish keyed/readable/Saved state.
 
