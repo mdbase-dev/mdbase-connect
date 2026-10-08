@@ -1,0 +1,9 @@
+{
+  "reason": "One internal database boundary replaces live-row absence with permanent denial facts outside user/collection cascades. Immutable CP intent and independently observed native denial evidence are kept distinct; union cannot erase a higher/local denial. Four internal exports and one relative type import; no endpoint, new configuration/key/signing authority or native protocol surface. This foundation does not open startup gates, acknowledge Deleted, or perform purge; those integrations require the independently current nil registry and typed Gone contract.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 4,
+    "services/server": 1
+  }
+}
