@@ -54,7 +54,7 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
       complete_sha256: hex(1), manifest_sha256: hex(2), source_commit: "a".repeat(40),
       migration_batch: binding ?? await cohortArchiveBinding(db, name),
       archive_created_at: clock, archive_completed_at: clock,
-      retention: { mode: "GOVERNANCE", days: 120, retain_until: new Date(Date.parse(clock) + 120 * 86_400_000).toISOString(), inventory_digest: hex(3), count: "3" }
+      retention: { mode: "GOVERNANCE", days: 116, retain_until: new Date(Date.parse(clock) + 116 * 86_400_000).toISOString(), inventory_digest: hex(3), count: "3" }
     };
   }
   const startedAt = async (account: string) => (await db.query("SELECT started_at FROM next_migration_cohort_members WHERE account_id=$1", [account])).rows[0]?.started_at;
@@ -187,10 +187,11 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
       const binding = await cohortArchiveBinding(db, name), body = await metadata(name, binding);
       body.archive_created_at = new Date(clock + offset).toISOString();
       body.archive_completed_at = body.archive_created_at;
-      body.retention.retain_until = new Date(clock + offset + 120 * 86_400_000).toISOString();
-      // Model an already persisted historical verifier result; no archive proof.
-      await db.query(`INSERT INTO next_migration_archive_acceptances(cohort,membership_revision,verified_result,accepted_at)
+      body.retention.retain_until = new Date(clock + offset + 116 * 86_400_000).toISOString();
+      const insert = () => db.query(`INSERT INTO next_migration_archive_acceptances(cohort,membership_revision,verified_result,accepted_at)
         VALUES($1,$2::bigint,$3::jsonb,date_trunc('milliseconds',clock_timestamp()))`, [name, binding.membership_revision, JSON.stringify(body)]);
+      if (offset > 0) await expect(insert()).rejects.toThrow(/next_migration_archive_elapsed_retention/);
+      else await insert();
       await expect(startAccountMigration(db, account, "production")).rejects.toMatchObject({ code: "backup_missing" });
       expect(await startedAt(account)).toBeNull();
     }

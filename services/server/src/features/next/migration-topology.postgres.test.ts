@@ -66,7 +66,7 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     return { schema: "mdbase-recovery-set/v4", environment: "production", bucket: "synthetic-archives",
       prefix: `production/2026/10/08/${name}`, backup_id: name, complete_sha256: "a".repeat(64), manifest_sha256: "b".repeat(64),
       source_commit: "c".repeat(40), migration_batch: binding, archive_created_at: clock, archive_completed_at: clock,
-      retention: { mode: "GOVERNANCE", days: 120, retain_until: new Date(Date.parse(clock) + 120 * 86_400_000).toISOString(), inventory_digest: "d".repeat(64), count: "3" } };
+      retention: { mode: "GOVERNANCE", days: 116, retain_until: new Date(Date.parse(clock) + 116 * 86_400_000).toISOString(), inventory_digest: "d".repeat(64), count: "3" } };
   }
 
   it("allows unfrozen/nonmember accounts and refuses either frozen transfer owner without content", async () => {
