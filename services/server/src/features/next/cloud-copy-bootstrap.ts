@@ -29,6 +29,7 @@ import { type NextControlPlaneConfig } from "./policy-keys.js";
 import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 import { generateServiceDevice, loadServiceDevice, ServiceDeviceError, storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
+import { pitrCollection, pitrLabel, pitrLogUrl, pitrDeployments, type LabPitrConfig } from "./lab-pitr-config.js";
 
 import { installationCollections, requireInstallationScope } from "./installation-scope.js";
 import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
@@ -54,10 +55,12 @@ export function cloudCopyJoinDigest(input: { challenge: Uint8Array; connector: s
 }
 
 /** Whether the collection already exists: false when free, true when this owner's cloud copy, else refused. */
-async function existing(client: DatabaseConnection, collection: string, owner: string): Promise<boolean> {
-  const row = (await client.query<{ owner_user_id: string; sync: string; left: boolean }>(
-    "SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left FROM next_collections WHERE collection_id = $1 FOR UPDATE", [collection]
+async function existing(client: DatabaseConnection, collection: string, owner: string, pitr?: LabPitrConfig): Promise<boolean> {
+  const row = (await client.query<{ owner_user_id: string; sync: string; left: boolean; created_at: Date; display_name: string }>(
+    "SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left, created_at, display_name FROM next_collections WHERE collection_id = $1 FOR UPDATE", [collection]
   )).rows[0];
+  if (pitrCollection(pitr,collection) && (owner !== pitr!.owner || (row &&
+      (!(row.created_at instanceof Date) || row.created_at.getTime() < pitr!.createdAfter || row.display_name !== pitrLabel(pitr!,collection))))) throw new CreateError(409,"collection_exists");
   if (row && (row.owner_user_id !== owner || row.sync !== "cloud_copy" || row.left)) throw new CreateError(409, "collection_exists");
   if (!row) {
     // A local collection with this logical ID that belongs to someone else is never adopted.
@@ -96,6 +99,11 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
 }): void {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new Error("cloud-copy routes need MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1");
+  const pitr = options.next.logService.labPitr;
+  const existingFor = (client: DatabaseConnection, collection: string, owner: string) => existing(client,collection,owner,pitr);
+  const fixtureName = (collection: string, owner: string, name: string) => {
+    if (pitrCollection(pitr,collection) && (owner !== pitr!.owner || name !== pitrLabel(pitr!,collection))) throw new CreateError(403,"lab_pitr_fixture_required");
+  };
   registerCollectionNameRoutes(app, options.db);
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
@@ -103,7 +111,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
   const limited = { bodyLimit: 4096, config: { rateLimit: { max: 6, timeWindow: "1 minute" } } };
   /** Each deployment generates its own keys. Nothing is locked while they work. */
   const generateFor = (collection: string) =>
-    Promise.all(KINDS.map((kind) => generateServiceDevice(deployments[kind], kind, collection, options.fetchImpl)));
+    Promise.all(KINDS.map((kind) => generateServiceDevice(pitrDeployments(deployments, options.next.logService.labPitr, collection)[kind], kind, collection, options.fetchImpl)));
 
   /** The exact bytes of a policy batch, as the log returns them at its position. */
   async function appendedBatch(collection: string, batch: { seq: string | number | null; item: Buffer | null; state: string | null } | undefined) {
@@ -133,7 +141,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
 
   const created = (collection: string, owner: string, head: { seq: number; chain: Uint8Array }, genesis: Buffer, records: ServiceDeviceRecord[]) => ({
     collection_id: collection, state: "cloud-copy", owner_account: owner,
-    log_url: options.next.logService.url, head: { seq: head.seq, chain: Buffer.from(head.chain).toString("hex") },
+    log_url: pitrLogUrl(options.next.logService.url, options.next.logService.labPitr, collection), head: { seq: head.seq, chain: Buffer.from(head.chain).toString("hex") },
     root_public_key: Buffer.from(options.next.rootPublicKey).toString("hex"), policy_cert: options.next.policyCert,
     genesis: { seq: 1, item: genesis.toString("hex") },
     service_devices: records.map(publicRecord)
@@ -185,17 +193,18 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     if (collection === NIL) return reply.code(400).send(apiError("invalid_request", "Nil identifiers are not accepted."));
     try {
       const displayName = collectionDisplayName(initialDisplayName === undefined ? DEFAULT_COLLECTION_DISPLAY_NAME : initialDisplayName);
+      fixtureName(collection,user.id,displayName);
       const exists = await inTransaction(options.db, async (client) => {
         await lock(client, collection);
         await current(client);
-        return existing(client, collection, user.id);
+        return existingFor(client, collection, user.id);
       });
       if (!exists) {
         const generated = await generateFor(collection);
         await inTransaction(options.db, async (client) => {
           await lock(client, collection);
           await current(client);
-          if (await existing(client, collection, user.id)) throw new CreateError(503, "not_ready");
+          if (await existingFor(client, collection, user.id)) throw new CreateError(503, "not_ready");
           await registerNextCollection(client, {
             collectionId: collection, ownerUserId: user.id, runtime: "next", sync: "cloud_copy", rootKeyId, displayName,
             ops: [
@@ -246,13 +255,14 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     let device: Device;
     try {
       const displayName = collectionDisplayName(initialDisplayName === undefined ? DEFAULT_COLLECTION_DISPLAY_NAME : initialDisplayName);
+      fixtureName(collection,connector.user_id,displayName);
       // 1. Proof and ownership, consuming the challenge. No network call holds a lock.
       let exists: boolean;
       ({ device, exists } = await inTransaction(options.db, async (client) => {
         await lock(client, collection);
         const owner = await authenticate(client, body, connector, digest);
         await currentIdentity(client,connector,body.device_id,owner);
-        const exists = await existing(client, collection, connector.user_id);
+        const exists = await existingFor(client, collection, connector.user_id);
         await requireInstallationScope(client,connector,exists?collection:undefined,!exists);
         return { device: owner, exists };
       }));
@@ -265,7 +275,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
           await currentIdentity(client, connector, body.device_id, device);
           await requireInstallationScope(client,connector,undefined,true);
           // Created concurrently: the retry path rechecks the enrolled device.
-          if (await existing(client, collection, connector.user_id)) throw new CreateError(503, "not_ready");
+          if (await existingFor(client, collection, connector.user_id)) throw new CreateError(503, "not_ready");
           await registerNextCollection(client, {
             collectionId: collection, ownerUserId: connector.user_id, runtime: "next", sync: "cloud_copy", rootKeyId, displayName,
             ops: [
@@ -370,7 +380,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
         await refuseRevoked(client, collection, body.device_id);
         // Hosted (or escrow) wraps the current epoch key to this device next.
         return {
-          collection_id: collection, enrolled_at: batch.seq, log_url: options.next.logService.url,
+          collection_id: collection, enrolled_at: batch.seq, log_url: pitrLogUrl(options.next.logService.url, options.next.logService.labPitr, collection),
           genesis: { seq: 1, item: genesis.item.toString("hex") },
           device: mint(body.device_id, device.sign_pk, collection)
         };

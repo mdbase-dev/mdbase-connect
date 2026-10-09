@@ -1,0 +1,9 @@
+{
+  "reason": "The fixed five-object LAB recovery drill needs one immutable A/D routing boundary and one authenticated current-CP adapter. Two server production files reuse canonical bootstrap, policy-outbox, deletion journal, original-genesis and session checks rather than introducing an issuer, escrow actor or parallel collection semantics. The nine internal exports comprise seven mapping declarations/helpers, the reused originalGenesis helper, and route registration. Twenty relative imports wire these boundaries into existing routes/emission. Ordinary origins and shared nil scans remain unchanged; the explicit isolated nil reader rejects missing mapping and foreign members. This is temporary run-specific LAB support, removable with the drill profile, not a generalized recovery framework.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 20,
+    "typeScriptExportDeclarations": 9,
+    "services/server": 2
+  }
+}

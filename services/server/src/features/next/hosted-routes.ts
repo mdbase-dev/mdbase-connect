@@ -98,7 +98,7 @@ class OriginalGenesisUnavailable extends Error {}
 /** Structural admission only, not a second crypto verifier. The deployment must
  * verify this ORIGINAL signed item with bundled PolicyPins BEFORE any KMS/keys.
  * Original genesis may predate cloud-copy; it never proves current mode. */
-async function originalGenesis(db: DatabaseQueryable, collection: string) {
+export async function originalGenesis(db: DatabaseQueryable, collection: string) {
   const rows = await db.query<{state: string; item: Buffer | null}>(
     `SELECT state, CASE WHEN octet_length(item) BETWEEN 1 AND $2 THEN item ELSE NULL END AS item
      FROM next_policy_batches WHERE collection_id=$1 AND seq=1 ORDER BY id LIMIT 2 FOR SHARE`,

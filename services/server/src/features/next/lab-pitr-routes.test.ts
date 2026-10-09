@@ -1,0 +1,124 @@
+// Hermetic CP adapter tests: SQL responses substituted, no real PG/LAB/provider.
+import { createHash, generateKeyPairSync } from "node:crypto";
+import Fastify from "fastify";
+import cookie from "@fastify/cookie";
+import { describe, expect, it } from "vitest";
+import type { DatabasePool } from "../../database-types.js";
+import { registerLabPitrRoutes } from "./lab-pitr-routes.js";
+import { ed25519RawPublicKey, type NextControlPlaneConfig } from "./policy-keys.js";
+import { keyId, signPolicyItem } from "./policy-wire.js";
+const A = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", D = "dddddddd-dddd-4ddd-addd-dddddddddddd";
+const OWNER = "11111111-1111-4111-a111-111111111111", DEVICE = "22222222-2222-4222-a222-222222222222", HOSTED = "33333333-3333-4333-a333-333333333333";
+const TOKEN = "p".repeat(40), ROOT = Buffer.alloc(16, 6), NOW = 1000;
+const peer = (id = DEVICE) => ({ id, account: id === HOSTED ? "00000000-0000-0000-0000-000000000000" : OWNER,
+  kind: id === HOSTED ? "hosted" : "cli", sign_pk: Buffer.alloc(32,2), kem_pk: Buffer.alloc(32,3), noise_pk: Buffer.alloc(32,4) });
+async function fixture(failure?: string) {
+  const privateKey = generateKeyPairSync("ed25519").privateKey;
+  const cert = { policyPublicKey: ed25519RawPublicKey(privateKey), notBefore: 0, notAfter: 10000, root: ROOT, signature: Buffer.alloc(64,8) };
+  const items = new Map([A,D].map(collection => [collection, Buffer.from(signPolicyItem({privateKey,cert}, {
+    collection,seq:1,prev:Buffer.alloc(32),issuedAt:500,previousIssuedAt:0,
+    ops:[{op:"genesis",owner:OWNER,root:ROOT,state:"cloud-copy"}]
+  }))])); // Ephemeral test signer; not a deployed policy issuer.
+  const hashes = Object.fromEntries([...items].map(([id,item]) => [id,createHash("sha256").update(item).digest("hex")]));
+  const queries: string[] = [], writes: string[] = []; let connects = 0, releases = 0, now = NOW;
+  const query = async (sql: string, values: unknown[] = []) => {
+    queries.push(sql);
+    if (failure === "lock" && sql.includes("pg_advisory_xact_lock")) throw Error("synthetic private database detail");
+    if (sql.startsWith("INSERT")) { writes.push(sql); return {rows:[]}; }
+    if (sql.startsWith("SELECT sync")) return {rows: failure === "queue" ? [] : [{sync:"cloud_copy"}]};
+    if (sql.includes("FROM sessions s")) return {rows:failure === "session" ? [] : [{one:1}]};
+    if (sql.includes("FROM next_collection_deletion_facts")) {
+      if (sql.includes("ORDER BY")) return {rows:[{collection_id:D,deletion_id:HOSTED,epoch:"1"}]};
+      return {rows:failure === "deleted" ? [{one:1}] : []};
+    }
+    if (sql.includes("SELECT n.root_key_id")) return {rows:failure === "parent" ? [] : [{root_key_id:failure === "root" ? Buffer.alloc(16,9) : ROOT}]};
+    if (sql.includes("e.value->>'op' AS op")) return {rows:[{op:failure === "member" ? "member-remove" : "member-set",role:"owner"}]};
+    if (sql.includes("CASE WHEN octet_length(item)")) return {rows:failure === "genesis" ? [] : [{state:"appended",item:items.get(String(values[0]))}]};
+    if (sql.includes("SELECT device_id::text FROM next_service_devices")) return {rows:failure === "survivor" ? [] : [{device_id:HOSTED}]};
+    if (sql.includes("device_id::text AS id")) return {rows:values[1] === HOSTED ? [peer(HOSTED)] : []};
+    if (sql.includes("FROM next_devices d")) return {rows:failure === "identity" ? [] : [{...peer(),kind:failure === "kind" ? "mobile" : "cli",sign_pk:failure === "key" ? Buffer.alloc(32,9) : peer().sign_pk}]};
+    if (sql.includes("FROM next_policy_outbox")) {
+      const op = JSON.parse(String(values[1]))[0];
+      if (op.op === "device-revoke") return {rows:failure === "revoked" ? [{one:1}] : []};
+      if (op.op === "cp-key-revoke") return {rows:failure === "security-key" ? [{one:1}] : []};
+      if (op.op === "device-enrol") {
+        expect(op).toHaveProperty("signPublicKey"); expect(op).toHaveProperty("kemPublicKey"); expect(op).toHaveProperty("noisePublicKey");
+        if (failure === "clock") now = cert.notAfter;
+        return {rows:failure === "enrolment" ? [] : [{one:1}]};
+      }
+    }
+    return {rows:[]};
+  };
+  const db = { async connect() { connects++; if (failure === "database") throw Error("synthetic database unavailable"); return {query,release(){releases++;}}; },
+    async query() { return {rows:[{id:failure === "owner" ? HOSTED : OWNER,session_id:DEVICE,last_seen_at:new Date(),email:"synthetic@example.test",name:"Synthetic",authentication_provider:"session"}]}; }, async end(){} } as unknown as DatabasePool;
+  const next = { rootPublicKey:Buffer.alloc(32,1),policyPrivateKeyPem:"synthetic unused",policyCert:{policy_public_key:Buffer.from(cert.policyPublicKey).toString("hex"),not_before:0,not_after:10000,root_key_id:ROOT.toString("hex"),signature:"08".repeat(64)},
+    logService:{url:"https://normal.example.test",tokenIssuerKeyPem:"synthetic unused",transportKeyPem:"synthetic unused",labPitr:{run:"gate4-pitr-lab-20261009-01",active:A,deleted:D,owner:OWNER,createdAfter:1,logUrl:"https://synthetic-log.example.test",hostedUrl:"https://synthetic-hosted.example.test"}},
+    serviceTokens:{},pitrAuthorityToken:TOKEN } satisfies NextControlPlaneConfig;
+  const app = Fastify(); await app.register(cookie); registerLabPitrRoutes(app,{db,next,now:()=>now,log:{labPitrCollectionDeletions:async()=>{if(failure==="registry")throw Error("synthetic registry unavailable");return {generation:7n,after:null,done:true,rows:[]};}}});
+  const body = {run:next.logService.labPitr.run,collection:A,device:DEVICE,kind:"cli",signPublicKey:peer().sign_pk.toString("hex"),genesisSha256:hashes[A],policyKeyId:Buffer.from(keyId(cert.policyPublicKey)).toString("hex")};
+  const current = (change:object={},authorization=`Bearer ${TOKEN}`) => app.inject({method:"POST",url:"/internal/v1/next/lab-pitr/current",headers:{authorization},payload:{...body,...change}});
+  const mutate = (change:object={},origin="https://connect-lab.mdbase.dev") => app.inject({method:"POST",url:"/v1/next/lab-pitr/delete-revoke",headers:{origin,cookie:"mdbase_session=synthetic-session"},payload:{run:body.run,device:DEVICE,activeGenesisSha256:hashes[A],deletedGenesisSha256:hashes[D],...change}});
+  return {app,current,mutate,queries,writes,body,counts:()=>({connects,releases})};
+}
+describe("fixed-run current CP adapter", () => {
+  it("authenticates and validates scope before authority SQL", async () => {
+    const f=await fixture(); try {
+      expect((await f.current({},"Bearer wrong")).statusCode).toBe(401);
+      for(const change of [{run:"other"},{current:true},{kind:"app"}]) expect((await f.current(change)).statusCode).toBe(400);
+      for(const change of [{collection:HOSTED},{policyKeyId:"ff".repeat(16)}]) expect((await f.current(change)).statusCode).toBe(409);
+      expect(f.queries).toEqual([]); expect(f.counts().connects).toBe(0);
+    } finally {await f.app.close();}
+  });
+  it("checks original hash, kind, exact key and floors before a no-store point observation", async () => {
+    const f=await fixture(); try {
+      const r=await f.current(); expect(r.statusCode).toBe(200); expect(r.headers["cache-control"]).toBe("no-store");
+      expect(r.json()).toEqual({...f.body,current:true,checkedAt:NOW}); expect(f.writes).toEqual([]); expect(f.queries.at(-1)).toBe("COMMIT");
+      expect(f.queries.some(q=>q.includes("n.created_at>=to_timestamp"))).toBe(true);
+    } finally {await f.app.close();}
+  });
+  it.each(["deleted","parent","root","member","genesis","identity","kind","key","revoked","security-key","enrolment","clock","lock","database"])("keeps %s closed and emits no positive observation", async failure => {
+    const f=await fixture(failure); try {
+      const r=await f.current(); expect([409,503]).toContain(r.statusCode); expect(r.json()).not.toHaveProperty("current");
+      expect(r.body).not.toContain("synthetic private database detail"); expect(f.writes).toEqual([]);
+      if(failure!=="database") {expect(f.queries.at(-1)).toBe("ROLLBACK");expect(f.counts().releases).toBe(1);}
+    } finally {await f.app.close();}
+  });
+  it("refuses wrong signed-original hash", async () => {
+    const f=await fixture(); try {expect((await f.current({genesisSha256:"ff".repeat(32)})).statusCode).toBe(409);} finally {await f.app.close();}
+  });
+});
+describe("isolated registry cut HTTP adapter", () => {
+  it("authenticates and narrows metadata without CP signer export", async () => {
+    const f=await fixture();try{
+      const request=(payload,authorization=`Bearer ${TOKEN}`)=>f.app.inject({method:"POST",url:"/internal/v1/next/lab-pitr/registry",headers:{authorization},payload});
+      const b={run:f.body.run,after:null,expected:null};
+      expect((await request(b,"Bearer wrong")).statusCode).toBe(401);
+      expect((await request({...b,expected:"18446744073709551616"})).statusCode).toBe(400);
+      const r=await request(b);expect(r.statusCode).toBe(200);expect(r.headers["cache-control"]).toBe("no-store");
+      expect(r.json()).toEqual({run:b.run,generation:"7",after:null,done:true,rows:[]});expect(f.writes).toEqual([]);
+    }finally{await f.app.close();}
+  });
+  it("keeps unavailable isolated cuts UNKNOWN",async()=>{
+    const f=await fixture("registry");try{const r=await f.app.inject({method:"POST",url:"/internal/v1/next/lab-pitr/registry",headers:{authorization:`Bearer ${TOKEN}`},payload:{run:f.body.run,after:null,expected:null}});
+      expect(r.statusCode).toBe(503);expect(r.json()).not.toHaveProperty("rows");expect(r.body).not.toContain("synthetic registry unavailable");
+    }finally{await f.app.close();}
+  });
+});
+describe("fixed-run owner CP denial mutation", () => {
+  it("requires CP origin and actual owner session", async () => {
+    for(const failure of [undefined,"owner"]) {const f=await fixture(failure);try {
+      expect((await f.mutate({},failure ? undefined : "https://evil.example.test")).statusCode).toBe(403);
+      expect(f.writes).toEqual([]);expect(f.counts().connects).toBe(0);
+    } finally {await f.app.close();}}
+  });
+  it("locks both originals and checks a survivor before atomically journalling D/revoking A peer", async () => {
+    const f=await fixture();try {
+      const r=await f.mutate();expect(r.statusCode).toBe(200);expect(r.json()).toMatchObject({deleted:D,revokedCollection:A,revokedDevice:DEVICE,lifecycleEpoch:"1"});
+      expect(f.queries.filter(q=>q.includes("pg_advisory_xact_lock"))).toHaveLength(2);
+      expect(f.writes).toHaveLength(2);expect(f.queries.at(-1)).toBe("COMMIT");expect(r.json()).not.toHaveProperty("Deleted");
+    } finally {await f.app.close();}
+  });
+  it.each(["owner","session","deleted","revoked","security-key","enrolment","survivor","queue"])("refuses %s before any committed denial", async failure => {
+    const f=await fixture(failure);try {const r=await f.mutate();expect([403,409,503]).toContain(r.statusCode);expect(f.writes).toEqual([]);}finally{await f.app.close();}
+  });
+});
