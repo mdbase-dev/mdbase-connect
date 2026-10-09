@@ -30,7 +30,7 @@ escrow service tokens; without it the routes are not mounted. Every change is an
    which the server recomputes from the cutover records. A retry with the same
    evidence returns the same flip. An account with no hosted collections flips
    with an empty list once started. There is no un-flip: rollback is only
-   possible before cutover (decision 6A).
+   possible before cutover.
 
 Operators run the `next:migration-rollout` CLI (`MDBASE_OPERATOR` names them) to
 release cohorts, pause and resume. A flipped account cannot create legacy hosted
@@ -43,7 +43,7 @@ does not alter captured archive membership/revision. Terminal topology changes
 and erasure are durably queued and run automatically after the **whole batch**
 completes (validated flips or accepted terminal exclusions), or an audited
 unfreeze before archive acceptance, including after restart. Acceptance is not
-completed erasure. Outside a freeze deletion remains immediate (Callum, 2026-10-09).
+completed erasure. Outside a freeze deletion remains immediate.
 See [the topology-freeze procedure](migration-topology-freeze.md).
 
 ## Retained application grant

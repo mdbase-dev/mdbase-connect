@@ -1,4 +1,4 @@
-// Staged migration of hosted collections to mdbase-next (decision 3, 2026-10-08).
+// Staged migration of hosted collections to mdbase-next.
 //
 // - Operators release cohorts; there is no user opt-in. One global pause stops
 //   accounts from *starting*: `POST …/start` is the atomic claim and refuses while
@@ -12,7 +12,7 @@
 //   (docs/account-backend.md). It requires a started account, every current hosted
 //   collection settled and cut over, and an evidence digest that this server
 //   recomputes from those cutover records.
-// - A deleted account is terminal (Callum, 2026-10-08): its rows cascade away and
+// - A deleted account is terminal: its rows cascade away and
 //   every route answers not found; nothing restores it.
 // - Routes accept only the dedicated migration token; every change is audited.
 import { createHash } from "node:crypto";
@@ -479,7 +479,7 @@ export async function flipAccountBackend(
 }
 
 /**
- * The daemon's automatic-takeover gate (decision 3). True only once the account
+ * The daemon's automatic-takeover gate. True only once the account
  * flipped: its hosted collections are cut over and its apps re-consent on next.
  * A daemon treats an unreachable or unparseable answer as false (fail closed); a
  * manual install alone never migrates anything.
