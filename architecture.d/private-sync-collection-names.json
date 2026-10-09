@@ -1,0 +1,7 @@
+{
+  "reason": "Reuse the existing CP display_name, owner-only locked rename, registration and migration freeze mechanisms for Callum-approved private/E2E synced labels. Three additional production relative imports wire those existing helpers; the real-PG harness reuses the normal error handler. One internal export shares the existing raw-name prevalidation across cloud-copy and private creation instead of duplicating it. No new production files, package, signer, policy operation, key custody or local-name mechanism.",
+  "growth": {
+    "relativeImports": 3,
+    "typeScriptExportDeclarations": 1
+  }
+}

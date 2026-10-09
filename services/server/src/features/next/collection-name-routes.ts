@@ -1,4 +1,4 @@
-// Shared cloud-copy catalog labels. Names confer no content or grant authority.
+// Shared synced-collection catalog labels. Names confer no content or grant authority.
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
@@ -14,7 +14,7 @@ import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
 const id = z.uuid().transform(value => value.toLowerCase()).refine(value => value !== "00000000-0000-0000-0000-000000000000");
 const notFound = () => new CreateError(404, "not_found");
 
-export function registerCloudCopyNameRoutes(app: FastifyInstance, db: DatabasePool): void {
+export function registerCollectionNameRoutes(app: FastifyInstance, db: DatabasePool): void {
   app.patch<{ Body: { display_name: string } }>("/v1/next/collections/:id/name", {
     bodyLimit: 4096,
     config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
@@ -51,7 +51,7 @@ export function registerCloudCopyNameRoutes(app: FastifyInstance, db: DatabasePo
         const held = (await client.query<{ owner_user_id: string; runtime: string; sync: string; left: boolean }>(
           "SELECT owner_user_id,runtime,sync,left_sync_at IS NOT NULL AS left FROM next_collections WHERE collection_id=$1 FOR UPDATE", [collection]
         )).rows[0];
-        if (held?.owner_user_id !== discovered.owner_user_id || held.runtime !== "next" || held.sync !== "cloud_copy" || held.left) throw notFound();
+        if (held?.owner_user_id !== discovered.owner_user_id || held.runtime !== "next" || !["cloud_copy", "private"].includes(held.sync) || held.left) throw notFound();
         await requireInstallationScope(client, connector, collection);
         const device = (await client.query<Device & { id: string }>(
           "SELECT id,sign_pk,kem_pk,noise_pk,kind FROM next_devices WHERE connector_id=$1 AND user_id=$2", [connector.id, connector.user_id]

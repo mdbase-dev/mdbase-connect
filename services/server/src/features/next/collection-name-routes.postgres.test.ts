@@ -9,7 +9,7 @@ import { renameHostedCollectionForUser } from "../hosted/service.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { tokenHash } from "../../security.js";
 import { inTransaction } from "./bootstrap-common.js";
-import { registerCloudCopyNameRoutes } from "./collection-name-routes.js";
+import { registerCollectionNameRoutes } from "./collection-name-routes.js";
 import { installationCollections } from "./installation-scope.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
@@ -20,7 +20,7 @@ const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
 const describePg = testUrl && approved ? describe : describe.skip;
 
-describePg("cloud-copy catalog rename", () => {
+describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync => {
   let db: DatabasePool;
   let admin: pg.Pool;
   let schema: string;
@@ -35,7 +35,7 @@ describePg("cloud-copy catalog rename", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerErrorHandler(app);
-    registerCloudCopyNameRoutes(app, db);
+    registerCollectionNameRoutes(app, db);
     registerNextRouteRoutes(app,{db,publicUrl:"https://connect.test",broker:{request:async () => {throw new Error("Catalog reads must not contact a relay.");}}});
   }, 60_000);
   afterAll(async () => {
@@ -43,7 +43,7 @@ describePg("cloud-copy catalog rename", () => {
     if (admin && schema) await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await admin?.end();
   });
-  async function fixture(installation = false, sync: "cloud_copy" | "private" = "cloud_copy") {
+  async function fixture(installation = false, collectionSync: "cloud_copy" | "private" = sync) {
     const user = randomUUID(), connector = randomUUID(), device = randomUUID(), collection = randomUUID();
     const credential = `fixture_${randomUUID()}`;
     const kind = installation ? "app-runtime" as const : "desktop" as const;
@@ -51,9 +51,8 @@ describePg("cloud-copy catalog rename", () => {
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Fixture connector',$3)", [connector, user, tokenHash(installation ? `unused_${randomUUID()}` : credential)]);
     await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,$4,$5,$6,$7)", [device, connector, user, kind, keys.sign_pk, keys.kem_pk, keys.noise_pk]);
     await inTransaction(db, client => registerNextCollection(client, {
-      collectionId: collection, ownerUserId: user, runtime: "next", sync, rootKeyId: Buffer.alloc(32),
-      ...(sync === "cloud_copy" ? { displayName: "Initial label" } : {}),
-      ops: [{ op: "genesis", owner: user, root: Buffer.alloc(32), state: sync === "cloud_copy" ? "cloud-copy" : "e2e" },
+      collectionId: collection, ownerUserId: user, runtime: "next", sync: collectionSync, rootKeyId: Buffer.alloc(32), displayName: "Initial label",
+      ops: [{ op: "genesis", owner: user, root: Buffer.alloc(32), state: collectionSync === "cloud_copy" ? "cloud-copy" : "e2e" },
         { op: "member-set", account: user, role: "owner" },
         { op: "device-enrol", device, account: user, kind, signPublicKey: keys.sign_pk, kemPublicKey: keys.kem_pk, noisePublicKey: keys.noise_pk }]
     }));
@@ -102,7 +101,7 @@ describePg("cloud-copy catalog rename", () => {
     expect((await db.query("SELECT suspended_at IS NOT NULL AS suspended FROM users WHERE id=$1", [owner.user])).rows[0].suspended).toBe(true);
   });
 
-  it.each([false, true])("lets the current %s owner rename only catalog metadata", async installation => {
+  it.each(sync === "cloud_copy" ? [false, true] : [false])("lets the current %s owner rename only catalog metadata", async installation => {
     const f = await fixture(installation);
     const before = (await db.query("SELECT * FROM next_collections WHERE collection_id=$1", [f.collection])).rows[0];
     const policies = (await db.query("SELECT * FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id", [f.collection])).rows;
@@ -127,16 +126,23 @@ describePg("cloud-copy catalog rename", () => {
     expect((await db.query("SELECT display_name FROM hosted_collections WHERE id=$1",[f.collection])).rows[0].display_name).toBe("Retained legacy");
     expect(providerCalls).toBe(0);
   });
-  it("uses the shared cloud-copy label for grant tokens and app catalog, not a device alias", async () => {
+  it("uses the shared synced label for grant tokens and app catalog, not a device alias", async () => {
     const id = await localGrantFixture(db);
     await db.query("UPDATE grants SET activated_at=now() WHERE id=$1", [id]);
-    await inTransaction(db,client => registerNextCollection(client,{collectionId:id,ownerUserId:id,runtime:"next",sync:"cloud_copy",rootKeyId:Buffer.alloc(32),displayName:"Shared catalog",ops:[{op:"genesis",owner:id,root:Buffer.alloc(32),state:"cloud-copy"},{op:"member-set",account:id,role:"owner"}]}));
+    await inTransaction(db,client => registerNextCollection(client,{collectionId:id,ownerUserId:id,runtime:"next",sync,rootKeyId:Buffer.alloc(32),displayName:"Shared catalog",ops:[{op:"genesis",owner:id,root:Buffer.alloc(32),state:sync === "cloud_copy" ? "cloud-copy" : "e2e"},{op:"member-set",account:id,role:"owner"}]}));
     const tokens = await issueApplicationTokens(db,undefined,id);
     expect(tokens.collection_name).toBe("Shared catalog");
     const reply = await app.inject({method:"GET",url:"/v1/next/apps/collections",headers:{authorization:`Bearer ${tokens.access_token}`}});
     expect(reply.statusCode).toBe(200);
     expect(reply.json().collections[0].name).toBe("Shared catalog");
     expect((await db.query("SELECT display_name FROM collections WHERE id=$1",[id])).rows[0].display_name).toBe("Fixture collection");
+    await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [id]);
+    const localTokens = await issueApplicationTokens(db, undefined, id);
+    expect(localTokens.collection_name).toBe("Fixture collection");
+    const localCatalog = await app.inject({method:"GET",url:"/v1/next/apps/collections",headers:{authorization:`Bearer ${localTokens.access_token}`}});
+    expect(localCatalog.statusCode).toBe(200);
+    expect(localCatalog.json().collections[0].name).toBe("Fixture collection");
+    expect((await db.query("SELECT display_name FROM next_collections WHERE collection_id=$1", [id])).rows[0].display_name).toBe("Shared catalog");
   });
   it("uses last committed metadata, allowing duplicate labels", async () => {
     const a = await fixture(), b = await fixture();
@@ -145,6 +151,54 @@ describePg("cloud-copy catalog rename", () => {
     expect((await rename(a, "Later label")).statusCode).toBe(200);
     expect(await name(a.collection)).toBe("Later label");
     expect(await name(b.collection)).toBe("Shared label");
+  });
+  it("serializes overlapping renames in commit order without changing policy", async () => {
+    const f = await fixture();
+    let releaseFirst!: () => void, firstWritten!: () => void, secondStarted!: () => void;
+    const gate = new Promise<void>(resolve => { releaseFirst = resolve; });
+    const written = new Promise<void>(resolve => { firstWritten = resolve; });
+    const started = new Promise<void>(resolve => { secondStarted = resolve; });
+    let transactions = 0;
+    const racedb: DatabasePool = {
+      query: db.query.bind(db), end: db.end.bind(db),
+      connect: async () => {
+        const connection = await db.connect();
+        return {
+          release: () => connection.release(),
+          query: async <R extends pg.QueryResultRow>(text: string, values?: unknown[]) => {
+            if (text === "BEGIN" && ++transactions === 2) secondStarted();
+            const result = await connection.query<R>(text, values);
+            if (text.startsWith("UPDATE next_collections SET display_name=") && values?.[1] === "First committed") {
+              firstWritten(); await gate;
+            }
+            return result;
+          }
+        };
+      }
+    };
+    const race = Fastify();
+    registerErrorHandler(race); registerCollectionNameRoutes(race, racedb);
+    const policies = (await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id", [f.collection])).rows;
+    try {
+      const first = race.inject({method:"PATCH",url:`/v1/next/collections/${f.collection}/name`,headers:f.headers,payload:{display_name:"First committed"}}).then(response => response);
+      await written;
+      const second = race.inject({method:"PATCH",url:`/v1/next/collections/${f.collection}/name`,headers:f.headers,payload:{display_name:"Second committed"}}).then(response => response);
+      await started;
+      expect(await name(f.collection)).toBe("Initial label"); // first is still uncommitted
+      releaseFirst();
+      expect((await first).statusCode).toBe(200);
+      expect((await second).statusCode).toBe(200);
+      expect(await name(f.collection)).toBe("Second committed");
+      expect((await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id", [f.collection])).rows).toEqual(policies);
+    } finally { releaseFirst(); await race.close(); }
+  });
+  it("keeps native local-only labels and token metadata device-local", async () => {
+    const id = await localGrantFixture(db), f = await fixture();
+    await db.query("UPDATE grants SET activated_at=now() WHERE id=$1", [id]);
+    expect((await issueApplicationTokens(db, undefined, id)).collection_name).toBe("Fixture collection");
+    expect((await rename({...f, collection:id}, "Must not upload local alias")).statusCode).toBe(404);
+    expect((await db.query("SELECT display_name FROM collections WHERE id=$1", [id])).rows[0].display_name).toBe("Fixture collection");
+    expect((await db.query("SELECT 1 FROM next_collections WHERE collection_id=$1", [id])).rows).toEqual([]);
   });
   it("does not treat create consent as arbitrary rename scope", async () => {
     const f = await fixture(true);
@@ -162,7 +216,7 @@ describePg("cloud-copy catalog rename", () => {
     expect(await name(b.collection)).toBe("Initial label");
   });
   it.each(["shadow", "left", "suspended", "legacy", "revoked", "removed", "lost", "keys", "deleted"] as const)("refuses %s state without changing the label", async state => {
-    const f = await fixture(true);
+    const f = await fixture(sync === "cloud_copy");
     if (state === "shadow") await db.query("UPDATE next_collections SET runtime='shadow' WHERE collection_id=$1", [f.collection]);
     if (state === "left") await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [f.collection]);
     if (state === "suspended") await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [f.user]);
@@ -201,19 +255,18 @@ describePg("cloud-copy catalog rename", () => {
       }
     };
     const race = Fastify();
-    registerErrorHandler(race); registerCloudCopyNameRoutes(race,racedb);
+    registerErrorHandler(race); registerCollectionNameRoutes(race,racedb);
     try {
       const reply = await race.inject({method:"PATCH",url:`/v1/next/collections/${f.collection}/name`,headers:f.headers,payload:{display_name:"Must not commit"}});
       expect(reply.statusCode).toBe(404);
       expect(await name(f.collection)).toBe("Initial label");
     } finally { await race.close(); }
   });
-  it("keeps new private names absent and refuses private rename", async () => {
-    const f = await fixture(false, "private");
-    expect(await name(f.collection)).toBeNull();
-    expect((await rename(f)).statusCode).toBe(404);
-    expect(await name(f.collection)).toBeNull();
-    await expect(registerNextCollection(db, {collectionId:randomUUID(),ownerUserId:f.user,runtime:"next",sync:"private",rootKeyId:Buffer.alloc(32),displayName:"Not enabled",ops:[{op:"genesis",owner:f.user,root:Buffer.alloc(32),state:"e2e"}]})).rejects.toThrow("private collection naming is disabled");
+  it("does not widen cloud-copy installation consent to private metadata writes", async () => {
+    const f = await fixture(true, "private");
+    const reply = await rename(f);
+    expect(reply.statusCode).toBe(403);
+    expect(await name(f.collection)).toBe("Initial label");
   });
   it.each(["", "  ", "a\n", "x".repeat(201), "\ud800"])("refuses invalid name #%# without mutation", async invalid => {
     const f = await fixture();

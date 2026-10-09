@@ -74,7 +74,7 @@ export async function issueApplicationTokens(
     `SELECT g.user_id,
             COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,
             g.collection_id AS local_authority_row_id,
-            CASE WHEN nc.runtime='next' AND nc.sync='cloud_copy' THEN COALESCE(nc.display_name,'New collection')
+            CASE WHEN nc.runtime='next' AND nc.sync IN ('cloud_copy','private') AND nc.left_sync_at IS NULL THEN COALESCE(nc.display_name,'New collection')
                  ELSE COALESCE(col.display_name, hosted.display_name) END AS collection_name,
             g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
             g.operations, g.scope, g.encryption, g.file_capability,
