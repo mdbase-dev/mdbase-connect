@@ -30,6 +30,7 @@ import { registerAccountKeyRoutes } from "./features/next/account-keys.js";
 import { registerPrivateCollectionRoutes } from "./features/next/private-collections.js";
 import { registerNextHostedRoutes } from "./features/next/hosted-routes.js";
 import { registerMigrationRolloutRoutes } from "./features/next/migration-rollout.js";
+import { registerCollectionMigrationRecordRoute } from "./features/next/migration-record-routes.js";
 import { registerMigrationSourceWitnessRoutes } from "./features/next/migration-source.js";
 import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
 import { registerLabFixtureRoutes } from "./features/next/lab-fixture-routes.js";
@@ -559,6 +560,7 @@ export async function buildApp(options: BuildOptions) {
     registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
+    registerCollectionMigrationRecordRoute(app, options.db);
     if (options.nextControlPlane.migrationToken) {
       registerMigrationRolloutRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment });
       registerMigrationSourceWitnessRoutes(app, { db: options.db, next: options.nextControlPlane, signer: nextPolicySigner!, provider: options.hostedProvider });

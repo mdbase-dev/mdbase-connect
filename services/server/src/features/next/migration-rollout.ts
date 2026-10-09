@@ -493,22 +493,34 @@ export async function localTakeoverAllowed(db: DatabaseQueryable, account: strin
 }
 
 /**
- * The mirror-join facts of one migrated collection for its owner's daemon: the
- * preserved collection ID, legacy S_final, the new log's cutover position (join
- * sync point C), barrier F and the live digest at F. Record and file IDs are the
- * legacy IDs; contents are byte-identical (revision / whole plaintext SHA-256).
+ * Stored cutover metadata for an already-authorized current native member.
+ * These ledger facts are not verified installation, byte-preservation proof,
+ * policy/key possession or fresh admission. Authorization belongs to the caller.
  */
 export async function collectionMigrationRecord(db: DatabaseQueryable, collection: string, account: string) {
   const row = (await db.query<{ s_final: string; cutover_seq: string; barrier_f: string; final_digest: string; cutover_at: Date }>(
-    `SELECT s_final::text, cutover_seq::text, barrier_f::text, final_digest, cutover_at
-     FROM next_migration_collections WHERE collection_id = $1 AND account_id = $2`, [collection, account]
+    `SELECT n.s_final::text, n.cutover_seq::text, n.barrier_f::text, n.final_digest, n.cutover_at
+     FROM next_migration_collections n JOIN hosted_collections h
+       ON h.id=n.collection_id AND h.user_id=n.account_id AND h.authority_state<>'transferred'
+     WHERE n.collection_id=$1 AND n.account_id=$2 FOR SHARE OF n,h`, [collection, account]
   )).rows[0];
   if (!row) return null;
-  return {
+  const record = {
     collection_id: collection, legacy_collection_id: collection, ids_preserved: true,
-    s_final: Number(row.s_final), cutover_seq: Number(row.cutover_seq), barrier_f: Number(row.barrier_f),
+    s_final: row.s_final, cutover_seq: row.cutover_seq, barrier_f: row.barrier_f,
     final_digest: row.final_digest, cutover_at: new Date(row.cutover_at).toISOString()
   };
+  // One canonical serializer for the strict eight-field native reader. Never
+  // round bigint sequences through Number, or publish malformed stored metadata.
+  const u64 = 18_446_744_073_709_551_615n;
+  const valid = z.object({
+    collection_id: z.string().regex(UUID_CANONICAL), legacy_collection_id: z.string().regex(UUID_CANONICAL),
+    ids_preserved: z.literal(true), s_final: decimal(u64), cutover_seq: decimal(u64, true), barrier_f: decimal(u64, true),
+    final_digest: z.string().regex(HEX64), cutover_at: millisecondTime
+  }).strict().refine(value => value.collection_id !== "00000000-0000-0000-0000-000000000000"
+    && BigInt(value.cutover_seq) <= BigInt(value.barrier_f)).safeParse(record);
+  if (!valid.success) throw new Error("Stored migration record is invalid.");
+  return valid.data;
 }
 
 /** Whether an account's migration started (or finished): its hosted collections must never be quarantined as missing. */

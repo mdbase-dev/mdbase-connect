@@ -1,0 +1,4 @@
+{
+  "reason": "One read-only native migration-record route reuses current identity, membership, exact acknowledged enrollment and permanent deletion-denial checks on a bounded locked transaction. Eight relative imports wire the route into the existing next control-plane block, independently of migration-token operator routes. One internal registration export and one production module replace no authority boundary: ordinary desktop/CLI connector credentials are required; no installation/application credential, proof mint or mutation is added. The existing ledger serializer is made canonical and lossless rather than duplicated, preserving all eight fields with decimal bigint strings. No dependency, architecture-rule or SDK surface changes.",
+  "growth": { "productionFiles": 1, "relativeImports": 8, "typeScriptExportDeclarations": 1, "services/server": 1 }
+}
