@@ -50,7 +50,7 @@ async function sourceRow(db: DatabaseQueryable, collection: string, signer: Poli
      JOIN next_collections n ON n.collection_id=h.id AND n.owner_user_id=u.id
      JOIN next_service_devices s ON s.collection_id=n.collection_id AND s.kind='hosted'
      WHERE h.id=$1 AND h.authority_state='active' AND h.quarantined_at IS NULL
-       AND u.account_backend='legacy' AND u.suspended_at IS NULL AND m.started_at IS NOT NULL
+       AND u.account_backend='legacy' AND m.terminal_excluded_at IS NULL AND m.started_at IS NOT NULL
        AND n.runtime IN ('shadow','next') AND n.sync='cloud_copy' AND n.left_sync_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM next_migration_account_flips f WHERE f.account_id=u.id)
      ${locked ? "FOR SHARE OF h,u,m,s FOR UPDATE OF n" : ""}`, [collection]

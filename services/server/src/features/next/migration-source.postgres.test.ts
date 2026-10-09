@@ -91,7 +91,7 @@ describePg("migration source issuance (isolated PostgreSQL, mocked authenticated
       const result=await f.request();expect(result.statusCode,result.body).toBe(503);expect(result.body).not.toContain('"witness"');
     }finally{await f.app.close();}
   });
-  it.each(["account-delete","collection-delete","flip","start-change","device-change","keys-change","leave-sync","suspend"])("rechecks CP currentness after native await: %s",async(change)=>{
+  it.each(["account-delete","collection-delete","flip","start-change","device-change","keys-change","leave-sync","terminal-excluded"])("rechecks CP currentness after native await: %s",async(change)=>{
     const f=await fixture();try{
       f.during=async()=>{
         if(change==="account-delete")await db.query("DELETE FROM users WHERE id=$1",[f.account]);
@@ -101,7 +101,7 @@ describePg("migration source issuance (isolated PostgreSQL, mocked authenticated
         if(change==="device-change")await db.query("UPDATE next_service_devices SET device_id=$2 WHERE collection_id=$1",[f.collection,randomUUID()]);
         if(change==="keys-change")await db.query("UPDATE next_service_devices SET noise_pk=$2 WHERE collection_id=$1",[f.collection,Buffer.alloc(32,8)]);
         if(change==="leave-sync")await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1",[f.collection]);
-        if(change==="suspend")await db.query("UPDATE users SET suspended_at=now() WHERE id=$1",[f.account]);
+        if(change==="terminal-excluded")await db.query("UPDATE next_migration_cohort_members SET terminal_excluded_at=now() WHERE account_id=$1",[f.account]);
       };
       const result=await f.request();expect(result.statusCode,result.body).toBe(409);expect(result.body).not.toContain('"witness"');
     }finally{await f.app.close();}
