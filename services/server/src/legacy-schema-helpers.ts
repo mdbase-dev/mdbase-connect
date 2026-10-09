@@ -7,7 +7,7 @@ export async function ensureNullable(
 ): Promise<void> {
   const result = await db.query<{ is_nullable: string }>(
     `SELECT is_nullable FROM information_schema.columns
-     WHERE table_name = $1 AND column_name = $2`,
+     WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2`,
     [table, column]
   );
   if (result.rows[0]?.is_nullable === "NO") {
@@ -22,7 +22,7 @@ export async function ensureNotNullable(
 ): Promise<void> {
   const result = await db.query<{ is_nullable: string }>(
     `SELECT is_nullable FROM information_schema.columns
-     WHERE table_name = $1 AND column_name = $2`,
+     WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2`,
     [table, column]
   );
   if (result.rows[0]?.is_nullable === "YES") {
@@ -37,7 +37,8 @@ export async function ensureColumn(
   statement: string
 ): Promise<void> {
   const result = await db.query<{ column_name: string }>(
-    `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2`,
     [table, column]
   );
   if (!result.rows[0]) await db.query(statement);
@@ -51,7 +52,7 @@ export async function ensureConstraint(
 ): Promise<void> {
   const result = await db.query<{ constraint_name: string }>(
     `SELECT constraint_name FROM information_schema.table_constraints
-     WHERE table_name = $1 AND constraint_name = $2`,
+     WHERE table_schema = current_schema() AND table_name = $1 AND constraint_name = $2`,
     [table, constraint]
   );
   if (!result.rows[0]) await db.query(statement);
