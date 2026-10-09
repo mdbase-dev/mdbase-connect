@@ -18,8 +18,8 @@ const fixture = () => ({
   prefix: "production/2026/10/08/archive-one", backup_id: "archive-one",
   complete_sha256: "b".repeat(64), manifest_sha256: "c".repeat(64), source_commit: "d".repeat(40),
   migration_batch: { ...binding }, archive_created_at: created, archive_completed_at: completed,
-  retention: { mode: "GOVERNANCE", days: 120,
-    retain_until: new Date(Date.parse(completed) + 120 * 86_400_000).toISOString(),
+  retention: { mode: "GOVERNANCE", days: 116,
+    retain_until: new Date(Date.parse(completed) + 116 * 86_400_000).toISOString(),
     inventory_digest: "e".repeat(64), count: "18446744073709551615" }
 });
 
@@ -85,12 +85,35 @@ describe("H0 typed ONE-verifier metadata (not archive/signature execution)", () 
     for (const value of ["2026-02-30T01:00:00.000Z", "2026-10-08T01:00:00Z", "2026-10-08T01:00:00.0001Z", "2026-10-08T01:00:00.000+00:00"]) {
       expect(() => parseVerifiedBatchArchive({ ...fixture(), archive_created_at: value })).toThrow();
     }
-    for (const retention of [{ ...fixture().retention, days: 119 }, { ...fixture().retention, mode: "COMPLIANCE" }]) {
+    for (const retention of [{ ...fixture().retention, days: 119 }, { ...fixture().retention, days: 120 },
+      { ...fixture().retention, days: "116" }, { ...fixture().retention, days: true }, { ...fixture().retention, mode: "COMPLIANCE" }]) {
       expect(() => parseVerifiedBatchArchive({ ...fixture(), retention })).toThrow();
     }
     const short = parseVerifiedBatchArchive({ ...fixture(), retention: { ...fixture().retention,
       retain_until: new Date(Date.parse(fixture().retention.retain_until) - 1).toISOString() } });
     expect(() => requireFreshBatchArchive(short, binding, now, now, "production")).toThrow();
+  });
+  it("requires exact elapsed retention and a capture lasting at most 24 hours", () => {
+    for (const delta of [-1, 0, 1]) {
+      const body = fixture(), finish = Date.parse(created) + 86_400_000 + delta;
+      body.archive_completed_at = new Date(finish).toISOString();
+      body.retention.retain_until = new Date(finish + 116 * 86_400_000).toISOString();
+      const clock = new Date(finish + 1000).toISOString();
+      const check = () => requireFreshBatchArchive(parseVerifiedBatchArchive(body), binding, clock, clock, "production");
+      if (delta > 0) expect(check).toThrow(); else expect(check).not.toThrow();
+    }
+    for (const delta of [-1, 1, 4 * 86_400_000]) {
+      const body = fixture();
+      body.retention.retain_until = new Date(Date.parse(body.retention.retain_until) + delta).toISOString();
+      expect(() => requireFreshBatchArchive(parseVerifiedBatchArchive(body), binding, now, now, "production")).toThrow();
+    }
+    const backwards = fixture();backwards.archive_completed_at = new Date(Date.parse(created) - 1).toISOString();
+    backwards.retention.retain_until = new Date(Date.parse(backwards.archive_completed_at) + 116 * 86_400_000).toISOString();
+    expect(() => requireFreshBatchArchive(parseVerifiedBatchArchive(backwards), binding, now, now, "production")).toThrow();
+    for (const invalid of ["infinity", "NaN", "0000-01-01T00:00:00.000Z", "+010000-01-01T00:00:00.000Z"]) {
+      expect(() => parseVerifiedBatchArchive({ ...fixture(), archive_created_at: invalid })).toThrow();
+      expect(() => requireFreshBatchArchive(parseVerifiedBatchArchive(fixture()), binding, invalid, now, "production")).toThrow();
+    }
   });
   it("never resets age through acceptance/retries and refuses future/capture-before-change evidence", () => {
     const result = parseVerifiedBatchArchive(fixture());

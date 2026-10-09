@@ -58,7 +58,7 @@ const DAY_MS = 86_400_000;
 const decimal = (max: bigint, positive = false) => z.string().max(20).refine((v) =>
   /^(0|[1-9][0-9]*)(?![\s\S])/.test(v) && BigInt(v) <= max && (!positive || BigInt(v) > 0n));
 const millisecondTime = z.string().length(24).refine((v) => {
-  if (!UTC_MILLISECONDS.test(v)) return false;
+  if (!UTC_MILLISECONDS.test(v) || v.startsWith("0000-")) return false;
   const ms = Date.parse(v);
   return Number.isFinite(ms) && new Date(ms).toISOString() === v;
 });
@@ -81,7 +81,7 @@ const verifiedArchiveSchema = z.object({
   archive_created_at: millisecondTime,
   archive_completed_at: millisecondTime,
   retention: z.object({
-    mode: z.literal("GOVERNANCE"), days: z.literal(120), retain_until: millisecondTime,
+    mode: z.literal("GOVERNANCE"), days: z.literal(116), retain_until: millisecondTime,
     inventory_digest: z.string().regex(HEX64), count: decimal(18_446_744_073_709_551_615n, true)
   }).strict()
 }).strict();
@@ -128,7 +128,8 @@ export function requireFreshBatchArchive(result: VerifiedBatchArchive, current: 
   const created = Date.parse(result.archive_created_at), completed = Date.parse(result.archive_completed_at);
   const accepted = Date.parse(acceptedAt), clock = Date.parse(now), changed = Date.parse(current.membership_changed_at);
   if (!(changed <= created && created <= completed && completed <= accepted && accepted <= clock)
-      || clock - created >= 7 * DAY_MS || Date.parse(result.retention.retain_until) < completed + 120 * DAY_MS) fail();
+      || completed - created > DAY_MS || clock - created >= 7 * DAY_MS
+      || Date.parse(result.retention.retain_until) !== completed + 116 * DAY_MS) fail();
 }
 
 async function archiveClock(client: DatabaseQueryable): Promise<string> {

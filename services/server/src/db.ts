@@ -85,6 +85,9 @@ export async function openDatabase(
       // including raw bulk SQL and cascading deletes (never pg-mem).
       // Only migration0062's schema prefix is adapted; no trigger/currentness
       // authority is emulated. Its real PostgreSQL suite is mandatory.
+      // Timing constraints/functions have no schema columns to emulate. They
+      // require real PostgreSQL; pg-mem is never retention/claim qualification.
+      if (sql.includes("-- mdbase:next-migration-archive-elapsed:v1")) return [];
       const archiveTrigger = "-- mdbase:next-migration-archive-triggers:v1";
       if (sql.includes(archiveTrigger)) return memory.public.many(
         sql.slice(0, sql.indexOf(archiveTrigger)).replace("DEFAULT date_trunc('milliseconds', clock_timestamp())", "DEFAULT now()")
