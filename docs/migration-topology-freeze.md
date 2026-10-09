@@ -73,7 +73,10 @@ member's validated final flip **or** terminal exclusion. Readiness is checked on
 archive acceptance, final flip and deletion acceptance, including exclusion of
 the last unfinished member and a late deletion after all flips. Before archive
 acceptance, cancellation still requires audited unfreeze. Readiness is committed
-before erasure cascades can change the revision.
+before erasure cascades can change the revision. The cohort durably records its
+completion time/original revision for this freeze, so an earlier member's erasure
+cannot strand a later accepted deletion. A new freeze clears this completion
+barrier; it cannot reuse an old window's completion.
 
 The existing bounded recovery poller drains ready work at startup and periodically;
 archive-acceptance/final-flip/unfreeze paths also drain after readiness commits.

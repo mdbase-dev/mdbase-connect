@@ -273,8 +273,7 @@ export class HostedProviderClient {
     displayName: string,
     timezone: string
   ): Promise<void> {
-    // Creation plus readiness is one operation, not two independent 14s waits.
-    const operation = requiredOperation();
+    const operation = requiredOperation(); // Creation + readiness share this budget.
     await this.request("POST", "/internal/v1/collections", {
       account_id: accountId,
       collection_id: collectionId,

@@ -1,5 +1,12 @@
 -- Coordinator-reserved 0063. Topology freeze is distinct from release/pause/backend.
-ALTER TABLE next_migration_cohorts ADD COLUMN frozen_at timestamptz;
+ALTER TABLE next_migration_cohorts
+  ADD COLUMN frozen_at timestamptz,
+  -- The original completion barrier survives erasure-driven revision changes.
+  -- A new freeze resets it; it is not an archive-membership mutation.
+  ADD COLUMN completed_at timestamptz,
+  ADD COLUMN completed_revision bigint,
+  ADD CHECK ((completed_at IS NULL AND completed_revision IS NULL) OR
+             (completed_at IS NOT NULL AND completed_revision IS NOT NULL AND completed_revision > 0));
 -- Terminal exclusion changes migration work, not captured membership/coverage.
 -- 0062's membership trigger ignores updates that retain account_id/cohort.
 ALTER TABLE next_migration_cohort_members ADD COLUMN terminal_excluded_at timestamptz;

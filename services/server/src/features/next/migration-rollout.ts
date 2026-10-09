@@ -582,7 +582,7 @@ export async function setCohortFrozen(db: DatabasePool, name: string, frozen: bo
       "SELECT 1 FROM next_migration_deferred_account_deletions WHERE cohort=$1 AND ready_at IS NOT NULL LIMIT 1", [name]
     )).rows.length) throw new RolloutRefused("busy", "Busy; retry.");
     const row = (await client.query<{ frozen_at: Date | null }>(
-      "UPDATE next_migration_cohorts SET frozen_at = CASE WHEN $2 THEN date_trunc('milliseconds', clock_timestamp()) ELSE NULL END WHERE name = $1 RETURNING frozen_at", [name, frozen]
+      "UPDATE next_migration_cohorts SET frozen_at = CASE WHEN $2 THEN date_trunc('milliseconds', clock_timestamp()) ELSE NULL END,completed_at=NULL,completed_revision=NULL WHERE name = $1 RETURNING frozen_at", [name, frozen]
     )).rows[0]!;
     await audit(client, null, frozen ? "next_migration.freeze" : "next_migration.unfreeze", null,
       { cohort: name, membership_revision: batch.revision, actor: by, reason });

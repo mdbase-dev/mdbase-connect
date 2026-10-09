@@ -222,14 +222,29 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
   });
 
   it("accepts deletion after the whole batch's final flip and makes erasure ready despite the retained freeze", async () => {
-    const account = await user(), { name } = await acceptedBatch([account]);
+    const excluded = await user(), collection = await hosted(excluded), account = await user();
+    const { name, body } = await acceptedBatch([excluded, account]);
+    await deletion(excluded);
     await startAccountMigration(db, account, "production");
     await flipAccountBackend(db, account, [], flipEvidenceDigest([]));
-    expect((await db.query("SELECT frozen_at FROM next_migration_cohorts WHERE name=$1", [name])).rows[0].frozen_at).not.toBeNull();
+    expect((await db.query("SELECT 1 FROM users WHERE id=$1", [excluded])).rowCount).toBe(0);
+    const batchState = (await db.query("SELECT frozen_at,completed_at,completed_revision::text,membership_revision::text FROM next_migration_cohorts WHERE name=$1", [name])).rows[0];
+    expect(batchState.frozen_at).not.toBeNull(); expect(batchState.completed_at).not.toBeNull();
+    expect(batchState.completed_revision).toBe(body.migration_batch.membership_revision);
+    expect(BigInt(batchState.membership_revision)).toBeGreaterThan(BigInt(batchState.completed_revision));
+    await db.end(); db = await createDatabase(databaseUrl);
     await deletion(account);
     expect((await db.query("SELECT ready_at FROM next_migration_deferred_account_deletions WHERE account_id=$1", [account])).rows[0].ready_at).not.toBeNull();
     expect(await drainDeferredAccountDeletions(db)).toBe(1);
     expect((await db.query("SELECT 1 FROM users WHERE id=$1", [account])).rowCount).toBe(0);
+    await db.query("DELETE FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id]);
+    await setCohortFrozen(db, name, false, "completed archive revision changed by terminal erasure", OP);
+    const next = await user(); await addToCohort(db, name, [next], OP);
+    await setCohortFrozen(db, name, true, "new window must not inherit completion", OP);
+    expect((await db.query("SELECT completed_at,completed_revision FROM next_migration_cohorts WHERE name=$1", [name])).rows[0]).toEqual({ completed_at: null, completed_revision: null });
+    await deletion(next);
+    expect(await drainDeferredAccountDeletions(db)).toBe(0);
+    await setCohortFrozen(db, name, false, "cancel new window before archive acceptance", OP);
   });
 
   it("never loses accepted deletion across restart after audited unfreeze/readiness commit and before erasure", async () => {
@@ -320,6 +335,7 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
 
   it("shares the provider 14s create/projection budget, rolls back and retains the guard through an 11s compensation", async () => {
     const account = await user(), name = await batch([account]); await materializePublicSignupEntitlement(db, account);
+    const storageBefore = (await db.query("SELECT provider_revision,updated_at FROM account_storage_accounts WHERE user_id=$1", [account])).rows;
     let created = "", erased = 0, projectionStarted = false;
     const started = Date.now();
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
@@ -347,7 +363,7 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
         "https://synthetic.example.test", account, "Synthetic", "mdbase", "UTC")).rejects.toBeInstanceOf(HostedProviderUnavailableError);
       expect(projectionStarted).toBe(true); expect(erased).toBe(1); expect(Date.now() - started).toBeGreaterThanOrEqual(24_500);
       expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [created])).rowCount).toBe(0);
-      expect((await db.query("SELECT 1 FROM account_storage_accounts WHERE user_id=$1", [account])).rowCount).toBe(0);
+      expect((await db.query("SELECT provider_revision,updated_at FROM account_storage_accounts WHERE user_id=$1", [account])).rows).toEqual(storageBefore);
       expect((await db.query("SELECT frozen_at FROM next_migration_cohorts WHERE name=$1", [name])).rows[0].frozen_at).toBeNull();
       expect((await db.query("SHOW idle_in_transaction_session_timeout")).rows[0].idle_in_transaction_session_timeout).toBe("10s");
     } finally { vi.unstubAllGlobals(); }
