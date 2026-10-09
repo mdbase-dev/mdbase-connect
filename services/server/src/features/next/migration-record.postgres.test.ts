@@ -46,7 +46,7 @@ describePg("native migration record (isolated real PostgreSQL; synthetic acknowl
     if (kind) {
       const challenge = await issueDeviceChallenge(db, connector.id);
       await registerDevice(db, connector, { device_id: device, kind, sign_pk: hex(signPk), kem_pk: hex(kemPk), noise_pk: hex(noisePk), challenge: challenge.challenge,
-        sig: hex(sign(null, deviceRegistrationDigest({ challenge: Buffer.from(challenge.challenge, "hex"), connectorId: connector.id, deviceId: device, signPk, kemPk, noisePk }), key)) });
+        sig: hex(sign(null, deviceRegistrationDigest({ challenge: Buffer.from(challenge.challenge, "hex"), connectorId: connector.id, deviceId: device, signPk, kemPk, noisePk }), key)) }, tokenHash(token));
     }
     return { account, connector, device, kind: kind ?? "desktop", signPk, kemPk, noisePk, headers: { authorization: `Bearer ${token}` } };
   }
