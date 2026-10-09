@@ -1,0 +1,9 @@
+{
+  "reason": "Package the existing deferred account eraser and provider cleanup worker through the existing service-local auth-admin/request envelope. One internal server module holds the fixed bounded three-queue observation, strict sanitized result and pre-freeze refusal; no new worker, endpoint, authority, persisted store, migration, signer or product-content representation. Seven relative imports wire the existing CLI/database/workers/operator/audit boundary; one internal function declaration is not a public HTTP/SDK surface. Existing CLI helpers are compacted without changing their behavior to preserve its hard line budget.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 7,
+    "typeScriptExportDeclarations": 1,
+    "services/server": 1
+  }
+}
