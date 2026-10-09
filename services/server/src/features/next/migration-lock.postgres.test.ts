@@ -24,7 +24,7 @@ suite("isolated PostgreSQL migration locks", () => {
     return url.toString();
   };
   const freshSchema = async () => {
-    const schema = `appserver_lock_${randomUUID().replaceAll("-", "")}`;
+    const schema = `migration_lock_${randomUUID().replaceAll("-", "")}`;
     await admin.query(`CREATE SCHEMA "${schema}"`);
     schemas.push(schema);
     return schema;
