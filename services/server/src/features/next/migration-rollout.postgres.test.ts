@@ -129,7 +129,7 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     await cloudCopy(a.ids[0]!, a.user);
     await recordCollectionCutover(db, a.ids[0]!, facts(10, digest(1)));
     expect(await code(recordCollectionCutover(db, a.ids[0]!, facts(11, digest(1))))).toBe("cutover_conflict");
-    expect(await collectionMigrationRecord(db, a.ids[0]!, a.user)).toMatchObject({ ids_preserved: true, s_final: 3, cutover_seq: 10, barrier_f: 10 });
+    expect(await collectionMigrationRecord(db, a.ids[0]!, a.user)).toMatchObject({ ids_preserved: true, s_final: "3", cutover_seq: "10", barrier_f: "10" });
     expect(await localTakeoverAllowed(db, a.user)).toEqual({ local_takeover: false, account_backend: "legacy" });
     expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("collections_not_cut_over");
     await cloudCopy(a.ids[1]!, a.user);
