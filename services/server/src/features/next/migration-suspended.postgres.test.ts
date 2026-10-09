@@ -95,7 +95,7 @@ describePg("suspended account migration service boundary (isolated PostgreSQL)",
       schema: "mdbase-recovery-set/v4", environment: "staging", bucket: "test-migration-archives", prefix: `staging/2026/10/09/${cohort}`, backup_id: cohort,
       complete_sha256: digest(90), manifest_sha256: digest(91), source_commit: "a".repeat(40), migration_batch: binding,
       archive_created_at: clock, archive_completed_at: clock,
-      retention: { mode: "GOVERNANCE", days: 120, retain_until: new Date(Date.parse(clock) + 120 * 86400000).toISOString(), inventory_digest: digest(92), count: "3" }
+      retention: { mode: "GOVERNANCE", days: 116, retain_until: new Date(Date.parse(clock) + 116 * 86400000).toISOString(), inventory_digest: digest(92), count: "3" }
     }, "staging");
     await setPaused(db, false, "synthetic migration start", actor);
     const service = Fastify();
