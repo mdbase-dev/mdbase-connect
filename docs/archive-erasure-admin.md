@@ -44,7 +44,7 @@ Successful provider job completion is not object/version-removal proof. Existing
 
 ## Check-to-capture timing evidence
 
-Coordinator12:56 accepts the observation-to-freeze gap without an atomic all-three freeze recheck. The drain is best-effort hygiene to keep the archive small, not a correctness or physical-erasure proof. Existing `setCohortFrozen` still checks only ready deferred rows for that cohort; this command does not stop deletion acceptance.
+The pre-freeze drain does not require an atomic all-three freeze recheck. The drain is best-effort hygiene to keep the archive small, not a correctness or physical-erasure proof. Existing `setCohortFrozen` still checks only ready deferred rows for that cohort; this command does not stop deletion acceptance.
 
 The trusted operator runner must record check time and actual capture start `S` in run evidence, and enforce check-to-`S` ≤24h. Record a conservative UTC check-start bound BEFORE dispatching this fresh command (never a response/completion timestamp or caller-supplied assertion). A deletion accepted between the actual check and freeze has `D` at least that earlier bound, so `V ≤ E+2d ≤ S+119d ≤ D+120d`. Reject missing/uncertain timing or an exceeded window. Keep actual `C−S` ≤24h and the existing retention/removal checks separately.
 
