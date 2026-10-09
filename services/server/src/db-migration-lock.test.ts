@@ -5,8 +5,8 @@ import { runControlPlaneMigrations } from "./migrations.js";
 vi.mock("./migrations.js", () => ({ runControlPlaneMigrations: vi.fn() }));
 const approval = "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
 // Synthetic fixture credentials, never used for a connection: migration is mocked.
-const base = "postgresql://fixture:fixture@127.0.0.1:55624/appserver_test?application_name=fixture";
-const scoped = `${base}&options=-csearch_path%3Dappserver_lock_fixture`;
+const base = "postgresql://fixture:fixture@127.0.0.1:5432/migration_test?application_name=fixture";
+const scoped = `${base}&options=-csearch_path%3Dmigration_lock_fixture`;
 
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
@@ -41,26 +41,26 @@ describe("isolated migration lock selection", () => {
 
   it.each([
     base,
-    scoped.replace("appserver_lock_fixture", "public"),
-    scoped.replace("appserver_lock_fixture", "information_schema"),
-    scoped.replace("appserver_lock_fixture", "pg_catalog"),
-    scoped.replace("appserver_lock_fixture", "missing,public"),
+    scoped.replace("migration_lock_fixture", "public"),
+    scoped.replace("migration_lock_fixture", "information_schema"),
+    scoped.replace("migration_lock_fixture", "pg_catalog"),
+    scoped.replace("migration_lock_fixture", "missing,public"),
     `${scoped}%20-cstatement_timeout%3D0`,
     `${scoped}&options=-csearch_path%3Dother`,
     scoped.replace("fixture:fixture", "fixture:different"),
-    scoped.replace("55624", "55625"),
+    scoped.replace("5432", "5433"),
     scoped.replace("application_name=fixture", "application_name=other"),
-    scoped.replace("appserver_test", "another_test")
+    scoped.replace("migration_test", "another_test")
   ])("keeps mismatched or non-isolated DSNs on the global lock (case %#)", async (actual) => {
     expect(await selected(actual)).toEqual({ lock: true, isolatedTestSchema: false });
   });
 
   it.each([
     base.replace("127.0.0.1", "db.example.com"),
-    base.replace("appserver_test", "live"),
+    base.replace("migration_test", "live"),
     `${base}&options=-cstatement_timeout%3D0`
   ])("rejects an unsafe approved base DSN (case %#)", async (approved) => {
-    expect(await selected(`${approved}&options=-csearch_path%3Dappserver_lock_fixture`, approved))
+    expect(await selected(`${approved}&options=-csearch_path%3Dmigration_lock_fixture`, approved))
       .toEqual({ lock: true, isolatedTestSchema: false });
   });
 

@@ -23,7 +23,7 @@ suite("legacy schema helpers with colliding PostgreSQL schemas", () => {
     return scoped.toString();
   };
   const newSchema = async () => {
-    const schema = `appserver_schema_helpers_${randomUUID().replaceAll("-", "")}`;
+    const schema = `schema_helpers_${randomUUID().replaceAll("-", "")}`;
     await admin!.query(`CREATE SCHEMA "${schema}"`);
     schemas.push(schema);
     return schema;
