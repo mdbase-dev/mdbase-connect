@@ -9,6 +9,9 @@ import { LOG_TOKEN_LIFETIME_MS, LogServiceClient } from "./log-service-client.js
 import { certDigest, decodeCbor, keyId, policyItemSignedDigest, signPolicyItem, type PolicyOp } from "./policy-wire.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
 import { loadServiceDevice, parseServiceDevice, ServiceDeviceError, storeServiceDevice } from "./service-devices.js";
+import { lock } from "./bootstrap-common.js";
+import { recordCollectionDeletionIntent } from "./collection-deletion.js";
+import { queueNextPolicy } from "./policy-outbox.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -43,6 +46,17 @@ describePostgres("service devices", () => {
   const ids = { standard: randomUUID(), private: randomUUID(), left: randomUUID(), barrier: randomUUID() };
   const devices = { hosted: record("hosted"), escrow: record("escrow", randomUUID(), 7), left: record("hosted", randomUUID(), 11), barrier: record("hosted", randomUUID(), 21) };
 
+  async function freshCurrent() {
+    const collection = randomUUID(), device = record("hosted"), recovery = record("escrow", randomUUID(), 7);
+    await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'next','cloud_copy',$3)", [collection, owner, Buffer.from(originUnsigned.root)]);
+    await storeServiceDevice(db, collection, device);
+    await storeServiceDevice(db, collection, recovery);
+    await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,1,$2,$3,$4,'appended')", [collection, Buffer.alloc(32), signedOrigin(collection, owner), NOW]);
+    const get = (kind: "hosted" | "escrow" = "hosted") => app.inject({method: "GET", url: `/internal/v1/next/collections/${collection}/service-devices/${kind}`, headers: {authorization: `Bearer ${kind === "hosted" ? hosted : escrow}`}});
+    const mint = () => app.inject({method: "POST", url: `/internal/v1/next/service-devices/${device.device_id}/log-token`, headers: {authorization: `Bearer ${hosted}`}, payload: {collection}});
+    return {collection, device, get, mint};
+  }
+
   beforeAll(async () => {
     const url = new URL(testUrl!);
     if (!["localhost", "127.0.0.1", "::1"].includes(url.hostname) || !/test/i.test(url.pathname)) throw new Error("Service device tests require a dedicated local test database.");
@@ -73,6 +87,74 @@ describePostgres("service devices", () => {
     if (admin && schema) await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await admin?.end();
   }, 60_000);
+
+  it.each(["cp-intent", "native-registry"])("denies directory, wrapped records and token mint on a permanent %s fact without rewriting retained rows", async authority => {
+    const {collection, get, mint} = await freshCurrent();
+    expect((await get()).statusCode).toBe(200);
+    expect((await mint()).statusCode).toBe(200);
+    const retained = () => db.query("SELECT kind,device_id,wrapped_keys,kms_key_arn FROM next_service_devices WHERE collection_id=$1 ORDER BY kind", [collection]);
+    const before = (await retained()).rows;
+    await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,$3)", [collection, randomUUID(), authority]);
+    for (const response of [await get(), await get("escrow"), await mint()]) {
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).not.toHaveProperty("wrapped_keys");
+      expect(response.json()).not.toHaveProperty("token");
+    }
+    const single = await app.inject({method: "GET", url: `/internal/v1/next/collections/${collection}/state`, headers: {authorization: `Bearer ${hosted}`}});
+    const bulk = await app.inject({method: "POST", url: "/internal/v1/next/collections/states", headers: {authorization: `Bearer ${escrow}`}, payload: {ids: [collection]}});
+    expect(single.json()).toEqual({collection, state: "unknown", runtime: "next"});
+    expect(bulk.json().collections).toEqual([single.json()]);
+    expect((await retained()).rows).toEqual(before);
+    await db.query("DELETE FROM next_collections WHERE collection_id=$1", [collection]);
+    expect((await db.query("SELECT 1 FROM next_collection_deletion_facts WHERE collection_id=$1", [collection])).rows).toHaveLength(1);
+    expect((await get()).statusCode).toBe(409);
+  });
+
+  it("keeps HTTP UUID case-insensitivity and nil collection misses without helper errors", async () => {
+    const {collection, device} = await freshCurrent();
+    for (const id of [collection.toUpperCase(), "00000000-0000-0000-0000-000000000000"]) {
+      const get = await app.inject({method: "GET", url: `/internal/v1/next/collections/${id}/service-devices/hosted`, headers: {authorization: `Bearer ${hosted}`}});
+      const mint = await app.inject({method: "POST", url: `/internal/v1/next/service-devices/${device.device_id}/log-token`, headers: {authorization: `Bearer ${hosted}`}, payload: {collection: id}});
+      expect(get.statusCode, get.body).toBe(id === collection.toUpperCase() ? 200 : 409);
+      expect(mint.statusCode, mint.body).toBe(get.statusCode);
+    }
+  });
+
+  it("refuses a pending device revocation before wrapped-record publication or token mint, keeping the other kind current", async () => {
+    const {collection, device, get, mint} = await freshCurrent();
+    expect(await queueNextPolicy(db, collection, [{op: "device-revoke", device: device.device_id}])).toBe(true);
+    for (const response of [await get(), await mint()]) {
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).not.toHaveProperty("wrapped_keys");
+      expect(response.json()).not.toHaveProperty("token");
+    }
+    expect((await get("escrow")).statusCode).toBe(200);
+    expect((await db.query("SELECT batch_id FROM next_policy_outbox WHERE collection_id=$1", [collection])).rows[0].batch_id).toBeNull();
+  });
+
+  it("waits for the existing collection-locked deletion intent and denies after it commits", async () => {
+    const {collection, get, mint} = await freshCurrent();
+    const deleting = await db.connect();
+    let reads: Promise<unknown>[] = [];
+    try {
+      await deleting.query("BEGIN");
+      await lock(deleting, collection);
+      await recordCollectionDeletionIntent(deleting, collection, owner);
+      let settled = 0;
+      const fetch = get().finally(() => { settled++; });
+      const token = mint().finally(() => { settled++; });
+      reads = [fetch, token];
+      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(settled).toBe(0);
+      await deleting.query("COMMIT");
+      expect((await fetch).statusCode).toBe(409);
+      expect((await token).statusCode).toBe(409);
+    } finally {
+      await deleting.query("ROLLBACK").catch(() => undefined);
+      deleting.release();
+      await Promise.all(reads);
+    }
+  });
 
   it("stores idempotently and refuses a different device for the same kind", async () => {
     await expect(storeServiceDevice(db, ids.standard, devices.hosted)).resolves.toMatchObject({ device_id: devices.hosted.device_id });

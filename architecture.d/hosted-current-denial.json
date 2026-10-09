@@ -1,0 +1,4 @@
+{
+  "reason": "Existing hosted routes reuse the collection deletion helper and shared bounded transaction/collection-lock/device-revocation helpers through two relative imports. This replaces the route-local transaction implementation; no new production file, endpoint, export, schema, package, registry or stored permission is introduced.",
+  "growth": { "relativeImports": 2 }
+}
