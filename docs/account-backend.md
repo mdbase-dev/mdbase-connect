@@ -14,6 +14,15 @@ The hosted migrator calls these routes with its own token,
 escrow service tokens; without it the routes are not mounted. Every change is an
 `audit_events` row.
 
+Suspension is not migration exclusion. The dedicated migration service can
+select, start, obtain a source witness for, cut over and flip a suspended account
+without clearing its suspension. Ordinary session, application, connector,
+member and takeover checks continue to deny suspended accounts before and after
+the flip. Only a separate account-status change restores ordinary access.
+Accepted deletion remains terminal exclusion and refuses all migration steps.
+Migration ledger facts and source witnesses do not establish physical byte
+preservation or grant ordinary access.
+
 1. **Start.** `POST /internal/v1/next/migration/accounts/{id}/start` is the atomic
    claim. It requires a released cohort and a legacy account, and it is refused
    while the rollout is paused. A started account appears in `GET …/in-progress`
