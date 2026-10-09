@@ -326,8 +326,10 @@ export async function buildApp(options: BuildOptions) {
   applicationReconciliation.start();
   nextPolicyEmitter?.start();
   providerRevocations?.start();
+  // Restart recovery applies to accepted deletion work, not authority expiry:
+  // startup/account reads must not unexpectedly expire legacy transfers.
+  await drainDeferredAccountDeletions(options.db).catch(() => app.log.error("account deletion startup pass failed; retrying"));
   authorityTransferRecovery.start();
-  void authorityTransferRecovery.drainOnce().catch(() => app.log.error("account deletion / authority recovery startup pass failed; retrying"));
 
   app.addHook("onRequest", async (request, reply) => {
     if (

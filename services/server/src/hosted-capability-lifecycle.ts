@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { accountMigrating } from "./features/next/migration-rollout.js";
+import { requireAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
+import { RequestValidationError } from "./platform/http-errors.js";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { finalizeReadyMembershipTransitions } from "./collection-membership-lifecycle.js";
 import { audit } from "./platform/audit-events.js";
@@ -245,6 +247,17 @@ export async function quarantineMissingHostedCollection(
   const connection = await db.connect();
   try {
     await connection.query("BEGIN");
+    await connection.query("SET LOCAL lock_timeout = '5s'");
+    const owner = (await connection.query<{ user_id: string }>(
+      "SELECT user_id FROM hosted_collections WHERE id = $1", [collectionId]
+    )).rows[0];
+    if (!owner) { await connection.query("ROLLBACK"); return null; }
+    await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [owner.user_id]);
+    if (await accountMigrating(connection, owner.user_id)) {
+      await connection.query("COMMIT");
+      return { changed: false, grantsRevoked: 0, replicasRevoked: 0 };
+    }
+    await requireAccountNotMigrationFrozen(connection, owner.user_id);
     const collection = await connection.query<{
       user_id: string;
       quarantined_at: string | Date | null;
@@ -259,13 +272,7 @@ export async function quarantineMissingHostedCollection(
       await connection.query("ROLLBACK");
       return null;
     }
-    // A collection of an account whose migration to mdbase-next started is frozen
-    // or migrated by the provider, not missing: never quarantine it (that would
-    // destroy pre-cutover rollback).
-    if (await accountMigrating(connection, row.user_id)) {
-      await connection.query("COMMIT");
-      return { changed: false, grantsRevoked: 0, replicasRevoked: 0 };
-    }
+    if (row.user_id !== owner.user_id) throw new RequestValidationError("Busy; retry.", { statusCode: 409, code: "busy" });
     if (row.quarantined_at !== null) {
       await connection.query("COMMIT");
       return { changed: false, grantsRevoked: 0, replicasRevoked: 0 };
@@ -513,6 +520,34 @@ export class ProviderRevocationWorker {
     }
   }
 
+  /** A claimed job is only work discovery, not permission to erase topology.
+   * Guard the current owner on the delivery transaction and hold through the
+   * provider await and durable completion. Deleted-account jobs have no parent;
+   * they are created only by immediate/ready terminal erasure.
+   */
+  private async deleteCollection(job: CollectionDeletionJob): Promise<void> {
+    const connection = await this.db.connect();
+    try {
+      await connection.query("BEGIN");
+      await connection.query("SET LOCAL lock_timeout = '5s'");
+      const owner = (await connection.query<{ user_id: string }>(
+        "SELECT user_id FROM hosted_collections WHERE id = $1", [job.collection_id]
+      )).rows[0];
+      if (owner) await requireAccountNotMigrationFrozen(connection, owner.user_id);
+      const held = (await connection.query<{ user_id: string }>(
+        "SELECT user_id FROM hosted_collections WHERE id = $1 FOR UPDATE", [job.collection_id]
+      )).rows[0];
+      if (held?.user_id !== owner?.user_id) throw new RequestValidationError("Busy; retry.", { statusCode: 409, code: "busy" });
+      try { await this.provider.deleteCollection(job.collection_id); }
+      catch (error) { if (!isAlreadyMissingProviderResource(error)) throw error; }
+      await completeProviderCleanupJob(connection, job);
+      await connection.query("COMMIT");
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally { connection.release(); }
+  }
+
   private async drainAvailable(limit: number): Promise<number> {
     let attempted = 0;
     let completed = 0;
@@ -523,7 +558,9 @@ export class ProviderRevocationWorker {
       attempted += 1;
       try {
         if (job.kind === "delete_collection") {
-          await this.provider.deleteCollection(job.collection_id);
+          await this.deleteCollection(job);
+          completed += 1;
+          continue;
         } else {
           await this.provider.revokeReplica(job.replica_id);
           if (job.grant_id) {

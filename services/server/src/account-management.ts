@@ -134,7 +134,7 @@ async function eraseAccount(client: DatabaseConnection, user: string, queueProvi
     cross_account_replicas_revoked: result.crossAccountReplicasRevoked,
     local_collections_preserved: result.localCollectionsPreserved
   });
-  await client.query("DELETE FROM users WHERE id=$1", [user]);
+  await client.query("DELETE FROM users WHERE id = $1", [user]);
   return result;
 }
 

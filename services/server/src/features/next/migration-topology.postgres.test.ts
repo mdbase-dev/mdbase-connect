@@ -7,6 +7,12 @@ import { deleteAccountLocally, drainDeferredAccountDeletions } from "../../accou
 import { createHostedCollectionForUser, deleteHostedCollectionForUser, renameHostedCollectionForUser } from "../hosted/service.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
+import { recoverExpiredAuthorityTransfers } from "../authority-transfer/lifecycle.js";
+import { recoverExpiredAuthorityAdoptions } from "../authority-adoption/adoption-store.js";
+import { recoverAccountImportCancellation } from "../authority-transfer/account-cancellation.js";
+import { audit } from "../../platform/audit-events.js";
+import { ProviderRevocationWorker, quarantineMissingHostedCollection } from "../../hosted-capability-lifecycle.js";
+import type { HostedProviderClient } from "../../hosted-provider.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -191,6 +197,95 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     expect(await deleteHostedCollectionForUser(options, reference, account, collection.id, "account")).toBe(true);
     expect(erase).toHaveBeenCalledTimes(1);
     expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [collection.id])).rowCount).toBe(0);
+  });
+
+  async function transferFixture(direction: "to_hosted" | "to_local") {
+    const account = await user(), name = await batch([account]);
+    const connector = randomUUID(), local = randomUUID(), hosted = randomUUID(), transfer = randomUUID();
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Synthetic',$3)", [connector, account, randomUUID()]);
+    await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,authority_state) VALUES($1,$2,$3,$4,'Synthetic','0.3.0',$5)",
+      [local, account, connector, hosted, direction === "to_hosted" ? "active" : "candidate"]);
+    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template,authority_state,authority_epoch) VALUES($1,$2,'Synthetic','mdbase',$3,$4)",
+      [hosted, account, direction === "to_hosted" ? "importing" : "transferring", direction === "to_hosted" ? 2 : 1]);
+    await db.query("INSERT INTO authority_transfers(id,user_id,hosted_collection_id,local_collection_id,direction,state,expires_at,next_authority_epoch,final_head,manifest_digest) VALUES($1,$2,$3,$4,$5,'prepared',now()-interval '1 hour',2,0,$6)",
+      [transfer, account, hosted, local, direction, "e".repeat(64)]);
+    return { account, name, connector, local, hosted, transfer };
+  }
+
+  it.each(["to_hosted", "to_local"] as const)("leaves frozen %s expiry pending with no provider effects, then resumes after unfreeze", async (direction) => {
+    const f = await transferFixture(direction);
+    const expire = vi.fn(async () => undefined), provider = { expireAuthorityImport: expire, expireAuthorityTransfer: expire } as unknown as HostedProviderClient;
+    await setCohortFrozen(db, f.name, true, "capture", OP);
+    await recoverExpiredAuthorityTransfers(db, provider, undefined, f.hosted);
+    expect(expire).not.toHaveBeenCalled();
+    expect((await db.query("SELECT state FROM authority_transfers WHERE id=$1", [f.transfer])).rows[0].state).toBe("prepared");
+    await setCohortFrozen(db, f.name, false, "cancel before acceptance", OP);
+    await recoverExpiredAuthorityTransfers(db, provider, undefined, f.hosted);
+    expect(expire).toHaveBeenCalledOnce();
+    expect((await db.query("SELECT authority_state FROM hosted_collections WHERE id=$1", [f.hosted])).rows).toEqual(direction === "to_hosted" ? [] : [{ authority_state: "active" }]);
+  });
+
+  it("reference transport reads cannot restore an expired transfer while frozen", async () => {
+    const f = await transferFixture("to_local"), reference = new HostedAuthorityRegistry(db);
+    const transport = await reference.transport(f.hosted, randomUUID());
+    await setCohortFrozen(db, f.name, true, "capture", OP);
+    await expect(transport.openSession()).rejects.toMatchObject({ code: "authority_transfer_in_progress" });
+    expect((await db.query("SELECT authority_state FROM hosted_collections WHERE id=$1", [f.hosted])).rows[0].authority_state).toBe("transferring");
+    expect((await db.query("SELECT state FROM authority_transfers WHERE id=$1", [f.transfer])).rows[0].state).toBe("prepared");
+    await setCohortFrozen(db, f.name, false, "cancel before acceptance", OP);
+    // The reference authority is intentionally absent: recovery still restores
+    // topology before the normal read reports the missing reference data.
+    await expect(transport.openSession()).rejects.toMatchObject({ code: "hosted_collection_not_found" });
+    expect((await db.query("SELECT authority_state FROM hosted_collections WHERE id=$1", [f.hosted])).rows[0].authority_state).toBe("active");
+  });
+
+  it("defers adoption expiry on GET/scheduler recovery through provider abort and cleanup", async () => {
+    const account = await user(), name = await batch([account]), hosted = randomUUID(), adoption = randomUUID();
+    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template,authority_state,authority_epoch) VALUES($1,$2,'Synthetic','mdbase','importing',2)", [hosted, account]);
+    await db.query("INSERT INTO authority_adoption_requests(id,secret_hash,collection_id,display_name,source_name,user_id,state,expires_at) VALUES($1,$2,$3,'Synthetic','Synthetic',$4,'prepared',now()-interval '1 hour')", [adoption, randomUUID(), hosted, account]);
+    const abort = vi.fn(async () => undefined), provider = { abortAuthorityImport: abort } as unknown as HostedProviderClient;
+    await setCohortFrozen(db, name, true, "capture", OP);
+    await recoverExpiredAuthorityAdoptions(db, provider);
+    expect(abort).not.toHaveBeenCalled();
+    expect((await db.query("SELECT state,cleanup_completed FROM authority_adoption_requests WHERE id=$1", [adoption])).rows[0]).toEqual({ state: "prepared", cleanup_completed: false });
+    await setCohortFrozen(db, name, false, "cancel before acceptance", OP);
+    await recoverExpiredAuthorityAdoptions(db, provider);
+    expect(abort).toHaveBeenCalledWith(adoption);
+    expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [hosted])).rowCount).toBe(0);
+    expect((await db.query("SELECT state,cleanup_completed FROM authority_adoption_requests WHERE id=$1", [adoption])).rows[0]).toEqual({ state: "expired", cleanup_completed: true });
+  });
+
+  it("blocks account-cancellation recovery before provider fencing, including historical missing targets", async () => {
+    const f = await transferFixture("to_hosted");
+    await audit(db, f.account, "authority_transfer.requested", f.transfer, { connector_id: f.connector, collection_id: f.hosted, direction: "to_hosted", authority_epoch: 2 });
+    const fence = vi.fn(async () => undefined), provider = { reconcileAuthorityImportCancellation: fence } as unknown as HostedProviderClient;
+    await setCohortFrozen(db, f.name, true, "capture", OP);
+    const current = { id: f.connector, user_id: f.account };
+    await expect(recoverAccountImportCancellation(db, provider, current, f.transfer)).rejects.toMatchObject({ code: "migration_frozen" });
+    expect(fence).not.toHaveBeenCalled();
+    await setCohortFrozen(db, f.name, false, "cancel before acceptance", OP);
+    expect(await recoverAccountImportCancellation(db, provider, current, f.transfer)).toBe(true);
+    expect(fence).toHaveBeenCalledOnce();
+    await setCohortFrozen(db, f.name, true, "second capture", OP);
+    await expect(recoverAccountImportCancellation(db, provider, current, f.transfer)).rejects.toMatchObject({ code: "migration_frozen" });
+    expect(fence).toHaveBeenCalledOnce();
+  });
+
+  it("fences quarantine and preexisting provider deletion jobs for the actual frozen owner", async () => {
+    const account = await user(), name = await batch([account]), reference = new HostedAuthorityRegistry(db);
+    const collection = await createHostedCollectionForUser({ db, hostedCollections: true }, reference, "https://synthetic.example.test", account, "Synthetic", "mdbase", "UTC");
+    const job = randomUUID();
+    await db.query("INSERT INTO provider_collection_deletion_jobs(id,collection_id,reason) VALUES($1,$2,'account_deletion')", [job, collection.id]);
+    const erase = vi.fn(async () => undefined), worker = new ProviderRevocationWorker(db, { deleteCollection: erase } as unknown as HostedProviderClient);
+    await setCohortFrozen(db, name, true, "capture", OP);
+    await expect(quarantineMissingHostedCollection(db, String(collection.id))).rejects.toMatchObject({ code: "migration_frozen" });
+    expect(await worker.drain()).toBe(0); expect(erase).not.toHaveBeenCalled();
+    expect((await db.query("SELECT quarantined_at FROM hosted_collections WHERE id=$1", [collection.id])).rows[0].quarantined_at).toBeNull();
+    expect((await db.query("SELECT completed_at FROM provider_collection_deletion_jobs WHERE id=$1", [job])).rows[0].completed_at).toBeNull();
+    await setCohortFrozen(db, name, false, "cancel before acceptance", OP);
+    await db.query("UPDATE provider_collection_deletion_jobs SET available_at=now() WHERE id=$1", [job]);
+    expect(await worker.drain()).toBe(1); expect(erase).toHaveBeenCalledWith(collection.id);
+    expect(await quarantineMissingHostedCollection(db, String(collection.id))).toMatchObject({ changed: true });
   });
 
   it("serializes two actual creates and a freeze before effects without a parent-lock upgrade deadlock", async () => {

@@ -5,6 +5,8 @@ import {
   type HostedProviderClient
 } from "../../hosted-provider.js";
 import { tokenHash } from "../../security.js";
+import { RequestValidationError } from "../../platform/http-errors.js";
+import { requireAccountNotMigrationFrozen } from "../next/migration-topology.js";
 
 export interface AuthorityAdoptionRow {
   id: string;
@@ -97,37 +99,56 @@ export async function recoverExpiredAuthorityAdoptions(
   db: DatabasePool,
   hostedProvider?: HostedProviderClient
 ): Promise<void> {
-  await db.query(
-    `UPDATE authority_adoption_requests
-     SET state = 'expired'
-     WHERE expires_at <= now()
-       AND state IN ('requested', 'approved', 'prepared')`
+  // Discovery grants no authority. Lock the account/cohort before the adoption
+  // or collection, and retain those locks through provider abort and cleanup.
+  const pendingCleanup = await db.query<{ id: string; user_id: string | null }>(
+    `SELECT id, user_id FROM authority_adoption_requests
+     WHERE (expires_at <= now() AND state IN ('requested', 'approved', 'prepared'))
+        OR (state = 'expired' AND cleanup_completed = false)
+     ORDER BY expires_at, id LIMIT 25`
   );
-  if (!hostedProvider) return;
-  const pendingCleanup = await db.query<{
-    id: string;
-    collection_id: string;
-  }>(
-    `SELECT id, collection_id FROM authority_adoption_requests
-     WHERE state = 'expired' AND cleanup_completed = false`
-  );
-  for (const adoption of pendingCleanup.rows) {
-    try {
-      await hostedProvider.abortAuthorityImport(adoption.id);
-    } catch (error) {
-      if (
-        !(error instanceof HostedProviderResponseError)
-        || ![
-          "authority_import_not_found",
-          "authority_import_inactive"
-        ].includes(error.code)
-      ) {
-        throw error;
-      }
-    }
+  for (const candidate of pendingCleanup.rows) {
     const connection = await db.connect();
     try {
       await connection.query("BEGIN");
+      await connection.query("SET LOCAL lock_timeout = '5s'");
+      if (candidate.user_id) await requireAccountNotMigrationFrozen(connection, candidate.user_id);
+      const locked = await connection.query<{ id: string; collection_id: string; user_id: string | null }>(
+        `SELECT id, collection_id, user_id FROM authority_adoption_requests
+         WHERE id = $1 AND (
+           (expires_at <= now() AND state IN ('requested', 'approved', 'prepared'))
+           OR (state = 'expired' AND cleanup_completed = false)
+         ) FOR UPDATE`, [candidate.id]
+      );
+      const adoption = locked.rows[0];
+      // Approval may have acquired an owner after discovery. Retry with the
+      // correct account-first ordering; never guard after taking the child.
+      if (!adoption || adoption.user_id !== candidate.user_id) {
+        await connection.query("ROLLBACK");
+        continue;
+      }
+      await connection.query("UPDATE authority_adoption_requests SET state = 'expired' WHERE id = $1", [adoption.id]);
+      if (!hostedProvider) {
+        await connection.query("COMMIT");
+        continue;
+      }
+      // A requested adoption has no hosted topology yet. For approved requests,
+      // publication guarantees this owner matches the locked account.
+      const parent = await connection.query<{ user_id: string }>(
+        "SELECT user_id FROM hosted_collections WHERE id = $1 FOR UPDATE", [adoption.collection_id]
+      );
+      if (parent.rows[0] && parent.rows[0].user_id !== adoption.user_id) throw new Error("Adoption collection owner changed.");
+      try {
+        await hostedProvider.abortAuthorityImport(adoption.id);
+      } catch (error) {
+        if (!(error instanceof HostedProviderResponseError)
+          || !["authority_import_not_found", "authority_import_inactive"].includes(error.code)) {
+          // Preserve the existing durable expiration intent on an uncertain
+          // abort; no cleanup/publication is committed or claimed completed.
+          await connection.query("COMMIT");
+          throw error;
+        }
+      }
       await connection.query(
         "DELETE FROM mirror_pairing_requests WHERE id = $1",
         [adoption.id]
@@ -146,6 +167,7 @@ export async function recoverExpiredAuthorityAdoptions(
       await connection.query("COMMIT");
     } catch (error) {
       await connection.query("ROLLBACK");
+      if (error instanceof RequestValidationError && ["migration_frozen", "busy"].includes(error.code)) continue;
       throw error;
     } finally {
       connection.release();

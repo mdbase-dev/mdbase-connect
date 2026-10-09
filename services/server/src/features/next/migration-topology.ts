@@ -15,7 +15,7 @@ export async function requireAccountNotMigrationFrozen(client: DatabaseConnectio
   const accounts = [...new Set([accountId, ...otherAccountIds])].sort();
   try {
     await client.query("SET LOCAL lock_timeout = '5s'");
-    await client.query("SELECT id FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE", [accounts]);
+    await client.query("SELECT id FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE", [accounts]);
     const members = (await client.query<{ cohort: string }>(
       "SELECT cohort FROM next_migration_cohort_members WHERE account_id = ANY($1::uuid[]) ORDER BY account_id FOR SHARE", [accounts]
     )).rows;

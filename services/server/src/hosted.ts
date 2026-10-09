@@ -16,6 +16,7 @@ import {
 } from "@mdbase-dev/connect-sync/mirror";
 import { createHash } from "node:crypto";
 import type { DatabasePool } from "./db.js";
+import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
 
 interface CachedAuthority {
   authority: MemoryAuthority;
@@ -238,25 +239,15 @@ export class HostedAuthorityRegistry {
   }
 
   private async activeTransfer(collectionId: string): Promise<ReferenceAuthorityTransfer | null> {
-    await this.db.query(
-      `UPDATE authority_transfers SET state = 'expired'
-       WHERE hosted_collection_id = $1 AND state = 'prepared' AND expires_at <= now()`,
-      [collectionId]
-    );
-    await this.db.query(
-      `UPDATE hosted_collections SET authority_state = 'active'
-       WHERE id = $1 AND authority_state = 'transferring'
-         AND NOT EXISTS (
-           SELECT 1 FROM authority_transfers
-           WHERE hosted_collection_id = $1 AND state = 'prepared' AND expires_at > now()
-         )`,
-      [collectionId]
-    );
+    // Reuse the scheduler's locked, freeze-aware recovery instead of two
+    // autocommit topology updates hidden in a read. Frozen transfers remain
+    // fenced even after their deadline, until guarded recovery can run.
+    await recoverExpiredAuthorityTransfers(this.db, undefined, this, collectionId);
     const result = await this.db.query<ReferenceTransferRow>(
       `SELECT id, hosted_collection_id, replica_id, final_head, next_authority_epoch,
               manifest_digest, state, expires_at
        FROM authority_transfers
-       WHERE hosted_collection_id = $1 AND state = 'prepared' AND expires_at > now()
+       WHERE hosted_collection_id = $1 AND state = 'prepared'
        ORDER BY created_at DESC LIMIT 1`,
       [collectionId]
     );
