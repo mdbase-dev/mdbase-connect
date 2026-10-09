@@ -50,6 +50,8 @@ export class RolloutRefused extends Error {
 
 // Canonical scalars must consume the entire string without normalization.
 const COHORT_NAME = /^[a-z0-9][a-z0-9-]{0,62}(?![\s\S])/;
+// New legacy locations and unchanged historical locations only; never routine.
+const ARCHIVE_PREFIX = /^(?:legacy-archive\/)?(staging|production)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/;
 const HEX64 = /^[0-9a-f]{64}(?![\s\S])/;
 const UUID_CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\s\S])/;
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z(?![\s\S])/;
@@ -72,7 +74,7 @@ const verifiedArchiveSchema = z.object({
   schema: z.literal("mdbase-recovery-set/v4"),
   environment: z.enum(["production", "staging"]),
   bucket: z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9](?![\s\S])/),
-  prefix: z.string().max(128).regex(/^(staging|production)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
+  prefix: z.string().max(128).regex(ARCHIVE_PREFIX),
   backup_id: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
   complete_sha256: z.string().regex(HEX64),
   manifest_sha256: z.string().regex(HEX64),
@@ -109,7 +111,7 @@ export function parseVerifiedBatchArchive(body: unknown): VerifiedBatchArchive {
   const parsed = verifiedArchiveSchema.safeParse(body);
   if (!parsed.success) throw new RolloutRefused("backup_missing", "A complete verified v4 archive result is required.");
   const result = parsed.data;
-  if (result.prefix.split("/")[0] !== result.environment || result.prefix.split("/").at(-1) !== result.backup_id) {
+  if (ARCHIVE_PREFIX.exec(result.prefix)?.[1] !== result.environment || result.prefix.split("/").at(-1) !== result.backup_id) {
     throw new RolloutRefused("backup_missing", "Archive identity does not match.");
   }
   return result;

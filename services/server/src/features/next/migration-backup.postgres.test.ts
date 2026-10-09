@@ -59,6 +59,28 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
   }
   const startedAt = async (account: string) => (await db.query("SELECT started_at FROM next_migration_cohort_members WHERE account_id=$1", [account])).rows[0]?.started_at;
 
+  it("admits namespaced legacy metadata through currentness/start without changing the stored physical prefix", async () => {
+    const account = await user(), name = await batch([account]), body = await metadata(name);
+    body.prefix = `legacy-archive/${body.prefix}`;
+    const accepted = await acceptCohortArchive(db, name, body, "production");
+    expect(await acceptCohortArchive(db, name, body, "production")).toEqual(accepted);
+    expect((await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1", [name])).rows[0].verified_result).toEqual(body);
+    expect(await startAccountMigration(db, account, "production")).toMatchObject({ account_id: account });
+  });
+  it("preserves historical receipt text/time on retries and refuses namespace relabel or routine admission", async () => {
+    const account = await user(), name = await batch([account]), body = await metadata(name);
+    const accepted = await acceptCohortArchive(db, name, body, "production");
+    const stored = () => db.query("SELECT verified_result::text AS receipt, accepted_at::text AS accepted FROM next_migration_archive_acceptances WHERE cohort=$1", [name]);
+    const original = (await stored()).rows;
+    expect(await acceptCohortArchive(db, name, body, "production")).toEqual(accepted);
+    await expect(acceptCohortArchive(db, name, { ...body, prefix: `legacy-archive/${body.prefix}` }, "production")).rejects.toMatchObject({ code: "backup_conflict" });
+    await expect(acceptCohortArchive(db, name, { ...body, prefix: `routine/${body.prefix}` }, "production")).rejects.toMatchObject({ code: "backup_missing" });
+    expect((await stored()).rows).toEqual(original);
+    const other = await user(), fresh = await batch([other]), routine = await metadata(fresh);
+    await expect(acceptCohortArchive(db, fresh, { ...routine, prefix: `routine/${routine.prefix}` }, "production")).rejects.toMatchObject({ code: "backup_missing" });
+    expect((await db.query("SELECT 1 FROM next_migration_archive_acceptances WHERE cohort=$1", [fresh])).rows).toHaveLength(0);
+    expect(await startedAt(other)).toBeNull();
+  });
   it("refuses absent/v3/wrong-environment evidence before a claim/audit mutation", async () => {
     const account = await user(), name = await batch([account]);
     await expect(startAccountMigration(db, account, "production")).rejects.toMatchObject({ code: "backup_missing" });

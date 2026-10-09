@@ -44,6 +44,32 @@ describe("H0 typed ONE-verifier metadata (not archive/signature execution)", () 
     expect(result.retention.count).toBe("18446744073709551615");
     expect(() => requireFreshBatchArchive(result, binding, now, now, "production")).not.toThrow();
   });
+  it.each(["production", "staging"])("preserves full new/historical physical prefix and unchanged H0 fields for %s", environment => {
+    for (const namespace of ["", "legacy-archive/"]) {
+      const body = { ...fixture(), environment, prefix: `${namespace}${environment}/2026/10/08/archive-one` };
+      const original = JSON.stringify(body);
+      const result = parseVerifiedBatchArchive(body);
+      expect(result).toEqual(body);
+      expect(result.prefix).toBe(body.prefix);
+      expect(JSON.stringify(body)).toBe(original);
+      expect(() => requireFreshBatchArchive(result, binding, now, now, environment)).not.toThrow();
+    }
+  });
+  it.each(["routine/production", "routine/staging", "legacy-archive/routine/production",
+    "legacy-archive/legacy-archive/production", "legacy-archive/lab", "Legacy-archive/production"])
+    ("refuses nonlegacy or noncanonical namespace %s regardless of retention caption", namespace => {
+      expect(() => parseVerifiedBatchArchive({ ...fixture(), prefix: `${namespace}/2026/10/08/archive-one` })).toThrow();
+    });
+  it("keeps new namespace environment/ID/length bounds without normalization", () => {
+    const body = fixture(), id = "a".repeat(80), prefix = `legacy-archive/production/2026/10/08/${id}`;
+    expect(prefix.length).toBe(117);
+    expect(parseVerifiedBatchArchive({ ...body, backup_id: id, prefix }).prefix).toBe(prefix);
+    for (const variant of [
+      { ...body, prefix: "legacy-archive/staging/2026/10/08/archive-one" },
+      { ...body, prefix: "legacy-archive/production/2026/10/08/archive-other" },
+      { ...body, prefix: `${prefix}a`, backup_id: `${id}a` }
+    ]) expect(() => parseVerifiedBatchArchive(variant)).toThrow();
+  });
   it("refuses v3/missing/extra fields and conflicting archive identity", () => {
     for (const body of [undefined, {}, { ...fixture(), schema: "mdbase-recovery-set/v3" },
       { ...fixture(), accepted_at: now }, { ...fixture(), prefix: "staging/2026/10/08/archive-one" },
@@ -58,6 +84,7 @@ describe("H0 typed ONE-verifier metadata (not archive/signature execution)", () 
         { ...body, bucket: body.bucket + suffix },
         { ...body, backup_id: body.backup_id + suffix, prefix: body.prefix + suffix },
         { ...body, prefix: body.prefix + suffix },
+        { ...body, prefix: "legacy-archive/" + body.prefix + suffix },
         { ...body, source_commit: body.source_commit + suffix },
         { ...body, complete_sha256: body.complete_sha256 + suffix },
         { ...body, manifest_sha256: body.manifest_sha256 + suffix },
