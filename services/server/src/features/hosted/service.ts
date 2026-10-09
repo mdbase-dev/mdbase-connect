@@ -433,6 +433,11 @@ export async function renameHostedCollectionForUser(
     await requireAccountNotMigrationFrozen(connection, owner.user_id);
     const held = (await connection.query<{ user_id: string }>("SELECT user_id FROM hosted_collections WHERE id=$1 FOR UPDATE", [collectionId])).rows[0];
     if (!held || held.user_id !== owner.user_id) throw new RequestValidationError("Busy; retry.", { statusCode: 409, code: "busy" });
+    // Recheck current membership after acquiring the collection's mutation lock.
+    if (!await permitsHostedCollectionAction(connection, userId, collectionId, "collection.rename", true)) {
+      await connection.query("ROLLBACK");
+      return null;
+    }
     if ((await connection.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime='next' FOR SHARE", [collectionId])).rows.length) {
       throw new RequestValidationError("Use the native collection catalog to manage its name.", { statusCode: 409, code: "next_collection_metadata_required" });
     }
