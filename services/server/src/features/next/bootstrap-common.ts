@@ -143,9 +143,9 @@ export function refuse(reply: FastifyReply, error: unknown, message: string) {
  * the log. Queued/lost removals deny immediately; a pending member-set is
  * not. One row at most, projected in SQL.
  */
-export async function currentMember(client: DatabaseConnection, collection: string, account: string): Promise<void> {
-  const latest = await client.query<{ op: string }>(
-    `SELECT e.value->>'op' AS op
+export async function currentMember(client: DatabaseConnection, collection: string, account: string, requiredRole?: "owner"): Promise<void> {
+  const latest = await client.query<{ op: string; role: string }>(
+    `SELECT e.value->>'op' AS op, e.value->>'role' AS role
        FROM next_policy_outbox o
        LEFT JOIN next_policy_batches b ON b.id = o.batch_id
        CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY AS e(value, ord)
@@ -159,4 +159,5 @@ export async function currentMember(client: DatabaseConnection, collection: stri
     [collection, JSON.stringify([{ op: "member-set", account }]), JSON.stringify([{ op: "member-remove", account }]), account]
   );
   if (latest.rows[0]?.op !== "member-set") throw new CreateError(409, "not_member");
+  if (requiredRole !== undefined && latest.rows[0].role !== requiredRole) throw new CreateError(403, "not_owner");
 }

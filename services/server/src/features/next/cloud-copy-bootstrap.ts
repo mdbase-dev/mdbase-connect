@@ -1,6 +1,6 @@
-// Cloud-copy collections on the next control plane (Callum's decision of 2026-10-06,
-// which replaces the owner-only §7.1 keying for CLOUD COPY only; private collections
-// are unchanged and never get here). Mounted only with MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1.
+// Cloud-copy collection bootstrap on the next control plane. Service-assisted
+// keying applies to cloud copies only; private collections never enter these routes.
+// Mounted only with MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1.
 //
 // - Service-created (`POST /v1/next/collections/cloud-copy/service`): an account with
 //   no user device gets a cloud copy. Genesis enrols the hosted and escrow service
@@ -16,7 +16,7 @@
 // The control plane never holds a collection key. Each deployment generates its own
 // service device; the first committed record wins, and nothing is ever deleted on a
 // failure path.
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireInstallationDeviceConnector, requireSessionContext, requireUser, type ConnectorIdentity } from "../../platform/request-authentication.js";
@@ -31,6 +31,8 @@ import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 import { generateServiceDevice, loadServiceDevice, ServiceDeviceError, storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
 
 import { installationCollections, requireInstallationScope } from "./installation-scope.js";
+import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME } from "./collection-display-name.js";
+import { registerCloudCopyNameRoutes } from "./collection-name-routes.js";
 const KINDS = ["hosted", "escrow"] as const;
 
 function refuse(reply: FastifyReply, error: unknown, message: string) {
@@ -94,10 +96,18 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
 }): void {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new Error("cloud-copy routes need MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1");
+  registerCloudCopyNameRoutes(app, options.db);
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
   const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" } };
   const limited = { bodyLimit: 4096, config: { rateLimit: { max: 6, timeWindow: "1 minute" } } };
+  // Inspect raw names before JSON-schema coercion; null/numbers are not names.
+  const validateInitialName = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (request.body && typeof request.body === "object" && "display_name" in request.body) {
+      try { collectionDisplayName(request.body.display_name); }
+      catch (error) { return refuse(reply, error, "Use a single-line name of 1–200 UTF-16 units."); }
+    }
+  };
   /** Each deployment generates its own keys. Nothing is locked while they work. */
   const generateFor = (collection: string) =>
     Promise.all(KINDS.map((kind) => generateServiceDevice(deployments[kind], kind, collection, options.fetchImpl)));
@@ -156,11 +166,13 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
   });
 
   // ---- Service-created: the account, no device. ----
-  app.post<{ Body: { collection_id: string } }>("/v1/next/collections/cloud-copy/service", {
+  app.post<{ Body: { collection_id: string; display_name?: string } }>("/v1/next/collections/cloud-copy/service", {
     ...limited,
-    schema: { body: { type: "object", additionalProperties: false, required: ["collection_id"], properties: { collection_id: uuid } } }
+    preValidation: validateInitialName,
+    schema: { body: { type: "object", additionalProperties: false, required: ["collection_id"], properties: { collection_id: uuid, display_name: { type: "string" } } } }
   }, async (request, reply) => {
     reply.header("cache-control", "no-store");
+    const initialDisplayName = request.body.display_name;
     // Session credentials are rechecked after every await; Tailscale identities have
     // no session row, so for them the account itself is.
     let user: { id: string };
@@ -179,6 +191,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     const collection = request.body.collection_id.toLowerCase();
     if (collection === NIL) return reply.code(400).send(apiError("invalid_request", "Nil identifiers are not accepted."));
     try {
+      const displayName = collectionDisplayName(initialDisplayName === undefined ? DEFAULT_COLLECTION_DISPLAY_NAME : initialDisplayName);
       const exists = await inTransaction(options.db, async (client) => {
         await lock(client, collection);
         await current(client);
@@ -191,7 +204,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
           await current(client);
           if (await existing(client, collection, user.id)) throw new CreateError(503, "not_ready");
           await registerNextCollection(client, {
-            collectionId: collection, ownerUserId: user.id, runtime: "next", sync: "cloud_copy", rootKeyId,
+            collectionId: collection, ownerUserId: user.id, runtime: "next", sync: "cloud_copy", rootKeyId, displayName,
             ops: [
               { op: "genesis", owner: user.id, root: rootKeyId, state: "cloud-copy" },
               { op: "member-set", account: user.id, role: "owner" },
@@ -221,14 +234,16 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
   });
 
   // ---- Owner-device: a registered device of the owner creates it. ----
-  app.post<{ Body: Proof & { collection_id: string } }>("/v1/next/collections/cloud-copy", {
+  app.post<{ Body: Proof & { collection_id: string; display_name?: string } }>("/v1/next/collections/cloud-copy", {
     ...limited,
+    preValidation: validateInitialName,
     schema: { body: {
       type: "object", additionalProperties: false, required: ["collection_id", "device_id", "challenge", "sig"],
-      properties: { collection_id: uuid, ...proof }
+      properties: { collection_id: uuid, display_name: { type: "string" }, ...proof }
     } }
   }, async (request, reply) => {
     reply.header("cache-control", "no-store");
+    const initialDisplayName = request.body.display_name;
     const connector = await requireInstallationDeviceConnector(request, reply, options.db);
     if (!connector) return reply;
     const body = { ...request.body, collection_id: request.body.collection_id.toLowerCase(), device_id: request.body.device_id.toLowerCase() };
@@ -237,6 +252,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     const digest = (challenge: Uint8Array) => cloudCopyCreateDigest({ challenge, connector: connector.id, device: body.device_id, collection });
     let device: Device;
     try {
+      const displayName = collectionDisplayName(initialDisplayName === undefined ? DEFAULT_COLLECTION_DISPLAY_NAME : initialDisplayName);
       // 1. Proof and ownership, consuming the challenge. No network call holds a lock.
       let exists: boolean;
       ({ device, exists } = await inTransaction(options.db, async (client) => {
@@ -258,7 +274,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
           // Created concurrently: the retry path rechecks the enrolled device.
           if (await existing(client, collection, connector.user_id)) throw new CreateError(503, "not_ready");
           await registerNextCollection(client, {
-            collectionId: collection, ownerUserId: connector.user_id, runtime: "next", sync: "cloud_copy", rootKeyId,
+            collectionId: collection, ownerUserId: connector.user_id, runtime: "next", sync: "cloud_copy", rootKeyId, displayName,
             ops: [
               { op: "genesis", owner: connector.user_id, root: rootKeyId, state: "cloud-copy" },
               { op: "member-set", account: connector.user_id, role: "owner" },

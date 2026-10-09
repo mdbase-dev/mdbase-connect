@@ -34,8 +34,7 @@ export async function requireInstallationScope(client: DatabaseConnection, conne
 export async function installationCollections(client: DatabaseConnection, account: string, connector?: string, device?: string) {
   const rows = await client.query<{collection_id:string;display_name:string;role:"owner"|"editor"|"viewer"}>(
     `SELECT n.collection_id,
-       COALESCE((SELECT h.display_name FROM hosted_collections h WHERE h.id=n.collection_id),
-                (SELECT c.display_name FROM collections c WHERE c.local_id=n.collection_id AND c.removed_at IS NULL ORDER BY c.id LIMIT 1),n.collection_id::text) AS display_name,
+       COALESCE(n.display_name,'New collection') AS display_name,
        member.role
      FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id
      CROSS JOIN LATERAL (

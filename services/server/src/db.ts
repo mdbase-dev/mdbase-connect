@@ -89,6 +89,16 @@ export async function openDatabase(
       if (sql.includes(archiveTrigger)) return memory.public.many(
         sql.slice(0, sql.indexOf(archiveTrigger)).replace("DEFAULT date_trunc('milliseconds', clock_timestamp())", "DEFAULT now()")
       );
+      // pg-mem cannot execute this UPDATE FROM self-join. Empty fixture schemas
+      // need only the column; populated backfills require real PostgreSQL.
+      const nameBackfill = "-- mdbase:next-display-name-backfill:v1";
+      if (sql.includes(nameBackfill)) {
+        const result = memory.public.many(sql.slice(0, sql.indexOf(nameBackfill)));
+        if (memory.public.one("SELECT count(*) AS n FROM next_collections").n !== 0) {
+          throw new Error("Populated collection-name backfill requires PostgreSQL.");
+        }
+        return result;
+      }
       const grantTrigger = "-- mdbase:next-grant-revoke-trigger:v1";
       if (sql.includes(grantTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(grantTrigger)));
       // pg-mem does not use PostgreSQL's automatic CHECK name. Name ONLY the

@@ -12,6 +12,7 @@ import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { LogServiceError, type LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
 import { recoverLostPolicy, withPolicyLock } from "./policy-recovery.js";
+import { DEFAULT_COLLECTION_DISPLAY_NAME } from "./collection-display-name.js";
 
 const OUTBOX_FORMAT = 1;
 const MAX_ROWS_PER_ITEM = 64;
@@ -45,17 +46,22 @@ export type HostedSync = "private" | "cloud_copy";
  */
 export async function registerNextCollection(
   client: DatabaseQueryable,
-  input: { collectionId: string; ownerUserId: string; runtime: "shadow" | "next"; sync: HostedSync; rootKeyId: Uint8Array; ops: PolicyOp[] }
+  input: { collectionId: string; ownerUserId: string; runtime: "shadow" | "next"; sync: HostedSync; rootKeyId: Uint8Array; ops: PolicyOp[]; displayName?: string }
 ): Promise<void> {
   const genesis = input.ops[0];
   if (genesis?.op !== "genesis" || input.ops.slice(1).some((op) => op.op === "genesis")) throw new Error("a new log starts with exactly one genesis op");
   if (!Buffer.from(genesis.root).equals(Buffer.from(input.rootKeyId))) throw new Error("genesis root differs from the collection's root key");
   if (genesis.state !== (input.sync === "private" ? "e2e" : "cloud-copy")) throw new Error("genesis state differs from the collection's sync state");
-  if (input.sync === "private") assertPrivateOps(input.ops);
+  if (input.sync === "private") {
+    assertPrivateOps(input.ops);
+    if (input.displayName !== undefined) throw new Error("private collection naming is disabled");
+  }
+  // The initial catalog label belongs to the first registration, never a retry.
+  const displayName = input.sync === "cloud_copy" ? input.displayName ?? DEFAULT_COLLECTION_DISPLAY_NAME : null;
   await client.query(
-    `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [input.collectionId, input.ownerUserId, input.runtime, input.sync, Buffer.from(input.rootKeyId)]
+    `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id, display_name)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [input.collectionId, input.ownerUserId, input.runtime, input.sync, Buffer.from(input.rootKeyId), displayName]
   );
   await client.query("INSERT INTO next_policy_outbox (collection_id, ops) VALUES ($1, $2)", [input.collectionId, serializeOps(input.ops)]);
 }
