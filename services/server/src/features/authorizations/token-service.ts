@@ -74,7 +74,8 @@ export async function issueApplicationTokens(
     `SELECT g.user_id,
             COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,
             g.collection_id AS local_authority_row_id,
-            COALESCE(col.display_name, hosted.display_name) AS collection_name,
+            CASE WHEN nc.runtime='next' AND nc.sync='cloud_copy' THEN COALESCE(nc.display_name,'New collection')
+                 ELSE COALESCE(col.display_name, hosted.display_name) END AS collection_name,
             g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
             g.operations, g.scope, g.encryption, g.file_capability,
             g.proof_public_key, g.membership_id, g.membership_policy_id,
@@ -90,6 +91,7 @@ export async function issueApplicationTokens(
      JOIN applications app ON app.id = g.application_id
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
+     LEFT JOIN next_collections nc ON nc.collection_id = COALESCE(col.local_id, g.hosted_collection_id)
      LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
      WHERE g.id = $1 AND g.revoked_at IS NULL
        AND g.activated_at IS NOT NULL

@@ -120,7 +120,8 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     }>(
       `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
               COALESCE(col.local_id::text, hc.id::text) AS collection,
-              COALESCE(col.display_name, hc.display_name) AS display_name, g.operations,
+              CASE WHEN nc.runtime='next' AND nc.sync='cloud_copy' THEN COALESCE(nc.display_name,'New collection')
+                   ELSE COALESCE(col.display_name, hc.display_name) END AS display_name, g.operations,
               nc.sync, (k.grant_id IS NOT NULL AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)) AS routable
        FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id

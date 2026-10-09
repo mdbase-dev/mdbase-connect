@@ -236,6 +236,29 @@ describePg("cloud-copy bootstrap", () => {
     expect(again.json().genesis).toEqual(first.genesis);
   });
 
+  it("captures the initial device name but never resets a later rename on create retry", async () => {
+    const who = await identity(), collection = randomUUID();
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [who.connector.user_id]);
+    expect((await create(who,{...await proof(who,collection),display_name:"  First 📚  "})).statusCode).toBe(200);
+    expect((await db.query("SELECT display_name FROM next_collections WHERE collection_id=$1",[collection])).rows[0].display_name).toBe("First 📚");
+    const calls = deployments.calls;
+    expect((await app.inject({method:"PATCH",url:`/v1/next/collections/${collection}/name`,headers:who.headers,payload:{display_name:"Later name"}})).statusCode).toBe(200);
+    for (const display_name of ["First 📚","Different retry name"]) {
+      expect((await create(who,{...await proof(who,collection),display_name})).statusCode).toBe(200);
+      expect((await db.query("SELECT display_name FROM next_collections WHERE collection_id=$1",[collection])).rows[0].display_name).toBe("Later name");
+    }
+    expect(deployments.calls).toBe(calls);
+  });
+  it.each([null,7,false,{},[],"Bad\nname"])("refuses invalid raw create names #%# before provider work or proof consumption", async display_name => {
+    const who = await identity(), collection = randomUUID(), payload = await proof(who,collection);
+    const calls = deployments.calls;
+    expect((await create(who,{...payload,display_name})).statusCode).toBe(400);
+    expect((await db.query("SELECT used_at FROM next_device_challenges WHERE challenge=$1",[Buffer.from(payload.challenge,"hex")])).rows[0].used_at).toBeNull();
+    expect(await registered(collection)).toBe(false);
+    expect((await app.inject({method:"POST",url:"/v1/next/collections/cloud-copy/service",headers:await session(who.connector.user_id),payload:{collection_id:randomUUID(),display_name}})).statusCode).toBe(400);
+    expect(deployments.calls).toBe(calls);
+  });
+
   it("refuses other devices, other owners and existing private collections", async () => {
     const who = await identity(); const collection = randomUUID();
     expect((await create(who, await proof(who, collection))).statusCode).toBe(200);
@@ -339,7 +362,7 @@ describePg("cloud-copy bootstrap", () => {
     expect(await registered(collection)).toBe(false);
   }, 20_000);
 
-  // ---- Service-created cloud copy and device join (Callum, 2026-10-06) ----
+  // ---- Service-created cloud copy and device join ----
 
   async function session(user: string) {
     const token = randomUUID();
@@ -378,6 +401,14 @@ describePg("cloud-copy bootstrap", () => {
     const calls = deployments.calls;
     expect((await serviceCreate(headers, collection)).statusCode).toBe(200);
     expect(deployments.calls).toBe(calls);
+  });
+
+  it("stores the first service-create name and retains it on retries", async () => {
+    const who = await identity(), collection = randomUUID(), headers = await session(who.connector.user_id);
+    for (const display_name of ["  Service name  ","Different retry name"]) {
+      expect((await app.inject({method:"POST",url:"/v1/next/collections/cloud-copy/service",headers,payload:{collection_id:collection,display_name}})).statusCode).toBe(200);
+      expect((await db.query("SELECT display_name FROM next_collections WHERE collection_id=$1",[collection])).rows[0].display_name).toBe("Service name");
+    }
   });
 
   it("refuses service-creation without a session, for a suspended account, or over someone else's collection", async () => {
@@ -522,7 +553,7 @@ describePg("cloud-copy bootstrap", () => {
     const result=await create(who,await proof(who,collection));expect(result.statusCode,result.body).toBe(200);
     expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[who.connector.id])).rows).toEqual([{collection_id:collection}]);
     const other=randomUUID();expect((await serviceCreate(await session(who.connector.user_id),other)).statusCode).toBe(200);
-    const list=await listed(who);expect(list.statusCode,list.body).toBe(200);expect(list.json().collections).toEqual([{collection_id:collection,display_name:collection,role:"owner"}]);
+    const list=await listed(who);expect(list.statusCode,list.body).toBe(200);expect(list.json().collections).toEqual([{collection_id:collection,display_name:"New collection",role:"owner"}]);
     expect((await join(who,other,await joinProof(who,other))).statusCode).toBe(403);
     expect((await refresh(who,other)).statusCode).toBe(403);expect((await people(who,other)).statusCode).toBe(403);
     expect((await create(who,await proof(who,collection))).statusCode).toBe(200);

@@ -1,0 +1,9 @@
+{
+  "reason": "One internal validator defines the shared display-only name contract; one bounded HTTP route owns current-owner catalog mutation. They replace live legacy/device-alias lookups for cloud-copy catalog labels without introducing replicated settings, provider operations, a new package or a public crypto/token schema. Exact growth is two server production files, thirteen relative imports and three internal exports (default label, validator, route registration); existing membership checks are reused with a narrowing owner-role requirement. Historical/private labels and ordinary authorization boundaries remain separate.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 13,
+    "typeScriptExportDeclarations": 3,
+    "services/server": 2
+  }
+}
