@@ -3,6 +3,7 @@ import { migrationExecutableSha256, repairAuthorityImportSources } from "./migra
 import type { DatabasePool } from "./db.js";
 import { compatibilityReport } from "./auth-admin-compatibility.js";
 import { usageReport } from "./usage-report.js";
+import { drainArchiveErasures } from "./archive-erasure-admin.js";
 import {
   backfillFreeEntitlement,
   inspectAccountEntitlements,
@@ -61,6 +62,11 @@ async function runCommand(
   if (area === "request" && action && allowRequestEnvelope) {
     requireNoArguments(rest);
     return runCommand(decodeRequestEnvelope(action), context, false);
+  }
+  if (area === "archive" && action === "drain-deletions") {
+    const flags = parseFlags(rest, new Set(["cohort", "expected-revision", "operation-id", "actor", "reason"]));
+    return drainArchiveErasures(context.db, context.hostedProvider, context.runtimeRevision,
+      { ...mutationFlags(flags), cohort: requiredFlag(flags, "cohort"), expectedRevision: requiredFlag(flags, "expected-revision") });
   }
   if (area === "repairs" && action === "authority-import-sources") {
     const flags = parseFlags(rest, new Set([
@@ -758,19 +764,11 @@ async function listAudit(
 }
 
 function instanceAdmin(context: AuthAdminContext): InstanceAdminService {
-  return new InstanceAdminService(
-    context.db,
-    context.hostedReplicaRevoker,
-    context.connectorSessionFencer
-  );
+  return new InstanceAdminService(context.db, context.hostedReplicaRevoker, context.connectorSessionFencer);
 }
 
 function mutationFlags(flags: Map<string, string>): OperatorMutation {
-  return {
-    operationId: requiredFlag(flags, "operation-id"),
-    actor: requiredFlag(flags, "actor"),
-    reason: requiredFlag(flags, "reason")
-  };
+  return { operationId: requiredFlag(flags, "operation-id"), actor: requiredFlag(flags, "actor"), reason: requiredFlag(flags, "reason") };
 }
 
 function parseFlags(
@@ -966,6 +964,7 @@ function requireNoArguments(argv: string[]): void {
 function usage(): string {
   return [
     "Usage:",
+    "  auth-admin archive drain-deletions --cohort <name> --expected-revision <sha> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin repairs authority-import-sources --expected-revision <sha> --expected-executable-sha256 <sha256> --expected-migration-sha256 <sha256> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin policy show",
     "  auth-admin policy history [--limit <n>] [--before-revision <n>]",
