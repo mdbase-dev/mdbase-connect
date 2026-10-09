@@ -22,12 +22,17 @@ type Input = z.infer<typeof inputSchema>;
 type Actor = { id: string; user_id: string; hash: string };
 
 async function retire(client: DatabaseConnection, input: Input, actor: Actor): Promise<string> {
+  // Account FIRST everywhere: serialize against legacy inventory's account
+  // update lock without a connector/account lock-order inversion.
+  const account = await client.query(
+    "SELECT id FROM users WHERE id = $1 AND suspended_at IS NULL AND account_backend = 'next' FOR SHARE",
+    [actor.user_id],
+  );
+  if (!account.rows.length) throw new CreateError(403, "identity_not_current");
   const current = await client.query(
-    `SELECT c.id FROM connectors c JOIN users u ON u.id = c.user_id
-       JOIN next_devices d ON d.connector_id = c.id AND d.user_id = u.id
-     WHERE c.id = $1 AND u.id = $2 AND c.token_hash = $3 AND c.revoked_at IS NULL
-       AND u.suspended_at IS NULL AND u.account_backend = 'next' AND d.kind IN ('desktop','cli')
-     FOR SHARE OF c, u, d`, [actor.id, actor.user_id, actor.hash],
+    `SELECT c.id FROM connectors c JOIN next_devices d ON d.connector_id = c.id AND d.user_id = c.user_id
+     WHERE c.id = $1 AND c.user_id = $2 AND c.token_hash = $3 AND c.revoked_at IS NULL
+       AND d.kind IN ('desktop','cli') FOR SHARE OF c, d`, [actor.id, actor.user_id, actor.hash],
   );
   if (!current.rows.length) throw new CreateError(403, "identity_not_current");
   if (input.legacy_connector_id === actor.id) throw new CreateError(409, "legacy_connector_is_caller");

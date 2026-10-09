@@ -4,9 +4,10 @@ import { z } from "zod";
 import { resolveHostedCollectionAccess } from "../../collection-access.js";
 import type { DatabasePool } from "../../database-types.js";
 import { collectionContractDescriptorSchema } from "../../protocol-schemas.js";
-import { isP256PublicKey } from "../../security.js";
+import { isP256PublicKey, tokenHash } from "../../security.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
-import { requireConnector } from "../../platform/request-authentication.js";
+import { bearerToken, requireConnector } from "../../platform/request-authentication.js";
+import { CreateError, refuse } from "../next/bootstrap-common.js";
 
 interface ConnectorInventoryRoutesOptions {
   db: DatabasePool;
@@ -37,6 +38,8 @@ export function registerConnectorInventoryRoutes(
   options: ConnectorInventoryRoutesOptions
 ): void {
   app.post("/v1/connectors/sync", async (request, reply) => {
+    const bearer = bearerToken(request);
+    const originalHash = bearer === null ? null : tokenHash(bearer);
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return;
     const input = inventorySchema.parse(request.body);
@@ -51,9 +54,20 @@ export function registerConnectorInventoryRoutes(
     const connection = await options.db.connect();
     try {
       await connection.query("BEGIN");
-      await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [
+      await connection.query("SET LOCAL lock_timeout = '5s'");
+      await connection.query("SET LOCAL statement_timeout = '5s'");
+      // Account FIRST is the shared order with native enrollment/retirement.
+      // An identity loaded before BEGIN cannot authorize a queued inventory.
+      const account = await connection.query("SELECT id FROM users WHERE id = $1 AND suspended_at IS NULL FOR UPDATE", [
         connector.user_id
       ]);
+      if (!account.rows.length) throw new CreateError(403, "identity_not_current");
+      const currentIdentity = await connection.query(
+        `SELECT id FROM connectors WHERE id = $1 AND user_id = $2 AND token_hash = $3
+           AND revoked_at IS NULL FOR UPDATE`,
+        [connector.id, connector.user_id, originalHash],
+      );
+      if (!currentIdentity.rows.length) throw new CreateError(403, "identity_not_current");
       const accepted = await connection.query(
         `UPDATE connectors SET
            inventory_revision = $2,
@@ -269,7 +283,7 @@ export function registerConnectorInventoryRoutes(
       };
     } catch (error) {
       await connection.query("ROLLBACK");
-      throw error;
+      return refuse(reply, error, "Collection inventory was not confirmed.");
     } finally {
       connection.release();
     }

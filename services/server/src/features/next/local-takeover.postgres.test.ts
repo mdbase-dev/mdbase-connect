@@ -8,6 +8,7 @@ import { tokenHash } from "../../security.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { registerLocalTakeoverRoutes } from "./local-takeover.js";
 import { registerNextDeviceRoutes } from "./device-routes.js";
+import { registerConnectorInventoryRoutes } from "../connectors/inventory-routes.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
 
@@ -32,6 +33,7 @@ pgDescribe("local retirement and enrollment (isolated real Postgres)", () => {
     db = await createDatabase(url.toString());
     registerLocalTakeoverRoutes(app, { db, relay });
     registerNextDeviceRoutes(app, { db, log: noLog });
+    registerConnectorInventoryRoutes(app, { db });
     await app.ready();
   }, 60_000);
   afterAll(async () => {
@@ -140,6 +142,65 @@ pgDescribe("local retirement and enrollment (isolated real Postgres)", () => {
     const before = await state(f); expect((await post(f)).statusCode).toBe(200); expect(await state(f)).toEqual(before);
   });
 
+  async function inventoryFixture(f: Fixture) {
+    const token = `fixture_legacy_${f.old}`;
+    await db.query("UPDATE connectors SET token_hash=$2 WHERE id=$1", [f.old, tokenHash(token)]);
+    return { headers: { authorization: `Bearer ${token}` }, payload: { inventory_revision: 1,
+      collections: [{ id: f.old, display_name: "Legacy fixture", spec_version: "0.3.0", enabled: true }] } };
+  }
+  const inventory = (request: Awaited<ReturnType<typeof inventoryFixture>>, target = app) => target.inject({ method: "POST", url: "/v1/connectors/sync", ...request });
+  it("keeps valid stale-inventory accepted:false behavior after fresh authorization", async () => {
+    const f = await fixture(), request = await inventoryFixture(f);
+    expect((await inventory(request)).json().accepted).toBe(true);
+    const before = await state(f), stale = await inventory(request);
+    expect(stale.statusCode).toBe(200); expect(stale.json()).toEqual({ accepted: false, inventory_revision: 1, collections: [] });
+    expect(await state(f)).toEqual(before);
+  });
+  it.each((["inventory", "enrollment"] as const).flatMap(operation =>
+    (["digest", "revoked", "suspended", "owner"] as const).map(change => ({ operation, change }))
+  ))("maps post-authentication $operation/$change to 403 before mutation", async ({ operation, change }) => {
+    const f = await fixture(), request = await inventoryFixture(f), body = await registration(f);
+    let changed = false;
+    const wrapped = new Proxy(db, { get(target, key) {
+      if (key === "query") return async (sql: string, parameters?: unknown[]) => {
+        const result = await target.query(sql, parameters);
+        if (!changed && sql.includes("WHERE c.token_hash = $1")) {
+          changed = true;
+          if (change === "digest") await db.query("UPDATE connectors SET token_hash=$2 WHERE id=$1", [f.old, tokenHash(`fixture_changed_${f.old}`)]);
+          if (change === "revoked") await db.query("UPDATE connectors SET revoked_at=now() WHERE id=$1", [f.old]);
+          if (change === "suspended") await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [f.old]);
+          if (change === "owner") await db.query("UPDATE connectors SET user_id=$2 WHERE id=$1", [f.old, (await fixture()).old]);
+        }
+        return result;
+      };
+      const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
+    } }) as DatabasePool;
+    const staleApp = Fastify();
+    if (operation === "inventory") registerConnectorInventoryRoutes(staleApp, { db: wrapped });
+    else registerNextDeviceRoutes(staleApp, { db: wrapped, log: noLog });
+    try {
+      const rows = (await state(f)).rows, grants = (await state(f)).grants;
+      const response = operation === "inventory" ? await inventory(request, staleApp)
+        : await staleApp.inject({ method: "POST", url: "/v1/next/devices", headers: request.headers, payload: body });
+      expect(response.statusCode).toBe(403); expect(response.json().error.code).toBe("identity_not_current");
+      expect((await state(f)).rows).toEqual(rows); expect((await state(f)).grants).toEqual(grants);
+      expect((await db.query("SELECT inventory_revision FROM connectors WHERE id=$1", [f.old])).rows[0].inventory_revision).toBe("0");
+      expect(await challengeUsed(body)).toBeNull();
+      expect((await db.query("SELECT id FROM next_devices WHERE connector_id=$1", [f.old])).rows).toEqual([]);
+    } finally { await staleApp.close(); }
+  });
+  it("maps enrollment lock timeout to bounded 503 without consuming challenge", async () => {
+    const f = await fixture(), request = await inventoryFixture(f), body = await registration(f);
+    const blocker = await db.connect();
+    try {
+      await blocker.query("BEGIN"); await blocker.query("SELECT id FROM connectors WHERE id=$1 FOR UPDATE", [f.old]);
+      const response = await app.inject({ method: "POST", url: "/v1/next/devices", headers: request.headers, payload: body });
+      expect(response.statusCode).toBe(503); expect(response.json().error.code).toBe("busy");
+      expect(await challengeUsed(body)).toBeNull();
+      expect((await db.query("SELECT id FROM next_devices WHERE connector_id=$1", [f.old])).rows).toEqual([]);
+    } finally { await blocker.query("ROLLBACK"); blocker.release(); }
+  }, 10_000);
+
   function pauseLocked(match: string) {
     let open!: () => void, acquired!: (pid: number) => void;
     const release = new Promise<void>(resolve => { open = resolve; });
@@ -184,6 +245,33 @@ pgDescribe("local retirement and enrollment (isolated real Postgres)", () => {
       expect(await second).toMatchObject({ error: { code: "identity_not_current" } });
       expect(await challengeUsed(body)).toBeNull();
       expect((await db.query("SELECT id FROM next_devices WHERE connector_id=$1", [f.old])).rows).toEqual([]);
+    } finally { gate.open(); await firstApp.close(); }
+  });
+  it("retirement wins: pre-authenticated inventory blocks then refuses without changing retired rows", async () => {
+    const f = await fixture(), request = await inventoryFixture(f), gate = pauseLocked("SELECT revoked_at, relay_generation::text");
+    const firstApp = Fastify(); registerLocalTakeoverRoutes(firstApp, { db: gate.db, relay });
+    const first = post(f, f.input, firstApp), pid = await gate.locked;
+    const second = inventory(request);
+    try {
+      await blockedBy(pid); gate.open(); expect((await first).statusCode).toBe(200);
+      const committed = await state(f), refused = await second;
+      expect(refused.statusCode).toBe(403); expect(refused.json().error.code).toBe("identity_not_current");
+      expect(await state(f)).toEqual(committed);
+      expect((await db.query("SELECT inventory_revision FROM connectors WHERE id=$1", [f.old])).rows[0].inventory_revision).toBe("0");
+    } finally { gate.open(); await firstApp.close(); }
+  });
+  it("inventory wins: retirement blocks and checks the newly committed full inventory", async () => {
+    const f = await fixture(), request = await inventoryFixture(f), extra = randomUUID(), gate = pauseLocked("AND revoked_at IS NULL FOR UPDATE");
+    request.payload.collections.push({ id: extra, display_name: "Added by this inventory", spec_version: "0.3.0", enabled: true });
+    const firstApp = Fastify(); registerConnectorInventoryRoutes(firstApp, { db: gate.db });
+    const first = inventory(request, firstApp), pid = await gate.locked;
+    const second = post(f);
+    try {
+      await blockedBy(pid); gate.open(); const accepted = await first;
+      expect(accepted.statusCode).toBe(200); expect(accepted.json().accepted).toBe(true);
+      const committed = await state(f), refused = await second;
+      expect(refused.statusCode).toBe(409); expect(refused.json().error.code).toBe("legacy_inventory_mismatch");
+      expect(await state(f)).toEqual(committed); expect(committed.connector.revoked_at).toBeNull(); expect(committed.rows).toHaveLength(2);
     } finally { gate.open(); await firstApp.close(); }
   });
   it("enrollment wins: retirement blocks then refuses without legacy/grant mutation", async () => {

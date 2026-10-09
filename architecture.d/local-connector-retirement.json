@@ -1,0 +1,9 @@
+{
+  "reason": "The daemon's explicit local-takeover retirement route owns an independent authenticated transaction boundary. It needs a separate production module and route export to preserve rollback rows while serializing positive inventory retirement with device enrollment and legacy inventory reconciliation.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 11,
+    "typeScriptExportDeclarations": 1,
+    "services/server": 1
+  }
+}

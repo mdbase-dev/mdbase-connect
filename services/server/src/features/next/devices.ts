@@ -141,6 +141,15 @@ export async function registerDevice(
     // The target connector lock is shared with legacy retirement. An identity
     // loaded before BEGIN is never enough: recheck the ORIGINAL request digest,
     // owner and account currentness before consuming a challenge or inserting.
+    // Account FIRST, as inventory and retirement do: a user/connector lock
+    // inversion could otherwise deadlock an inventory against this enrollment.
+    const account = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND suspended_at IS NULL FOR SHARE",
+      [connector.user_id]
+    );
+    if (!account.rows.length) {
+      throw new DeviceRegistrationError("identity_not_current", "The connector account is no longer current.");
+    }
     const current = await client.query(
       `SELECT id FROM connectors WHERE id = $1 AND user_id = $2 AND token_hash = $3
          AND revoked_at IS NULL FOR UPDATE`,
@@ -148,13 +157,6 @@ export async function registerDevice(
     );
     if (!current.rows.length) {
       throw new DeviceRegistrationError("identity_not_current", "The connector credential is no longer current.");
-    }
-    const account = await client.query(
-      "SELECT id FROM users WHERE id = $1 AND suspended_at IS NULL FOR SHARE",
-      [connector.user_id]
-    );
-    if (!account.rows.length) {
-      throw new DeviceRegistrationError("identity_not_current", "The connector account is no longer current.");
     }
     const used = await client.query(
       `UPDATE next_device_challenges SET used_at = now()
