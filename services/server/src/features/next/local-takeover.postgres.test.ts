@@ -103,6 +103,54 @@ pgDescribe("local retirement and enrollment (isolated real Postgres)", () => {
     await db.query("UPDATE collections SET removed_at=now() WHERE connector_id=$1", [f.old]);
     expect((await post(f, { ...f.input, legacy_collection_ids: [f.old, extra] })).statusCode).toBe(409);
   });
+  it("canonicalizes both stored and requested UUID case without rewriting inventory IDs", async () => {
+    const f = await fixture(), extra = randomUUID();
+    const digit = "00000000-0000-4000-8000-000000000002", letter = "00000000-0000-4000-8000-00000000000a";
+    await db.query("UPDATE collections SET local_id=$2 WHERE id=$1", [f.old, letter.toUpperCase()]);
+    await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version) VALUES($1,$2,$2,$3,'Other','0.3.0')", [extra, f.old, digit]);
+    const column = (await db.query(`SELECT data_type, collation_name FROM information_schema.columns
+      WHERE table_schema=current_schema() AND table_name='collections' AND column_name='local_id'`)).rows;
+    expect(column).toEqual([{ data_type: "uuid", collation_name: null }]);
+    const before = await state(f);
+    expect(before.rows.map(row => row.local_id)).toEqual([digit, letter]);
+    expect((await post(f, { ...f.input, legacy_collection_ids: [letter.toUpperCase(), digit] })).statusCode).toBe(200);
+    const after = await state(f);
+    expect(after.rows).toEqual(before.rows.map(row => ({ ...row, authority_state: "retired", enabled: false })));
+    expect(after.grants).toEqual(before.grants);
+    expect((await post(f, { ...f.input, legacy_collection_ids: [digit, letter] })).statusCode).toBe(200);
+    expect(await state(f)).toEqual(after);
+  });
+  it("keeps native UUID ordering independent of text collation", async () => {
+    const f = await fixture(), extra = randomUUID();
+    const digit = "00000000-0000-4000-8000-000000000002", letter = "00000000-0000-4000-8000-00000000000a";
+    await db.query("UPDATE collections SET local_id=$2 WHERE id=$1", [f.old, digit]);
+    await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version) VALUES($1,$2,$2,$3,'Other','0.3.0')", [extra, f.old, letter]);
+    await db.query('CREATE COLLATION retirement_numeric (provider = icu, locale = \'en-u-kn-true\')');
+    try {
+      const textOrder = (await db.query("SELECT local_id FROM collections WHERE connector_id=$1 ORDER BY local_id::text COLLATE retirement_numeric", [f.old])).rows.map(row => row.local_id);
+      expect(textOrder).toEqual([letter, digit]); // Text collation differs, but the actual column is UUID.
+      const uuidOrder = (await db.query("SELECT local_id FROM collections WHERE connector_id=$1 ORDER BY local_id", [f.old])).rows.map(row => row.local_id);
+      expect(uuidOrder).toEqual([digit, letter]);
+      const before = await state(f);
+      expect((await post(f, { ...f.input, legacy_collection_ids: [letter, digit] })).statusCode).toBe(200);
+      const after = await state(f);
+      expect(after.rows).toEqual(before.rows.map(row => ({ ...row, authority_state: "retired", enabled: false })));
+      expect(after.grants).toEqual(before.grants);
+      expect((await post(f, { ...f.input, legacy_collection_ids: [digit, letter] })).statusCode).toBe(200);
+      expect(await state(f)).toEqual(after);
+    } finally {
+      await db.query('DROP COLLATION retirement_numeric');
+    }
+  });
+  it("rejects case-equivalent duplicate registrations and duplicate input without retirement", async () => {
+    const f = await fixture(), extra = randomUUID(), local = "00000000-0000-4000-8000-00000000000a";
+    await db.query("UPDATE collections SET local_id=$2 WHERE id=$1", [f.old, local]);
+    const before = await state(f);
+    await expect(db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version) VALUES($1,$2,$2,$3,'Other','0.3.0')", [extra, f.old, local.toUpperCase()]))
+      .rejects.toMatchObject({ code: "23505", constraint: "collections_connector_id_local_id_key" });
+    expect((await post(f, { ...f.input, legacy_collection_ids: [local, local.toUpperCase()] })).statusCode).toBe(400);
+    expect(await state(f)).toEqual(before);
+  });
   it.each(["no-rows", "not-present", "removed", "foreign", "caller", "next", "historical-next"])("refuses %s without mutation", async change => {
     const f = await fixture(); let payload = f.input;
     if (change === "no-rows") await db.query("DELETE FROM collections WHERE connector_id=$1", [f.old]);

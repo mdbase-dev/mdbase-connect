@@ -48,6 +48,8 @@ async function retire(client: DatabaseConnection, input: Input, actor: Actor): P
   }
   // Positive legacy registration is required. Include retired authority rows;
   // missing/removed collections do not establish permission or an empty success.
+  // local_id is PostgreSQL uuid: canonical lowercase output and byte ordering
+  // match normalized JS UUID ordering; text collation must not replace it.
   const inventory = (await client.query<{ local_id: string }>(
     `SELECT local_id FROM collections WHERE connector_id = $1 AND user_id = $2
        AND present = true AND removed_at IS NULL ORDER BY local_id LIMIT 1001 FOR UPDATE`,
