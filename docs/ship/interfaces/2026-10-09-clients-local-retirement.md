@@ -14,7 +14,12 @@ The strict body has exactly `legacy_connector_id`, `legacy_collection_ids` and
 and bounded at 1,000 entries. The observation timestamp is a bounded ISO datetime
 with an optional timezone offset, not evidence or the server retirement time.
 Input IDs are canonicalized and sorted before exact registered-inventory
-comparison. The success body is only `{ retired: true, legacy_connector_id }`.
+comparison. Registered `collections.local_id` is PostgreSQL `uuid`, not text:
+its lowercase output and byte ordering match canonical JavaScript UUID order
+without text collation or case folding. PostgreSQL enforces UUID uniqueness per
+connector; case-equivalent duplicate input is invalid, never deduplicated into
+success.
+The success body is only `{ retired: true, legacy_connector_id }`.
 
 The target cannot be the caller, foreign, missing, or linked to any historical
 or current next device. Positive registered `present`/not-removed collection rows
@@ -46,13 +51,15 @@ or timestamp change.
 
 ## Qualification and limits
 
-- 32 targeted real-Postgres cases pass, including both inventory/retirement and
+- 35 targeted real-Postgres cases pass, including native UUID case/order,
+  collation independence, duplicate registration/input refusal, and both inventory/retirement and
   enrollment/retirement lock orderings with actual blocking transactions,
   post-authentication digest/owner/suspension/revocation refusals, challenge
   preservation, positive inventory, exact replay and bounded HTTP503.
 - Six adapted fixture-caller suites pass against individually fresh disposable
   Postgres containers: 119 cases, unchanged assertions. Combined targeted total:
-  151 real-Postgres cases. File isolation does not replace concurrent requests
+  154 real-Postgres cases (35 retirement plus the six previously qualified callers).
+  File isolation does not replace concurrent requests
   inside the race cases or weaken product timeouts.
 - `pnpm ci:local --node` passes every selected gate, including existing inventory
   behavior tests; Rust/container/upgrade/system lanes are not local claims.
