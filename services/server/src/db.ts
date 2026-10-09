@@ -210,6 +210,27 @@ export function postgresPoolConfig(connectionString: string): PoolConfig {
   };
 }
 
+/** Test schemas share a DB, not a migration ledger. Keep normal startup on the
+ * production-wide lock; only approved Vitest URLs with a private search_path
+ * select schema-scoped locking. No new runtime configuration is introduced.
+ */
+function isolatedPostgresTest(databaseUrl: string | undefined): boolean {
+  if (process.env.VITEST !== "true" || process.env.NODE_ENV !== "test"
+    || process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL !== "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS"
+    || !databaseUrl || !process.env.MDBASE_CONNECT_TEST_DATABASE_URL) return false;
+  try {
+    const actual = new URL(databaseUrl), approved = new URL(process.env.MDBASE_CONNECT_TEST_DATABASE_URL);
+    const schema = /^-csearch_path=([A-Za-z_][A-Za-z0-9_]*)$/.exec(actual.searchParams.get("options") ?? "")?.[1];
+    if (!schema || schema === "public" || schema === "information_schema" || schema.startsWith("pg_")) return false;
+    if (!["postgres:", "postgresql:"].includes(approved.protocol)
+      || !["localhost", "127.0.0.1", "[::1]"].includes(approved.hostname) || !/test/i.test(approved.pathname)
+      || approved.searchParams.has("options") || actual.searchParams.getAll("options").length !== 1) return false;
+    actual.searchParams.delete("options");
+    for (const url of [actual, approved]) url.searchParams.sort();
+    return actual.href === approved.href;
+  } catch { return false; }
+}
+
 export async function createDatabase(
   databaseUrl = process.env.DATABASE_URL
 ): Promise<DatabasePool> {
@@ -217,7 +238,8 @@ export async function createDatabase(
   try {
     const { runControlPlaneMigrations } = await import("./migrations.js");
     await runControlPlaneMigrations(pool, {
-      lock: Boolean(databaseUrl && databaseUrl !== "memory")
+      lock: Boolean(databaseUrl && databaseUrl !== "memory"),
+      isolatedTestSchema: isolatedPostgresTest(databaseUrl)
     });
   } catch (error) {
     await pool.end();
