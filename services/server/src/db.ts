@@ -223,8 +223,10 @@ function isolatedPostgresTest(databaseUrl: string | undefined): boolean {
     const schema = /^-csearch_path=([A-Za-z_][A-Za-z0-9_]*)$/.exec(actual.searchParams.get("options") ?? "")?.[1];
     if (!schema || schema === "public" || schema === "information_schema" || schema.startsWith("pg_")) return false;
     if (!["postgres:", "postgresql:"].includes(approved.protocol)
-      || !["localhost", "127.0.0.1", "::1"].includes(approved.hostname) || !/test/i.test(approved.pathname)) return false;
-    for (const url of [actual, approved]) { url.searchParams.delete("options"); url.searchParams.sort(); }
+      || !["localhost", "127.0.0.1", "[::1]"].includes(approved.hostname) || !/test/i.test(approved.pathname)
+      || approved.searchParams.has("options") || actual.searchParams.getAll("options").length !== 1) return false;
+    actual.searchParams.delete("options");
+    for (const url of [actual, approved]) url.searchParams.sort();
     return actual.href === approved.href;
   } catch { return false; }
 }

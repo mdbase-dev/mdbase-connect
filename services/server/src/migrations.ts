@@ -136,19 +136,23 @@ export async function runControlPlaneMigrations(
   let legacyContractScopedGrantsRetired = 0;
   const lockParameters = [MIGRATION_LOCK_ID];
   let lockArguments = "$1";
+  let lockAcquired = false;
   try {
     if (options.lock) {
       if (options.isolatedTestSchema) {
         const schema = (await connection.query<{ schema: string | null }>(
           "SELECT current_schema() AS schema"
         )).rows[0]?.schema;
-        if (!schema || schema === "public") throw new Error("Isolated migration locks require a private test schema.");
+        if (!schema || schema === "public" || schema === "information_schema" || schema.startsWith("pg_")) {
+          throw new Error("Isolated migration locks require a private test schema.");
+        }
         // PostgreSQL's two-int lock namespace is separate from the production
         // bigint lock. Hash the actual schema, not an unvalidated URL hint.
         lockParameters.push(createHash("sha256").update(schema).digest().readInt32BE(0));
         lockArguments = "$1::integer, $2::integer";
       }
       await connection.query(`SELECT pg_advisory_lock(${lockArguments})`, lockParameters);
+      lockAcquired = true;
     }
     await ensureMigrationLedger(connection);
     await establishLegacyBaseline(connection);
@@ -165,7 +169,7 @@ export async function runControlPlaneMigrations(
       await backfillLegacyAccountCreationEmailClaims(connection);
     }
   } finally {
-    if (options.lock) {
+    if (lockAcquired) {
       await connection
         .query(`SELECT pg_advisory_unlock(${lockArguments})`, lockParameters)
         .catch(() => undefined);
