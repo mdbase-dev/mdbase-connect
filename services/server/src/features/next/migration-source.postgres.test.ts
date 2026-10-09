@@ -4,6 +4,8 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { registerMigrationSourceWitnessRoutes } from "./migration-source.js";
+import { deleteAccountLocally } from "../../account-management.js";
+import { setCohortFrozen } from "./migration-rollout.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, type NextControlPlaneConfig } from "./policy-keys.js";
 import { registerNextCollection } from "./policy-outbox.js";
 import { certDigest, chainHash, decodeCbor, keyId, signPolicyItem, type PolicyOp } from "./policy-wire.js";
@@ -51,7 +53,7 @@ describePg("migration source issuance (isolated PostgreSQL, mocked authenticated
       const value:Record<string,unknown>={schema:"mdbn-migration-admission/1",collection,device_id:device,epoch:"2",wake:"18446744073709551615",fault_generation:"9007199254740993",applied_head:{seq:"1",chain:Buffer.from(chainHash(item)).toString("hex")},authenticated_head:{seq:"1",chain:Buffer.from(chainHash(item)).toString("hex")},control_chain:Buffer.from(chainHash(item)).toString("hex"),challenge:body.challenge};alter?.(value);return new Response(JSON.stringify(value));
     }});
     const request=(authorization=`Bearer ${token}`,body:unknown={})=>app.inject({method:"POST",url:`/internal/v1/next/migration/collections/${collection}/source-witness`,headers:{authorization},payload:body});
-    return {account,collection,device,batch,app,request,get calls(){return calls;},get reads(){return reads;},get source(){return source;},set source(value:LegacyMigrationDrain){source=value;},set during(value:(()=>Promise<void>)|undefined){during=value;},set alter(value:((value:Record<string,unknown>)=>void)|undefined){alter=value;},set unavailable(value:boolean){unavailable=value;}};
+    return {account,collection,device,batch,cohort,app,request,get calls(){return calls;},get reads(){return reads;},get source(){return source;},set source(value:LegacyMigrationDrain){source=value;},set during(value:(()=>Promise<void>)|undefined){during=value;},set alter(value:((value:Record<string,unknown>)=>void)|undefined){alter=value;},set unavailable(value:boolean){unavailable=value;}};
   }
   it("binds actual source/head/start/native u64 facts; pause after start and retained journal evidence do not strand migration",async()=>{
     const f=await fixture();try{
@@ -60,6 +62,20 @@ describePg("migration source issuance (isolated PostgreSQL, mocked authenticated
       const millis=(await db.query<{ms:string}>("SELECT floor(extract(epoch FROM started_at)*1000)::text AS ms FROM next_migration_cohort_members WHERE account_id=$1",[f.account])).rows[0]!.ms;
       expect(claims).toHaveLength(10);expect(claims[3]).toBe(2);expect(claims[5]).toBe(42);expect(claims[6]).toBe(Number(millis));expect(claims[7]).toBe((1n<<64n)-1n);expect(Number(claims[9])-Number(claims[8])).toBe(900000);
       expect((await db.query("SELECT 1 FROM audit_events WHERE event_type='next_migration.source_witness' AND subject_id=$1",[f.collection])).rows).toHaveLength(1);
+    }finally{await f.app.close();}
+  });
+  it("keeps a terminal-excluded hosted account suspended and refuses fresh witnesses without native/provider effects",async()=>{
+    const f=await fixture();try{
+      expect((await f.request()).statusCode).toBe(200);
+      await setCohortFrozen(db,f.cohort,true,"synthetic capture","synthetic-local-pg");
+      await deleteAccountLocally(db,{userId:f.account,sessionId:randomUUID(),authorized:true,queueProviderCleanup:true});
+      const calls=f.calls,reads=f.reads;
+      const result=await f.request();expect(result.statusCode,result.body).toBe(409);
+      expect(result.json().error.code).toBe("migration_source_not_current");
+      expect(f.calls).toBe(calls);expect(f.reads).toBe(reads);
+      expect((await db.query("SELECT terminal_excluded_at FROM next_migration_cohort_members WHERE account_id=$1",[f.account])).rows[0].terminal_excluded_at).not.toBeNull();
+      expect((await db.query("SELECT account_backend,suspended_at FROM users WHERE id=$1",[f.account])).rows[0]).toMatchObject({account_backend:"legacy",suspended_at:expect.any(Date)});
+      expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1",[f.collection])).rowCount).toBe(1);
     }finally{await f.app.close();}
   });
   it("never accepts app/session/service credentials or caller-selected source facts",async()=>{

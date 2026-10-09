@@ -12,6 +12,42 @@ export async function accountMigrating(db: DatabaseQueryable, account: string): 
   return Boolean(row?.migrating);
 }
 
+/** Local to this transaction: provider operations are bounded at 14s (requests
+ * at 15s). Guarded idle18s < existing HTTP request35s. Allow bounded
+ * awaits/compensation without the pool's 10s idle expiry;
+ * repeated provider loops must query this same client between operations.
+ * Lock/statement/query timeouts and the pool defaults remain unchanged.
+ */
+export async function configureTopologyTransaction(client: DatabaseQueryable): Promise<void> {
+  await client.query("SET LOCAL lock_timeout = '5s'");
+  await client.query("SET LOCAL idle_in_transaction_session_timeout = '18s'");
+}
+
+/** Caller holds the cohort FOR UPDATE; commit readiness before erasure cascades. */
+export async function releaseDeferredDeletions(client: DatabaseQueryable, name: string, revision: string, frozenAt: Date): Promise<void> {
+  await client.query(
+    `UPDATE next_migration_deferred_account_deletions SET ready_at=now(),ready_revision=$2::bigint
+     WHERE cohort=$1 AND ready_at IS NULL AND membership_revision<=$2::bigint AND frozen_at=$3`, [name, revision, frozenAt]
+  );
+}
+
+/** Under the same parent lock as acceptance/flip: exclusion is terminal work,
+ * never a migration or archive-membership edit. Pre-acceptance cancellation
+ * still requires audited unfreeze; no incomplete capture is discarded here.
+ */
+export async function completeMigrationBatch(client: DatabaseQueryable, name: string, revision: string, frozenAt: Date): Promise<void> {
+  if (!(await client.query(
+    "SELECT 1 FROM next_migration_archive_acceptances WHERE cohort=$1 AND membership_revision=$2::bigint", [name, revision]
+  )).rows.length) return;
+  const unfinished = (await client.query(
+    `SELECT 1 FROM next_migration_cohort_members m JOIN users u ON u.id=m.account_id
+     LEFT JOIN next_migration_account_flips f ON f.account_id=m.account_id
+     WHERE m.cohort=$1 AND m.terminal_excluded_at IS NULL
+       AND (u.account_backend<>'next' OR f.account_id IS NULL) LIMIT 1`, [name]
+  )).rows.length;
+  if (!unfinished) await releaseDeferredDeletions(client, name, revision, frozenAt);
+}
+
 /**
  * Call on the mutation's actual transaction client BEFORE provider effects,
  * publication or long awaits; retain the transaction through effects/commit.
@@ -25,7 +61,7 @@ export async function accountMigrating(db: DatabaseQueryable, account: string): 
 export async function requireAccountNotMigrationFrozen(client: DatabaseConnection, accountId: string, ...otherAccountIds: string[]): Promise<void> {
   const accounts = [...new Set([accountId, ...otherAccountIds])].sort();
   try {
-    await client.query("SET LOCAL lock_timeout = '5s'");
+    await configureTopologyTransaction(client);
     await client.query("SELECT id FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE", [accounts]);
     const members = (await client.query<{ cohort: string }>(
       "SELECT cohort FROM next_migration_cohort_members WHERE account_id = ANY($1::uuid[]) ORDER BY account_id FOR SHARE", [accounts]

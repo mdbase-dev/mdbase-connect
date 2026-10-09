@@ -1,9 +1,13 @@
 -- Coordinator-reserved 0063. Topology freeze is distinct from release/pause/backend.
 ALTER TABLE next_migration_cohorts ADD COLUMN frozen_at timestamptz;
+-- Terminal exclusion changes migration work, not captured membership/coverage.
+-- 0062's membership trigger ignores updates that retain account_id/cohort.
+ALTER TABLE next_migration_cohort_members ADD COLUMN terminal_excluded_at timestamptz;
 
 -- A deletion request is accepted and credentials revoked while its immutable
 -- batch topology is retained. The existing account-erasure pipeline consumes
--- this durable queue only after the whole batch's verified flips or unfreeze.
+-- this durable queue only after the whole batch completes (verified flips or
+-- accepted terminal exclusions), or an audited unfreeze before acceptance.
 CREATE TABLE next_migration_deferred_account_deletions (
   account_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   cohort text NOT NULL REFERENCES next_migration_cohorts(name),

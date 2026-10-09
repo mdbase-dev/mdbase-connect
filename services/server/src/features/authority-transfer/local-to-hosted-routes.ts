@@ -328,9 +328,16 @@ export function registerLocalToHostedTransferRoutes(
            WHERE id = $1 AND authority_state = 'importing'`,
           [transfer.hosted_collection_id, completed.authority_epoch]
         );
-        if (retired.rowCount !== 1 || activated.rowCount !== 1) {
+        if (retired.rowCount !== 1) {
+          const latest = (await connection.query<{ authority_state: string; authority_epoch: string | number }>(
+            "SELECT authority_state,authority_epoch FROM collections WHERE id=$1 AND connector_id=$2 FOR UPDATE", [transfer.local_collection_id, connector.id]
+          )).rows[0];
+          throw importSourceConflict(transferId, transfer.hosted_collection_id, Number(transfer.next_authority_epoch), latest, "activation");
+        }
+        if (activated.rowCount !== 1) {
           throw new RequestValidationError(
-            "Authority metadata changed while remote activation completed."
+            "Authority metadata changed while remote activation completed.",
+            { statusCode: 409, code: "authority_transfer_snapshot_mismatch" }
           );
         }
         const grants = await connection.query<{ id: string }>(

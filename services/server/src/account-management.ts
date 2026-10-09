@@ -5,6 +5,7 @@ import type {
   DatabaseQueryable
 } from "./database-types.js";
 import { queueAccountProviderCleanup } from "./hosted-capability-lifecycle.js";
+import { completeMigrationBatch } from "./features/next/migration-topology.js";
 import type {
   ExternalProvider,
   VerifiedExternalIdentity
@@ -98,6 +99,9 @@ export async function deleteAccountLocally(
          VALUES($1,$2,$3::bigint,$4,$5) ON CONFLICT(account_id) DO NOTHING`,
         [input.userId, member!.cohort, batch.revision, batch.frozen_at, input.queueProviderCleanup]
       );
+      await connection.query(
+        "UPDATE next_migration_cohort_members SET terminal_excluded_at=COALESCE(terminal_excluded_at,now()) WHERE account_id=$1", [input.userId]
+      );
       await connection.query("UPDATE users SET suspended_at=COALESCE(suspended_at,now()),session_epoch=session_epoch+1 WHERE id=$1", [input.userId]);
       await connection.query("UPDATE sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1", [input.userId]);
       await connection.query("UPDATE connectors SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1", [input.userId]);
@@ -110,8 +114,13 @@ export async function deleteAccountLocally(
       );
       const result = await accountDeletionCounts(connection, input.userId);
       await audit(connection, input.userId, "account.deletion_accepted", input.userId,
-        { deferred: true, cohort: member!.cohort, membership_revision: batch.revision });
+        { deferred: true, terminal_excluded: true, cohort: member!.cohort, membership_revision: batch.revision });
+      // Also covers the last unfinished member's exclusion and deletion accepted
+      // after all flips: neither needs a future migration or user retry.
+      await completeMigrationBatch(connection, member!.cohort, batch.revision, batch.frozen_at);
       await connection.query("COMMIT");
+      // Startup/periodic recovery consumes readiness without delaying acceptance
+      // or turning a post-commit cleanup failure into a failed deletion request.
       return result;
     }
     const result = await eraseAccount(connection, input.userId, input.queueProviderCleanup);

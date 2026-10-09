@@ -388,8 +388,13 @@ export async function createHostedCollectionForUser(
     // Never compensate a pre-effect freeze refusal. Hold the guard through any
     // cleanup effect too, before rolling back/releasing the transaction locks.
     if (effectStarted && !creation.collectionId) {
-      if (options.hostedProvider) await options.hostedProvider.deleteCollection(collectionId).catch(() => undefined);
-      else await hostedReference?.delete(collectionId).catch(() => undefined);
+      try {
+        // A timed-out RPC and compensation have separate bounded budgets.
+        // Never issue cleanup on an expired/aborted transaction's lost guard.
+        await connection.query("SELECT 1");
+        if (options.hostedProvider) await options.hostedProvider.deleteCollection(collectionId);
+        else await hostedReference?.delete(collectionId);
+      } catch { /* Uncertain cleanup is not reported as successful publication. */ }
     }
     await connection.query("ROLLBACK").catch(() => undefined);
     throw error;

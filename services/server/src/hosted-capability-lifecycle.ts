@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { accountMigrating, requireAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
+import { accountMigrating, configureTopologyTransaction, requireAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
 import { RequestValidationError } from "./platform/http-errors.js";
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "./db.js";
 import { finalizeReadyMembershipTransitions } from "./collection-membership-lifecycle.js";
@@ -525,7 +525,7 @@ export class ProviderRevocationWorker {
     const connection = await this.db.connect();
     try {
       await connection.query("BEGIN");
-      await connection.query("SET LOCAL lock_timeout = '5s'");
+      await configureTopologyTransaction(connection);
       const owner = (await connection.query<{ user_id: string }>(
         "SELECT user_id FROM hosted_collections WHERE id = $1", [job.collection_id]
       )).rows[0];

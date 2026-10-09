@@ -24,6 +24,7 @@ import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 import { drainDeferredAccountDeletions } from "../../account-management.js";
+import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-topology.js";
 
 export interface RolloutState { paused: boolean; reason: string; changed_by: string; changed_at: string }
 
@@ -33,6 +34,7 @@ export interface AccountMigrationView {
   cohort: string | null;
   released: boolean;
   started: boolean;
+  terminal_excluded: boolean;
   paused: boolean;
   /** Hosted collections the account holds now (transferred excluded), by id. */
   hosted_collections: string[];
@@ -171,7 +173,7 @@ export async function cohortArchiveBinding(db: DatabasePool, name: string): Prom
 /** Dedicated ONE-verifier admin transition only; no caller data is cryptographic authority. */
 export async function acceptCohortArchive(db: DatabasePool, name: string, body: unknown, environment: string | undefined): Promise<{ accepted_at: string }> {
   const result = parseVerifiedBatchArchive(body);
-  return inTransaction(db, async (client) => {
+  const acceptance = await inTransaction(db, async (client) => {
     const { binding, frozenAt } = await readArchiveBinding(client, name);
     if (Date.parse(result.archive_created_at) < Date.parse(frozenAt)) {
       throw new RolloutRefused("backup_missing", "Archive capture must follow the topology freeze.");
@@ -188,6 +190,7 @@ export async function acceptCohortArchive(db: DatabasePool, name: string, body: 
       }
       const accepted = new Date(old.accepted_at).toISOString();
       requireFreshBatchArchive(result, binding, accepted, now, environment ?? "");
+      await completeMigrationBatch(client, name, binding.membership_revision, new Date(frozenAt));
       return { accepted_at: accepted };
     }
     await client.query(
@@ -196,8 +199,11 @@ export async function acceptCohortArchive(db: DatabasePool, name: string, body: 
     );
     await audit(client, null, "next_migration.backup_accept", null,
       { cohort: name, membership_revision: binding.membership_revision, complete_sha256: result.complete_sha256 });
+    await completeMigrationBatch(client, name, binding.membership_revision, new Date(frozenAt));
     return { accepted_at: now };
   });
+  await drainDeferredAccountDeletions(db);
+  return acceptance;
 }
 
 async function requireCurrentCohortArchive(client: DatabaseQueryable, name: string, environment: string | undefined): Promise<void> {
@@ -224,9 +230,9 @@ export async function rolloutState(db: DatabaseQueryable): Promise<RolloutState>
 }
 
 export async function accountMigrationView(db: DatabaseQueryable, account: string): Promise<AccountMigrationView | null> {
-  const user = (await db.query<{ backend: unknown; cohort: string | null; released: boolean | null; started: boolean | null }>(
+  const user = (await db.query<{ backend: unknown; cohort: string | null; released: boolean | null; started: boolean | null; terminal_excluded: boolean }>(
     `SELECT u.account_backend AS backend, m.cohort, c.released_at IS NOT NULL AS released,
-            m.started_at IS NOT NULL AS started
+            m.started_at IS NOT NULL AS started, m.terminal_excluded_at IS NOT NULL AS terminal_excluded
      FROM users u
      LEFT JOIN next_migration_cohort_members m ON m.account_id = u.id
      LEFT JOIN next_migration_cohorts c ON c.name = m.cohort
@@ -247,6 +253,7 @@ export async function accountMigrationView(db: DatabaseQueryable, account: strin
     cohort: user.cohort,
     released: Boolean(user.released),
     started: Boolean(user.started),
+    terminal_excluded: user.terminal_excluded,
     paused,
     hosted_collections: collections.map((c) => c.id),
     unsettled_collections: collections.filter((c) => c.authority_state !== "active").map((c) => c.id),
@@ -260,8 +267,8 @@ export async function migrationCandidates(db: DatabaseQueryable, limit: number):
     `SELECT m.account_id::text AS id
      FROM next_migration_rollout r, next_migration_cohort_members m
      JOIN next_migration_cohorts c ON c.name = m.cohort AND c.released_at IS NOT NULL
-     JOIN users u ON u.id = m.account_id AND u.account_backend = 'legacy'
-     WHERE r.singleton AND NOT r.paused AND m.started_at IS NULL
+     JOIN users u ON u.id = m.account_id AND u.account_backend = 'legacy' AND u.suspended_at IS NULL
+     WHERE r.singleton AND NOT r.paused AND m.started_at IS NULL AND m.terminal_excluded_at IS NULL
      ORDER BY m.added_at, m.account_id
      LIMIT $1`, [limit]
   );
@@ -273,8 +280,8 @@ export async function migrationsInProgress(db: DatabaseQueryable, limit: number)
   const rows = await db.query<{ id: string }>(
     `SELECT m.account_id::text AS id
      FROM next_migration_cohort_members m
-     JOIN users u ON u.id = m.account_id AND u.account_backend = 'legacy'
-     WHERE m.started_at IS NOT NULL
+     JOIN users u ON u.id = m.account_id AND u.account_backend = 'legacy' AND u.suspended_at IS NULL
+     WHERE m.started_at IS NOT NULL AND m.terminal_excluded_at IS NULL
      ORDER BY m.started_at, m.account_id
      LIMIT $1`, [limit]
   );
@@ -301,16 +308,18 @@ async function inTransaction<T>(db: DatabasePool, run: (client: DatabaseQueryabl
  */
 export async function startAccountMigration(db: DatabasePool, account: string, environment?: string): Promise<{ account_id: string; started_at: string }> {
   return inTransaction(db, async (client) => {
-    const user = (await client.query<{ backend: string }>(
-      "SELECT account_backend AS backend FROM users WHERE id = $1 FOR UPDATE", [account]
+    const user = (await client.query<{ backend: string; suspended_at: Date | null }>(
+      "SELECT account_backend AS backend,suspended_at FROM users WHERE id = $1 FOR UPDATE", [account]
     )).rows[0];
     if (!user) throw new RolloutRefused("account_not_found", "Account not found.", 404);
     // Lock/re-read the member BEFORE its parent, matching membership mutation
     // order. Never claim from the snapshot of an unlocked outer-joined row.
-    const row = (await client.query<{ cohort: string; started_at: Date | null }>(
-      "SELECT cohort, started_at FROM next_migration_cohort_members WHERE account_id = $1 FOR UPDATE", [account]
+    const row = (await client.query<{ cohort: string; started_at: Date | null; terminal_excluded_at: Date | null }>(
+      "SELECT cohort, started_at,terminal_excluded_at FROM next_migration_cohort_members WHERE account_id = $1 FOR UPDATE", [account]
     )).rows[0];
     if (!row) throw new RolloutRefused("account_not_released", "The account is not in a released migration cohort.");
+    if (row.terminal_excluded_at !== null) throw new RolloutRefused("account_deletion_accepted", "The account's deletion was accepted; it will not migrate.");
+    if (user.suspended_at !== null) throw new RolloutRefused("account_suspended", "The account is suspended.");
     const batch = (await client.query<{ released: boolean }>(
       "SELECT released_at IS NOT NULL AS released FROM next_migration_cohorts WHERE name = $1 FOR UPDATE", [row.cohort]
     )).rows[0];
@@ -354,11 +363,13 @@ export async function recordCollectionCutover(
     )).rows[0];
     if (!owner) throw new RolloutRefused("collection_not_found", "No settled hosted collection with that id.", 404);
     const account = owner.account;
-    const member = (await client.query<{ started: boolean }>(
-      `SELECT m.started_at IS NOT NULL AS started FROM users u
+    const member = (await client.query<{ started: boolean; suspended_at: Date | null; terminal_excluded_at: Date | null }>(
+      `SELECT m.started_at IS NOT NULL AS started,u.suspended_at,m.terminal_excluded_at FROM users u
        LEFT JOIN next_migration_cohort_members m ON m.account_id = u.id
        WHERE u.id = $1 FOR UPDATE OF u`, [account]
     )).rows[0];
+    if (member?.terminal_excluded_at != null) throw new RolloutRefused("account_deletion_accepted", "The account's deletion was accepted; it will not migrate.");
+    if (member?.suspended_at != null) throw new RolloutRefused("account_suspended", "The account is suspended.");
     if (!member?.started) throw new RolloutRefused("account_not_started", "The account's migration has not started.");
     const next = (await client.query<{ ok: boolean }>(
       `SELECT owner_user_id = $2 AND sync = 'cloud_copy' AND left_sync_at IS NULL AS ok
@@ -405,12 +416,14 @@ export async function flipAccountBackend(
   if (named.length !== collections.length) throw new RolloutRefused("collections_duplicated", "A collection is named twice.");
   if (!HEX64.test(evidenceDigest)) throw new RolloutRefused("invalid_request", "A hex evidence_digest is required.", 400);
   const result = await inTransaction(db, async (client) => {
-    const user = (await client.query<{ backend: string; started: boolean | null }>(
-      `SELECT u.account_backend AS backend, m.started_at IS NOT NULL AS started
+    const user = (await client.query<{ backend: string; started: boolean | null; suspended_at: Date | null; terminal_excluded_at: Date | null }>(
+      `SELECT u.account_backend AS backend, m.started_at IS NOT NULL AS started,u.suspended_at,m.terminal_excluded_at
        FROM users u LEFT JOIN next_migration_cohort_members m ON m.account_id = u.id
        WHERE u.id = $1 FOR UPDATE OF u`, [account]
     )).rows[0];
     if (!user) throw new RolloutRefused("account_not_found", "Account not found.", 404);
+    if (user.terminal_excluded_at !== null) throw new RolloutRefused("account_deletion_accepted", "The account's deletion was accepted; it will not migrate.");
+    if (user.suspended_at !== null) throw new RolloutRefused("account_suspended", "The account is suspended.");
     if (user.backend === "next") {
       const flip = (await client.query<{ collections: string[]; evidence_digest: string; flipped_at: Date }>(
         "SELECT collections::text[] AS collections, evidence_digest, flipped_at FROM next_migration_account_flips WHERE account_id = $1",
@@ -456,14 +469,9 @@ export async function flipAccountBackend(
        VALUES ($1, $2::uuid[], $3) RETURNING flipped_at`, [account, named, evidenceDigest]
     )).rows[0]!;
     await audit(client, account, "next_migration.flip", account, { collections: named, evidence_digest: evidenceDigest });
-    // A claimed/started account is NOT a final flip. Release durable deletion
-    // work only when EVERY current batch member has its validated flip record.
-    const unfinished = (await client.query(
-      `SELECT 1 FROM next_migration_cohort_members m JOIN users u ON u.id=m.account_id
-       LEFT JOIN next_migration_account_flips f ON f.account_id=m.account_id
-       WHERE m.cohort=$1 AND (u.account_backend<>'next' OR f.account_id IS NULL) LIMIT 1`, [member.cohort]
-    )).rows.length;
-    if (!unfinished && batch.frozen_at !== null) await releaseDeferredDeletions(client, member.cohort, batch.revision, batch.frozen_at);
+    // Every member must have a validated final flip OR accepted terminal
+    // exclusion. An excluded account never needs a witness/cutover/flip.
+    if (batch.frozen_at !== null) await completeMigrationBatch(client, member.cohort, batch.revision, batch.frozen_at);
     return { account_id: account, backend: "next" as const, flipped_at: new Date(flipped.flipped_at).toISOString() };
   });
   await drainDeferredAccountDeletions(db);
@@ -583,14 +591,6 @@ export async function setCohortFrozen(db: DatabasePool, name: string, frozen: bo
   });
   if (!frozen) await drainDeferredAccountDeletions(db);
   return result;
-}
-
-/** Caller holds the cohort FOR UPDATE; erasure cascades must not erase this barrier. */
-async function releaseDeferredDeletions(client: DatabaseQueryable, name: string, revision: string, frozenAt: Date): Promise<void> {
-  await client.query(
-    `UPDATE next_migration_deferred_account_deletions SET ready_at=now(),ready_revision=$2::bigint
-     WHERE cohort=$1 AND ready_at IS NULL AND membership_revision<=$2::bigint AND frozen_at=$3`, [name, revision, frozenAt]
-  );
 }
 
 /** Routes for the hosted migrator: the dedicated migration token only. */

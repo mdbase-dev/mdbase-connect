@@ -302,6 +302,9 @@ export async function reconcileHostedAccountCollections(
   );
   let reconciledCollections = 0;
   for (const collection of collections.rows) {
+    // Each RPC has its own provider budget. Check the actual transaction is
+    // alive and restart its idle interval before the next remote effect.
+    await client.query("SELECT 1");
     try {
       await provider.reconcileCollectionAccount(
         account.providerAccountId,
@@ -321,6 +324,7 @@ export async function reconcileHostedAccountCollections(
       throw error;
     }
   }
+  await client.query("SELECT 1");
   const usage = await provider.accountUsage(account.providerAccountId);
   await client.query("COMMIT");
   return { ...account, usage, reconciledCollections };

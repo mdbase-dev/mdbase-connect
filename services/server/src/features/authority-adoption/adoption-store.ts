@@ -6,7 +6,7 @@ import {
 } from "../../hosted-provider.js";
 import { tokenHash } from "../../security.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
-import { requireAccountNotMigrationFrozen } from "../next/migration-topology.js";
+import { configureTopologyTransaction, requireAccountNotMigrationFrozen } from "../next/migration-topology.js";
 
 export interface AuthorityAdoptionRow {
   id: string;
@@ -113,7 +113,7 @@ export async function recoverExpiredAuthorityAdoptions(
     const connection = await db.connect();
     try {
       await connection.query("BEGIN");
-      await connection.query("SET LOCAL lock_timeout = '5s'");
+      await configureTopologyTransaction(connection);
       if (candidate.user_id) await requireAccountNotMigrationFrozen(connection, candidate.user_id);
       const locked = await connection.query<{ id: string; collection_id: string; user_id: string | null }>(
         `SELECT id, collection_id, user_id FROM authority_adoption_requests

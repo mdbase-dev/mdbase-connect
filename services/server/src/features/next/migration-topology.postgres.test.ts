@@ -5,14 +5,14 @@ import { createDatabase, type DatabasePool } from "../../db.js";
 import { HostedAuthorityRegistry } from "../../hosted.js";
 import { deleteAccountLocally, drainDeferredAccountDeletions } from "../../account-management.js";
 import { createHostedCollectionForUser, deleteHostedCollectionForUser, renameHostedCollectionForUser } from "../hosted/service.js";
-import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
+import { acceptCohortArchive, accountMigrationView, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates, migrationsInProgress, recordCollectionCutover, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
 import { recoverExpiredAuthorityTransfers } from "../authority-transfer/lifecycle.js";
 import { recoverExpiredAuthorityAdoptions } from "../authority-adoption/adoption-store.js";
 import { recoverAccountImportCancellation } from "../authority-transfer/account-cancellation.js";
 import { audit } from "../../platform/audit-events.js";
 import { ProviderRevocationWorker, quarantineMissingHostedCollection, quarantineMissingHostedCollectionOnTransaction } from "../../hosted-capability-lifecycle.js";
-import { HostedProviderResponseError, type HostedProviderClient } from "../../hosted-provider.js";
+import { HostedProviderClient, HostedProviderResponseError, HostedProviderUnavailableError } from "../../hosted-provider.js";
 import { materializePublicSignupEntitlement, reconcileHostedAccountCollections } from "../../entitlements.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -133,29 +133,103 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     userId: account, sessionId: randomUUID(), authorized: true, queueProviderCleanup: true
   });
 
-  it("accepts frozen account deletion atomically, revokes credentials now, and erases only after the WHOLE batch final flip", async () => {
-    const a = await user(), b = await user(), name = await batch([a, b]);
+  async function hosted(account: string) {
+    return createHostedCollectionForUser({ db, hostedCollections: true }, new HostedAuthorityRegistry(db), "https://synthetic.example.test", account, "Synthetic", "mdbase", "UTC");
+  }
+  async function acceptedBatch(accounts: string[]) {
+    const name = await batch(accounts);
     await releaseCohort(db, name, OP);
     await setCohortFrozen(db, name, true, "capture", OP);
     const body = await metadata(name);
     await acceptCohortArchive(db, name, body, "production");
     await setPaused(db, false, "synthetic migration", OP);
-    await deletion(a); await deletion(b);
-    for (const account of [a, b]) {
-      expect((await db.query("SELECT suspended_at FROM users WHERE id=$1", [account])).rows[0].suspended_at).not.toBeNull();
-      const work = (await db.query("SELECT membership_revision::text,ready_at FROM next_migration_deferred_account_deletions WHERE account_id=$1", [account])).rows[0];
-      expect(work.membership_revision).toBe(body.migration_batch.membership_revision); expect(work.ready_at).toBeNull();
-      await startAccountMigration(db, account, "production");
-    }
+    return { name, body };
+  }
+  async function assertNeverMigrated(account: string, collections: string[] = []) {
+    expect((await db.query("SELECT 1 FROM audit_events WHERE subject_id=ANY($1::text[]) AND event_type IN ('next_migration.cutover','next_migration.flip')", [[account, ...collections]])).rowCount).toBe(0);
+  }
+
+  it("terminal-excludes a nonempty hosted account without altering archive coverage, then completes the batch without its witness/cutover/flip across restart", async () => {
+    const a = await user(), b = await user(), collection = await hosted(a);
+    const { name, body } = await acceptedBatch([a, b]);
+    await startAccountMigration(db, a, "production");
+    await startAccountMigration(db, b, "production");
+    await deletion(a);
+    expect(await cohortArchiveBinding(db, name)).toEqual(body.migration_batch);
+    expect(await accountMigrationView(db, a)).toMatchObject({ backend: "legacy", terminal_excluded: true, hosted_collections: [collection.id] });
+    expect(await migrationsInProgress(db, 100)).not.toContain(a);
+    expect(await migrationCandidates(db, 100)).not.toContain(a);
+    await expect(startAccountMigration(db, a, "production")).rejects.toMatchObject({ code: "account_deletion_accepted" });
+    await expect(recordCollectionCutover(db, collection.id, { s_final: 3, cutover_seq: 10, barrier_f: 10, final_digest: "a".repeat(64) })).rejects.toMatchObject({ code: "account_deletion_accepted" });
+    await expect(flipAccountBackend(db, a, [collection.id], flipEvidenceDigest([]))).rejects.toMatchObject({ code: "account_deletion_accepted" });
     expect(await drainDeferredAccountDeletions(db)).toBe(0);
-    expect((await db.query("SELECT 1 FROM provider_collection_deletion_jobs")).rowCount).toBe(0);
-    await flipAccountBackend(db, a, [], flipEvidenceDigest([]));
-    expect((await db.query("SELECT 1 FROM users WHERE id=ANY($1::uuid[])", [[a, b]])).rowCount).toBe(2);
+    expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [collection.id])).rowCount).toBe(1);
+    expect((await db.query("SELECT 1 FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id])).rowCount).toBe(0);
+    const connect = db.connect.bind(db);
+    const fault = vi.spyOn(db, "connect").mockImplementationOnce(connect).mockRejectedValueOnce(new Error("synthetic interruption after batch completion"));
+    try {
+      await expect(flipAccountBackend(db, b, [], flipEvidenceDigest([]))).rejects.toThrow("synthetic interruption");
+    } finally { fault.mockRestore(); }
+    const work = (await db.query("SELECT ready_at,ready_revision::text FROM next_migration_deferred_account_deletions WHERE account_id=$1", [a])).rows[0];
+    expect(work.ready_at).not.toBeNull(); expect(work.ready_revision).toBe(body.migration_batch.membership_revision);
+    expect((await db.query("SELECT account_backend FROM users WHERE id=$1", [a])).rows[0].account_backend).toBe("legacy");
+    expect((await db.query("SELECT account_backend FROM users WHERE id=$1", [b])).rows[0].account_backend).toBe("next");
+    expect(await cohortArchiveBinding(db, name)).toEqual(body.migration_batch);
+    await assertNeverMigrated(a, [collection.id]);
+    await db.end(); db = await createDatabase(databaseUrl);
+    expect(await drainDeferredAccountDeletions(db)).toBe(1);
     expect(await drainDeferredAccountDeletions(db)).toBe(0);
+    expect((await db.query("SELECT 1 FROM users WHERE id=$1", [a])).rowCount).toBe(0);
+    expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [collection.id])).rowCount).toBe(0);
+    expect((await db.query("SELECT 1 FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id])).rowCount).toBe(1);
+    await db.query("DELETE FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id]);
+  });
+
+  it("makes the last unfinished member's terminal exclusion ready without a future flip or user retry", async () => {
+    const a = await user(), b = await user(), collection = await hosted(a);
+    const { name, body } = await acceptedBatch([a, b]);
+    await startAccountMigration(db, b, "production");
     await flipAccountBackend(db, b, [], flipEvidenceDigest([]));
-    expect((await db.query("SELECT 1 FROM users WHERE id=ANY($1::uuid[])", [[a, b]])).rowCount).toBe(0);
-    expect((await db.query("SELECT 1 FROM next_migration_deferred_account_deletions WHERE cohort=$1", [name])).rowCount).toBe(0);
+    await deletion(a); // Never started: even discovery/start must exclude it.
+    expect(await cohortArchiveBinding(db, name)).toEqual(body.migration_batch);
+    expect(await migrationCandidates(db, 100)).not.toContain(a);
+    expect((await db.query("SELECT ready_at FROM next_migration_deferred_account_deletions WHERE account_id=$1", [a])).rows[0].ready_at).not.toBeNull();
+    await assertNeverMigrated(a, [collection.id]);
+    await db.end(); db = await createDatabase(databaseUrl);
+    expect(await drainDeferredAccountDeletions(db)).toBe(1);
+    expect((await db.query("SELECT 1 FROM users WHERE id=$1", [a])).rowCount).toBe(0);
+    expect((await db.query("SELECT 1 FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id])).rowCount).toBe(1);
+    await db.query("DELETE FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id]);
+  });
+
+  it("completes an all-terminal batch after archive acceptance without starting or flipping any member", async () => {
+    const a = await user(), b = await user(), ca = await hosted(a), cb = await hosted(b), name = await batch([a, b]);
+    await setCohortFrozen(db, name, true, "capture", OP);
+    const body = await metadata(name);
+    await deletion(a); await deletion(b);
+    expect(await cohortArchiveBinding(db, name)).toEqual(body.migration_batch);
     expect(await drainDeferredAccountDeletions(db)).toBe(0);
+    await acceptCohortArchive(db, name, body, "production");
+    for (const account of [a, b]) {
+      expect((await db.query("SELECT 1 FROM users WHERE id=$1", [account])).rowCount).toBe(0);
+      await assertNeverMigrated(account, [account === a ? ca.id : cb.id]);
+    }
+    const accepted = (await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1", [name])).rows[0];
+    expect(accepted.verified_result.migration_batch).toEqual(body.migration_batch);
+    expect((await db.query("SELECT 1 FROM provider_collection_deletion_jobs WHERE collection_id=ANY($1::uuid[])", [[ca.id, cb.id]])).rowCount).toBe(2);
+    await db.query("DELETE FROM provider_collection_deletion_jobs WHERE collection_id=ANY($1::uuid[])", [[ca.id, cb.id]]);
+    expect(await drainDeferredAccountDeletions(db)).toBe(0);
+  });
+
+  it("accepts deletion after the whole batch's final flip and makes erasure ready despite the retained freeze", async () => {
+    const account = await user(), { name } = await acceptedBatch([account]);
+    await startAccountMigration(db, account, "production");
+    await flipAccountBackend(db, account, [], flipEvidenceDigest([]));
+    expect((await db.query("SELECT frozen_at FROM next_migration_cohorts WHERE name=$1", [name])).rows[0].frozen_at).not.toBeNull();
+    await deletion(account);
+    expect((await db.query("SELECT ready_at FROM next_migration_deferred_account_deletions WHERE account_id=$1", [account])).rows[0].ready_at).not.toBeNull();
+    expect(await drainDeferredAccountDeletions(db)).toBe(1);
+    expect((await db.query("SELECT 1 FROM users WHERE id=$1", [account])).rowCount).toBe(0);
   });
 
   it("never loses accepted deletion across restart after audited unfreeze/readiness commit and before erasure", async () => {
@@ -208,6 +282,95 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     expect((await db.query("SELECT 1 FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id])).rowCount).toBe(1);
     await db.query("DELETE FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id]);
   });
+
+  function providerWait(ms: number, signal?: AbortSignal | null) {
+    return new Promise<void>((resolve, reject) => {
+      const abort = () => { clearTimeout(timer); reject(signal?.reason); };
+      const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, ms);
+      if (signal?.aborted) abort(); else signal?.addEventListener("abort", abort, { once: true });
+    });
+  }
+  const provider = () => new HostedProviderClient({ url: "https://bounded-peer.example.test", internalToken: "synthetic-private-boundary" });
+  const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
+  const projection = (id: string) => json({ projection: { collection_id: id, ready: true, head: 0,
+    resource_revision: "synthetic", active_generation_id: randomUUID(), building_generation: null } });
+
+  it("commits an actual guarded create after an 11s provider await, retaining the global 10s DB default", async () => {
+    const account = await user(); await batch([account]); await materializePublicSignupEntitlement(db, account);
+    let created = "", erased = 0;
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (init?.method === "PUT" && path.startsWith("/internal/v1/accounts/")) return json({ account: {} });
+      if (init?.method === "POST" && path === "/internal/v1/collections") {
+        created = JSON.parse(String(init.body)).collection_id;
+        await providerWait(11_000, init.signal); return json({});
+      }
+      if (init?.method === "GET" && path.endsWith("/projection")) return projection(created);
+      if (init?.method === "DELETE") { erased++; return json({}); }
+      throw new Error("Unexpected synthetic provider request");
+    });
+    try {
+      const result = await createHostedCollectionForUser({ db, hostedCollections: true, hostedProvider: provider() }, undefined,
+        "https://synthetic.example.test", account, "Synthetic", "mdbase", "UTC");
+      expect(result.id).toBe(created); expect(erased).toBe(0);
+      expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [created])).rowCount).toBe(1);
+      expect((await db.query("SHOW idle_in_transaction_session_timeout")).rows[0].idle_in_transaction_session_timeout).toBe("10s");
+    } finally { vi.unstubAllGlobals(); }
+  }, 25_000);
+
+  it("shares the provider 14s create/projection budget, rolls back and retains the guard through an 11s compensation", async () => {
+    const account = await user(), name = await batch([account]); await materializePublicSignupEntitlement(db, account);
+    let created = "", erased = 0, projectionStarted = false;
+    const started = Date.now();
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (init?.method === "PUT" && path.startsWith("/internal/v1/accounts/")) return json({ account: {} });
+      if (init?.method === "POST" && path === "/internal/v1/collections") {
+        created = JSON.parse(String(init.body)).collection_id;
+        await providerWait(9_000, init.signal); return json({});
+      }
+      if (init?.method === "GET" && path.endsWith("/projection")) {
+        projectionStarted = true; await providerWait(20_000, init.signal); return projection(created);
+      }
+      if (init?.method === "DELETE" && path.endsWith(created)) {
+        // Timeout14 + compensation11 exceeds guarded idle18 without the
+        // actual-client liveness query between these operation budgets.
+        erased++;
+        const freeze = setCohortFrozen(db, name, true, "must remain locked through compensation", OP);
+        const outcome = expect(freeze).rejects.toMatchObject({ code: "55P03" });
+        await providerWait(11_000, init.signal); await outcome; return json({});
+      }
+      throw new Error("Unexpected synthetic provider request");
+    });
+    try {
+      await expect(createHostedCollectionForUser({ db, hostedCollections: true, hostedProvider: provider() }, undefined,
+        "https://synthetic.example.test", account, "Synthetic", "mdbase", "UTC")).rejects.toBeInstanceOf(HostedProviderUnavailableError);
+      expect(projectionStarted).toBe(true); expect(erased).toBe(1); expect(Date.now() - started).toBeGreaterThanOrEqual(24_500);
+      expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [created])).rowCount).toBe(0);
+      expect((await db.query("SELECT 1 FROM account_storage_accounts WHERE user_id=$1", [account])).rowCount).toBe(0);
+      expect((await db.query("SELECT frozen_at FROM next_migration_cohorts WHERE name=$1", [name])).rows[0].frozen_at).toBeNull();
+      expect((await db.query("SHOW idle_in_transaction_session_timeout")).rows[0].idle_in_transaction_session_timeout).toBe("10s");
+    } finally { vi.unstubAllGlobals(); }
+  }, 40_000);
+
+  it("retains the same guarded transaction across consecutive 11s provider reconciliation RPCs", async () => {
+    const account = await user(); await batch([account]); const a = await hosted(account), b = await hosted(account);
+    await materializePublicSignupEntitlement(db, account);
+    const reconciled: string[] = [];
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (init?.method === "PUT" && path.includes("/collections/")) {
+        await providerWait(11_000, init.signal); reconciled.push(path.split("/").at(-1)!); return json({});
+      }
+      if (path.startsWith("/internal/v1/accounts/")) return json({ account: {} });
+      throw new Error("Unexpected synthetic provider request");
+    });
+    try {
+      expect(await reconcileHostedAccountCollections(db, provider(), account)).toMatchObject({ reconciledCollections: 2 });
+      expect(reconciled.sort()).toEqual([a.id, b.id].sort());
+      expect((await db.query("SHOW idle_in_transaction_session_timeout")).rows[0].idle_in_transaction_session_timeout).toBe("10s");
+    } finally { vi.unstubAllGlobals(); }
+  }, 35_000);
 
   it("blocks rename/delete before effects during freeze and permits them after audited unfreeze", async () => {
     const account = await user(), name = await batch([account]);
