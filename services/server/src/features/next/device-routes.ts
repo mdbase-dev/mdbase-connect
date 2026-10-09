@@ -4,7 +4,9 @@
 import type { FastifyInstance } from "fastify";
 import type { DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
-import { requireConnector, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
+import { bearerToken, requireConnector, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
+import { tokenHash } from "../../security.js";
+import { isLockTimeout } from "./bootstrap-common.js";
 import { DeviceRegistrationError, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { GrantApprovalReportError, reportGrantApproval } from "./grant-approval.js";
 import type { LogServiceClient } from "./log-service-client.js";
@@ -22,10 +24,11 @@ export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: Da
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return reply;
     try {
-      return await registerDevice(options.db, connector, (request.body ?? {}) as Record<string, unknown>);
+      return await registerDevice(options.db, connector, (request.body ?? {}) as Record<string, unknown>, tokenHash(bearerToken(request)!));
     } catch (error) {
+      if (isLockTimeout(error)) return reply.code(503).send(apiError("busy", "Device registration was not confirmed."));
       if (!(error instanceof DeviceRegistrationError)) throw error;
-      const status = error.code === "device_keys_changed" || error.code === "device_already_bound" ? 409 : 400;
+      const status = error.code === "identity_not_current" ? 403 : error.code === "device_keys_changed" || error.code === "device_already_bound" ? 409 : 400;
       return reply.code(status).send(apiError(error.code, error.message));
     }
   });

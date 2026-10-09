@@ -137,7 +137,7 @@ describePg("LAB disposable fixture provisioning", () => {
     await registerDevice(db, connector, {
       device_id: device, kind: "desktop", sign_pk: hex(signPk), kem_pk: hex(kemPk), noise_pk: hex(noisePk), challenge: registration.challenge,
       sig: hex(sign(null, deviceRegistrationDigest({ challenge: Buffer.from(registration.challenge, "hex"), connectorId: connector.id, deviceId: device, signPk, kemPk, noisePk }), key))
-    });
+    }, tokenHash(token));
     return { connector, device, key, signPk, token, headers: { authorization: `Bearer ${token}`, "x-mdbase-lab-admin": adminToken } };
   }
   async function proof(who: Awaited<ReturnType<typeof identity>>, fixture: string, action: "provision" | "delete" = "provision") {

@@ -162,7 +162,7 @@ describePg("account keys", () => {
     await registerDevice(db, connector, {
       device_id: device, kind: "desktop", sign_pk: hex(signPk), kem_pk: hex(kemPk), noise_pk: hex(noisePk), challenge: registration.challenge,
       sig: hex(sign(null, deviceRegistrationDigest({ challenge: Buffer.from(registration.challenge, "hex"), connectorId: connector.id, deviceId: device, signPk, kemPk, noisePk }), key))
-    });
+    }, tokenHash(token));
     // The account's proof key (derived from R by clients); one per account here.
     const proof = proofKeys.get(user) ?? generateKeyPairSync("ed25519").privateKey;
     proofKeys.set(user, proof);

@@ -17,6 +17,7 @@ import { ConnectorOperationError } from "../../relay-errors.js";
 import { NOISE_PIPE_CAPABILITY, type NoisePipes } from "./noise-pipes.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, uuidBytes } from "./policy-wire.js";
+import { inTransaction } from "./bootstrap-common.js";
 
 export const NEXT_DEVICE_CAPABILITY = "next_device_v1";
 
@@ -31,7 +32,7 @@ export function withAccountId<T extends object>(grant: T, accountId: unknown): T
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 export class DeviceRegistrationError extends Error {
-  constructor(readonly code: "invalid_device" | "challenge_invalid" | "device_keys_changed" | "device_already_bound", message: string) {
+  constructor(readonly code: "invalid_device" | "challenge_invalid" | "device_keys_changed" | "device_already_bound" | "identity_not_current", message: string) {
     super(message);
   }
 }
@@ -115,8 +116,12 @@ export function deviceRegistrationDigest(input: { challenge: Uint8Array; connect
 export async function registerDevice(
   db: DatabasePool,
   connector: { id: string; user_id: string },
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  originalTokenHash: string
 ): Promise<{ device_id: string }> {
+  if (typeof originalTokenHash !== "string" || originalTokenHash.length === 0) {
+    throw new DeviceRegistrationError("identity_not_current", "The connector credential is no longer current.");
+  }
   const deviceId = typeof body.device_id === "string" && /^[0-9a-f-]{36}$/.test(body.device_id) ? body.device_id : null;
   const kind = body.kind === "desktop" || body.kind === "mobile" || body.kind === "app-runtime" || body.kind === "cli" ? body.kind : null;
   const signPk = bytes(body.sign_pk, 32);
@@ -132,9 +137,25 @@ export async function registerDevice(
   }
   const digest = deviceRegistrationDigest({ challenge, connectorId: connector.id, deviceId, signPk, kemPk, noisePk });
   if (!verifies(signPk, digest, sig)) throw new DeviceRegistrationError("invalid_device", "The device signature does not verify.");
-  const client = await db.connect();
-  try {
-    await client.query("BEGIN");
+  return inTransaction(db, async client => {
+    // The target connector lock is shared with legacy retirement. An identity
+    // loaded before BEGIN is never enough: recheck the ORIGINAL request digest,
+    // owner and account currentness before consuming a challenge or inserting.
+    const current = await client.query(
+      `SELECT id FROM connectors WHERE id = $1 AND user_id = $2 AND token_hash = $3
+         AND revoked_at IS NULL FOR UPDATE`,
+      [connector.id, connector.user_id, originalTokenHash]
+    );
+    if (!current.rows.length) {
+      throw new DeviceRegistrationError("identity_not_current", "The connector credential is no longer current.");
+    }
+    const account = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND suspended_at IS NULL FOR SHARE",
+      [connector.user_id]
+    );
+    if (!account.rows.length) {
+      throw new DeviceRegistrationError("identity_not_current", "The connector account is no longer current.");
+    }
     const used = await client.query(
       `UPDATE next_device_challenges SET used_at = now()
        WHERE challenge = $1 AND connector_id = $2 AND used_at IS NULL AND expires_at > now()`,
@@ -160,14 +181,8 @@ export async function registerDevice(
         [deviceId, connector.id, connector.user_id, kind, signPk, kemPk, noisePk]
       );
     }
-    await client.query("COMMIT");
     return { device_id: deviceId };
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 /** `H("mdbase/v1/relay-device", connector ‖ session ‖ device_nonce)`; session is the relay generation. */
