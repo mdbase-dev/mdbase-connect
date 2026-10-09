@@ -60,7 +60,7 @@ describePg("collection log-token refresh", () => {
     await registerDevice(db, connector, {
       device_id: device, kind, sign_pk: hex(signPk), kem_pk: hex(kemPk), noise_pk: hex(noisePk), challenge: reg.challenge,
       sig: hex(sign(null, deviceRegistrationDigest({ challenge: Buffer.from(reg.challenge, "hex"), connectorId: connector.id, deviceId: device, signPk, kemPk, noisePk }), key))
-    });
+    }, tokenHash(token));
     return { kind, connector, device, key, signPk, kemPk, noisePk, headers: { authorization: `Bearer ${token}` } };
   }
   type Who = Awaited<ReturnType<typeof identity>>;

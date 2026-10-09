@@ -15,7 +15,7 @@ import {
   grantCapabilityGroups,
   issueDeviceChallenge,
   NextRelayDevices,
-  registerDevice
+  registerDevice as registerDeviceProduct
 } from "./devices.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
 import { clientKeyDigest } from "./grant-approval.js";
@@ -38,6 +38,11 @@ async function registration(db: DatabasePool, connectorId: string, deviceId: str
     sig: Buffer.from(sign(null, digest, keys.privateKey)).toString("hex")
   };
 }
+
+// localGrantFixture deliberately stores its ID as the credential hash. Supply
+// that ORIGINAL fixture credential, not a DB lookup after authentication.
+const registerDevice = (db: DatabasePool, connector: { id: string; user_id: string }, body: Record<string, unknown>) =>
+  registerDeviceProduct(db, connector, body, connector.id);
 
 function fakeSocket() {
   const sent: Array<Record<string, unknown>> = [];
@@ -149,6 +154,30 @@ describePostgres("mdbase-next registered devices", () => {
     const body = { ...await registration(db, connectorId, deviceId, deviceKeys()), kind };
     await expect(registerDevice(db, { id: connectorId, user_id: connectorId }, body)).rejects.toMatchObject({ code: "invalid_device" });
     expect((await db.query("SELECT id FROM next_devices WHERE id = $1", [deviceId])).rows).toEqual([]);
+  });
+
+  it.each(["digest", "revoked", "suspended", "owner"])("rechecks original credential/account %s before consuming a challenge", async change => {
+    const connectorId = await localGrantFixture(db);
+    const connector = { id: connectorId, user_id: connectorId };
+    const body = await registration(db, connectorId, randomUUID(), deviceKeys());
+    if (change === "digest") await db.query("UPDATE connectors SET token_hash = $2 WHERE id = $1", [connectorId, randomUUID()]);
+    if (change === "revoked") await db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [connectorId]);
+    if (change === "suspended") await db.query("UPDATE users SET suspended_at = now() WHERE id = $1", [connectorId]);
+    if (change === "owner") {
+      const other = await localGrantFixture(db);
+      await db.query("UPDATE connectors SET user_id = $2 WHERE id = $1", [connectorId, other]);
+    }
+    await expect(registerDevice(db, connector, body)).rejects.toMatchObject({ code: "identity_not_current" });
+    expect((await db.query("SELECT used_at FROM next_device_challenges WHERE challenge = $1", [Buffer.from(body.challenge, "hex")])).rows[0].used_at).toBeNull();
+    expect((await db.query("SELECT id FROM next_devices WHERE connector_id = $1", [connectorId])).rows).toEqual([]);
+  });
+
+  it("fails closed without an explicit original hash", async () => {
+    const connectorId = await localGrantFixture(db);
+    const body = await registration(db, connectorId, randomUUID(), deviceKeys());
+    await expect(registerDeviceProduct(db, { id: connectorId, user_id: connectorId }, body, undefined as unknown as string))
+      .rejects.toMatchObject({ code: "identity_not_current" });
+    expect((await db.query("SELECT used_at FROM next_device_challenges WHERE challenge = $1", [Buffer.from(body.challenge, "hex")])).rows[0].used_at).toBeNull();
   });
 
   it("binds a relay socket only with the device key, the session nonce and an active connector", async () => {
