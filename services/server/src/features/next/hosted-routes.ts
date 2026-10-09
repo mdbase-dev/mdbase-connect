@@ -12,6 +12,8 @@ import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import { loadServiceDevice, serviceDeviceWire, type ServiceDeviceRecord, type ServiceKind } from "./service-devices.js";
+import { CreateError, inTransaction, lock, NIL, refuseRevoked } from "./bootstrap-common.js";
+import { requireCollectionNotDeleted } from "./collection-deletion.js";
 
 export type CollectionDirectoryState = "standard" | "private" | "local" | "unknown";
 
@@ -27,8 +29,10 @@ export interface CollectionDirectoryEntry {
  * Connect doesn't know as synced or local, is `unknown`, which the hosted replica refuses.
  */
 export async function collectionDirectory(db: DatabaseQueryable, ids: readonly string[]): Promise<CollectionDirectoryEntry[]> {
-  const rows = await db.query<{ id: string; sync: "private" | "cloud_copy" | null; runtime: "shadow" | "next" | null; left: boolean; local: boolean }>(
+  const rows = await db.query<{ id: string; sync: "private" | "cloud_copy" | null; runtime: "shadow" | "next" | null; left: boolean; denied: boolean; local: boolean }>(
     `SELECT requested.id::text AS id, next.sync, next.runtime, next.left_sync_at IS NOT NULL AS left,
+            EXISTS (SELECT 1 FROM next_collection_deletion_facts denial
+                    WHERE denial.collection_id = requested.id) AS denied,
             EXISTS (SELECT 1 FROM collections local
                     WHERE local.local_id = requested.id
                       AND local.authority_state <> 'retired' AND local.removed_at IS NULL) AS local
@@ -41,7 +45,7 @@ export async function collectionDirectory(db: DatabaseQueryable, ids: readonly s
     const row = byId.get(id);
     // A collection that has left sync is never standard again, even while its local
     // row also exists: the hosted replica must close it at once.
-    const state: CollectionDirectoryState = row?.left ? "unknown"
+    const state: CollectionDirectoryState = row?.denied || row?.left ? "unknown"
       : row?.sync === "cloud_copy" ? "standard"
         : row?.sync === "private" ? "private"
           : row?.local ? "local" : "unknown";
@@ -59,27 +63,32 @@ export function serviceKind(request: FastifyRequest, tokens: { hosted?: string; 
 }
 
 /**
- * Run `use` on the current record while its collection row is share-locked, in one
- * transaction. Leaving sync updates that row, so it waits until `use` has finished:
- * a record served or a token minted here was served while the collection was current.
- * Null when there is no current record.
+ * Run `use` only after current CP denial/revocation checks, under the existing
+ * collection lock and share-locked collection row. No network effects occur here.
+ * Null for a known denial, revoked device or missing current record; unexpected
+ * authority/database failures propagate, never becoming a positive result.
+ * This read is not a reusable restore/import/serving permit.
  */
 async function withCurrentRecord<T>(
   db: DatabasePool, collection: string, by: { kind: ServiceKind } | { device: string }, use: (record: ServiceDeviceRecord, client: DatabaseQueryable) => T | Promise<T>
 ): Promise<T | null> {
-  const client = await db.connect();
+  // HTTP UUIDs remain case-insensitive; the existing denial helper takes canonical
+  // non-nil IDs. Nil remains a missing collection, not an internal-helper error.
+  collection = collection.toLowerCase();
+  if (collection === NIL) return null;
   try {
-    await client.query("BEGIN");
-    await client.query("SET LOCAL lock_timeout = '5s'");
-    const record = await loadServiceDevice(client, collection, by);
-    const result = record ? await use(record, client) : null;
-    await client.query("COMMIT");
-    return result;
+    return await inTransaction(db, async client => {
+      await lock(client, collection);
+      await requireCollectionNotDeleted(client, collection);
+      const record = await loadServiceDevice(client, collection, by);
+      if (!record) return null;
+      await refuseRevoked(client, collection, record.device_id);
+      return use(record, client);
+    });
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
+    if ((error instanceof Error && error.message === "collection_deleted") ||
+        (error instanceof CreateError && error.code === "device_revoked")) return null;
     throw error;
-  } finally {
-    client.release();
   }
 }
 
@@ -127,11 +136,13 @@ export function registerNextHostedRoutes(
       ? reply.code(409).send(apiError("collection_not_standard", "The collection is not a cloud copy."))
       : reply.code(404).send(apiError("service_device_not_found", missing));
   app.get("/internal/v1/next/collections/:id/state", async (request, reply) => {
+    reply.header("cache-control", "no-store");
     if (!authorize(request)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const { id } = z.object({ id: z.uuid() }).parse(request.params);
     return (await collectionDirectory(options.db, [id]))[0];
   });
   app.post("/internal/v1/next/collections/states", async (request, reply) => {
+    reply.header("cache-control", "no-store");
     if (!authorize(request)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const { ids } = z.object({ ids: z.array(z.uuid()).min(1).max(500) }).strict().parse(request.body);
     return { collections: await collectionDirectory(options.db, [...new Set(ids)]) };
@@ -140,6 +151,7 @@ export function registerNextHostedRoutes(
   // A deployment reads only its own kind's record, and only while the collection is
   // standard: a collection that left sync, or never was cloud copy, has no service device.
   app.get("/internal/v1/next/collections/:id/service-devices/:kind", async (request, reply) => {
+    reply.header("cache-control", "no-store");
     const caller = serviceKind(request, options.tokens);
     if (!caller) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const { id, kind } = z.object({ id: z.uuid(), kind: z.enum(["hosted", "escrow"]) }).parse(request.params);
@@ -161,6 +173,7 @@ export function registerNextHostedRoutes(
   // valid for at most LOG_TOKEN_LIFETIME_MS. The deployment refreshes it by asking again.
   const log = options.log;
   if (log) app.post("/internal/v1/next/service-devices/:device/log-token", async (request, reply) => {
+    reply.header("cache-control", "no-store");
     const caller = serviceKind(request, options.tokens);
     if (!caller) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const params = z.object({ device: z.uuid() }).safeParse(request.params);
