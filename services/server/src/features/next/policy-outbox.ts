@@ -52,12 +52,10 @@ export async function registerNextCollection(
   if (genesis?.op !== "genesis" || input.ops.slice(1).some((op) => op.op === "genesis")) throw new Error("a new log starts with exactly one genesis op");
   if (!Buffer.from(genesis.root).equals(Buffer.from(input.rootKeyId))) throw new Error("genesis root differs from the collection's root key");
   if (genesis.state !== (input.sync === "private" ? "e2e" : "cloud-copy")) throw new Error("genesis state differs from the collection's sync state");
-  if (input.sync === "private") {
-    assertPrivateOps(input.ops);
-    if (input.displayName !== undefined) throw new Error("private collection naming is disabled");
-  }
+  if (input.sync === "private") assertPrivateOps(input.ops);
+  // Cleartext catalog metadata for either sync mode; never part of private policy/key material.
   // The initial catalog label belongs to the first registration, never a retry.
-  const displayName = input.sync === "cloud_copy" ? input.displayName ?? DEFAULT_COLLECTION_DISPLAY_NAME : null;
+  const displayName = input.displayName ?? DEFAULT_COLLECTION_DISPLAY_NAME;
   await client.query(
     `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id, display_name)
      VALUES ($1, $2, $3, $4, $5, $6)`,

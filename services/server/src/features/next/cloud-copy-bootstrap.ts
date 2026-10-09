@@ -16,7 +16,7 @@
 // The control plane never holds a collection key. Each deployment generates its own
 // service device; the first committed record wins, and nothing is ever deleted on a
 // failure path.
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireInstallationDeviceConnector, requireSessionContext, requireUser, type ConnectorIdentity } from "../../platform/request-authentication.js";
@@ -31,8 +31,8 @@ import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 import { generateServiceDevice, loadServiceDevice, ServiceDeviceError, storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
 
 import { installationCollections, requireInstallationScope } from "./installation-scope.js";
-import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME } from "./collection-display-name.js";
-import { registerCloudCopyNameRoutes } from "./collection-name-routes.js";
+import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
+import { registerCollectionNameRoutes } from "./collection-name-routes.js";
 const KINDS = ["hosted", "escrow"] as const;
 
 function refuse(reply: FastifyReply, error: unknown, message: string) {
@@ -96,18 +96,11 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
 }): void {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new Error("cloud-copy routes need MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1");
-  registerCloudCopyNameRoutes(app, options.db);
+  registerCollectionNameRoutes(app, options.db);
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
   const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" } };
   const limited = { bodyLimit: 4096, config: { rateLimit: { max: 6, timeWindow: "1 minute" } } };
-  // Inspect raw names before JSON-schema coercion; null/numbers are not names.
-  const validateInitialName = async (request: FastifyRequest, reply: FastifyReply) => {
-    if (request.body && typeof request.body === "object" && "display_name" in request.body) {
-      try { collectionDisplayName(request.body.display_name); }
-      catch (error) { return refuse(reply, error, "Use a single-line name of 1–200 UTF-16 units."); }
-    }
-  };
   /** Each deployment generates its own keys. Nothing is locked while they work. */
   const generateFor = (collection: string) =>
     Promise.all(KINDS.map((kind) => generateServiceDevice(deployments[kind], kind, collection, options.fetchImpl)));
@@ -168,7 +161,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
   // ---- Service-created: the account, no device. ----
   app.post<{ Body: { collection_id: string; display_name?: string } }>("/v1/next/collections/cloud-copy/service", {
     ...limited,
-    preValidation: validateInitialName,
+    preValidation: validateInitialCollectionName,
     schema: { body: { type: "object", additionalProperties: false, required: ["collection_id"], properties: { collection_id: uuid, display_name: { type: "string" } } } }
   }, async (request, reply) => {
     reply.header("cache-control", "no-store");
@@ -236,7 +229,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
   // ---- Owner-device: a registered device of the owner creates it. ----
   app.post<{ Body: Proof & { collection_id: string; display_name?: string } }>("/v1/next/collections/cloud-copy", {
     ...limited,
-    preValidation: validateInitialName,
+    preValidation: validateInitialCollectionName,
     schema: { body: {
       type: "object", additionalProperties: false, required: ["collection_id", "device_id", "challenge", "sig"],
       properties: { collection_id: uuid, display_name: { type: "string" }, ...proof }

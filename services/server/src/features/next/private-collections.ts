@@ -28,6 +28,9 @@ import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-clie
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
+import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
+import { registerCollectionNameRoutes } from "./collection-name-routes.js";
+import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
 
 /** `H("mdbase/v1/private-create", cbor[challenge, connector, device, collection])`, signed by the owner's device. */
 export function privateCreateDigest(input: { challenge: Uint8Array; connector: string; device: string; collection: string }): Uint8Array {
@@ -101,6 +104,8 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
   log: Pick<LogServiceClient, "controlItemAt" | "head" | "mintToken">; now?: () => number;
 }): void {
   if (!options.next.privateBootstrap) throw new Error("private collection routes need MDBASE_NEXT_PRIVATE_BOOTSTRAP=1");
+  // With both bootstrap modes, the cloud-copy registrar mounts this shared route.
+  if (!options.next.cloudCopyBootstrap) registerCollectionNameRoutes(app, options.db);
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
   const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" } };
@@ -120,31 +125,35 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
   };
 
   // ---- Create: a registered device of the owner. ----
-  app.post<{ Body: Proof & { collection_id: string } }>("/v1/next/collections/private", {
+  app.post<{ Body: Proof & { collection_id: string; display_name?: string } }>("/v1/next/collections/private", {
     ...limited,
+    preValidation: validateInitialCollectionName,
     schema: { body: {
       type: "object", additionalProperties: false, required: ["collection_id", "device_id", "challenge", "sig"],
-      properties: { collection_id: uuid, ...proof }
+      properties: { collection_id: uuid, ...proof, display_name: { type: "string" } }
     } }
   }, async (request, reply) => {
     reply.header("cache-control", "no-store");
+    // Capture the metadata intent and proof before any authentication/database await.
+    const body = { ...request.body, collection_id: request.body.collection_id.toLowerCase(), device_id: request.body.device_id.toLowerCase() };
+    const displayName = body.display_name === undefined ? DEFAULT_COLLECTION_DISPLAY_NAME : collectionDisplayName(body.display_name);
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return reply;
-    const body = { ...request.body, collection_id: request.body.collection_id.toLowerCase(), device_id: request.body.device_id.toLowerCase() };
     const collection = body.collection_id;
     if (collection === NIL || body.device_id === NIL) return reply.code(400).send(apiError("invalid_request", "Nil identifiers are not accepted."));
     const digest = (challenge: Uint8Array) => privateCreateDigest({ challenge, connector: connector.id, device: body.device_id, collection });
     let device: Device;
     try {
       // 1. Proof, current identity and ownership, then genesis, in one transaction.
-      // Nothing here calls the network.
+      // Nothing here calls the network. Account first, matching the rename/freeze lock order.
       device = await inTransaction(options.db, async (client) => {
+        await requireAccountNotMigrationFrozen(client, connector.user_id);
         await lock(client, collection);
         const owner = await authenticate(client, body, connector, digest);
         await currentIdentity(client, connector, body.device_id, owner);
         if (!(await existing(client, collection, connector.user_id))) {
           await registerNextCollection(client, {
-            collectionId: collection, ownerUserId: connector.user_id, runtime: "next", sync: "private", rootKeyId,
+            collectionId: collection, ownerUserId: connector.user_id, runtime: "next", sync: "private", rootKeyId, displayName,
             ops: [
               { op: "genesis", owner: connector.user_id, root: rootKeyId, state: "e2e" },
               { op: "member-set", account: connector.user_id, role: "owner" },

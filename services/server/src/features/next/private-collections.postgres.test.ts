@@ -5,6 +5,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
+import { registerErrorHandler } from "../../platform/error-handler.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { LogServiceClient } from "./log-service-client.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./policy-keys.js";
@@ -106,6 +107,7 @@ describePg("private collections", () => {
     db = await createDatabase(url.toString());
     const emitter = new PolicyEmitter(db, client, loadPolicySigner(config, Date.now()));
     await app.register(cookie);
+    registerErrorHandler(app);
     registerPrivateCollectionRoutes(app, { db, next: config, emitter, log: client });
   }, 60_000);
   afterAll(async () => {
@@ -191,8 +193,66 @@ describePg("private collections", () => {
     const claims = decodeCbor(Buffer.from(result.device.token.split(".")[0], "hex"));
     expect(hex(field(claims, 1) as Uint8Array)).toBe(who.device.replaceAll("-", ""));
     expect(hex(field(claims, 5) as Uint8Array)).toBe(collection.replaceAll("-", ""));
-    const row = (await db.query("SELECT sync, runtime FROM next_collections WHERE collection_id = $1", [collection])).rows[0];
-    expect(row).toEqual({ sync: "private", runtime: "next" });
+    const row = (await db.query("SELECT sync, runtime, display_name FROM next_collections WHERE collection_id = $1", [collection])).rows[0];
+    expect(row).toEqual({ sync: "private", runtime: "next", display_name: "New collection" });
+  });
+
+  it.each(["x", "x".repeat(200), "📚".repeat(100), "  Private research 📚  "])("stores valid private cleartext catalog metadata #%# only in CP", async display_name => {
+    const who = await identity(), collection = randomUUID();
+    const response = await create(who, { ...await createProof(who, collection), display_name });
+    expect(response.statusCode, response.body).toBe(200);
+    expect((await db.query("SELECT display_name FROM next_collections WHERE collection_id=$1", [collection])).rows[0].display_name).toBe(display_name.trim());
+    expect(response.json().service_devices).toBeUndefined();
+    const ops = opsOf(Buffer.from(response.json().genesis.item, "hex"));
+    expect(ops.map(op => field(op, 0))).toEqual([1, 4, 2]);
+    expect(field(ops[0]!, 3)).toBe(0); // still e2e; no name or key/wrap policy op
+    expect(field(ops[2]!, 3)).toBe(0); // only the owner's desktop device
+    expect(Object.keys(response.json())).not.toContain("display_name");
+  });
+
+  it.each([null, 42, true, {}, [], "", "  ", "a\n", "x".repeat(201), "\ud800", "\udc00", "a\u0000", "a\u007f", "a\u2028", "a\u2029"])("refuses invalid raw private initial name #%# before registration or proof consumption", async display_name => {
+    const who = await identity(), collection = randomUUID(), proof = await createProof(who, collection);
+    const response = await create(who, { ...proof, display_name });
+    expect(response.statusCode, response.body).toBe(400);
+    expect(await registered(collection)).toBe(false);
+    expect(log.logs.has(collection.replaceAll("-", ""))).toBe(false);
+    expect((await db.query("SELECT used_at FROM next_device_challenges WHERE challenge=$1", [Buffer.from(proof.challenge, "hex")])).rows[0].used_at).toBeNull();
+  });
+
+  it("a create retry never overwrites the initial or subsequently renamed private label", async () => {
+    const who = await identity(), collection = randomUUID();
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [who.connector.user_id]);
+    const first = await create(who, { ...await createProof(who, collection), display_name: "Initial private label" });
+    expect(first.statusCode, first.body).toBe(200);
+    const again = await create(who, { ...await createProof(who, collection), display_name: "Ignored retry label" });
+    expect(again.statusCode, again.body).toBe(200);
+    expect((await db.query("SELECT display_name FROM next_collections WHERE collection_id=$1", [collection])).rows[0].display_name).toBe("Initial private label");
+    const policies = (await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id", [collection])).rows;
+    const renamed = await app.inject({method:"PATCH",url:`/v1/next/collections/${collection}/name`,headers:who.headers,payload:{display_name:"Renamed private label"}});
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    expect(renamed.json()).toEqual({collection_id:collection,display_name:"Renamed private label"});
+    const retry = await create(who, await createProof(who, collection));
+    expect(retry.statusCode, retry.body).toBe(200);
+    expect(retry.json().genesis).toEqual(first.json().genesis);
+    expect((await db.query("SELECT display_name FROM next_collections WHERE collection_id=$1", [collection])).rows[0].display_name).toBe("Renamed private label");
+    expect((await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id", [collection])).rows).toEqual(policies);
+    expect(JSON.stringify(policies)).not.toContain("private label");
+    expect(log.logs.get(collection.replaceAll("-", ""))!.length).toBe(1);
+  });
+
+  it("refuses a private named create while migration is frozen without consuming proof or publishing", async () => {
+    const who = await identity(), collection = randomUUID(), cohort = `private_names_${randomUUID()}`;
+    const proof = await createProof(who, collection);
+    await db.query("INSERT INTO next_migration_cohorts(name,frozen_at) VALUES($1,now())", [cohort]);
+    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [who.connector.user_id,cohort]);
+    const response = await create(who, { ...proof, display_name: "Frozen private label" });
+    expect(response.statusCode, response.body).toBe(409);
+    expect(response.json().error.code).toBe("migration_frozen");
+    expect(await registered(collection)).toBe(false);
+    expect(log.logs.has(collection.replaceAll("-", ""))).toBe(false);
+    expect((await db.query("SELECT used_at FROM next_device_challenges WHERE challenge=$1", [Buffer.from(proof.challenge, "hex")])).rows[0].used_at).toBeNull();
+    await db.query("UPDATE next_migration_cohorts SET frozen_at=NULL WHERE name=$1", [cohort]);
+    expect((await create(who, { ...proof, display_name: "Frozen private label" })).statusCode).toBe(200);
   });
 
   it("answers a retry from the creating device with the same genesis", async () => {

@@ -1,6 +1,15 @@
-import { CreateError } from "./bootstrap-common.js";
+import type { FastifyReply, FastifyRequest } from "fastify";
+import { CreateError, refuse } from "./bootstrap-common.js";
 
 export const DEFAULT_COLLECTION_DISPLAY_NAME = "New collection";
+
+/** Inspect raw names before JSON-schema coercion; null/numbers are not names. */
+export async function validateInitialCollectionName(request: FastifyRequest, reply: FastifyReply) {
+  if (request.body && typeof request.body === "object" && "display_name" in request.body) {
+    try { collectionDisplayName(request.body.display_name); }
+    catch (error) { return refuse(reply, error, "Use a single-line name of 1–200 UTF-16 units."); }
+  }
+}
 
 /** Display-only metadata: trim edges, but do not repair Unicode or normalize names. */
 export function collectionDisplayName(value: unknown): string {
