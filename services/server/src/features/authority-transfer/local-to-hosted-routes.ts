@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { requireAccountNotMigrationFrozen, requireHostedCollectionNotMigrationFrozen } from "../next/migration-topology.js";
 import { recoverAccountImportCancellation } from "./account-cancellation.js";
 import type { FastifyInstance } from "fastify";
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
@@ -77,7 +78,7 @@ export function registerLocalToHostedTransferRoutes(
         await connection.query("BEGIN");
         // Inventory, lookup and intent creation use one authority snapshot.
         // Concurrent starts must find the same transfer, not stage twice.
-        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [connector.user_id]);
+        await requireAccountNotMigrationFrozen(connection, connector.user_id);
         const source = await connection.query<LocalAuthoritySource>(
           `SELECT id, local_id, display_name, authority_epoch, contracts,
                   authority_state, enabled, reported_enabled
@@ -137,16 +138,23 @@ export function registerLocalToHostedTransferRoutes(
           connection, options.hostedProvider, connector, local
         );
         await connection.query("COMMIT");
-      } catch (error) {
-        await connection.query("ROLLBACK");
-        throw error;
-      } finally {
-        connection.release();
-      }
+        // Keep the staged intent durable on provider uncertainty. Reacquire the
+        // account/cohort guard BEFORE prepare/replay, retaining it to publication.
+        await connection.query("BEGIN");
+        if (await requireHostedCollectionNotMigrationFrozen(connection, local.local_id, connector.user_id) !== connector.user_id) {
+          throw new RequestValidationError("Authority import target changed owner.");
+        }
+        const replay = (await connection.query<AuthorityImportTransferRow>(
+          `SELECT id,user_id,hosted_collection_id,local_collection_id,state,final_head,
+                  next_authority_epoch,manifest_digest,source_revision,expires_at
+           FROM authority_transfers WHERE id=$1 AND user_id=$2 FOR UPDATE`, [transfer.id, connector.user_id]
+        )).rows[0];
+        if (!replay || !["requested", "prepared"].includes(replay.state)) throw new RequestValidationError("Authority import changed before preparation.");
+        transfer = replay;
       const transferId = transfer.id;
       const importToken = randomToken("ati");
       const account = await reconcileHostedAccount(
-        options.db,
+        connection,
         options.hostedProvider,
         connector.user_id
       );
@@ -159,7 +167,7 @@ export function registerLocalToHostedTransferRoutes(
         authorityEpoch: Number(transfer.next_authority_epoch),
         ttlSeconds: 30 * 60
       });
-      const refreshed = await options.db.query<AuthorityImportTransferRow>(
+      const refreshed = await connection.query<AuthorityImportTransferRow>(
         `UPDATE authority_transfers
          SET state = 'prepared', expires_at = $2
          WHERE id = $1 AND state IN ('requested', 'prepared')
@@ -174,6 +182,7 @@ export function registerLocalToHostedTransferRoutes(
           "Authority transfer changed state while its import capability was prepared."
         );
       }
+      await connection.query("COMMIT");
       return reply.code(existing ? 200 : 201).send({
         transfer: authorityImportTransferView(transfer),
         import: authorityImportCapability(
@@ -182,6 +191,10 @@ export function registerLocalToHostedTransferRoutes(
           importToken
         )
       });
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally { connection.release(); }
     }
   );
 
@@ -245,6 +258,24 @@ export function registerLocalToHostedTransferRoutes(
         );
       }
       let completed;
+      const connection = await options.db.connect();
+      try {
+        await connection.query("BEGIN");
+        if (await requireHostedCollectionNotMigrationFrozen(connection, transfer.hosted_collection_id, connector.user_id) !== connector.user_id) {
+          throw new RequestValidationError("Authority import target changed owner.");
+        }
+        const current = (await connection.query<Pick<AuthorityImportTransferRow, "state" | "manifest_digest" | "source_revision" | "final_head">>(
+          "SELECT state,manifest_digest,source_revision,final_head FROM authority_transfers WHERE id=$1 FOR UPDATE", [transferId]
+        )).rows[0];
+        if (!current || !matchesSnapshot(current, input)) throw new RequestValidationError("Authority activation must resume with the same fenced source snapshot.");
+        if (current.state === "completed") { await connection.query("COMMIT"); return completedResponse(transfer); }
+        if (current.state !== "activating") throw new RequestValidationError("Authority transfer is not reserved for activation.");
+        const source = (await connection.query<{ authority_state: string; authority_epoch: string | number }>(
+          "SELECT authority_state,authority_epoch FROM collections WHERE id=$1 AND connector_id=$2 FOR UPDATE", [transfer.local_collection_id, connector.id]
+        )).rows[0];
+        if (source?.authority_state !== "active" || Number(source.authority_epoch) + 1 !== Number(transfer.next_authority_epoch)) {
+          throw importSourceConflict(transferId, transfer.hosted_collection_id, Number(transfer.next_authority_epoch), source, "activation");
+        }
       try {
         completed = await options.hostedProvider.completeAuthorityImport(
           transferId,
@@ -256,6 +287,7 @@ export function registerLocalToHostedTransferRoutes(
           error instanceof HostedProviderResponseError
           && error.code === "projection_activation_pending"
         ) {
+          await connection.query("ROLLBACK");
           return reply.code(202).send({
             status: "activating",
             collection_id: transfer.hosted_collection_id,
@@ -277,44 +309,6 @@ export function registerLocalToHostedTransferRoutes(
           "The remote authority activated a different transfer snapshot."
         );
       }
-      const connection = await options.db.connect();
-      try {
-        await connection.query("BEGIN");
-        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [connector.user_id]);
-        const current = await connection.query<{ state: string }>(
-          "SELECT state FROM authority_transfers WHERE id = $1 FOR UPDATE",
-          [transferId]
-        );
-        if (current.rows[0]?.state === "completed") {
-          await connection.query("COMMIT");
-          return completedResponse(transfer);
-        }
-        if (current.rows[0]?.state !== "activating") {
-          throw new RequestValidationError(
-            "Authority transfer is not reserved for activation."
-          );
-        }
-        const source = await connection.query<{
-          authority_state: string;
-          authority_epoch: string | number;
-        }>(
-          `SELECT authority_state, authority_epoch FROM collections
-           WHERE id = $1 AND connector_id = $2 FOR UPDATE`,
-          [transfer.local_collection_id, connector.id]
-        );
-        if (
-          source.rows[0]?.authority_state !== "active"
-          || Number(source.rows[0].authority_epoch) + 1
-            !== completed.authority_epoch
-        ) {
-          throw importSourceConflict(
-            transferId,
-            transfer.hosted_collection_id,
-            completed.authority_epoch,
-            source.rows[0],
-            "activation"
-          );
-        }
         const retired = await connection.query(
           `UPDATE collections
            SET authority_state = 'retired', enabled = false,
@@ -448,6 +442,18 @@ export function registerLocalToHostedTransferRoutes(
           "Authority activation has started and can no longer be cancelled."
         ));
       }
+      const connection = await options.db.connect();
+      try {
+        await connection.query("BEGIN");
+        if (await requireHostedCollectionNotMigrationFrozen(connection, transfer.hosted_collection_id, connector.user_id) !== connector.user_id) {
+          throw new RequestValidationError("Authority import target changed owner.");
+        }
+        const current = (await connection.query<{ state: string }>(
+          "SELECT state FROM authority_transfers WHERE id=$1 FOR UPDATE", [transferId]
+        )).rows[0];
+        if (!current || !["requested", "prepared", "expired", "cancelled"].includes(current.state)) {
+          throw new RequestValidationError("Authority transfer changed before cancellation.");
+        }
       try {
         await options.hostedProvider.abortAuthorityImport(transferId);
       } catch (error) {
@@ -458,10 +464,6 @@ export function registerLocalToHostedTransferRoutes(
           throw error;
         }
       }
-      const connection = await options.db.connect();
-      try {
-        await connection.query("BEGIN");
-        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [connector.user_id]);
         if (!await finishAuthorityImportAbort(connection, transfer, "cancelled")) {
           throw new RequestValidationError(
             "Authority transfer changed state while cancellation was committed."
@@ -592,7 +594,9 @@ async function reserveActivation(
   const preflight = await db.connect();
   try {
     await preflight.query("BEGIN");
-    await preflight.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [connector.user_id]);
+    if (await requireHostedCollectionNotMigrationFrozen(preflight, transfer.hosted_collection_id, connector.user_id) !== connector.user_id) {
+      throw new RequestValidationError("Authority import target changed owner.");
+    }
     const current = (await preflight.query<Pick<AuthorityImportTransferRow,
       "state" | "manifest_digest" | "source_revision" | "final_head"
     >>(

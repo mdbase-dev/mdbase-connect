@@ -504,14 +504,6 @@ export async function collectionMigrationRecord(db: DatabaseQueryable, collectio
 }
 
 /** Whether an account's migration started (or finished): its hosted collections must never be quarantined as missing. */
-export async function accountMigrating(db: DatabaseQueryable, account: string): Promise<boolean> {
-  const row = (await db.query<{ migrating: boolean }>(
-    `SELECT u.account_backend = 'next' OR m.started_at IS NOT NULL AS migrating
-     FROM users u LEFT JOIN next_migration_cohort_members m ON m.account_id = u.id WHERE u.id = $1`, [account]
-  )).rows[0];
-  return Boolean(row?.migrating);
-}
-
 // ---- operator changes (CLI): each one statement plus an audit row with its actor ----
 
 function actorOf(actor: string): string {
@@ -576,6 +568,11 @@ export async function setCohortFrozen(db: DatabasePool, name: string, frozen: bo
       "SELECT 1 FROM next_migration_archive_acceptances WHERE cohort = $1 AND membership_revision = $2::bigint", [name, batch.revision]
     )).rows.length) throw new RolloutRefused("migration_frozen", "Migration topology is frozen.");
     if (frozen === (batch.frozen_at !== null)) return { frozen_at: batch.frozen_at === null ? null : new Date(batch.frozen_at).toISOString() };
+    // Never capture a new window between committed readiness and automatic
+    // erasure. The existing freeze's final-flip readiness is unaffected.
+    if (frozen && (await client.query(
+      "SELECT 1 FROM next_migration_deferred_account_deletions WHERE cohort=$1 AND ready_at IS NOT NULL LIMIT 1", [name]
+    )).rows.length) throw new RolloutRefused("busy", "Busy; retry.");
     const row = (await client.query<{ frozen_at: Date | null }>(
       "UPDATE next_migration_cohorts SET frozen_at = CASE WHEN $2 THEN date_trunc('milliseconds', clock_timestamp()) ELSE NULL END WHERE name = $1 RETURNING frozen_at", [name, frozen]
     )).rows[0]!;

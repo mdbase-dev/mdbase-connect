@@ -1,0 +1,9 @@
+{
+  "reason": "One internal transaction-only topology guard replaces late or autocommit checks at hosted mutation, import/adoption replay, read recovery and provider cleanup boundaries. It locks current accounts/membership/cohorts before effects and holds them to publication. Five net internal exports cover the two guards, audited cohort freeze transition, bounded durable account-deletion drain and same-client quarantine; accountMigrating is relocated without duplication. Seventeen relative imports wire those boundaries without adding a package, dependency edge, SDK/protocol surface, credential source or parallel authority state. Additive0063 holds the freeze stamp and accepted deletion queue; existing recovery scheduling drains it after a whole-batch final flip/unfreeze and on restart. Hard cycle/size/semantic gates remain unchanged.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 17,
+    "typeScriptExportDeclarations": 5,
+    "services/server": 1
+  }
+}

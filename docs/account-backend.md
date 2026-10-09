@@ -36,7 +36,12 @@ Operators run the `next:migration-rollout` CLI (`MDBASE_OPERATOR` names them) to
 release cohorts, pause and resume. A flipped account cannot create legacy hosted
 collections. Collections of an account whose migration started are never
 quarantined as missing: the provider's freeze is not a deletion. Deleting the
-account during migration is immediate and terminal (Callum, 2026-10-08).
+account while its batch is frozen is accepted immediately and its credentials
+are revoked at once. Terminal topology changes and erasure are durably queued
+and run automatically after the **whole batch** completes its validated final
+flip or an audited unfreeze, including after restart. Acceptance is not completed
+erasure. Outside a freeze deletion remains immediate (Callum, 2026-10-08).
+See [the topology-freeze procedure](migration-topology-freeze.md).
 
 ## Retained application grant
 

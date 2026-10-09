@@ -11,8 +11,9 @@ import { recoverExpiredAuthorityTransfers } from "../authority-transfer/lifecycl
 import { recoverExpiredAuthorityAdoptions } from "../authority-adoption/adoption-store.js";
 import { recoverAccountImportCancellation } from "../authority-transfer/account-cancellation.js";
 import { audit } from "../../platform/audit-events.js";
-import { ProviderRevocationWorker, quarantineMissingHostedCollection } from "../../hosted-capability-lifecycle.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import { ProviderRevocationWorker, quarantineMissingHostedCollection, quarantineMissingHostedCollectionOnTransaction } from "../../hosted-capability-lifecycle.js";
+import { HostedProviderResponseError, type HostedProviderClient } from "../../hosted-provider.js";
+import { materializePublicSignupEntitlement, reconcileHostedAccountCollections } from "../../entitlements.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -168,6 +169,7 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     } finally { fault.mockRestore(); }
     const work = (await db.query("SELECT ready_at,ready_revision::text FROM next_migration_deferred_account_deletions WHERE account_id=$1", [account])).rows[0];
     expect(work.ready_at).not.toBeNull(); expect(work.ready_revision).not.toBeNull();
+    await expect(setCohortFrozen(db, name, true, "must wait for automatic erasure", OP)).rejects.toMatchObject({ code: "busy" });
     expect((await db.query("SELECT 1 FROM users WHERE id=$1", [account])).rowCount).toBe(1);
     await db.end(); db = await createDatabase(databaseUrl);
     expect(await drainDeferredAccountDeletions(db)).toBe(1);
@@ -180,6 +182,31 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     await deletion(account);
     expect((await db.query("SELECT 1 FROM users WHERE id=$1", [account])).rowCount).toBe(0);
     expect((await db.query("SELECT 1 FROM next_migration_deferred_account_deletions WHERE account_id=$1", [account])).rowCount).toBe(0);
+  });
+
+  it("atomically revokes existing sessions, connectors, grants and replica tokens while preserving frozen hosted topology", async () => {
+    const account = await user(), name = await batch([account]), reference = new HostedAuthorityRegistry(db);
+    const collection = await createHostedCollectionForUser({ db, hostedCollections: true }, reference, "https://synthetic.example.test", account, "Synthetic", "mdbase", "UTC");
+    const session = randomUUID(), connector = randomUUID(), application = randomUUID(), replica = randomUUID(), grant = randomUUID();
+    await db.query("INSERT INTO sessions(id,user_id,token_hash,expires_at) VALUES($1,$2,$3,now()+interval '1 day')", [session, account, randomUUID()]);
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Synthetic',$3)", [connector, account, randomUUID()]);
+    await db.query("INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris) VALUES($1,$2,'Synthetic','https://synthetic.example.test','[]'::jsonb)", [application, `bundle:synthetic:${application}`]);
+    await db.query("INSERT INTO hosted_replicas(id,collection_id,authorized_user_id,name,purpose,mode,token_hash) VALUES($1,$2,$3,'Synthetic','application','read_write',$4)", [replica, collection.id, account, randomUUID()]);
+    await db.query("INSERT INTO grants(id,user_id,application_id,hosted_collection_id,hosted_replica_id,operations) VALUES($1,$2,$3,$4,$5,'[\"query\"]'::jsonb)", [grant, account, application, collection.id, replica]);
+    for (const table of ["access_tokens", "refresh_tokens"]) await db.query(`INSERT INTO ${table}(id,token_hash,grant_id,expires_at) VALUES($1,$2,$3,now()+interval '1 day')`, [randomUUID(), randomUUID(), grant]);
+    await setCohortFrozen(db, name, true, "capture", OP);
+    await deleteAccountLocally(db, { userId: account, sessionId: session, authorized: true, queueProviderCleanup: true });
+    for (const [table, id] of [["sessions", session], ["connectors", connector], ["grants", grant]]) {
+      expect((await db.query(`SELECT revoked_at FROM ${table} WHERE id=$1`, [id])).rows[0].revoked_at).not.toBeNull();
+    }
+    for (const table of ["access_tokens", "refresh_tokens"]) expect((await db.query(`SELECT revoked_at FROM ${table} WHERE grant_id=$1`, [grant])).rows[0].revoked_at).not.toBeNull();
+    expect((await db.query("SELECT token_hash FROM hosted_replicas WHERE id=$1", [replica])).rows[0].token_hash).toBeNull();
+    expect((await db.query("SELECT authority_state FROM hosted_collections WHERE id=$1", [collection.id])).rows[0].authority_state).toBe("active");
+    expect((await db.query("SELECT 1 FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id])).rowCount).toBe(0);
+    await setCohortFrozen(db, name, false, "cancel before acceptance", OP);
+    expect((await db.query("SELECT 1 FROM users WHERE id=$1", [account])).rowCount).toBe(0);
+    expect((await db.query("SELECT 1 FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id])).rowCount).toBe(1);
+    await db.query("DELETE FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id]);
   });
 
   it("blocks rename/delete before effects during freeze and permits them after audited unfreeze", async () => {
@@ -216,11 +243,11 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     const f = await transferFixture(direction);
     const expire = vi.fn(async () => undefined), provider = { expireAuthorityImport: expire, expireAuthorityTransfer: expire } as unknown as HostedProviderClient;
     await setCohortFrozen(db, f.name, true, "capture", OP);
-    await recoverExpiredAuthorityTransfers(db, provider, undefined, f.hosted);
+    await recoverExpiredAuthorityTransfers(db, provider);
     expect(expire).not.toHaveBeenCalled();
     expect((await db.query("SELECT state FROM authority_transfers WHERE id=$1", [f.transfer])).rows[0].state).toBe("prepared");
     await setCohortFrozen(db, f.name, false, "cancel before acceptance", OP);
-    await recoverExpiredAuthorityTransfers(db, provider, undefined, f.hosted);
+    await recoverExpiredAuthorityTransfers(db, provider);
     expect(expire).toHaveBeenCalledOnce();
     expect((await db.query("SELECT authority_state FROM hosted_collections WHERE id=$1", [f.hosted])).rows).toEqual(direction === "to_hosted" ? [] : [{ authority_state: "active" }]);
   });
@@ -286,6 +313,26 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     await db.query("UPDATE provider_collection_deletion_jobs SET available_at=now() WHERE id=$1", [job]);
     expect(await worker.drain()).toBe(1); expect(erase).toHaveBeenCalledWith(collection.id);
     expect(await quarantineMissingHostedCollection(db, String(collection.id))).toMatchObject({ changed: true });
+  });
+
+  it("fences provider account adoption/reconciliation and uses the SAME guarded client for missing-collection quarantine", async () => {
+    const account = await user(), name = await batch([account]), reference = new HostedAuthorityRegistry(db);
+    const collection = await createHostedCollectionForUser({ db, hostedCollections: true }, reference, "https://synthetic.example.test", account, "Synthetic", "mdbase", "UTC");
+    await materializePublicSignupEntitlement(db, account);
+    const upsert = vi.fn(async () => ({})), usage = vi.fn(async () => ({}));
+    const reconcile = vi.fn(async () => { throw new HostedProviderResponseError(404, "hosted_collection_not_found", "Synthetic missing collection"); });
+    const provider = { upsertAccount: upsert, accountUsage: usage, reconcileCollectionAccount: reconcile } as unknown as HostedProviderClient;
+    const run = () => reconcileHostedAccountCollections(db, provider, account, { onMissingCollection: async (id, client) => {
+      expect(id).toBe(collection.id);
+      expect(await quarantineMissingHostedCollectionOnTransaction(client, id)).toMatchObject({ changed: true });
+    } });
+    await setCohortFrozen(db, name, true, "capture", OP);
+    await expect(run()).rejects.toMatchObject({ code: "migration_frozen" });
+    for (const effect of [upsert, usage, reconcile]) expect(effect).not.toHaveBeenCalled();
+    await setCohortFrozen(db, name, false, "cancel before acceptance", OP);
+    expect(await run()).toMatchObject({ reconciledCollections: 0 });
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect((await db.query("SELECT quarantined_at FROM hosted_collections WHERE id=$1", [collection.id])).rows[0].quarantined_at).not.toBeNull();
   });
 
   it("serializes two actual creates and a freeze before effects without a parent-lock upgrade deadlock", async () => {

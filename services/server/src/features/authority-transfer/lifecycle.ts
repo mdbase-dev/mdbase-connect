@@ -200,16 +200,15 @@ const expirableTransfer = `expires_at <= now() AND (
 export async function recoverExpiredAuthorityTransfers(
   db: DatabasePool,
   hostedProvider?: HostedProviderClient,
-  hostedReference?: HostedAuthorityRegistry,
-  collectionId?: string
+  hostedReference?: HostedAuthorityRegistry
 ): Promise<void> {
   const deadline = Date.now() + 15_000;
   const discovered = await db.query<{ id: string; user_id: string }>(
-    `SELECT id, user_id FROM authority_transfers
-     WHERE ${expirableTransfer}
-       AND ($1::uuid IS NULL OR hosted_collection_id = $1)
-     ORDER BY expires_at, id LIMIT 25`,
-    [collectionId ?? null]
+    `SELECT transfer.id, transfer.user_id FROM authority_transfers transfer
+     LEFT JOIN next_migration_cohort_members member ON member.account_id=transfer.user_id
+     LEFT JOIN next_migration_cohorts cohort ON cohort.name=member.cohort
+     WHERE ${expirableTransfer} AND cohort.frozen_at IS NULL
+     ORDER BY expires_at, transfer.id LIMIT 25`
   );
   for (const candidate of discovered.rows) {
     if (Date.now() >= deadline) break;

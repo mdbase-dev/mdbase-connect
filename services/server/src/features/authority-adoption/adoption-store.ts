@@ -102,10 +102,12 @@ export async function recoverExpiredAuthorityAdoptions(
   // Discovery grants no authority. Lock the account/cohort before the adoption
   // or collection, and retain those locks through provider abort and cleanup.
   const pendingCleanup = await db.query<{ id: string; user_id: string | null }>(
-    `SELECT id, user_id FROM authority_adoption_requests
-     WHERE (expires_at <= now() AND state IN ('requested', 'approved', 'prepared'))
-        OR (state = 'expired' AND cleanup_completed = false)
-     ORDER BY expires_at, id LIMIT 25`
+    `SELECT adoption.id, adoption.user_id FROM authority_adoption_requests adoption
+     LEFT JOIN next_migration_cohort_members member ON member.account_id=adoption.user_id
+     LEFT JOIN next_migration_cohorts cohort ON cohort.name=member.cohort
+     WHERE ((expires_at <= now() AND state IN ('requested', 'approved', 'prepared'))
+        OR (state = 'expired' AND cleanup_completed = false)) AND cohort.frozen_at IS NULL
+     ORDER BY expires_at, adoption.id LIMIT 25`
   );
   for (const candidate of pendingCleanup.rows) {
     const connection = await db.connect();

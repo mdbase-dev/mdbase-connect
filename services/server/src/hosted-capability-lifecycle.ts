@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { accountMigrating } from "./features/next/migration-rollout.js";
-import { requireAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
+import { accountMigrating, requireAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
 import { RequestValidationError } from "./platform/http-errors.js";
-import type { DatabasePool, DatabaseQueryable } from "./db.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "./db.js";
 import { finalizeReadyMembershipTransitions } from "./collection-membership-lifecycle.js";
 import { audit } from "./platform/audit-events.js";
 import {
@@ -247,16 +246,26 @@ export async function quarantineMissingHostedCollection(
   const connection = await db.connect();
   try {
     await connection.query("BEGIN");
+    const result = await quarantineMissingHostedCollectionOnTransaction(connection, collectionId);
+    await connection.query("COMMIT");
+    return result;
+  } catch (error) { await connection.query("ROLLBACK"); throw error; }
+  finally { connection.release(); }
+}
+
+/** Use the caller's real guarded transaction during account reconciliation;
+ * never acquire a second client while that caller holds the account/cohort.
+ */
+export async function quarantineMissingHostedCollectionOnTransaction(
+  connection: DatabaseConnection, collectionId: string
+): Promise<HostedCollectionQuarantineResult | null> {
     await connection.query("SET LOCAL lock_timeout = '5s'");
     const owner = (await connection.query<{ user_id: string }>(
       "SELECT user_id FROM hosted_collections WHERE id = $1", [collectionId]
     )).rows[0];
-    if (!owner) { await connection.query("ROLLBACK"); return null; }
+    if (!owner) return null;
     await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [owner.user_id]);
-    if (await accountMigrating(connection, owner.user_id)) {
-      await connection.query("COMMIT");
-      return { changed: false, grantsRevoked: 0, replicasRevoked: 0 };
-    }
+    if (await accountMigrating(connection, owner.user_id)) return { changed: false, grantsRevoked: 0, replicasRevoked: 0 };
     await requireAccountNotMigrationFrozen(connection, owner.user_id);
     const collection = await connection.query<{
       user_id: string;
@@ -268,15 +277,9 @@ export async function quarantineMissingHostedCollection(
       [collectionId]
     );
     const row = collection.rows[0];
-    if (!row) {
-      await connection.query("ROLLBACK");
-      return null;
-    }
+    if (!row) return null;
     if (row.user_id !== owner.user_id) throw new RequestValidationError("Busy; retry.", { statusCode: 409, code: "busy" });
-    if (row.quarantined_at !== null) {
-      await connection.query("COMMIT");
-      return { changed: false, grantsRevoked: 0, replicasRevoked: 0 };
-    }
+    if (row.quarantined_at !== null) return { changed: false, grantsRevoked: 0, replicasRevoked: 0 };
     const grants = await connection.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM grants
        WHERE hosted_collection_id = $1 AND revoked_at IS NULL`,
@@ -355,14 +358,7 @@ export async function quarantineMissingHostedCollection(
         replicas_revoked: result.replicasRevoked
       }
     );
-    await connection.query("COMMIT");
     return result;
-  } catch (error) {
-    await connection.query("ROLLBACK");
-    throw error;
-  } finally {
-    connection.release();
-  }
 }
 
 /**

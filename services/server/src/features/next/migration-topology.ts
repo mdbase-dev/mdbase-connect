@@ -1,5 +1,16 @@
-import type { DatabaseConnection } from "../../database-types.js";
+import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
+
+/** Read-only legacy-missing classification; freeze permission is a separate
+ * locked check below. Kept here so cleanup never depends on rollout commands.
+ */
+export async function accountMigrating(db: DatabaseQueryable, account: string): Promise<boolean> {
+  const row = (await db.query<{ migrating: boolean }>(
+    `SELECT u.account_backend = 'next' OR m.started_at IS NOT NULL AS migrating
+     FROM users u LEFT JOIN next_migration_cohort_members m ON m.account_id = u.id WHERE u.id = $1`, [account]
+  )).rows[0];
+  return Boolean(row?.migrating);
+}
 
 /**
  * Call on the mutation's actual transaction client BEFORE provider effects,
@@ -34,4 +45,23 @@ export async function requireAccountNotMigrationFrozen(client: DatabaseConnectio
     }
     throw error;
   }
+}
+
+/** Resolve actual ownership before child locks, then validate it after locking.
+ * The optional accounts are actual source/destination owners, never a substitute
+ * for the hosted owner. A missing collection grants no provider authority.
+ */
+export async function requireHostedCollectionNotMigrationFrozen(
+  client: DatabaseConnection, collectionId: string, ...otherOwnerIds: string[]
+): Promise<string | null> {
+  const owner = (await client.query<{ user_id: string }>(
+    "SELECT user_id FROM hosted_collections WHERE id = $1", [collectionId]
+  )).rows[0];
+  if (!owner) return null;
+  await requireAccountNotMigrationFrozen(client, owner.user_id, ...otherOwnerIds);
+  const held = (await client.query<{ user_id: string }>(
+    "SELECT user_id FROM hosted_collections WHERE id = $1 FOR UPDATE", [collectionId]
+  )).rows[0];
+  if (!held || held.user_id !== owner.user_id) throw new RequestValidationError("Busy; retry.", { statusCode: 409, code: "busy" });
+  return held.user_id;
 }

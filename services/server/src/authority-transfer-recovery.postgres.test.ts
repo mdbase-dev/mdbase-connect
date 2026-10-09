@@ -5,6 +5,7 @@ import { createDatabase, type DatabasePool } from "./db.js";
 import { buildApp } from "./app.js";
 import { HostedProviderResponseError, type HostedProviderClient } from "./hosted-provider.js";
 import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
+import { addToCohort, createCohort, setCohortFrozen } from "./features/next/migration-rollout.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL ===
@@ -177,6 +178,20 @@ suite("authority transfer recovery fences on PostgreSQL", () => {
     expect((await db.query("SELECT count(*)::int AS count FROM authority_transfers WHERE state='requested'")).rows).toEqual([{ count: 1 }]);
     await recoverExpiredAuthorityTransfers(db);
     expect((await db.query("SELECT count(*)::int AS count FROM authority_transfers WHERE state='expired'")).rows).toEqual([{ count: 26 }]);
+  });
+
+  it("does not let a full frozen discovery page starve unrelated unfrozen recovery", async () => {
+    const cohort = `expiry-${randomUUID()}`, frozen: string[] = [];
+    for (let index = 0; index < 26; index++) frozen.push((await fixture("to_local")).userId);
+    await createCohort(db, cohort, "synthetic-test");
+    await addToCohort(db, cohort, frozen, "synthetic-test");
+    await setCohortFrozen(db, cohort, true, "synthetic capture", "synthetic-test");
+    const live = await fixture("to_local"), p = provider();
+    await recoverExpiredAuthorityTransfers(db, p as unknown as HostedProviderClient);
+    expect(p.expireAuthorityTransfer).toHaveBeenCalledOnce();
+    expect(p.expireAuthorityTransfer).toHaveBeenCalledWith(live.id, live.hostedId, 2);
+    expect((await db.query("SELECT count(*)::int AS count FROM authority_transfers WHERE user_id=ANY($1::uuid[]) AND state='prepared'", [frozen])).rows[0].count).toBe(26);
+    expect((await db.query("SELECT authority_state FROM hosted_collections WHERE id=$1", [live.hostedId])).rows[0].authority_state).toBe("active");
   });
 
   it("account overview reads do not invoke provider expiry or cancellation", async () => {

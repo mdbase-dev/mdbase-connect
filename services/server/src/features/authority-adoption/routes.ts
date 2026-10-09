@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { requireAccountNotMigrationFrozen, requireHostedCollectionNotMigrationFrozen } from "../next/migration-topology.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
@@ -140,6 +141,7 @@ export function registerAuthorityAdoptionRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
+        await requireAccountNotMigrationFrozen(connection, user.id);
         const locked = await connection.query<AuthorityAdoptionRow>(
           `${authorityAdoptionSelect()}
            WHERE adoption.id = $1 FOR UPDATE`,
@@ -313,8 +315,19 @@ export function registerAuthorityAdoptionRoutes(
           "Collection adoption has not been assigned to an account."
         );
       }
+      const connection = await options.db.connect();
+      try {
+      await connection.query("BEGIN");
+      if (await requireHostedCollectionNotMigrationFrozen(connection, adoption.collection_id, adoption.user_id) !== adoption.user_id) {
+        throw new RequestValidationError("Adoption collection owner changed.");
+      }
+      const current = (await connection.query<AuthorityAdoptionRow>(
+        `${authorityAdoptionSelect()} WHERE adoption.id=$1 FOR UPDATE`, [adoption.id]
+      )).rows[0];
+      if (!current || current.user_id !== adoption.user_id || !["approved", "prepared"].includes(current.state)
+        || new Date(current.expires_at).getTime() <= Date.now()) throw new RequestValidationError("Adoption changed before preparation.");
       const account = await reconcileHostedAccount(
-        options.db,
+        connection,
         options.hostedProvider,
         adoption.user_id
       );
@@ -327,7 +340,7 @@ export function registerAuthorityAdoptionRoutes(
         authorityEpoch: Number(adoption.next_authority_epoch),
         ttlSeconds: 30 * 60
       });
-      const saved = await options.db.query<AuthorityAdoptionRow>(
+      const saved = await connection.query<AuthorityAdoptionRow>(
         `UPDATE authority_adoption_requests
          SET state = 'prepared',
              prepared_at = COALESCE(prepared_at, now()),
@@ -337,11 +350,13 @@ export function registerAuthorityAdoptionRoutes(
         [adoption.id, prepared.expires_at]
       );
       if (!saved.rows[0]) {
+        await connection.query("ROLLBACK");
         return reply.code(409).send(apiError(
           "authority_adoption_state_changed",
           "Collection adoption changed state while upload access was prepared."
         ));
       }
+      await connection.query("COMMIT");
       return {
         status: "ready",
         adoption: authorityAdoptionView(saved.rows[0]),
@@ -357,6 +372,8 @@ export function registerAuthorityAdoptionRoutes(
           importToken
         )
       };
+      } catch (error) { await connection.query("ROLLBACK"); throw error; }
+      finally { connection.release(); }
     }
   );
 
@@ -422,8 +439,22 @@ export function registerAuthorityAdoptionRoutes(
           "Authority activation must resume with the same fenced source snapshot."
         ));
       }
-      if (adoption.state === "prepared") {
-        const reserved = await options.db.query(
+      if (!adoption.user_id) throw new RequestValidationError("Adoption has no account.");
+      const connection = await options.db.connect();
+      try {
+        await connection.query("BEGIN");
+        if (await requireHostedCollectionNotMigrationFrozen(connection, adoption.collection_id, adoption.user_id) !== adoption.user_id) {
+          throw new RequestValidationError("Adoption collection owner changed.");
+        }
+        const reservation = (await connection.query<AuthorityAdoptionRow>(
+          `${authorityAdoptionSelect()} WHERE adoption.id=$1 FOR UPDATE`, [adoption.id]
+        )).rows[0];
+        if (!reservation || reservation.user_id !== adoption.user_id || !["prepared", "activating", "completed"].includes(reservation.state)) {
+          throw new RequestValidationError("Adoption changed before activation.");
+        }
+        if (reservation.state !== "prepared" && !matchesSnapshot(reservation, input)) throw new RequestValidationError("Adoption activation snapshot changed.");
+        if (reservation.state === "prepared") {
+        const reserved = await connection.query(
           `UPDATE authority_adoption_requests
            SET state = 'activating', manifest_digest = $2,
                source_revision = $3, final_head = $4
@@ -436,12 +467,29 @@ export function registerAuthorityAdoptionRoutes(
           ]
         );
         if (reserved.rowCount !== 1) {
+          await connection.query("ROLLBACK");
           return reply.code(409).send(apiError(
             "authority_adoption_state_changed",
             "Collection adoption changed state while activation was reserved."
           ));
         }
       }
+      // Durable activation intent survives uncertain provider outcomes. The
+      // second phase holds a freshly checked guard across provider+publication.
+      await connection.query("COMMIT");
+      await connection.query("BEGIN");
+      if (await requireHostedCollectionNotMigrationFrozen(connection, adoption.collection_id, adoption.user_id) !== adoption.user_id) {
+        throw new RequestValidationError("Adoption collection owner changed.");
+      }
+      const current = (await connection.query<AuthorityAdoptionRow>(
+        `${authorityAdoptionSelect()} WHERE adoption.id=$1 FOR UPDATE`, [adoption.id]
+      )).rows[0];
+      if (!current || current.user_id !== adoption.user_id || !matchesSnapshot(current, input)) throw new RequestValidationError("Adoption activation snapshot changed.");
+      if (current.state === "completed") {
+        await connection.query("COMMIT");
+        return { status: "completed", adoption: authorityAdoptionView(current) };
+      }
+      if (current.state !== "activating") throw new RequestValidationError("Collection adoption is not reserved for activation.");
       let completed;
       try {
         completed = await options.hostedProvider.completeAuthorityImport(
@@ -454,6 +502,7 @@ export function registerAuthorityAdoptionRoutes(
           error instanceof HostedProviderResponseError
           && error.code === "projection_activation_pending"
         ) {
+          await connection.query("ROLLBACK");
           return reply.code(202).send({ status: "activating" });
         }
         throw error;
@@ -471,26 +520,6 @@ export function registerAuthorityAdoptionRoutes(
           "The hosted authority activated a different adoption snapshot."
         );
       }
-      const connection = await options.db.connect();
-      try {
-        await connection.query("BEGIN");
-        const current = await connection.query<AuthorityAdoptionRow>(
-          `${authorityAdoptionSelect()}
-           WHERE adoption.id = $1 FOR UPDATE`,
-          [adoption.id]
-        );
-        if (current.rows[0]?.state === "completed") {
-          await connection.query("COMMIT");
-          return {
-            status: "completed",
-            adoption: authorityAdoptionView(current.rows[0])
-          };
-        }
-        if (current.rows[0]?.state !== "activating") {
-          throw new RequestValidationError(
-            "Collection adoption is not reserved for activation."
-          );
-        }
         const activated = await connection.query(
           `UPDATE hosted_collections
            SET authority_state = 'active', authority_epoch = $2,
@@ -579,8 +608,22 @@ export function registerAuthorityAdoptionRoutes(
           "Hosted authority activation has started and can no longer be cancelled."
         ));
       }
-      if (adoption.state !== "cancelled") {
-        const cancelled = await options.db.query(
+      const connection = await options.db.connect();
+      try {
+      await connection.query("BEGIN");
+      if (adoption.user_id) await requireAccountNotMigrationFrozen(connection, adoption.user_id);
+      const current = (await connection.query<AuthorityAdoptionRow>(
+        `${authorityAdoptionSelect()} WHERE adoption.id=$1 FOR UPDATE`, [adoption.id]
+      )).rows[0];
+      if (!current || current.user_id !== adoption.user_id || ["completed", "activating"].includes(current.state)) {
+        throw new RequestValidationError("Adoption changed before cancellation.");
+      }
+      const parent = (await connection.query<{ user_id: string }>(
+        "SELECT user_id FROM hosted_collections WHERE id=$1 FOR UPDATE", [adoption.collection_id]
+      )).rows[0];
+      if (parent && parent.user_id !== adoption.user_id) throw new RequestValidationError("Adoption collection owner changed.");
+      if (current.state !== "cancelled") {
+        const cancelled = await connection.query(
           `UPDATE authority_adoption_requests
            SET state = 'cancelled', cancelled_at = now()
            WHERE id = $1
@@ -588,6 +631,7 @@ export function registerAuthorityAdoptionRoutes(
           [adoption.id]
         );
         if (cancelled.rowCount !== 1) {
+          await connection.query("ROLLBACK");
           return reply.code(409).send(apiError(
             "authority_adoption_state_changed",
             "Collection adoption changed state while cancellation was reserved."
@@ -598,12 +642,11 @@ export function registerAuthorityAdoptionRoutes(
         await options.hostedProvider.abortAuthorityImport(adoption.id);
       } catch (error) {
         if (!ignorableAbortError(error)) {
+          // Keep cancellation durable but never claim provider cleanup.
+          await connection.query("COMMIT");
           throw error;
         }
       }
-      const connection = await options.db.connect();
-      try {
-        await connection.query("BEGIN");
         await connection.query(
           "DELETE FROM mirror_pairing_requests WHERE id = $1",
           [adoption.id]

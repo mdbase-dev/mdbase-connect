@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { DatabasePool, DatabaseQueryable } from "./database-types.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "./database-types.js";
+import { requireAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
 import {
   HostedProviderResponseError,
   type HostedAccountLimits,
@@ -277,15 +278,21 @@ export async function reconcileHostedAccount(
 }
 
 export async function reconcileHostedAccountCollections(
-  db: DatabaseQueryable,
+  db: DatabasePool,
   provider: HostedProviderClient,
   userId: string,
   options: {
-    onMissingCollection?: (collectionId: string) => Promise<void>;
+    onMissingCollection?: (collectionId: string, client: DatabaseConnection) => Promise<void>;
   } = {}
 ): Promise<ReconciledHostedAccount & { reconciledCollections: number }> {
-  const account = await reconcileHostedAccount(db, provider, userId);
-  const collections = await db.query<{ id: string }>(
+  const client = await db.connect();
+  try {
+  await client.query("BEGIN");
+  // Provider reconciliation can adopt an unassigned collection into an account;
+  // quota/contract-only grant setup uses reconcileHostedAccount instead.
+  await requireAccountNotMigrationFrozen(client, userId);
+  const account = await reconcileHostedAccount(client, provider, userId);
+  const collections = await client.query<{ id: string }>(
     `SELECT id FROM hosted_collections
      WHERE user_id = $1
        AND authority_state IN ('importing', 'active', 'transferring')
@@ -308,14 +315,17 @@ export async function reconcileHostedAccountCollections(
         && error.status === 404
         && error.code === "hosted_collection_not_found"
       ) {
-        await options.onMissingCollection(collection.id);
+        await options.onMissingCollection(collection.id, client);
         continue;
       }
       throw error;
     }
   }
   const usage = await provider.accountUsage(account.providerAccountId);
+  await client.query("COMMIT");
   return { ...account, usage, reconciledCollections };
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
 }
 
 export async function grantOperatorEntitlement(
