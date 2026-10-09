@@ -4,11 +4,11 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { quarantineMissingHostedCollection } from "../../hosted-capability-lifecycle.js";
-import { insertLegacyHostedCollection } from "../hosted/service.js";
+import { insertLegacyHostedCollection as insertOnClient } from "../hosted/service.js";
 import {
   acceptCohortArchive, cohortArchiveBinding, accountMigrationView, addToCohort, collectionMigrationRecord, localTakeoverAllowed, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates,
   migrationsInProgress, recordCollectionCutover, registerMigrationRolloutRoutes, releaseCohort, RolloutRefused,
-  rolloutState, setPaused, startAccountMigration as claimAccountMigration
+  rolloutState, setCohortFrozen, setPaused, startAccountMigration as claimAccountMigration
 } from "./migration-rollout.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -57,6 +57,7 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     await createCohort(db, cohort, OP);
     await addToCohort(db, cohort, users, OP);
     await releaseCohort(db, cohort, OP);
+    await setCohortFrozen(db, cohort, true, "synthetic archive capture", OP);
     // Synthetic trusted-verifier metadata only: these PG tests do not execute
     // Sigstore/provider/archive verification, which belongs to the ONE verifier.
     const binding = await cohortArchiveBinding(db, cohort);
@@ -206,6 +207,19 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     await app.close();
   });
 
+  async function insertLegacyHostedCollection(db: DatabasePool, row: Parameters<typeof insertOnClient>[1]) {
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await insertOnClient(client, row);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally { client.release(); }
+  }
+
   it("a legacy collection create racing a flip never lands on a next account", async () => {
     const a = await account([]);
     const row = (id: string) => ({ id, userId: a.user, displayName: "C", template: "mdbase", providerUrl: null, contracts: "[]" });
@@ -225,10 +239,10 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     // The other order: the create commits first, then the flip sees the collection
     // (and, with no recorded cutover, refuses).
     const b = await account([]);
+    await insertLegacyHostedCollection(db, { ...row(randomUUID()), userId: b.user });
     await released([b.user]);
     await setPaused(db, false, "go", OP);
     await startAccountMigration(db, b.user);
-    await insertLegacyHostedCollection(db, { ...row(randomUUID()), userId: b.user });
     expect(await code(flipAccountBackend(db, b.user, [], flipEvidenceDigest([])))).toBe("collections_mismatch");
   });
 });

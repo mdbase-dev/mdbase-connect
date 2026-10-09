@@ -5,6 +5,7 @@ import type { ConnectorIdentity } from "../../platform/request-authentication.js
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { audit } from "../../platform/audit-events.js";
 import { finishAuthorityImportAbort, type AuthorityImportTransferRow } from "./lifecycle.js";
+import { requireAccountNotMigrationFrozen } from "../next/migration-topology.js";
 
 /** Account-authorized recovery, not a cross-connector lookup relaxation. The
  * provider installs a durable no-prepare fence before local authority can reopen.
@@ -31,6 +32,7 @@ export async function recoverAccountImportCancellation(
     const cancellation = z.object({ collection_id: z.literal(binding.collection_id), direction: z.literal("to_hosted") });
     if (history.rows.some(row => row.event_type === "authority_transfer.cancelled" && !cancellation.safeParse(row.metadata).success)) return false;
 
+    await requireAccountNotMigrationFrozen(connection, connector.user_id);
     const account = await connection.query("SELECT id FROM users WHERE id = $1 AND suspended_at IS NULL FOR UPDATE", [connector.user_id]);
     if (account.rows.length !== 1) return false;
     const computers = await connection.query<{ id: string; user_id: string; revoked_at: unknown }>(

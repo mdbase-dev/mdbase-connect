@@ -21,6 +21,7 @@ import {
   listHostedCollectionsVisibleToUser
 } from "../../collection-catalog.js";
 import type {
+  DatabaseConnection,
   DatabasePool,
   DatabaseQueryable
 } from "../../database-types.js";
@@ -52,6 +53,7 @@ import { bearerToken } from "../../platform/request-authentication.js";
 import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { assertOperationsAllowedByApplication } from "../grants/policy.js";
 import { assertNextGrantPermissions, queueNextGrantPolicy } from "../next/grant-policy.js";
+import { requireAccountNotMigrationFrozen } from "../next/migration-topology.js";
 
 export interface HostedServiceOptions {
   db: DatabasePool;
@@ -280,40 +282,25 @@ async function hostedTypeCandidates(
   }
 }
 
-/**
- * Insert a legacy hosted collection row unless the account has flipped to
- * mdbase-next. The backend is read under a share lock on the users row in the
- * insert's own transaction, so a concurrent flip (which locks that row for
- * update) either commits first and this refuses, or waits for this insert and
- * then sees the collection (and refuses to flip without its cutover).
- */
+/** Insert on the caller's guarded transaction; never open a late nested transaction. */
 export async function insertLegacyHostedCollection(
-  db: DatabasePool,
+  client: DatabaseConnection,
   row: { id: string; userId: string; displayName: string; template: string; providerUrl: string | null; contracts: string }
 ): Promise<{ rows: { created_at: string | Date }[] }> {
-  const client = await db.connect();
-  try {
-    await client.query("BEGIN");
-    const backend = (await client.query<{ account_backend: string }>(
-      "SELECT account_backend FROM users WHERE id = $1 FOR SHARE", [row.userId]
-    )).rows[0]?.account_backend;
-    if (backend === "next") {
-      throw new RequestValidationError("This account has moved to mdbase-next; create collections there.");
-    }
-    const inserted = await client.query<{ created_at: string | Date }>(
-      `INSERT INTO hosted_collections
-         (id, user_id, display_name, template, provider_url, contracts)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-       ON CONFLICT (id) DO NOTHING
-       RETURNING created_at`,
-      [row.id, row.userId, row.displayName, row.template, row.providerUrl, row.contracts]
-    );
-    await client.query("COMMIT");
-    return { rows: inserted.rows };
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    throw error;
-  } finally { client.release(); }
+  await requireAccountNotMigrationFrozen(client, row.userId);
+  const backend = (await client.query<{ account_backend: string }>(
+    "SELECT account_backend FROM users WHERE id = $1 FOR SHARE", [row.userId]
+  )).rows[0]?.account_backend;
+  if (backend === "next") throw new RequestValidationError("This account has moved to mdbase-next; create collections there.");
+  const inserted = await client.query<{ created_at: string | Date }>(
+    `INSERT INTO hosted_collections
+       (id, user_id, display_name, template, provider_url, contracts)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+     ON CONFLICT (id) DO NOTHING
+     RETURNING created_at`,
+    [row.id, row.userId, row.displayName, row.template, row.providerUrl, row.contracts]
+  );
+  return { rows: inserted.rows };
 }
 
 export async function createHostedCollectionForUser(
@@ -333,20 +320,21 @@ export async function createHostedCollectionForUser(
     throw new RequestValidationError("Hosted collections are not enabled.");
   }
   const collectionId = creation.collectionId ?? randomUUID();
-  // A flipped account creates collections in mdbase-next only: nothing would
-  // migrate a legacy hosted collection created after its flip.
-  const backend = (await options.db.query<{ account_backend: string }>(
-    "SELECT account_backend FROM users WHERE id = $1", [userId]
-  )).rows[0]?.account_backend;
-  if (backend === "next") {
-    throw new RequestValidationError("This account has moved to mdbase-next; create collections there.");
-  }
+  const connection = await options.db.connect();
   let insertedAt: string | Date | undefined;
-  let wasInserted = false;
+  let effectStarted = false;
   try {
+    await connection.query("BEGIN");
+    await requireAccountNotMigrationFrozen(connection, userId);
+    const backend = (await connection.query<{ account_backend: string }>(
+      "SELECT account_backend FROM users WHERE id = $1 FOR SHARE", [userId]
+    )).rows[0]?.account_backend;
+    if (!backend) throw new RequestValidationError("Account unavailable.");
+    if (backend === "next") throw new RequestValidationError("This account has moved to mdbase-next; create collections there.");
+    effectStarted = true;
     if (options.hostedProvider) {
       const account = await reconcileHostedAccount(
-        options.db,
+        connection,
         options.hostedProvider,
         userId
       );
@@ -360,7 +348,7 @@ export async function createHostedCollectionForUser(
     } else {
       await hostedReference!.create(collectionId, template, timezone);
     }
-    const inserted = await insertLegacyHostedCollection(options.db, {
+    const inserted = await insertLegacyHostedCollection(connection, {
       id: collectionId,
       userId,
       displayName,
@@ -369,9 +357,8 @@ export async function createHostedCollectionForUser(
       contracts: JSON.stringify(hostedContractDescriptors(template))
     });
     insertedAt = inserted.rows[0]?.created_at;
-    wasInserted = Boolean(insertedAt);
     if (!insertedAt) {
-      const existing = await options.db.query<{
+      const existing = await connection.query<{
         user_id: string;
         display_name: string;
         template: string;
@@ -394,27 +381,24 @@ export async function createHostedCollectionForUser(
       }
       insertedAt = row.created_at;
     }
+    if (inserted.rows.length) await audit(connection, userId, "hosted_collection.created", collectionId,
+      { template, source: creation.source ?? "desktop" });
+    await connection.query("COMMIT");
   } catch (error) {
-    if (creation.collectionId) {
-      throw error;
-    } else if (options.hostedProvider) {
-      await options.hostedProvider
-        .deleteCollection(collectionId)
-        .catch(() => undefined);
-    } else {
-      await hostedReference?.delete(collectionId).catch(() => undefined);
+    // Never compensate a pre-effect freeze refusal. Hold the guard through any
+    // cleanup effect too, before rolling back/releasing the transaction locks.
+    if (effectStarted && !creation.collectionId) {
+      try {
+        // A timed-out RPC and compensation have separate bounded budgets.
+        // Never issue cleanup on an expired/aborted transaction's lost guard.
+        await connection.query("SELECT 1");
+        if (options.hostedProvider) await options.hostedProvider.deleteCollection(collectionId);
+        else await hostedReference?.delete(collectionId);
+      } catch { /* Uncertain cleanup is not reported as successful publication. */ }
     }
+    await connection.query("ROLLBACK").catch(() => undefined);
     throw error;
-  }
-  if (wasInserted) {
-    await audit(
-      options.db,
-      userId,
-      "hosted_collection.created",
-      collectionId,
-      { template, source: creation.source ?? "desktop" }
-    );
-  }
+  } finally { connection.release(); }
   return {
     id: collectionId,
     display_name: displayName,
@@ -440,11 +424,15 @@ export async function renameHostedCollectionForUser(
   const connection = await options.db.connect();
   try {
     await connection.query("BEGIN");
-    await connection.query("SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE", [collectionId]);
-    if (!await permitsHostedCollectionAction(connection, userId, collectionId, "collection.rename", true)) {
+    await connection.query("SET LOCAL lock_timeout='5s'");
+    const owner = (await connection.query<{ user_id: string }>("SELECT user_id FROM hosted_collections WHERE id=$1", [collectionId])).rows[0];
+    if (!owner || !await permitsHostedCollectionAction(connection, userId, collectionId, "collection.rename", true)) {
       await connection.query("ROLLBACK");
       return null;
     }
+    await requireAccountNotMigrationFrozen(connection, owner.user_id);
+    const held = (await connection.query<{ user_id: string }>("SELECT user_id FROM hosted_collections WHERE id=$1 FOR UPDATE", [collectionId])).rows[0];
+    if (!held || held.user_id !== owner.user_id) throw new RequestValidationError("Busy; retry.", { statusCode: 409, code: "busy" });
     if (options.hostedProvider) await options.hostedProvider.renameCollection(collectionId, displayName);
     const renamed = await connection.query<{ id: string; display_name: string }>(
       `UPDATE hosted_collections SET display_name = $2
@@ -469,24 +457,23 @@ export async function deleteHostedCollectionForUser(
   options: HostedServiceOptions,
   hostedReference: HostedAuthorityRegistry | undefined,
   userId: string,
-  collectionId: string
+  collectionId: string,
+  source: "desktop" | "account" = "desktop"
 ): Promise<boolean> {
-  if (!await permitsHostedCollectionAction(
-    options.db,
-    userId,
-    collectionId,
-    "collection.delete"
-  )) {
-    return false;
-  }
-  if (options.hostedProvider) {
-    await options.hostedProvider.deleteCollection(collectionId);
-  } else {
-    await hostedReference!.delete(collectionId);
-  }
   const connection = await options.db.connect();
   try {
     await connection.query("BEGIN");
+    await connection.query("SET LOCAL lock_timeout='5s'");
+    const owner = (await connection.query<{ user_id: string }>("SELECT user_id FROM hosted_collections WHERE id=$1", [collectionId])).rows[0];
+    if (!owner || !await permitsHostedCollectionAction(connection, userId, collectionId, "collection.delete")) {
+      await connection.query("ROLLBACK");
+      return false;
+    }
+    await requireAccountNotMigrationFrozen(connection, owner.user_id);
+    const held = (await connection.query<{ user_id: string }>("SELECT user_id FROM hosted_collections WHERE id=$1 FOR UPDATE", [collectionId])).rows[0];
+    if (!held || held.user_id !== owner.user_id) throw new RequestValidationError("Busy; retry.", { statusCode: 409, code: "busy" });
+    if (options.hostedProvider) await options.hostedProvider.deleteCollection(collectionId);
+    else await hostedReference!.delete(collectionId);
     await connection.query(
       `DELETE FROM grants
        WHERE hosted_collection_id = $1`,
@@ -511,7 +498,7 @@ export async function deleteHostedCollectionForUser(
       userId,
       "hosted_collection.deleted",
       collectionId,
-      { source: "desktop" }
+      { source }
     );
     await connection.query("COMMIT");
   } catch (error) {

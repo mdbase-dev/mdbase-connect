@@ -12,6 +12,7 @@ import { audit } from "./platform/audit-events.js";
 import { tokenHash } from "./security.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { recoverAccountImportCancellation } from "./features/authority-transfer/account-cancellation.js";
+import { addToCohort, createCohort, setCohortFrozen } from "./features/next/migration-rollout.js";
 
 const repairChecksum = createHash("sha256").update(await readFile(new URL(
   "../migrations/0036_authority_import_source_repair.sql", import.meta.url
@@ -279,19 +280,98 @@ suite("authority import abort receipts on PostgreSQL", () => {
 
   it("preserves the source during provider completion and the receipt after retired inventory (issue 529)", async () => {
     const f = await fixture();
+    let inventory: ReturnType<Awaited<ReturnType<typeof transferApp>>["sync"]> | undefined;
     const t = await transferApp(f, async () => {
-      const inventory = await t.sync();
-      expect(inventory.statusCode, inventory.body).toBe(200);
-      expect(inventory.json().collections[0]).toMatchObject({ authority_state: "active", authority_epoch: 1 });
+      // The new topology guard holds the account through provider completion.
+      // Inventory must wait, not deadlock by being awaited inside the provider.
+      expect((await db.query("SELECT authority_state,authority_epoch FROM collections WHERE id=$1", [f.localId])).rows[0])
+        .toEqual({ authority_state: "active", authority_epoch: "1" });
+      let settled = false;
+      inventory = t.sync().then(response => { settled = true; return response; });
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(settled).toBe(false);
     });
     try {
       const completed = await t.complete();
       expect(completed.statusCode, completed.body).toBe(200);
+      const published = await inventory!;
+      expect(published.statusCode, published.body).toBe(200);
+      expect(published.json().collections[0]).toMatchObject({ authority_state: "retired", authority_epoch: 2 });
       expect((await t.sync(false)).json().collections[0]).toMatchObject({ authority_state: "retired", authority_epoch: 2 });
       const resumed = await t.resume();
       expect(resumed.statusCode, resumed.body).toBe(200);
       expect(resumed.json().transfer).toMatchObject({ id: f.id, state: "completed" });
     } finally { await t.app.close(); }
+  });
+
+  async function frozenBatch(account: string) {
+    const cohort = `transfer-${randomUUID()}`;
+    await createCohort(db, cohort, "synthetic-test");
+    await addToCohort(db, cohort, [account], "synthetic-test");
+    await setCohortFrozen(db, cohort, true, "synthetic capture", "synthetic-test");
+    return cohort;
+  }
+
+  it("refuses import creation, prepared replay, activation and abort before any provider effect while frozen", async () => {
+    const f = await fixture();
+    await materializePublicSignupEntitlement(db, f.userId);
+    const prepare = vi.fn(async () => ({ expires_at: new Date(Date.now() + 30 * 60_000).toISOString() }));
+    const complete = vi.fn(async () => ({ id: f.id, collection_id: f.hosted_collection_id, authority_epoch: 2, state: "completed",
+      manifest_digest: "a".repeat(64), source_revision: `sha256:${"b".repeat(64)}`, source_head: 41 }));
+    const abort = vi.fn(async () => undefined), upsert = vi.fn(async () => ({}));
+    const { app } = await buildApp({ db, hostedCollections: true, hostedProvider: {
+      url: "https://synthetic.example.test", upsertAccount: upsert, prepareAuthorityImport: prepare,
+      completeAuthorityImport: complete, abortAuthorityImport: abort
+    } as unknown as HostedProviderClient });
+    const headers = { authorization: `Bearer ${f.token}` }, cohort = await frozenBatch(f.userId);
+    try {
+      for (const request of [
+        { method: "POST" as const, url: `/v1/connectors/collections/${f.hosted_collection_id}/authority-transfers`, payload: {} },
+        { method: "POST" as const, url: `/v1/connectors/authority-transfers/${f.id}/complete`, payload: { manifest_digest: "a".repeat(64), source_revision: `sha256:${"b".repeat(64)}`, source_head: 41 } },
+        { method: "DELETE" as const, url: `/v1/connectors/authority-transfers/${f.id}` }
+      ]) {
+        const result = await app.inject({ ...request, headers });
+        expect(result.statusCode, result.body).toBe(409); expect(result.json().error.code).toBe("migration_frozen");
+      }
+      for (const effect of [prepare, complete, abort, upsert]) expect(effect).not.toHaveBeenCalled();
+      expect((await db.query("SELECT state FROM authority_transfers WHERE id=$1", [f.id])).rows[0].state).toBe("prepared");
+      await setCohortFrozen(db, cohort, false, "cancel before acceptance", "synthetic-test");
+      const done = await app.inject({ method: "POST", url: `/v1/connectors/authority-transfers/${f.id}/complete`, headers,
+        payload: { manifest_digest: "a".repeat(64), source_revision: `sha256:${"b".repeat(64)}`, source_head: 41 } });
+      expect(done.statusCode, done.body).toBe(200); expect(complete).toHaveBeenCalledOnce();
+      const newSource = await fixture();
+      await db.query("DELETE FROM hosted_collections WHERE id=$1", [newSource.hosted_collection_id]);
+      await frozenBatch(newSource.userId);
+      const created = await app.inject({ method: "POST", url: `/v1/connectors/collections/${newSource.hosted_collection_id}/authority-transfers`, headers: { authorization: `Bearer ${newSource.token}` }, payload: {} });
+      expect(created.statusCode, created.body).toBe(409); expect(created.json().error.code).toBe("migration_frozen");
+      expect(prepare).not.toHaveBeenCalled(); expect(upsert).not.toHaveBeenCalled();
+      expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [newSource.hosted_collection_id])).rowCount).toBe(0);
+    } finally { await app.close(); }
+  });
+
+  it("holds the prepare/replay guard through provider await and publication against a concurrent freeze", async () => {
+    const f = await fixture();
+    await db.query("DELETE FROM hosted_collections WHERE id=$1", [f.hosted_collection_id]);
+    await materializePublicSignupEntitlement(db, f.userId);
+    const cohort = `prepare-${randomUUID()}`;
+    await createCohort(db, cohort, "synthetic-test"); await addToCohort(db, cohort, [f.userId], "synthetic-test");
+    let enter!: () => void, release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });
+    const prepare = vi.fn(async () => { enter(); await gate; return { expires_at: new Date(Date.now() + 30 * 60_000).toISOString() }; });
+    const { app } = await buildApp({ db, hostedCollections: true, hostedProvider: { url: "https://synthetic.example.test", upsertAccount: async () => ({}), prepareAuthorityImport: prepare } as unknown as HostedProviderClient });
+    const resume = () => app.inject({ method: "POST", url: `/v1/connectors/collections/${f.hosted_collection_id}/authority-transfers`, headers: { authorization: `Bearer ${f.token}` }, payload: {} });
+    let request: ReturnType<typeof resume> | undefined, freeze: ReturnType<typeof setCohortFrozen> | undefined;
+    try {
+      request = resume().then(r => r); await entered;
+      let frozen = false;
+      freeze = setCohortFrozen(db, cohort, true, "synthetic capture", "synthetic-test").then(r => { frozen = true; return r; });
+      await new Promise(resolve => setTimeout(resolve, 50)); expect(frozen).toBe(false);
+      expect((await db.query("SELECT state FROM authority_transfers WHERE user_id=$1", [f.userId])).rows[0].state).toBe("requested");
+      release(); const prepared = await request;
+      expect(prepared.statusCode, prepared.body).toBe(201); await freeze;
+      expect((await db.query("SELECT state FROM authority_transfers WHERE user_id=$1", [f.userId])).rows[0].state).toBe("prepared");
+      const refused = await resume(); expect(refused.statusCode, refused.body).toBe(409); expect(refused.json().error.code).toBe("migration_frozen"); expect(prepare).toHaveBeenCalledOnce();
+    } finally { release(); await request?.catch(() => undefined); await freeze?.catch(() => undefined); await app.close(); }
   });
 
   it("stages one intent for concurrent transfer starts", async () => {

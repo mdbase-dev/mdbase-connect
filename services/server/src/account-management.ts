@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type {
+  DatabaseConnection,
   DatabasePool,
   DatabaseQueryable
 } from "./database-types.js";
 import { queueAccountProviderCleanup } from "./hosted-capability-lifecycle.js";
+import { completeMigrationBatch } from "./features/next/migration-topology.js";
 import type {
   ExternalProvider,
   VerifiedExternalIdentity
@@ -62,6 +64,7 @@ export async function deleteAccountLocally(
   const connection = await db.connect();
   try {
     await connection.query("BEGIN");
+    await connection.query("SET LOCAL lock_timeout = '5s'");
     const locked = await connection.query(
       "SELECT id FROM users WHERE id = $1 FOR UPDATE",
       [input.userId]
@@ -80,31 +83,47 @@ export async function deleteAccountLocally(
     }
     if (!authorized) throw new AccountDeletionAuthorizationError();
 
-    const cleanup = input.queueProviderCleanup
-      ? await queueAccountProviderCleanup(connection, input.userId)
-      : {
-          hostedCollections: Number((await connection.query<{ count: string }>(
-            "SELECT count(*)::text AS count FROM hosted_collections WHERE user_id = $1",
-            [input.userId]
-          )).rows[0]?.count ?? 0),
-          crossAccountReplicas: 0
-        };
-    const localCount = await connection.query<{ count: string | number }>(
-      "SELECT count(*) AS count FROM collections WHERE user_id = $1 AND present = true",
-      [input.userId]
-    );
-    const result: AccountDeletionResult = {
-      hostedCollectionsScheduledForDeletion: cleanup.hostedCollections,
-      crossAccountReplicasRevoked: cleanup.crossAccountReplicas,
-      localCollectionsPreserved: Number(localCount.rows[0]?.count ?? 0)
-    };
-    await audit(connection, input.userId, "account.deleted", input.userId, {
-      hosted_collections_scheduled_for_deletion:
-        result.hostedCollectionsScheduledForDeletion,
-      cross_account_replicas_revoked: result.crossAccountReplicasRevoked,
-      local_collections_preserved: result.localCollectionsPreserved
-    });
-    await connection.query("DELETE FROM users WHERE id = $1", [input.userId]);
+    const member = (await connection.query<{ cohort: string }>(
+      "SELECT cohort FROM next_migration_cohort_members WHERE account_id=$1 FOR SHARE", [input.userId]
+    )).rows[0];
+    const batch = member ? (await connection.query<{ frozen_at: Date | null; revision: string }>(
+      "SELECT frozen_at,membership_revision::text AS revision FROM next_migration_cohorts WHERE name=$1 FOR UPDATE", [member.cohort]
+    )).rows[0] : undefined;
+    if (member && !batch) throw new Error("Migration membership has no cohort.");
+    if (batch && batch.frozen_at !== null) {
+      // Acceptance, credential revocation and the durable request commit together.
+      // Keep archived topology intact; never queue provider erasure before ready.
+      await connection.query(
+        `INSERT INTO next_migration_deferred_account_deletions
+           (account_id,cohort,membership_revision,frozen_at,queue_provider_cleanup)
+         VALUES($1,$2,$3::bigint,$4,$5) ON CONFLICT(account_id) DO NOTHING`,
+        [input.userId, member!.cohort, batch.revision, batch.frozen_at, input.queueProviderCleanup]
+      );
+      await connection.query(
+        "UPDATE next_migration_cohort_members SET terminal_excluded_at=COALESCE(terminal_excluded_at,now()) WHERE account_id=$1", [input.userId]
+      );
+      await connection.query("UPDATE users SET suspended_at=COALESCE(suspended_at,now()),session_epoch=session_epoch+1 WHERE id=$1", [input.userId]);
+      await connection.query("UPDATE sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1", [input.userId]);
+      await connection.query("UPDATE connectors SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1", [input.userId]);
+      await connection.query("UPDATE grants SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1", [input.userId]);
+      await connection.query("UPDATE access_tokens SET revoked_at=COALESCE(revoked_at,now()) WHERE grant_id IN (SELECT id FROM grants WHERE user_id=$1)", [input.userId]);
+      await connection.query("UPDATE refresh_tokens SET revoked_at=COALESCE(revoked_at,now()) WHERE grant_id IN (SELECT id FROM grants WHERE user_id=$1)", [input.userId]);
+      await connection.query(
+        `UPDATE hosted_replicas SET token_hash=NULL
+         WHERE authorized_user_id=$1 OR collection_id IN (SELECT id FROM hosted_collections WHERE user_id=$1)`, [input.userId]
+      );
+      const result = await accountDeletionCounts(connection, input.userId);
+      await audit(connection, input.userId, "account.deletion_accepted", input.userId,
+        { deferred: true, terminal_excluded: true, cohort: member!.cohort, membership_revision: batch.revision });
+      // Also covers the last unfinished member's exclusion and deletion accepted
+      // after all flips: neither needs a future migration or user retry.
+      await completeMigrationBatch(connection, member!.cohort, batch.revision, batch.frozen_at);
+      await connection.query("COMMIT");
+      // Startup/periodic recovery consumes readiness without delaying acceptance
+      // or turning a post-commit cleanup failure into a failed deletion request.
+      return result;
+    }
+    const result = await eraseAccount(connection, input.userId, input.queueProviderCleanup);
     await connection.query("COMMIT");
     return result;
   } catch (error) {
@@ -113,6 +132,72 @@ export async function deleteAccountLocally(
   } finally {
     connection.release();
   }
+}
+
+/** The same erasure pipeline serves immediate requests and durable accepted work. */
+async function eraseAccount(client: DatabaseConnection, user: string, queueProvider: boolean): Promise<AccountDeletionResult> {
+  const counts = await accountDeletionCounts(client, user);
+  const cleanup = queueProvider ? await queueAccountProviderCleanup(client, user) : undefined;
+  const result = { ...counts, hostedCollectionsScheduledForDeletion: cleanup?.hostedCollections ?? counts.hostedCollectionsScheduledForDeletion,
+    crossAccountReplicasRevoked: cleanup?.crossAccountReplicas ?? 0 };
+  // PostgreSQL checks the authorized-user FK before cascading owned hosted
+  // rows. Remove dependent grants and detach the complete replica binding in
+  // the shared erasure pipeline, after durable provider cleanup is recorded.
+  await client.query("DELETE FROM grants WHERE user_id=$1", [user]);
+  await client.query(
+    `UPDATE hosted_replicas SET authorized_user_id=NULL,membership_id=NULL,
+       membership_policy_id=NULL,membership_policy_revision=NULL,
+       revoked_at=COALESCE(revoked_at,now()),token_hash=NULL
+     WHERE authorized_user_id=$1`, [user]
+  );
+  await audit(client, user, "account.deleted", user, {
+    hosted_collections_scheduled_for_deletion: result.hostedCollectionsScheduledForDeletion,
+    cross_account_replicas_revoked: result.crossAccountReplicasRevoked,
+    local_collections_preserved: result.localCollectionsPreserved
+  });
+  await client.query("DELETE FROM users WHERE id = $1", [user]);
+  return result;
+}
+
+async function accountDeletionCounts(client: DatabaseConnection, user: string): Promise<AccountDeletionResult> {
+  const hosted = (await client.query<{ count: string }>("SELECT count(*)::text AS count FROM hosted_collections WHERE user_id=$1", [user])).rows[0];
+  const local = (await client.query<{ count: string }>("SELECT count(*)::text AS count FROM collections WHERE user_id=$1 AND present=true", [user])).rows[0];
+  return { hostedCollectionsScheduledForDeletion: Number(hosted?.count ?? 0), crossAccountReplicasRevoked: 0, localCollectionsPreserved: Number(local?.count ?? 0) };
+}
+
+/** Restart-safe, idempotent drain: readiness was committed under the batch lock. */
+export async function drainDeferredAccountDeletions(db: DatabasePool, limit = 25): Promise<number> {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error("Bounded deletion drain required.");
+  const candidates = (await db.query<{ account_id: string }>(
+    "SELECT account_id FROM next_migration_deferred_account_deletions WHERE ready_at IS NOT NULL ORDER BY requested_at,account_id LIMIT $1", [limit]
+  )).rows;
+  let completed = 0;
+  for (const { account_id: user } of candidates) {
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL lock_timeout='5s'");
+      const exists = (await client.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [user])).rows.length;
+      const work = (await client.query<{ cohort: string; frozen_at: Date; queue_provider_cleanup: boolean; ready_at: Date | null; ready_revision: string | null }>(
+        "SELECT cohort,frozen_at,queue_provider_cleanup,ready_at,ready_revision::text FROM next_migration_deferred_account_deletions WHERE account_id=$1 FOR UPDATE", [user]
+      )).rows[0];
+      if (exists && work?.ready_at && work.ready_revision !== null) {
+        const batch = (await client.query<{ frozen_at: Date | null }>("SELECT frozen_at FROM next_migration_cohorts WHERE name=$1 FOR UPDATE", [work.cohort])).rows[0];
+        if (!batch) throw new Error("Deferred deletion has no cohort.");
+        if (batch.frozen_at !== null && new Date(batch.frozen_at).getTime() !== new Date(work.frozen_at).getTime()) {
+          await client.query("ROLLBACK");
+          continue;
+        }
+        await eraseAccount(client, user, work.queue_provider_cleanup);
+        completed += 1;
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  }
+  return completed;
 }
 
 export async function accountSignInMethodCounts(

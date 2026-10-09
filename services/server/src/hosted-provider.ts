@@ -273,14 +273,15 @@ export class HostedProviderClient {
     displayName: string,
     timezone: string
   ): Promise<void> {
+    const operation = requiredOperation(); // Creation + readiness share this budget.
     await this.request("POST", "/internal/v1/collections", {
       account_id: accountId,
       collection_id: collectionId,
       template,
       display_name: displayName,
       timezone
-    });
-    const projection = await this.projectionStatus(collectionId);
+    }, true, operation);
+    const projection = await this.projectionStatus(collectionId, operation);
     if (!projection.ready || !projection.active_generation_id) {
       throw new HostedProviderResponseError(
         503,

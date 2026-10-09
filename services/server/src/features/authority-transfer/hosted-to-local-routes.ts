@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { requireHostedCollectionNotMigrationFrozen } from "../next/migration-topology.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { resolveHostedCollectionAccess } from "../../collection-access.js";
@@ -7,7 +8,7 @@ import type { HostedAuthorityRegistry } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import type { RelayHub } from "../../relay.js";
 import { audit } from "../../platform/audit-events.js";
-import { apiError } from "../../platform/http-errors.js";
+import { apiError, RequestValidationError } from "../../platform/http-errors.js";
 import {
   authenticatedUser,
   bearerToken,
@@ -91,8 +92,14 @@ export function registerHostedToLocalTransferRoutes(
           "This hosted collection is not available for authority transfer."
         ));
       }
+      const connection = await options.db.connect();
+      try {
+      await connection.query("BEGIN");
+      if (!await requireHostedCollectionNotMigrationFrozen(connection, pairing.collection_id, pairing.user_id)) {
+        throw new RequestValidationError("Authority transfer collection is unavailable.");
+      }
       const transferId = randomUUID();
-      const transfer = await options.db.query<AuthorityTransferRow>(
+      const transfer = await connection.query<AuthorityTransferRow>(
         `INSERT INTO authority_transfers
            (id, user_id, hosted_collection_id, pairing_id, replica_id,
             expires_at)
@@ -109,7 +116,7 @@ export function registerHostedToLocalTransferRoutes(
         ]
       );
       await audit(
-        options.db,
+        connection,
         pairing.user_id,
         "authority_transfer.requested",
         transferId,
@@ -118,10 +125,13 @@ export function registerHostedToLocalTransferRoutes(
           replica_id: pairing.replica_id
         }
       );
+      await connection.query("COMMIT");
       return reply.code(201).send(authorityTransferResponse(
         transfer.rows[0],
         options.publicUrl
       ));
+      } catch (error) { await connection.query("ROLLBACK"); throw error; }
+      finally { connection.release(); }
     }
   );
 
@@ -209,7 +219,13 @@ export function registerHostedToLocalTransferRoutes(
           "Authority transfer was not found."
         ));
       }
-      const approved = await options.db.query<AuthorityTransferRow>(
+      const connection = await options.db.connect();
+      try {
+      await connection.query("BEGIN");
+      if (!await requireHostedCollectionNotMigrationFrozen(connection, candidate.rows[0]!.hosted_collection_id, user.id)) {
+        throw new RequestValidationError("Authority transfer collection is unavailable.");
+      }
+      const approved = await connection.query<AuthorityTransferRow>(
         `UPDATE authority_transfers
          SET state = 'approved', approved_at = now()
          WHERE id = $1 AND user_id = $2 AND state = 'requested'
@@ -220,7 +236,8 @@ export function registerHostedToLocalTransferRoutes(
         [transferId, user.id]
       );
       if (!approved.rows[0]) {
-        const existing = await options.db.query<AuthorityTransferRow>(
+        await connection.query("ROLLBACK");
+        const existing = await connection.query<AuthorityTransferRow>(
           `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
                   local_collection_id, state, final_head,
                   next_authority_epoch, manifest_digest, expires_at
@@ -245,18 +262,21 @@ export function registerHostedToLocalTransferRoutes(
         ));
       }
       await audit(
-        options.db,
+        connection,
         user.id,
         "authority_transfer.approved",
         transferId,
         { collection_id: approved.rows[0].hosted_collection_id }
       );
+      await connection.query("COMMIT");
       return {
         transfer: authorityTransferView(
           approved.rows[0],
           options.publicUrl
         )
       };
+      } catch (error) { await connection.query("ROLLBACK"); throw error; }
+      finally { connection.release(); }
     }
   );
 
@@ -286,7 +306,9 @@ export function registerHostedToLocalTransferRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
-        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [transfer.user_id]);
+        if (!await requireHostedCollectionNotMigrationFrozen(connection, transfer.hosted_collection_id, transfer.user_id)) {
+          throw new RequestValidationError("Authority transfer collection is unavailable.");
+        }
         const locked = await connection.query<AuthorityTransferRow>(
           `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
                   local_collection_id, state, final_head,
@@ -464,19 +486,13 @@ export function registerHostedToLocalTransferRoutes(
         ));
       }
       const candidate = candidates.rows[0];
-      const completed = options.hostedProvider
-        ? await options.hostedProvider.completeAuthorityTransfer(
-            transferId,
-            input.manifest_digest
-          )
-        : await options.hostedReference!.completeAuthorityTransfer(
-            transferId,
-            input.manifest_digest
-          );
+      let completed;
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
-        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [transfer.user_id]);
+        if (!await requireHostedCollectionNotMigrationFrozen(connection, transfer.hosted_collection_id, transfer.user_id)) {
+          throw new RequestValidationError("Authority transfer collection is unavailable.");
+        }
         const locked = await connection.query<AuthorityTransferRow>(
           `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
                   local_collection_id, state, final_head,
@@ -495,6 +511,19 @@ export function registerHostedToLocalTransferRoutes(
             Number(locked.rows[0].next_authority_epoch)
           );
         }
+        if (locked.rows[0]?.state !== "prepared" || locked.rows[0].user_id !== transfer.user_id) {
+          throw new RequestValidationError("Authority transfer changed before completion.");
+        }
+        const heldCandidate = (await connection.query<{ id: string }>(
+          `SELECT collection.id FROM collections collection JOIN connectors connector ON connector.id=collection.connector_id
+           WHERE collection.id=$1 AND connector.id=$2 AND connector.user_id=$3 AND connector.revoked_at IS NULL
+             AND collection.local_id=$4 AND collection.authority_state='candidate' FOR UPDATE`,
+          [candidate.id, candidate.connector_id, transfer.user_id, transfer.hosted_collection_id]
+        )).rows[0];
+        if (!heldCandidate) throw new RequestValidationError("Authority transfer target changed before completion.");
+        completed = options.hostedProvider
+          ? await options.hostedProvider.completeAuthorityTransfer(transferId, input.manifest_digest)
+          : await options.hostedReference!.completeAuthorityTransfer(transferId, input.manifest_digest);
         await connection.query(
           `UPDATE collections
            SET authority_state = 'active', authority_epoch = $2,
@@ -614,7 +643,9 @@ export function registerHostedToLocalTransferRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
-        await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [transfer.user_id]);
+        if (!await requireHostedCollectionNotMigrationFrozen(connection, transfer.hosted_collection_id, transfer.user_id)) {
+          throw new RequestValidationError("Authority transfer collection is unavailable.");
+        }
         const locked = await connection.query<AuthorityTransferRow>(
           `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
                   local_collection_id, state, final_head,

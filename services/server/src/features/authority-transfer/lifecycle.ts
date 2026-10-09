@@ -10,6 +10,8 @@ import {
   type HostedProviderClient
 } from "../../hosted-provider.js";
 import { tokenHash } from "../../security.js";
+import { RequestValidationError } from "../../platform/http-errors.js";
+import { requireAccountNotMigrationFrozen } from "../next/migration-topology.js";
 
 export interface AuthorityTransferRow {
   id: string;
@@ -202,8 +204,11 @@ export async function recoverExpiredAuthorityTransfers(
 ): Promise<void> {
   const deadline = Date.now() + 15_000;
   const discovered = await db.query<{ id: string; user_id: string }>(
-    `SELECT id, user_id FROM authority_transfers
-     WHERE ${expirableTransfer} ORDER BY expires_at, id LIMIT 25`
+    `SELECT transfer.id, transfer.user_id FROM authority_transfers transfer
+     LEFT JOIN next_migration_cohort_members member ON member.account_id=transfer.user_id
+     LEFT JOIN next_migration_cohorts cohort ON cohort.name=member.cohort
+     WHERE ${expirableTransfer} AND cohort.frozen_at IS NULL
+     ORDER BY expires_at, transfer.id LIMIT 25`
   );
   for (const candidate of discovered.rows) {
     if (Date.now() >= deadline) break;
@@ -215,7 +220,7 @@ export async function recoverExpiredAuthorityTransfers(
       // Same lock order as activation and inventory. Keep these locks through
       // provider acknowledgement and cleanup; an uncertain RPC rolls back CP
       // changes and is reconciled by the idempotent expiry operation on retry.
-      await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [candidate.user_id]);
+      await requireAccountNotMigrationFrozen(connection, candidate.user_id);
       const locked = await connection.query<{
         id: string; user_id: string; hosted_collection_id: string;
         direction: "to_local" | "to_hosted";
@@ -314,6 +319,9 @@ export async function recoverExpiredAuthorityTransfers(
       await connection.query("COMMIT");
     } catch (error) {
       await connection.query("ROLLBACK");
+      // A frozen/busy account remains pending; do not starve other accounts or
+      // turn a read-triggered maintenance pass into a destructive retry.
+      if (error instanceof RequestValidationError && ["migration_frozen", "busy"].includes(error.code)) continue;
       if ((error instanceof HostedProviderResponseError || error instanceof SyncError)
         && ["authority_transfer_completed", "authority_transfer_not_expired",
           "authority_import_completed", "authority_import_indexing", "authority_import_not_expired"].includes(error.code)) {

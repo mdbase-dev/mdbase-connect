@@ -11,7 +11,7 @@ import {
   type HostedAccountUsage,
   type HostedProviderClient
 } from "./hosted-provider.js";
-import { quarantineMissingHostedCollection } from "./hosted-capability-lifecycle.js";
+import { quarantineMissingHostedCollectionOnTransaction } from "./hosted-capability-lifecycle.js";
 import {
   InstanceAdminConflictError,
   type OperatorMutation
@@ -127,12 +127,12 @@ export async function reconcileActiveHostedEntitlements(
     for (const userId of state.selected_user_ids) {
       if (state.completed_user_ids.includes(userId)) continue;
       const reconciled = await reconcileHostedAccountCollections(
-        connection,
+        db,
         provider,
         userId,
         {
-          onMissingCollection: async (collectionId) => {
-            await quarantineMissingHostedCollection(db, collectionId);
+          onMissingCollection: async (collectionId, client) => {
+            await quarantineMissingHostedCollectionOnTransaction(client, collectionId);
           }
         }
       );

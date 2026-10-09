@@ -16,6 +16,8 @@ import {
 } from "@mdbase-dev/connect-sync/mirror";
 import { createHash } from "node:crypto";
 import type { DatabasePool } from "./db.js";
+import { requireHostedCollectionNotMigrationFrozen } from "./features/next/migration-topology.js";
+import { RequestValidationError } from "./platform/http-errors.js";
 
 interface CachedAuthority {
   authority: MemoryAuthority;
@@ -238,25 +240,36 @@ export class HostedAuthorityRegistry {
   }
 
   private async activeTransfer(collectionId: string): Promise<ReferenceAuthorityTransfer | null> {
-    await this.db.query(
-      `UPDATE authority_transfers SET state = 'expired'
-       WHERE hosted_collection_id = $1 AND state = 'prepared' AND expires_at <= now()`,
-      [collectionId]
-    );
-    await this.db.query(
-      `UPDATE hosted_collections SET authority_state = 'active'
-       WHERE id = $1 AND authority_state = 'transferring'
-         AND NOT EXISTS (
-           SELECT 1 FROM authority_transfers
-           WHERE hosted_collection_id = $1 AND state = 'prepared' AND expires_at > now()
-         )`,
-      [collectionId]
-    );
+    // Reference-only read recovery replaces the old two autocommit updates
+    // with one actual guarded transaction. Frozen transfers stay fenced after
+    // their deadline. This boundary cannot import route/access lifecycle code.
+    const connection = await this.db.connect();
+    try {
+      await connection.query("BEGIN");
+      if (await requireHostedCollectionNotMigrationFrozen(connection, collectionId)) {
+        await connection.query(
+          `UPDATE authority_transfers SET state='expired'
+           WHERE hosted_collection_id=$1 AND direction='to_local'
+             AND state='prepared' AND expires_at<=now()`, [collectionId]
+        );
+        await connection.query(
+          `UPDATE hosted_collections SET authority_state='active'
+           WHERE id=$1 AND authority_state='transferring' AND NOT EXISTS (
+             SELECT 1 FROM authority_transfers WHERE hosted_collection_id=$1
+               AND direction='to_local' AND state='prepared'
+           )`, [collectionId]
+        );
+      }
+      await connection.query("COMMIT");
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      if (!(error instanceof RequestValidationError) || !["migration_frozen", "busy"].includes(error.code)) throw error;
+    } finally { connection.release(); }
     const result = await this.db.query<ReferenceTransferRow>(
       `SELECT id, hosted_collection_id, replica_id, final_head, next_authority_epoch,
               manifest_digest, state, expires_at
        FROM authority_transfers
-       WHERE hosted_collection_id = $1 AND state = 'prepared' AND expires_at > now()
+       WHERE hosted_collection_id = $1 AND state = 'prepared'
        ORDER BY created_at DESC LIMIT 1`,
       [collectionId]
     );
