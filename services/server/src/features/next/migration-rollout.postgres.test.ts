@@ -173,7 +173,7 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     const q = await quarantineMissingHostedCollection(db, a.ids[0]!);
     expect(q).toEqual({ changed: false, grantsRevoked: 0, replicasRevoked: 0 });
     expect((await db.query("SELECT quarantined_at FROM hosted_collections WHERE id=$1", [a.ids[0]])).rows[0].quarantined_at).toBeNull();
-    // Callum 2026-10-08: account deletion during migration is immediate and terminal.
+    // Account deletion during migration is immediate and terminal.
     await db.query("DELETE FROM users WHERE id=$1", [a.user]);
     expect(await migrationsInProgress(db, 100)).not.toContain(a.user);
     expect(await accountMigrationView(db, a.user)).toBeNull();
