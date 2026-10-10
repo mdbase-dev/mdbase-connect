@@ -1,0 +1,9 @@
+{
+  "reason": "Extract the existing cloud-copy service bootstrap into one internal helper shared by the public NEXT service route and the upcoming migration SHADOW caller; delete the old route-local creator and share its generation/outbox/log-readback/metadata primitives with owner-device routes. One real composition boundary, not a parallel creator: immutable owner/root/runtime/service tuples, caller-supplied current authorization, owner-before-collection locks, existing topology freeze and permanent deletion checks. Ten internal imports and nine helper/type exports; no SDK/protocol package, public runtime selector or new HTTP route. Exact native readiness/keying remains outside this helper.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 10,
+    "typeScriptExportDeclarations": 9,
+    "services/server": 1
+  }
+}
