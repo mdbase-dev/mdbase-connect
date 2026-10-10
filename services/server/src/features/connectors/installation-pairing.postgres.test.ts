@@ -22,7 +22,7 @@ import { registerTimerRoutes } from "../next/timers/routes.js";
 import { lockNamespace } from "../next/timers/store.js";
 import { TimerWorker, notificationsConsumer, timerEventId } from "../next/timers/worker.js";
 import { PushTargetSealer } from "../next/push-target-seal.js";
-import { NotificationService } from "../../notifications.js";
+import { NotificationService, type NotificationTransports } from "../../notifications.js";
 import { registerNotificationRoutes } from "../notifications/routes.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -488,7 +488,7 @@ describePg("installation device sign-in on daemon pairing", () => {
   async function approvePicked(p:Awaited<ReturnType<typeof prepared>>,flow:ReturnType<typeof channel>,ids:string[],selected:string,timers?:boolean) {
     return app.inject({method:"POST",url:`${flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:ids,selected_collection_id:selected,...(timers!==undefined?{timer_consent:timers}:{})}});
   }
-  async function timerApp(nativeDelivery?: {mode:"managed_fcm";firebase_project_id:string}) {
+  async function timerApp(nativeDelivery?: {mode:"managed_fcm";firebase_project_id:string}|{mode:"webhook";url:string}) {
     const id = await registeredApp(`bundle:synthetic.reminders.${randomUUID()}`);
     await db.query("UPDATE applications SET requirements=$2::jsonb,notifications=$3::jsonb WHERE id=$1", [id,
       JSON.stringify({access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"],optional:["background.schedule"]}}),
@@ -771,6 +771,100 @@ describePg("installation device sign-in on daemon pairing", () => {
     await db.query("UPDATE next_background_grants SET revoked_at=now() WHERE id=$1",[future.grantId]);
     await worker.tick();
     expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[future.grantId])).rows).toEqual([{status:"cancelled"}]);
+  });
+  async function queuedNativeNotification(mode:"web_push"|"fcm"|"webhook"="web_push") {
+    const application=await timerApp(mode==="fcm"?{mode:"managed_fcm",firebase_project_id:"synthetic-project"}:mode==="webhook"?{mode:"webhook",url:"https://hooks.example.test/notify"}:undefined);
+    const f=await currentTimerFixture(application);
+    if(mode!=="webhook") {
+      const payload=mode==="web_push"?webChannel(f):{installation_id:f.p.input.installation.installation_id,criteria:["synthetic.reminder"],transport:"fcm",token:"synthetic-native-fcm-token-1234567890"};
+      const registered=await app.inject({method:"POST",url:channelPath(f),headers:{authorization:`Bearer ${f.token}`},payload});
+      expect(registered.statusCode,registered.body).toBe(201);
+    }
+    await dueNativeTimer(f);
+    const consumer=notificationsConsumer(()=>undefined,f.resolver),worker=new TimerWorker(db,[consumer],{resolver:f.resolver});
+    expect(await worker.fireDue()).toBe(1); await worker.drainConsumer(consumer);
+    return {...f,event:timerEventId(f.grantId,"reminders","due",1)};
+  }
+  it.each(["web_push","fcm","webhook"] as const)("dispatches native %s with current permission and frozen content-free presentation",async mode=>{
+    const f=await queuedNativeNotification(mode),records:Array<{kind:string;target:unknown;payload:string}>=[];
+    const recorded:NotificationTransports={
+      webPush:{send:async(target,payload)=>{records.push({kind:"web_push",target,payload});}},
+      fcm:{send:async(target,payload)=>{records.push({kind:"fcm",target,payload});}},
+      webhook:{send:async(target,payload)=>{records.push({kind:"webhook",target,payload});},publicKeys:()=>[]}
+    };
+    const service=new NotificationService(db,recorded,1000,()=>undefined,channelSealer,f.resolver);
+    await service.drainOnce(); await service.drainOnce();
+    const matching=records.filter(record=>record.payload.includes(f.event)); expect(matching).toHaveLength(1);
+    const envelope=JSON.parse(matching[0].payload),notification=mode==="webhook"?envelope.notification:envelope;
+    expect(notification).toEqual({type:"mdbase.notification",version:1,signal_id:f.event,criterion_id:"synthetic.reminder",cursor:f.event,presentation:{title:"Reminder"}});
+    if(mode==="fcm") expect(matching[0].target).toEqual({projectId:"synthetic-project",token:"synthetic-native-fcm-token-1234567890"});
+    if(mode==="web_push") expect(matching[0].target).toMatchObject({endpoint:"https://push.example.test/synthetic"});
+    if(mode==="webhook") expect(matching[0].target).toMatchObject({url:"https://hooks.example.test/notify"});
+    const delivered=mode==="webhook"?await db.query("SELECT status FROM notification_webhook_deliveries WHERE signal_id=(SELECT id FROM notification_signals WHERE signal_id=$1)",[f.event])
+      :await db.query("SELECT status FROM notification_deliveries WHERE signal_id=(SELECT id FROM notification_signals WHERE signal_id=$1)",[f.event]);
+    expect(delivered.rows).toEqual([{status:"sent"}]);
+  });
+  it.each(["withdrawal","device","declaration","channel"])("does not dispatch queued native notifications after %s changes",async change=>{
+    const f=await queuedNativeNotification(),sent:string[]=[];
+    if(change==="withdrawal") await db.query("UPDATE next_background_grants SET revoked_at=now() WHERE id=$1",[f.grantId]);
+    if(change==="device") await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",[f.collection,JSON.stringify({version:1,ops:[{op:"device-revoke",device:f.p.input.installation.device_id}]})]);
+    if(change==="declaration") await db.query("UPDATE applications SET notifications=$2::jsonb WHERE id=$1",[f.p.input.installation.app_id,JSON.stringify({criteria:[]})]);
+    if(change==="channel") await db.query("UPDATE push_channels SET disabled_at=now() WHERE grant_id=$1",[f.grantId]);
+    const service=new NotificationService(db,{webPush:{send:async(_target,payload)=>{sent.push(payload);}}},1000,()=>undefined,channelSealer,f.resolver);
+    await service.drainOnce(); expect(sent.filter(payload=>payload.includes(f.event))).toHaveLength(0);
+    expect((await db.query("SELECT status FROM notification_deliveries WHERE signal_id=(SELECT id FROM notification_signals WHERE signal_id=$1)",[f.event])).rows[0].status).not.toBe("sent");
+  });
+  it.each(["target","lease"])("uses the actual current native %s after preliminary delivery selection",async change=>{
+    const f=await queuedNativeNotification(),sent:Array<{endpoint:string;payload:string}>=[]; let changed=false;
+    const resolver={async resolve(queryable:Parameters<typeof f.resolver.resolve>[0],id:string) {
+      if(id===f.grantId && !changed) {
+        changed=true;
+        if(change==="target") await db.query("UPDATE push_channels SET sealed_target=$2 WHERE grant_id=$1",[f.grantId,channelSealer.seal(f.grantId,f.p.input.installation.installation_id,{endpoint:"https://push.example.test/current",p256dh:"synthetic-p256dh-key",auth:"synthetic-auth"})]);
+        else await db.query("UPDATE notification_deliveries SET lease_token=$2 WHERE signal_id=(SELECT id FROM notification_signals WHERE signal_id=$1)",[f.event,randomUUID()]);
+      }
+      return f.resolver.resolve(queryable,id);
+    }};
+    const service=new NotificationService(db,{webPush:{send:async(target,payload)=>{sent.push({endpoint:target.endpoint,payload});}}},1000,()=>undefined,channelSealer,resolver);
+    await service.drainOnce(); expect(changed).toBe(true);
+    const matching=sent.filter(record=>record.payload.includes(f.event));
+    expect(matching).toHaveLength(change==="target"?1:0);
+    if(change==="target") expect(matching[0].endpoint).toBe("https://push.example.test/current");
+    else expect((await db.query("SELECT status FROM notification_deliveries WHERE signal_id=(SELECT id FROM notification_signals WHERE signal_id=$1)",[f.event])).rows[0].status).toBe("sending");
+  });
+  it("releases native policy after transport admission, waits for the genuine result and prevents later admission after withdrawal",async()=>{
+    const f=await queuedNativeNotification(); let admit!:()=>void,release!:()=>void,withdrawn:Promise<unknown>|undefined;
+    const entered=new Promise<void>(resolve=>{admit=resolve;}),completion=new Promise<void>(resolve=>{release=resolve;});
+    let sent=0,settled=false;
+    const service=new NotificationService(db,{webPush:{send:async(_target,payload)=>{
+      if(payload.includes(f.event)) { sent++; withdrawn=db.query("UPDATE next_background_grants SET revoked_at=now() WHERE id=$1",[f.grantId]); admit(); await completion; }
+    }}},1000,()=>undefined,channelSealer,f.resolver);
+    const drain=service.drainOnce().then(result=>{settled=true;return result;});
+    try {
+      await entered; await withdrawn; expect(settled).toBe(false); expect(sent).toBe(1);
+      release(); await drain;
+      const row=(await db.query("SELECT status FROM notification_deliveries WHERE signal_id=(SELECT id FROM notification_signals WHERE signal_id=$1)",[f.event])).rows[0];
+      expect(row.status).toBe("sent");
+      await db.query("UPDATE notification_deliveries SET status='pending',available_at=now() WHERE signal_id=(SELECT id FROM notification_signals WHERE signal_id=$1)",[f.event]);
+      await service.drainOnce(); expect(sent).toBe(1);
+      expect((await db.query("SELECT status FROM notification_deliveries WHERE signal_id=(SELECT id FROM notification_signals WHERE signal_id=$1)",[f.event])).rows[0].status).toBe("discarded");
+    } finally { release(); await drain; }
+  });
+  it("does not hide admission invariant failures as retryable network errors or treat undefined transport rejection as success",async()=>{
+    const failed=await queuedNativeNotification(),sent:string[]=[];
+    const resolver={async resolve(queryable:Parameters<typeof failed.resolver.resolve>[0],id:string) {
+      if(id===failed.grantId) throw new Error("Synthetic admission invariant failure");
+      return failed.resolver.resolve(queryable,id);
+    }};
+    const service=new NotificationService(db,{webPush:{send:async(_target,payload)=>{sent.push(payload);}}},1000,()=>undefined,channelSealer,resolver);
+    await expect(service.drainOnce()).rejects.toThrow("Notification delivery admission failed.");
+    expect(sent.filter(payload=>payload.includes(failed.event))).toHaveLength(0);
+    expect((await db.query("SELECT status FROM notification_deliveries WHERE signal_id=(SELECT id FROM notification_signals WHERE signal_id=$1)",[failed.event])).rows[0].status).toBe("sending");
+    const rejected=await queuedNativeNotification();
+    const rejecting=new NotificationService(db,{webPush:{send:async(_target,payload)=>{
+      if(payload.includes(rejected.event)) return Promise.reject(undefined);
+    }}},1000,()=>undefined,channelSealer,rejected.resolver);
+    await rejecting.drainOnce();
+    expect((await db.query("SELECT status,last_error FROM notification_deliveries WHERE signal_id=(SELECT id FROM notification_signals WHERE signal_id=$1)",[rejected.event])).rows).toEqual([{status:"retry",last_error:"Push delivery failed."}]);
   });
   it("resolves actual native timer consent as opaque, exact collection authority, independent of transient pairing-window custody",async()=>{
     const f=await currentTimerFixture(),grant=(await f.resolver.resolve(db,f.grantId))!;

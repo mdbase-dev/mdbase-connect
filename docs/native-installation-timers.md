@@ -110,9 +110,28 @@ configured transport. A native registration cannot delete another grant/account'
 channel merely because it has the same FCM token. Unregistration is exact-grant
 and explicit; closing a host is not deletion of persistent channels.
 
-Transport delivery and the adopted-host timer port remain integration work.
-Producing a queued signal or registering a channel in tests is not delivered or
-enabled reminders.
+## Notification dispatch admission
+
+The shared Web Push, managed FCM and signed-webhook service selects native and
+legacy queue entries without a legacy-grant-only join. Before dispatch it resolves
+current authority inside an owned bounded transaction, locks real legacy consent
+when applicable, and rereads the actual current channel, subscription, signal and
+lease. It uses the same frozen native notification declaration as signal production.
+Removed permission, declaration drift, pending revocation, inactive channels and
+lost leases cannot authorize a send from an earlier queue snapshot.
+
+Transport invocation is admitted under the policy/channel/lease locks; SQL is
+released before awaiting the bounded transport's result. This is not recall or
+hard cancellation of an already admitted send. Success is recorded only after the
+transport succeeds and only for the original lease. Failures retain the existing
+retry/discard handling; admission invariant/database failures are reported rather
+than disguised as network retries. Transport delivery remains at-least-once under
+uncertain network outcomes, distinct from timer-generation/event/receipt uniqueness.
+
+Isolated PostgreSQL tests exercise these boundaries with recording transports, not
+real customer endpoints. The adopted-host timer port and end-to-end app qualification
+remain integration work; source/recording-transport tests do not enable reminders
+or establish native LAB acceptance.
 
 ## Upgrade evidence and down-path limit
 
