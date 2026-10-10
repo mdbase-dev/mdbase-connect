@@ -41,11 +41,11 @@ export const test = base.extend<{}, { authPortal: string }>({
     const portal = spawn(process.execPath, [
       fileURLToPath(new URL("../../portal/node_modules/vite/bin/vite.js", import.meta.url)),
       "--host", "127.0.0.1", "--port", String(port), "--strictPort"
-    ], { cwd: fileURLToPath(new URL("../../portal", import.meta.url)), stdio: "ignore" });
+    ], { cwd: fileURLToPath(new URL("../../portal", import.meta.url)), stdio: ["ignore", "ignore", "inherit"] });
     try {
       let ready = false;
       for (let attempt = 0; attempt < 100; attempt++) {
-        if (portal.exitCode !== null) throw new Error("Local auth portal exited before becoming ready.");
+        if (portal.exitCode !== null) throw new Error(`Local auth portal exited before becoming ready (exit ${portal.exitCode}).`);
         try { ready = (await fetch(origin)).ok; } catch { /* wait for Vite */ }
         if (ready) break;
         await new Promise((resolve) => setTimeout(resolve, 100));
