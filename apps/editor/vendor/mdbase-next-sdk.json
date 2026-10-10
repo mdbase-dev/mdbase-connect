@@ -1,0 +1,9 @@
+{
+  "package": "@mdbase-dev/sdk",
+  "version": "0.0.0",
+  "artifact": "mdbase-dev-sdk-0.0.0-5369226d.tgz",
+  "sourceCommit": "5369226d26baa338b98e25feed9c0454e52f5865",
+  "sha256": "3a8f7d0d6b56aa0f44657605618775cb35047e7d0c6b5512bdb28d3eb2361ba2",
+  "sourceOnly": true,
+  "unreleasedFileApiIncluded": false
+}
