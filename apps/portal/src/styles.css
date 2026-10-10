@@ -932,6 +932,14 @@ select {
   min-height: 44px;
 }
 
+.button.installation-account-action {
+  min-height: 44px;
+}
+
+.installation-account-label {
+  overflow-wrap: anywhere;
+}
+
 .installation-scopes {
   min-width: 0;
 }

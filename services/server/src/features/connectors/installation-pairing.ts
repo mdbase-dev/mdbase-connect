@@ -148,7 +148,7 @@ async function ordinary(
 }
 function portalAccountIdentity(user: Pick<User, "email" | "login" | "authentication_provider">) {
   if (user.email) return {email: user.email, provider: null, login: null};
-  if (user.authentication_provider === "github" && user.login?.trim() && user.login.length <= 100)
+  if (user.authentication_provider === "github" && user.login?.trim() && Buffer.byteLength(user.login, "utf8") <= 100)
     return {email: null, provider: "github" as const, login: user.login};
   return null;
 }

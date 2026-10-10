@@ -191,9 +191,12 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                   The origin shown here is not proof of who made the request.
                 </p>
                 {installationAccountLabel(pairing) ? (
-                  <p>Account: {installationAccountLabel(pairing)}</p>
+                  <p className="installation-account-label">Account: {installationAccountLabel(pairing)}</p>
                 ) : (
-                  <p>We couldn't identify your account. <a href={`/login?return_to=${encodeURIComponent(location.href)}`}>Sign in again</a> to continue.</p>
+                  <>
+                    <p>We couldn't identify your account. Sign in again to continue.</p>
+                    <a className="button secondary link-button installation-account-action" href={`/login?return_to=${encodeURIComponent(location.href)}`}>Sign in again</a>
+                  </>
                 )}
                 {!pairing.account_selection_confirmed ? (
                   <>
@@ -202,7 +205,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       not approve access yet.
                     </p>
                     <button
-                      className="button primary"
+                      className="button primary installation-account-action"
                       disabled={busy || !installationAccountLabel(pairing)}
                       onClick={() => void act("select-account")}
                     >

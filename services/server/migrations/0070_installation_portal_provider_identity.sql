@@ -12,5 +12,5 @@ ALTER TABLE installation_device_pairings
       AND ((portal_account_email IS NOT NULL AND portal_account_provider IS NULL AND portal_account_login IS NULL)
         OR (portal_account_email IS NULL AND portal_account_provider IS NOT NULL
           AND portal_account_provider='github' AND portal_account_login IS NOT NULL
-          AND length(portal_account_login) BETWEEN 1 AND 100)))
+          AND octet_length(portal_account_login) BETWEEN 1 AND 100)))
   );
