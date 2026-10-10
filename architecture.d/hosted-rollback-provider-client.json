@@ -1,0 +1,6 @@
+{
+  "reason": "Four TypeScript exports are the two strict provider-local rollback request/receipt metadata schemas and their two inferred DTO types, shared by the existing canonical provider transport. They carry exact collection/run/owner/epoch/fixed-head/Driver/original-action/requested-restored correlation only, never native readiness or authority. The same transport privately supports one attempt for these methods to keep uncertain mutations from being blindly repeated; other callers preserve their existing retry behavior. No route, dispatcher, new package edge or parallel driver is added.",
+  "growth": {
+    "typeScriptExportDeclarations": 4
+  }
+}

@@ -40,3 +40,20 @@ export const migrationFenceSchema = z.object({
   restored: z.array(migrationUuid).max(0)
 }).strict();
 export type LegacyMigrationFence = z.infer<typeof migrationFenceSchema>;
+
+// Metadata correlation only, not native rollback/currentness authority. Refuse
+// counters outside the JS safe-integer range rather than rounding native u64s.
+const rollbackReplicaIds = z.array(migrationUuid).max(1000)
+  .refine(ids => new Set(ids).size === ids.length)
+  .transform(ids => ids.sort());
+export const legacyMigrationRollbackRequestSchema = z.object({
+  owner_account_id: migrationUuid, provider_migration_id: migrationUuid,
+  authority_epoch: migrationCounter.refine(value => value > 0), fixed_head: migrationCounter,
+  driver_id: migrationUuid, action_id: migrationUuid, replica_ids: rollbackReplicaIds
+}).strict();
+export type LegacyMigrationRollbackRequest = z.infer<typeof legacyMigrationRollbackRequestSchema>;
+export const legacyMigrationRollbackReceiptSchema = z.object({
+  collection_id: migrationUuid, binding: legacyMigrationRollbackRequestSchema,
+  restored_ids: rollbackReplicaIds, recorded_at: z.iso.datetime({ offset: true }).max(64)
+}).strict().refine(receipt => receipt.restored_ids.every(id => receipt.binding.replica_ids.includes(id)));
+export type LegacyMigrationRollbackReceipt = z.infer<typeof legacyMigrationRollbackReceiptSchema>;
