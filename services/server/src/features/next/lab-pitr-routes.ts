@@ -15,12 +15,16 @@ import type { NextControlPlaneConfig } from "./policy-keys.js";
 import type { LogServiceClient } from "./log-service-client.js";
 import { keyId, type DeviceKind } from "./policy-wire.js";
 import { queueNextPolicy } from "./policy-outbox.js";
+import { projectNextGrant, type NextGrantSource } from "./grant-policy.js";
 
 const uuid = z.string().regex(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/).refine(v => v !== NIL);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 const kinds = z.enum(["desktop", "mobile", "app-runtime", "cli", "hosted", "escrow"]);
 const probe = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), collection: uuid, genesisSha256: hash,
   device: uuid, kind: kinds, signPublicKey: hash, policyKeyId: z.string().regex(/^[0-9a-f]{32}$/) }).strict();
+const appGrantProbe = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), principal: z.literal("app-grant"),
+  collection: uuid, grant: uuid, clientPublicKey: hash, genesisSha256: hash,
+  policyKeyId: z.string().regex(/^[0-9a-f]{32}$/) }).strict();
 const registry = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), after: uuid.nullable(),
   expected: z.string().regex(/^(?:0|[1-9][0-9]{0,19})$/).refine(v => /^(?:0|[1-9][0-9]{0,19})$/.test(v) && BigInt(v) <= (1n << 64n) - 1n).nullable() }).strict();
 const mutation = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), activeGenesisSha256: hash,
@@ -67,6 +71,57 @@ async function currentPeer(client: DatabaseConnection, pitr: LabPitrConfig, coll
   if (!enrolled.rows.length) return denied();
   return peer;
 }
+/** Stable grant lock first, matching publication order. This lookup is only a
+ * lock target; exact original binding is reread after grant + collection locks. */
+async function lockPitrAppGrant(db: DatabaseConnection, collection: string, logGrant: string): Promise<string> {
+  const refs = await db.query<{ grant_id: string }>(
+    "SELECT grant_id::text FROM next_grant_bindings WHERE collection_id=$1 AND log_grant_id=$2", [collection, logGrant]);
+  if (refs.rows.length !== 1) return denied();
+  const locked = await db.query("SELECT id FROM grants WHERE id=$1 FOR SHARE", [refs.rows[0]!.grant_id]);
+  if (locked.rows.length !== 1) return denied();
+  return refs.rows[0]!.grant_id;
+}
+async function assertPitrAppGrant(db: DatabaseConnection, pitr: LabPitrConfig,
+  collection: string, logGrant: string, clientPublicKey: string, lockedGrant: string): Promise<void> {
+  const result = await db.query<NextGrantSource & { terms_digest: Buffer }>(
+    `SELECT n.collection_id::text AS collection,n.sync,g.user_id,g.application_id,g.application_installation_id,
+      g.operations,g.file_capability,g.scope,
+      (g.application_authorization->'binding'->'contracts'->>'semantic_capabilities')::int AS semantic,
+      g.application_authorization->'binding'->>'application_declaration_id' AS declaration,
+      k.client_pk,b.terms_digest
+    FROM next_grant_bindings b JOIN grants g ON g.id=b.grant_id
+    JOIN next_grant_client_keys k ON k.grant_id=g.id
+    LEFT JOIN collections col ON col.id=g.collection_id
+    LEFT JOIN connectors connector ON connector.id=col.connector_id
+    LEFT JOIN hosted_collections hc ON hc.id=g.hosted_collection_id
+    JOIN next_collections n ON n.collection_id::text=COALESCE(col.local_id::text,hc.id::text)
+    WHERE b.collection_id=$1 AND b.log_grant_id=$2 AND b.active=true AND n.collection_id=b.collection_id AND g.id=$5
+      AND g.user_id=$3 AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+      AND g.created_at>=to_timestamp($4::double precision/1000)
+      AND g.membership_id IS NULL AND g.membership_policy_id IS NULL AND g.membership_policy_revision IS NULL
+      AND (g.collection_id IS NULL OR (col.enabled=true AND col.present=true AND col.authority_state='active' AND connector.revoked_at IS NULL))
+      AND (g.hosted_collection_id IS NULL OR (hc.authority_state='active' AND hc.quarantined_at IS NULL))
+    FOR SHARE OF b,g,k`, [collection, logGrant, pitr.owner, pitr.createdAfter, lockedGrant]);
+  if (result.rows.length !== 1) return denied();
+  const row = result.rows[0]!;
+  if (row.collection !== collection || row.sync !== "cloud_copy" || row.user_id !== pitr.owner
+      || !row.client_pk || row.client_pk.length !== 32 || row.client_pk.every(b => b === 0)
+      || row.client_pk.toString("hex") !== clientPublicKey) return denied();
+  let projected: ReturnType<typeof projectNextGrant>;
+  try { projected = projectNextGrant(row); } catch { return denied(); }
+  if (!row.terms_digest.equals(projected.terms)) return denied();
+  // Pending or delivered revoke closes the original immutable log identity.
+  const revoked = await db.query(`SELECT 1 FROM next_policy_outbox
+    WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1`,
+    [collection, JSON.stringify([{ op: "grant-revoke", grant: logGrant }])]);
+  if (revoked.rows.length) return denied();
+  const tuple = JSON.stringify([{ ...projected.policy, grant: logGrant,
+    clientPublicKey: { $hex: clientPublicKey } }]);
+  const applied = await db.query(`SELECT 1 FROM next_policy_outbox o JOIN next_policy_batches b ON b.id=o.batch_id
+    WHERE o.collection_id=$1 AND o.ops->>'version'='1' AND b.state='appended' AND b.lost_at IS NULL
+      AND o.ops->'ops' @> $2::jsonb LIMIT 1`, [collection, tuple]);
+  if (!applied.rows.length) return denied();
+}
 export function registerLabPitrRoutes(app: FastifyInstance, options: {
   db: DatabasePool; next: NextControlPlaneConfig;
   log: Pick<LogServiceClient, "labPitrCollectionDeletions">; now?: () => number;
@@ -90,6 +145,29 @@ export function registerLabPitrRoutes(app: FastifyInstance, options: {
         await currentCollection(client, pitr, options.next, b.collection, b.genesisSha256, (options.now ?? Date.now)());
         const peer = await currentPeer(client, pitr, b.collection, b.device);
         if (peer.kind !== b.kind || peer.sign_pk.toString("hex") !== b.signPublicKey) denied();
+        const checkedAt = (options.now ?? Date.now)();
+        if (!Number.isSafeInteger(checkedAt) || checkedAt < options.next.policyCert.not_before || checkedAt >= options.next.policyCert.not_after) denied();
+        return { ...b, current: true, checkedAt };
+      });
+    } catch (error) {
+      const status = error instanceof CreateError || (error instanceof Error && error.message === "collection_deleted") ? 409 : 503;
+      return reply.code(status).send(apiError(status === 409 ? "lab_pitr_authority_denied" : "lab_pitr_authority_unavailable", "Current authority not established."));
+    }
+  });
+  app.post("/internal/v1/next/lab-pitr/current-app-grant", limit, async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const presented = bearerToken(request);
+    if (!presented || !safeEqual(presented, token)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
+    const input = appGrantProbe.safeParse(request.body);
+    if (!input.success) return reply.code(400).send(apiError("invalid_request", "Exact original app-grant identity required."));
+    const b = input.data;
+    try {
+      if ((b.collection !== pitr.active && b.collection !== pitr.deleted) || b.policyKeyId !== policyKeyId) denied();
+      return await inTransaction(options.db, async client => {
+        const lockedGrant = await lockPitrAppGrant(client, b.collection, b.grant);
+        await lock(client, b.collection);
+        await currentCollection(client, pitr, options.next, b.collection, b.genesisSha256, (options.now ?? Date.now)());
+        await assertPitrAppGrant(client, pitr, b.collection, b.grant, b.clientPublicKey, lockedGrant);
         const checkedAt = (options.now ?? Date.now)();
         if (!Number.isSafeInteger(checkedAt) || checkedAt < options.next.policyCert.not_before || checkedAt >= options.next.policyCert.not_after) denied();
         return { ...b, current: true, checkedAt };

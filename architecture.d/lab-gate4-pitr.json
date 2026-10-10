@@ -1,9 +1,9 @@
 {
-  "reason": "The fixed five-object LAB recovery drill needs one immutable A/D routing boundary and one authenticated current-CP adapter. Two server production files reuse canonical bootstrap, policy-outbox, deletion journal, original-genesis and session checks rather than introducing an issuer, escrow actor or parallel collection semantics. The nine internal exports comprise seven mapping declarations/helpers, the reused originalGenesis helper, and route registration. Twenty relative imports wire these boundaries into existing routes/emission. Ordinary origins and shared nil scans remain unchanged; the explicit isolated nil reader rejects missing mapping and foreign members. This is temporary run-specific LAB support, removable with the drill profile, not a generalized recovery framework.",
+  "reason": "The fixed five-object LAB recovery drill needs one immutable A/D routing boundary and one authenticated current-CP adapter. Two server production files reuse canonical bootstrap, policy-outbox, deletion journal, original-genesis and session checks rather than introducing an issuer, escrow actor or parallel collection semantics. The eleven internal exports comprise seven mapping declarations/helpers, the reused originalGenesis helper, route registration, and the canonical grant projection plus source type shared by publication and current observation. Twenty-one relative imports wire these boundaries into existing routes/emission, including that one grant projection import. App-grant checks stay private in the existing route adapter; no third production module or duplicate terms algorithm is added. Ordinary origins and shared nil scans remain unchanged; the explicit isolated nil reader rejects missing mapping and foreign members. This is temporary run-specific LAB support, removable with the drill profile, not a generalized recovery framework.",
   "growth": {
     "productionFiles": 2,
-    "relativeImports": 20,
-    "typeScriptExportDeclarations": 9,
+    "relativeImports": 21,
+    "typeScriptExportDeclarations": 11,
     "services/server": 2
   }
 }

@@ -32,6 +32,16 @@ limit bodies to 4096 bytes, return no-store metadata, and never unwrap keys:
   three-key enrolment. A positive result with `checkedAt` is a point observation,
   not a cached lease. The actor must still verify the signed original identity
   and repeat current checks before keys, custody, serving and final effects.
+- `/internal/v1/next/lab-pitr/current-app-grant`: exact `run`,
+  `principal: "app-grant"`, `collection`, original `grant` (LS UUID, NOT `grants.id`),
+  `clientPublicKey`, `genesisSha256`, and `policyKeyId`. Same original collection,
+  deletion and security floors; owner-only newly admitted fixture grants. Locks the
+  stable grant first then the collection, rereads the original binding/key under
+  locks, and uses the canonical publication projection to check current terms.
+  Requires the exact grant tuple appended/nonlost; pending or delivered revocation
+  closes. Never publishes/re-enrols or treats a device observation as app authority.
+  Positive reply is uncached point metadata only; signed-original/native caller and
+  fresh checks around every effect remain actor integration work.
 - `/internal/v1/next/lab-pitr/registry`: exact `run`, nullable `after` and
   nullable decimal-u64 `expected`. Generation-pinned isolated nil page only;
   absent profile/foreign member/unavailability refuses, with no shared fallback.

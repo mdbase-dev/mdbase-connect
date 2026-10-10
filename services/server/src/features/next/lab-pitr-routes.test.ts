@@ -4,12 +4,19 @@ import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import { describe, expect, it } from "vitest";
 import type { DatabasePool } from "../../database-types.js";
+import { APPLICATION_CAPABILITY_DEFINITIONS } from "@mdbase-dev/connect-protocol";
+import { projectNextGrant, type NextGrantSource } from "./grant-policy.js";
 import { registerLabPitrRoutes } from "./lab-pitr-routes.js";
 import { ed25519RawPublicKey, type NextControlPlaneConfig } from "./policy-keys.js";
 import { keyId, signPolicyItem } from "./policy-wire.js";
 const A = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", D = "dddddddd-dddd-4ddd-addd-dddddddddddd";
 const OWNER = "11111111-1111-4111-a111-111111111111", DEVICE = "22222222-2222-4222-a222-222222222222", HOSTED = "33333333-3333-4333-a333-333333333333";
 const TOKEN = "p".repeat(40), ROOT = Buffer.alloc(16, 6), NOW = 1000;
+const GRANT = "44444444-4444-4444-a444-444444444444";
+const grantSource: NextGrantSource = { collection:A,sync:"cloud_copy",user_id:OWNER,application_id:"synthetic.reader",
+  application_installation_id:HOSTED,declaration:"synthetic.reader",operations:[...APPLICATION_CAPABILITY_DEFINITIONS["collection.read"]],
+  file_capability:{kind:"files",protocol_version:1,actions:["list","read"],scope:{kind:"collection"}},
+  scope:{access:"full_collection",contracts:[]},semantic:2,client_pk:Buffer.alloc(32,5) };
 const peer = (id = DEVICE) => ({ id, account: id === HOSTED ? "00000000-0000-0000-0000-000000000000" : OWNER,
   kind: id === HOSTED ? "hosted" : "cli", sign_pk: Buffer.alloc(32,2), kem_pk: Buffer.alloc(32,3), noise_pk: Buffer.alloc(32,4) });
 async function fixture(failure?: string) {
@@ -37,8 +44,20 @@ async function fixture(failure?: string) {
     if (sql.includes("SELECT device_id::text FROM next_service_devices")) return {rows:failure === "survivor" ? [] : [{device_id:HOSTED}]};
     if (sql.includes("device_id::text AS id")) return {rows:values[1] === HOSTED ? [peer(HOSTED)] : []};
     if (sql.includes("FROM next_devices d")) return {rows:failure === "identity" ? [] : [{...peer(),kind:failure === "kind" ? "mobile" : "cli",sign_pk:failure === "key" ? Buffer.alloc(32,9) : peer().sign_pk}]};
+    if (sql.includes("SELECT grant_id::text FROM next_grant_bindings")) return {rows:failure==="grant-binding"?[]:[{grant_id:DEVICE}]};
+    if (sql==="SELECT id FROM grants WHERE id=$1 FOR SHARE") return {rows:failure==="grant-lock"?[]:[{id:DEVICE}]};
+    if (sql.includes("FROM next_grant_bindings b JOIN grants g")) { expect(sql).toContain("AND g.id=$5"); expect(values).toEqual([A,GRANT,OWNER,1,DEVICE]); return {rows:["grant-row","grant-rebound"].includes(failure??"")?[]:[{...grantSource,
+      collection:failure==="grant-collection"?D:A,scope:failure==="grant-scope"?{access:"selected_contracts",contracts:[]}:grantSource.scope,
+      client_pk:failure==="grant-key"?Buffer.alloc(32,9):failure==="grant-zero"?Buffer.alloc(32):grantSource.client_pk,
+      terms_digest:failure==="grant-terms"?Buffer.alloc(32,9):projectNextGrant(grantSource).terms}]}; }
     if (sql.includes("FROM next_policy_outbox")) {
       const op = JSON.parse(String(values[1]))[0];
+      if (op.op === "grant-revoke") return {rows:failure==="grant-revoked"?[{one:1}]:[]};
+      if (op.op === "grant") {
+        expect(op).toEqual({...projectNextGrant(grantSource).policy,grant:GRANT,clientPublicKey:{$hex:grantSource.client_pk!.toString("hex")}});
+        if(failure==="grant-clock") now=cert.notAfter;
+        return {rows:failure==="grant-pending"?[]:[{one:1}]};
+      }
       if (op.op === "device-revoke") return {rows:failure === "revoked" ? [{one:1}] : []};
       if (op.op === "cp-key-revoke") return {rows:failure === "security-key" ? [{one:1}] : []};
       if (op.op === "device-enrol") {
@@ -58,7 +77,9 @@ async function fixture(failure?: string) {
   const body = {run:next.logService.labPitr.run,collection:A,device:DEVICE,kind:"cli",signPublicKey:peer().sign_pk.toString("hex"),genesisSha256:hashes[A],policyKeyId:Buffer.from(keyId(cert.policyPublicKey)).toString("hex")};
   const current = (change:object={},authorization=`Bearer ${TOKEN}`) => app.inject({method:"POST",url:"/internal/v1/next/lab-pitr/current",headers:{authorization},payload:{...body,...change}});
   const mutate = (change:object={},origin="https://connect-lab.mdbase.dev") => app.inject({method:"POST",url:"/v1/next/lab-pitr/delete-revoke",headers:{origin,cookie:"mdbase_session=synthetic-session"},payload:{run:body.run,device:DEVICE,activeGenesisSha256:hashes[A],deletedGenesisSha256:hashes[D],...change}});
-  return {app,current,mutate,queries,writes,body,counts:()=>({connects,releases})};
+  const grantBody={run:body.run,principal:"app-grant",collection:A,grant:GRANT,clientPublicKey:grantSource.client_pk!.toString("hex"),genesisSha256:hashes[A],policyKeyId:body.policyKeyId};
+  const currentGrant=(change:object={},authorization=`Bearer ${TOKEN}`)=>app.inject({method:"POST",url:"/internal/v1/next/lab-pitr/current-app-grant",headers:{authorization},payload:{...grantBody,...change}});
+  return {app,current,mutate,currentGrant,grantBody,queries,writes,body,counts:()=>({connects,releases})};
 }
 describe("fixed-run current CP adapter", () => {
   it("authenticates and validates scope before authority SQL", async () => {
@@ -85,6 +106,41 @@ describe("fixed-run current CP adapter", () => {
   });
   it("refuses wrong signed-original hash", async () => {
     const f=await fixture(); try {expect((await f.current({genesisSha256:"ff".repeat(32)})).statusCode).toBe(409);} finally {await f.app.close();}
+  });
+});
+describe("canonical grant projection shared by publication/current observation",()=>{
+  it("preserves the original publication terms algorithm and wire fields",()=>{
+    const p=projectNextGrant(grantSource);
+    expect(p.terms).toEqual(createHash("sha256").update(JSON.stringify([A,OWNER,"synthetic.reader","synthetic.reader",HOSTED,["collection.read"],"05".repeat(32),null])).digest());
+    expect(p.policy).toEqual({op:"grant",installation:HOSTED,appId:"synthetic.reader",account:OWNER,capabilities:["collection.read"],clientPublicKey:Buffer.alloc(32,5)});
+    const files={...grantSource.file_capability!,scope:{kind:"selected_folders" as const,folders:["z","a"]}};
+    expect(projectNextGrant({...grantSource,file_capability:files}).policy).toHaveProperty("fileFolders",["a","z"]);
+    expect(projectNextGrant({...grantSource,file_capability:files,sync:"private"}).policy).toHaveProperty("folderScoped",true);
+  });
+  it("retains exact-permission/scope/client-key refusals",()=>{
+    for(const change of [{semantic:1},{operations:[]},{client_pk:Buffer.alloc(31)},{scope:{access:"full_collection",contracts:["unsupported"]}}]) expect(()=>projectNextGrant({...grantSource,...change} as NextGrantSource)).toThrow();
+  });
+});
+describe("original app-grant current CP observation",()=>{
+  it("uses a distinct original principal and authenticates before SQL",async()=>{
+    const f=await fixture();try{
+      expect((await f.currentGrant({},"Bearer wrong")).statusCode).toBe(401);
+      for(const c of [{principal:"device"},{device:DEVICE},{current:true},{grant:"00000000-0000-0000-0000-000000000000"}]) expect((await f.currentGrant(c)).statusCode).toBe(400);
+      expect((await f.current(f.grantBody)).statusCode).toBe(400);
+      expect((await f.currentGrant({collection:HOSTED})).statusCode).toBe(409);expect(f.queries).toEqual([]);
+    }finally{await f.app.close();}
+  });
+  it("locks the stable grant first, checks exact current terms/applied key/floors, and never publishes",async()=>{
+    const f=await fixture();try{
+      const r=await f.currentGrant();expect(r.statusCode).toBe(200);expect(r.json()).toEqual({...f.grantBody,current:true,checkedAt:NOW});
+      expect(r.headers["cache-control"]).toBe("no-store");expect(f.writes).toEqual([]);
+      expect(f.queries.findIndex(q=>q==="SELECT id FROM grants WHERE id=$1 FOR SHARE")).toBeLessThan(f.queries.findIndex(q=>q.includes("pg_advisory_xact_lock")));
+      expect(f.queries.some(q=>q.includes("FOR SHARE OF b,g,k")&&q.includes("g.created_at>=to_timestamp")&&q.includes("g.membership_id IS NULL"))).toBe(true);
+      expect(f.queries.at(-1)).toBe("COMMIT");
+    }finally{await f.app.close();}
+  });
+  it.each(["grant-binding","grant-lock","grant-row","grant-rebound","grant-collection","grant-scope","grant-key","grant-zero","grant-terms","grant-revoked","grant-pending","grant-clock","deleted","security-key","member","genesis","root","database"])("closes %s without a positive or publication",async failure=>{
+    const f=await fixture(failure);try{const r=await f.currentGrant();expect([409,503]).toContain(r.statusCode);expect(r.json()).not.toHaveProperty("current");expect(f.writes).toEqual([]);if(failure!=="database")expect(f.queries.at(-1)).toBe("ROLLBACK");}finally{await f.app.close();}
   });
 });
 describe("isolated registry cut HTTP adapter", () => {
