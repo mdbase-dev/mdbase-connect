@@ -173,7 +173,7 @@ export function registerConnectorPairingRoutes(
             ),
           );
       return installationResult(reply, () =>
-        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy),
+        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy, user.email),
       );
     }
     const pairing = await options.db.query<{
@@ -317,6 +317,7 @@ export function registerConnectorPairingRoutes(
             pairingId,
             session.user.id,
             session.sessionId,
+            session.user.email,
           ),
         );
       },

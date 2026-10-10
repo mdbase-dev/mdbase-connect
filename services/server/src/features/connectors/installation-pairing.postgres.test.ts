@@ -150,6 +150,44 @@ describePg("installation device sign-in on daemon pairing", () => {
   function renewal(input:Input):Input {
     return {...input,installation:{...input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),renewal:{request_id:input.installation.request_id,pairing_secret:input.installation.pairing_secret}}};
   }
+  it.each([false, true])("confirms a returning password account's authenticated primary email with null legacy email (reconsent=%s)", async reconsent => {
+    const prior = await prepared(); expect((await approveDevice(prior.flow, prior.owner)).statusCode).toBe(200);
+    const credential = (await prior.flow.exchange()).json(); expect(credential.status).toBe("paired");
+    const email = `${randomUUID()}@example.test`;
+    await db.query("INSERT INTO email_identities(id,user_id,email,normalized_email,verified_at,is_primary) VALUES($1,$2,$3,$3,now(),true)", [randomUUID(), prior.owner.user, email]);
+    await db.query("UPDATE users SET email=NULL WHERE id=$1", [prior.owner.user]);
+    const input = original();
+    if (reconsent) { input.installation.installation_id = prior.input.installation.installation_id; input.installation.device_id = prior.input.installation.device_id; input.installation.reconsent = true; }
+    const created = await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{...originHeaders(input),...(reconsent ? {authorization:`Bearer ${credential.token}`} : {})},payload:input});
+    expect(created.statusCode).toBe(201); const flow = channel(input);
+    // The exact pre-fix legacy-email assignment must still violate applied0067;
+    // fixing the request path must NOT relax or rewrite that all-or-none guard.
+    await expect(db.query(`UPDATE installation_device_pairings SET
+      portal_account_confirmed_at=now(),portal_account_email=u.email,
+      portal_account_session_id=$3,portal_account_session_epoch=u.session_epoch
+      FROM users u WHERE pairing_id=$1 AND u.id=$2`,[input.installation.request_id,prior.owner.user,prior.owner.session])).rejects.toMatchObject({code:"23514",constraint:"installation_portal_confirmation_complete"});
+    const selected = await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:prior.owner.headers,payload:{email:"not-authority@example.test"}});
+    expect(selected.statusCode).toBe(200);
+    const confirmation = (await db.query("SELECT portal_account_confirmed_at,portal_account_email,portal_account_session_id,portal_account_session_epoch FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0];
+    expect(confirmation).toMatchObject({portal_account_email:email,portal_account_session_id:prior.owner.session});
+    expect(confirmation.portal_account_confirmed_at).not.toBeNull(); expect(confirmation.portal_account_session_epoch).not.toBeNull();
+    expect((await app.inject({method:"GET",url:flow.base,headers:prior.owner.headers})).json().pairing.signed_in_account_email).toBe(email);
+    // Another authenticated email must not rewrite this request's explicit evidence.
+    await db.query("UPDATE email_identities SET email=$2,normalized_email=$2 WHERE user_id=$1",[prior.owner.user,`changed-${email}`]);
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:prior.owner.headers})).statusCode).toBe(200);
+    expect((await db.query("SELECT portal_account_confirmed_at,portal_account_email,portal_account_session_id,portal_account_session_epoch FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0]).toEqual(confirmation);
+    expect((await db.query("SELECT portal_account_email FROM installation_device_pairings WHERE pairing_id=$1",[prior.input.installation.request_id])).rows[0].portal_account_email).toBe(`${prior.owner.user}@example.test`);
+    expect((await db.query("SELECT device_id FROM installation_device_credentials WHERE pairing_id=$1",[input.installation.request_id])).rows).toEqual([]);
+  });
+  it("refuses unavailable authenticated email without partial confirmation, backfill or an internal constraint failure", async () => {
+    const owner = await account(); await db.query("UPDATE users SET email=NULL WHERE id=$1",[owner.user]);
+    const input = original(), flow = await start(input);
+    const selected = await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:owner.headers});
+    expect(selected.statusCode).toBe(403); expect(selected.json().error.code).toBe("installation_account_email_unavailable");
+    const unchanged = (await db.query("SELECT p.user_id,i.account_selected_at,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_session_id,i.portal_account_session_epoch FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id WHERE p.id=$1",[input.installation.request_id])).rows[0];
+    expect(Object.values(unchanged)).toEqual([null,null,null,null,null,null]);
+    expect((await flow.exchange()).json()).toEqual({status:"pending"});
+  });
   it("refuses legacy account selection without claiming the request or issuing a device", async () => {
     const owner = await account(), input = original(), flow = await start(input);
     await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [owner.user]);
