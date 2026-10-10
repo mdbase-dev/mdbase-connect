@@ -252,7 +252,8 @@ export async function inspectInstallationPairing(
   db: DatabasePool,
   id: string,
   user: string,
-  canCreateCollection = false,
+  canCreateCollection: boolean,
+  authenticatedEmail: string | null,
 ) {
   const r = await row(db, id);
   live(r);
@@ -272,7 +273,7 @@ export async function inspectInstallationPairing(
       account_selected: !!r.account_selected_at,
       ...portalConfirmation(r),
       // Current signed-in account is display-only before explicit confirmation.
-      signed_in_account_email: (await db.query<{email:string}>("SELECT email FROM users WHERE id=$1",[user])).rows[0]?.email,
+      signed_in_account_email: authenticatedEmail,
       selected_collection_id: r.selected_collection_id,
       creation: (await db.query<{collection_id:string;display_name:string;completed:boolean}>("SELECT collection_id,display_name,completed_at IS NOT NULL AS completed FROM installation_pairing_collection_creations WHERE pairing_id=$1",[id])).rows[0] ?? null,
       attested: r.scope_only || !!r.attested_at,
@@ -293,6 +294,7 @@ export async function selectInstallationAccount(
   id: string,
   user: string,
   session: string,
+  authenticatedEmail: string | null,
 ) {
   return tx(db, async (c) => {
     await active(c, user, true);
@@ -304,6 +306,11 @@ export async function selectInstallationAccount(
       fail("installation_account_changed", 403);
     if (!r.portal_account_confirmed_at && (r.approved_at || r.consumed_at))
       fail("installation_approval_already_recorded");
+    // Canonical sessionUser email includes its provider/primary identity;
+    // users.email is nullable legacy data. currentSession above binds the SAME
+    // authenticated session/account/epoch before freezing this click's evidence.
+    if (!r.portal_account_confirmed_at && !authenticatedEmail)
+      fail("installation_account_email_unavailable", 403);
     if (!r.account_selected_at) {
       await c.query("UPDATE pairing_requests SET user_id=$2 WHERE id=$1", [
         id,
@@ -318,9 +325,9 @@ export async function selectInstallationAccount(
     // re-consent, is the SDK's exact-request portal confirmation evidence.
     if (!r.portal_account_confirmed_at) {
       await c.query(`UPDATE installation_device_pairings SET
-        portal_account_confirmed_at=now(),portal_account_email=u.email,
+        portal_account_confirmed_at=now(),portal_account_email=$4,
         portal_account_session_id=$3,portal_account_session_epoch=u.session_epoch
-        FROM users u WHERE pairing_id=$1 AND u.id=$2`,[id,user,session]);
+        FROM users u WHERE pairing_id=$1 AND u.id=$2`,[id,user,session,authenticatedEmail]);
     }
     return { ok: true };
   });
