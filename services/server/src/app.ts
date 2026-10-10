@@ -29,6 +29,8 @@ import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js
 import { registerAccountKeyRoutes } from "./features/next/account-keys.js";
 import { registerPrivateCollectionRoutes } from "./features/next/private-collections.js";
 import { registerNextHostedRoutes } from "./features/next/hosted-routes.js";
+import { registerLabPitrRoutes } from "./features/next/lab-pitr-routes.js";
+import { validatePitrCollections } from "./features/next/lab-pitr-config.js";
 import { registerMigrationRolloutRoutes } from "./features/next/migration-rollout.js";
 import { registerCollectionMigrationRecordRoute } from "./features/next/migration-record-routes.js";
 import { registerMigrationSourceWitnessRoutes } from "./features/next/migration-source.js";
@@ -241,6 +243,7 @@ export async function buildApp(options: BuildOptions) {
       )
     : undefined;
 
+  await validatePitrCollections(options.db, options.nextControlPlane?.logService.labPitr);
   const serviceDeployments = options.nextControlPlane?.cloudCopyBootstrap;
   const nextPolicySigner = options.nextControlPlane ? loadPolicySigner(options.nextControlPlane, Date.now()) : undefined;
   const nextPolicyEmitter = options.nextControlPlane
@@ -252,7 +255,7 @@ export async function buildApp(options: BuildOptions) {
         2_000,
         Date.now,
         serviceDeployments
-          ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId)
+          ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr)
           : undefined
       )
     : undefined;
@@ -560,6 +563,7 @@ export async function buildApp(options: BuildOptions) {
     registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
+    registerLabPitrRoutes(app, { db: options.db, next: options.nextControlPlane, log: nextLog });
     registerCollectionMigrationRecordRoute(app, options.db);
     if (options.nextControlPlane.migrationToken) {
       registerMigrationRolloutRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment });
@@ -572,7 +576,7 @@ export async function buildApp(options: BuildOptions) {
       db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, rateLimitSecret: options.authRateLimitSecret
     });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
-    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl });
+    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl, labPitr: options.nextControlPlane.logService.labPitr });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
       db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,
       environment: options.environment, publicUrl, emitter: nextPolicyEmitter!

@@ -50,11 +50,31 @@ export async function assertNextGrantPermissions(db: DatabaseQueryable, grantId:
   if (row) exactNextGrantCapabilities(row.semantic, operations, row.file_capability);
 }
 
-interface GrantRow {
-  id: string; collection: string; sync: "private" | "cloud_copy";
+export interface NextGrantSource {
+  collection: string; sync: "private" | "cloud_copy";
   user_id: string; application_id: string; application_installation_id: string;
   operations: string[]; file_capability: FileCapability | null; scope: GrantScope;
   semantic: number | null; declaration: string | null; client_pk: Buffer | null;
+}
+
+/** Canonical current terms shared by publication and the isolated PITR observation.
+ * Pure projection only: no policy publication or authority lease. */
+export function projectNextGrant(row: NextGrantSource): {
+  terms: Buffer; policy: Omit<Extract<PolicyOp, { op: "grant" }>, "grant">;
+} {
+  const capabilities = exactNextGrantCapabilities(row.semantic, row.operations, row.file_capability);
+  if (row.scope.access !== "full_collection" || row.scope.contracts.length !== 0 || !row.declaration
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.application_installation_id)
+      || row.client_pk?.length !== 32) return refusal();
+  const folders = row.file_capability?.scope.kind === "selected_folders" ? row.file_capability.scope.folders : undefined;
+  if (folders?.length === 0) return refusal();
+  const terms = createHash("sha256").update(JSON.stringify([
+    row.collection, row.user_id, row.application_id, row.declaration, row.application_installation_id,
+    capabilities, row.client_pk.toString("hex"), folders ? [...folders].sort() : null
+  ])).digest();
+  return { terms, policy: { op: "grant", installation: row.application_installation_id,
+    appId: row.declaration, account: row.user_id, capabilities, clientPublicKey: row.client_pk,
+    ...(folders ? row.sync === "private" ? { folderScoped: true } : { fileFolders: [...folders].sort() } : {}) } };
 }
 
 /** No-op for legacy/shadow/device-log grants. Refuse unrepresentable next grants. */
@@ -62,7 +82,7 @@ export async function queueNextGrantPolicy(db: DatabaseQueryable, grantId: strin
   // Lock before the read: a concurrent narrowing/revoke must be observed after
   // waiting, never projected from a pre-lock snapshot. The caller owns the tx.
   await db.query("SELECT id FROM grants WHERE id = $1 FOR UPDATE", [grantId]);
-  const result = await db.query<GrantRow>(
+  const result = await db.query<NextGrantSource & { id: string }>(
     `SELECT g.id, nc.collection_id::text AS collection, nc.sync, g.user_id, g.application_id,
             g.application_installation_id, g.operations, g.file_capability, g.scope,
             (g.application_authorization->'binding'->'contracts'->>'semantic_capabilities')::int AS semantic,
@@ -76,16 +96,7 @@ export async function queueNextGrantPolicy(db: DatabaseQueryable, grantId: strin
   );
   const row = result.rows[0];
   if (!row) return null;
-  const capabilities = exactNextGrantCapabilities(row.semantic, row.operations, row.file_capability);
-  if (row.scope.access !== "full_collection" || row.scope.contracts.length !== 0 || !row.declaration
-      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.application_installation_id)
-      || row.client_pk?.length !== 32) return refusal();
-  const folders = row.file_capability?.scope.kind === "selected_folders" ? row.file_capability.scope.folders : undefined;
-  if (folders?.length === 0) return refusal();
-  const terms = createHash("sha256").update(JSON.stringify([
-    row.collection, row.user_id, row.application_id, row.declaration, row.application_installation_id,
-    capabilities, row.client_pk.toString("hex"), folders ? [...folders].sort() : null
-  ])).digest();
+  const { terms, policy } = projectNextGrant(row);
   const prior = (await db.query<{ collection_id: string; log_grant_id: string; terms_digest: Buffer; active: boolean }>(
     "SELECT collection_id, log_grant_id, terms_digest, active FROM next_grant_bindings WHERE grant_id = $1 FOR UPDATE", [grantId]
   )).rows[0];
@@ -96,10 +107,7 @@ export async function queueNextGrantPolicy(db: DatabaseQueryable, grantId: strin
     if (prior.collection_id !== row.collection) throw new Error("An active grant cannot move between collections.");
     ops.push({ op: "grant-revoke", grant: prior.log_grant_id });
   }
-  ops.push({ op: "grant", grant: logGrantId, installation: row.application_installation_id,
-    appId: row.declaration, account: row.user_id, capabilities, clientPublicKey: row.client_pk,
-    ...(folders ? row.sync === "private" ? { folderScoped: true } : { fileFolders: [...folders].sort() } : {})
-  });
+  ops.push({ ...policy, grant: logGrantId });
   if (!await queueNextPolicy(db, row.collection, ops)) throw new Error("Next grant collection disappeared before policy publication.");
   await db.query(
     `INSERT INTO next_grant_bindings(grant_id, collection_id, log_grant_id, terms_digest, active)

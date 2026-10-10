@@ -7,10 +7,11 @@
 //   claims = {0: role (0 device, 1 control plane), ? 1: device, 2: sign_pk,
 //             3: expires_at ms, 4: "mdbase-log", ? 5: collection}
 import { createHash, createPrivateKey, sign, type KeyObject } from "node:crypto";
-import { decodeCbor, domainHash, encodeCbor, uuidBytes, type Cbor, type Decoded } from "./policy-wire.js";
+import { decodeCbor, domainHash, encodeCbor, keyId, uuidBytes, type Cbor, type Decoded } from "./policy-wire.js";
 import { ed25519RawPublicKey, type LogServiceConfig } from "./policy-keys.js";
 import type { CollectionDeletionFact, CollectionDeletionPage } from "./collection-deletion.js";
 import { readBoundedBytes } from "../../platform/bounded-json.js";
+import { pitrLogUrl, type LabPitrConfig } from "./lab-pitr-config.js";
 
 export const LOG_TOKEN_LIFETIME_MS = 15 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -87,14 +88,25 @@ export class LogServiceClient {
   private readonly transport: KeyObject;
   private readonly transportPublicKey: Uint8Array;
   private readonly baseUrl: string;
+  private readonly pitr: LabPitrConfig | undefined;
+  private readonly pitrPublicIdentity: Readonly<{ transportPublicKey: string; issuerKeyId: string }> | undefined;
   private requestId = 0;
   private cached: { token: string; expiresAt: number } | undefined;
 
   constructor(config: LogServiceConfig, private readonly fetchImpl: typeof fetch = fetch, private readonly now: () => number = Date.now) {
     this.baseUrl = config.url.replace(/\/+$/u, "");
+    this.pitr = config.labPitr ? Object.freeze({ ...config.labPitr }) : undefined;
     this.issuer = edKey(config.tokenIssuerKeyPem, "MDBASE_NEXT_LOG_TOKEN_SIGNING_KEY");
     this.transport = edKey(config.transportKeyPem, "MDBASE_NEXT_LOG_TRANSPORT_KEY");
     this.transportPublicKey = ed25519RawPublicKey(this.transport);
+    // Public metadata only, captured once from already loaded startup keys. The
+    // observer never parses a PEM, signs, mints a token or reads private material.
+    this.pitrPublicIdentity = this.pitr ? Object.freeze({ transportPublicKey: Buffer.from(this.transportPublicKey).toString("hex"),
+      issuerKeyId: Buffer.from(keyId(ed25519RawPublicKey(this.issuer))).toString("hex") }) : undefined;
+  }
+
+  pitrControlIdentity(): Readonly<{ transportPublicKey: string; issuerKeyId: string }> | null {
+    return this.pitrPublicIdentity ? { ...this.pitrPublicIdentity } : null;
   }
 
   /** Mint a log-service access token. Device tokens name the device and, narrowing them, one collection. */
@@ -120,8 +132,8 @@ export class LogServiceClient {
     return this.cached.token;
   }
 
-  private async fetchBytes(path: string, init: RequestInit, limit?: number): Promise<Uint8Array> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, ...(limit === undefined ? {} : {redirect:"manual"}), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  private async fetchBytes(path: string, init: RequestInit, limit?: number, base = this.baseUrl): Promise<Uint8Array> {
+    const response = await this.fetchImpl(`${base}${path}`, { ...init, ...(limit === undefined ? {} : {redirect:"manual"}), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     if (limit !== undefined && response.status >= 300 && response.status < 400) {
       await response.body?.cancel();
       throw new LogServiceError("unavailable", "redirect");
@@ -133,13 +145,20 @@ export class LogServiceClient {
     return body;
   }
 
-  private async rpc(method: string, params: Cbor, deletion = false): Promise<Decoded> {
-    const nonceHex = new TextDecoder().decode(await this.fetchBytes("/v1/nonce", { method: "GET" }, deletion ? 256 : undefined)).trim();
-    if (!/^[0-9a-f]{64}$/u.test(nonceHex)) throw new LogServiceError("unavailable", "nonce");
+  private async rpc(method: string, params: Cbor, deletion = false, isolatedRegistry = false): Promise<Decoded> {
+    if (isolatedRegistry && (!this.pitr || method !== "registry_collection_deletions")) throw new Error("lab_pitr_registry_configuration_required");
     const requestId = ++this.requestId;
     const body = encodeCbor(struct([[0, 0], [1, requestId], [2, method], [3, params]]));
+    const decoded = field(decodeCbor(body), 3)!;
+    // Registry deletion writes name the original subject in field 1, not nil field 0.
+    const subject = field(decoded, method === "registry_record_collection_deletion" ? 1 : 0);
+    const hex = subject instanceof Uint8Array && subject.length === 16 ? Buffer.from(subject).toString("hex") : "";
+    const id = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+    const base = isolatedRegistry ? this.pitr!.logUrl : pitrLogUrl(this.baseUrl, this.pitr, id);
+    const nonceHex = new TextDecoder().decode(await this.fetchBytes("/v1/nonce", { method: "GET" }, deletion ? 256 : undefined, base)).trim();
+    if (!/^[0-9a-f]{64}$/u.test(nonceHex)) throw new LogServiceError("unavailable", "nonce");
     const token = this.controlPlaneToken();
-    const collectionField = field(field(decodeCbor(body), 3)!, 0);
+    const collectionField = field(decoded, 0);
     const collection = collectionField instanceof Uint8Array && collectionField.length === 16
       ? collectionField : new Uint8Array(16);
     // auth::http_digest: method is the LS RPC method, not HTTP POST.
@@ -157,7 +176,7 @@ export class LogServiceClient {
         "x-mdbase-sig": Buffer.from(sign(null, digest, this.transport)).toString("hex"),
       },
       body: Buffer.from(body),
-    }, deletion ? DELETION_REPLY_BYTES : undefined), deletion ? {canonicalStructs:true,maxDepth:12} : undefined);
+    }, deletion ? DELETION_REPLY_BYTES : undefined, base), deletion ? {canonicalStructs:true,maxDepth:12} : undefined);
     if (deletion && (!(frame instanceof Map) || frame.size !== 3 || field(frame,0) !== 1 || field(frame,1) !== requestId || (frame.has(2) === frame.has(3)))) return deletionUnavailable();
     const error = field(frame, 3);
     if (error !== undefined) {
@@ -221,16 +240,27 @@ export class LogServiceClient {
 
   /** Generation-pinned keyset page; never a cached positive liveness permit. */
   async registryCollectionDeletions(after: string | null = null, expected: bigint | null = null): Promise<CollectionDeletionPage> {
+    return this.deletionPage(after, expected, false);
+  }
+
+  /** Fixed-run nil cut, never the shared registry or a liveness permit. */
+  async labPitrCollectionDeletions(run: string, after: string | null = null, expected: bigint | null = null): Promise<CollectionDeletionPage> {
+    if (!this.pitr || run !== this.pitr.run || (after !== null && after !== this.pitr.active && after !== this.pitr.deleted)) throw new Error("lab_pitr_registry_configuration_required");
+    return this.deletionPage(after, expected, true);
+  }
+
+  private async deletionPage(after: string | null, expected: bigint | null, isolated: boolean): Promise<CollectionDeletionPage> {
     const cursor = after === null ? null : deletionUuidBytes(after);
     if (after !== null && expected === null) throw new Error("collection_deletion_generation_required");
     if (expected !== null && typeof expected !== "bigint") throw new Error("invalid_collection_deletion_generation");
     const generation = expected === null ? null : deletionUint(expected);
     const result = deletionFields(await this.rpc("registry_collection_deletions", struct([
       [0,new Uint8Array(16)],[1,cursor],[2,generation],
-    ]),true),5);
+    ]),true,isolated),5);
     const revision = deletionUint(result.get(1)), values = result.get(2), done = result.get(4);
     if (result.get(0) !== 1 || (expected !== null && revision !== expected) || !Array.isArray(values) || values.length > 128 || typeof done !== "boolean" || done !== (values.length < 128)) return deletionUnavailable();
     const rows = values.map(deletionRow);
+    if (isolated && rows.some(row => row.collection !== this.pitr!.active && row.collection !== this.pitr!.deleted)) return deletionUnavailable();
     let previous = after;
     for (const row of rows) { if (previous !== null && row.collection <= previous) return deletionUnavailable(); previous = row.collection; }
     const next = result.get(3) === null ? null : deletionUuid(result.get(3));

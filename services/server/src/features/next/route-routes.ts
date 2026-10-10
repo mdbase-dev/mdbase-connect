@@ -16,8 +16,9 @@ import { tokenHash } from "../../security.js";
 import { RelayBrokerUnavailableError, type RelayBroker } from "../../relay-broker.js";
 import { hostedClientOrigin, hostedRouteTarget, type RouteTarget } from "./hosted-route-target.js";
 export type { RouteTarget } from "./hosted-route-target.js";
+import { pitrCollection, type LabPitrConfig } from "./lab-pitr-config.js";
 
-export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string }): void {
+export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string; labPitr?: LabPitrConfig }): void {
   const hostedOrigin = options.hostedClientUrl ? hostedClientOrigin(options.hostedClientUrl) : undefined;
   // Always `wss:`, except for a loopback development server (SDK request).
   const relayUrl = new URL("/v1/next/relay/client", options.publicUrl);
@@ -29,7 +30,8 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const { id } = z.object({ id: z.uuid() }).parse(request.params);
     const token = bearerToken(request);
     if (!token) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
-    const hosted = hostedOrigin ? await hostedRouteTarget(options.db, tokenHash(token), id, hostedOrigin) : null;
+    const origin = pitrCollection(options.labPitr, id) ? options.labPitr!.hostedUrl : hostedOrigin;
+    const hosted = origin ? await hostedRouteTarget(options.db, tokenHash(token), id, origin) : null;
     const grant = await options.db.query<{ grant_id: string; authorization_grant: string; policy_required: boolean; policy_active: boolean; has_client_key: boolean; device_id: string | null; kind: RegisteredDeviceKind | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null }>(
       `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
               (nc.runtime = 'next') AS policy_required, COALESCE(binding.active, false) AS policy_active,
