@@ -16,6 +16,7 @@ import { currentMember, currentSession, inTransaction, lock, refuseRevoked } fro
 import type { ConnectorIdentity } from "../../platform/request-authentication.js";
 import { installationCollections, requireInstallationScope } from "../next/installation-scope.js";
 import { queueNextPolicy } from "../next/policy-outbox.js";
+import { findInstallationApplication } from "../applications/store.js";
 export class InstallationPairingError extends Error {
   constructor(
     readonly status: number,
@@ -39,20 +40,23 @@ const strict = (): never => {
     "this account uses strict device approval; add this device from your desktop",
   );
 };
-/** Fixed first-party identities. Environment picks the map, never arbitrary
- * caller URLs. Native origins match TaskNotes Capacitor's declared hostname/
- * scheme; Origin is mandatory (including native), with no missing-origin bypass. */
-export function installationApp(environment: string | undefined, appId: string, origin: string | undefined, kind: "app-runtime" | "mobile") {
-  const web: Record<string, readonly string[]> = {
-    production: ["https://app.tasknotes.dev"],
-    lab: ["https://lab.tasknotes-app.pages.dev", "http://127.0.0.1:48218"],
-    staging: ["https://staging.tasknotes-app.pages.dev"],
-  };
-  if (!environment || !Object.hasOwn(web, environment) || !origin) return fail("installation_app_not_allowed", 403);
-  const allowed = appId === "tasknotes-web" && kind === "app-runtime" ? web[environment]
-    : appId === "tasknotes-mobile" && kind === "mobile" ? ["https://app.tasknotes.dev", "capacitor://app.tasknotes.dev"] : [];
+/** Registry-owned installation authorization, not a caller URL/declaration.
+ * Origin is mandatory (including native) and matches the exact environment/kind. */
+export async function installationApp(db: DatabasePool, environment: string | undefined, appId: string, origin: string | undefined, kind: "app-runtime" | "mobile") {
+  if (!environment || !["lab", "staging", "production"].includes(environment) || !origin) return fail("installation_app_not_allowed", 403);
+  const app = await findInstallationApplication(db, appId);
+  if (!app) return fail("installation_app_not_allowed", 403);
+  const config = app.installation_origins;
+  if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("Invalid registered installation origins.");
+  const policy = Object.hasOwn(config, environment) ? config[environment as keyof typeof config] : undefined;
+  if (policy === undefined) return fail("installation_app_not_allowed", 403);
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) throw new Error("Invalid registered installation origin policy.");
+  const allowed = Object.hasOwn(policy, kind) ? policy[kind] : undefined;
+  if (allowed === undefined) return fail("installation_app_not_allowed", 403);
+  if (!Array.isArray(allowed) || allowed.some(value => typeof value !== "string" || !value.length)) throw new Error("Invalid registered installation origins.");
   if (!allowed.includes(origin)) return fail("installation_app_not_allowed", 403);
-  return Object.freeze({ id: appId, origin, name: "TaskNotes" });
+  if (!app.name || !app.family_identity) throw new Error("Invalid registered installation identity.");
+  return Object.freeze({ id: app.id, origin, name: app.name });
 }
 type Connection = Awaited<ReturnType<DatabasePool["connect"]>>;
 interface Row {
@@ -163,7 +167,7 @@ export async function installationPairingExists(
 export async function startInstallationPairing(
   db: DatabasePool,
   input: { request_id: string; pairing_secret: string; installation_id: string; device_id: string; kind: "app-runtime" | "mobile"; requested_create_collections?: boolean; reconsent?: boolean; renewal?: { request_id: string; pairing_secret: string } },
-  app: ReturnType<typeof installationApp>,
+  app: Awaited<ReturnType<typeof installationApp>>,
   publicUrl: string,
   existingConnector?: ConnectorIdentity,
 ) {
@@ -404,27 +408,30 @@ export async function denyInstallationPairing(
     return { ok: true };
   });
 }
-/** Separate explicit removal, never an implicit re-consent side effect. One fixed
- * first-party app family, one account and one collection; all its installations.
+/** Separate explicit removal, never an implicit re-consent side effect. One
+ * registered app family, one account and one collection; all its installations.
  * Native revocation is permanent for these device/collection pairs. */
 export async function removeInstallationAccess(db:DatabasePool,id:string,user:string,session:string,collection:string) {
   return tx(db,async c=>{
     await currentSession(c,session,user);
     const r=await row(c,id,undefined,true);
     live(r);
-    if (!r.scope_only || r.user_id!==user || !["tasknotes-web","tasknotes-mobile"].includes(r.app_id)) return fail("installation_account_changed",403);
+    if (!r.scope_only || r.user_id!==user) return fail("installation_account_changed",403);
+    const app = await findInstallationApplication(c,r.app_id);
+    if (!app?.family_identity) return fail("installation_app_not_allowed",403);
     await lock(c,collection);
     const target=await c.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime='next' FOR UPDATE",[collection]);
     if (!target.rows.length) return fail("installation_collection_unavailable",404);
-    // Fixed declaration family, not the caller-controlled display name or origin.
+    // Registered declaration family, not the caller-controlled name or origin.
     // #653's database hook enqueues each immutable log grant's revoke atomically.
     await c.query(`UPDATE grants g SET revoked_at=now() FROM applications a
-      WHERE a.id=g.application_id AND a.family_identity='bundle:dev.tasknotes.app'
+      WHERE a.id=g.application_id AND a.family_identity=$3
         AND g.user_id=$1 AND g.revoked_at IS NULL
-        AND (g.hosted_collection_id=$2 OR g.collection_id IN (SELECT id FROM collections WHERE local_id=$2))`,[user,collection]);
+        AND (g.hosted_collection_id=$2 OR g.collection_id IN (SELECT id FROM collections WHERE local_id=$2))`,[user,collection,app.family_identity]);
     const installations=await c.query<{connector_id:string;device_id:string}>(
       `SELECT k.connector_id,k.device_id FROM installation_device_credentials k JOIN connectors c ON c.id=k.connector_id
-       WHERE c.user_id=$1 AND k.app_id IN ('tasknotes-web','tasknotes-mobile') ORDER BY k.connector_id FOR UPDATE OF k`,[user]);
+       JOIN applications a ON a.id::text=k.app_id
+       WHERE c.user_id=$1 AND a.family_identity=$2 ORDER BY k.connector_id FOR UPDATE OF k`,[user,app.family_identity]);
     for (const k of installations.rows) {
       const enrolled=await c.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1",[collection,JSON.stringify([{op:"device-enrol",device:k.device_id}])]);
       const revoked=await c.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1",[collection,JSON.stringify([{op:"device-revoke",device:k.device_id}])]);

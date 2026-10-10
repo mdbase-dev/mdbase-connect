@@ -744,7 +744,7 @@ describe("mdbase connect server", () => {
       }
     });
     expect((await db.query("SELECT COUNT(*)::int AS count FROM applications")).rows[0])
-      .toEqual({ count: 0 });
+      .toEqual({ count: 1 }); // validation adds no row beyond the installation seed
 
     const first = await app.inject({
       method: "POST",
@@ -2656,6 +2656,10 @@ describe("mdbase connect server", () => {
       allowInsecureManifests: true
     });
     resources.push(() => app.close());
+    // Settle the seeded installation application's startup scan before arranging
+    // this app's two grants; otherwise the background worker can scan a partial fixture.
+    await (app as typeof app & { drainApplicationReconciliation(): Promise<void> })
+      .drainApplicationReconciliation();
     const manifest = applicationManifestFixture({
       configuration: [],
       contracts: [],

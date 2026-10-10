@@ -116,7 +116,7 @@ export function registerConnectorPairingRoutes(
         const result = await startInstallationPairing(
           options.db,
           input.installation,
-          installationApp(options.installationEnvironment,input.installation.app_id,request.headers.origin,input.installation.kind),
+          await installationApp(options.db,options.installationEnvironment,input.installation.app_id,request.headers.origin,input.installation.kind),
           options.publicUrl,
           existingConnector??undefined,
         );

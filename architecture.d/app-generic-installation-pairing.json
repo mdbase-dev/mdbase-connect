@@ -1,0 +1,7 @@
+{
+  "reason": "Installation pairing now resolves operator-owned origin/kind authorization through the existing application registry. One typed registry lookup and its result interface replace the hardcoded brand map; pairing imports that registry boundary once.",
+  "growth": {
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 2
+  }
+}

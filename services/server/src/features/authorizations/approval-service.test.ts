@@ -22,7 +22,7 @@ describe("fresh issuance policy for seeded pending requests", () => {
   it.each(["local", "hosted"] as const)("denies unknown-version %s approval before any cleanup or provider effects", async (kind) => {
     const fixture = await retainedReplicaFixture({ version: 2 });
     // Corrupt only the pending application's declaration; retained authority stays intact.
-    const application = (await fixture.db.query("SELECT id, requirements FROM applications")).rows[0];
+    const application = (await fixture.db.query("SELECT id, requirements FROM applications WHERE id=$1", [fixture.applicationId])).rows[0];
     application.requirements.capabilities.contract_version = 3;
     await fixture.db.query("UPDATE applications SET requirements = $2::jsonb WHERE id = $1",
       [application.id, JSON.stringify(application.requirements)]);
@@ -257,7 +257,7 @@ async function contractSetupFixture() {
   const required = { id: "dev.mdbase.test", version: "1.0.0", digest: `sha256:${"a".repeat(64)}` };
   const contract: CollectionContractDescriptor = { ...required, contract_type: "record", schema: { type: "object" },
     implementations: [{ type_name: "test", type_version: 1, digest: `sha256:${"b".repeat(64)}`, fields: {} }] };
-  const app = (await fixture.db.query("SELECT id, requirements FROM applications")).rows[0];
+  const app = (await fixture.db.query("SELECT id, requirements FROM applications WHERE id=$1", [fixture.applicationId])).rows[0];
   await fixture.db.query("UPDATE applications SET requirements = $2::jsonb, provisions = $3::jsonb WHERE id = $1", [
     app.id, JSON.stringify({ ...app.requirements, contracts: [required] }),
     JSON.stringify({ type_packs: [{ provides: [required] }], configuration: [] })
@@ -439,6 +439,7 @@ async function retainedReplicaFixture(options: {
 
   return {
     db,
+    applicationId,
     grantId,
     replicaId,
     oldProof,
