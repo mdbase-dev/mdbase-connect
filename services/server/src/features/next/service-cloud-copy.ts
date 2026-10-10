@@ -10,12 +10,12 @@ import type { LogServiceClient } from "./log-service-client.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { generateServiceDevice, loadServiceDevice, storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
+import { pitrCollection, pitrLabel, pitrLogUrl, pitrDeployments, type LabPitrConfig } from "./lab-pitr-config.js";
 
 export interface CloudCopyBootstrapOptions {
   db: DatabasePool; next: NextControlPlaneConfig; emitter: PolicyEmitter;
   log: Pick<LogServiceClient, "controlItemAt" | "head">; fetchImpl?: typeof fetch;
 }
-import { pitrCollection, pitrLabel, pitrLogUrl, pitrDeployments, type LabPitrConfig } from "./lab-pitr-config.js";
 const KINDS = ["hosted", "escrow"] as const;
 
 async function notDeleted(client: DatabaseConnection, collection: string): Promise<void> {
@@ -35,7 +35,7 @@ export async function existingCloudCopy(client: DatabaseConnection, collection: 
       : "SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left FROM next_collections WHERE collection_id = $1 FOR UPDATE", [collection]
   )).rows[0];
   if (isolated && (owner !== pitr!.owner || (row && (!(row.created_at instanceof Date)
-      || row.created_at.getTime() < pitr!.createdAfter || row.display_name !== pitrLabel(pitr!, collection))))) throw new CreateError(409, "collection_exists");
+      || !Number.isFinite(row.created_at.getTime()) || row.created_at.getTime() < pitr!.createdAfter || row.display_name !== pitrLabel(pitr!, collection))))) throw new CreateError(409, "collection_exists");
   if (row && (row.owner_user_id !== owner || row.sync !== "cloud_copy" || row.left)) throw new CreateError(409, "collection_exists");
   if (!row) {
     const other = await client.query("SELECT 1 FROM collections WHERE local_id = $1 AND user_id <> $2 AND removed_at IS NULL", [collection, owner]);

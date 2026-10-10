@@ -67,6 +67,13 @@ async function fixture(failure?: string) {
       collection:failure==="grant-collection"?D:A,scope:failure==="grant-scope"?{access:"selected_contracts",contracts:[]}:grantSource.scope,
       client_pk:failure==="grant-key"?Buffer.alloc(32,9):failure==="grant-zero"?Buffer.alloc(32):grantSource.client_pk,
       terms_digest:failure==="grant-terms"?Buffer.alloc(32,9):projectNextGrant(grantSource).terms}]}; }
+    if (sql.includes("JOIN next_policy_outbox removal")) {
+      // Current-main permanent member removal is a distinct historical denial
+      // lookup, not the later full immutable enrolment-tuple acceptance query.
+      expect([DEVICE,HOSTED]).toContain(values[2]);
+      expect(values).toEqual([A, JSON.stringify([{op:"device-enrol",device:values[2]}]), values[2]]);
+      return {rows:failure === "member-device-revoked" ? [{one:1}] : []};
+    }
     if (sql.includes("FROM next_policy_outbox")) {
       const op = JSON.parse(String(values[1]))[0];
       if (op.op === "grant-revoke") return {rows:failure==="grant-revoked"?[{one:1}]:[]};
@@ -125,7 +132,7 @@ describe("fixed-run current CP adapter", () => {
       expect(f.queries.some(q=>q.includes("n.created_at>=to_timestamp"))).toBe(true);
     } finally {await f.app.close();}
   });
-  it.each(["deleted","parent","root","member","genesis","identity","kind","key","revoked","security-key","enrolment","clock","lock","database"])("keeps %s closed and emits no positive observation", async failure => {
+  it.each(["deleted","parent","root","member","genesis","identity","kind","key","revoked","member-device-revoked","security-key","enrolment","clock","lock","database"])("keeps %s closed and emits no positive observation", async failure => {
     const f=await fixture(failure); try {
       const r=await f.current(); expect([409,503]).toContain(r.statusCode); expect(r.json()).not.toHaveProperty("current");
       expect(r.body).not.toContain("synthetic private database detail"); expect(f.writes).toEqual([]);
