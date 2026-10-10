@@ -94,7 +94,8 @@ signal in tests is not delivered or enabled reminders.
 ## Upgrade evidence and down-path limit
 
 The isolated PostgreSQL test constructs the actual predecessor using unchanged
-migration bytes and synthetic production-shaped data: 48 legacy grants, 192
+migration bytes, verifies the landed `0068_next_service_claim_challenges` ledger
+checksum, and uses synthetic production-shaped data: 48 legacy grants, 192
 scheduled/firing/fired/cancelled timers at noninitial generations, namespace
 intents, event and operation receipts, sealed push targets, subscriptions,
 signals and in-flight deliveries. It checks exact complete inventories across
