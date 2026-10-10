@@ -1,0 +1,143 @@
+# Additive DO gate.
+# No Cloudflare token: all conformance/restart tests use local workerd bindings.
+name: Log service DO
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Compare the same source on hosted/Spot without switching other jobs
+        type: choice
+        options: [automatic, hosted, spot]
+        default: automatic
+
+permissions:
+  contents: read
+
+concurrency:
+  group: logsvc-do-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+      # Same private-repository/actor boundary as ci.yml. The extra switch can
+      # roll back this lane without rerouting the rest of CI or interrupting jobs.
+      linux_runner: ${{ vars.MDBN_SELF_HOSTED == 'true' && (vars.MDBN_DO_SELF_HOSTED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.runner == 'spot')) && (github.event_name != 'workflow_dispatch' || inputs.runner != 'hosted') && github.repository == 'mdbase-dev/mdbase-next' && github.event.repository.private == true && github.actor == 'callumalpass' && github.triggering_actor == 'callumalpass' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'callumalpass')) && '["self-hosted","Linux","X64","mdbase-next-spot"]' || '["ubuntu-24.04"]' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: filter
+        shell: bash
+        run: |
+          # Fail closed: missing base/diff means run. Avoid grep/SIGPIPE races.
+          set +e +o pipefail
+          all() { echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; }
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then all; fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"; head="${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            base="${{ github.event.merge_group.base_sha }}"; head="${{ github.event.merge_group.head_sha }}"
+          else
+            base="${{ github.event.before }}"; head="${{ github.sha }}"
+          fi
+          if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then all; fi
+          git diff --name-only "$base" "$head" > "$RUNNER_TEMP/logsvc-changed.txt" || all
+          [ -s "$RUNNER_TEMP/logsvc-changed.txt" ] || all
+          if grep -qE '^(deploy/cloudflare-do/|crates/(core|wire|log-service|log-server|log-conformance)/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|clippy\.toml$|\.github/workflows/)' "$RUNNER_TEMP/logsvc-changed.txt"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  conformance:
+    name: logsvc DO (wasm32, local conformance, restart replay)
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ${{ fromJSON(needs.changes.outputs.linux_runner) }}
+    timeout-minutes: 25
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_NET_RETRY: '10'
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install pinned toolchain
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            deploy/cloudflare-do -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/cache-cargo-install-action@v2
+        with:
+          tool: worker-build@0.8.7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: deploy/cloudflare-do/package-lock.json
+      - name: Install pinned Wrangler
+        run: npm ci --prefix deploy/cloudflare-do --no-audit --no-fund
+      - name: DO rustfmt
+        run: cargo fmt --manifest-path deploy/cloudflare-do/Cargo.toml --check
+      - name: Build Worker (wasm32)
+        working-directory: deploy/cloudflare-do
+        run: worker-build --release --locked
+      - name: Build wire conformance client
+        run: cargo build --locked -p mdbn-log-conformance --bin logsvc-bench
+      - name: Local DO conformance and restart regression
+        working-directory: deploy/cloudflare-do
+        env:
+          LOGSVC_BENCH: ../../target/debug/logsvc-bench
+        run: npm test
+      - name: Bundle checksums and source revision
+        working-directory: deploy/cloudflare-do
+        run: |
+          git rev-parse HEAD > build/SOURCE_REVISION
+          cp wrangler.jsonc build/wrangler.jsonc
+          python3 - <<'PY'
+          import json, os, pathlib
+          source = pathlib.Path("build/SOURCE_REVISION").read_text().strip()
+          assert source == os.environ["GITHUB_SHA"]
+          metadata = {
+              "schema": "mdbase-next-log-worker-build/1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "workflow": "logsvc-do.yml",
+              "source_revision": source,
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+          }
+          pathlib.Path("build/BUILD.json").write_text(json.dumps(metadata, sort_keys=True) + "\n")
+          PY
+          cd build
+          sha256sum index.js index_bg.wasm package.json worker/shim.mjs SOURCE_REVISION BUILD.json wrangler.jsonc > SHA256SUMS
+      - name: Upload tested Worker bundle (unsigned; ops attests/releases)
+        uses: actions/upload-artifact@v7
+        with:
+          name: logsvc-do-worker-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            deploy/cloudflare-do/build/index.js
+            deploy/cloudflare-do/build/index_bg.wasm
+            deploy/cloudflare-do/build/package.json
+            deploy/cloudflare-do/build/worker/shim.mjs
+            deploy/cloudflare-do/build/SOURCE_REVISION
+            deploy/cloudflare-do/build/BUILD.json
+            deploy/cloudflare-do/build/wrangler.jsonc
+            deploy/cloudflare-do/build/SHA256SUMS
+          retention-days: 14
+      - name: Runtime diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logsvc-do-runtime-diagnostics
+          path: deploy/cloudflare-do/.wrangler/runtime-test-*/wrangler.log
+          retention-days: 7

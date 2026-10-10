@@ -1,0 +1,51 @@
+{
+  "_type": "QueryResult",
+  "records": [
+    {
+      "_type": "RecordView",
+      "id": "h'0192f3a45b6c7d8e9f0123456789abcd'",
+      "path": "tasks/write contracts.md",
+      "revision": "h'd1e0bf3037ac348384b2cfbf6dbbb5fb384f13e53c5b57e33cfa212b2cc504aa'",
+      "frontmatter": [
+        ["status", "done"]
+      ],
+      "body": "Notes\n",
+      "types": [
+        "task"
+      ],
+      "state": {
+        "_type": "RecordState",
+        "state": "Pending",
+        "confirmed_seq": 41
+      },
+      "values": [
+        ["label", "Done"]
+      ]
+    }
+  ],
+  "complete": true,
+  "as_of": 99,
+  "columns": [
+    "label"
+  ],
+  "total_count": 12,
+  "diagnostics": [],
+  "view": {
+    "_type": "ViewRef",
+    "path": "tasks.base",
+    "view": "board"
+  },
+  "groups": [
+    {
+      "_type": "QueryGroup",
+      "values": [
+        ["status", "done"]
+      ],
+      "count": 12,
+      "summaries": [
+        ["total_estimate", 30]
+      ]
+    }
+  ],
+  "has_more": true
+}

@@ -1,0 +1,12 @@
+{
+  "_type": "KeyGrantPayload",
+  "fmt": 1,
+  "recipient": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'",
+  "epoch": 2,
+  "wrap": {
+    "_type": "KeyWrap",
+    "device": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'",
+    "enc": "h'e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1'",
+    "ct": "h'c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7'"
+  }
+}

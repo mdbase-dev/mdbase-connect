@@ -1,0 +1,8 @@
+node_modules/
+dist/
+hosted.wasm
+.wrangler/
+worker-configuration.d.ts
+e2e/.work/
+e2e/.work-lab/
+.generated/

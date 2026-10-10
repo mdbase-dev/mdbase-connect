@@ -1,0 +1,1 @@
+rule 6: mixed key types

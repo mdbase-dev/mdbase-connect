@@ -1,0 +1,24 @@
+{
+  "_type": "Hold",
+  "id": "h'0192f3a45b6c7d8e9f01fedcba987654'",
+  "path": "Photos/today.png",
+  "reason": "Conflict",
+  "since": 1791100000000,
+  "mine": {
+    "_type": "BlobRef",
+    "plain_hash": "h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2'",
+    "size": 18,
+    "blob_id": "h'b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3'",
+    "id_epoch": 1,
+    "part_size": 8388608
+  },
+  "theirs": {
+    "_type": "BlobRef",
+    "plain_hash": "h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2'",
+    "size": 18,
+    "blob_id": "h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1'",
+    "id_epoch": 1,
+    "part_size": 8388608
+  },
+  "saves": 0
+}

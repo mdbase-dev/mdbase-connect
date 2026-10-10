@@ -1,0 +1,44 @@
+name: Runner next smoke
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    # Explicit operator dispatch qualifies the pool before normal CI routing flips.
+    if: github.repository == 'mdbase-dev/mdbase-next' && github.event.repository.private == true && github.actor == 'callumalpass' && github.triggering_actor == 'callumalpass'
+    runs-on: [self-hosted, Linux, X64, mdbase-next-spot]
+    timeout-minutes: 10
+    steps:
+      - name: Fresh session and toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e "$HOME/previous-next-smoke"
+          test -z "$(docker ps -aq)"
+          test -z "$(docker volume ls -q)"
+          test "$HOME" = /home/ci
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          test -z "${AWS_ACCESS_KEY_ID:-}"
+          hostname
+          rustup --version
+          rustup toolchain list
+          cargo +1.94.0 --version
+          node --version
+          docker --version
+          touch "$HOME/previous-next-smoke"
+      - name: Docker database fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker rm -f next-smoke-pg >/dev/null 2>&1 || true' EXIT
+          docker run -d --name next-smoke-pg -e POSTGRES_PASSWORD=smoke postgres:17
+          for attempt in {1..30}; do
+            echo "Readiness attempt $attempt/30"
+            if docker exec next-smoke-pg pg_isready -U postgres; then
+              docker exec next-smoke-pg psql -U postgres -c 'SELECT 1;'
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1

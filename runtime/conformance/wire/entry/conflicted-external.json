@@ -1,0 +1,136 @@
+{
+  "_type": "EntryPayload",
+  "fmt": 1,
+  "sem": {"_type": "Version", "major": 1, "minor": 0},
+  "mutation": {
+    "_type": "Mutation",
+    "id": "h'0192f3a460007abc8def0123456789ab'",
+    "origin": "h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'",
+    "base_seq": 41,
+    "clock": {
+      "_type": "OpClock",
+      "instant": 1791100800000,
+      "tz": "Australia/Melbourne",
+      "local_date": "2026-10-04"
+    },
+    "seed": "h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e'",
+    "source": "External",
+    "ops": [
+      {
+        "_type": "FilePut",
+        "kind": "FilePut",
+        "id": "h'0192f3a45b6c7d8e9f01fedcba987654'",
+        "path": "Photos/today.png",
+        "blob": {
+          "_type": "BlobRef",
+          "plain_hash": "h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2'",
+          "size": 18,
+          "blob_id": "h'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2'",
+          "id_epoch": 1,
+          "part_size": 8388608
+        },
+        "base": "h'9999999999999999999999999999999999999999999999999999999999999999'"
+      }
+    ]
+  },
+  "status": "Conflicted",
+  "effects": [
+    {
+      "_type": "PutRecord",
+      "kind": "PutRecord",
+      "id": "h'0192f3a45b6c7d8e9f0123456789abcd'",
+      "path": "archive/a.md",
+      "doc": "---\nstatus: done\n---\n"
+    },
+    {
+      "_type": "RemoveRecord",
+      "kind": "RemoveRecord",
+      "id": "h'0192f3a45b6c7d8e9f01000000000003'",
+      "path": "old.md"
+    },
+    {
+      "_type": "PutFile",
+      "kind": "PutFile",
+      "id": "h'0192f3a45b6c7d8e9f01fedcba987654'",
+      "path": "Photos/today.png",
+      "blob": {
+        "_type": "BlobRef",
+        "plain_hash": "h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2'",
+        "size": 18,
+        "blob_id": "h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1'",
+        "id_epoch": 1,
+        "part_size": 8388608
+      }
+    },
+    {
+      "_type": "RemoveFile",
+      "kind": "RemoveFile",
+      "id": "h'0192f3a45b6c7d8e9f01000000000002'",
+      "path": "x.bin"
+    },
+    {
+      "_type": "PutResource",
+      "kind": "PutResource",
+      "path": "mdbase.yaml",
+      "doc": "spec_version: \"0.3.0\"\n"
+    },
+    {
+      "_type": "RemoveResource",
+      "kind": "RemoveResource",
+      "path": "_types/old.md"
+    },
+    {
+      "_type": "PutSettings",
+      "kind": "PutSettings",
+      "inclusion": {
+        "_type": "FileInclusion",
+        "include": [
+          "Image"
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "_type": "Conflict",
+      "kind": "Field",
+      "id": "h'0192f3a45b6c7d8e9f0123456789abcd'",
+      "field": "status",
+      "base": {"_type": "ConflictValue", "form": "value", "value": "open"},
+      "kept": {"_type": "ConflictValue", "form": "value", "value": "done"},
+      "lost": {"_type": "ConflictValue", "form": "value", "value": "in-progress"}
+    },
+    {
+      "_type": "Conflict",
+      "kind": "File",
+      "id": "h'0192f3a45b6c7d8e9f01fedcba987654'",
+      "kept": {"_type": "ConflictValue", "form": "blob", "value": {
+        "_type": "BlobRef",
+        "plain_hash": "h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2'",
+        "size": 18,
+        "blob_id": "h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1'",
+        "id_epoch": 1,
+        "part_size": 8388608
+      }},
+      "lost": {"_type": "ConflictValue", "form": "blob", "value": {
+        "_type": "BlobRef",
+        "plain_hash": "h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2'",
+        "size": 18,
+        "blob_id": "h'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2'",
+        "id_epoch": 1,
+        "part_size": 8388608
+      }}
+    },
+    {
+      "_type": "Conflict",
+      "kind": "Delete",
+      "id": "h'0192f3a45b6c7d8e9f0123456789abcd'",
+      "base": {"_type": "ConflictValue", "form": "missing"},
+      "kept": {"_type": "ConflictValue", "form": "text", "value": "kept"},
+      "lost": {"_type": "ConflictValue", "form": "deleted"}
+    }
+  ],
+  "aliases": [
+    {"_type": "Alias", "path": "tasks/a.md", "record": "h'0192f3a45b6c7d8e9f0123456789abcd'"}
+  ]
+}

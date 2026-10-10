@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "paths": { "#hosted-release-trust": ["./src/unconfigured-release-trust.ts"] },
+    "lib": [
+      "es2022"
+    ],
+    "types": [
+      "./worker-configuration.d.ts"
+    ],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "wasm.d.ts",
+    "../../packages/sdk/src/cbor.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
+  ]
+}

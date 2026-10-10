@@ -1,0 +1,10 @@
+/ Materialization / {
+  / mode / 0: 1 / OnDemand /,
+  / pinned / 1: [
+    "Journal"
+  ],
+  / media / 2: [
+    0 / Image /,
+    3 / Pdf /
+  ]
+}

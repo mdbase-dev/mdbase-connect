@@ -1,0 +1,32 @@
+name: Dependency cache maintenance
+
+on:
+  schedule:
+    - cron: "37 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: dependency-cache-maintenance
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    # Default-branch trusted code only; never execute PR code with cache deletion
+    # privileges. Keep this tiny administrative job off the build worker pool.
+    if: github.repository == 'mdbase-dev/mdbase-next' && github.event.repository.private == true && github.ref == 'refs/heads/main' && github.actor == 'callumalpass' && github.triggering_actor == 'callumalpass'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check eviction policy
+        run: python3 -B -m unittest discover -s scripts/ci -p test_ci_costs.py -v
+      - name: Evict only cold superseded dependency caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/ci/prune-actions-caches.py --apply

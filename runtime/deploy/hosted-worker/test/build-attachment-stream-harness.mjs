@@ -1,0 +1,3 @@
+// Hermetic Node harness bundling: no provider credentials or network calls.
+import { build } from "esbuild";
+await build({stdin:{contents:'export { Engine } from "../src/engine.ts"; export {encode,decode} from "../../../packages/sdk/src/cbor.ts";',resolveDir:new URL(".",import.meta.url).pathname},bundle:true,platform:"node",format:"esm",outfile:new URL("./attachment-stream-bundle.mjs",import.meta.url).pathname,plugins:[{name:"production-wasm",setup(b){b.onLoad({filter:/hosted\.wasm$/},()=>({contents:'import {readFileSync} from "node:fs"; export default new WebAssembly.Module(readFileSync(process.env.HOSTED_WASM));',loader:"js"}));}}]});

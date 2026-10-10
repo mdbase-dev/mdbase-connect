@@ -1,0 +1,1 @@
+section13 accepts only File1 tombstones

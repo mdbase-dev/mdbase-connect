@@ -1,0 +1,25 @@
+{
+  // The hosted replica: one Durable Object per cloud-copy collection.
+  // LAB (mdbase-lab account) only until the custody/admission/Noise gates land.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mdbase-next-hosted-lab",
+  "main": "src/worker.ts",
+  // No unsigned/source-default trust on deploy builds. Missing verified module
+  // refuses bundling. Generate ONLY through shared signed-asset verifier first.
+  "alias": { "#hosted-release-trust": "./.generated/release-trust.ts" },
+  "compatibility_date": "2026-10-05",
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{ "name": "COLLECTIONS", "class_name": "HostedCollection" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["HostedCollection"] }],
+  // The log Worker, reached by unary HTTP RPC (no standing socket, so the DO can
+  // hibernate). Transport only: every call carries the service device's token and
+  // possession proof.
+  "services": [{ "binding": "LOG", "service": "mdbase-next-log-lab-20261005" }],
+  "rules": [{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true }],
+  // LAB=1 enables the LAB-only admin surface (token-guarded) and LAB custody from
+  // secrets. Secrets: LAB_ADMIN_TOKEN, LAB_LOG_TOKEN, LAB_HOSTED_CONFIG.
+  "vars": { "LAB": "1" },
+  "observability": { "enabled": true }
+}

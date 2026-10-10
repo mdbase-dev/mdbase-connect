@@ -1,0 +1,18 @@
+[package]
+name = "mdbn-store-pg"
+description = "The Postgres Store for the hosted replica."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies: mdbn-core, mdbn-wire, mdbn-replica. Native only.
+[dependencies]
+mdbn-core.workspace = true
+mdbn-wire.workspace = true
+mdbn-replica.workspace = true
+postgres = "0.19"
+
+[lints]
+workspace = true

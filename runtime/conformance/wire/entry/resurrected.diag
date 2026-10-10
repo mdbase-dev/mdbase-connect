@@ -1,0 +1,82 @@
+/ EntryPayload / {
+  / fmt / 0: 1,
+  / sem / 1: / Version / [/ major / 1, / minor / 0],
+  / mutation / 2: / Mutation / {
+    / id / 0: h'0192f3a460007abc8def0123456789ab',
+    / origin / 1: h'9b2f6c1e3a474d5b8e216f0a9c3d7e54',
+    / base_seq / 2: 41,
+    / clock / 3: / OpClock / {
+      / instant / 0: 1791100800000,
+      / tz / 1: "Australia/Melbourne",
+      / local_date / 2: "2026-10-04"
+    },
+    / seed / 4: h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e',
+    / source / 5: 0 / Api /,
+    / ops / 6: [
+      / Update / {
+        / kind / 0: 2 / Update /,
+        / id / 1: h'0192f3a45b6c7d8e9f0123456789abcd',
+        / patch / 2: {
+          "status": "done",
+          "priority": 3,
+          "estimate": 1.5
+        },
+        / unset / 3: [
+          "snoozed"
+        ],
+        / add / 4: {
+          "tags": [
+            "urgent"
+          ]
+        },
+        / remove / 5: {
+          "tags": [
+            "someday"
+          ]
+        },
+        / body_edits / 7: [
+          / BodyEdit / [/ start / 0, / end / 5, / insert / "Agenda"],
+          / BodyEdit / [/ start / 42, / end / 42, / insert / "\n- follow up with Bo"]
+        ],
+        / body_base / 8: h'38732073f309589131fec63f417896537e63d27fc29fcf7c60d5f47379f0887a',
+        / base / 10: [
+          / BaseField / [/ key / "status", / observed / "open"],
+          / BaseField / [/ key / "snoozed"]
+        ]
+      }
+    ],
+    / validated_at / 9: 2 / Error /
+  },
+  / status / 3: 1 / Merged /,
+  / effects / 4: [
+    / PutRecord / {
+      / kind / 0: 1 / PutRecord /,
+      / id / 1: h'0192f3a45b6c7d8e9f0123456789abcd',
+      / path / 2: "tasks/write contracts.md",
+      / doc / 3: 1
+    }
+  ],
+  / texts / 7: [
+    "---\nstatus: open\n---\nNotes\n",
+    / Delta / {
+      / kind / 0: 1 / Delta /,
+      / source / 1: / TextSource / [/ form / 0 / prev_record /, / ref / h'0192f3a45b6c7d8e9f0123456789abcd'],
+      / ops / 2: [
+        / Copy / [/ op / 0 / copy /, / offset / 0, / len / 12],
+        / Insert / [/ op / 1 / insert /, / bytes / h'646f6e65'],
+        / Copy / [/ op / 0 / copy /, / offset / 16, / len / 10]
+      ]
+    },
+    / Blob / {
+      / kind / 0: 2 / Blob /,
+      / blob / 1: / BlobRef / {
+        / plain_hash / 0: h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2',
+        / size / 1: 18,
+        / blob_id / 2: h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1',
+        / id_epoch / 3: 1,
+        / part_size / 4: 8388608
+      }
+    }
+  ],
+  / resurrect / 8: 42
+}

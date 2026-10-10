@@ -1,0 +1,22 @@
+[package]
+name = "mdbase-wasm"
+description = "mdbase-core.wasm: the pure mdbase helpers (digests, JSON Schema, catalog, packs) behind a JSON ABI for the npm `mdbase` package."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+# Ships inside the npm package, never on its own.
+publish = false
+
+[lib]
+# cdylib for wasm32 (mdbase-core.wasm); rlib so native tests call the same functions.
+crate-type = ["cdylib", "rlib"]
+
+# Allowed internal dependencies: mdbn-core only. Portable: no host imports at all.
+[dependencies]
+mdbn-core.workspace = true
+# JSON in, JSON out. Default `Map` is a BTreeMap (no hash containers).
+serde_json.workspace = true
+
+[lints]
+workspace = true

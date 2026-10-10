@@ -1,0 +1,1 @@
+complete sealed manifest SHA must be exactly32bytes

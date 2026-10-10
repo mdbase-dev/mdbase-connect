@@ -1,0 +1,17 @@
+{
+  "_type": "ReadResult",
+  "items": [],
+  "head": 120000,
+  "head_chain": "h'c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8'",
+  "retained_from": 100001,
+  "behind": true,
+  "snapshot": {
+    "_type": "SnapshotPointer",
+    "seq": 110000,
+    "manifest": "h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3'",
+    "author": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'",
+    "created_at": 1791000000000,
+    "endorsed": true
+  },
+  "more": false
+}

@@ -1,0 +1,16 @@
+{
+  "source": "Report-only core, replica and file-layer measurements; excludes sqlite-wasm. Decimal units (1 MB = 1,000,000 B).",
+  "mode": "report-only",
+  "decision": "Standalone apps have no bundle/WASM size limit. Measurements are informational, never a PR/CI size gate. Only the post-production Obsidian plugin has a small-bundle concern; no size experiments are requested.",
+  "target": {
+    "raw": 1500000,
+    "gzip": 600000,
+    "brotli": 450000
+  },
+  "former_ceiling": {
+    "raw": 3300000,
+    "gzip": 1350000,
+    "brotli": 1000000
+  },
+  "history": "Former ceilings provided headroom for lost-tail repair, attachments, TaskNotes views and discovery, and the generic Query cursor. The TaskNotes plugin embeds gzip-compressed WASM (~1.33x the gzip size in main.js); revisit with module splitting if app startup or plugin size measurably suffers. Targets and all other ratchets are unchanged. ONE complete launch app still includes Bases; no split or lazy launch profile is introduced."
+}

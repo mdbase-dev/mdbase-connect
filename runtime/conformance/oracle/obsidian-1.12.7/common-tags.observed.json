@@ -1,0 +1,258 @@
+{
+  "kind": "obsidian-1.12.7-native-file-tags",
+  "proof": {
+    "version": "1.12.7",
+    "owned_vault": true,
+    "owned_profile": true,
+    "repeated_equal_cases": 23
+  },
+  "clock": {
+    "now": 1781075828070,
+    "today": "2026-06-10"
+  },
+  "cases": [
+    {
+      "id": "plain",
+      "body": "Plain body",
+      "raw_tags": ["task"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": true
+    },
+    {
+      "id": "inline",
+      "body": "Body #other",
+      "raw_tags": ["task"],
+      "tags": ["#other", "#task"],
+      "has_task": true,
+      "cache_tags": ["#other"],
+      "qualified": true
+    },
+    {
+      "id": "heading-link",
+      "body": "[[note#heading]]",
+      "raw_tags": ["task"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": true
+    },
+    {
+      "id": "nested",
+      "body": "Body #work/sub",
+      "raw_tags": ["task"],
+      "tags": ["#work/sub", "#task"],
+      "has_task": true,
+      "cache_tags": ["#work/sub"],
+      "qualified": true
+    },
+    {
+      "id": "duplicate",
+      "body": "Body #task #task #other",
+      "raw_tags": ["task"],
+      "tags": ["#task", "#other"],
+      "has_task": true,
+      "cache_tags": ["#task", "#task", "#other"],
+      "qualified": true
+    },
+    {
+      "id": "case",
+      "body": "Body #Task #TASK #task",
+      "raw_tags": ["task"],
+      "tags": ["#Task", "#TASK", "#task"],
+      "has_task": true,
+      "cache_tags": ["#Task", "#TASK", "#task"],
+      "qualified": true
+    },
+    {
+      "id": "inline-code",
+      "body": "`#other`",
+      "raw_tags": ["task"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": false
+    },
+    {
+      "id": "fenced-code",
+      "body": "```\n#other\n```",
+      "raw_tags": ["task"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": false
+    },
+    {
+      "id": "tilde-code",
+      "body": "~~~\n#other\n~~~",
+      "raw_tags": ["task"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": false
+    },
+    {
+      "id": "comment",
+      "body": "<!-- #other -->",
+      "raw_tags": ["task"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": false
+    },
+    {
+      "id": "obsidian-comment",
+      "body": "%% #other %%",
+      "raw_tags": ["task"],
+      "tags": ["#other", "#task"],
+      "has_task": true,
+      "cache_tags": ["#other"],
+      "qualified": true
+    },
+    {
+      "id": "escaped",
+      "body": "\\#other",
+      "raw_tags": ["task"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": false
+    },
+    {
+      "id": "markdown-link",
+      "body": "[text](note#heading)",
+      "raw_tags": ["task"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": false
+    },
+    {
+      "id": "wiki-alias",
+      "body": "[[note|#other]]",
+      "raw_tags": ["task"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": true
+    },
+    {
+      "id": "markdown-label",
+      "body": "[#other](https://example.invalid)",
+      "raw_tags": ["task"],
+      "tags": ["#other", "#task"],
+      "has_task": true,
+      "cache_tags": ["#other"],
+      "qualified": false
+    },
+    {
+      "id": "heading",
+      "body": "## Heading",
+      "raw_tags": ["task"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": true
+    },
+    {
+      "id": "word-boundary",
+      "body": "word#other",
+      "raw_tags": ["task"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": true
+    },
+    {
+      "id": "punctuation",
+      "body": "(#other), #second.",
+      "raw_tags": ["task"],
+      "tags": ["#second", "#task"],
+      "has_task": true,
+      "cache_tags": ["#second"],
+      "qualified": true
+    },
+    {
+      "id": "unicode",
+      "body": "Body #日本 #café",
+      "raw_tags": ["task"],
+      "tags": ["#日本", "#café", "#task"],
+      "has_task": true,
+      "cache_tags": ["#日本", "#café"],
+      "qualified": false
+    },
+    {
+      "id": "number",
+      "body": "Body #123 #12x",
+      "raw_tags": ["task"],
+      "tags": ["#12x", "#task"],
+      "has_task": true,
+      "cache_tags": ["#12x"],
+      "qualified": true
+    },
+    {
+      "id": "frontmatter-repeat",
+      "body": "Plain body",
+      "raw_tags": ["task", "task", "work/sub"],
+      "tags": ["#task", "#work/sub"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": true
+    },
+    {
+      "id": "frontmatter-prefixed",
+      "body": "Plain body",
+      "raw_tags": ["task", "#work"],
+      "tags": ["#task", "#work"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": true
+    },
+    {
+      "id": "frontmatter-space",
+      "body": "Plain body",
+      "raw_tags": ["task", "work home"],
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": false
+    },
+    {
+      "id": "scalar-bare",
+      "body": "Plain body",
+      "raw_tags": "task",
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": true
+    },
+    {
+      "id": "scalar-prefixed",
+      "body": "Plain body",
+      "raw_tags": "#task",
+      "tags": ["#task"],
+      "has_task": true,
+      "cache_tags": [],
+      "qualified": true
+    },
+    {
+      "id": "scalar-space",
+      "body": "Plain body",
+      "raw_tags": "task work",
+      "tags": [],
+      "has_task": false,
+      "cache_tags": [],
+      "qualified": false
+    },
+    {
+      "id": "scalar-comma",
+      "body": "Plain body",
+      "raw_tags": "task,work",
+      "tags": ["#task,work"],
+      "has_task": false,
+      "cache_tags": [],
+      "qualified": false
+    }
+  ]
+}

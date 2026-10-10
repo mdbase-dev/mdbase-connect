@@ -1,0 +1,1749 @@
+{
+  "kind": "obsidian-1.12.7-native-membership-and-cells",
+  "source_sha256": [
+    {
+      "command": "open-tasks-view",
+      "sha256": "5fa9e0724e2a5c0f66ca8f5c010178f9aac2ee73c138907ac2b7c5d8f2a523c1"
+    },
+    {
+      "command": "open-kanban-view",
+      "sha256": "4b7682cbfb7b2e6c240399fca78e67850c21ef143701de998d4cc45225b76262"
+    }
+  ],
+  "proof": {
+    "version": "1.12.7",
+    "owned_vault": true,
+    "owned_profile": true
+  },
+  "clock": {
+    "now": 1781075828070,
+    "today": "2026-06-10"
+  },
+  "controllerShape": [
+    "_loaded",
+    "_events",
+    "_children",
+    "currentFile",
+    "query",
+    "results",
+    "errors",
+    "searchQuery",
+    "ctx",
+    "viewEstates",
+    "error",
+    "events",
+    "requestNotifyView",
+    "relevantProperties",
+    "queryState",
+    "app",
+    "plugin",
+    "viewHeaderEl",
+    "viewMenu",
+    "resultsMenu",
+    "sortMenu",
+    "filterMenu",
+    "propertyMenu",
+    "searchMenu",
+    "newItemMenu",
+    "errorEl",
+    "viewContainerEl",
+    "mockContext",
+    "queue",
+    "viewName",
+    "view",
+    "initialScan"
+  ],
+  "controllerResultsShape": [],
+  "controllerMethods": [
+    "constructor",
+    "onload",
+    "onConfigChanged",
+    "setEphemeralState",
+    "getEphemeralState",
+    "onResize",
+    "promptForAddView",
+    "selectView",
+    "setQuery",
+    "setQueryAndView",
+    "getActiveBasesViewOfType",
+    "getQueryViewNames",
+    "getCurrentFile",
+    "getViewConfig",
+    "getSearchQuery",
+    "updateSearchQuery",
+    "updateCurrentFile",
+    "update",
+    "buildBasesContext",
+    "clear",
+    "displayError",
+    "clearError",
+    "notifyView",
+    "evaluateRelevantProperties",
+    "getProperties",
+    "runQuery",
+    "startLoader",
+    "stopLoader",
+    "addResult",
+    "removeResult",
+    "getWidgetForIdent",
+    "getEditorLanguageSupport",
+    "applySearchQuery"
+  ],
+  "observations": [
+    {
+      "command": "open-tasks-view",
+      "index": 1,
+      "name": "All Tasks",
+      "matched": [
+        "overdue",
+        "today",
+        "today-done",
+        "week",
+        "later",
+        "scheduled",
+        "no-date",
+        "archived"
+      ],
+      "rows": [
+        {
+          "id": "overdue",
+          "sort": [
+            {
+              "native_date": "2026-06-09",
+              "date_part": "Tue Jun 09 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+              "time_part": "false"
+            }
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "low"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-09",
+                "date_part": "Tue Jun 09 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "overdue"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "today",
+          "sort": [
+            {
+              "native_date": "2026-06-10",
+              "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+              "time_part": "false"
+            }
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "today"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "today-done",
+          "sort": [
+            {
+              "native_date": "2026-06-10",
+              "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+              "time_part": "false"
+            }
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "done"
+            },
+            {
+              "selector": "priority",
+              "value": "high"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "today-done"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "week",
+          "sort": [
+            {
+              "native_date": "2026-06-14",
+              "date_part": "Sun Jun 14 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+              "time_part": "false"
+            }
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "high"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-14",
+                "date_part": "Sun Jun 14 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "week"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "later",
+          "sort": [
+            {
+              "native_date": "2026-07-05",
+              "date_part": "Sun Jul 05 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+              "time_part": "false"
+            }
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "none"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-07-05",
+                "date_part": "Sun Jul 05 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "later"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "scheduled",
+          "sort": [
+            null
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": null
+            },
+            {
+              "selector": "scheduled",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "scheduled"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "no-date",
+          "sort": [
+            null
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "none"
+            },
+            {
+              "selector": "due",
+              "value": null
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "no-date"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "archived",
+          "sort": [
+            {
+              "native_date": "2026-06-10",
+              "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+              "time_part": "false"
+            }
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "archived"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "command": "open-tasks-view",
+      "index": 3,
+      "name": "Today",
+      "matched": [
+        "today",
+        "scheduled",
+        "archived"
+      ],
+      "rows": [
+        {
+          "id": "today",
+          "sort": [
+            13
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "today"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "scheduled",
+          "sort": [
+            13
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": null
+            },
+            {
+              "selector": "scheduled",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "scheduled"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "archived",
+          "sort": [
+            13
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "archived"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "command": "open-tasks-view",
+      "index": 4,
+      "name": "Overdue",
+      "matched": [
+        "overdue"
+      ],
+      "rows": [
+        {
+          "id": "overdue",
+          "sort": [
+            13
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "low"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-09",
+                "date_part": "Tue Jun 09 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "overdue"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "command": "open-tasks-view",
+      "index": 5,
+      "name": "This Week",
+      "matched": [
+        "today",
+        "week",
+        "scheduled",
+        "archived"
+      ],
+      "rows": [
+        {
+          "id": "today",
+          "sort": [
+            13
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "today"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "week",
+          "sort": [
+            10
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "high"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-14",
+                "date_part": "Sun Jun 14 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "week"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "scheduled",
+          "sort": [
+            13
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": null
+            },
+            {
+              "selector": "scheduled",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "scheduled"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "archived",
+          "sort": [
+            13
+          ],
+          "group": null,
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "archived"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "command": "open-kanban-view",
+      "index": 0,
+      "name": "Kanban Board",
+      "matched": [
+        "overdue",
+        "today",
+        "today-done",
+        "week",
+        "later",
+        "scheduled",
+        "no-date",
+        "archived"
+      ],
+      "rows": [
+        {
+          "id": "overdue",
+          "sort": [
+            null
+          ],
+          "group": "open",
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "low"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-09",
+                "date_part": "Tue Jun 09 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "overdue"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "today",
+          "sort": [
+            null
+          ],
+          "group": "open",
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "today"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "today-done",
+          "sort": [
+            null
+          ],
+          "group": "done",
+          "cells": [
+            {
+              "selector": "status",
+              "value": "done"
+            },
+            {
+              "selector": "priority",
+              "value": "high"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "today-done"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "week",
+          "sort": [
+            null
+          ],
+          "group": "open",
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "high"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-14",
+                "date_part": "Sun Jun 14 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "week"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "later",
+          "sort": [
+            null
+          ],
+          "group": "open",
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "none"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-07-05",
+                "date_part": "Sun Jul 05 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "later"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "scheduled",
+          "sort": [
+            null
+          ],
+          "group": "open",
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": null
+            },
+            {
+              "selector": "scheduled",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "scheduled"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "no-date",
+          "sort": [
+            null
+          ],
+          "group": "open",
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "none"
+            },
+            {
+              "selector": "due",
+              "value": null
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "no-date"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        },
+        {
+          "id": "archived",
+          "sort": [
+            null
+          ],
+          "group": "open",
+          "cells": [
+            {
+              "selector": "status",
+              "value": "open"
+            },
+            {
+              "selector": "priority",
+              "value": "normal"
+            },
+            {
+              "selector": "due",
+              "value": {
+                "native_date": "2026-06-10",
+                "date_part": "Wed Jun 10 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "time_part": "false"
+              }
+            },
+            {
+              "selector": "scheduled",
+              "value": null
+            },
+            {
+              "selector": "projects",
+              "value": null
+            },
+            {
+              "selector": "contexts",
+              "value": null
+            },
+            {
+              "selector": "file.tags",
+              "value": [
+                "#task"
+              ]
+            },
+            {
+              "selector": "blockedBy",
+              "value": null
+            },
+            {
+              "selector": "file.name",
+              "value": "archived"
+            },
+            {
+              "selector": "recurrence",
+              "value": null
+            },
+            {
+              "selector": "complete_instances",
+              "value": null
+            },
+            {
+              "selector": "file.tasks",
+              "value": {
+                "error": "Cannot find \"tasks\" on type File"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "asset_verification": {
+    "sha256": "fcbe08b111d9c1fdb09b9c08952b06e1c829c62163eba2584c4b4ec859be079d",
+    "asset": {
+      "browser_download_url": "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.12.7/obsidian-1.12.7.tar.gz",
+      "digest": "sha256:fcbe08b111d9c1fdb09b9c08952b06e1c829c62163eba2584c4b4ec859be079d",
+      "name": "obsidian-1.12.7.tar.gz",
+      "size": 117247533
+    }
+  },
+  "qualification": "native membership/root cells only; controller order/groups pending"
+}

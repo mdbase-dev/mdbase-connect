@@ -1,0 +1,163 @@
+{
+  "version": 3,
+  "native": "Obsidian1.12.7",
+  "proof": {
+    "version": "1.12.7",
+    "vault": "/vault",
+    "userData": "/profile"
+  },
+  "repeat_proof": {
+    "version": "1.12.7",
+    "vault": "/vault",
+    "userData": "/profile"
+  },
+  "source_sha256": [
+    {
+      "command": "open-tasks-view",
+      "sha256": "5fa9e0724e2a5c0f66ca8f5c010178f9aac2ee73c138907ac2b7c5d8f2a523c1"
+    },
+    {
+      "command": "open-kanban-view",
+      "sha256": "4b7682cbfb7b2e6c240399fca78e67850c21ef143701de998d4cc45225b76262"
+    }
+  ],
+  "qualification": "TAGONLY; no-hash standalone exact triple LF fences; old nine-row fixture expectation discrepancies retained",
+  "cases": [
+    {
+      "id": "no-tags-inside",
+      "raw_tags": [
+        "task"
+      ],
+      "body": "#alpha\n```\nlet x = 1;\n```\n#after\n",
+      "tags": [
+        "#alpha",
+        "#after",
+        "#task"
+      ],
+      "qualified": true
+    },
+    {
+      "id": "empty",
+      "raw_tags": [
+        "task"
+      ],
+      "body": "#alpha\n```\n\n```\n",
+      "tags": [
+        "#alpha",
+        "#task"
+      ],
+      "qualified": true
+    },
+    {
+      "id": "unterminated",
+      "raw_tags": [
+        "task"
+      ],
+      "body": "#alpha\n```\nlet x = 1;\n",
+      "tags": [
+        "#alpha",
+        "#task"
+      ],
+      "qualified": false
+    },
+    {
+      "id": "hashtag-inside",
+      "raw_tags": [
+        "task"
+      ],
+      "body": "#alpha\n```\n#hidden\n```\n#after\n",
+      "tags": [
+        "#alpha",
+        "#after",
+        "#task"
+      ],
+      "qualified": false
+    },
+    {
+      "id": "inline-fence",
+      "raw_tags": [
+        "task"
+      ],
+      "body": "text ```\nlet x = 1;\n``` #after\n",
+      "tags": [
+        "#task"
+      ],
+      "qualified": false
+    },
+    {
+      "id": "code-wiki",
+      "raw_tags": [
+        "task"
+      ],
+      "body": "#alpha\n```\n[[Target]]\n```\n",
+      "tags": [
+        "#alpha",
+        "#task"
+      ],
+      "qualified": true
+    },
+    {
+      "id": "close-at-eof",
+      "raw_tags": [
+        "task"
+      ],
+      "body": "#alpha\n```\nlet x = 1;\n```",
+      "tags": [
+        "#alpha",
+        "#task"
+      ],
+      "qualified": true
+    },
+    {
+      "id": "corpus-0",
+      "raw_tags": [
+        "project"
+      ],
+      "body": "\n# Meeting cloud\n\n[[\u65e5\u672c window caf\u00e9 summit#Winter]] prairie spring birch cedar prairie [[Lantern syntax yarrow pebble forest fossil]] marble cloud. Canvas fa\u00e7ade index [[Module anchor ribbon]] spiral z\u00fcrich [[Tower oasis fossil spiral]] compass outline prism anchor review travel sandbox. #status/active\n\nSeason ledger signal module delta apple budget workshop compass tablet yarrow na\u00efve crystal z\u00fcrich orchard ribbon. Field [[Vector paper alpha cloud syntax|sketch]] pilot review review winter cr\u00e8me harbor [[Desert prairie socket]] na\u00efve uplink meadow se\u00f1or socket. \n\n- [ ] Timber [[Pebble plaza cabin season alpha valley]] glacier [[Module pocket draft circuit yarrow lantern]] willow thread tower lantern lantern [[Meadow timber ember mirror quartz network]] draft sketch lighthouse draft budget workshop. \n\nPebble ledger alpha travel mountain harbor monsoon valley question anchor beacon engine forest vector compass desert signal index autumn mirror ember. Tower planet garden forest oasis harvest orchard coral travel \u65e5\u672c river bridge canvas [[Cr\u00e8me cr\u00e8me ember cabin]] prairie spring pattern desert prairie network forest. Socket budget zenith workshop [[Signal recipe syntax quartz quartz sandbox]] fossil tablet schema lighthouse recipe fossil pebble garden \u65e5\u672c planet journal plaza sketch cedar field \u00fcber. Bridge workshop zenith cabin voyage garden filter kernel outline socket rocket rocket window ribbon. Sketch timber prairie schema paper syntax horizon ledger uplink copper summit river. Se\u00f1or pebble planet atlas monsoon method notebook spiral yarrow prairie [[Planet]] socket [[Workshop radar echo ember season rocket cr\u00e8me]] mirror velvet atlas. #draft\n\nTheory chapter [[Archive field window]] kernel report pebble theory mirror forest reading. Orchard oasis review question fa\u00e7ade beacon \u65e5\u672c signal autumn [[Voyage anchor uplink alpha pocket crystal tundra]] topic. Bridge socket [[Bridge module marble desert \u00fcber se\u00f1or|workshop]] cr\u00e8me crystal na\u00efve se\u00f1or tundra tower forest. \n\n- [ ] Prairie outline planet bridge winter tower filter harbor paper pebble syntax se\u00f1or ribbon cedar tower theory orbit radar na\u00efve. \n- [ ] Meeting river summit vector island engine tower ember reading. \n\n```\nlet x = 1;\n```\n\n",
+      "tags": [
+        "#status/active",
+        "#draft",
+        "#project"
+      ],
+      "qualified": true
+    },
+    {
+      "id": "corpus-1",
+      "raw_tags": [
+        "project"
+      ],
+      "body": "\n# Yarrow kernel uplink\n\nThread \u65e5\u672c engine desert harbor report mountain mirror syntax pebble window. Journal syntax ledger maple trail spiral journal caf\u00e9 quartz pebble caf\u00e9 journal pattern \u00fcber sketch notebook orbit circuit planet. Delta island autumn tundra method index review topic bridge mirror atlas lantern uplink meeting meadow pebble valley. Travel sketch review apple z\u00fcrich index rocket season glacier harbor river question tower timber caf\u00e9 [[Timber voyage socket]] valley apple quartz. \n\nUplink z\u00fcrich window crystal winter glacier cr\u00e8me. Marble orbit topic willow method trail question \u00fcber. #work/report\n\n- [x] Review harvest mountain orbit syntax [[Prism river vector meadow tablet echo]] fj\u00f6rd harvest. \n- [x] Fa\u00e7ade [[Horizon plaza trail planet valley theory]] oasis \u00fcber [[Autumn question velvet]] tower archive signal paper [[Forest question]] kernel canvas pilot [[Z\u00fcrich timber mountain quartz pebble \u691c\u7d22 bridge]]. \n- [ ] Prism ledger [[Pebble canvas paper report schema]] recipe pattern prairie reading trail tablet winter review pattern. \n- [x] Lemon paper [[Voyage oasis timber winter recipe|apple]] zenith caf\u00e9 [[Caf\u00e9 velvet pattern season]] quartz maple. \n\nMeeting garden harvest outline forest garden thread workshop prairie engine cabin voyage yarrow lemon lighthouse crystal reading. Canvas recipe maple draft review recipe notebook. Echo atlas summit fj\u00f6rd canvas harvest tower alpha crystal socket report orchard prairie compass ledger report [[Prism bridge lemon|glacier]] beacon paper rocket. Desert field garden sketch \u00fcber signal budget socket index se\u00f1or coral mountain field voyage [[Alpha cedar apple reading monsoon]] tablet cr\u00e8me valley travel. [[Fj\u00f6rd project velvet atlas project fossil]] winter valley forest compass [[Project \u691c\u7d22 uplink|voyage]] river lemon. \n\n```\nlet x = 1;\n```\n\nReport theory reading harvest echo planet topic budget method birch garden chapter apple uplink tundra delta window z\u00fcrich willow ember [[Network birch rocket timber sketch cedar]]. Oasis forest winter rocket lemon island index glacier fj\u00f6rd plaza ribbon prairie yarrow trail draft se\u00f1or harvest ribbon paper syntax socket monsoon. \n\n",
+      "tags": [
+        "#work/report",
+        "#project"
+      ],
+      "qualified": true
+    },
+    {
+      "id": "corpus-2",
+      "raw_tags": [
+        "project"
+      ],
+      "body": "\n# Birch topic reading\n\nValley glacier fa\u00e7ade river desert radar garden tundra orchard compass birch travel fj\u00f6rd report journal \u691c\u7d22 lemon topic kernel travel monsoon pilot. [[Autumn fa\u00e7ade beacon canvas fj\u00f6rd ribbon harvest]] filter pattern river network [[Desert mirror birch]] schema river winter birch yarrow yarrow tower. Lighthouse desert notebook sketch winter anchor atlas ledger garden glacier garden valley alpha z\u00fcrich paper budget yarrow. Mirror cloud \u691c\u7d22 method summit cabin [[Fa\u00e7ade question z\u00fcrich radar prism]] syntax winter meadow recipe autumn harbor ember. \u65e5\u672c valley meeting season timber mountain sandbox marble yarrow caf\u00e9 season schema yarrow window se\u00f1or fossil. Glacier maple desert garden recipe theory. #important\n\nCaf\u00e9 [[Island notebook harvest glacier oasis]] outline signal bridge atlas bridge alpha fa\u00e7ade field prism archive maple vector desert copper [[Lantern glacier anchor spring]] na\u00efve. Marble rocket schema network river outline engine radar field orbit cr\u00e8me cr\u00e8me compass zenith engine rocket echo tower. [[Window island chapter socket trail harvest pilot]] cr\u00e8me report winter method canvas spring draft zenith harbor pattern lighthouse uplink. \n\n## Atlas\n\nCedar radar cloud notebook glacier syntax cabin field paper glacier ledger \u00fcber delta harvest circuit meadow question \u00fcber. Desert draft circuit pattern pattern velvet monsoon beacon fossil harvest quartz ledger fa\u00e7ade filter [[Winter fossil compass]]. \n\n- [ ] Z\u00fcrich forest [[Coral canvas thread desert plaza|module]] lemon meeting budget orchard oasis topic orchard spring apple review monsoon sandbox workshop fj\u00f6rd sandbox echo meadow. \n- [ ] Yarrow delta signal module travel horizon [[Garden yarrow socket cedar summit harvest]] voyage horizon module winter. \n\n## Archive\n\nTower project kernel pattern caf\u00e9 zenith canvas harbor marble ember thread pattern. Workshop [[Garden network birch]] draft workshop module tower lantern garden cedar planet pattern fossil schema fj\u00f6rd pocket spiral. Index outline draft method ember meadow harvest season pattern meeting theory ribbon beacon pattern vector \u65e5\u672c season timber budget filter crystal delta. Voyage [[Atlas maple glacier maple]] alpha spring engine vector cabin river oasis filter zenith quartz tablet timber. Pilot fj\u00f6rd uplink kernel tundra spiral. Travel crystal cedar schema tundra cedar alpha pilot monsoon beacon alpha sketch trail. \n\n## \u65e5\u672c\n\nOrbit review schema beacon theory notebook coral ledger spring forest pattern [[Prism socket meadow]] ribbon \u691c\u7d22 \u691c\u7d22 journal prism na\u00efve delta. Horizon echo socket canvas plaza report. #review\n\n## Draft\n\nAlpha beacon orbit na\u00efve lantern mirror birch ribbon glacier horizon [[Fossil lemon question coral echo question]]. Outline beacon compass outline desert lantern fa\u00e7ade pattern network compass harvest question forest [[Timber field mountain oasis forest winter echo]] delta meadow [[Echo river pebble sandbox caf\u00e9]] cabin topic. #draft\n\n```\nlet x = 1;\n```\n\n",
+      "tags": [
+        "#important",
+        "#review",
+        "#draft",
+        "#project"
+      ],
+      "qualified": true
+    },
+    {
+      "id": "corpus-3",
+      "raw_tags": [
+        "task"
+      ],
+      "body": "\nHarvest echo orchard forest lighthouse alpha reading tablet kernel. Spiral lighthouse rocket socket workshop island project. Glacier spiral journal filter plaza workshop oasis. Mountain river glacier \u00fcber topic glacier notebook planet tundra schema echo spiral network tower winter project. #followup\n\nGarden filter cr\u00e8me ribbon winter winter workshop orbit budget field socket fa\u00e7ade prairie voyage ledger [[Cr\u00e8me|method]] [[Spiral cr\u00e8me z\u00fcrich river monsoon]] syntax winter. Island network river caf\u00e9 lighthouse fossil yarrow delta glacier river marble monsoon uplink season. Topic [[Beacon oasis se\u00f1or outline caf\u00e9 monsoon]] orbit meadow river bridge [[Planet|trail]] forest cloud module engine season \u00fcber orchard ribbon index winter ribbon tablet. Outline mountain voyage canvas timber radar lighthouse filter willow. \n\nWorkshop ribbon \u00fcber [[Velvet]] paper crystal window archive na\u00efve mirror lemon forest \u65e5\u672c outline. Socket tundra prism [[Velvet cedar tablet river \u65e5\u672c meeting]] orbit archive velvet mirror method plaza kernel fa\u00e7ade theory project garden timber marble se\u00f1or. Meadow [[Z\u00fcrich timber mountain quartz pebble \u691c\u7d22 bridge]] module island archive spiral monsoon tundra sandbox tower filter coral glacier method journal spring \u00fcber radar workshop. Se\u00f1or tower ribbon field signal apple quartz. Paper notebook bridge network alpha recipe tundra lighthouse window fossil trail desert birch quartz. \n\n```\nlet x = 1;\n```\n\n",
+      "tags": [
+        "#followup",
+        "#task"
+      ],
+      "qualified": true
+    }
+  ]
+}

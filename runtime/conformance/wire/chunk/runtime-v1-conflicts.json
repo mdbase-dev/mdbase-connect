@@ -1,0 +1,9 @@
+{
+  "_type": "ChunkPayload",
+  "fmt": 1,
+  "section": "Conflicts",
+  "bucket": 0,
+  "rows": [
+    ["h'0192f3a460007abc8def0123456789ab'", 42, [[0, 6], [1, "h'0192f3a45b6c7d8e9f01fedcba987654'"], [3, [3, [[0, "h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2'"], [1, 18], [2, "h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1'"], [3, 1], [4, 8388608]]]], [4, [5, [1, [1, "h'4c18af2eb04a4b77b83e493c3695962e'", 3, "h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1'", 8388608, "h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'"], "h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3'", 9000000]]], [5, [4]]]]
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "_type": "ChunkPayload",
+  "fmt": 1,
+  "section": "Files",
+  "bucket": 0,
+  "rows": [
+    ["h'0192f3a45b6c7d8e9f01fedcba987654'", "Photos/today.png", [[0, "h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2'"], [1, 18], [2, "h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1'"], [3, 1], [4, 8388608]], 0],
+    ["h'0192f3a45b6c7d8e9f0123456789abcd'", 1, "old.png", [[0, "h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2'"], [1, 18], [2, "h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1'"], [3, 1], [4, 8388608]], 9000, 1791000000000],
+    ["mdbase.yaml", "spec_version: \"0.3.0\"\n"],
+    ["tasks/a.md", "h'0192f3a45b6c7d8e9f0123456789abcd'"],
+    ["h'0192f3a460007abc8def0123456789ab'", 41, 1791100800000]
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "_type": "GetObjectParams",
+  "collection": "h'4c18af2eb04a4b77b83e493c3695962e'",
+  "address": "h'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5'",
+  "range": {"_type": "ByteRange", "offset": 65552, "len": 65552}
+}

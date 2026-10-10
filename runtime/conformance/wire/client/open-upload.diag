@@ -1,0 +1,7 @@
+/ OpenUploadParams / {
+  / transfer / 0: h'7a7a7a7a7a7a4a7a8a7a7a7a7a7a7a7a',
+  / path / 1: "Media/video.mp4",
+  / size / 2: 3221225472,
+  / digest / 3: h'3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d',
+  / mutation_id / 6: h'0192f3a460007abc8def0123456789ab'
+}

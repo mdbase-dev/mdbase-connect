@@ -1,0 +1,18 @@
+{
+  "_type": "SyncStatus",
+  "mode": "Synced",
+  "confirmed_through": 41,
+  "head_known": 44,
+  "pending": 3,
+  "oldest_pending": 1791100700000,
+  "holds": 1,
+  "unresolved": 2,
+  "connection": "Online",
+  "incidents": [
+    {
+      "_type": "Incident",
+      "kind": "VoidedItems",
+      "details": 1
+    }
+  ]
+}

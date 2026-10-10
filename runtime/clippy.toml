@@ -1,0 +1,72 @@
+# Determinism and portability bans.
+#
+# These apply to every crate (the lints are `deny` in [workspace.lints.clippy]).
+# Crates that legitimately do I/O (platform-native, store-pg, log-service, sim,
+# bench, conformance, xtask) opt out with a crate-root `#![allow(...)]`; the
+# portable crates (core, wire, replica, store-file, wasm) may not, and
+# `cargo xtask arch` enforces that, plus the source-level rules clippy cannot
+# express (module imports, HashMap iteration, banned dependencies).
+#
+# `allow-invalid = true` marks paths into crates that are not dependencies today,
+# so the ban is already in place when someone adds them.
+
+disallowed-methods = [
+  # Time comes only from the injected `mdbn_core::host::Clock`.
+  { path = "std::time::Instant::now", reason = "use the injected mdbn_core::host::Clock" },
+  { path = "std::time::SystemTime::now", reason = "use the injected mdbn_core::host::Clock" },
+  { path = "std::thread::sleep", reason = "no blocking or wall-clock waits in portable code" },
+  { path = "std::thread::spawn", reason = "the replica is single-threaded per collection; hosts own threads" },
+  # Environment and process state are not inputs to semantics.
+  { path = "std::env::var", reason = "configuration is passed in explicitly" },
+  { path = "std::env::var_os", reason = "configuration is passed in explicitly" },
+  { path = "std::env::vars", reason = "configuration is passed in explicitly" },
+  { path = "std::env::args", reason = "configuration is passed in explicitly" },
+  { path = "std::env::current_dir", reason = "paths come through FilePlatform" },
+  { path = "std::env::temp_dir", reason = "never use /tmp; paths come through FilePlatform" },
+  # File I/O goes through FilePlatform / IndexStorage.
+  { path = "std::fs::read", reason = "file I/O goes through FilePlatform" },
+  { path = "std::fs::read_to_string", reason = "file I/O goes through FilePlatform" },
+  { path = "std::fs::read_dir", reason = "file I/O goes through FilePlatform" },
+  { path = "std::fs::write", reason = "file I/O goes through FilePlatform" },
+  { path = "std::fs::rename", reason = "file I/O goes through FilePlatform" },
+  { path = "std::fs::remove_file", reason = "file I/O goes through FilePlatform" },
+  { path = "std::fs::create_dir_all", reason = "file I/O goes through FilePlatform" },
+  { path = "std::fs::metadata", reason = "file I/O goes through FilePlatform" },
+  { path = "std::fs::canonicalize", reason = "file I/O goes through FilePlatform" },
+  # Entropy comes only from the injected `mdbn_core::host::Entropy`.
+  { path = "rand::thread_rng", reason = "use the injected mdbn_core::host::Entropy", allow-invalid = true },
+  { path = "rand::rng", reason = "use the injected mdbn_core::host::Entropy", allow-invalid = true },
+  { path = "rand::random", reason = "use the injected mdbn_core::host::Entropy", allow-invalid = true },
+  { path = "rand::SeedableRng::from_entropy", reason = "use the injected mdbn_core::host::Entropy", allow-invalid = true },
+  { path = "getrandom::getrandom", reason = "use the injected mdbn_core::host::Entropy", allow-invalid = true },
+  { path = "getrandom::fill", reason = "use the injected mdbn_core::host::Entropy", allow-invalid = true },
+  # Transcendental float functions call the platform libm natively and a compiled-in
+  # libm in WASM; results can differ in the last bit. Keep them out of semantics.
+  { path = "f64::powf", reason = "not bit-identical native vs WASM" },
+  { path = "f64::exp", reason = "not bit-identical native vs WASM" },
+  { path = "f64::ln", reason = "not bit-identical native vs WASM" },
+  { path = "f64::log10", reason = "not bit-identical native vs WASM" },
+  { path = "f64::log2", reason = "not bit-identical native vs WASM" },
+  { path = "f64::sin", reason = "not bit-identical native vs WASM" },
+  { path = "f64::cos", reason = "not bit-identical native vs WASM" },
+  { path = "f64::tan", reason = "not bit-identical native vs WASM" },
+  { path = "f32::powf", reason = "not bit-identical native vs WASM" },
+  { path = "f32::exp", reason = "not bit-identical native vs WASM" },
+  { path = "f32::ln", reason = "not bit-identical native vs WASM" },
+]
+
+disallowed-types = [
+  { path = "std::time::Instant", reason = "use the injected mdbn_core::host::Clock" },
+  { path = "std::time::SystemTime", reason = "use the injected mdbn_core::host::Clock" },
+  { path = "std::fs::File", reason = "file I/O goes through FilePlatform" },
+  { path = "std::fs::OpenOptions", reason = "file I/O goes through FilePlatform" },
+  { path = "std::net::TcpStream", reason = "network I/O belongs to hosts, not portable crates" },
+  { path = "std::process::Command", reason = "no subprocesses in portable crates" },
+  # Hash containers iterate in a per-process random order. Use BTreeMap/BTreeSet
+  # (or an insertion-ordered map) so every replica sees the same order.
+  { path = "std::collections::HashMap", reason = "iteration order is not deterministic; use BTreeMap" },
+  { path = "std::collections::HashSet", reason = "iteration order is not deterministic; use BTreeSet" },
+  { path = "std::collections::hash_map::RandomState", reason = "seeded from OS entropy" },
+  { path = "hashbrown::HashMap", reason = "iteration order is not deterministic; use BTreeMap", allow-invalid = true },
+  { path = "hashbrown::HashSet", reason = "iteration order is not deterministic; use BTreeSet", allow-invalid = true },
+]

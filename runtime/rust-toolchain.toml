@@ -1,0 +1,7 @@
+# Pinned so native and WASM builds, clippy and rustfmt agree on every machine and
+# in CI. Bump deliberately, in its own PR, and re-run the WASM size check.
+[toolchain]
+channel = "1.94.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

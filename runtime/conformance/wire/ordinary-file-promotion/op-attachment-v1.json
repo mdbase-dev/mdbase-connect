@@ -1,0 +1,8 @@
+{
+  "_type": "OrdinaryFileToRecord",
+  "kind": "OrdinaryFileToRecord",
+  "id": "h'11111111111111111111111111111111'",
+  "path": "views/existing.base",
+  "doc": "views: []\n",
+  "prior": {"_type": "AttachmentContentV1", "version": 1, "reference": {"_type": "AttachmentRefV1", "version": 1, "collection": "h'4c18af2eb04a4b77b83e493c3695962e'", "key_epoch": 3, "attachment_id": "h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1'", "chunk_bytes": 8388608, "manifest_cipher_hash": "h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'"}, "whole_plain_hash": "h'96f38c29a06a779a354059c40c74130771b33df5743d2e3c18f9ce1851a17f26'", "total_plain_bytes": 10}
+}
