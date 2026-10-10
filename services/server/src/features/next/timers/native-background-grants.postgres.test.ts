@@ -127,10 +127,11 @@ suite("background grant migration (real PG; synthetic production-shaped data, no
   });
 
   it("upgrades the actual predecessor with exact row counts, generations, revisions, receipt bytes and sealed targets", async () => {
-    const predecessorId = "0068_next_service_claim_challenges";
-    const predecessorBytes = await readFile(new URL(`${predecessorId}.sql`, migrations));
-    expect((await db.query("SELECT checksum FROM schema_migrations WHERE id=$1", [predecessorId])).rows)
-      .toEqual([{ checksum: createHash("sha256").update(predecessorBytes).digest("hex") }]);
+    for (const predecessorId of ["0068_next_service_claim_challenges", "0070_installation_portal_provider_identity"]) {
+      const predecessorBytes = await readFile(new URL(`${predecessorId}.sql`, migrations));
+      expect((await db.query("SELECT checksum FROM schema_migrations WHERE id=$1", [predecessorId])).rows)
+        .toEqual([{ checksum: createHash("sha256").update(predecessorBytes).digest("hex") }]);
+    }
     const before = await inventory(db);
     expect(before.grants).toHaveLength(48); expect(before.next_timers).toHaveLength(192);
     for (const table of inventoryTables.filter(table => table !== "next_timers")) expect(before[table]).toHaveLength(48);
@@ -200,7 +201,7 @@ suite("background grant migration (real PG; synthetic production-shaped data, no
     await startInstallationPairing(db, input, originalApp, "https://connect.example.test");
     const before = (await db.query("SELECT timer_declaration,timer_consent FROM installation_device_pairings WHERE pairing_id=$1", [input.request_id])).rows[0];
     expect(before).toEqual({ timer_declaration: originalApp.timerDeclaration, timer_consent: null });
-    expect((await inspectInstallationPairing(db, input.request_id, user, false, `${user}@example.test`)).pairing.timer_declaration).toEqual(before.timer_declaration);
+    expect((await inspectInstallationPairing(db, input.request_id, user, false, {id:user,email:`${user}@example.test`,name:"Synthetic migration",login:null})).pairing.timer_declaration).toEqual(before.timer_declaration);
     const changed = { criteria: [{ ...criterion, presentation: { title: "Changed reminder" } }] };
     await db.query("UPDATE applications SET notifications=$2::jsonb WHERE id=$1", [application, JSON.stringify(changed)]);
     const currentApp = await installationApp(db, "lab", application, origin, "app-runtime");

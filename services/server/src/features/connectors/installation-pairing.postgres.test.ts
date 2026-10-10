@@ -639,6 +639,26 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await app.inject({method:"GET",url:base,headers})).statusCode).toBe(403);
     expect((await db.query("SELECT 1 FROM next_timers WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
   });
+  it("reapproves native reminder consent using the actual no-email provider confirmation without changing device custody",async()=>{
+    const f=await currentTimerFixture(),login=`fixture-${randomUUID().slice(0,8)}`;
+    await db.query("UPDATE users SET email=NULL,name='Not provider identity' WHERE id=$1",[f.p.owner.user]);
+    await db.query("INSERT INTO external_identities(provider,subject,user_id,login,email,email_verified) VALUES('github',$1,$2,$3,NULL,false)",[randomUUID(),f.p.owner.user,login]);
+    await db.query("UPDATE sessions SET provider='github' WHERE id=$1",[f.p.owner.session]);
+    const input=original(); input.installation.installation_id=f.p.input.installation.installation_id;
+    input.installation.device_id=f.p.input.installation.device_id; input.installation.app_id=f.p.input.installation.app_id; input.installation.reconsent=true;
+    expect((await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{...originHeaders(input),authorization:`Bearer ${f.token}`},payload:input})).statusCode).toBe(201);
+    const flow=channel(input);
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:f.p.owner.headers,payload:{email:"not-authority@example.test",login:"not-authority"}})).statusCode).toBe(200);
+    expect((await approvePicked(f.p,flow,[f.collection],f.collection,true)).statusCode).toBe(200);
+    const receipt=(await flow.exchange()).json();
+    expect(receipt).toMatchObject({status:"scope_updated",account_email:null,account_provider:"github",account_login:login,account_selection_confirmed:true,timer_consent:true});
+    expect(receipt.timer_grants).toHaveLength(1); expect(receipt.timer_grants[0].grant_id).not.toBe(f.grantId);
+    const credential=(await db.query("SELECT device_id,sign_pk,kem_pk,noise_pk,token_hash FROM installation_device_credentials WHERE connector_id=$1",[f.p.selected.connector_id])).rows[0];
+    expect(credential.device_id).toBe(input.installation.device_id); expect(credential.token_hash).toBe(tokenHash(f.token));
+    for(const key of ["sign_pk","kem_pk","noise_pk"] as const) expect(credential[key].toString("hex")).toBe(f.p.proof.payload[key]);
+    expect((await f.resolver.resolve(db,f.grantId))?.usable).toBe(false);
+    expect((await app.inject({method:"GET",url:timerPath(f).replace(f.grantId,receipt.timer_grants[0].grant_id),headers:{authorization:`Bearer ${f.token}`}})).statusCode).toBe(200);
+  });
   const channelPath = (f:Awaited<ReturnType<typeof currentTimerFixture>>) => timerPath(f).replace("/timers/reminders","/notifications/channels");
   const webChannel = (f:Awaited<ReturnType<typeof currentTimerFixture>>) => ({installation_id:f.p.input.installation.installation_id,
     criteria:["synthetic.reminder"],subscription:{endpoint:"https://push.example.test/synthetic",expirationTime:null,keys:{p256dh:"synthetic-p256dh-key",auth:"synthetic-auth"}}});
