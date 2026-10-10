@@ -86,6 +86,7 @@ mod diagnostics;
 mod file_policy;
 mod files;
 mod lifecycle;
+pub use collections::{LegacyRollbackReceipt, LegacyRollbackRequest};
 pub use lifecycle::run_hosted_cutover_migrations;
 mod lifecycle_states;
 mod mutation_journal;
