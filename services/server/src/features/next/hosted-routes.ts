@@ -101,13 +101,16 @@ class OriginalGenesisUnavailable extends Error {}
  * Explicit CP-only pending metadata observation may accept the immutable original
  * sending batch, never parked/lost. Ordinary callers remain appended-only. */
 export async function originalGenesis(db: DatabaseQueryable, collection: string, pending?: { owner: string; root: string }) {
-  const rows = await db.query<{state: string; item: Buffer | null}>(
-    `SELECT state, CASE WHEN octet_length(item) BETWEEN 1 AND $2 THEN item ELSE NULL END AS item
-     FROM next_policy_batches WHERE collection_id=$1 AND seq=1${pending ? " AND lost_at IS NULL" : ""} ORDER BY id LIMIT 2 FOR SHARE`,
+  const rows = await db.query<{state: string; lost_at?: Date | null; item: Buffer | null}>(
+    // Count candidates across retained history before checking loss/state: a lost
+    // original plus live reissue must not masquerade as a unique original seq1.
+    `SELECT state${pending ? ", lost_at" : ""}, CASE WHEN octet_length(item) BETWEEN 1 AND $2 THEN item ELSE NULL END AS item
+     FROM next_policy_batches WHERE collection_id=$1 AND seq=1 ORDER BY id LIMIT 2 FOR SHARE`,
     [collection, ORIGINAL_GENESIS_BYTES_MAX],
   );
   const row = rows.rows[0];
-  if (rows.rows.length !== 1 || !row || !(row.state === "appended" || (pending && row.state === "sending")) || !row.item) throw new OriginalGenesisUnavailable();
+  if (rows.rows.length !== 1 || !row || (pending && row.lost_at !== null)
+    || !(row.state === "appended" || (pending && row.state === "sending")) || !row.item) throw new OriginalGenesisUnavailable();
   const item = row.item;
   const bytes = (v: Decoded | undefined, n: number): v is Uint8Array => v instanceof Uint8Array && v.length === n;
   const shape = (v: Decoded | undefined, keys: number[]): v is Map<number, Decoded> => v instanceof Map && v.size === keys.length && keys.every(k => v.has(k));

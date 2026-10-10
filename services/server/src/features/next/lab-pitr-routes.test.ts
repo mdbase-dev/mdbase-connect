@@ -41,9 +41,13 @@ async function fixture(failure?: string) {
     if (sql.includes("SELECT n.root_key_id")) return {rows:failure === "parent" ? [] : [{root_key_id:failure === "root" ? Buffer.alloc(16,9) : ROOT}]};
     if (sql.includes("e.value->>'op' AS op")) return {rows:[{op:failure === "member" ? "member-remove" : "member-set",role:"owner"}]};
     if (sql.includes("CASE WHEN octet_length(item)")) {
-      if (["genesis","cp-lost"].includes(failure??"")) return {rows:[]};
+      if (failure==="genesis") return {rows:[]};
       const item=items.get(String(values[0]));
-      return {rows:failure==="cp-duplicate"?[{state:"sending",item},{state:"sending",item}]:[{state:failure==="cp-sending"?"sending":failure==="cp-parked"?"parked":"appended",item}]};
+      const row={state:failure==="cp-sending"?"sending":failure==="cp-parked"?"parked":"appended",item,lost_at:failure==="cp-lost"?new Date(0):null};
+      if(failure==="cp-duplicate")return {rows:[row,row]};
+      if(failure==="cp-lost-with-live-reissue")return {rows:[{...row,lost_at:new Date(0)},{...row,state:"sending"}]};
+      if(failure==="cp-missing-loss")return {rows:[{state:"sending",item}]};
+      return {rows:[row]};
     }
     if (sql.includes("e.value->>'role' IS DISTINCT FROM 'owner'")) {
       expect(sql).not.toContain("b.state = 'appended'"); expect(values).toEqual([A,OWNER]);
@@ -131,12 +135,14 @@ describe("distinct CP original sending-genesis observation",()=>{
   it.each([undefined,"cp-sending"])("observes only the original %s bytes without a publication/membership ACK",async failure=>{
     const f=await fixture(failure);try{
       const r=await f.currentCp();expect(r.statusCode).toBe(200);expect(r.headers["cache-control"]).toBe("no-store");expect(r.json()).toEqual({...f.cpBody,current:true,checkedAt:NOW});
-      expect(f.queries.some(q=>q.includes("seq=1 AND lost_at IS NULL"))).toBe(true);
+      const original=f.queries.find(q=>q.includes("CASE WHEN octet_length(item)"))!;
+      expect(original).toContain("SELECT state, lost_at,");expect(original).toContain("seq=1 ORDER BY id LIMIT 2 FOR SHARE");
+      expect(original).not.toContain("lost_at IS NULL");
       expect(f.queries.some(q=>q.includes("e.value->>'op' AS op"))).toBe(false);expect(f.queries.some(q=>q.includes("FROM next_devices"))).toBe(false);expect(f.writes).toEqual([]);
       if(failure==="cp-sending")expect((await f.current()).statusCode).toBe(503); // device path remains appended-only
     }finally{await f.app.close();}
   });
-  it.each(["deleted","parent","root","security-key","cp-owner-remove","cp-owner-downgrade","cp-lost","cp-duplicate","cp-parked","cp-genesis-owner","cp-genesis-root","cp-identity","cp-clock","lock","database"])("closes %s",async failure=>{
+  it.each(["deleted","parent","root","security-key","cp-owner-remove","cp-owner-downgrade","cp-lost","cp-lost-with-live-reissue","cp-missing-loss","cp-duplicate","cp-parked","cp-genesis-owner","cp-genesis-root","cp-identity","cp-clock","lock","database"])("closes %s",async failure=>{
     const f=await fixture(failure);try{const r=await f.currentCp();expect([409,503]).toContain(r.statusCode);expect(r.json()).not.toHaveProperty("current");expect(f.writes).toEqual([]);}finally{await f.app.close();}
   });
   it("refuses foreign original genesis bytes",async()=>{const f=await fixture();try{expect((await f.currentCp({genesisSha256:"ff".repeat(32)})).statusCode).toBe(409);}finally{await f.app.close();}});

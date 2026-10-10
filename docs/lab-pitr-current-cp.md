@@ -50,7 +50,10 @@ limit bodies to 4096 bytes, return no-store metadata, and never unwrap keys:
   real log client's already-loaded startup keys, never token mint/sign/PEM access
   in the observer. Original newly admitted A/D row/owner/root/cloud-copy/deletion
   and current policy-key floors still required. Original seq1 may be `sending` or
-  `appended`, never parked/lost/duplicate; original bytes/owner/root are checked.
+  `appended`, never parked/lost/duplicate. The bounded seq1 lookup includes lost
+  history before uniqueness refusal; a lost original plus live reissue is ambiguous,
+  not a new original. A sole lost or missing-loss projection closes. Original
+  bytes/owner/root are checked.
   Initial owner membership may be in that same sending batch; no appended member
   ACK is fabricated. Any queued/delivered owner removal or downgrade closes.
   Ordinary device/service/app observers stay appended-only and use current member
