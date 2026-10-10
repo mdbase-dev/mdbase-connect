@@ -7,6 +7,23 @@ The original request freezes that declaration; replay cannot adopt a changed
 manifest or invent consent on a historical or consumed request. Declaration
 digests and public receipt references are metadata, not authentication.
 
+## Approval and withdrawal
+
+The collection approval screen has one plain-language reminders control.
+Declining or omitting timer permission still completes device/collection setup;
+reminders remain off, with reapproval available from the application. The control
+covers only the request's newly approved collection IDs and its explicitly chosen
+collection, never every retained scope or permission to create future collections.
+
+Initial grant issuance shares the original credential-exchange transaction.
+Reconsent uses the already registered credential and applies the timer decision
+at approval: explicit withdrawal permanently revokes the old grant immediately,
+without waiting for the application to exchange its response. This prevents an
+older delayed exchange from reviving a permission withdrawn by a newer request.
+A new explicit approval creates new grant IDs; denial revokes grants from that
+request. Public receipt references replay their original recorded grant IDs,
+including revoked historical references; they are not proof of current authority.
+
 ## Shared background identities
 
 Migration `0068_native_background_grants` gives the existing timer, receipt and

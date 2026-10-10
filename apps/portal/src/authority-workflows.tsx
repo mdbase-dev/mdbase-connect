@@ -30,6 +30,8 @@ interface DevicePairing {
   attested?: boolean;
   fingerprint?: string | null;
   app_origin?: string;
+  timer_declaration?: {digest:string};
+  timer_consent?: boolean | null;
   requested_create_collections?: boolean;
   approved_create_collections?: boolean;
   approved_collection_ids?: string[];
@@ -46,6 +48,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [busy, setBusy] = useState(false);
   const [collectionIds,setCollectionIds] = useState<string[]>([]);
   const [createCollections,setCreateCollections] = useState(false);
+  const [allowReminders,setAllowReminders] = useState(false);
   const [selectedCollectionId,setSelectedCollectionId] = useState("");
   const [newCollectionName,setNewCollectionName] = useState("");
   const [removingId,setRemovingId] = useState("");
@@ -58,6 +61,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setPairing(null);
     setCollectionIds([]);
     setCreateCollections(false);
+    setAllowReminders(false);
     setSelectedCollectionId("");
     setNewCollectionName("");
     setDeepLink("");
@@ -73,6 +77,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         setSelectedCollectionId(value.pairing.creation && !value.pairing.creation.completed ? NEW_COLLECTION : value.pairing.selected_collection_id ?? createdId);
         setNewCollectionName(value.pairing.creation?.display_name ?? "");
         setCreateCollections(value.pairing.retained_create_collections || value.pairing.approved_create_collections || value.pairing.requested_create_collections || false);
+        setAllowReminders(value.pairing.timer_consent === true);
       })
       .catch((reason) => {
         if (current !== generation.current) return;
@@ -130,7 +135,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       const approvedIds = [...new Set([...collectionIds, selected])].filter(id=>id && !pairing.retained_collection_ids?.includes(id));
       const result = await api<{ deep_link?: string }>(
         `/v1/pairing-requests/${pairingId}/${action}`,
-        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:approvedIds,create_collections:createCollections && !pairing.retained_create_collections,selected_collection_id:selected})} : {}) },
+        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:approvedIds,create_collections:createCollections && !pairing.retained_create_collections,selected_collection_id:selected,...(pairing.timer_declaration?{timer_consent:allowReminders}:{})})} : {}) },
       );
       if (current !== generation.current) return;
       if (action === "deny") {
@@ -187,6 +192,9 @@ export function Pairing({ pairingId }: { pairingId: string }) {
               <>
                 <h1>Access approved</h1>
                 <p className="mdbase-connect-lead">Return to {pairing.connector_name}.</p>
+                {pairing.timer_declaration && <p role="status">{pairing.timer_consent
+                  ? "You allowed reminders for the selected collections."
+                  : "Reminders are off. You can turn them on in the app by approving reminders again."}</p>}
               </>
             ) : (
               <>
@@ -251,6 +259,14 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       </fieldset>
                       {pairing.scope_only && <p>Already-allowed access stays in place. Remove access separately if you no longer want it.</p>}
                     </details>
+                    {pairing.timer_declaration && <div className="installation-choice">
+                      <label>
+                        <input type="checkbox" className="mdbase-checkbox" disabled={busy} checked={allowReminders} onChange={event=>setAllowReminders(event.target.checked)} />
+                        <span>Allow {pairing.connector_name} to send you reminders</span>
+                      </label>
+                      <p className="field-note">Applies to the collection you chose to open and any new collections selected here. Other collections are not included.</p>
+                      {!allowReminders && <p role="status">Reminders will be off. You can finish setup and turn them on later in the app. Collection access stays unchanged.</p>}
+                    </div>}
                     {removingId && <div role="group" aria-label="Confirm removal">
                       <p>{pairing.connector_name} will lose access to {pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??"this collection"} on all its devices. Previously downloaded data cannot be erased.</p>
                       <button className="button secondary installation-account-action" disabled={busy} onClick={()=>setRemovingId("")}>Keep access</button>

@@ -4,6 +4,7 @@ import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import { MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { randomToken, tokenHash } from "../../security.js";
 import { pruneUsageHistory } from "../../usage-report.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
@@ -469,9 +470,91 @@ describePg("installation device sign-in on daemon pairing", () => {
     for(const field of ["account_email","account_selection_confirmed","selected_collection_id","created_collection_ids"]) expect(receipt[field]).toBeUndefined();
     expect((await app.inject({method:"POST",url:`${p.flow.base}/select-account`,headers:p.owner.headers})).statusCode).toBe(409);
   });
-  async function approvePicked(p:Awaited<ReturnType<typeof prepared>>,flow:ReturnType<typeof channel>,ids:string[],selected:string) {
-    return app.inject({method:"POST",url:`${flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:ids,selected_collection_id:selected}});
+  async function approvePicked(p:Awaited<ReturnType<typeof prepared>>,flow:ReturnType<typeof channel>,ids:string[],selected:string,timers?:boolean) {
+    return app.inject({method:"POST",url:`${flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:ids,selected_collection_id:selected,...(timers!==undefined?{timer_consent:timers}:{})}});
   }
+  async function timerApp() {
+    const id = await registeredApp(`bundle:synthetic.reminders.${randomUUID()}`);
+    await db.query("UPDATE applications SET requirements=$2::jsonb,notifications=$3::jsonb WHERE id=$1", [id,
+      JSON.stringify({access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"],optional:["background.schedule"]}}),
+      JSON.stringify({criteria:[{id:"synthetic.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Reminder"}}]})]);
+    return id;
+  }
+  it("issues genuine installation timer grants for only the approved request collections, with exact stable exchange metadata",async()=>{
+    const id=await timerApp(),p=await prepared("app-runtime",true,undefined,undefined,id);
+    const first=await scopeCollection(p.owner.user),second=await scopeCollection(p.owner.user),unselected=await scopeCollection(p.owner.user);
+    const approved=await app.inject({method:"POST",url:`${p.flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:[first,second],selected_collection_id:first,create_collections:true,timer_consent:true}});
+    expect(approved.statusCode,approved.body).toBe(200);
+    expect((await db.query("SELECT 1 FROM next_background_grants WHERE approval_request_id=$1",[p.input.installation.request_id])).rows).toHaveLength(0);
+    const receipt=(await p.flow.exchange()).json();
+    expect(receipt.status).toBe("paired"); expect(receipt.timer_consent).toBe(true);
+    expect(receipt.timer_grants.map((grant:{collection_id:string})=>grant.collection_id)).toEqual([first,second].sort());
+    expect(receipt.timer_grants.some((grant:{collection_id:string})=>grant.collection_id===unselected)).toBe(false);
+    const rows=(await db.query("SELECT * FROM next_background_grants WHERE approval_request_id=$1 ORDER BY collection_id",[p.input.installation.request_id])).rows;
+    expect(rows).toHaveLength(2);
+    for(const grant of rows) {
+      expect(grant).toMatchObject({principal_kind:"installation",legacy_grant_id:null,native_connector_id:p.selected.connector_id,installation_id:p.input.installation.installation_id,device_id:p.input.installation.device_id,user_id:p.owner.user,application_id:id});
+      expect(grant.sign_pk.toString("hex")).toBe(p.proof.payload.sign_pk);
+      expect(grant.kem_pk.toString("hex")).toBe(p.proof.payload.kem_pk);
+      expect(grant.noise_pk.toString("hex")).toBe(p.proof.payload.noise_pk);
+      expect(grant.timer_declaration.digest).toBe(receipt.timer_grants.find((ref:{grant_id:string})=>ref.grant_id===grant.id).declaration_digest);
+    }
+    expect((await db.query("SELECT 1 FROM grants WHERE id=ANY($1::uuid[])",[rows.map(row=>row.id)])).rowCount).toBe(0);
+    for(const reply of await Promise.all([p.flow.exchange(),p.flow.exchange()])) {
+      expect(publicOutcome(reply.json())).toEqual(publicOutcome(receipt));
+      expect(tokenHash(reply.json().token)).toBe(tokenHash(receipt.token));
+    }
+    expect((await db.query("SELECT 1 FROM next_background_grants WHERE approval_request_id=$1",[p.input.installation.request_id])).rows).toHaveLength(2);
+  });
+  it.each([false,undefined])("finishes setup with timer choice %s without granting reminders",async timers=>{
+    const p=await prepared("app-runtime",false,undefined,undefined,await timerApp()),collection=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[collection],collection,timers)).statusCode).toBe(200);
+    const receipt=(await p.flow.exchange()).json();
+    expect(receipt.status).toBe("paired"); expect(receipt.timer_consent).toBe(timers??null); expect(receipt.timer_grants).toEqual([]);
+    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[p.selected.connector_id,collection])).rowCount).toBe(1);
+    expect((await db.query("SELECT 1 FROM next_background_grants WHERE approval_request_id=$1",[p.input.installation.request_id])).rowCount).toBe(0);
+  });
+  it("refuses timer declaration drift and missing original confirmation/selection, while explicit decline still finishes setup",async()=>{
+    const id=await timerApp(),p=await prepared("app-runtime",false,undefined,undefined,id),collection=await scopeCollection(p.owner.user);
+    const withoutSelection=await app.inject({method:"POST",url:`${p.flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:[collection],timer_consent:true}});
+    expect(withoutSelection.statusCode).toBe(403);
+    await db.query("UPDATE applications SET notifications=$2::jsonb WHERE id=$1",[id,JSON.stringify({criteria:[{id:"synthetic.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Changed"}}]})]);
+    const drift=await approvePicked(p,p.flow,[collection],collection,true);
+    expect(drift.statusCode).toBe(409); expect(drift.json().error.code).toBe("installation_timer_declaration_changed");
+    expect((await db.query("SELECT approved_at FROM pairing_requests WHERE id=$1",[p.input.installation.request_id])).rows[0].approved_at).toBeNull();
+    expect((await approvePicked(p,p.flow,[collection],collection,false)).statusCode).toBe(200);
+    expect((await p.flow.exchange()).json()).toMatchObject({status:"paired",timer_consent:false,timer_grants:[]});
+    const noDeclaration=await prepared(),other=await scopeCollection(noDeclaration.owner.user);
+    const refused=await approvePicked(noDeclaration,noDeclaration.flow,[other],other,true);
+    expect(refused.statusCode).toBe(403); expect(refused.json().error.code).toBe("installation_timers_not_declared");
+    expect((await approvePicked(noDeclaration,noDeclaration.flow,[other],other,false)).statusCode).toBe(200);
+    expect((await noDeclaration.flow.exchange()).json()).toMatchObject({status:"paired",timer_consent:false,timer_grants:[]});
+  });
+  it("withdraws immediately on reconsent approval; later older exchange cannot revive a grant or replace custody",async()=>{
+    const p=await prepared("app-runtime",false,undefined,undefined,await timerApp()),collection=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[collection],collection,true)).statusCode).toBe(200);
+    const initial=(await p.flow.exchange()).json(),firstId=initial.timer_grants[0].grant_id;
+    const older=await rescope(p,initial.token),withdraw=await rescope(p,initial.token);
+    for(const next of [older,withdraw]) expect((await app.inject({method:"POST",url:`${next.flow.base}/select-account`,headers:p.owner.headers})).statusCode).toBe(200);
+    expect((await approvePicked(p,older.flow,[],collection,true)).statusCode).toBe(200);
+    const second=(await db.query("SELECT id,revoked_at FROM next_background_grants WHERE approval_request_id=$1",[older.input.installation.request_id])).rows[0];
+    expect(second.revoked_at).toBeNull(); expect(second.id).not.toBe(firstId);
+    expect((await approvePicked(p,withdraw.flow,[],collection,false)).statusCode).toBe(200);
+    expect((await db.query("SELECT revoked_at FROM next_background_grants WHERE id=$1",[second.id])).rows[0].revoked_at).toBeInstanceOf(Date);
+    const late=(await older.flow.exchange()).json(); expect(late.timer_grants[0].grant_id).toBe(second.id);
+    const off=(await withdraw.flow.exchange()).json(); expect(off).toMatchObject({status:"scope_updated",timer_consent:false,timer_grants:[]});
+    expect((await db.query("SELECT 1 FROM next_background_grants WHERE native_connector_id=$1 AND revoked_at IS NULL",[p.selected.connector_id])).rowCount).toBe(0);
+    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[p.selected.connector_id,collection])).rowCount).toBe(1);
+    expect((await db.query("SELECT token_hash FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].token_hash).toBe(tokenHash(initial.token));
+    const fresh=await rescope(p,initial.token);
+    expect((await app.inject({method:"POST",url:`${fresh.flow.base}/select-account`,headers:p.owner.headers})).statusCode).toBe(200);
+    expect((await approvePicked(p,fresh.flow,[],collection,true)).statusCode).toBe(200);
+    const third=(await db.query("SELECT id FROM next_background_grants WHERE approval_request_id=$1",[fresh.input.installation.request_id])).rows[0].id;
+    expect([firstId,second.id]).not.toContain(third);
+    expect((await app.inject({method:"POST",url:`${fresh.flow.base}/deny`,headers:p.owner.headers})).statusCode).toBe(200);
+    expect((await db.query("SELECT revoked_at FROM next_background_grants WHERE id=$1",[third])).rows[0].revoked_at).toBeInstanceOf(Date);
+    await expect(db.query("UPDATE next_background_grants SET revoked_at=NULL WHERE id=$1",[second.id])).rejects.toThrow(/permanent/);
+  });
   it("binds final existing-collection selection to the exact approved subset and stable receipt",async()=>{
     const p=await prepared(),selected=await scopeCollection(p.owner.user),other=await scopeCollection(p.owner.user);
     expect((await approvePicked(p,p.flow,[other],selected)).statusCode).toBe(400);

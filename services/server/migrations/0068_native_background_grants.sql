@@ -7,7 +7,7 @@ ALTER TABLE installation_device_pairings ADD COLUMN timer_consent boolean;
 ALTER TABLE installation_device_pairings ADD CONSTRAINT installation_timer_declaration_shape
   CHECK (timer_declaration IS NULL OR jsonb_typeof(timer_declaration) = 'object');
 ALTER TABLE installation_device_pairings ADD CONSTRAINT installation_timer_consent_snapshot
-  CHECK (timer_consent IS NULL OR timer_declaration IS NOT NULL);
+  CHECK (timer_consent IS NULL OR timer_consent = false OR timer_declaration IS NOT NULL);
 
 ALTER TABLE installation_device_credentials ADD CONSTRAINT installation_timer_enrollment_identity
   UNIQUE (connector_id, installation_id, device_id, kind, sign_pk, kem_pk, noise_pk);
