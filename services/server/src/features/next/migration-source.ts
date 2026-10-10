@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
+import { legacyMigrationDrainSchema as legacyDrain, type LegacyMigrationDrain } from "../../hosted-provider-replies.js";
 import { audit } from "../../platform/audit-events.js";
 import { readBoundedJson } from "../../platform/bounded-json.js";
 import { apiError } from "../../platform/http-errors.js";
@@ -19,12 +20,6 @@ const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
 const decimal = z.string().regex(/^(0|[1-9][0-9]{0,19})$/u).refine(value => BigInt(value) <= (1n << 64n) - 1n);
 const chain = z.string().regex(/^[0-9a-f]{64}$/u);
 const head = z.object({ seq: decimal, chain }).strict();
-const sourceCounter = z.number().refine(value => Number.isSafeInteger(value) && value >= 0);
-const legacyDrain = z.object({collection_id:uuid,state:z.string(),head:sourceCounter,
-  started_at:z.iso.datetime({offset:true}).nullable(),retain_until:z.iso.datetime({offset:true}).nullable(),
-  in_flight:sourceCounter,unresolved:sourceCounter,applied_unreceipted:sourceCounter,migration_id:uuid.nullable().optional(),
-});
-type LegacyMigrationDrain = z.infer<typeof legacyDrain>;
 const admission = z.object({ schema: z.literal("mdbn-migration-admission/1"), collection: uuid, device_id: uuid,
   epoch: decimal, wake: decimal, fault_generation: decimal, applied_head: head, authenticated_head: head,
   control_chain: chain, challenge: z.string(),

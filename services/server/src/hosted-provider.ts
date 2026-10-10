@@ -21,6 +21,9 @@ import { safeEqual } from "./security.js";
 import { collectionContractDescriptorSchema } from "./protocol-schemas.js";
 import { z } from "zod";
 import { readBoundedJson } from "./platform/bounded-json.js";
+import { asProviderError, readResponse, HostedProviderResponseError, HostedProviderUnavailableError,
+  migrationUuid, legacyMigrationDrainSchema, migrationFenceSchema, type LegacyMigrationDrain, type LegacyMigrationFence } from "./hosted-provider-replies.js";
+export { HostedProviderResponseError, HostedProviderUnavailableError, type LegacyMigrationDrain, type LegacyMigrationFence } from "./hosted-provider-replies.js";
 
 export interface HostedProviderConfig {
   url: string;
@@ -299,8 +302,19 @@ export class HostedProviderClient {
     return requiredProjectionStatus(result?.projection, collectionId);
   }
 
-  async legacyMigrationDrain(collectionId: string, options?: HostedProviderOperationOptions): Promise<unknown> {
-    return this.request("GET", `/internal/v1/collections/${z.uuid().parse(collectionId)}/legacy-migration`, undefined, true, options, response => readBoundedJson(response, 4096));
+  async legacyMigrationDrain(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationDrain> {
+    const id = migrationUuid.parse(collectionId);
+    const result = legacyMigrationDrainSchema.parse(await this.request("GET", `/internal/v1/collections/${id}/legacy-migration`, undefined, true, options, response => readBoundedJson(response, 4096)));
+    if (result.collection_id !== id) throw new HostedProviderResponseError(502, "invalid_provider_response", "Migration source identity does not match.");
+    return result;
+  }
+
+  /** Deny-first fence; retries reuse the provider's existing migration identity. */
+  async legacyMigrationFence(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationFence> {
+    const id = migrationUuid.parse(collectionId);
+    const result = migrationFenceSchema.parse(await this.request("PUT", `/internal/v1/collections/${id}/legacy-migration`, { state: "migrating" }, true, options, response => readBoundedJson(response, 4096)));
+    if (result.collection_id !== id) throw new HostedProviderResponseError(502, "invalid_provider_response", "Migration fence identity does not match.");
+    return result;
   }
 
   async advanceProjection(
@@ -913,46 +927,6 @@ function requiredProjectionStatus(
     );
   }
   return value as HostedProjectionStatus;
-}
-
-export class HostedProviderResponseError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string
-  ) {
-    super(message);
-  }
-}
-
-export class HostedProviderUnavailableError extends Error {
-  constructor(public readonly cause: unknown) {
-    super("The hosted storage provider is temporarily unavailable.");
-  }
-}
-
-async function readResponse(response: Response): Promise<unknown> {
-  if (response.status === 204) return undefined;
-  const text = await response.text();
-  if (!text) return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-}
-
-function asProviderError(value: unknown): { code: string; message: string } {
-  const body = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const error = body.error && typeof body.error === "object"
-    ? body.error as Record<string, unknown>
-    : {};
-  return {
-    code: typeof error.code === "string" ? error.code : "hosted_provider_error",
-    message: typeof error.message === "string"
-      ? error.message
-      : "The hosted storage provider rejected the request."
-  };
 }
 
 function requiredOperation(

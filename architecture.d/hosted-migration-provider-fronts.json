@@ -1,0 +1,9 @@
+{
+  "reason": "Two internal migration-token-only provider routes reuse the existing fence/drain and current start claim, with no new state machine or authority-granting operation. One route module and one shared provider reply-decoder module: existing transport errors/reply decoding move out of the 1000-line client, and the duplicated witness drain schema is deleted in favor of the same typed decoder. Eleven internal import edges compose those boundaries. Nine net export declarations expose the route registrar and shared decoder/error/schema/types to their existing server consumers; no SDK/protocol package or public collection API grows. This is the bounded first migration adapter slice, not target readiness, rollback or managed qualification.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 11,
+    "typeScriptExportDeclarations": 9,
+    "services/server": 2
+  }
+}
