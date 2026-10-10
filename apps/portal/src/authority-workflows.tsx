@@ -14,6 +14,12 @@ interface DevicePairing {
   installation_device?: boolean;
   kind?: "app-runtime" | "mobile";
   account_selected?: boolean;
+  account_selection_confirmed?: boolean;
+  account_email?: string;
+  signed_in_account_email?: string;
+  selected_collection_id?: string | null;
+  can_create_collection?: boolean;
+  creation?: {collection_id:string;display_name:string;completed:boolean} | null;
   attested?: boolean;
   fingerprint?: string | null;
   app_origin?: string;
@@ -33,6 +39,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [busy, setBusy] = useState(false);
   const [collectionIds,setCollectionIds] = useState<string[]>([]);
   const [createCollections,setCreateCollections] = useState(false);
+  const [selectedCollectionId,setSelectedCollectionId] = useState("");
+  const [newCollectionName,setNewCollectionName] = useState("");
   const [removingId,setRemovingId] = useState("");
   const [revokingId,setRevokingId] = useState("");
   const generation = useRef(0);
@@ -43,6 +51,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setPairing(null);
     setCollectionIds([]);
     setCreateCollections(false);
+    setSelectedCollectionId("");
+    setNewCollectionName("");
     setDeepLink("");
     setError("");
     setBusy(false);
@@ -51,7 +61,10 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       .then((value) => {
         if (current !== generation.current) return;
         setPairing(value.pairing);
-        setCollectionIds([...new Set([...(value.pairing.retained_collection_ids??[]),...(value.pairing.approved_collection_ids??[])])]);
+        const createdId = value.pairing.creation?.completed ? value.pairing.creation.collection_id : "";
+        setCollectionIds([...new Set([...(value.pairing.retained_collection_ids??[]),...(value.pairing.approved_collection_ids??[]),...(createdId?[createdId]:[])])]);
+        setSelectedCollectionId(value.pairing.selected_collection_id ?? createdId);
+        setNewCollectionName(value.pairing.creation?.display_name ?? "");
         setCreateCollections(value.pairing.retained_create_collections || value.pairing.approved_create_collections || false);
       })
       .catch((reason) => {
@@ -65,6 +78,29 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     };
   }, [pairingId, attempt]);
 
+  // Read-only portal progress: the SDK owns attestation and approval-receipt
+  // polling. Do not make the user manually refresh to discover its device key.
+  useEffect(() => {
+    if (!pairing?.installation_device || !pairing.account_selection_confirmed || pairing.attested || pairing.approved_at) return;
+    const current = generation.current;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      if (cancelled || current!==generation.current) return;
+      if (dispatching.current) {timer=setTimeout(()=>void poll(),1000);return;}
+      try {
+        const value=await api<{pairing:DevicePairing}>(`/v1/pairing-requests/${pairingId}`);
+        if (cancelled || current!==generation.current) return;
+        if (value.pairing.attested || value.pairing.approved_at) {setPairing(value.pairing);return;}
+        timer=setTimeout(()=>void poll(),1000);
+      } catch (reason) {
+        if (!cancelled && current===generation.current) setError(message(reason));
+      }
+    }
+    timer=setTimeout(()=>void poll(),1000);
+    return ()=>{cancelled=true;clearTimeout(timer);};
+  },[pairing,pairingId]);
+
   async function act(action: "approve" | "select-account" | "deny" | "remove-access") {
     if (dispatching.current || !pairing) return;
     const current = generation.current;
@@ -74,7 +110,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     try {
       const result = await api<{ deep_link?: string }>(
         `/v1/pairing-requests/${pairingId}/${action}`,
-        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:collectionIds.filter(id=>!pairing.retained_collection_ids?.includes(id)),create_collections:createCollections && !pairing.retained_create_collections})} : {}) },
+        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:collectionIds.filter(id=>!pairing.retained_collection_ids?.includes(id)),create_collections:createCollections && !pairing.retained_create_collections,selected_collection_id:selectedCollectionId})} : {}) },
       );
       if (current !== generation.current) return;
       if (action === "deny") {
@@ -91,6 +127,22 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         dispatching.current = false;
         setBusy(false);
       }
+    }
+  }
+
+  async function createNamedCollection() {
+    if (dispatching.current || !pairing || !newCollectionName.trim()) return;
+    const current = generation.current;
+    dispatching.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/v1/pairing-requests/${pairingId}/collections`,{method:"POST",body:JSON.stringify({display_name:newCollectionName})});
+      if (current===generation.current) setAttempt(value=>value+1);
+    } catch (reason) {
+      if (current===generation.current) setError(message(reason));
+    } finally {
+      if (current===generation.current) {dispatching.current=false;setBusy(false);}
     }
   }
 
@@ -134,7 +186,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                   Approve only if you started sign-in in this app right now.
                   The origin shown here is not proof of who made the request.
                 </p>
-                {!pairing.account_selected ? (
+                <p>Account: {pairing.account_email ?? pairing.signed_in_account_email}</p>
+                {!pairing.account_selection_confirmed ? (
                   <>
                     <p>
                       Select your signed-in account for this device. This does
@@ -170,12 +223,27 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     <p>
                       Device key: <code>{pairing.fingerprint}</code>
                     </p>
-                    <fieldset disabled={busy}>
+                    <label className="installation-choice">
+                      <span>Collection to open in {pairing.connector_name}</span>
+                      <Select aria-label="Collection to open" disabled={busy} value={selectedCollectionId}
+                        options={[{value:"",label:"Choose a collection"},...(pairing.collections??[]).map(collection=>({value:collection.collection_id,label:collection.display_name}))]}
+                        onChange={id=>{setSelectedCollectionId(id);if(id)setCollectionIds(ids=>[...new Set([...ids,id])]);}} />
+                    </label>
+                    {pairing.can_create_collection && !pairing.creation?.completed && <div className="installation-choice">
+                      <label htmlFor="installation-collection-name">New collection name</label>
+                      <input id="installation-collection-name" value={newCollectionName} maxLength={200} disabled={busy} readOnly={!!pairing.creation} onChange={event=>setNewCollectionName(event.target.value)} />
+                      <p className="field-note">Create an empty cloud-copy collection in this account. This does not approve app access or set it up.</p>
+                      <button type="button" className="button secondary" disabled={busy || !newCollectionName.trim()} onClick={()=>void createNamedCollection()}>
+                        {pairing.creation ? "Resume named collection creation" : "Create named collection"}
+                      </button>
+                      {pairing.creation && <p role="status">Creation is incomplete. Resume the same collection; do not start another.</p>}
+                    </div>}
+                    <fieldset className="installation-scopes" disabled={busy}>
                       <legend>Entire collections</legend>
                       {(pairing.collections??[]).map(collection=>(
                         <div key={collection.collection_id}>
                         <label>
-                          <input type="checkbox" className="mdbase-checkbox" checked={collectionIds.includes(collection.collection_id)} disabled={pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...ids,collection.collection_id]:ids.filter(id=>id!==collection.collection_id))} />
+                          <input type="checkbox" className="mdbase-checkbox" checked={collectionIds.includes(collection.collection_id)} disabled={pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>{setCollectionIds(ids=>event.target.checked?[...ids,collection.collection_id]:ids.filter(id=>id!==collection.collection_id));if(!event.target.checked && selectedCollectionId===collection.collection_id)setSelectedCollectionId("");}} />
                           <span>{collection.display_name} ({collection.role})</span>
                           <code>{collection.collection_id}</code>
                         </label>
@@ -199,7 +267,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     <p>Other existing or future collections are not included. {pairing.requested_create_collections ? "If approved, only collections created by this installation are added to its access automatically." : "This app has not requested permission to create collections."}</p>
                     <button
                       className="button primary"
-                      disabled={busy || !pairing.fingerprint}
+                      disabled={busy || !pairing.fingerprint || !selectedCollectionId || !collectionIds.includes(selectedCollectionId) || !pairing.collections?.some(collection=>collection.collection_id===selectedCollectionId)}
                       onClick={() => void act("approve")}
                     >
                       {pairing.scope_only ? "Approve collection access" : "Approve this device"}
