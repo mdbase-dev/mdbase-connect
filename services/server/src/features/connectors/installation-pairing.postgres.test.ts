@@ -179,14 +179,51 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await db.query("SELECT portal_account_email FROM installation_device_pairings WHERE pairing_id=$1",[prior.input.installation.request_id])).rows[0].portal_account_email).toBe(`${prior.owner.user}@example.test`);
     expect((await db.query("SELECT device_id FROM installation_device_credentials WHERE pairing_id=$1",[input.installation.request_id])).rows).toEqual([]);
   });
-  it("refuses unavailable authenticated email without partial confirmation, backfill or an internal constraint failure", async () => {
+  it.each([false,true])("confirms an authenticated GitHub login without any email (reconsent=%s)", async reconsent => {
+    const prior = await prepared(); expect((await approveDevice(prior.flow,prior.owner)).statusCode).toBe(200);
+    const credential=(await prior.flow.exchange()).json(); expect(credential.status).toBe("paired");
+    const login=`fixture-${randomUUID().slice(0,8)}`;
+    await db.query("UPDATE users SET email=NULL,name='Not an authenticated login' WHERE id=$1",[prior.owner.user]);
+    await db.query("INSERT INTO external_identities(provider,subject,user_id,login,email,email_verified) VALUES('github',$1,$2,$3,NULL,false)",[randomUUID(),prior.owner.user,login]);
+    await db.query("UPDATE sessions SET provider='github' WHERE id=$1",[prior.owner.session]);
+    const input=original(); if(reconsent){input.installation.installation_id=prior.input.installation.installation_id;input.installation.device_id=prior.input.installation.device_id;input.installation.reconsent=true;}
+    expect((await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{...originHeaders(input),...(reconsent?{authorization:`Bearer ${credential.token}`}:{})},payload:input})).statusCode).toBe(201);
+    const flow=channel(input);
+    const selected=await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:prior.owner.headers,payload:{email:"spoof@example.test",provider:"github",login:"spoof"}});
+    expect(selected.statusCode).toBe(200);
+    const pairing=(await app.inject({method:"GET",url:flow.base,headers:prior.owner.headers})).json().pairing;
+    expect(pairing).toMatchObject({account_selection_confirmed:true,account_email:null,account_provider:"github",account_login:login});
+    const frozen=(await db.query("SELECT portal_account_confirmed_at,portal_account_email,portal_account_provider,portal_account_login,portal_account_session_id,portal_account_session_epoch FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0];
+    expect(frozen).toMatchObject({portal_account_email:null,portal_account_provider:"github",portal_account_login:login,portal_account_session_id:prior.owner.session});
+    if(!reconsent) expect((await attest(input,(await flow.exchange()).json())).result.statusCode).toBe(200);
+    expect((await approveDevice(flow,prior.owner)).statusCode).toBe(200);
+    const paired=(await flow.exchange()).json(); expect(paired).toMatchObject({status:reconsent?"scope_updated":"paired",account_email:null,account_provider:"github",account_login:login,account_selection_confirmed:true});
+    await db.query("UPDATE external_identities SET login='changed',email='changed@example.test' WHERE user_id=$1",[prior.owner.user]);
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:prior.owner.headers})).statusCode).toBe(200);
+    expect((await db.query("SELECT portal_account_confirmed_at,portal_account_email,portal_account_provider,portal_account_login,portal_account_session_id,portal_account_session_epoch FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0]).toEqual(frozen);
+  });
+  it("refuses unavailable authenticated identity without partial confirmation, backfill or an internal constraint failure", async () => {
     const owner = await account(); await db.query("UPDATE users SET email=NULL WHERE id=$1",[owner.user]);
     const input = original(), flow = await start(input);
-    const selected = await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:owner.headers});
-    expect(selected.statusCode).toBe(403); expect(selected.json().error.code).toBe("installation_account_email_unavailable");
+    const selected = await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:owner.headers,payload:{email:"invented@example.test",provider:"github",login:"invented"}});
+    expect(selected.statusCode).toBe(403); expect(selected.json().error.code).toBe("installation_account_identity_unavailable");
+    expect(selected.json().error.message).toBe("We couldn't identify your account. Sign in again to continue.");
     const unchanged = (await db.query("SELECT p.user_id,i.account_selected_at,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_session_id,i.portal_account_session_epoch FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id WHERE p.id=$1",[input.installation.request_id])).rows[0];
     expect(Object.values(unchanged)).toEqual([null,null,null,null,null,null]);
     expect((await flow.exchange()).json()).toEqual({status:"pending"});
+  });
+  it("keeps forward confirmation complete and request-local without backfilling any identity", async () => {
+    const owner=await account(), input=original(); await start(input);
+    for(const fields of [
+      "portal_account_provider='github',portal_account_login='login'",
+      "portal_account_confirmed_at=now(),portal_account_session_id=$2,portal_account_session_epoch=0",
+      "portal_account_confirmed_at=now(),portal_account_session_id=$2,portal_account_session_epoch=0,portal_account_provider='github'",
+      "portal_account_confirmed_at=now(),portal_account_session_id=$2,portal_account_session_epoch=0,portal_account_provider='github',portal_account_login=''",
+      "portal_account_confirmed_at=now(),portal_account_session_id=$2,portal_account_session_epoch=0,portal_account_provider='password',portal_account_login='login'",
+      "portal_account_confirmed_at=now(),portal_account_session_id=$2,portal_account_session_epoch=0,portal_account_email='owner@example.test',portal_account_provider='github',portal_account_login='login'",
+    ]) await expect(db.query(`UPDATE installation_device_pairings SET ${fields} WHERE pairing_id=$1`,fields.includes("$2")?[input.installation.request_id,owner.session]:[input.installation.request_id])).rejects.toMatchObject({code:"23514",constraint:"installation_portal_confirmation_complete"});
+    const empty=(await db.query("SELECT portal_account_confirmed_at,portal_account_email,portal_account_provider,portal_account_login,portal_account_session_id,portal_account_session_epoch FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0];
+    expect(Object.values(empty)).toEqual([null,null,null,null,null,null]);
   });
   it("refuses legacy account selection without claiming the request or issuing a device", async () => {
     const owner = await account(), input = original(), flow = await start(input);

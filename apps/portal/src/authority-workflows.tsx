@@ -4,7 +4,7 @@ import {
   ApiError,
   type AuthorityTransfer as AuthorityTransferData,
 } from "./api";
-import { message } from "./portal-model";
+import { installationAccountLabel, message } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
 import { Select } from "@mdbase-dev/ui/select";
 
@@ -15,8 +15,12 @@ interface DevicePairing {
   kind?: "app-runtime" | "mobile";
   account_selected?: boolean;
   account_selection_confirmed?: boolean;
-  account_email?: string;
-  signed_in_account_email?: string;
+  account_email?: string | null;
+  account_provider?: string;
+  account_login?: string;
+  signed_in_account_email?: string | null;
+  signed_in_account_provider?: string;
+  signed_in_account_login?: string;
   selected_collection_id?: string | null;
   can_create_collection?: boolean;
   creation?: {collection_id:string;display_name:string;completed:boolean} | null;
@@ -186,7 +190,14 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                   Approve only if you started sign-in in this app right now.
                   The origin shown here is not proof of who made the request.
                 </p>
-                <p>Account: {pairing.account_email ?? pairing.signed_in_account_email}</p>
+                {installationAccountLabel(pairing) ? (
+                  <p className="installation-account-label">Account: {installationAccountLabel(pairing)}</p>
+                ) : (
+                  <>
+                    <p>We couldn't identify your account. Sign in again to continue.</p>
+                    <a className="button secondary link-button installation-account-action" href={`/login?return_to=${encodeURIComponent(location.href)}`}>Sign in again</a>
+                  </>
+                )}
                 {!pairing.account_selection_confirmed ? (
                   <>
                     <p>
@@ -194,8 +205,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       not approve access yet.
                     </p>
                     <button
-                      className="button primary"
-                      disabled={busy}
+                      className="button primary installation-account-action"
+                      disabled={busy || !installationAccountLabel(pairing)}
                       onClick={() => void act("select-account")}
                     >
                       Use this account

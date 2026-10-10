@@ -1,0 +1,6 @@
+{
+  "reason": "One internal portal-model export centralizes the authenticated account label used before and after explicit confirmation, preserving the original confirmed identity instead of falling back to a changed signed-in account. It displays email or the canonical GitHub login, never fabricates an email or accepts request-body identity. No new public SDK or protocol export.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}

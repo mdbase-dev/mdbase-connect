@@ -13,6 +13,18 @@ export function editorConnectUrl(connectOrigin = location.origin): string {
   return url.href;
 }
 
+export function installationAccountLabel(pairing: {
+  account_selection_confirmed?: boolean;
+  account_email?: string | null; account_provider?: string | null; account_login?: string | null;
+  signed_in_account_email?: string | null; signed_in_account_provider?: string | null; signed_in_account_login?: string | null;
+}): string | null {
+  const confirmed = pairing.account_selection_confirmed;
+  const email = confirmed ? pairing.account_email : pairing.signed_in_account_email;
+  const provider = confirmed ? pairing.account_provider : pairing.signed_in_account_provider;
+  const login = confirmed ? pairing.account_login : pairing.signed_in_account_login;
+  return email || (provider === "github" && login ? `GitHub account @${login}` : null);
+}
+
 export function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 export function message(value: unknown) {
   let detail = value instanceof Error ? value.message : String(value);
