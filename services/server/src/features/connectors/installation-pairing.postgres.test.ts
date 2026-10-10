@@ -15,6 +15,7 @@ import { registerNextDeviceRoutes } from "../next/device-routes.js";
 import { registerApplicationManifest } from "../../manifest.js";
 import { upsertApplication } from "../applications/store.js";
 import { registerConnectorPairingRoutes } from "./pairing-routes.js";
+import { backgroundTimerGrantResolver, dataPermitted } from "../next/timers/grants.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -505,6 +506,67 @@ describePg("installation device sign-in on daemon pairing", () => {
       expect(tokenHash(reply.json().token)).toBe(tokenHash(receipt.token));
     }
     expect((await db.query("SELECT 1 FROM next_background_grants WHERE approval_request_id=$1",[p.input.installation.request_id])).rows).toHaveLength(2);
+  });
+  async function currentTimerFixture() {
+    const p=await prepared("app-runtime",false,undefined,undefined,await timerApp()),collection=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[collection],collection,true)).statusCode).toBe(200);
+    const receipt=(await p.flow.exchange()).json(),grantId=receipt.timer_grants[0].grant_id as string;
+    const batch=(await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,2,$2,$3,2,'appended') RETURNING id",[collection,Buffer.alloc(32),Buffer.alloc(1)])).rows[0].id;
+    const enrol={op:"device-enrol",device:p.input.installation.device_id,account:p.owner.user,kind:p.input.installation.kind,
+      signPublicKey:{$hex:p.proof.payload.sign_pk},kemPublicKey:{$hex:p.proof.payload.kem_pk},noisePublicKey:{$hex:p.proof.payload.noise_pk}};
+    await db.query("INSERT INTO next_policy_outbox(collection_id,ops,batch_id) VALUES($1,$2,$3)",[collection,JSON.stringify({version:1,ops:[enrol]}),batch]);
+    const resolver=backgroundTimerGrantResolver(db,"lab");
+    expect((await resolver.resolve(db,grantId))?.usable).toBe(true);
+    return {p,collection,grantId,batch,resolver};
+  }
+  it("resolves actual native timer consent as opaque, exact collection authority, independent of transient pairing-window custody",async()=>{
+    const f=await currentTimerFixture(),grant=(await f.resolver.resolve(db,f.grantId))!;
+    expect(grant).toMatchObject({grantId:f.grantId,userId:f.p.owner.user,applicationId:f.p.input.installation.app_id,
+      connectorId:f.p.selected.connector_id,collectionIds:[f.collection],state:"e2e",usable:true});
+    expect(dataPermitted(grant)).toBe(false); expect(grant.operations.has("put_timer")).toBe(true);
+    expect(grant.criteria.map(criterion=>criterion.id)).toEqual(["synthetic.reminder"]);
+    await db.query("DELETE FROM pairing_requests WHERE id=$1",[f.p.input.installation.request_id]);
+    expect((await f.resolver.resolve(db,f.grantId))?.usable).toBe(true);
+    await db.query("UPDATE applications SET name='New display name' WHERE id=$1",[f.p.input.installation.app_id]);
+    expect((await f.resolver.resolve(db,f.grantId))?.usable).toBe(true);
+    expect((await backgroundTimerGrantResolver(db,"production").resolve(db,f.grantId))?.usable).toBe(false);
+    await db.query("UPDATE applications SET notifications=$2::jsonb WHERE id=$1",[f.p.input.installation.app_id,JSON.stringify({criteria:[{id:"synthetic.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Changed terms"}}]})]);
+    expect((await f.resolver.resolve(db,f.grantId))?.usable).toBe(false);
+  });
+  it.each(["sign_pk","kem_pk","noise_pk"])("refuses a changed current native %s without adopting the new key",async key=>{
+    const f=await currentTimerFixture(),original=(await db.query(`SELECT ${key} AS key FROM next_devices WHERE id=$1`,[f.p.input.installation.device_id])).rows[0].key;
+    await db.query(`UPDATE next_devices SET ${key}=$2 WHERE id=$1`,[f.p.input.installation.device_id,Buffer.alloc(32,17)]);
+    expect((await f.resolver.resolve(db,f.grantId))?.usable).toBe(false);
+    await db.query(`UPDATE next_devices SET ${key}=$2 WHERE id=$1`,[f.p.input.installation.device_id,original]);
+    expect((await f.resolver.resolve(db,f.grantId))?.usable).toBe(true);
+  });
+  it.each(["sending","lost"])("requires exact acknowledged enrollment, not a %s batch",async state=>{
+    const f=await currentTimerFixture();
+    await db.query("UPDATE next_policy_batches SET state=$2 WHERE id=$1",[f.batch,state==="lost"?"appended":"sending"]);
+    if(state==="lost") await db.query("UPDATE next_policy_batches SET lost_at=now() WHERE id=$1",[f.batch]);
+    expect((await f.resolver.resolve(db,f.grantId))?.usable).toBe(false);
+  });
+  it.each(["device-revoke","member-remove"])("refuses historical enrollment after even a pending %s",async op=>{
+    const f=await currentTimerFixture();
+    const removal=op==="device-revoke"?{op,device:f.p.input.installation.device_id}:{op,account:f.p.owner.user};
+    await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",[f.collection,JSON.stringify({version:1,ops:[removal]})]);
+    expect((await f.resolver.resolve(db,f.grantId))?.usable).toBe(false);
+  });
+  it("permanently denies removed exact collection scope and holds live consent until its engine transaction commits",async()=>{
+    const f=await currentTimerFixture(),client=await db.connect();
+    try {
+      await client.query("BEGIN"); expect((await f.resolver.resolve(client,f.grantId))?.usable).toBe(true);
+      let settled=false;
+      const withdrawn=db.query("UPDATE next_background_grants SET revoked_at=now() WHERE id=$1",[f.grantId]).then(()=>{settled=true;});
+      await new Promise(resolve=>setTimeout(resolve,30)); expect(settled).toBe(false);
+      await client.query("COMMIT"); await withdrawn;
+      expect((await f.resolver.resolve(db,f.grantId))?.usable).toBe(false);
+    } finally { await client.query("ROLLBACK"); client.release(); }
+    const scoped=await currentTimerFixture();
+    await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[scoped.p.selected.connector_id,scoped.collection]);
+    await db.query("INSERT INTO installation_collection_scopes(connector_id,collection_id) VALUES($1,$2)",[scoped.p.selected.connector_id,scoped.collection]);
+    expect((await scoped.resolver.resolve(db,scoped.grantId))?.usable).toBe(false);
+    expect(await scoped.resolver.resolve(db,randomUUID())).toBeNull();
   });
   it.each([false,undefined])("finishes setup with timer choice %s without granting reminders",async timers=>{
     const p=await prepared("app-runtime",false,undefined,undefined,await timerApp()),collection=await scopeCollection(p.owner.user);

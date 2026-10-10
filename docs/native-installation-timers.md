@@ -41,6 +41,24 @@ The memory adapter runs schema only; real PostgreSQL qualifies the hooks, FK
 upgrade and native identity constraints. Neither schema nor declaration metadata
 alone enables native timer authorization, delivery or a host port.
 
+## Current native authority
+
+The shared resolver never treats a recorded native principal as a legacy grant.
+It rechecks the original account/application/installation/device/kind and all
+three keys, the current registry environment/origin and frozen declaration,
+exact collection scope, active owner/collection lifecycle, acknowledged membership
+and exact acknowledged enrollment. Pending device revocation or member removal
+denies immediately; a historical enrollment is not sufficient. The canonical
+collection/device check is shared with People rather than duplicated.
+
+Reads own a bounded transaction; calls from an engine transaction retain policy
+and live-consent locks through its commit. A pruned pairing window does not erase
+registered custody or grant provenance. Native timers are always opaque: even a
+cloud-copy native collection does not authorize plaintext timer data. The native
+credential is not the connector's unused ordinary-controller token. HTTP request,
+worker/delivery and adopted-host port integration require their own current
+principal checks; the resolver alone does not enable runtime reminders.
+
 ## Upgrade evidence and down-path limit
 
 The isolated PostgreSQL test constructs the actual predecessor using unchanged

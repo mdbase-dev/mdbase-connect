@@ -2,7 +2,11 @@ import {
   MDBASE_TIMER_FIRED_CONTRACT,
   type NotificationCriterion
 } from "@mdbase-dev/connect-protocol";
-import type { DatabaseQueryable } from "../../../database-types.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../../database-types.js";
+import { InstallationPairingError, installationApp } from "../../connectors/installation-pairing.js";
+import { CreateError, currentCollectionDevice, inTransaction, type Device } from "../bootstrap-common.js";
+import { requireInstallationScope } from "../installation-scope.js";
+import { readInstallationTimerDeclaration } from "./installation-declaration.js";
 import { TimerError } from "./model.js";
 
 /**
@@ -38,9 +42,9 @@ export interface TimerGrant {
 }
 
 /**
- * Seam: resolve a grant's timer-relevant facts. The default reads Connect's
- * grant rows. The mdbase-next control plane replaces it once `next_collections`
- * and grant approvals exist, to report `e2e` and the device-approval test.
+ * Resolve current timer-relevant facts. Legacy authority keeps its existing
+ * checks; the shared background resolver evaluates actual native installation
+ * consent against current acknowledged policy and reports opaque-only `e2e`.
  */
 export interface TimerGrantResolver {
   resolve(db: DatabaseQueryable, grantId: string): Promise<TimerGrant | null>;
@@ -100,6 +104,81 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
     };
   }
 };
+
+interface InstallationBackgroundGrant {
+  id: string; user_id: string; application_id: string; collection_id: string;
+  native_connector_id: string; installation_id: string; device_id: string;
+  device_kind: "app-runtime" | "mobile";
+  sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer;
+  timer_declaration: unknown; revoked_at: Date | string | null;
+}
+
+/** Typed shared background authority. A recorded native principal never enters
+ * the legacy resolver, even when revoked or otherwise unusable. Pool reads own
+ * a bounded transaction; engine transactions retain policy locks through commit. */
+export function backgroundTimerGrantResolver(db: DatabasePool, environment: "lab" | "staging" | "production"): TimerGrantResolver {
+  const native = async (client: DatabaseConnection, grantId: string): Promise<TimerGrant | null> => {
+    const row = (await client.query<InstallationBackgroundGrant>(
+      "SELECT * FROM next_background_grants WHERE id=$1 AND principal_kind='installation'", [grantId]
+    )).rows[0];
+    if (!row) return null;
+    const declaration = readInstallationTimerDeclaration(row.timer_declaration);
+    if (declaration.application_id !== row.application_id || declaration.kind !== row.device_kind) throw new Error("Native timer consent identity mismatch.");
+    const grant: TimerGrant = {
+      grantId: row.id, userId: row.user_id, applicationId: row.application_id,
+      applicationOrigin: declaration.app_origin, collectionIds: [row.collection_id],
+      connectorId: row.native_connector_id, state: "e2e", usable: false,
+      operations: new Set(declaration.operations), criteria: declaration.notifications.criteria,
+    };
+    if (row.revoked_at !== null || declaration.environment !== environment) return grant;
+    const connector = { id: row.native_connector_id, user_id: row.user_id, installation_device_id: row.device_id };
+    try {
+      await requireInstallationScope(client,connector);
+      // ct_ lives in this dedicated credential; the connector's deliberately
+      // unused ordinary-controller token is neither an alias nor this bearer.
+      const credential = await client.query(
+        `SELECT 1 FROM installation_device_credentials k JOIN connectors c ON c.id=k.connector_id
+         WHERE k.connector_id=$1 AND k.installation_id=$2 AND k.device_id=$3 AND k.kind=$4
+           AND k.sign_pk=$5 AND k.kem_pk=$6 AND k.noise_pk=$7 AND k.app_id=$8 AND k.app_origin=$9
+           AND c.user_id=$10 AND c.revoked_at IS NULL FOR SHARE OF k,c`,
+        [row.native_connector_id,row.installation_id,row.device_id,row.device_kind,row.sign_pk,row.kem_pk,row.noise_pk,
+          row.application_id,declaration.app_origin,row.user_id]
+      );
+      if (!credential.rows.length) return grant;
+      // Registration/declaration drift cannot be adopted by an old consent.
+      const registered = await client.query("SELECT 1 FROM applications WHERE id=$1 FOR SHARE",[row.application_id]);
+      if (!registered.rows.length) return grant;
+      const app = await installationApp(client,environment,row.application_id,declaration.app_origin,row.device_kind);
+      if (app.timerDeclaration?.digest !== declaration.digest) return grant;
+      const device: Device = { kind: row.device_kind, sign_pk: row.sign_pk, kem_pk: row.kem_pk, noise_pk: row.noise_pk };
+      await currentCollectionDevice(client,connector,row.collection_id,row.device_id,device);
+      const scoped = await client.query(
+        "SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 FOR SHARE",
+        [row.native_connector_id,row.collection_id]
+      );
+      if (!scoped.rows.length) return grant;
+      const live = await client.query(
+        "SELECT 1 FROM next_background_grants WHERE id=$1 AND principal_kind='installation' AND revoked_at IS NULL FOR SHARE",[row.id]
+      );
+      grant.usable = live.rows.length === 1;
+      return grant;
+    } catch (error) {
+      if (error instanceof CreateError || error instanceof InstallationPairingError) return grant;
+      throw error;
+    }
+  };
+  return {
+    async resolve(queryable, grantId) {
+      const identity = (await queryable.query<{principal_kind:"legacy"|"installation"}>(
+        "SELECT principal_kind FROM next_background_grants WHERE id=$1",[grantId]
+      )).rows[0];
+      if (identity?.principal_kind !== "installation") return legacyTimerGrantResolver.resolve(queryable,grantId);
+      if (queryable === db) return inTransaction(db,client=>native(client,grantId));
+      if (!("release" in queryable) || typeof queryable.release !== "function") throw new Error("Native timer authority requires its database pool or an owned transaction connection.");
+      return native(queryable as DatabaseConnection,grantId);
+    }
+  };
+}
 
 export type TimerOperation = "list_timers" | "put_timer" | "cancel_timer" | "reconcile_timers";
 const WRITE_OPERATIONS: readonly TimerOperation[] = ["put_timer", "cancel_timer", "reconcile_timers"];

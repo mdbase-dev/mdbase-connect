@@ -2,7 +2,7 @@
  * Public account selection precedes key custody; attestation precedes explicit
  * device approval. Original request/tuple and outcome are immutable. */
 import { createHmac, randomBytes, randomUUID, verify } from "node:crypto";
-import type { DatabasePool } from "../../database-types.js";
+import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { tokenHash, randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import {
@@ -43,7 +43,7 @@ const strict = (): never => {
 };
 /** Registry-owned installation authorization, not a caller URL/declaration.
  * Origin is mandatory (including native) and matches the exact environment/kind. */
-export async function installationApp(db: DatabasePool, environment: string | undefined, appId: string, origin: string | undefined, kind: "app-runtime" | "mobile") {
+export async function installationApp(db: DatabaseQueryable, environment: string | undefined, appId: string, origin: string | undefined, kind: "app-runtime" | "mobile") {
   if (!environment || !["lab", "staging", "production"].includes(environment) || !origin) return fail("installation_app_not_allowed", 403);
   const app = await findInstallationApplication(db, appId);
   if (!app) return fail("installation_app_not_allowed", 403);
