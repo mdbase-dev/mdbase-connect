@@ -76,10 +76,12 @@ async function extractArchive(root, revision, destination) {
     child.once("error", reject);
     child.once("close", (code, signal) => code === 0 ? resolve() : reject(new Error(`${command} failed (${signal ?? code}).`)));
   });
+  const pending = [completed(archive, "git archive"), completed(extract, "tar"), pipeline(archive.stdout, extract.stdin)];
   try {
-    await Promise.all([completed(archive, "git archive"), completed(extract, "tar"), pipeline(archive.stdout, extract.stdin)]);
+    await Promise.all(pending);
   } finally {
     archive.kill(); extract.kill();
+    await Promise.allSettled(pending); // extraction must stop before snapshot cleanup
   }
 }
 
