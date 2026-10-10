@@ -9,7 +9,7 @@ function registry(config: InstallationApplication["installation_origins"] = {
   production: {"app-runtime": ["https://notes.example.test"]},
   staging: {"app-runtime": ["https://staging.notes.example.test"]},
 }) {
-  const query = vi.fn(async (_sql: string, params: unknown[]) => ({rows: params[0] === id ? [{id, name: "Independent Notes", family_identity: "bundle:independent.notes.app", installation_origins: config}] : []}));
+  const query = vi.fn(async (_sql: string, params: unknown[]) => ({rows: params[0] === id ? [{id, name: "Independent Notes", family_identity: "bundle:independent.notes.app", installation_origins: config, requirements: {access:"full_collection",contracts:[]}, notifications: {criteria:[]}}] : []}));
   return {db: {query} as unknown as DatabasePool, query};
 }
 describe("registry-owned installation origins", () => {

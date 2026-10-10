@@ -17,6 +17,7 @@ import type { ConnectorIdentity, User } from "../../platform/request-authenticat
 import { installationCollections, requireInstallationScope } from "../next/installation-scope.js";
 import { queueNextPolicy } from "../next/policy-outbox.js";
 import { findInstallationApplication } from "../applications/store.js";
+import { installationTimerDeclaration, readInstallationTimerDeclaration, type InstallationTimerBinding, type InstallationTimerDeclaration } from "../next/timers/installation-declaration.js";
 export class InstallationPairingError extends Error {
   constructor(
     readonly status: number,
@@ -56,7 +57,8 @@ export async function installationApp(db: DatabasePool, environment: string | un
   if (!Array.isArray(allowed) || allowed.some(value => typeof value !== "string" || !value.length)) throw new Error("Invalid registered installation origins.");
   if (!allowed.includes(origin)) return fail("installation_app_not_allowed", 403);
   if (!app.name || !app.family_identity) throw new Error("Invalid registered installation identity.");
-  return Object.freeze({ id: app.id, origin, name: app.name });
+  const timerDeclaration = installationTimerDeclaration(app, { environment: environment as InstallationTimerBinding["environment"], app_origin: origin, kind });
+  return Object.freeze({ id: app.id, origin, name: app.name, ...(timerDeclaration ? { timerDeclaration } : {}) });
 }
 type Connection = Awaited<ReturnType<DatabasePool["connect"]>>;
 interface Row {
@@ -95,6 +97,8 @@ interface Row {
   approved_collection_ids: string[];
   scope_only: boolean;
   approved_session_epoch: string | number | null;
+  timer_declaration: InstallationTimerDeclaration | null;
+  timer_consent: boolean | null;
 }
 const tx = inTransaction;
 async function row(
@@ -105,11 +109,17 @@ async function row(
   includeRevoked = false,
 ): Promise<Row> {
   const found = await c.query<Row>(
-    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_provider,i.portal_account_login,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.created_collection_ids FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
+    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_provider,i.portal_account_login,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.created_collection_ids,i.timer_declaration,i.timer_consent FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
     [id, ...(secret === undefined ? [] : [tokenHash(secret)])],
   );
   const r = found.rows[0];
   if (!r) fail("installation_pairing_not_found", 404);
+  if (r.timer_declaration !== null) {
+    r.timer_declaration = readInstallationTimerDeclaration(r.timer_declaration);
+    if (r.timer_declaration.application_id !== r.app_id || r.timer_declaration.app_origin !== r.app_origin || r.timer_declaration.kind !== r.kind) {
+      throw new Error("Installation timer declaration binding is inconsistent.");
+    }
+  }
   return r;
 }
 function live(r: Row): void {
@@ -222,7 +232,7 @@ export async function startInstallationPairing(
         // Re-consent uses the current authenticated credential, not a fabricated
         // device attestation or a second registration. The public keys are read
         // from that credential even if the original pairing window was pruned.
-        await c.query("INSERT INTO installation_device_pairings(pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,requested_create_collections,scope_only) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,true)",[input.request_id,input.installation_id,input.device_id,k.connector_id,app.id,app.origin,input.kind,randomBytes(32),input.requested_create_collections??false]);
+        await c.query("INSERT INTO installation_device_pairings(pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,requested_create_collections,scope_only,timer_declaration) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,true,$10::jsonb)",[input.request_id,input.installation_id,input.device_id,k.connector_id,app.id,app.origin,input.kind,randomBytes(32),input.requested_create_collections??false,app.timerDeclaration ? JSON.stringify(app.timerDeclaration) : null]);
       } else {
       if (registered.rows[0]) return fail("installation_already_registered");
       let prior: Row | null = null;
@@ -242,7 +252,7 @@ export async function startInstallationPairing(
       // A renewed window retains the SAME attested key, challenge, connector,
       // account and signature. A denial requires explicit SAME-account selection
       // again before approval; expiry alone retains the previous selection.
-      await c.query("INSERT INTO installation_device_pairings(pairing_id,previous_pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,sign_pk,kem_pk,noise_pk,registration_sig,attested_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)", [input.request_id,prior?.id??null,input.installation_id,input.device_id,prior?.connector_id??randomUUID(),app.id,app.origin,input.kind,prior?.challenge??randomBytes(32),prior?.revoked_at?null:prior?.account_selected_at??null,prior?.sign_pk??null,prior?.kem_pk??null,prior?.noise_pk??null,prior?.registration_sig??null,prior?.attested_at??null]);
+      await c.query("INSERT INTO installation_device_pairings(pairing_id,previous_pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,sign_pk,kem_pk,noise_pk,registration_sig,attested_at,timer_declaration) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)", [input.request_id,prior?.id??null,input.installation_id,input.device_id,prior?.connector_id??randomUUID(),app.id,app.origin,input.kind,prior?.challenge??randomBytes(32),prior?.revoked_at?null:prior?.account_selected_at??null,prior?.sign_pk??null,prior?.kem_pk??null,prior?.noise_pk??null,prior?.registration_sig??null,prior?.attested_at??null,app.timerDeclaration ? JSON.stringify(app.timerDeclaration) : null]);
       await c.query("UPDATE installation_device_pairings SET requested_create_collections=$2 WHERE pairing_id=$1",[input.request_id,input.requested_create_collections??false]);
       }
     }
@@ -281,6 +291,7 @@ export async function inspectInstallationPairing(
       kind: r.kind,
       app_id: r.app_id,
       app_origin: r.app_origin,
+      ...(r.timer_declaration ? { timer_declaration: r.timer_declaration } : {}),
       account_selected: !!r.account_selected_at,
       ...portalConfirmation(r),
       // Current signed-in account is display-only before explicit confirmation.

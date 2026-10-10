@@ -62,6 +62,21 @@ INSERT INTO next_background_grants(id, principal_kind, legacy_grant_id)
 -- mdbase:native-background-grant-hooks:v1
 -- Real PostgreSQL alone qualifies FK upgrades, raw inserts/cascades and hooks.
 -- The schema-only memory adapter must not emulate native grant authority.
+CREATE FUNCTION installation_timer_request_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.timer_declaration IS DISTINCT FROM NEW.timer_declaration
+     OR (OLD.timer_consent IS NOT NULL AND OLD.timer_consent IS DISTINCT FROM NEW.timer_consent)
+     OR (OLD.timer_consent IS NULL AND NEW.timer_consent IS NOT NULL AND EXISTS (
+       SELECT 1 FROM pairing_requests p WHERE p.id=OLD.pairing_id
+         AND (p.approved_at IS NOT NULL OR p.consumed_at IS NOT NULL OR p.revoked_at IS NOT NULL))) THEN
+    RAISE EXCEPTION 'Original installation timer declaration and consent are immutable';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER installation_timer_request_immutable
+  BEFORE UPDATE OF timer_declaration,timer_consent ON installation_device_pairings FOR EACH ROW
+  EXECUTE FUNCTION installation_timer_request_immutable();
+
 CREATE FUNCTION next_background_legacy_identity() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   INSERT INTO next_background_grants(id, principal_kind, legacy_grant_id)
