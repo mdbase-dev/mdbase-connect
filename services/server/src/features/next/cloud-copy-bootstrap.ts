@@ -28,13 +28,14 @@ import {
 import { type NextControlPlaneConfig } from "./policy-keys.js";
 import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
-import { generateServiceDevice, loadServiceDevice, ServiceDeviceError, storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
+import { ServiceDeviceError, storeServiceDevice } from "./service-devices.js";
+import { appendedCloudCopyBatch, appendedCloudCopyGenesis, cloudCopyMetadata, createServiceCloudCopy, currentCloudCopy,
+  existingCloudCopy as existing, generateCloudCopyServices, loadCloudCopyRecords } from "./service-cloud-copy.js";
 
 import { installationCollections, requireInstallationScope } from "./installation-scope.js";
 import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
 import { registerCollectionNameRoutes } from "./collection-name-routes.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
-const KINDS = ["hosted", "escrow"] as const;
 
 function refuse(reply: FastifyReply, error: unknown, message: string) {
   if (error instanceof ServiceDeviceError) {
@@ -54,29 +55,6 @@ export function cloudCopyJoinDigest(input: { challenge: Uint8Array; connector: s
   return domainHash("mdbase/v1/cloud-copy-join", encodeCbor([input.challenge, uuidBytes(input.connector), uuidBytes(input.device), uuidBytes(input.collection)]));
 }
 
-/** Whether the collection already exists: false when free, true when this owner's cloud copy, else refused. */
-async function existing(client: DatabaseConnection, collection: string, owner: string): Promise<boolean> {
-  const row = (await client.query<{ owner_user_id: string; sync: string; left: boolean }>(
-    "SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left FROM next_collections WHERE collection_id = $1 FOR UPDATE", [collection]
-  )).rows[0];
-  if (row && (row.owner_user_id !== owner || row.sync !== "cloud_copy" || row.left)) throw new CreateError(409, "collection_exists");
-  if (!row) {
-    // A local collection with this logical ID that belongs to someone else is never adopted.
-    const other = await client.query("SELECT 1 FROM collections WHERE local_id = $1 AND user_id <> $2 AND removed_at IS NULL", [collection, owner]);
-    if (other.rows.length) throw new CreateError(409, "collection_exists");
-  }
-  return Boolean(row);
-}
-
-/** The collection is still `owner`'s current cloud copy; share-locked until the transaction ends. */
-async function currentCloudCopy(client: DatabaseConnection, collection: string, owner: string): Promise<void> {
-  const current = await client.query(
-    `SELECT 1 FROM next_collections WHERE collection_id = $1 AND owner_user_id = $2 AND sync = 'cloud_copy' AND left_sync_at IS NULL FOR SHARE`,
-    [collection, owner]
-  );
-  if (!current.rows.length) throw new CreateError(409, "not_current_cloud_copy");
-}
-
 async function currentJoiningCloudCopy(client: DatabaseConnection, collection: string, connector: ConnectorIdentity): Promise<void> {
   await requireInstallationScope(client,connector,collection);
   const current = await client.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR UPDATE OF n",[collection]);
@@ -90,11 +68,6 @@ async function currentJoiningCloudCopy(client: DatabaseConnection, collection: s
   await currentMember(client,collection,connector.user_id);
 }
 
-const publicRecord = (record: ServiceDeviceRecord) => ({
-  kind: record.kind, device_id: record.device_id,
-  sign_pk: record.sign_pk.toString("hex"), kem_pk: record.kem_pk.toString("hex"), noise_pk: record.noise_pk.toString("hex")
-});
-
 export function registerCloudCopyRoutes(app: FastifyInstance, options: {
   db: DatabasePool; next: NextControlPlaneConfig; emitter: PolicyEmitter;
   log: Pick<LogServiceClient, "controlItemAt" | "head" | "mintToken">; fetchImpl?: typeof fetch; now?: () => number;
@@ -107,43 +80,11 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
   const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" } };
   const limited = { bodyLimit: 4096, config: { rateLimit: { max: 6, timeWindow: "1 minute" } } };
-  /** Each deployment generates its own keys. Nothing is locked while they work. */
-  const generateFor = (collection: string) =>
-    Promise.all(KINDS.map((kind) => generateServiceDevice(deployments[kind], kind, collection, options.fetchImpl)));
-
-  /** The exact bytes of a policy batch, as the log returns them at its position. */
-  async function appendedBatch(collection: string, batch: { seq: string | number | null; item: Buffer | null; state: string | null } | undefined) {
-    const seq = batch?.seq === null || batch?.seq === undefined ? null : Number(batch.seq);
-    const external = seq !== null && batch?.state === "appended" ? await options.log.controlItemAt(collection, seq) : null;
-    if (seq === null || !batch?.item || !external || !batch.item.equals(Buffer.from(external))) throw new CreateError(503, "not_ready");
-    return { seq, item: batch.item };
-  }
-
-  async function appendedGenesis(collection: string) {
-    await options.emitter.drainCollection(collection);
-    const genesis = (await options.db.query<{ seq: string; item: Buffer; state: string }>(
-      "SELECT seq, item, state FROM next_policy_batches WHERE collection_id = $1 AND seq = 1 ORDER BY id LIMIT 1", [collection]
-    )).rows[0];
-    return appendedBatch(collection, genesis);
-  }
-
-  async function loadRecords(client: DatabaseConnection, collection: string): Promise<ServiceDeviceRecord[]> {
-    const records: ServiceDeviceRecord[] = [];
-    for (const kind of KINDS) {
-      const record = await loadServiceDevice(client, collection, { kind });
-      if (!record) throw new CreateError(503, "not_ready");
-      records.push(record);
-    }
-    return records;
-  }
-
-  const created = (collection: string, owner: string, head: { seq: number; chain: Uint8Array }, genesis: Buffer, records: ServiceDeviceRecord[]) => ({
-    collection_id: collection, state: "cloud-copy", owner_account: owner,
-    log_url: options.next.logService.url, head: { seq: head.seq, chain: Buffer.from(head.chain).toString("hex") },
-    root_public_key: Buffer.from(options.next.rootPublicKey).toString("hex"), policy_cert: options.next.policyCert,
-    genesis: { seq: 1, item: genesis.toString("hex") },
-    service_devices: records.map(publicRecord)
-  });
+  const generateFor = generateCloudCopyServices.bind(null, options);
+  const appendedBatch = appendedCloudCopyBatch.bind(null, options);
+  const appendedGenesis = appendedCloudCopyGenesis.bind(null, options);
+  const loadRecords = loadCloudCopyRecords;
+  const created = cloudCopyMetadata.bind(null, options);
 
   const mint = (device: string, signPk: Buffer, collection: string) => {
     const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
@@ -191,43 +132,11 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     if (collection === NIL) return reply.code(400).send(apiError("invalid_request", "Nil identifiers are not accepted."));
     try {
       const displayName = collectionDisplayName(initialDisplayName === undefined ? DEFAULT_COLLECTION_DISPLAY_NAME : initialDisplayName);
-      const exists = await inTransaction(options.db, async (client) => {
-        await lock(client, collection);
-        await current(client);
-        return existing(client, collection, user.id);
-      });
-      if (!exists) {
-        const generated = await generateFor(collection);
-        await inTransaction(options.db, async (client) => {
-          await lock(client, collection);
-          await current(client);
-          if (await existing(client, collection, user.id)) throw new CreateError(503, "not_ready");
-          await registerNextCollection(client, {
-            collectionId: collection, ownerUserId: user.id, runtime: "next", sync: "cloud_copy", rootKeyId, displayName,
-            ops: [
-              { op: "genesis", owner: user.id, root: rootKeyId, state: "cloud-copy" },
-              { op: "member-set", account: user.id, role: "owner" },
-              ...generated.map((record) => enrolOp(record.device_id, SERVICE_ACCOUNT, record))
-            ]
-          });
-          for (const record of generated) await storeServiceDevice(client, collection, record);
-        });
+      return await createServiceCloudCopy(options, { collection, owner: user.id, runtime: "next", displayName, current });
+    } catch (error) {
+      if (error instanceof ServiceDeviceError || error instanceof CreateError && error.status !== 503) {
+        return refuse(reply, error, "The cloud copy is not current for this account.");
       }
-    } catch (error) {
-      return refuse(reply, error, "The cloud copy was not created; retry.");
-    }
-    try {
-      const genesis = await appendedGenesis(collection);
-      const head = await options.log.head(collection);
-      return await inTransaction(options.db, async (client) => {
-        await current(client);
-        await currentCloudCopy(client, collection, user.id);
-        // Hosted is the first member: it generates the epoch key and wraps it for
-        // hosted and escrow. No user device is enrolled here.
-        return { ...created(collection, user.id, head, genesis.item, await loadRecords(client, collection)), first_member: "hosted" };
-      });
-    } catch (error) {
-      if (error instanceof CreateError && error.status !== 503) return refuse(reply, error, "The cloud copy is not current for this account.");
       return reply.code(503).send(apiError("not_ready", "The cloud copy outcome is not verified; retry."));
     }
   });

@@ -10,6 +10,9 @@ import { revokeHostedCollectionMembership } from "../../collection-membership-li
 import { registerPeopleRoutes } from "../account/people-routes.js";
 import { collectionLogTokenDigest, registerCollectionLogTokenRoute } from "./collection-log-token.js";
 import { cloudCopyCreateDigest, cloudCopyJoinDigest, registerCloudCopyRoutes } from "./cloud-copy-bootstrap.js";
+import { createServiceCloudCopy } from "./service-cloud-copy.js";
+import { currentAccount } from "./bootstrap-common.js";
+import { setCohortFrozen } from "./migration-rollout.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { collectionDirectory } from "./hosted-routes.js";
 import { LogServiceClient } from "./log-service-client.js";
@@ -686,6 +689,60 @@ describePg("cloud-copy bootstrap", () => {
     await approveScope(who,collection);
     log.onRead=async()=>{await policy(collection,[{op:"member-remove",account:who.connector.user_id}],false);};
     const joined=await join(who,collection,await joinProof(who,collection));expect(joined.statusCode,joined.body).toBe(409);expect(joined.body).not.toContain("token");
+  });
+  it("shares service generation/outbox for internal SHADOW and keeps the immutable tuple on retry", async () => {
+    const who = await identity(), collection = randomUUID();
+    const owner = who.connector.user_id;
+    const options = { db, next: config, emitter, log: client, fetchImpl: deployments.fetch };
+    let checks = 0;
+    const input = { collection, owner, runtime: "shadow" as const, displayName: "Migration shadow",
+      current: async (connection: Parameters<typeof currentAccount>[0]) => { checks++; await currentAccount(connection, owner); } };
+    const first = await createServiceCloudCopy(options, input);
+    const calls = deployments.calls;
+    const retry = await createServiceCloudCopy(options, { ...input, displayName: "Retry must not rename" });
+    expect(retry.service_devices).toEqual(first.service_devices); expect(retry.genesis).toEqual(first.genesis);
+    expect(deployments.calls).toBe(calls); expect(checks).toBeGreaterThanOrEqual(8);
+    expect((await db.query("SELECT runtime,display_name FROM next_collections WHERE collection_id=$1", [collection])).rows[0])
+      .toEqual({ runtime: "shadow", display_name: "Migration shadow" });
+    expect((await db.query("SELECT account_backend FROM users WHERE id=$1", [owner])).rows[0]).toEqual({ account_backend: "legacy" });
+    expect(first).not.toHaveProperty("verified"); expect(first).not.toHaveProperty("ready");
+    expect(JSON.stringify(first)).not.toContain("wrapped_keys");
+    const publicRetry = await serviceCreate(await session(owner), collection);
+    expect(publicRetry.statusCode, publicRetry.body).toBe(409); expect(deployments.calls).toBe(calls);
+    await expect(createServiceCloudCopy(options, { ...input, runtime: "next" })).rejects.toMatchObject({ code: "collection_exists" });
+    await db.query("UPDATE next_collections SET root_key_id=$2 WHERE collection_id=$1", [collection, Buffer.alloc(32, 9)]);
+    await expect(createServiceCloudCopy(options, input)).rejects.toMatchObject({ code: "collection_exists" });
+    expect(deployments.calls).toBe(calls);
+  });
+  it("denies public new service creation while legacy topology is frozen before generating any keys", async () => {
+    const who = await identity(), owner = who.connector.user_id, cohort = `bootstrap-${randomUUID().slice(0, 8)}`;
+    await db.query("INSERT INTO next_migration_cohorts(name) VALUES($1)", [cohort]);
+    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [owner, cohort]);
+    await setCohortFrozen(db, cohort, true, "synthetic capture", "isolated-pg");
+    const calls = deployments.calls, collection = randomUUID();
+    const result = await serviceCreate(await session(owner), collection);
+    expect(result.statusCode, result.body).toBe(409); expect(deployments.calls).toBe(calls); expect(await registered(collection)).toBe(false);
+  });
+  it.each(["before", "during-generation"])("honors permanent deletion floors at %s", async boundary => {
+    const who = await identity(), owner = who.connector.user_id, collection = randomUUID();
+    const deleted = () => db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [collection, randomUUID()]).then(() => undefined);
+    if (boundary === "before") await deleted(); else deployments.during = deleted;
+    const calls = deployments.calls;
+    const result = await serviceCreate(await session(owner), collection);
+    expect(result.statusCode, result.body).toBe(409); expect(result.json().error.code).toBe("collection_deleted");
+    expect(await registered(collection)).toBe(false);
+    if (boundary === "before") expect(deployments.calls).toBe(calls);
+  });
+  it("refuses deletion during genesis readback before owner-device token or service metadata publication", async () => {
+    const who = await identity();
+    for (const mode of ["service", "device"]) {
+      const collection = randomUUID();
+      log.onRead = () => db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [collection, randomUUID()]).then(() => undefined);
+      const result = mode === "service" ? await serviceCreate(await session(who.connector.user_id), collection)
+        : await create(who, await proof(who, collection));
+      expect(result.statusCode, result.body).toBe(409);
+      expect(result.body).not.toContain('"token"'); expect(result.body).not.toContain('"service_devices"');
+    }
   });
   it("rechecks the session after generation: a sign-out or session-epoch bump refuses", async () => {
     const who = await identity();
