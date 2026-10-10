@@ -11,33 +11,18 @@ import { connectorFromRequest, requireInstallationDeviceConnector } from "../../
 import { clientFingerprint, deviceRegistrationDigest } from "../next/devices.js";
 import { ed25519RawPublicKey } from "../next/policy-keys.js";
 import { registerNextDeviceRoutes } from "../next/device-routes.js";
-import { installationApp } from "./installation-pairing.js";
+import { registerApplicationManifest } from "../../manifest.js";
+import { upsertApplication } from "../applications/store.js";
 import { registerConnectorPairingRoutes } from "./pairing-routes.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
 const describePg = testUrl && approved ? describe : describe.skip;
 const webOrigin = "https://lab.tasknotes-app.pages.dev";
+const tasknotesId = "5cdfa020-c201-4da8-845a-f2cc9969eade";
+const apps = new Map<string, {name: string; web: string; mobile: string}>([[tasknotesId, {name: "TaskNotes", web: webOrigin, mobile: "capacitor://app.tasknotes.dev"}]]);
 const rawX = () => (generateKeyPairSync("x25519").publicKey.export({ type: "spki", format: "der" }) as Buffer).subarray(-32).toString("hex");
 const publicOutcome = (body: Record<string, unknown>) => { const {token: _token, ...result} = body; return result; };
-
-describe("first-party installation identity map", () => {
-  it("uses fixed environment origins and native schemes, never a caller URL or missing Origin", () => {
-    expect(installationApp("lab", "tasknotes-web", webOrigin, "app-runtime")).toEqual({id:"tasknotes-web",origin:webOrigin,name:"TaskNotes"});
-    expect(installationApp("production", "tasknotes-mobile", "capacitor://app.tasknotes.dev", "mobile").name).toBe("TaskNotes");
-    for (const [environment,app,origin,kind] of [
-      ["lab","tasknotes-web","https://app.tasknotes.dev","app-runtime"],
-      ["production","tasknotes-web",webOrigin,"app-runtime"],
-      ["lab","unknown",webOrigin,"app-runtime"],
-      ["lab","tasknotes-web","https://untrusted.example","app-runtime"],
-      ["lab","tasknotes-web",undefined,"app-runtime"],
-      [undefined,"tasknotes-web",webOrigin,"app-runtime"],
-      ["__proto__","tasknotes-web",webOrigin,"app-runtime"],
-      ["lab","tasknotes-mobile","null","mobile"],
-      ["lab","tasknotes-web",webOrigin,"mobile"],
-    ] as const) expect(() => installationApp(environment,app,origin,kind)).toThrow();
-  });
-});
 
 describePg("installation device sign-in on daemon pairing", () => {
   let db: DatabasePool;
@@ -71,6 +56,49 @@ describePg("installation device sign-in on daemon pairing", () => {
     if (admin && schema) await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await admin?.end();
   });
+  async function registeredApp(family: string) {
+    const id=randomUUID(), web=`https://app-${id}.example.test`, mobile=`capacitor://app-${id}.example.test`;
+    apps.set(id,{name:"Independent Notes",web,mobile});
+    await db.query("INSERT INTO applications(id,canonical_identity,family_identity,name,homepage,redirect_uris,installation_origins) VALUES($1,$2,$3,$4,$5,'[]',$6)",[id,randomUUID(),family,"Independent Notes",web,JSON.stringify({lab:{"app-runtime":[web],mobile:[mobile]}})]);
+    return id;
+  }
+  it("registers TaskNotes as ordinary data; manifest upserts cannot expand installation origins", async () => {
+    const seeded=(await db.query("SELECT * FROM applications WHERE id=$1",[tasknotesId])).rows[0];
+    expect(seeded.installation_origins.lab["app-runtime"]).toEqual([webOrigin,"http://127.0.0.1:48218"]);
+    expect(seeded.application_declaration.name).toBe("TaskNotes");
+    const discovered=registerApplicationManifest(seeded.application_declaration);
+    expect(discovered.digest).toBe(seeded.manifest_digest); expect(discovered.canonicalIdentity).toBe(seeded.canonical_identity);
+    expect((await upsertApplication(db,discovered)).id).toBe(tasknotesId);
+    expect((await db.query("SELECT installation_origins FROM applications WHERE id=$1",[tasknotesId])).rows[0].installation_origins).toEqual(seeded.installation_origins);
+  });
+  it("rejects non-object installation origin configuration in real PostgreSQL", async () => {
+    for (const value of ["null", "[]", '"origin"', "3", "true"]) {
+      await expect(db.query("UPDATE applications SET installation_origins=$2::jsonb WHERE id=$1",[tasknotesId,value])).rejects.toMatchObject({code:"23514"});
+    }
+    await expect(db.query("UPDATE applications SET installation_origins=NULL WHERE id=$1",[tasknotesId])).rejects.toMatchObject({code:"23502"});
+    expect((await db.query("SELECT installation_origins FROM applications WHERE id=$1",[tasknotesId])).rows[0].installation_origins.lab["app-runtime"]).toEqual([webOrigin,"http://127.0.0.1:48218"]);
+  });
+  it("old LAB aliases refuse START and reconsent without mutating the original registered credential", async () => {
+    const p=await prepared(); expect((await approveDevice(p.flow,p.owner)).statusCode).toBe(200);
+    const paired=(await p.flow.exchange()).json();
+    for (const alias of ["tasknotes-web","tasknotes-mobile"]) {
+      const input=original(); input.installation.app_id=alias;
+      for (const reconsent of [false,true]) {
+        const payload={...input,installation:{...input.installation,reconsent,installation_id:reconsent?p.input.installation.installation_id:input.installation.installation_id,device_id:reconsent?p.input.installation.device_id:input.installation.device_id}};
+        const result=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{origin:webOrigin,...(reconsent?{authorization:`Bearer ${paired.token}`}:{})},payload});
+        expect(result.statusCode).toBe(403); expect(result.json().error.code).toBe("installation_app_not_allowed");
+      }
+      expect((await db.query("SELECT id FROM pairing_requests WHERE id=$1",[input.installation.request_id])).rows).toEqual([]);
+    }
+    expect(tokenHash((await p.flow.exchange()).json().token)).toBe(tokenHash(paired.token));
+    expect((await db.query("SELECT app_id FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].app_id).toBe(tasknotesId);
+  });
+  it("pairs a separately registered app with a different name and origin, without brand logic", async () => {
+    const appId=await registeredApp("bundle:another.independent.app"), f=await prepared("app-runtime",false,undefined,undefined,appId);
+    expect(f.selected.app_id).toBe(appId); expect(f.selected.app_origin).toBe(apps.get(appId)!.web);
+    expect((await approveDevice(f.flow,f.owner)).statusCode).toBe(200);
+    const paired=(await f.flow.exchange()).json(); expect(paired.status).toBe("paired"); expect(paired.connector.name).toBe("Independent Notes");
+  });
   async function account() {
     const user = randomUUID(), session = randomUUID(), token = randomToken("session");
     await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'Owner','next')", [user, `${user}@example.test`]);
@@ -78,10 +106,10 @@ describePg("installation device sign-in on daemon pairing", () => {
     return { user, session, headers: { cookie: `mdbase_session=${token}` } };
   }
   function original(kind: "app-runtime" | "mobile" = "app-runtime") {
-    return { connector_name: "Caller-supplied name is not app identity", installation: { request_id: randomUUID(), pairing_secret: randomToken("pair"), installation_id: randomUUID(), device_id: randomUUID(), kind, app_id: kind === "mobile" ? "tasknotes-mobile" : "tasknotes-web", requested_create_collections:false, reconsent:false } };
+    return { connector_name: "Caller-supplied name is not app identity", installation: { request_id: randomUUID(), pairing_secret: randomToken("pair"), installation_id: randomUUID(), device_id: randomUUID(), kind, app_id: tasknotesId, requested_create_collections:false, reconsent:false } };
   }
   type Input = ReturnType<typeof original> & {installation: ReturnType<typeof original>["installation"] & {renewal?: {request_id:string;pairing_secret:string}}};
-  const originHeaders = (input:Input) => ({origin:input.installation.kind === "mobile" ? "capacitor://app.tasknotes.dev" : webOrigin});
+  const originHeaders = (input:Input) => ({origin:input.installation.kind === "mobile" ? apps.get(input.installation.app_id)!.mobile : apps.get(input.installation.app_id)!.web});
   function channel(input: Input) {
     const base = `/v1/pairing-requests/${input.installation.request_id}`;
     const bearer = { authorization: `Bearer ${input.installation.pairing_secret}` };
@@ -91,7 +119,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     const result = await app.inject({ method: "POST", url: "/v1/pairing-requests", payload: input, headers:{origin} });
     expect(result.statusCode).toBe(201);
     expect(result.json().verification_uri).toBe(`https://connect.test/pair/${input.installation.request_id}`);
-    expect(result.json().app_name).toBe("TaskNotes");
+    expect(result.json().app_name).toBe(apps.get(input.installation.app_id)!.name);
     expect(result.headers["cache-control"]).toBe("no-store");
     return channel(input);
   }
@@ -107,8 +135,9 @@ describePg("installation device sign-in on daemon pairing", () => {
     const result = await app.inject({ method: "POST", url: `${flow.base}/attest`, headers: flow.bearer, payload });
     return { payload, result };
   }
-  async function prepared(kind: "app-runtime" | "mobile" = "app-runtime", create=false, existingOwner?:Awaited<ReturnType<typeof account>>, origin?:string) {
+  async function prepared(kind: "app-runtime" | "mobile" = "app-runtime", create=false, existingOwner?:Awaited<ReturnType<typeof account>>, origin?:string, appId=tasknotesId) {
     const owner = existingOwner??await account(), input = original(kind);
+    input.installation.app_id=appId;
     input.installation.requested_create_collections=create;
     const flow = await start(input, origin);
     expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).statusCode).toBe(200);
@@ -346,7 +375,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     const origin="http://127.0.0.1:48218", p=await prepared("app-runtime",true,undefined,origin);
     const first=await scopeCollection(p.owner.user), added=await scopeCollection(p.owner.user);
     const inspected=(await app.inject({method:"GET",url:p.flow.base,headers:p.owner.headers})).json().pairing;
-    expect(inspected).toMatchObject({app_origin:origin,app_id:"tasknotes-web",connector_name:"TaskNotes"});
+    expect(inspected).toMatchObject({app_origin:origin,app_id:tasknotesId,connector_name:"TaskNotes"});
     expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[first],create_collections:true})).statusCode).toBe(200);
     const issued=await p.flow.exchange(); expect(issued.statusCode).toBe(200);
     const original=issued.json(), headers={authorization:`Bearer ${original.token}`};
@@ -391,11 +420,15 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await approveDevice(next.flow,fresh)).statusCode).toBeGreaterThanOrEqual(400);
   });
   it("explicit Remove access revokes the app's grants and enrolled devices for one collection across its installations, atomically and idempotently",async()=>{
-    const p=await prepared("mobile",true),collection=await scopeCollection(p.owner.user);
+    const family="bundle:independent.notes.app", primary=await registeredApp(family), siblingApp=await registeredApp(family);
+    const p=await prepared("mobile",true,undefined,undefined,primary),collection=await scopeCollection(p.owner.user);
     expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[collection],create_collections:true})).statusCode).toBe(200);
-    const original=(await p.flow.exchange()).json(), sibling=await prepared("app-runtime",false,p.owner);
+    const original=(await p.flow.exchange()).json(), sibling=await prepared("app-runtime",false,p.owner,undefined,siblingApp);
     expect((await approveDevice(sibling.flow,p.owner,undefined,{collection_ids:[collection],create_collections:false})).statusCode).toBe(200);expect((await sibling.flow.exchange()).statusCode).toBe(200);
-    for(const installed of [p,sibling]) {
+    const otherApp=await registeredApp("bundle:other.app"), other=await prepared("app-runtime",false,p.owner,undefined,otherApp);
+    expect((await approveDevice(other.flow,p.owner,undefined,{collection_ids:[collection],create_collections:false})).statusCode).toBe(200);
+    expect((await other.flow.exchange()).statusCode).toBe(200);
+    for(const installed of [p,sibling,other]) {
       const keys=installed.proof.payload;
       const ops=[{op:"device-enrol",device:installed.input.installation.device_id,account:p.owner.user,kind:installed.input.installation.kind,signPublicKey:{$hex:keys.sign_pk},kemPublicKey:{$hex:keys.kem_pk},noisePublicKey:{$hex:keys.noise_pk}}];
       await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",[collection,JSON.stringify({version:1,ops})]);
@@ -409,22 +442,22 @@ describePg("installation device sign-in on daemon pairing", () => {
       await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$2,$3,$4)",[id,collection,log,Buffer.alloc(32)]);
       return {id,log};
     }
-    const target=await grant("bundle:dev.tasknotes.app"), unrelated=await grant("bundle:other.app"), stranger=await account(), foreign=await grant("bundle:dev.tasknotes.app",stranger.user);
+    const target=await grant(family), unrelated=await grant("bundle:other.app"), stranger=await account(), foreign=await grant(family,stranger.user);
     const next=await rescope(p,original.token);
     const remove=(headers=p.owner.headers,confirm=true)=>app.inject({method:"POST",url:`${next.flow.base}/remove-access`,headers,payload:{collection_id:collection,confirm}});
     expect((await remove(stranger.headers)).statusCode).toBe(403);expect((await remove(p.owner.headers,false)).statusCode).toBe(400);
     const result=await remove();expect(result.statusCode,result.body).toBe(200);expect(result.json()).toMatchObject({collection_id:collection,state:"revoking"});
-    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([]);
+    expect((await db.query("SELECT connector_id FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([{connector_id:other.selected.connector_id}]);
     expect((await db.query("SELECT active FROM next_grant_bindings WHERE grant_id=$1",[target.id])).rows[0].active).toBe(false);
     for(const id of [unrelated.id,foreign.id]) expect((await db.query("SELECT revoked_at FROM grants WHERE id=$1",[id])).rows[0].revoked_at).toBeNull();
     const revokes=(await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id",[collection])).rows.flatMap(row=>row.ops.ops).filter((op:{op:string})=>op.op.endsWith("revoke"));
     expect(revokes).toEqual([{op:"grant-revoke",grant:target.log},...([p,sibling].sort((a,b)=>a.selected.connector_id.localeCompare(b.selected.connector_id)).map(installed=>({op:"device-revoke",device:installed.input.installation.device_id})))]);
     expect((await remove()).statusCode).toBe(200);
-    expect((await db.query("SELECT count(*)::int AS n FROM next_policy_outbox WHERE collection_id=$1",[collection])).rows[0].n).toBe(1+2+3);
+    expect((await db.query("SELECT count(*)::int AS n FROM next_policy_outbox WHERE collection_id=$1",[collection])).rows[0].n).toBe(1+3+3);
     expect((await approveDevice(next.flow,p.owner,undefined,{collection_ids:[collection],create_collections:false})).statusCode).toBe(409);
     expect((await db.query("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].create_collections).toBe(true);
     expect((await p.flow.exchange()).statusCode).toBe(200); // receipt replay cannot reapply removed scope
-    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([]);
+    expect((await db.query("SELECT connector_id FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([{connector_id:other.selected.connector_id}]);
   });
   it("keeps original daemon pairing response and one-shot exchange semantics", async () => {
     const owner = await account();

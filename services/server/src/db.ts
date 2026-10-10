@@ -22,6 +22,12 @@ export async function openDatabase(
         return value.length >= 1 && value.length <= 64 && !/[^A-Za-z0-9._-]/u.test(value);
       }
     });
+    // Schema compatibility for the installation_origins object CHECK. Real
+    // PostgreSQL tests qualify the persisted constraint and authorization.
+    memory.public.registerFunction({
+      name: "jsonb_typeof", args: [DataType.jsonb], returns: DataType.text,
+      implementation: (value: unknown) => value === null ? "null" : Array.isArray(value) ? "array" : typeof value
+    });
     memory.public.registerFunction({
       name: "pg_advisory_xact_lock",
       args: [DataType.integer],

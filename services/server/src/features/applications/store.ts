@@ -25,6 +25,22 @@ export interface RegisteredApplication {
   notifications: ApplicationNotifications;
 }
 
+export interface InstallationApplication {
+  id: string;
+  name: string;
+  family_identity: string;
+  /** Operator-owned exact origins by environment and device kind. Empty denies
+   * installation pairing; application manifest upserts cannot expand this. */
+  installation_origins: Partial<Record<"lab" | "staging" | "production", Partial<Record<"app-runtime" | "mobile", string[]>>>>;
+}
+
+export async function findInstallationApplication(db: DatabaseQueryable, appId: string): Promise<InstallationApplication | undefined> {
+  return (await db.query<InstallationApplication>(
+    "SELECT id,name,family_identity,installation_origins FROM applications WHERE id::text=$1",
+    [appId],
+  )).rows[0];
+}
+
 export async function upsertApplication(
   db: DatabaseQueryable,
   discovered: RegisteredApplicationManifest

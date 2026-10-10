@@ -48,6 +48,24 @@ async function stored(db: DatabasePool, id: string) {
 }
 
 describe("application declaration persistence", () => {
+  it("defaults installation authorization to empty and keeps it operator-owned on upsert", async () => {
+    const db=await database(), discovered=registerApplicationManifest(declaration("web"));
+    const application=await upsertApplication(db,discovered);
+    const configuration=async()=> (await db.query("SELECT installation_origins FROM applications WHERE id=$1",[application.id])).rows[0].installation_origins;
+    expect(await configuration()).toEqual({});
+    const origins={lab:{"app-runtime":["https://assets.example"]}};
+    await db.query("UPDATE applications SET installation_origins=$2::jsonb WHERE id=$1",[application.id,JSON.stringify(origins)]);
+    expect((await upsertApplication(db,discovered)).id).toBe(application.id);
+    expect(await configuration()).toEqual(origins);
+  });
+  it("retains the object CHECK in the memory schema adapter", async () => {
+    const db=await database(), application=await upsertApplication(db,registerApplicationManifest(declaration("web")));
+    for (const value of ["[]", '"origin"', "3", "true", "null"]) {
+      await expect(db.query("UPDATE applications SET installation_origins=$2::jsonb WHERE id=$1",[application.id,value])).rejects.toThrow();
+    }
+    await expect(db.query("UPDATE applications SET installation_origins=NULL WHERE id=$1",[application.id])).rejects.toThrow();
+    expect((await db.query("SELECT installation_origins FROM applications WHERE id=$1",[application.id])).rows[0].installation_origins).toEqual({});
+  });
   it.each(["web", "portable"] as const)(
     "preserves the complete normalized %s declaration and its canonical digest",
     async (distribution) => {
@@ -82,7 +100,7 @@ describe("application declaration persistence", () => {
     expect(updated.id).toBe(first.id);
     expect(updated.application_declaration).toEqual(discovered.manifest);
     expect((await stored(db, first.id)).application_declaration).toEqual(discovered.manifest);
-    expect((await db.query("SELECT id FROM applications")).rows).toHaveLength(1);
+    expect((await db.query("SELECT id FROM applications")).rows).toHaveLength(2); // registered declaration plus the installation seed
 
     // Changed declarations have a new digest-bound identity, not an in-place
     // rewrite of a declaration already referenced by existing registrations.
