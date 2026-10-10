@@ -148,6 +148,14 @@ export interface HostedCollection {
   replicas: HostedReplica[];
 }
 
+/** Management visibility never enrolls a device or authorizes content reads. */
+export interface NativeCollection {
+  id: string;
+  display_name: string | null;
+  sync: "private" | "cloud_copy";
+  access: Pick<HostedCollectionAccess, "relationship" | "role" | "can_manage_members">;
+}
+
 export interface ManagementOverview {
   user: { id: string; name: string; email: string | null; login: string | null };
   subscription: null | {
@@ -209,6 +217,8 @@ export interface ManagementOverview {
     last_seen_at: string;
   }>;
   hosted_collections: HostedCollection[];
+  /** Absent on control planes predating native management discovery. */
+  native_collections?: NativeCollection[];
   grants: Array<{
     id: string;
     operations: string[];

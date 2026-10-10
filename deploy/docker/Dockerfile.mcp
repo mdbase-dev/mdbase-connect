@@ -5,6 +5,8 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches patches
+# The workspace lock resolves file-pinned editor SDK bytes even for filtered installs.
+COPY apps/editor/vendor/mdbase-dev-sdk-0.0.0-561501d0.tgz apps/editor/vendor/
 COPY packages/protocol/package.json packages/protocol/package.json
 COPY packages/client/package.json packages/client/package.json
 COPY services/mcp/package.json services/mcp/package.json

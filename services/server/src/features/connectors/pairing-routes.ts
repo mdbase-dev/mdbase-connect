@@ -26,6 +26,9 @@ import {
   installationApp,
 } from "./installation-pairing.js";
 import { CreateError, isLockTimeout } from "../next/bootstrap-common.js";
+import { createInstallationPairingCollection } from "./installation-pairing-collection.js";
+import type { CloudCopyBootstrapOptions } from "../next/service-cloud-copy.js";
+import { ServiceDeviceError } from "../next/service-devices.js";
 async function installationResult(
   reply: FastifyReply,
   work: () => Promise<unknown>,
@@ -36,6 +39,8 @@ async function installationResult(
   } catch (e) {
     if (e instanceof InstallationPairingError)
       return reply.code(e.status).send(apiError(e.code, e.message));
+    if (e instanceof ServiceDeviceError)
+      return reply.code(e.status===502?503:e.status).send(apiError(e.code,"Collection creation is incomplete. Resume the original named collection."));
     if (e instanceof CreateError)
       return reply
         .code(e.status)
@@ -70,6 +75,7 @@ interface ConnectorPairingRoutesOptions {
   /** SAME approval channel, enabled only with next control-plane support. */
   installationDevices?: boolean;
   installationEnvironment?: string;
+  cloudCopy?: CloudCopyBootstrapOptions;
 }
 
 export function registerConnectorPairingRoutes(
@@ -167,7 +173,7 @@ export function registerConnectorPairingRoutes(
             ),
           );
       return installationResult(reply, () =>
-        inspectInstallationPairing(options.db, pairingId, user.id),
+        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy),
       );
     }
     const pairing = await options.db.query<{
@@ -222,10 +228,11 @@ export function registerConnectorPairingRoutes(
             );
         const session = await requireSessionContext(request, reply, options.db);
         if (!session) return;
-        const {fingerprint,collection_ids,create_collections}=z.object({
+        const {fingerprint,collection_ids,create_collections,selected_collection_id}=z.object({
           fingerprint:z.string().regex(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){3}$/),
           collection_ids:z.array(originalUuid).max(1000).default([]),
           create_collections:z.boolean().default(false),
+          selected_collection_id:originalUuid.optional(),
         }).strict().parse(request.body);
         return installationResult(reply, () =>
           approveInstallationPairing(
@@ -234,7 +241,7 @@ export function registerConnectorPairingRoutes(
             session.user.id,
             session.sessionId,
             fingerprint,
-            {collection_ids,create_collections},
+            {collection_ids,create_collections,selected_collection_id},
           ),
         );
       }
@@ -275,6 +282,20 @@ export function registerConnectorPairingRoutes(
   );
 
   if (options.installationDevices) {
+    if (options.cloudCopy) {
+      const cloudCopy = options.cloudCopy;
+      app.post("/v1/pairing-requests/:pairingId/collections", {
+        bodyLimit:4096,config:{rateLimit:{max:6,timeWindow:"1 minute"}},
+      }, async (request,reply) => {
+        const session = await requireSessionContext(request,reply,options.db);
+        if (!session) return;
+        const {pairingId} = z.object({pairingId:originalUuid}).parse(request.params);
+        const {display_name} = z.object({display_name:z.string()}).strict().parse(request.body);
+        return installationResult(reply,()=>createInstallationPairingCollection(cloudCopy,{
+          requestId:pairingId,user:session.user.id,session:session.sessionId,displayName:display_name,
+        }));
+      });
+    }
     app.post("/v1/pairing-requests/:pairingId/remove-access",async (request,reply)=>{
       const session=await requireSessionContext(request,reply,options.db);
       if(!session)return;
