@@ -204,8 +204,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                 ) : !pairing.attested ? (
                   <>
                     <p>
-                      Return to the app so it can prepare its protected device
-                      key, then check here. No access has been approved.
+                      The app is preparing its protected device key. This page
+                      updates automatically. No access has been approved.
                     </p>
                     <button
                       className="button secondary"
