@@ -96,12 +96,9 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
     const created = await f.adapter.create({ title: "Heading", body: "Text", path: "notes/new.md", properties: {} });
     expect(created.body).toContain("# Heading");
     await f.adapter.delete(created.path, created.revision);
-    // MemoryReplica does not parse create.document. Keep the adapter's exact
-    // source submission observable, then supply the native document-create
-    // behavior only in this test; this is not source-parser/LAB evidence.
-    const originalCreate = f.client.create.bind(f.client);
-    const create = vi.spyOn(f.client, "create").mockImplementation((input, options) =>
-      originalCreate({ ...input, frontmatter: {}, body: created.body }, options));
+    // SDK811's shared synthetic fixture now honors document creation; no
+    // app-side parser bridge. This remains SDK stand-in, not native/LAB proof.
+    const create = vi.spyOn(f.client, "create");
     const restored = await f.adapter.restore(created);
     expect(create).toHaveBeenCalledWith({ id: expect.any(String), path: created.path, document: created.document }, expect.objectContaining({ mutationId: expect.any(String) }));
     expect(restored.body).toBe(created.body);

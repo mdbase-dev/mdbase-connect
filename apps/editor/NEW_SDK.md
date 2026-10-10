@@ -39,10 +39,12 @@ validation and the gateway session bridge still need qualification/integration.
 The launch uses relay/hosted routes only. Browser direct-access controls must
 consume the shared unsupported compatibility port and hide/skip gracefully.
 
-The SDK is the release-supplied `5369226d` packed artifact recorded in
-`vendor/mdbase-next-sdk.json`, not npm. It contains no unmerged Files API.
+The SDK is the release-qualified corrected successor `561501d0` packed artifact
+recorded in `vendor/mdbase-next-sdk.json`, with verified SHA256/SHA512, not npm.
+It includes SDK808's session fix, SDK809 leases and SDK811's fixture fix. This
+source/package pin is not per-app trust/origin/runtime/session/operation approval;
+the old gateway remains active and the earlier unsafe SDK807 archive is not reused.
 
-Unit tests use the SDK MemoryReplica and are not native/LAB evidence.
-MemoryReplica currently ignores `create.document`; the restore test explicitly
-supplies synthetic source-creation behavior while verifying exact document
-submission. The SDK workstream is fixing this generic test-fixture omission.
+Unit tests use SDK MemoryReplica and are not native/LAB evidence. SDK811 now honors
+`create.document` through its shared synthetic parser; restore verifies the actual
+SDK document submission without an app-side source-create fixture bridge.
