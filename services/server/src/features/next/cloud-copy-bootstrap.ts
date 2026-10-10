@@ -25,13 +25,12 @@ import {
   authenticate, CreateError, currentAccount, currentIdentity, currentMember, currentSession, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment,
   inTransaction, lock, NIL, refuse as refuseCommon, refuseRevoked, SERVICE_ACCOUNT, type Device, type Proof
 } from "./bootstrap-common.js";
-import { type NextControlPlaneConfig } from "./policy-keys.js";
 import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 import { ServiceDeviceError, storeServiceDevice } from "./service-devices.js";
 import { pitrCollection, pitrLabel, pitrLogUrl } from "./lab-pitr-config.js";
 import { appendedCloudCopyBatch, appendedCloudCopyGenesis, cloudCopyMetadata, createServiceCloudCopy, currentCloudCopy,
-  existingCloudCopy as existing, generateCloudCopyServices, loadCloudCopyRecords } from "./service-cloud-copy.js";
+  existingCloudCopy as existing, generateCloudCopyServices, loadCloudCopyRecords, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 
 import { installationCollections, requireInstallationScope } from "./installation-scope.js";
 import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
@@ -70,7 +69,7 @@ async function currentJoiningCloudCopy(client: DatabaseConnection, collection: s
 }
 
 export function registerCloudCopyRoutes(app: FastifyInstance, options: {
-  db: DatabasePool; next: NextControlPlaneConfig; emitter: PolicyEmitter;
+  db: DatabasePool; next: CloudCopyBootstrapOptions["next"]; emitter: PolicyEmitter;
   log: Pick<LogServiceClient, "controlItemAt" | "head" | "mintToken">; fetchImpl?: typeof fetch; now?: () => number;
   tailscaleAuth?: boolean;
 }): void {
