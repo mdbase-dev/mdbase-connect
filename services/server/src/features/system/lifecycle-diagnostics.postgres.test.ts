@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import { ApplicationReconciliationWorker } from "../../application-reconciliation.js";
+import { RelayHub } from "../../relay.js";
 import { readConnectLifecycleWork } from "./lifecycle-diagnostics.js";
 
 const TEST_URL_ENV = "MDBASE_CONNECT_TEST_DATABASE_URL";
@@ -54,6 +56,17 @@ describePostgres("Connect lifecycle diagnostics PostgreSQL aggregates", () => {
     await admin.query(`CREATE SCHEMA "${schema}"`);
     try {
       db = await createDatabase(scopedUrl(url, schema));
+      // Installed application declarations need the same initial reconciliation
+      // as a running server. Settle it before measuring the empty-work baseline.
+      const relay = new RelayHub(db);
+      const reconciliation = new ApplicationReconciliationWorker(db, relay);
+      try {
+        await reconciliation.seedMissingJobs();
+        await reconciliation.drainUntilIdle();
+      } finally {
+        await reconciliation.close();
+        await relay.close();
+      }
       const constraints = await db.query<{ conname: string }>(`SELECT conname FROM pg_constraint
         WHERE conrelid='application_reconciliation_jobs'::regclass AND contype='c'`);
       for (const { conname } of constraints.rows) {
