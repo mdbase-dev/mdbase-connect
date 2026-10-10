@@ -1,4 +1,4 @@
-import { MdbaseError, toPlain, type MdbaseClient, type PlainValue, type Write, type wire } from "@mdbase-dev/sdk";
+import { MdbaseError, revisionOf, toPlain, type MdbaseClient, type PlainValue, type Write, type wire } from "@mdbase-dev/sdk";
 import type { JsonObject } from "@mdbase-dev/connect";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type { CreateNoteInput, NoteDocument } from "./model";
@@ -130,6 +130,7 @@ export class NextEditorRecords {
       throw new MdbaseError({ code: "conflict", reason: "revision_mismatch", recovery: "refresh", message: "This note changed after it was opened. Reload before saving." });
     if (record.state.hold || record.state.unresolved)
       throw new MdbaseError({ code: "conflict", reason: "protected_edit", recovery: "resolve_conflict", message: "Resolve this note's protected edit before changing it." });
+    completeSource(record);
     return record;
   }
 
@@ -140,14 +141,10 @@ export class NextEditorRecords {
     const mutationId = crypto.randomUUID();
     const mutation = { mutationId, operation, recordId, createdAt: new Date().toISOString() };
     this.pending.set(mutationId, mutation);
-    let write: Write;
-    try { write = await submit({ mutationId, signal: current }); }
-    catch (error) {
-      // Local request failures have a known outcome; transport cancellation or
-      // failure may already have crossed capture. Keep their original ID.
-      if (error instanceof MdbaseError && !["outcome_unknown", "unavailable", "cancelled"].includes(error.code)) this.pending.delete(mutationId);
-      throw error;
-    }
+    // An error code alone does not prove non-capture: even an internal SDK
+    // response error can follow an accepted write. Only an exact native receipt
+    // can settle this identity, so submission failures retain it for recovery.
+    const write = await submit({ mutationId, signal: current });
     current.throwIfAborted();
     if (write.mutationId !== mutationId) throw new Error("The native write changed its mutation identity.");
     return this.confirm(mutation, current);
@@ -171,14 +168,15 @@ export class NextEditorRecords {
     const record = await this.client.get(mutation.recordId, noteInclude, signal);
     signal.throwIfAborted();
     if (record.id !== mutation.recordId) throw new Error("The saved note changed its record identity.");
+    if (record.state.state !== "confirmed" || record.state.hold || record.state.unresolved)
+      throw new MdbaseError({ code: "outcome_unknown", reason: "unqualified_readback", recovery: "resolve_outcome", message: "The current note is pending or protected. Keep the original operation for recovery before reporting it as saved." });
     const document = this.remember(record);
     this.pending.delete(mutation.mutationId);
     return document;
   }
 
   private remember(record: wire.RecordView): NoteDocument {
-    if (record.body === undefined || record.document === undefined)
-      throw unsupported("Mdbase did not return the complete note source. No source was reconstructed.");
+    completeSource(record);
     const key = JSON.stringify([record.path, record.revision]);
     const previous = this.seen.get(key);
     if (previous) this.seenBytes -= previous.bytes;
@@ -210,5 +208,11 @@ export class NextEditorRecords {
 }
 
 const noteInclude = { body: true, effective: true, document: true };
+function completeSource(record: wire.RecordView): asserts record is wire.RecordView & { body: string; document: string } {
+  if (record.body === undefined || record.document === undefined)
+    throw unsupported("Mdbase did not return the complete note source. No source was reconstructed.");
+  if (revisionOf(record.document) !== record.revision)
+    throw unsupported("The complete note source does not match its native revision. No source was reconstructed or submitted.");
+}
 function plain(value: wire.FmMap): JsonObject { return Object.fromEntries([...value].map(([key, item]) => [key, toPlain(item)])) as JsonObject; }
 function unsupported(message: string): MdbaseError { return new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "unsupported", message }); }

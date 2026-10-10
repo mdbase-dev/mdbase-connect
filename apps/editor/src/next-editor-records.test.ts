@@ -178,6 +178,96 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
     expect(f.adapter.pendingMutations()).toHaveLength(1);
   });
 
+  it("refuses a metadata-only fallback base before submitting document replacement", async () => {
+    const f = await fixture(true);
+    const partial = await f.client.get(f.record.id, { body: true });
+    vi.spyOn(f.client, "get").mockResolvedValue(partial);
+    const replace = vi.spyOn(f.client, "replaceDocument");
+    vi.spyOn(f.client, "awaitReceipt").mockImplementation(async mutation => ({ mutation, state: "pending" }));
+    await expect(f.adapter.updateDocument(partial.path, "Replacement\n", partial.revision)).rejects.toBeDefined();
+    expect(replace).not.toHaveBeenCalled();
+    expect(f.adapter.pendingMutations()).toEqual([]);
+  });
+
+  it("refuses a complete source whose bytes do not match the native fallback revision", async () => {
+    const f = await fixture();
+    const record = await f.client.get(f.record.id, { body: true, document: true });
+    // Controlled malformed read response, not native parser qualification.
+    vi.spyOn(f.client, "get").mockResolvedValue({ ...record, document: `${record.document}\n` });
+    const replace = vi.spyOn(f.client, "replaceDocument");
+    await expect(f.adapter.updateDocument(record.path, "Replacement\n", record.revision)).rejects.toThrow("does not match its native revision");
+    expect(replace).not.toHaveBeenCalled();
+    expect(f.adapter.pendingMutations()).toEqual([]);
+  });
+
+  it("retains a confirmed mutation while current readback has unresolved protection", async () => {
+    const f = await fixture(true);
+    const base = await f.adapter.read(f.record.path);
+    const originalGet = f.client.get.bind(f.client);
+    const get = vi.spyOn(f.client, "get").mockImplementation(async (ref, include, signal) => {
+      const record = await originalGet(ref, include, signal);
+      // Controlled protected read response; MemoryReplica does not merge holds.
+      return { ...record, state: { ...record.state, unresolved: 1 } };
+    });
+    const originalReceipt = f.client.awaitReceipt.bind(f.client);
+    const receipt = vi.spyOn(f.client, "awaitReceipt").mockImplementation(async (mutation, timeout, signal) => {
+      f.replica.confirmAll();
+      return originalReceipt(mutation, timeout, signal);
+    });
+    await expect(f.adapter.updateProperties(base.path, { title: "Changed" }, base.revision)).rejects.toMatchObject({ code: "outcome_unknown", reason: "unqualified_readback" });
+    const [mutation] = f.adapter.pendingMutations();
+    expect((await f.client.receipt(mutation.mutationId)).state).toBe("confirmed");
+    get.mockRestore();
+    receipt.mockRestore();
+    expect((await f.adapter.recover(mutation.mutationId))?.frontmatter.title).toBe("Changed");
+    expect(f.adapter.pendingMutations()).toEqual([]);
+  });
+
+  it("retains the original mutation when a genuine applied receipt has pending current readback", async () => {
+    const f = await fixture(true);
+    const base = await f.adapter.read(f.record.path);
+    const awaitReceipt = f.client.awaitReceipt.bind(f.client);
+    const receipt = vi.spyOn(f.client, "awaitReceipt").mockImplementation(async (mutation, timeout, signal) => {
+      f.replica.confirmAll();
+      const confirmed = await awaitReceipt(mutation, timeout, signal);
+      expect(confirmed.state).toBe("confirmed");
+      expect(confirmed.status).toBe("applied");
+      const current = await f.client.get(f.record.id, { body: true, document: true });
+      // A second actual SDK write captures after the first receipt but before
+      // the adapter's readback. Its optimistic body is not a saved note.
+      await f.client.update(current, { body: "Other pending body\n", ifRevision: current.revision });
+      expect((await f.client.get(f.record.id)).state.state).toBe("pending");
+      return confirmed;
+    });
+    const update = vi.spyOn(f.client, "update");
+    await expect(f.adapter.updateProperties(base.path, { title: "Changed" }, base.revision)).rejects.toBeDefined();
+    const [mutation] = f.adapter.pendingMutations();
+    expect(mutation).toBeDefined();
+    receipt.mockRestore();
+    f.replica.confirmAll();
+    expect((await f.adapter.recover(mutation.mutationId))?.body).toBe("Other pending body\n");
+    expect(update).toHaveBeenCalledTimes(2); // original update + independent consumer
+    expect(f.adapter.pendingMutations()).toEqual([]);
+  });
+
+  it("retains the exact captured mutation after an ambiguous internal SDK response error", async () => {
+    const f = await fixture(true);
+    const base = await f.adapter.read(f.record.path);
+    const original = f.client.update.bind(f.client);
+    let captured = "";
+    const update = vi.spyOn(f.client, "update").mockImplementation(async (target, input, options) => {
+      const write = await original(target, input, options);
+      captured = write.mutationId;
+      throw new MdbaseError({ code: "internal", recovery: "contact_support", reason: "invalid_submit_result", message: "Post-capture response shape error" });
+    });
+    await expect(f.adapter.updateProperties(base.path, { title: "Changed" }, base.revision)).rejects.toMatchObject({ code: "internal" });
+    expect((await f.client.pendingWrites()).some(pending => pending.receipt.mutation === captured)).toBe(true);
+    expect(f.adapter.pendingMutations()).toEqual([expect.objectContaining({ mutationId: captured })]);
+    f.replica.confirmAll();
+    expect((await f.adapter.recover(captured))?.frontmatter.title).toBe("Changed");
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores late source replies after its repository lifetime is closed", async () => {
     const f = await fixture();
     const record = await f.client.get(f.record.id, { body: true, document: true });

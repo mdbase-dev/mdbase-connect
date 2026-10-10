@@ -7,15 +7,19 @@ new-SDK sign-in mode yet. The source is developed on the non-deploy
 
 ## Record operations
 
-- Reads the actual complete source plus body/effective metadata. Missing source
-  is an explicit refusal, never reconstructed YAML.
+- Reads the actual complete source plus body/effective metadata. Every mutation
+  base requires the actual body/document and a matching native source revision,
+  including uncached reads. Missing/inconsistent source is an explicit refusal,
+  never reconstructed YAML.
 - Carries genuine native record identity and the revision the editor opened.
   Patches, body edits, complete-source replacements, rename and delete retain
   explicit CAS; stale edits do not gain a freshly read revision.
-- Waits for the original mutation receipt, then reads the record back before
-  returning a saved note. Unknown/pending outcomes retain the same mutation ID.
-  A confirmed create whose readback fails is retained for receipt/readback
-  recovery, not silently submitted again.
+- Waits for the original mutation receipt, then requires confirmed, unprotected
+  current readback before returning a saved note. Pending/unresolved/held readback
+  and ambiguous submission failures (including internal SDK response errors)
+  retain the original mutation ID. A confirmed create whose readback fails is
+  retained for receipt/readback recovery, not silently submitted again. Error
+  codes alone are not evidence that a native mutation was never captured.
 - Uses the SDK's real rename/delete preflight operations. No empty-preflight
   fallback or JavaScript backlink evaluation is provided.
 - The existing note-session store remains responsible for drafts and write
