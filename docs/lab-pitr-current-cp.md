@@ -38,10 +38,25 @@ limit bodies to 4096 bytes, return no-store metadata, and never unwrap keys:
   deletion and security floors; owner-only newly admitted fixture grants. Locks the
   stable grant first then the collection, rereads the original binding/key under
   locks, and uses the canonical publication projection to check current terms.
-  Requires the exact grant tuple appended/nonlost; pending or delivered revocation
-  closes. Never publishes/re-enrols or treats a device observation as app authority.
+  Requires appended/nonlost grant-tuple metadata under the canonical publisher/terms
+  producer invariant; JSONB containment does not prove whole-op/array equality or
+  verify the native signed transcript. Pending or delivered revocation closes. Never publishes/re-enrols or treats a device observation as app authority.
   Positive reply is uncached point metadata only; signed-original/native caller and
   fresh checks around every effect remain actor integration work.
+- `/internal/v1/next/lab-pitr/current-cp-genesis`: exact `run`,
+  `principal: "control-plane"`, `purpose: "pending-original-genesis"`, `collection`,
+  `genesisSha256`, `transportPublicKey`, `issuerKeyId`, `policyKeyId`. Distinct
+  authority bearer before SQL; public issuer/transport identity captured from the
+  real log client's already-loaded startup keys, never token mint/sign/PEM access
+  in the observer. Original newly admitted A/D row/owner/root/cloud-copy/deletion
+  and current policy-key floors still required. Original seq1 may be `sending` or
+  `appended`, never parked/lost/duplicate; original bytes/owner/root are checked.
+  Initial owner membership may be in that same sending batch; no appended member
+  ACK is fabricated. Any queued/delivered owner removal or downgrade closes.
+  Ordinary device/service/app observers stay appended-only and use current member
+  checks. Echo is ten-field point metadata, not native role/PoP verification,
+  publication, a reusable lease, nil-registry or serving authority. Runtime must
+  verify original CP-role token/issuer/transport proof and signed genesis first.
 - `/internal/v1/next/lab-pitr/registry`: exact `run`, nullable `after` and
   nullable decimal-u64 `expected`. Generation-pinned isolated nil page only;
   absent profile/foreign member/unavailability refuses, with no shared fallback.

@@ -7,7 +7,7 @@
 //   claims = {0: role (0 device, 1 control plane), ? 1: device, 2: sign_pk,
 //             3: expires_at ms, 4: "mdbase-log", ? 5: collection}
 import { createHash, createPrivateKey, sign, type KeyObject } from "node:crypto";
-import { decodeCbor, domainHash, encodeCbor, uuidBytes, type Cbor, type Decoded } from "./policy-wire.js";
+import { decodeCbor, domainHash, encodeCbor, keyId, uuidBytes, type Cbor, type Decoded } from "./policy-wire.js";
 import { ed25519RawPublicKey, type LogServiceConfig } from "./policy-keys.js";
 import type { CollectionDeletionFact, CollectionDeletionPage } from "./collection-deletion.js";
 import { readBoundedBytes } from "../../platform/bounded-json.js";
@@ -89,6 +89,7 @@ export class LogServiceClient {
   private readonly transportPublicKey: Uint8Array;
   private readonly baseUrl: string;
   private readonly pitr: LabPitrConfig | undefined;
+  private readonly pitrPublicIdentity: Readonly<{ transportPublicKey: string; issuerKeyId: string }> | undefined;
   private requestId = 0;
   private cached: { token: string; expiresAt: number } | undefined;
 
@@ -98,6 +99,14 @@ export class LogServiceClient {
     this.issuer = edKey(config.tokenIssuerKeyPem, "MDBASE_NEXT_LOG_TOKEN_SIGNING_KEY");
     this.transport = edKey(config.transportKeyPem, "MDBASE_NEXT_LOG_TRANSPORT_KEY");
     this.transportPublicKey = ed25519RawPublicKey(this.transport);
+    // Public metadata only, captured once from already loaded startup keys. The
+    // observer never parses a PEM, signs, mints a token or reads private material.
+    this.pitrPublicIdentity = this.pitr ? Object.freeze({ transportPublicKey: Buffer.from(this.transportPublicKey).toString("hex"),
+      issuerKeyId: Buffer.from(keyId(ed25519RawPublicKey(this.issuer))).toString("hex") }) : undefined;
+  }
+
+  pitrControlIdentity(): Readonly<{ transportPublicKey: string; issuerKeyId: string }> | null {
+    return this.pitrPublicIdentity ? { ...this.pitrPublicIdentity } : null;
   }
 
   /** Mint a log-service access token. Device tokens name the device and, narrowing them, one collection. */

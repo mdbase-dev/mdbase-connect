@@ -24,7 +24,7 @@ async function fixture(failure?: string) {
   const cert = { policyPublicKey: ed25519RawPublicKey(privateKey), notBefore: 0, notAfter: 10000, root: ROOT, signature: Buffer.alloc(64,8) };
   const items = new Map([A,D].map(collection => [collection, Buffer.from(signPolicyItem({privateKey,cert}, {
     collection,seq:1,prev:Buffer.alloc(32),issuedAt:500,previousIssuedAt:0,
-    ops:[{op:"genesis",owner:OWNER,root:ROOT,state:"cloud-copy"}]
+    ops:[{op:"genesis",owner:failure==="cp-genesis-owner"?HOSTED:OWNER,root:failure==="cp-genesis-root"?Buffer.alloc(16,9):ROOT,state:"cloud-copy"}]
   }))])); // Ephemeral test signer; not a deployed policy issuer.
   const hashes = Object.fromEntries([...items].map(([id,item]) => [id,createHash("sha256").update(item).digest("hex")]));
   const queries: string[] = [], writes: string[] = []; let connects = 0, releases = 0, now = NOW;
@@ -40,7 +40,15 @@ async function fixture(failure?: string) {
     }
     if (sql.includes("SELECT n.root_key_id")) return {rows:failure === "parent" ? [] : [{root_key_id:failure === "root" ? Buffer.alloc(16,9) : ROOT}]};
     if (sql.includes("e.value->>'op' AS op")) return {rows:[{op:failure === "member" ? "member-remove" : "member-set",role:"owner"}]};
-    if (sql.includes("CASE WHEN octet_length(item)")) return {rows:failure === "genesis" ? [] : [{state:"appended",item:items.get(String(values[0]))}]};
+    if (sql.includes("CASE WHEN octet_length(item)")) {
+      if (["genesis","cp-lost"].includes(failure??"")) return {rows:[]};
+      const item=items.get(String(values[0]));
+      return {rows:failure==="cp-duplicate"?[{state:"sending",item},{state:"sending",item}]:[{state:failure==="cp-sending"?"sending":failure==="cp-parked"?"parked":"appended",item}]};
+    }
+    if (sql.includes("e.value->>'role' IS DISTINCT FROM 'owner'")) {
+      expect(sql).not.toContain("b.state = 'appended'"); expect(values).toEqual([A,OWNER]);
+      return {rows:["cp-owner-remove","cp-owner-downgrade"].includes(failure??"")?[{one:1}]:[]};
+    }
     if (sql.includes("SELECT device_id::text FROM next_service_devices")) return {rows:failure === "survivor" ? [] : [{device_id:HOSTED}]};
     if (sql.includes("device_id::text AS id")) return {rows:values[1] === HOSTED ? [peer(HOSTED)] : []};
     if (sql.includes("FROM next_devices d")) return {rows:failure === "identity" ? [] : [{...peer(),kind:failure === "kind" ? "mobile" : "cli",sign_pk:failure === "key" ? Buffer.alloc(32,9) : peer().sign_pk}]};
@@ -59,7 +67,7 @@ async function fixture(failure?: string) {
         return {rows:failure==="grant-pending"?[]:[{one:1}]};
       }
       if (op.op === "device-revoke") return {rows:failure === "revoked" ? [{one:1}] : []};
-      if (op.op === "cp-key-revoke") return {rows:failure === "security-key" ? [{one:1}] : []};
+      if (op.op === "cp-key-revoke") { if(failure==="cp-clock")now=cert.notAfter; return {rows:failure === "security-key" ? [{one:1}] : []}; }
       if (op.op === "device-enrol") {
         expect(op).toHaveProperty("signPublicKey"); expect(op).toHaveProperty("kemPublicKey"); expect(op).toHaveProperty("noisePublicKey");
         if (failure === "clock") now = cert.notAfter;
@@ -73,13 +81,16 @@ async function fixture(failure?: string) {
   const next = { rootPublicKey:Buffer.alloc(32,1),policyPrivateKeyPem:"synthetic unused",policyCert:{policy_public_key:Buffer.from(cert.policyPublicKey).toString("hex"),not_before:0,not_after:10000,root_key_id:ROOT.toString("hex"),signature:"08".repeat(64)},
     logService:{url:"https://normal.example.test",tokenIssuerKeyPem:"synthetic unused",transportKeyPem:"synthetic unused",labPitr:{run:"gate4-pitr-lab-20261009-01",active:A,deleted:D,owner:OWNER,createdAfter:1,logUrl:"https://synthetic-log.example.test",hostedUrl:"https://synthetic-hosted.example.test"}},
     serviceTokens:{},pitrAuthorityToken:TOKEN } satisfies NextControlPlaneConfig;
-  const app = Fastify(); await app.register(cookie); registerLabPitrRoutes(app,{db,next,now:()=>now,log:{labPitrCollectionDeletions:async()=>{if(failure==="registry")throw Error("synthetic registry unavailable");return {generation:7n,after:null,done:true,rows:[]};}}});
+  const app = Fastify(); await app.register(cookie); registerLabPitrRoutes(app,{db,next,now:()=>now,log:{pitrControlIdentity:()=>failure==="cp-identity"?null:{transportPublicKey:"07".repeat(32),issuerKeyId:"08".repeat(16)},labPitrCollectionDeletions:async()=>{if(failure==="registry")throw Error("synthetic registry unavailable");return {generation:7n,after:null,done:true,rows:[]};}}});
   const body = {run:next.logService.labPitr.run,collection:A,device:DEVICE,kind:"cli",signPublicKey:peer().sign_pk.toString("hex"),genesisSha256:hashes[A],policyKeyId:Buffer.from(keyId(cert.policyPublicKey)).toString("hex")};
   const current = (change:object={},authorization=`Bearer ${TOKEN}`) => app.inject({method:"POST",url:"/internal/v1/next/lab-pitr/current",headers:{authorization},payload:{...body,...change}});
   const mutate = (change:object={},origin="https://connect-lab.mdbase.dev") => app.inject({method:"POST",url:"/v1/next/lab-pitr/delete-revoke",headers:{origin,cookie:"mdbase_session=synthetic-session"},payload:{run:body.run,device:DEVICE,activeGenesisSha256:hashes[A],deletedGenesisSha256:hashes[D],...change}});
   const grantBody={run:body.run,principal:"app-grant",collection:A,grant:GRANT,clientPublicKey:grantSource.client_pk!.toString("hex"),genesisSha256:hashes[A],policyKeyId:body.policyKeyId};
   const currentGrant=(change:object={},authorization=`Bearer ${TOKEN}`)=>app.inject({method:"POST",url:"/internal/v1/next/lab-pitr/current-app-grant",headers:{authorization},payload:{...grantBody,...change}});
-  return {app,current,mutate,currentGrant,grantBody,queries,writes,body,counts:()=>({connects,releases})};
+  const cpBody={run:body.run,principal:"control-plane",purpose:"pending-original-genesis",collection:A,
+    genesisSha256:hashes[A],transportPublicKey:"07".repeat(32),issuerKeyId:"08".repeat(16),policyKeyId:body.policyKeyId};
+  const currentCp=(change:object={},authorization=`Bearer ${TOKEN}`)=>app.inject({method:"POST",url:"/internal/v1/next/lab-pitr/current-cp-genesis",headers:{authorization},payload:{...cpBody,...change}});
+  return {app,current,mutate,currentGrant,grantBody,currentCp,cpBody,queries,writes,body,counts:()=>({connects,releases})};
 }
 describe("fixed-run current CP adapter", () => {
   it("authenticates and validates scope before authority SQL", async () => {
@@ -107,6 +118,28 @@ describe("fixed-run current CP adapter", () => {
   it("refuses wrong signed-original hash", async () => {
     const f=await fixture(); try {expect((await f.current({genesisSha256:"ff".repeat(32)})).statusCode).toBe(409);} finally {await f.app.close();}
   });
+});
+describe("distinct CP original sending-genesis observation",()=>{
+  it("requires exact principal/public identity and authority bearer before SQL",async()=>{
+    const f=await fixture();try{
+      expect((await f.currentCp({},"Bearer wrong")).statusCode).toBe(401);
+      for(const change of [{principal:"device"},{principal:"app-grant"},{purpose:"nil"},{device:DEVICE},{transportPublicKey:"00".repeat(32)}]) expect((await f.currentCp(change)).statusCode).toBe(400);
+      for(const change of [{collection:HOSTED},{transportPublicKey:"09".repeat(32)},{issuerKeyId:"09".repeat(16)},{policyKeyId:"09".repeat(16)}]) expect((await f.currentCp(change)).statusCode).toBe(409);
+      expect(f.queries).toEqual([]);expect(f.counts().connects).toBe(0);
+    }finally{await f.app.close();}
+  });
+  it.each([undefined,"cp-sending"])("observes only the original %s bytes without a publication/membership ACK",async failure=>{
+    const f=await fixture(failure);try{
+      const r=await f.currentCp();expect(r.statusCode).toBe(200);expect(r.headers["cache-control"]).toBe("no-store");expect(r.json()).toEqual({...f.cpBody,current:true,checkedAt:NOW});
+      expect(f.queries.some(q=>q.includes("seq=1 AND lost_at IS NULL"))).toBe(true);
+      expect(f.queries.some(q=>q.includes("e.value->>'op' AS op"))).toBe(false);expect(f.queries.some(q=>q.includes("FROM next_devices"))).toBe(false);expect(f.writes).toEqual([]);
+      if(failure==="cp-sending")expect((await f.current()).statusCode).toBe(503); // device path remains appended-only
+    }finally{await f.app.close();}
+  });
+  it.each(["deleted","parent","root","security-key","cp-owner-remove","cp-owner-downgrade","cp-lost","cp-duplicate","cp-parked","cp-genesis-owner","cp-genesis-root","cp-identity","cp-clock","lock","database"])("closes %s",async failure=>{
+    const f=await fixture(failure);try{const r=await f.currentCp();expect([409,503]).toContain(r.statusCode);expect(r.json()).not.toHaveProperty("current");expect(f.writes).toEqual([]);}finally{await f.app.close();}
+  });
+  it("refuses foreign original genesis bytes",async()=>{const f=await fixture();try{expect((await f.currentCp({genesisSha256:"ff".repeat(32)})).statusCode).toBe(409);}finally{await f.app.close();}});
 });
 describe("canonical grant projection shared by publication/current observation",()=>{
   it("preserves the original publication terms algorithm and wire fields",()=>{

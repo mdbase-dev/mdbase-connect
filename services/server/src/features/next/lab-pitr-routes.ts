@@ -25,6 +25,10 @@ const probe = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), collectio
 const appGrantProbe = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), principal: z.literal("app-grant"),
   collection: uuid, grant: uuid, clientPublicKey: hash, genesisSha256: hash,
   policyKeyId: z.string().regex(/^[0-9a-f]{32}$/) }).strict();
+const cpGenesisProbe = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), principal: z.literal("control-plane"),
+  purpose: z.literal("pending-original-genesis"), collection: uuid, genesisSha256: hash,
+  transportPublicKey: hash.refine(v => v !== "00".repeat(32)), issuerKeyId: z.string().regex(/^[0-9a-f]{32}$/),
+  policyKeyId: z.string().regex(/^[0-9a-f]{32}$/) }).strict();
 const registry = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), after: uuid.nullable(),
   expected: z.string().regex(/^(?:0|[1-9][0-9]{0,19})$/).refine(v => /^(?:0|[1-9][0-9]{0,19})$/.test(v) && BigInt(v) <= (1n << 64n) - 1n).nullable() }).strict();
 const mutation = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), activeGenesisSha256: hash,
@@ -33,7 +37,7 @@ interface Peer { id: string; account: string; kind: DeviceKind; sign_pk: Buffer;
 const denied = (): never => { throw new CreateError(409, "lab_pitr_authority_denied"); };
 
 async function currentCollection(client: DatabaseConnection, pitr: LabPitrConfig, next: NextControlPlaneConfig,
-  collection: string, expectedGenesis: string, now: number): Promise<void> {
+  collection: string, expectedGenesis: string, now: number, pendingGenesis = false): Promise<void> {
   if ((collection !== pitr.active && collection !== pitr.deleted) || now < next.policyCert.not_before || now >= next.policyCert.not_after) denied();
   await requireCollectionNotDeleted(client, collection);
   const row = (await client.query<{ root_key_id: Buffer }>(
@@ -44,8 +48,17 @@ async function currentCollection(client: DatabaseConnection, pitr: LabPitrConfig
      FOR SHARE OF n,u`, [collection, pitr.owner, pitr.createdAfter, pitrLabel(pitr,collection)]
   )).rows[0];
   if (!row || !row.root_key_id.equals(Buffer.from(next.policyCert.root_key_id, "hex"))) denied();
-  await currentMember(client, collection, pitr.owner, "owner");
-  const genesis = await originalGenesis(client, collection);
+  if (pendingGenesis) {
+    // Initial owner membership may still be in the same sending genesis batch;
+    // never fabricate an appended membership ACK. Any queued/lost removal denies.
+    const removal = await client.query(`SELECT 1 FROM next_policy_outbox o
+      CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') AS e(value)
+      WHERE o.collection_id=$1 AND e.value->>'account'=$2
+        AND (e.value->>'op'='member-remove' OR (e.value->>'op'='member-set' AND e.value->>'role' IS DISTINCT FROM 'owner')) LIMIT 1`,
+      [collection, pitr.owner]);
+    if (removal.rows.length) denied();
+  } else await currentMember(client, collection, pitr.owner, "owner");
+  const genesis = await originalGenesis(client, collection, pendingGenesis ? {owner:pitr.owner,root:next.policyCert.root_key_id} : undefined);
   if (genesis.hash !== expectedGenesis) denied(); // structural CP metadata; runtime still verifies the signed original.
   const policyKeyId = Buffer.from(keyId(Buffer.from(next.policyCert.policy_public_key, "hex"))).toString("hex");
   const revoked = await client.query(`SELECT 1 FROM next_policy_outbox
@@ -124,7 +137,7 @@ async function assertPitrAppGrant(db: DatabaseConnection, pitr: LabPitrConfig,
 }
 export function registerLabPitrRoutes(app: FastifyInstance, options: {
   db: DatabasePool; next: NextControlPlaneConfig;
-  log: Pick<LogServiceClient, "labPitrCollectionDeletions">; now?: () => number;
+  log: Pick<LogServiceClient, "labPitrCollectionDeletions" | "pitrControlIdentity">; now?: () => number;
 }): void {
   const pitr = options.next.logService.labPitr;
   const token = options.next.pitrAuthorityToken;
@@ -152,6 +165,29 @@ export function registerLabPitrRoutes(app: FastifyInstance, options: {
     } catch (error) {
       const status = error instanceof CreateError || (error instanceof Error && error.message === "collection_deleted") ? 409 : 503;
       return reply.code(status).send(apiError(status === 409 ? "lab_pitr_authority_denied" : "lab_pitr_authority_unavailable", "Current authority not established."));
+    }
+  });
+  app.post("/internal/v1/next/lab-pitr/current-cp-genesis", limit, async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const presented = bearerToken(request);
+    if (!presented || !safeEqual(presented, token)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
+    const input = cpGenesisProbe.safeParse(request.body);
+    if (!input.success) return reply.code(400).send(apiError("invalid_request", "Exact original CP genesis identity required."));
+    const b = input.data;
+    try {
+      const identity = options.log.pitrControlIdentity(); // public startup snapshot only
+      if (!identity || (b.collection !== pitr.active && b.collection !== pitr.deleted) || b.policyKeyId !== policyKeyId
+        || b.transportPublicKey !== identity.transportPublicKey || b.issuerKeyId !== identity.issuerKeyId) denied();
+      return await inTransaction(options.db, async client => {
+        await lock(client, b.collection);
+        await currentCollection(client, pitr, options.next, b.collection, b.genesisSha256, (options.now ?? Date.now)(), true);
+        const checkedAt = (options.now ?? Date.now)();
+        if (!Number.isSafeInteger(checkedAt) || checkedAt < options.next.policyCert.not_before || checkedAt >= options.next.policyCert.not_after) denied();
+        return { ...b, current: true, checkedAt };
+      });
+    } catch (error) {
+      const status = error instanceof CreateError || (error instanceof Error && error.message === "collection_deleted") ? 409 : 503;
+      return reply.code(status).send(apiError(status === 409 ? "lab_pitr_authority_denied" : "lab_pitr_authority_unavailable", "Original CP genesis authority not established."));
     }
   });
   app.post("/internal/v1/next/lab-pitr/current-app-grant", limit, async (request, reply) => {
