@@ -22,8 +22,11 @@ import { collectionContractDescriptorSchema } from "./protocol-schemas.js";
 import { z } from "zod";
 import { readBoundedJson } from "./platform/bounded-json.js";
 import { asProviderError, readResponse, HostedProviderResponseError, HostedProviderUnavailableError,
-  migrationUuid, legacyMigrationDrainSchema, migrationFenceSchema, type LegacyMigrationDrain, type LegacyMigrationFence } from "./hosted-provider-replies.js";
-export { HostedProviderResponseError, HostedProviderUnavailableError, type LegacyMigrationDrain, type LegacyMigrationFence } from "./hosted-provider-replies.js";
+  migrationUuid, legacyMigrationDrainSchema, migrationFenceSchema, type LegacyMigrationDrain, type LegacyMigrationFence,
+  legacyMigrationRollbackRequestSchema, legacyMigrationRollbackReceiptSchema,
+  type LegacyMigrationRollbackRequest, type LegacyMigrationRollbackReceipt } from "./hosted-provider-replies.js";
+export { HostedProviderResponseError, HostedProviderUnavailableError, type LegacyMigrationDrain, type LegacyMigrationFence,
+  type LegacyMigrationRollbackRequest, type LegacyMigrationRollbackReceipt } from "./hosted-provider-replies.js";
 
 export interface HostedProviderConfig {
   url: string;
@@ -317,6 +320,28 @@ export class HostedProviderClient {
     return result;
   }
 
+  /** Native rollback guards required; lost response is UNKNOWN, never auto-retried. */
+  async legacyMigrationRollback(collectionId: string, binding: LegacyMigrationRollbackRequest,
+    options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
+    return this.legacyMigrationRollbackRequest("rollback", collectionId, binding, options);
+  }
+  /** Lookup ORIGINAL binding, not later Unfence ID; missing/active-only is not success. */
+  async legacyMigrationRollbackReceipt(collectionId: string, binding: LegacyMigrationRollbackRequest,
+    options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
+    return this.legacyMigrationRollbackRequest("rollback-receipt", collectionId, binding, options);
+  }
+  private async legacyMigrationRollbackRequest(action: "rollback" | "rollback-receipt", collectionId: string,
+    binding: LegacyMigrationRollbackRequest, options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
+    const id = migrationUuid.parse(collectionId);
+    const input = legacyMigrationRollbackRequestSchema.parse(binding);
+    const result = legacyMigrationRollbackReceiptSchema.parse(await this.request("POST",
+      `/internal/v1/collections/${id}/legacy-migration/${action}`, input, true, options,
+      response => readBoundedJson(response, 128 * 1024), 1));
+    if (result.collection_id !== id || JSON.stringify(result.binding) !== JSON.stringify(input)) {
+      throw new HostedProviderResponseError(502, "invalid_provider_response", "Rollback receipt binding does not match.");
+    }
+    return result;
+  }
   async advanceProjection(
     collectionId: string,
     generationId: string,
@@ -782,11 +807,12 @@ export class HostedProviderClient {
     body?: unknown,
     authenticated = true,
     options?: HostedProviderOperationOptions,
-    readReply: (response: Response) => Promise<unknown> = readResponse
+    readReply: (response: Response) => Promise<unknown> = readResponse,
+    attempts: 1 | 3 = 3
   ): Promise<unknown> {
     const operation = requiredOperation(options);
     let unavailable: unknown;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       throwIfCancelled(operation);
       const requestController = new AbortController();
       const requestTimeout = setTimeout(
@@ -810,7 +836,7 @@ export class HostedProviderClient {
         });
         const value = await readReply(response);
         if (response.ok) return value;
-        if ([429, 502, 503, 504].includes(response.status) && attempt < 2) {
+        if ([429, 502, 503, 504].includes(response.status) && attempt + 1 < attempts) {
           retryable = true;
         } else {
           const providerError = asProviderError(value);
@@ -824,7 +850,7 @@ export class HostedProviderClient {
         if (error instanceof HostedProviderResponseError) throw error;
         unavailable = error;
         if (operation.signal?.aborted) throw operation.signal.reason;
-        retryable = attempt < 2;
+        retryable = attempt + 1 < attempts;
       } finally {
         clearTimeout(requestTimeout);
       }
