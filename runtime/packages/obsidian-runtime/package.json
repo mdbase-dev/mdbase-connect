@@ -41,7 +41,7 @@
     "esbuild": "0.28.2",
     "fake-indexeddb": "6.2.5",
     "happy-dom": "20.14.5",
-    "obsidian": "1.12.3",
+    "obsidian": "1.14.4",
     "typescript": "5.9.3",
     "vitest": "3.2.7"
   },
