@@ -1,0 +1,14 @@
+{
+  "package": "@mdbase-dev/sdk",
+  "version": "0.0.0",
+  "artifact": "mdbase-dev-sdk-0.0.0-561501d0.tgz",
+  "sourceCommit": "561501d0c627b7808d02e403d65e949bdb78fa88",
+  "sha256": "8982d7e2442b29584931a965b96d3ddd0a2266fa70890c493a0ee1a7588e3948",
+  "integrity": "sha512-8TmGRP+O74AlMYpbMrPF9pzDpB98N5oLJXyFfR3rGhGqkkRKoyHlhMHNWVhwU/Yf+khFLzQtA4LtWlSAfoSSvw==",
+  "includesSessionFix808": true,
+  "includesRecordLeases809": true,
+  "includesMemoryDocumentCreate811": true,
+  "sourceOnly": true,
+  "nativeFilesProducerQualified": false,
+  "perAppRuntimeTrustOriginAndOperationsQualified": false
+}
