@@ -249,11 +249,29 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
     expect(await memberOps(f)).toEqual([{ op: "member-set", account: f.member.id, role: "viewer" }, { op: "member-set", account: f.member.id, role: "viewer" }]);
   });
 
-  it.each(["left", "suspended", "legacy-account", "deleted"] as const)("refuses %s native authority rather than falling back to a retained hosted row", async state => {
+  it.each([true, false])("uses current native authority before account flip (retained hosted row: %s)", async retainedHosted => {
+    const f = await fixture("cloud_copy", retainedHosted);
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [f.owner.id]);
+    if (retainedHosted) await db.query("UPDATE hosted_collections SET authority_state='transferred' WHERE id=$1", [f.collection]);
+    await expect(createMember(f)).resolves.toMatchObject({ role: "editor", ownerUserId: f.owner.id });
+    expect(await memberOps(f)).toEqual([{ op: "member-set", account: f.member.id, role: "editor" }]);
+  });
+
+  it.each(["legacy", "next"] as const)("refuses frozen native sharing independently of account backend %s", async backend => {
+    const f = await fixture("cloud_copy", true), cohort = randomUUID();
+    await db.query("UPDATE users SET account_backend=$2 WHERE id=$1", [f.owner.id, backend]);
+    await db.query("INSERT INTO next_migration_cohorts(name) VALUES($1)", [cohort]);
+    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort,started_at) VALUES($1,$2,now())", [f.owner.id, cohort]);
+    await db.query("UPDATE next_migration_cohorts SET frozen_at=now() WHERE name=$1", [cohort]);
+    await expect(createMember(f)).rejects.toThrow("Migration topology is frozen");
+    await expect(invite(f)).rejects.toThrow("Migration topology is frozen");
+    expect(await ops(f.collection)).toEqual([]);
+  });
+
+  it.each(["left", "suspended", "deleted"] as const)("refuses %s native authority rather than falling back to a retained hosted row", async state => {
     const f = await fixture("cloud_copy", true);
     if (state === "left") await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [f.collection]);
     if (state === "suspended") await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [f.owner.id]);
-    if (state === "legacy-account") await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [f.owner.id]);
     if (state === "deleted") await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [f.collection, randomUUID()]);
     await expect(createMember(f)).rejects.toThrow("not available for membership changes");
     await expect(invite(f)).rejects.toThrow("unavailable");

@@ -46,8 +46,10 @@ async function readAuthority(
   )).rows[0];
   if (native?.runtime === "next") {
     if (native.left_sync_at !== null || !["private", "cloud_copy"].includes(native.sync)) return null;
+    // Collection runtime owns this decision; account backend flips separately.
+    // Migration topology is still frozen by lockCollectionSharingAuthority.
     const owner = await db.query(
-      `SELECT id FROM users WHERE id = $1 AND suspended_at IS NULL AND account_backend = 'next'${lock}`,
+      `SELECT id FROM users WHERE id = $1 AND suspended_at IS NULL${lock}`,
       [native.owner_user_id]
     );
     if (!owner.rows.length) return null;
