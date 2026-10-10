@@ -13,7 +13,7 @@ import {
 } from "../next/devices.js";
 import { ed25519PublicKeyObject } from "../next/policy-keys.js";
 import { currentMember, currentSession, inTransaction, lock, refuseRevoked } from "../next/bootstrap-common.js";
-import type { ConnectorIdentity } from "../../platform/request-authentication.js";
+import type { ConnectorIdentity, User } from "../../platform/request-authentication.js";
 import { installationCollections, requireInstallationScope } from "../next/installation-scope.js";
 import { queueNextPolicy } from "../next/policy-outbox.js";
 import { findInstallationApplication } from "../applications/store.js";
@@ -79,6 +79,8 @@ interface Row {
   account_selected_at: Date | string | null;
   portal_account_confirmed_at: Date | string | null;
   portal_account_email: string | null;
+  portal_account_provider: "github" | null;
+  portal_account_login: string | null;
   portal_account_session_id: string | null;
   portal_account_session_epoch: string | number | null;
   selected_collection_id: string | null;
@@ -103,7 +105,7 @@ async function row(
   includeRevoked = false,
 ): Promise<Row> {
   const found = await c.query<Row>(
-    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.created_collection_ids FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
+    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_provider,i.portal_account_login,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.created_collection_ids FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
     [id, ...(secret === undefined ? [] : [tokenHash(secret)])],
   );
   const r = found.rows[0];
@@ -144,10 +146,17 @@ async function ordinary(
   )
     strict();
 }
+function portalAccountIdentity(user: Pick<User, "email" | "login" | "authentication_provider">) {
+  if (user.email) return {email: user.email, provider: null, login: null};
+  if (user.authentication_provider === "github" && user.login?.trim() && user.login.length <= 100)
+    return {email: null, provider: "github" as const, login: user.login};
+  return null;
+}
 function portalConfirmation(r: Row) {
   return r.portal_account_confirmed_at ? {
-    account_email: r.portal_account_email!,
+    account_email: r.portal_account_email,
     account_selection_confirmed: true as const,
+    ...(r.portal_account_provider ? {account_provider:r.portal_account_provider,account_login:r.portal_account_login!} : {}),
   } : {};
 }
 function collectionSelection(r: Row) {
@@ -253,8 +262,10 @@ export async function inspectInstallationPairing(
   id: string,
   user: string,
   canCreateCollection: boolean,
-  authenticatedEmail: string | null,
+  authenticated: User,
 ) {
+  if (authenticated.id !== user) fail("installation_account_changed", 403);
+  const identity = portalAccountIdentity(authenticated);
   const r = await row(db, id);
   live(r);
   if (r.user_id && r.user_id !== user)
@@ -273,7 +284,8 @@ export async function inspectInstallationPairing(
       account_selected: !!r.account_selected_at,
       ...portalConfirmation(r),
       // Current signed-in account is display-only before explicit confirmation.
-      signed_in_account_email: authenticatedEmail,
+      signed_in_account_email: identity?.email ?? null,
+      ...(identity?.provider ? {signed_in_account_provider:identity.provider,signed_in_account_login:identity.login} : {}),
       selected_collection_id: r.selected_collection_id,
       creation: (await db.query<{collection_id:string;display_name:string;completed:boolean}>("SELECT collection_id,display_name,completed_at IS NOT NULL AS completed FROM installation_pairing_collection_creations WHERE pairing_id=$1",[id])).rows[0] ?? null,
       attested: r.scope_only || !!r.attested_at,
@@ -294,8 +306,10 @@ export async function selectInstallationAccount(
   id: string,
   user: string,
   session: string,
-  authenticatedEmail: string | null,
+  authenticated: User,
 ) {
+  if (authenticated.id !== user) fail("installation_account_changed", 403);
+  const identity = portalAccountIdentity(authenticated);
   return tx(db, async (c) => {
     await active(c, user, true);
     await currentSession(c, session, user);
@@ -306,11 +320,10 @@ export async function selectInstallationAccount(
       fail("installation_account_changed", 403);
     if (!r.portal_account_confirmed_at && (r.approved_at || r.consumed_at))
       fail("installation_approval_already_recorded");
-    // Canonical sessionUser email includes its provider/primary identity;
-    // users.email is nullable legacy data. currentSession above binds the SAME
-    // authenticated session/account/epoch before freezing this click's evidence.
-    if (!r.portal_account_confirmed_at && !authenticatedEmail)
-      fail("installation_account_email_unavailable", 403);
+    // Pin the canonical authenticated identity before awaits. currentSession
+    // binds the SAME account/session/epoch; name/body fields are not authority.
+    if (!r.portal_account_confirmed_at && !identity)
+      throw new InstallationPairingError(403, "installation_account_identity_unavailable", "We couldn't identify your account. Sign in again to continue.");
     if (!r.account_selected_at) {
       await c.query("UPDATE pairing_requests SET user_id=$2 WHERE id=$1", [
         id,
@@ -326,8 +339,9 @@ export async function selectInstallationAccount(
     if (!r.portal_account_confirmed_at) {
       await c.query(`UPDATE installation_device_pairings SET
         portal_account_confirmed_at=now(),portal_account_email=$4,
+        portal_account_provider=$5,portal_account_login=$6,
         portal_account_session_id=$3,portal_account_session_epoch=u.session_epoch
-        FROM users u WHERE pairing_id=$1 AND u.id=$2`,[id,user,session,authenticatedEmail]);
+        FROM users u WHERE pairing_id=$1 AND u.id=$2`,[id,user,session,identity!.email,identity!.provider,identity!.login]);
     }
     return { ok: true };
   });
