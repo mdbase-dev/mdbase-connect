@@ -14,7 +14,7 @@ const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
 const suite = testUrl && approved ? describe : describe.skip;
 const migrations = new URL("../../../../migrations/", import.meta.url);
-const migrationId = "0068_native_background_grants";
+const migrationId = "0069_native_background_grants";
 const criterion = { id: "synthetic.reminder", event: MDBASE_TIMER_FIRED_CONTRACT, presentation: { title: "Reminder" } };
 const inventoryTables = ["grants", "next_timers", "next_timer_events", "next_timer_event_receipts",
   "next_timer_namespace_intents", "next_timer_operation_receipts", "push_channels", "notification_subscriptions",
@@ -108,7 +108,7 @@ suite("background grant migration (real PG; synthetic production-shaped data, no
         VALUES($1,$2,$3,'sending',$4,$5,now()+interval '30 seconds')`, [randomUUID(), signal, subscription, i, randomUUID()]);
       await db.query("INSERT INTO notification_webhook_deliveries(id,signal_id,url,status,attempts) VALUES($1,$2,'https://hooks.example.test','retry',$3)", [randomUUID(), signal, i]);
     }
-    // An actual pre-0068 consumed request has no timer snapshot or permission.
+    // An actual predecessor consumed request has no timer snapshot or permission.
     await db.query(`INSERT INTO pairing_requests(id,secret_hash,connector_name,user_id,expires_at,approved_at,consumed_at)
       VALUES($1,$2,'Synthetic old request',$3,now()-interval '1 hour',now()-interval '2 hours',now()-interval '2 hours')`,
     [historical.request_id, tokenHash(historical.pairing_secret), user]);

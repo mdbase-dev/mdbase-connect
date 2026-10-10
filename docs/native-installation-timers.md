@@ -26,7 +26,7 @@ including revoked historical references; they are not proof of current authority
 
 ## Shared background identities
 
-Migration `0068_native_background_grants` gives the existing timer, receipt and
+Migration `0069_native_background_grants` gives the existing timer, receipt and
 notification stores one typed identity: a real legacy grant retaining its ID, or
 an actual installation timer grant. Native identities never enter `grants`.
 Original installation/device/kind and all three registered public keys are bound
