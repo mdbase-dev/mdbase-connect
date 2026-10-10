@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::error::ApiResult;
+use crate::{error::ApiResult, provider::LegacyRollbackRequest};
 
 use super::AppState;
 
@@ -50,6 +50,14 @@ pub(super) fn legacy_migration_routes() -> Router<AppState> {
         .route(
             "/internal/v1/collections/{collection_id}/legacy-migration/restore-replicas",
             post(restore_replicas),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/legacy-migration/rollback",
+            post(rollback),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/legacy-migration/rollback-receipt",
+            post(rollback_receipt),
         )
 }
 
@@ -109,6 +117,34 @@ async fn restore_replicas(
         .restore_migration_revoked_replicas(collection_id, &input.replica_ids)
         .await?;
     Ok(Json(json!({ "restored": restored })))
+}
+
+async fn rollback(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<LegacyRollbackRequest>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let receipt = state
+        .provider
+        .rollback_legacy_migration(collection_id, &input)
+        .await?;
+    Ok(Json(json!(receipt)))
+}
+
+async fn rollback_receipt(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<LegacyRollbackRequest>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let receipt = state
+        .provider
+        .legacy_migration_rollback_receipt(collection_id, &input)
+        .await?;
+    Ok(Json(json!(receipt)))
 }
 
 pub(super) async fn delete_collection(
