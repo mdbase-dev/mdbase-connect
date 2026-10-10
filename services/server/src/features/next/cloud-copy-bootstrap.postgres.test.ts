@@ -4,7 +4,9 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { tokenHash } from "../../security.js";
+import { randomToken, tokenHash } from "../../security.js";
+import { registerErrorHandler } from "../../platform/error-handler.js";
+import { registerConnectorPairingRoutes } from "../connectors/pairing-routes.js";
 import { createHostedCollectionMembership } from "../../collection-policy.js";
 import { revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
 import { registerPeopleRoutes } from "../account/people-routes.js";
@@ -14,7 +16,7 @@ import { createServiceCloudCopy } from "./service-cloud-copy.js";
 import { registerMigrationProviderRoutes } from "./migration-provider.js";
 import { currentAccount } from "./bootstrap-common.js";
 import { setCohortFrozen } from "./migration-rollout.js";
-import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
+import { clientFingerprint, deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { collectionDirectory } from "./hosted-routes.js";
 import { LogServiceClient } from "./log-service-client.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./policy-keys.js";
@@ -165,6 +167,8 @@ describePg("cloud-copy bootstrap", () => {
     db = await createDatabase(url.toString());
     emitter = new PolicyEmitter(db, client, loadPolicySigner(config, Date.now()));
     await app.register(cookie);
+    registerErrorHandler(app);
+    registerConnectorPairingRoutes(app,{db,publicUrl:"https://connect.test",installationDevices:true,installationEnvironment:"lab",cloudCopy:{db,next:config,emitter,log:client,fetchImpl:deployments.fetch}});
     registerCloudCopyRoutes(app, { db, next: config, emitter, log: client, fetchImpl: deployments.fetch });
     registerMigrationProviderRoutes(app, { db, token: "synthetic-migration-target-token", bootstrap: { next: config, emitter, log: client, fetchImpl: deployments.fetch } });
     registerCollectionLogTokenRoute(app,{db,log:client});
@@ -258,6 +262,77 @@ describePg("cloud-copy bootstrap", () => {
         if (boundary === "generation") expect(await registered(f.collection)).toBe(false);
       });
   }
+
+  async function nativePortal(requestedCreate=true) {
+    const who=await identity();
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1",[who.connector.user_id]);
+    const headers=await session(who.connector.user_id);
+    const original={app_id:"5cdfa020-c201-4da8-845a-f2cc9969eade",request_id:randomUUID(),pairing_secret:randomToken("pair"),installation_id:randomUUID(),device_id:randomUUID(),kind:"app-runtime",requested_create_collections:requestedCreate};
+    const started=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{origin:"https://lab.tasknotes-app.pages.dev"},payload:{installation:original}});
+    expect(started.statusCode).toBe(201);
+    const base=`/v1/pairing-requests/${original.request_id}`,bearer={authorization:`Bearer ${original.pairing_secret}`};
+    expect((await app.inject({method:"POST",url:`${base}/select-account`,headers})).statusCode).toBe(200);
+    const selected=(await app.inject({method:"POST",url:`${base}/exchange`,headers:bearer})).json();
+    const key=generateKeyPairSync("ed25519").privateKey,signPk=ed25519RawPublicKey(key),kemPk=rawX(),noisePk=rawX();
+    const proof={sign_pk:hex(signPk),kem_pk:hex(kemPk),noise_pk:hex(noisePk),sig:hex(sign(null,deviceRegistrationDigest({challenge:Buffer.from(selected.challenge,"hex"),connectorId:selected.connector_id,deviceId:original.device_id,signPk,kemPk,noisePk}),key))};
+    expect((await app.inject({method:"POST",url:`${base}/attest`,headers:bearer,payload:proof})).statusCode).toBe(200);
+    return {who,headers,original,base,bearer,fingerprint:clientFingerprint(Buffer.from(signPk))};
+  }
+  const named=(p:Awaited<ReturnType<typeof nativePortal>>,display_name:unknown)=>app.inject({method:"POST",url:`${p.base}/collections`,headers:p.headers,payload:{display_name}});
+  const picked=(p:Awaited<ReturnType<typeof nativePortal>>,collection:string)=>app.inject({method:"POST",url:`${p.base}/approve`,headers:p.headers,payload:{fingerprint:p.fingerprint,collection_ids:[collection],selected_collection_id:collection}});
+  const nativeReceipt=(p:Awaited<ReturnType<typeof nativePortal>>)=>app.inject({method:"POST",url:`${p.base}/exchange`,headers:p.bearer});
+
+  it("uses the canonical creator for one named portal collection and exact final creation provenance",async()=>{
+    const p=await nativePortal(),created=await named(p," My tasks ");
+    expect(created.statusCode).toBe(200);
+    const {collection_id,display_name}=created.json(); expect(display_name).toBe("My tasks");
+    const generated=deployments.calls;
+    expect((await named(p,"My tasks")).json()).toEqual(created.json());
+    expect(deployments.calls).toBe(generated);
+    const state=(await app.inject({method:"GET",url:p.base,headers:p.headers})).json().pairing;
+    expect(state).toMatchObject({account_selection_confirmed:true,creation:{collection_id,display_name:"My tasks",completed:true}});
+    expect(state.collections).toContainEqual(expect.objectContaining({collection_id,display_name:"My tasks"}));
+    expect((await db.query("SELECT 1 FROM next_devices WHERE id=$1",[p.original.device_id])).rows).toEqual([]);
+    expect((await picked(p,collection_id)).statusCode).toBe(200);
+    const receipt=(await nativeReceipt(p)).json();
+    expect(receipt).toMatchObject({status:"paired",request_id:p.original.request_id,account_selection_confirmed:true,selected_collection_id:collection_id,created_collection_ids:[collection_id],collection_ids:[collection_id]});
+    const replay=(await nativeReceipt(p)).json();
+    expect(replay.selected_collection_id).toBe(receipt.selected_collection_id); expect(replay.created_collection_ids).toEqual(receipt.created_collection_ids);
+    expect(tokenHash(replay.token)).toBe(tokenHash(receipt.token));
+    const next={...p.original,request_id:randomUUID(),pairing_secret:randomToken("pair"),reconsent:true,requested_create_collections:false};
+    expect((await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{origin:"https://lab.tasknotes-app.pages.dev",authorization:`Bearer ${receipt.token}`},payload:{installation:next}})).statusCode).toBe(201);
+    const base=`/v1/pairing-requests/${next.request_id}`;
+    expect((await app.inject({method:"POST",url:`${base}/select-account`,headers:p.headers})).statusCode).toBe(200);
+    expect((await app.inject({method:"POST",url:`${base}/approve`,headers:p.headers,payload:{fingerprint:p.fingerprint,collection_ids:[],selected_collection_id:collection_id}})).statusCode).toBe(200);
+    const additive=(await app.inject({method:"POST",url:`${base}/exchange`,headers:{authorization:`Bearer ${next.pairing_secret}`}})).json();
+    expect(additive).toMatchObject({status:"scope_updated",request_id:next.request_id,selected_collection_id:collection_id,created_collection_ids:[],added_collection_ids:[]});
+  });
+  it("retains one original named target through a failed canonical creation and explicit same-target retry",async()=>{
+    const p=await nativePortal(); deployments.failing="down";
+    try {expect((await named(p,"Work journal")).statusCode).toBe(503);} finally {deployments.failing=undefined;}
+    const intent=(await db.query("SELECT collection_id,display_name,completed_at FROM installation_pairing_collection_creations WHERE pairing_id=$1",[p.original.request_id])).rows[0];
+    expect(intent.completed_at).toBeNull();
+    const calls=deployments.calls;
+    expect((await named(p,"Replacement name")).statusCode).toBe(409); expect(deployments.calls).toBe(calls);
+    const completed=await named(p,"Work journal");expect(completed.statusCode).toBe(200);expect(completed.json().collection_id).toBe(intent.collection_id);
+  });
+  it.each(["session","request"])("rechecks %s withdrawal after service generation without publishing or completing creation",async withdrawal=>{
+    const p=await nativePortal();
+    deployments.during=async()=>{await db.query(withdrawal==="session"?"UPDATE sessions SET revoked_at=now() WHERE user_id=$1":"UPDATE pairing_requests SET revoked_at=now() WHERE id=$1",[withdrawal==="session"?p.who.connector.user_id:p.original.request_id]);};
+    const result=await named(p,"Interrupted collection");expect(result.statusCode).toBe(withdrawal==="session"?403:404);
+    const intent=(await db.query("SELECT collection_id,completed_at FROM installation_pairing_collection_creations WHERE pairing_id=$1",[p.original.request_id])).rows[0];
+    expect(intent.completed_at).toBeNull();expect(await registered(intent.collection_id)).toBe(false);
+    expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1",[intent.collection_id])).rows).toEqual([]);
+  });
+  it("refuses invalid names, a foreign account and undeclared creation before service work",async()=>{
+    const p=await nativePortal(),before=deployments.calls;
+    for(const name of [null,7,"", "Bad\nname"]) expect((await named(p,name)).statusCode).toBe(400);
+    const foreign=await identity(),headers=await session(foreign.connector.user_id);
+    const denied=await app.inject({method:"POST",url:`${p.base}/collections`,headers,payload:{display_name:"Foreign"}});expect(denied.statusCode).toBeGreaterThanOrEqual(400);
+    const noCreate=await nativePortal(false);expect((await named(noCreate,"Undeclared")).statusCode).toBe(403);
+    expect(deployments.calls).toBe(before);
+    expect((await db.query("SELECT 1 FROM installation_pairing_collection_creations WHERE pairing_id=ANY($1::uuid[])",[[p.original.request_id,noCreate.original.request_id]])).rows).toEqual([]);
+  });
 
   it("enrols the owner's device and both service devices in a cloud-copy genesis", async () => {
     const who = await identity(); const collection = randomUUID();

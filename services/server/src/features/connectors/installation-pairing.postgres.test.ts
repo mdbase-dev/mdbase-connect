@@ -351,6 +351,91 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect(result.statusCode,result.body).toBe(201);
     return {input,flow:channel(input)};
   }
+  it("enforces complete confirmation and rejects created IDs without a final selection in PostgreSQL",async()=>{
+    const p=await prepared();
+    await expect(db.query("UPDATE installation_device_pairings SET portal_account_email=NULL WHERE pairing_id=$1",[p.input.installation.request_id])).rejects.toMatchObject({code:"23514"});
+    await expect(db.query("UPDATE installation_device_pairings SET created_collection_ids=$2 WHERE pairing_id=$1",[p.input.installation.request_id,[randomUUID()]])).rejects.toMatchObject({code:"23514"});
+    const row=(await db.query("SELECT portal_account_email,selected_collection_id,created_collection_ids FROM installation_device_pairings WHERE pairing_id=$1",[p.input.installation.request_id])).rows[0];
+    expect(row).toEqual({portal_account_email:p.selected.account_email,selected_collection_id:null,created_collection_ids:[]});
+  });
+  it("emits explicit account/email confirmation only for the authenticated original request",async()=>{
+    const owner=await account(),input=original(),flow=await start(input);
+    expect((await flow.exchange()).json()).toEqual({status:"pending"});
+    const inspected=(await app.inject({method:"GET",url:flow.base,headers:owner.headers})).json().pairing;
+    expect(inspected.signed_in_account_email).toBe(`${owner.user}@example.test`);
+    expect(inspected.account_selection_confirmed).toBeUndefined();
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`})).statusCode).toBe(401);
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:owner.headers})).statusCode).toBe(200);
+    const selected=(await flow.exchange()).json();
+    expect(selected).toMatchObject({request_id:input.installation.request_id,account_id:owner.user,account_email:`${owner.user}@example.test`,account_selection_confirmed:true});
+    await db.query("UPDATE users SET email=$2 WHERE id=$1",[owner.user,`${owner.user}+changed@example.test`]);
+    expect((await flow.exchange()).json().account_email).toBe(selected.account_email);
+    expect((await db.query("SELECT portal_account_session_id FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0].portal_account_session_id).toBe(owner.session);
+  });
+  it("does not promote inherited renewal selection to exact-request portal confirmation",async()=>{
+    const p=await prepared();
+    await db.query("UPDATE pairing_requests SET expires_at=now()-interval '1 minute' WHERE id=$1",[p.input.installation.request_id]);
+    const next=renewal(p.input),flow=await start(next),receipt=(await flow.exchange()).json();
+    expect(receipt).toMatchObject({status:"awaiting_approval",account_id:p.owner.user,challenge:p.selected.challenge,connector_id:p.selected.connector_id});
+    expect(receipt.account_selection_confirmed).toBeUndefined();
+    expect(receipt.account_email).toBeUndefined();
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:p.owner.headers})).statusCode).toBe(200);
+    expect((await flow.exchange()).json()).toMatchObject({request_id:next.installation.request_id,account_selection_confirmed:true,account_email:p.selected.account_email});
+  });
+  it("preserves manual legacy receipts without inferring confirmation from account_selected_at",async()=>{
+    const p=await prepared(),collection=await scopeCollection(p.owner.user);
+    await db.query("UPDATE installation_device_pairings SET portal_account_confirmed_at=NULL,portal_account_email=NULL,portal_account_session_id=NULL,portal_account_session_epoch=NULL WHERE pairing_id=$1",[p.input.installation.request_id]);
+    expect((await p.flow.exchange()).json().account_selection_confirmed).toBeUndefined();
+    const picked=await app.inject({method:"POST",url:`${p.flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:[collection],selected_collection_id:collection}});
+    expect(picked.statusCode).toBe(403);
+    expect((await approveDevice(p.flow,p.owner)).statusCode).toBe(200);
+    const receipt=(await p.flow.exchange()).json();
+    expect(receipt.status).toBe("paired");
+    for(const field of ["account_email","account_selection_confirmed","selected_collection_id","created_collection_ids"]) expect(receipt[field]).toBeUndefined();
+    expect((await app.inject({method:"POST",url:`${p.flow.base}/select-account`,headers:p.owner.headers})).statusCode).toBe(409);
+  });
+  async function approvePicked(p:Awaited<ReturnType<typeof prepared>>,flow:ReturnType<typeof channel>,ids:string[],selected:string) {
+    return app.inject({method:"POST",url:`${flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:ids,selected_collection_id:selected}});
+  }
+  it("binds final existing-collection selection to the exact approved subset and stable receipt",async()=>{
+    const p=await prepared(),selected=await scopeCollection(p.owner.user),other=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[other],selected)).statusCode).toBe(400);
+    expect((await approvePicked(p,p.flow,[selected],selected)).statusCode).toBe(200);
+    expect((await approvePicked(p,p.flow,[selected],other)).statusCode).toBe(409);
+    const receipt=(await p.flow.exchange()).json();
+    expect(receipt).toMatchObject({request_id:p.input.installation.request_id,account_selection_confirmed:true,selected_collection_id:selected,created_collection_ids:[],collection_ids:[selected]});
+    expect(publicOutcome((await p.flow.exchange()).json())).toEqual(publicOutcome(receipt));
+  });
+  it("requires independent reconsent confirmation and never borrows the initial receipt's provenance",async()=>{
+    const p=await prepared(),first=await scopeCollection(p.owner.user),added=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[first],first)).statusCode).toBe(200);
+    const initial=(await p.flow.exchange()).json(),next=await rescope(p,initial.token);
+    expect((await next.flow.exchange()).json().account_selection_confirmed).toBeUndefined();
+    expect((await approvePicked(p,next.flow,[added],added)).statusCode).toBe(403);
+    expect((await app.inject({method:"POST",url:`${next.flow.base}/select-account`,headers:p.owner.headers})).statusCode).toBe(200);
+    expect((await approvePicked(p,next.flow,[added],added)).statusCode).toBe(200);
+    const receipt=(await next.flow.exchange()).json();
+    expect(receipt).toMatchObject({status:"scope_updated",request_id:next.input.installation.request_id,account_selection_confirmed:true,account_email:p.selected.account_email,selected_collection_id:added,created_collection_ids:[],added_collection_ids:[added]});
+    expect(receipt.token).toBeUndefined(); expect(receipt.registration).toBeUndefined();
+    expect((await next.flow.exchange()).json()).toEqual(receipt);
+  });
+  it("refuses initial consumption after the approved account epoch changes",async()=>{
+    const p=await prepared(),collection=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[collection],collection)).statusCode).toBe(200);
+    await db.query("UPDATE users SET session_epoch=session_epoch+1 WHERE id=$1",[p.owner.user]);
+    expect((await p.flow.exchange()).statusCode).toBe(403);
+    expect((await db.query("SELECT 1 FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+  });
+  it("rechecks a retained final selection without reapplying removed scope",async()=>{
+    const p=await prepared(),first=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[first],first)).statusCode).toBe(200);
+    const initial=(await p.flow.exchange()).json(),next=await rescope(p,initial.token);
+    expect((await app.inject({method:"POST",url:`${next.flow.base}/select-account`,headers:p.owner.headers})).statusCode).toBe(200);
+    expect((await approvePicked(p,next.flow,[],first)).statusCode).toBe(200);
+    await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[p.selected.connector_id,first]);
+    expect((await next.flow.exchange()).statusCode).toBe(403);
+    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[p.selected.connector_id,first])).rows).toEqual([]);
+  });
   it("adds scope with unchanged credential/actor even after original window deletion; lost committed replies never reapply additions",async()=>{
     const p=await prepared("mobile",true), first=await scopeCollection(p.owner.user), added=await scopeCollection(p.owner.user);
     expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[first],create_collections:true})).statusCode).toBe(200);

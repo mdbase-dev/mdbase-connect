@@ -1,0 +1,9 @@
+{
+  "reason": "One internal pairing-collection orchestration boundary persists the original named target before canonical #699 creation and completes request-owned provenance only after verified publication/current-session checks. It does not implement a second creator: service identity, outbox, log read-back, deletion/freeze guards and metadata remain in service-cloud-copy. Two internal exports are the orchestration entry point and the original pairing current-principal guard shared with the canonical callback. Seven imports compose existing pairing/session/naming/creator/error mechanisms. Exact maximum deltas only; no SDK package, protocol inventory, or public credentials/key getter.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 7,
+    "typeScriptExportDeclarations": 2,
+    "services/server": 1
+  }
+}

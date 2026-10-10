@@ -422,7 +422,11 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
     installationDevices: !!options.nextControlPlane,
-    installationEnvironment: options.environment
+    installationEnvironment: options.environment,
+    cloudCopy: options.nextControlPlane?.cloudCopyBootstrap ? {
+      db:options.db,next:options.nextControlPlane,emitter:nextPolicyEmitter!,
+      log:new LogServiceClient(options.nextControlPlane.logService),
+    } : undefined,
   });
   registerAccountSessionRoutes(app, {
     db: options.db,
