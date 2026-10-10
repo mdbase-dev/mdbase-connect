@@ -3,13 +3,14 @@
 // routes never grant serving authority, cut over, restore or unfreeze a source.
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "../../hosted-provider.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
-import { CreateError, inTransaction, lock } from "./bootstrap-common.js";
+import { CreateError, inTransaction, lock, refuseRevoked } from "./bootstrap-common.js";
+import { configuredClaimAudience, consumeServiceClaimChallenge, issueServiceClaimChallenge, sameServiceClaim } from "./migration-claim-auth.js";
 import { RolloutRefused } from "./migration-rollout.js";
 import { createServiceCloudCopy, existingCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { loadServiceDevice } from "./service-devices.js";
@@ -19,6 +20,8 @@ interface Options {
   db: DatabasePool; token: string;
   provider?: Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationFence">;
   bootstrap?: Omit<CloudCopyBootstrapOptions, "db">;
+  /** Existing hosted-role credential + OWN canonical configured CP origin. */
+  hostedRead?: { token: string; audience: string };
 }
 
 /** Current migration claim, not target/key readiness. Internal migration may
@@ -43,8 +46,7 @@ async function claim(db: DatabaseQueryable, collection: string, locked = false):
 /** Authenticated current CP facts for a native consumer's independent checks.
  * No provider/network/bootstrap effects, freshness lease or readiness boolean.
  * A missing target is ordinary pre-bootstrap DATA, not H1 permission. */
-async function currentClaim(collection: string, options: Options) {
-  return inTransaction(options.db, async client => {
+async function currentClaim(client: DatabaseConnection, collection: string, serviceRead = false) {
     const before = await claim(client, collection, true);
     // Same owner-before-collection order and immutable tuple checks as bootstrap.
     await lock(client, collection);
@@ -54,9 +56,13 @@ async function currentClaim(collection: string, options: Options) {
         "SELECT root_key_id FROM next_collections WHERE collection_id=$1 AND runtime='shadow' AND octet_length(root_key_id)=16", [collection]
       )).rows[0];
       if (!row) throw new CreateError(409, "collection_exists");
+      // The service proof must use a key that cannot be replaced across SQL
+      // awaits/verification/consume/COMMIT. Parent/context checks stay canonical.
+      if (serviceRead) await client.query("SELECT device_id FROM next_service_devices WHERE collection_id=$1 AND kind='hosted' FOR SHARE", [collection]);
       // The H1 subject is hosted; no new escrow or app-grant obligation.
       const device = await loadServiceDevice(client, collection, { kind: "hosted" });
       if (!device || device.device_id === "00000000-0000-0000-0000-000000000000") throw new CreateError(503, "not_ready");
+      if (serviceRead) await refuseRevoked(client, collection, device.device_id);
       observedTarget = { runtime: "shadow", root_key_id: row.root_key_id.toString("hex"), hosted: {
         device_id: device.device_id, sign_pk: device.sign_pk.toString("hex"),
         kem_pk: device.kem_pk.toString("hex"), noise_pk: device.noise_pk.toString("hex")
@@ -69,7 +75,6 @@ async function currentClaim(collection: string, options: Options) {
     }
     return { schema: "mdbase-migration-claim/1", collection_id: collection,
       owner_account: before.account, started_us: before.started_us, target: observedTarget };
-  });
 }
 
 async function target(collection: string, options: Options) {
@@ -130,6 +135,44 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
   const params = z.object({ id: z.string().regex(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}(?![\s\S])/u)
     .refine(id => id !== "00000000-0000-0000-0000-000000000000") }).strict();
   const empty = z.object({}).strict();
+  const hostedRead = options.hostedRead;
+  if (hostedRead) {
+    const audience = configuredClaimAudience(hostedRead.audience);
+    if (!hostedRead.token || safeEqual(hostedRead.token, options.token)) throw new Error("Hosted claim read requires its distinct existing role credential.");
+    const device = params.shape.id;
+    const challengeBody = z.object({ device_id: device }).strict();
+    const readBody = challengeBody.extend({ challenge: z.string().regex(/^[0-9a-f]{64}(?![\s\S])/u), sig: z.string().regex(/^[0-9a-f]{128}(?![\s\S])/u) }).strict();
+    for (const kind of ["challenge", "read"] as const) {
+      app.post(`/internal/v1/next/migration/collections/:id/claim/${kind}`, {
+        bodyLimit: 1024, config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+        onRequest: async (request, reply) => {
+          reply.header("cache-control", "no-store");
+          const token = bearerToken(request);
+          if (!token || !safeEqual(token, hostedRead.token)) return reply.code(401).send(apiError("invalid_internal_token", "The hosted role credential is required."));
+        }
+      }, async (request, reply) => {
+        const p = params.safeParse(request.params), body = (kind === "read" ? readBody : challengeBody).safeParse(request.body);
+        if (!p.success || !body.success || !empty.safeParse(request.query).success) return reply.code(400).send(apiError("invalid_request", "A canonical service proof is required."));
+        try {
+          return await inTransaction(options.db, async client => {
+            const before = await currentClaim(client, p.data.id, true);
+            let nonce: { challenge: string } | undefined;
+            if (kind === "challenge") nonce = await issueServiceClaimChallenge(client, audience, before, body.data.device_id);
+            else await consumeServiceClaimChallenge(client, audience, before, readBody.parse(body.data));
+            // Same transaction: the consume cannot commit without the final
+            // canonical source/target/key/revocation read and exact comparison.
+            const after = await currentClaim(client, p.data.id, true);
+            if (!sameServiceClaim(before, after)) throw new CreateError(409, "migration_subject_not_current");
+            return kind === "challenge" ? nonce! : after;
+          });
+        } catch (error) {
+          if (error instanceof RolloutRefused || error instanceof CreateError) return reply.code(error.status).send(apiError(error.code, "No current authenticated migration claim."));
+          if (["55P03", "57014", "40P01", "40001"].includes(String((error as { code?: unknown })?.code))) return reply.code(503).send(apiError("busy", "No authenticated claim outcome."));
+          throw error; // Includes unknown COMMIT: never emit claim success.
+        }
+      });
+    }
+  }
   for (const kind of ["source", "fence", "target", "claim"] as const) {
     app.route({ method: kind === "source" || kind === "claim" ? "GET" : "POST", url: `/internal/v1/next/migration/collections/:id/${kind}`,
       bodyLimit: 4096, config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
@@ -144,7 +187,7 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
           return reply.code(400).send(apiError("invalid_request", "A canonical collection UUID and no caller-selected source facts are required."));
         }
         try {
-          if (kind === "claim") return await currentClaim(p.data.id, options);
+          if (kind === "claim") return await inTransaction(options.db, client => currentClaim(client, p.data.id));
           return kind === "target" ? await target(p.data.id, options) : await action(p.data.id, kind === "fence", options);
         }
         catch (error) {

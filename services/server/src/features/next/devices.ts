@@ -94,7 +94,7 @@ const verifies = (publicKey: Uint8Array, digest: Uint8Array, signature: Uint8Arr
 
 export async function issueDeviceChallenge(db: DatabasePool, connectorId: string, now = Date.now()): Promise<{ challenge: string; expires_at: number }> {
   const challenge = randomBytes(32);
-  await db.query("DELETE FROM next_device_challenges WHERE expires_at < now() - interval '1 hour'");
+  await db.query("DELETE FROM next_device_challenges WHERE connector_id IS NOT NULL AND service_device_id IS NULL AND service_purpose IS NULL AND service_audience IS NULL AND expires_at < now() - interval '1 hour'");
   await db.query(
     "INSERT INTO next_device_challenges (challenge, connector_id, expires_at) VALUES ($1, $2, $3)",
     [challenge, connectorId, new Date(now + CHALLENGE_TTL_MS)]
@@ -160,7 +160,8 @@ export async function registerDevice(
     }
     const used = await client.query(
       `UPDATE next_device_challenges SET used_at = now()
-       WHERE challenge = $1 AND connector_id = $2 AND used_at IS NULL AND expires_at > now()`,
+       WHERE challenge = $1 AND connector_id = $2 AND service_device_id IS NULL
+         AND service_purpose IS NULL AND service_audience IS NULL AND used_at IS NULL AND expires_at > now()`,
       [challenge, connector.id]
     );
     if (used.rowCount !== 1) throw new DeviceRegistrationError("challenge_invalid", "The challenge is unknown, used or expired.");
