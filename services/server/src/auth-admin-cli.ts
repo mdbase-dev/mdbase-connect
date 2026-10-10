@@ -3,6 +3,8 @@ import {
   runAuthAdminCommand
 } from "./auth-admin.js";
 import { openDatabase } from "./db.js";
+import { parseNextControlPlaneEnv } from "./features/next/policy-keys.js";
+import { runLabNativeBackupAdmin } from "./features/next/lab-native-backup-admin.js";
 import { assertControlPlaneMigrationsCurrent } from "./migrations.js";
 import { ResendEmailTransport } from "./email.js";
 import { NatsRelayBroker, type RelayBroker } from "./relay-broker.js";
@@ -44,6 +46,12 @@ try {
       process.env.MDBASE_CONNECT_REGISTRATION
     ),
     ...(process.env.PUBLIC_URL ? { publicUrl: process.env.PUBLIC_URL } : {}),
+    nextLabBackup: (argv) => runLabNativeBackupAdmin(argv, {
+      db, environment: process.env.MDBASE_CONNECT_ENVIRONMENT,
+      publicUrl: process.env.PUBLIC_URL, runtimeRevision: process.env.MDBASE_CONNECT_REVISION,
+      // Lazy: only the fixed LAB command may read/validate Next key settings.
+      nextControlPlane: () => parseNextControlPlaneEnv(process.env)
+    }),
     ...(emailTransport ? { emailTransport } : {}),
     ...(relayBroker
       ? {
