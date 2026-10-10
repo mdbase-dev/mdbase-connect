@@ -11,6 +11,8 @@ import {
 import { z } from "zod";
 import { collectionContractDescriptorSchema } from "./protocol-schemas.js";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
+import { lockCollectionSharingAuthority } from "./collection-sharing-authority.js";
+import { queueNextPolicy } from "./features/next/policy-outbox.js";
 
 export const COLLECTION_ACTIONS = [
   "collection.discover",
@@ -177,9 +179,8 @@ export function membershipPolicyPreset(role: CollectionMembershipRole): Membersh
 }
 
 /**
- * Internal foundation used by tests and, later, invitation acceptance. It is
- * deliberately not exposed as an HTTP operation. The hosted collection row is
- * locked so membership creation cannot race an authority transition.
+ * Internal foundation shared with invitation acceptance, not a separate HTTP
+ * operation. The current sharing authority is locked before membership creation.
  */
 export async function createHostedCollectionMembership(
   db: DatabasePool,
@@ -194,17 +195,8 @@ export async function createHostedCollectionMembership(
   const connection = await db.connect();
   try {
     await connection.query("BEGIN");
-    const collection = await connection.query<{ user_id: string; authority_state: string }>(
-      `SELECT user_id, authority_state FROM hosted_collections
-       WHERE id = $1 FOR UPDATE`,
-      [input.collectionId]
-    );
-    const authority = collection.rows[0];
-    if (
-      !authority ||
-      authority.user_id !== input.ownerUserId ||
-      authority.authority_state !== "active"
-    ) {
+    const authority = await lockCollectionSharingAuthority(connection, input.collectionId);
+    if (!authority || authority.user_id !== input.ownerUserId) {
       throw new CollectionMembershipPolicyError(
         "collection_unavailable",
         "The collection is not available for membership changes."
@@ -327,6 +319,9 @@ export async function insertHostedCollectionMembershipPolicy(
      WHERE id = $1`,
     [membershipId, policyId, revision]
   );
+  await queueNextPolicy(db, input.collectionId, [{
+    op: "member-set", account: input.userId, role: snapshot.role
+  }]);
   return {
     id: policyId,
     membershipId,

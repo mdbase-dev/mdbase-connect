@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { resolveHostedCollectionAccess } from "./collection-access.js";
+import { CollectionAccessDeniedError, requireCollectionSharingManager } from "./collection-access.js";
+import { lockCollectionSharingAuthority, type CollectionSharingAuthority } from "./collection-sharing-authority.js";
 import {
   CollectionMembershipPolicyError,
   insertHostedCollectionMembershipPolicy,
@@ -7,7 +8,7 @@ import {
   type CollectionMembershipRole,
   type MembershipPolicySnapshot
 } from "./collection-policy.js";
-import type { DatabasePool, DatabaseQueryable } from "./db.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "./db.js";
 import { normalizeEmailAddress } from "./email-identity.js";
 import { effectiveEntitlement } from "./entitlements.js";
 import { audit } from "./platform/audit-events.js";
@@ -218,10 +219,13 @@ export async function acceptHostedCollectionInvitation(
     ) {
       throw invalidInvitation();
     }
-    const inviter = row.invited_by_user_id
-      ? await resolveHostedCollectionAccess(connection, row.invited_by_user_id, collectionId)
-      : null;
-    if (!inviter?.actions.has("members.manage")) throw invalidInvitation();
+    if (!row.invited_by_user_id) throw invalidInvitation();
+    try {
+      await requireSharingManager(connection, row.invited_by_user_id, collectionId);
+    } catch (error) {
+      if (error instanceof CollectionInvitationError) throw invalidInvitation();
+      throw error;
+    }
     const activeTarget = await connection.query<{ id: string }>(
       `SELECT id FROM users
        WHERE id = $1 AND suspended_at IS NULL
@@ -341,19 +345,11 @@ export async function listHostedCollectionMembers(
   actorUserId: string,
   collectionId: string
 ): Promise<Array<Record<string, unknown>>> {
-  await requireSharingManager(db, actorUserId, collectionId);
-  const collection = await db.query<{
-    user_id: string;
-    name: string;
-    created_at: Date | string;
-  }>(
-    `SELECT collection.user_id, account.name, collection.created_at
-     FROM hosted_collections collection
-     JOIN users account ON account.id = collection.user_id
-     WHERE collection.id = $1 AND collection.authority_state = 'active'`,
-    [collectionId]
-  );
-  if (!collection.rows[0]) throw sharingNotFound();
+  const collection = await requireSharingManager(db, actorUserId, collectionId);
+  const owner = (await db.query<{ name: string }>(
+    "SELECT name FROM users WHERE id = $1", [collection.user_id]
+  )).rows[0];
+  if (!owner) throw sharingNotFound();
   const memberships = await db.query<{
     id: string;
     name: string;
@@ -374,14 +370,13 @@ export async function listHostedCollectionMembers(
      ORDER BY membership.accepted_at, membership.id`,
     [collectionId]
   );
-  const owner = collection.rows[0];
   return [
     {
       kind: "owner",
       name: owner.name,
       role: "owner",
       state: "active",
-      accepted_at: owner.created_at
+      accepted_at: collection.created_at
     },
     ...memberships.rows.map((membership) => ({
       kind: "member",
@@ -449,23 +444,22 @@ async function requireSharingManager(
   db: DatabaseQueryable,
   userId: string,
   collectionId: string
-): Promise<void> {
-  const access = await resolveHostedCollectionAccess(db, userId, collectionId);
-  if (!access?.actions.has("members.manage")) throw sharingNotFound();
+): Promise<CollectionSharingAuthority> {
+  try {
+    return await requireCollectionSharingManager(db, userId, collectionId);
+  } catch (error) {
+    if (error instanceof CollectionAccessDeniedError) throw sharingNotFound();
+    throw error;
+  }
 }
 
 async function lockActiveCollection(
-  db: DatabaseQueryable,
+  db: DatabaseConnection,
   collectionId: string
-): Promise<{ user_id: string }> {
-  const collection = await db.query<{ user_id: string }>(
-    `SELECT user_id FROM hosted_collections
-     WHERE id = $1 AND authority_state = 'active'
-     FOR UPDATE`,
-    [collectionId]
-  );
-  if (!collection.rows[0]) throw sharingNotFound();
-  return collection.rows[0];
+): Promise<CollectionSharingAuthority> {
+  const collection = await lockCollectionSharingAuthority(db, collectionId);
+  if (!collection) throw sharingNotFound();
+  return collection;
 }
 
 async function ensureCollectionIdentity(

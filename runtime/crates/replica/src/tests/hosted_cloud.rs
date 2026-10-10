@@ -10,6 +10,9 @@ use mdbn_wire::client::SyncMode;
 use mdbn_wire::common::B32;
 use mdbn_wire::policy::{DeviceEnrol, Genesis, MemberSet, PolicyOp, Role};
 
+#[path = "hosted_membership.rs"]
+mod membership;
+
 fn enrol(device: B16, account: B16, kind: DeviceKind, sign: [u8; 32], kem: [u8; 32]) -> PolicyOp {
     PolicyOp::DeviceEnrol(DeviceEnrol {
         device,

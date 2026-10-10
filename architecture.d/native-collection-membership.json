@@ -1,0 +1,9 @@
+{
+  "reason": "One sharing-authority module replaces repeated legacy-only ownership/locking queries for invitations, member creation/lifecycle and listing. The existing permission snapshots, migration freeze guard, identity/seat schema, transactional policy outbox and native join proof/member checks remain canonical. Four internal declarations expose that shared authority and manager boundary; ten relative imports wire existing mechanisms. No new endpoint, credential, role state, schema or policy operation. Runtime additions are real-crypto test fixtures only.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 10,
+    "typeScriptExportDeclarations": 4,
+    "services/server": 1
+  }
+}
