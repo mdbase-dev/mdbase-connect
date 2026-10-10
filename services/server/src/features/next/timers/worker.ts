@@ -191,6 +191,11 @@ export class TimerWorker {
       const connection = await this.db.connect();
       try {
         await connection.query("BEGIN");
+        await connection.query("SET LOCAL lock_timeout = '5s'");
+        await connection.query("SET LOCAL statement_timeout = '5s'");
+        // Native resolution holds current principal/policy/consent locks before
+        // any timer row is written; legacy resolution retains its own semantics.
+        await resolver.resolve(connection, row.grant_id);
         // Compare-and-set on the generation. A concurrent worker blocks on the
         // row lock and then matches nothing.
         const claimed = await connection.query<{
@@ -260,6 +265,7 @@ export class TimerWorker {
 
   /** Hand unhandled events to one consumer, oldest first. Returns events handled. */
   async drainConsumer(consumer: TimerEventConsumer, limit = 100): Promise<number> {
+    const resolver = this.options.resolver ?? legacyTimerGrantResolver;
     const pending = await this.db.query<EventRow>(
       `SELECT e.event_id, e.grant_id, e.criterion_id, e.namespace, e.timer_id,
               e.generation, e.scheduled_for, e.fired_at, e.late_by_ms, e.data
@@ -276,6 +282,11 @@ export class TimerWorker {
       const connection = await this.db.connect();
       try {
         await connection.query("BEGIN");
+        await connection.query("SET LOCAL lock_timeout = '5s'");
+        await connection.query("SET LOCAL statement_timeout = '5s'");
+        // Receipt insertion is a write too. Hold native policy first, including
+        // when consuming an unusable event without producing a signal.
+        await resolver.resolve(connection, row.grant_id);
         const handledAlready = await connection.query(
           `SELECT event_id FROM next_timer_event_receipts
            WHERE consumer = $1 AND event_id = $2`,

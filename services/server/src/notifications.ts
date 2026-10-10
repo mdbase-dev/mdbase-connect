@@ -13,6 +13,8 @@ import {
   type TimerGrantResolver
 } from "./features/next/timers/grants.js";
 
+import { readInstallationTimerDeclaration } from "./features/next/timers/installation-declaration.js";
+
 export interface PushSubscriptionTarget {
   endpoint: string;
   expirationTime: number | null;
@@ -530,6 +532,27 @@ type DeliveryTable =
   | "notification_deliveries"
   | "notification_webhook_deliveries";
 
+/** Delivery metadata, not authorization. Native presentation/transport comes
+ * from its original frozen consent; legacy retains its real grant/application.
+ * Callers must separately hold/check current principal and policy authority. */
+export async function backgroundGrantNotificationDeclaration(
+  db: DatabaseQueryable, grantId: string
+): Promise<{ notifications: ApplicationNotifications; notification_criteria: NotificationCriterion[] } | null> {
+  const native = (await db.query<{timer_declaration:unknown;revoked_at:unknown}>(
+    "SELECT timer_declaration,revoked_at FROM next_background_grants WHERE id=$1 AND principal_kind='installation'", [grantId]
+  )).rows[0];
+  if (native) {
+    if (native.revoked_at !== null) return null;
+    const declaration = readInstallationTimerDeclaration(native.timer_declaration);
+    return { notifications: declaration.notifications, notification_criteria: declaration.notifications.criteria };
+  }
+  return (await db.query<{ notifications:ApplicationNotifications;notification_criteria:NotificationCriterion[] }>(
+    `SELECT a.notifications,g.notification_criteria FROM grants g
+     JOIN applications a ON a.id=g.application_id
+     WHERE g.id=$1 AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL`, [grantId]
+  )).rows[0] ?? null;
+}
+
 /**
  * Insert one opaque signal and its deliveries inside the caller's transaction.
  * Idempotent on `signal_id`. Callers commit, then wake the drain loop.
@@ -552,14 +575,16 @@ export async function insertNotificationSignal(
     [randomUUID(), input.signalId, input.grantId, input.criterionId, input.cursor]
   );
   if (!signal.rows[0]) return { duplicate: true, deliveries: 0 };
+  const declaration = await backgroundGrantNotificationDeclaration(connection, input.grantId);
+  if (!declaration || !declaration.notification_criteria.some(criterion => criterion.id === input.criterionId)) {
+    return { duplicate: false, deliveries: 0 };
+  }
   const subscriptions = await connection.query<{ id: string }>(
     `SELECT ns.id
      FROM notification_subscriptions ns
      JOIN push_channels pc ON pc.id = ns.channel_id
-     JOIN grants g ON g.id = ns.grant_id
      WHERE ns.grant_id = $1 AND ns.criterion_id = $2
-       AND pc.disabled_at IS NULL AND g.revoked_at IS NULL
-       AND g.activated_at IS NOT NULL`,
+       AND pc.disabled_at IS NULL`,
     [input.grantId, input.criterionId]
   );
   let deliveries = 0;
@@ -573,17 +598,7 @@ export async function insertNotificationSignal(
     );
     deliveries += inserted.rowCount ?? inserted.rows.length;
   }
-  const route = await connection.query<{
-    notifications: ApplicationNotifications;
-  }>(
-    `SELECT a.notifications
-     FROM grants g
-     JOIN applications a ON a.id = g.application_id
-     WHERE g.id = $1 AND g.revoked_at IS NULL
-       AND g.activated_at IS NOT NULL`,
-    [input.grantId]
-  );
-  const nativeDelivery = route.rows[0]?.notifications.native_delivery;
+  const nativeDelivery = declaration.notifications.native_delivery;
   if (nativeDelivery?.mode === "webhook") {
     const inserted = await connection.query(
       `INSERT INTO notification_webhook_deliveries (id, signal_id, url)

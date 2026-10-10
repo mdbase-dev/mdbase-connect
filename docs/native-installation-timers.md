@@ -79,9 +79,17 @@ read-only lookup use the existing operation identity, request/terms digests and
 intent revisions. Missing remains UNKNOWN, and revoked consent cannot recover a
 receipt. No request or receipt authorizes native timer data.
 
-These routes require the actual native resolver. Default runtime wiring,
-worker/consumption/delivery and the adopted-host timer port remain separate
-integration work; request tests alone are not delivered or enabled reminders.
+These routes require the actual native resolver. The shared worker resolves
+native policy before timer-row writes and consumer-receipt insertion, rechecks
+before firing, and consumes unusable events without creating signals. Native
+withdrawal cancels future scheduled timers as well. Concurrent workers retain
+the existing generation CAS, event identity and consumer receipt uniqueness.
+Signal production uses the original frozen native notification declaration and
+the existing sealed channel/subscription/delivery queue, not a legacy grant join.
+
+Default runtime wiring, channel request authentication, transport delivery and
+the adopted-host timer port remain separate integration work. Producing a queued
+signal in tests is not delivered or enabled reminders.
 
 ## Upgrade evidence and down-path limit
 

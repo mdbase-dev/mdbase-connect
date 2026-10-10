@@ -18,6 +18,8 @@ import { registerConnectorPairingRoutes } from "./pairing-routes.js";
 import { backgroundTimerGrantResolver, dataPermitted } from "../next/timers/grants.js";
 import { registerTimerRoutes } from "../next/timers/routes.js";
 import { lockNamespace } from "../next/timers/store.js";
+import { TimerWorker, notificationsConsumer, timerEventId } from "../next/timers/worker.js";
+import { PushTargetSealer } from "../next/push-target-seal.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -627,6 +629,50 @@ describePg("installation device sign-in on daemon pairing", () => {
     if(change==="scope") await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[f.p.selected.connector_id,f.collection]);
     expect((await app.inject({method:"GET",url:base,headers})).statusCode).toBe(403);
     expect((await db.query("SELECT 1 FROM next_timers WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
+  });
+  async function dueNativeTimer(f:Awaited<ReturnType<typeof currentTimerFixture>>,future=false) {
+    const result=await app.inject({method:"PUT",url:`${timerPath(f)}/due`,headers:{authorization:`Bearer ${f.token}`},payload:{criterion_id:"synthetic.reminder",fire_at:new Date(Date.now()+(future?3_600_000:-1000)).toISOString()}});
+    expect(result.statusCode,result.body).toBe(200);
+  }
+  it("fires one native generation and consumes one receipt into the existing sealed-channel delivery queue",async()=>{
+    const f=await currentTimerFixture(); await dueNativeTimer(f);
+    const channel=randomUUID(),subscription=randomUUID(),sealer=new PushTargetSealer({keyId:"synthetic",key:Buffer.alloc(32,42),previousKeys:{}});
+    const sealed=sealer.seal(f.grantId,f.p.input.installation.installation_id,{endpoint:"https://push.example.test/synthetic",p256dh:"synthetic-p256dh",auth:"synthetic-auth"});
+    await db.query("INSERT INTO push_channels(id,grant_id,installation_id,kind,sealed_target,sealed_key_id) VALUES($1,$2,$3,'web_push',$4,'synthetic')",[channel,f.grantId,f.p.input.installation.installation_id,sealed]);
+    await db.query("INSERT INTO notification_subscriptions(id,grant_id,channel_id,criterion_id) VALUES($1,$2,$3,'synthetic.reminder')",[subscription,f.grantId,channel]);
+    let wakes=0; const consumer=notificationsConsumer(()=>{wakes++;},f.resolver);
+    const first=new TimerWorker(db,[consumer],{resolver:f.resolver}),second=new TimerWorker(db,[consumer],{resolver:f.resolver});
+    expect((await Promise.all([first.fireDue(),second.fireDue()])).reduce((sum,n)=>sum+n,0)).toBe(1);
+    const event=timerEventId(f.grantId,"reminders","due",1);
+    expect((await db.query("SELECT event_id,generation,data FROM next_timer_events WHERE grant_id=$1",[f.grantId])).rows).toEqual([{event_id:event,generation:"1",data:null}]);
+    expect((await Promise.all([first.drainConsumer(consumer),second.drainConsumer(consumer)])).reduce((sum,n)=>sum+n,0)).toBe(1);
+    expect(wakes).toBe(1);
+    expect((await db.query("SELECT consumer,event_id FROM next_timer_event_receipts WHERE event_id=$1",[event])).rows).toEqual([{consumer:"notifications",event_id:event}]);
+    expect((await db.query("SELECT signal_id,grant_id,criterion_id,cursor FROM notification_signals WHERE grant_id=$1",[f.grantId])).rows).toEqual([{signal_id:event,grant_id:f.grantId,criterion_id:"synthetic.reminder",cursor:event}]);
+    expect((await db.query("SELECT nd.status FROM notification_deliveries nd JOIN notification_subscriptions ns ON ns.id=nd.subscription_id WHERE ns.grant_id=$1",[f.grantId])).rows).toEqual([{status:"pending"}]);
+    expect((await db.query("SELECT sealed_target FROM push_channels WHERE id=$1",[channel])).rows[0].sealed_target).toBe(sealed);
+    expect((await db.query("SELECT 1 FROM grants WHERE id=$1",[f.grantId])).rows).toHaveLength(0);
+  });
+  it("consumes a fired event without a signal after native consent withdrawal",async()=>{
+    const f=await currentTimerFixture(); await dueNativeTimer(f);
+    const consumer=notificationsConsumer(()=>undefined,f.resolver),worker=new TimerWorker(db,[consumer],{resolver:f.resolver});
+    expect(await worker.fireDue()).toBe(1);
+    await db.query("UPDATE next_background_grants SET revoked_at=now() WHERE id=$1",[f.grantId]);
+    expect(await worker.drainConsumer(consumer)).toBe(1);
+    const event=timerEventId(f.grantId,"reminders","due",1);
+    expect((await db.query("SELECT 1 FROM next_timer_event_receipts WHERE event_id=$1",[event])).rows).toHaveLength(1);
+    expect((await db.query("SELECT 1 FROM notification_signals WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
+  });
+  it("denies due firing after pending membership removal and cancels future timers on permanent native withdrawal",async()=>{
+    const f=await currentTimerFixture(); await dueNativeTimer(f);
+    await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",[f.collection,JSON.stringify({version:1,ops:[{op:"member-remove",account:f.p.owner.user}]})]);
+    const worker=new TimerWorker(db,[],{resolver:f.resolver}); expect(await worker.fireDue()).toBe(0);
+    expect((await db.query("SELECT status,fired_at FROM next_timers WHERE grant_id=$1",[f.grantId])).rows).toEqual([{status:"cancelled",fired_at:null}]);
+    expect((await db.query("SELECT 1 FROM next_timer_events WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
+    const future=await currentTimerFixture(); await dueNativeTimer(future,true);
+    await db.query("UPDATE next_background_grants SET revoked_at=now() WHERE id=$1",[future.grantId]);
+    await worker.tick();
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[future.grantId])).rows).toEqual([{status:"cancelled"}]);
   });
   it("resolves actual native timer consent as opaque, exact collection authority, independent of transient pairing-window custody",async()=>{
     const f=await currentTimerFixture(),grant=(await f.resolver.resolve(db,f.grantId))!;
