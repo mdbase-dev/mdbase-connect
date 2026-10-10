@@ -29,6 +29,18 @@ async function fixture(t) {
   return { root, git, write, base };
 }
 
+test("archives over 64 MiB stream without weakening growth enforcement", async (t) => {
+  const { root, git, write } = await fixture(t);
+  await write("runtime/archive-padding.bin", Buffer.alloc(65 * 1024 * 1024));
+  git("add", "."); git("commit", "-m", "large source archive");
+  const base = git("rev-parse", "HEAD");
+  assert.deepEqual((await checkArchitectureGrowth(root, base)).failures, []);
+  await write("packages/example/src/a.ts", "export const a = 1; export const b = 2;\n");
+  const result = await checkArchitectureGrowth(root, base);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0], /typeScriptExportDeclarations grew by 1.*declared allowance is 0/);
+});
+
 test("growth fails despite absolute headroom and cannot spend inherited declarations", async (t) => {
   const { root, write, base } = await fixture(t);
   await write("packages/example/src/a.ts", "export const a = 1; export const b = 2;\n");
