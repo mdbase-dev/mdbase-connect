@@ -351,6 +351,13 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect(result.statusCode,result.body).toBe(201);
     return {input,flow:channel(input)};
   }
+  it("enforces complete confirmation and rejects created IDs without a final selection in PostgreSQL",async()=>{
+    const p=await prepared();
+    await expect(db.query("UPDATE installation_device_pairings SET portal_account_email=NULL WHERE pairing_id=$1",[p.input.installation.request_id])).rejects.toMatchObject({code:"23514"});
+    await expect(db.query("UPDATE installation_device_pairings SET created_collection_ids=$2 WHERE pairing_id=$1",[p.input.installation.request_id,[randomUUID()]])).rejects.toMatchObject({code:"23514"});
+    const row=(await db.query("SELECT portal_account_email,selected_collection_id,created_collection_ids FROM installation_device_pairings WHERE pairing_id=$1",[p.input.installation.request_id])).rows[0];
+    expect(row).toEqual({portal_account_email:p.selected.account_email,selected_collection_id:null,created_collection_ids:[]});
+  });
   it("emits explicit account/email confirmation only for the authenticated original request",async()=>{
     const owner=await account(),input=original(),flow=await start(input);
     expect((await flow.exchange()).json()).toEqual({status:"pending"});
