@@ -31,6 +31,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: scripts/ci/verify-qualified-commit "$GITHUB_SHA"
 
+      - name: Require consumer acceptance of these exact qualified tarballs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN_ID: ${{ steps.qualification.outputs.artifact_run_id }}
+        run: scripts/ci/verify-consumer-canary "$GITHUB_SHA" "$ARTIFACT_RUN_ID"
+
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
