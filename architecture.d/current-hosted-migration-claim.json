@@ -1,0 +1,4 @@
+{
+  "reason": "A read-only claim route is added to the existing migration-token registrar. It reuses its current started-owner SQL, transaction/collection lock, canonical cloud-copy tuple checks and the existing service-device loader. One relative import composes the loader; no new production module, export, state machine, token, signing issuer or native permission is introduced.",
+  "growth": { "relativeImports": 1 }
+}

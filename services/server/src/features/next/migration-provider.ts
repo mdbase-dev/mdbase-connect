@@ -9,9 +9,10 @@ import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
-import { CreateError, inTransaction } from "./bootstrap-common.js";
+import { CreateError, inTransaction, lock } from "./bootstrap-common.js";
 import { RolloutRefused } from "./migration-rollout.js";
-import { createServiceCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
+import { createServiceCloudCopy, existingCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
+import { loadServiceDevice } from "./service-devices.js";
 
 interface Claim { account: string; started_us: string; display_name: string }
 interface Options {
@@ -37,6 +38,38 @@ async function claim(db: DatabaseQueryable, collection: string, locked = false):
   )).rows[0];
   if (!row) throw new RolloutRefused("migration_source_not_current", "No current hosted migration claim.");
   return row;
+}
+
+/** Authenticated current CP facts for a native consumer's independent checks.
+ * No provider/network/bootstrap effects, freshness lease or readiness boolean.
+ * A missing target is ordinary pre-bootstrap DATA, not H1 permission. */
+async function currentClaim(collection: string, options: Options) {
+  return inTransaction(options.db, async client => {
+    const before = await claim(client, collection, true);
+    // Same owner-before-collection order and immutable tuple checks as bootstrap.
+    await lock(client, collection);
+    let observedTarget = null;
+    if (await existingCloudCopy(client, collection, before.account)) {
+      const row = (await client.query<{ root_key_id: Buffer }>(
+        "SELECT root_key_id FROM next_collections WHERE collection_id=$1 AND runtime='shadow' AND octet_length(root_key_id)=16", [collection]
+      )).rows[0];
+      if (!row) throw new CreateError(409, "collection_exists");
+      // The H1 subject is hosted; no new escrow or app-grant obligation.
+      const device = await loadServiceDevice(client, collection, { kind: "hosted" });
+      if (!device || device.device_id === "00000000-0000-0000-0000-000000000000") throw new CreateError(503, "not_ready");
+      observedTarget = { runtime: "shadow", root_key_id: row.root_key_id.toString("hex"), hosted: {
+        device_id: device.device_id, sign_pk: device.sign_pk.toString("hex"),
+        kem_pk: device.kem_pk.toString("hex"), noise_pk: device.noise_pk.toString("hex")
+      } };
+    }
+    // Includes independently inserted deletion/cutover facts after SQL awaits.
+    const after = await claim(client, collection, true);
+    if (after.account !== before.account || after.started_us !== before.started_us) {
+      throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
+    }
+    return { schema: "mdbase-migration-claim/1", collection_id: collection,
+      owner_account: before.account, started_us: before.started_us, target: observedTarget };
+  });
 }
 
 async function target(collection: string, options: Options) {
@@ -97,18 +130,23 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
   const params = z.object({ id: z.string().regex(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}(?![\s\S])/u)
     .refine(id => id !== "00000000-0000-0000-0000-000000000000") }).strict();
   const empty = z.object({}).strict();
-  for (const kind of ["source", "fence", "target"] as const) {
-    app.route({ method: kind === "source" ? "GET" : "POST", url: `/internal/v1/next/migration/collections/:id/${kind}`,
+  for (const kind of ["source", "fence", "target", "claim"] as const) {
+    app.route({ method: kind === "source" || kind === "claim" ? "GET" : "POST", url: `/internal/v1/next/migration/collections/:id/${kind}`,
       bodyLimit: 4096, config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
       handler: async (request, reply) => {
         reply.header("cache-control", "no-store");
         const token = bearerToken(request);
         if (!token || !safeEqual(token, options.token)) return reply.code(401).send(apiError("invalid_internal_token", "The migration token is required."));
         const p = params.safeParse(request.params);
-        if (!p.success || !empty.safeParse(request.query).success || !empty.safeParse(request.body ?? {}).success) {
+        const claimBody = kind === "claim" && ((request.headers["content-length"] ?? "0") !== "0"
+          || request.headers["transfer-encoding"] !== undefined);
+        if (!p.success || claimBody || !empty.safeParse(request.query).success || !empty.safeParse(request.body ?? {}).success) {
           return reply.code(400).send(apiError("invalid_request", "A canonical collection UUID and no caller-selected source facts are required."));
         }
-        try { return kind === "target" ? await target(p.data.id, options) : await action(p.data.id, kind === "fence", options); }
+        try {
+          if (kind === "claim") return await currentClaim(p.data.id, options);
+          return kind === "target" ? await target(p.data.id, options) : await action(p.data.id, kind === "fence", options);
+        }
         catch (error) {
           if (error instanceof RolloutRefused) return reply.code(error.status).send(apiError(error.code, error.message));
           if (error instanceof CreateError) return reply.code(error.status).send(apiError(error.code, "No current SHADOW bootstrap outcome."));
