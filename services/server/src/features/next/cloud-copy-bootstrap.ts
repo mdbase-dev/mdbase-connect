@@ -33,6 +33,7 @@ import { generateServiceDevice, loadServiceDevice, ServiceDeviceError, storeServ
 import { installationCollections, requireInstallationScope } from "./installation-scope.js";
 import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
 import { registerCollectionNameRoutes } from "./collection-name-routes.js";
+import { requireCollectionNotDeleted } from "./collection-deletion.js";
 const KINDS = ["hosted", "escrow"] as const;
 
 function refuse(reply: FastifyReply, error: unknown, message: string) {
@@ -77,10 +78,15 @@ async function currentCloudCopy(client: DatabaseConnection, collection: string, 
 }
 
 async function currentJoiningCloudCopy(client: DatabaseConnection, collection: string, connector: ConnectorIdentity): Promise<void> {
-  if (!connector.installation_device_id) return currentCloudCopy(client,collection,connector.user_id);
   await requireInstallationScope(client,connector,collection);
   const current = await client.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR UPDATE OF n",[collection]);
   if (!current.rows.length) throw new CreateError(409,"not_current_cloud_copy");
+  try {
+    await requireCollectionNotDeleted(client, collection);
+  } catch (error) {
+    if (error instanceof Error && error.message === "collection_deleted") throw new CreateError(409, "collection_deleted");
+    throw error;
+  }
   await currentMember(client,collection,connector.user_id);
 }
 
@@ -316,7 +322,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     }
   });
 
-  // ---- Device join: the owner's registered device, approved by the authenticated account. ----
+  // ---- Device join: a current member account's registered device. ----
   app.post<{ Params: { id: string }; Body: Proof }>("/v1/next/collections/:id/devices", {
     ...limited,
     schema: {

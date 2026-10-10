@@ -5,6 +5,8 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
+import { createHostedCollectionMembership } from "../../collection-policy.js";
+import { revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
 import { registerPeopleRoutes } from "../account/people-routes.js";
 import { collectionLogTokenDigest, registerCollectionLogTokenRoute } from "./collection-log-token.js";
 import { cloudCopyCreateDigest, cloudCopyJoinDigest, registerCloudCopyRoutes } from "./cloud-copy-bootstrap.js";
@@ -22,6 +24,7 @@ const field = (value: Decoded, key: number) => value instanceof Map ? value.get(
 const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
 const rawX = () => (generateKeyPairSync("x25519").publicKey.export({ format: "der", type: "spki" }) as Buffer).subarray(-32);
 const ZERO_ACCOUNT = "00".repeat(16);
+const ENROLMENT_SQL = "SELECT id FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> jsonb_build_array(jsonb_build_object('op','device-enrol','device',$2::uuid::text))";
 const tokens = { hosted: "h".repeat(40), escrow: "e".repeat(40), hostedOut: "H".repeat(40), escrowOut: "E".repeat(40) };
 
 describe("cloud-copy bootstrap configuration", () => {
@@ -449,6 +452,61 @@ describePg("cloud-copy bootstrap", () => {
     expect(again.json().enrolled_at).toBe(2);
   });
 
+  it.each(["viewer", "editor"] as const)("joins an ordinary invited %s only after acknowledged membership and denies queued removal", async role => {
+    const owner = await identity(), member = await identity(), collection = randomUUID();
+    await db.query("UPDATE users SET account_backend='next' WHERE id=ANY($1::uuid[])", [[owner.connector.user_id, member.connector.user_id]]);
+    expect((await serviceCreate(await session(owner.connector.user_id), collection)).statusCode).toBe(200);
+    expect((await db.query("SELECT id FROM hosted_collections WHERE id=$1", [collection])).rows).toEqual([]);
+    const membership = await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner.connector.user_id, userId: member.connector.user_id, role });
+    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(409);
+    expect((await db.query(ENROLMENT_SQL, [collection, member.device])).rows).toEqual([]);
+    // Membership permits JOIN, never replacing the owner through CREATE.
+    expect((await create(member, await proof(member, collection))).statusCode).toBe(409);
+    await emitter.drainCollection(collection);
+    const joined = await join(member, collection, await joinProof(member, collection));
+    expect(joined.statusCode, joined.body).toBe(200);
+    expect(joined.json()).toMatchObject({ collection_id: collection, enrolled_at: 3, genesis: { seq: 1 } });
+    const token = decodeCbor(Buffer.from(joined.json().device.token.split(".")[0], "hex"));
+    expect(hex(field(token, 1) as Uint8Array)).toBe(member.device.replaceAll("-", ""));
+    const enrolled = await db.query(ENROLMENT_SQL, [collection, member.device]);
+    expect(enrolled.rows).toHaveLength(1);
+    await revokeHostedCollectionMembership(db, { collectionId: collection, actorUserId: owner.connector.user_id, membershipId: membership.membershipId });
+    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(409);
+    await emitter.drainCollection(collection);
+    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(409);
+    expect((await db.query(ENROLMENT_SQL, [collection, member.device])).rows).toHaveLength(1);
+    await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner.connector.user_id, userId: member.connector.user_id, role });
+    await emitter.drainCollection(collection);
+    const oldDevice = await join(member, collection, await joinProof(member, collection));
+    expect(oldDevice.statusCode, oldDevice.body).toBe(409);
+    expect(oldDevice.json().error.code).toBe("device_revoked");
+    const fresh = await identity(member.connector.user_id);
+    const freshJoin = await join(fresh, collection, await joinProof(fresh, collection));
+    expect(freshJoin.statusCode, freshJoin.body).toBe(200);
+  });
+
+  it("mints no invited-member token when removal wins during join readback", async () => {
+    const owner = await identity(), member = await identity(), collection = randomUUID();
+    await db.query("UPDATE users SET account_backend='next' WHERE id=ANY($1::uuid[])", [[owner.connector.user_id, member.connector.user_id]]);
+    expect((await serviceCreate(await session(owner.connector.user_id), collection)).statusCode).toBe(200);
+    const membership = await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner.connector.user_id, userId: member.connector.user_id, role: "editor" });
+    await emitter.drainCollection(collection);
+    log.onRead = () => revokeHostedCollectionMembership(db, { collectionId: collection, actorUserId: owner.connector.user_id, membershipId: membership.membershipId }).then(() => undefined);
+    const joined = await join(member, collection, await joinProof(member, collection));
+    expect(joined.statusCode, joined.body).toBe(409);
+    expect(joined.body).not.toContain("token");
+  });
+
+  it("does not enrol into a collection with a permanent deletion fact", async () => {
+    const owner = await identity(), collection = randomUUID();
+    expect((await serviceCreate(await session(owner.connector.user_id), collection)).statusCode).toBe(200);
+    await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [collection, randomUUID()]);
+    const joined = await join(owner, collection, await joinProof(owner, collection));
+    expect(joined.statusCode, joined.body).toBe(409);
+    expect(joined.json().error.code).toBe("collection_deleted");
+    expect((await db.query(ENROLMENT_SQL, [collection, owner.device])).rows).toEqual([]);
+  });
+
   it("never enrols a device into a private collection, someone else's, or one that left sync", async () => {
     const who = await identity();
     const priv = randomUUID();
@@ -583,14 +641,15 @@ describePg("cloud-copy bootstrap", () => {
     expect((await people(who,collection)).statusCode).toBe(403);expect((await refresh(who,collection)).statusCode).toBe(403);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(403);
     expect((await listed(who)).json().collections).toEqual([]); // historical enrolment never widens scope
   });
-  it("refuses pending member additions/removals and owner suspension; ordinary non-owner daemons remain owner-only",async()=>{
+  it("refuses pending additions/removals and suspension while admitting acknowledged ordinary members",async()=>{
     const owner=await identity(),who=await installation(),collection=randomUUID();expect((await serviceCreate(await session(owner.connector.user_id),collection)).statusCode).toBe(200);await approveScope(who,collection);
     await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"editor"}],false);
     expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(409);
     await emitter.drainCollection(collection);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(200);
-    const daemon=await identity(who.connector.user_id);expect((await join(daemon,collection,await joinProof(daemon,collection))).statusCode).toBe(409);
+    const daemon=await identity(who.connector.user_id);expect((await join(daemon,collection,await joinProof(daemon,collection))).statusCode).toBe(200);
     await policy(collection,[{op:"member-remove",account:who.connector.user_id}],false);
     expect((await refresh(who,collection)).statusCode).toBe(409);expect((await people(who,collection)).statusCode).toBe(409);expect((await listed(who)).json().collections).toEqual([]);
+    expect((await join(daemon,collection,await joinProof(daemon,collection))).statusCode).toBe(409);
     await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"editor"}]);
     await db.query("UPDATE users SET suspended_at=now() WHERE id=$1",[owner.connector.user_id]);
     expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(403);expect((await people(who,collection)).statusCode).toBe(403);expect((await refresh(who,collection)).statusCode).toBe(403);expect((await listed(who)).json().collections).toEqual([]);
