@@ -1,0 +1,11 @@
+{
+  "_type": "Peer",
+  "session": "h'abababababababababababababababab'",
+  "account": "h'6f1e2d3c4b5a49688776655443322110'",
+  "app": "mdbase-editor",
+  "state": [
+    ["cursor", 120],
+    ["editing", true]
+  ],
+  "last_seen": 1791100800500
+}

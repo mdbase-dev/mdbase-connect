@@ -176,6 +176,41 @@ test("keeps application summaries and review links separate at narrow widths", a
   await expect(page.getByRole("heading", { name: "Application access", exact: true })).toBeVisible();
 });
 
+test("discovers registry-only native collections and reuses the normal invitation flow", async ({ page }) => {
+  const id = "00000000-0000-4000-8000-000000000007";
+  const nativeOverview = {
+    ...overview, connectors: [], collections: [], hosted_collections: [], collection_sharing_available: true,
+    native_collections: [{ id, display_name: "Native garden", sync: "cloud_copy", access: { relationship: "owner", role: "owner", can_manage_members: true } }]
+  };
+  await page.unroute("http://connect.test/v1/**");
+  await page.route("http://connect.test/v1/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    const json = path.endsWith("/members") ? { members: [] }
+      : path.endsWith("/invitations") && route.request().method() === "POST" ? { invitation: { id: "invitation", token: "fixture-invitation-token" } }
+      : path.endsWith("/invitations") ? { invitations: [] }
+      : path === "/v1/account/sessions" ? { sessions: [] } : nativeOverview;
+    await route.fulfill({ status: route.request().method() === "POST" ? 202 : 200, json });
+  });
+  await page.goto(`connect?server=http%3A%2F%2Fconnect.test&collection=${id}`);
+  await expect(page).not.toHaveURL(/\/connect\/collections/);
+  await expect(page.getByRole("heading", { name: "Native garden", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "People & sharing" })).toBeVisible();
+  await page.getByRole("button", { name: "Invite person" }).click();
+  await page.getByLabel("Email address", { exact: true }).fill("member@example.test");
+  const invitation = page.waitForRequest(request => request.method() === "POST" && new URL(request.url()).pathname === `/v1/hosted/collections/${id}/invitations`);
+  await page.getByRole("button", { name: "Create invitation" }).click();
+  expect((await invitation).postDataJSON()).toEqual({ email: "member@example.test", role: "viewer" });
+  await expect(page.getByText("Invitation ready", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "All collections", exact: true }).click();
+  await expect(page.getByRole("main").getByText("Native garden", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Manage", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`collection=${id}`));
+  await page.getByRole("link", { name: "Storage & sync", exact: true }).click();
+  await expect(page.getByText("Cloud copy configured", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sync folder", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
+});
+
 test("uses a collection chooser when direct entry is ambiguous", async ({ page }) => {
   await page.unroute("http://connect.test/v1/**");
   const ambiguousOverview = {

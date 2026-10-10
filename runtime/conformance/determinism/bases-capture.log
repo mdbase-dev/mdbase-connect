@@ -1,0 +1,122 @@
+# Captured file/link helper witness: original scalar/matrix expectations plus explicit boundaries.
+{"op":"bases_capture","action":"file_property","path":"__codex_bases_expression_oracle/row.md","size":1957,"property":"name"}
+{"op":"bases_capture","action":"file_property","path":"__codex_bases_expression_oracle/row.md","size":1957,"property":"basename"}
+{"op":"bases_capture","action":"file_property","path":"__codex_bases_expression_oracle/row.md","size":1957,"property":"path"}
+{"op":"bases_capture","action":"file_property","path":"__codex_bases_expression_oracle/row.md","size":1957,"property":"folder"}
+{"op":"bases_capture","action":"file_property","path":"__codex_bases_expression_oracle/row.md","size":1957,"property":"ext"}
+{"op":"bases_capture","action":"file_property","path":"__codex_bases_expression_oracle/row.md","size":1957,"property":"size"}
+{"op":"bases_capture","action":"file_as_link","path":"__codex_bases_expression_oracle/row.md"}
+{"op":"bases_capture","action":"file_as_link","path":"__codex_bases_expression_oracle/row.md","display":"Shown"}
+{"op":"bases_capture","action":"file_in_folder","path":"__codex_bases_expression_oracle/row.md","folder":"__codex_bases_expression_oracle"}
+{"op":"bases_capture","action":"file_has_tag","tags":["urgent","work","project/a"],"needles":["work"]}
+{"op":"bases_capture","action":"file_has_tag","tags":["urgent","work","project/a"],"needles":["project"]}
+{"op":"bases_capture","action":"link_render","target":"Some Note","resolved":null}
+{"op":"bases_capture","action":"link_render","target":"Some Note","resolved":null,"display":"Shown"}
+{"op":"bases_capture","action":"link_render","target":"Other","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Front Alias"}
+{"op":"bases_capture","action":"link_resolve","target":"Other","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Front Alias"}
+{"op":"bases_capture","action":"link_render","target":"Spaced Note","resolved":"__codex_bases_expression_oracle/Spaced Note.md","raw":true,"display":"Spaced Note"}
+{"op":"bases_capture","action":"link_resolve","target":"Spaced Note","resolved":"__codex_bases_expression_oracle/Spaced Note.md","raw":true,"display":"Spaced Note"}
+{"op":"bases_capture","action":"link_render","target":"Other.md","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Front MD"}
+{"op":"bases_capture","action":"link_resolve","target":"Other.md","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Front MD"}
+{"op":"bases_capture","action":"link_render","target":"Other.md","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Front MD"}
+{"op":"bases_capture","action":"link_resolve","target":"Other.md","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Front MD"}
+{"op":"bases_capture","action":"link_render","target":"Other","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other"}
+{"op":"bases_capture","action":"link_resolve","target":"Other","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other"}
+{"op":"bases_capture","action":"link_render","target":"Other","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Alias Other"}
+{"op":"bases_capture","action":"link_resolve","target":"Other","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Alias Other"}
+{"op":"bases_capture","action":"link_render","target":"Other#Section One","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other > Section One"}
+{"op":"bases_capture","action":"link_resolve","target":"Other#Section One","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other > Section One"}
+{"op":"bases_capture","action":"link_render","target":"Other#^block-id","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other > ^block-id"}
+{"op":"bases_capture","action":"link_resolve","target":"Other#^block-id","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other > ^block-id"}
+{"op":"bases_capture","action":"link_render","target":"Duplicate","resolved":"__codex_bases_expression_oracle/Folder A/Duplicate.md","raw":true,"display":"Duplicate"}
+{"op":"bases_capture","action":"link_resolve","target":"Duplicate","resolved":"__codex_bases_expression_oracle/Folder A/Duplicate.md","raw":true,"display":"Duplicate"}
+{"op":"bases_capture","action":"link_render","target":"__codex_bases_expression_oracle/Folder A/Duplicate","resolved":"__codex_bases_expression_oracle/Folder A/Duplicate.md","raw":true,"display":"Dup A"}
+{"op":"bases_capture","action":"link_resolve","target":"__codex_bases_expression_oracle/Folder A/Duplicate","resolved":"__codex_bases_expression_oracle/Folder A/Duplicate.md","raw":true,"display":"Dup A"}
+{"op":"bases_capture","action":"link_render","target":"__codex_bases_expression_oracle/Folder B/Duplicate","resolved":"__codex_bases_expression_oracle/Folder B/Duplicate.md","raw":true,"display":"__codex_bases_expression_oracle/Folder B/Duplicate"}
+{"op":"bases_capture","action":"link_resolve","target":"__codex_bases_expression_oracle/Folder B/Duplicate","resolved":"__codex_bases_expression_oracle/Folder B/Duplicate.md","raw":true,"display":"__codex_bases_expression_oracle/Folder B/Duplicate"}
+{"op":"bases_capture","action":"link_render","target":"Spaced Note","resolved":"__codex_bases_expression_oracle/Spaced Note.md","raw":true,"display":"Space Alias"}
+{"op":"bases_capture","action":"link_resolve","target":"Spaced Note","resolved":"__codex_bases_expression_oracle/Spaced Note.md","raw":true,"display":"Space Alias"}
+{"op":"bases_capture","action":"link_render","target":"Missing Note","resolved":null,"raw":true,"display":"Missing Note"}
+{"op":"bases_capture","action":"link_resolve","target":"Missing Note","resolved":null,"raw":true,"display":"Missing Note"}
+{"op":"bases_capture","action":"link_render","target":"Other.md","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Markdown Other"}
+{"op":"bases_capture","action":"link_resolve","target":"Other.md","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Markdown Other"}
+{"op":"bases_capture","action":"link_render","target":"Spaced Note.md","resolved":"__codex_bases_expression_oracle/Spaced Note.md","raw":true,"display":"Markdown Space"}
+{"op":"bases_capture","action":"link_resolve","target":"Spaced Note.md","resolved":"__codex_bases_expression_oracle/Spaced Note.md","raw":true,"display":"Markdown Space"}
+{"op":"bases_capture","action":"link_render","target":"Missing.md","resolved":null,"raw":true,"display":"Markdown Missing"}
+{"op":"bases_capture","action":"link_resolve","target":"Missing.md","resolved":null,"raw":true,"display":"Markdown Missing"}
+{"op":"bases_capture","action":"link_render","target":"./Other.md","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Markdown Dot"}
+{"op":"bases_capture","action":"link_resolve","target":"./Other.md","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Markdown Dot"}
+{"op":"bases_capture","action":"link_render","target":"Sub/Target.md","resolved":"__codex_bases_expression_oracle/Sub/Target.md","raw":true,"display":"Markdown Sub"}
+{"op":"bases_capture","action":"link_resolve","target":"Sub/Target.md","resolved":"__codex_bases_expression_oracle/Sub/Target.md","raw":true,"display":"Markdown Sub"}
+{"op":"bases_capture","action":"link_render","target":"Other#Section","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Pipe"}
+{"op":"bases_capture","action":"link_resolve","target":"Other#Section","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Pipe"}
+{"op":"bases_capture","action":"link_render","target":"Other#Heading [Bracket","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other > Heading [Bracket"}
+{"op":"bases_capture","action":"link_resolve","target":"Other#Heading [Bracket","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other > Heading [Bracket"}
+{"op":"bases_capture","action":"link_render","target":"Unicode & Punctuation/Über Café, déjà vu! (v2)","resolved":"__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md","raw":true,"display":"Unicode Alias"}
+{"op":"bases_capture","action":"link_resolve","target":"Unicode & Punctuation/Über Café, déjà vu! (v2)","resolved":"__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md","raw":true,"display":"Unicode Alias"}
+{"op":"bases_capture","action":"link_render","target":"Unicode & Punctuation/Über Café, déjà vu! (v2)#Café & crème: naïve? (v2)!","resolved":"__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md","raw":true,"display":"Unicode & Punctuation/Über Café, déjà vu! (v2) > Café & crème: naïve? (v2)!"}
+{"op":"bases_capture","action":"link_resolve","target":"Unicode & Punctuation/Über Café, déjà vu! (v2)#Café & crème: naïve? (v2)!","resolved":"__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md","raw":true,"display":"Unicode & Punctuation/Über Café, déjà vu! (v2) > Café & crème: naïve? (v2)!"}
+{"op":"bases_capture","action":"link_render","target":"Unicode %26 Punctuation/Über Café%2C déjà vu! (v2).md","resolved":null,"raw":true,"display":"Unicode Markdown"}
+{"op":"bases_capture","action":"link_resolve","target":"Unicode %26 Punctuation/Über Café%2C déjà vu! (v2).md","resolved":null,"raw":true,"display":"Unicode Markdown"}
+{"op":"bases_capture","action":"link_render","target":"Case Target","resolved":"__codex_bases_expression_oracle/Case Target.md","raw":true,"display":"Case Target"}
+{"op":"bases_capture","action":"link_resolve","target":"Case Target","resolved":"__codex_bases_expression_oracle/Case Target.md","raw":true,"display":"Case Target"}
+{"op":"bases_capture","action":"link_render","target":"Duplicate Anchors#Twin","resolved":"__codex_bases_expression_oracle/Duplicate Anchors.md","raw":true,"display":"Duplicate Anchors > Twin"}
+{"op":"bases_capture","action":"link_resolve","target":"Duplicate Anchors#Twin","resolved":"__codex_bases_expression_oracle/Duplicate Anchors.md","raw":true,"display":"Duplicate Anchors > Twin"}
+{"op":"bases_capture","action":"link_render","target":"Duplicate Anchors#Twin","resolved":"__codex_bases_expression_oracle/Duplicate Anchors.md","raw":true,"display":"Twin Alias"}
+{"op":"bases_capture","action":"link_resolve","target":"Duplicate Anchors#Twin","resolved":"__codex_bases_expression_oracle/Duplicate Anchors.md","raw":true,"display":"Twin Alias"}
+{"op":"bases_capture","action":"link_render","target":"Duplicate Anchors#^dupe-block","resolved":"__codex_bases_expression_oracle/Duplicate Anchors.md","raw":true,"display":"Duplicate Anchors > ^dupe-block"}
+{"op":"bases_capture","action":"link_resolve","target":"Duplicate Anchors#^dupe-block","resolved":"__codex_bases_expression_oracle/Duplicate Anchors.md","raw":true,"display":"Duplicate Anchors > ^dupe-block"}
+{"op":"bases_capture","action":"link_render","target":"Duplicate Anchors#^dupe-block","resolved":"__codex_bases_expression_oracle/Duplicate Anchors.md","raw":true,"display":"Block Alias"}
+{"op":"bases_capture","action":"link_resolve","target":"Duplicate Anchors#^dupe-block","resolved":"__codex_bases_expression_oracle/Duplicate Anchors.md","raw":true,"display":"Block Alias"}
+{"op":"bases_capture","action":"link_render","target":"Report Final.pdf","resolved":"__codex_bases_expression_oracle/Report Final.pdf","raw":true,"display":"Report Final.pdf"}
+{"op":"bases_capture","action":"link_resolve","target":"Report Final.pdf","resolved":"__codex_bases_expression_oracle/Report Final.pdf","raw":true,"display":"Report Final.pdf"}
+{"op":"bases_capture","action":"link_render","target":"Data Export.csv","resolved":"__codex_bases_expression_oracle/Data Export.csv","raw":true,"display":"CSV Alias"}
+{"op":"bases_capture","action":"link_resolve","target":"Data Export.csv","resolved":"__codex_bases_expression_oracle/Data Export.csv","raw":true,"display":"CSV Alias"}
+{"op":"bases_capture","action":"link_render","target":"Audio Track.mp3","resolved":"__codex_bases_expression_oracle/Audio Track.mp3","raw":true,"display":"Audio Track"}
+{"op":"bases_capture","action":"link_resolve","target":"Audio Track.mp3","resolved":"__codex_bases_expression_oracle/Audio Track.mp3","raw":true,"display":"Audio Track"}
+{"op":"bases_capture","action":"link_render","target":"Embedded Note","resolved":"__codex_bases_expression_oracle/Embedded Note.md","raw":true,"display":"Embedded Note"}
+{"op":"bases_capture","action":"link_resolve","target":"Embedded Note","resolved":"__codex_bases_expression_oracle/Embedded Note.md","raw":true,"display":"Embedded Note"}
+{"op":"bases_capture","action":"link_render","target":"Other#Section One","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other > Section One"}
+{"op":"bases_capture","action":"link_resolve","target":"Other#Section One","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other > Section One"}
+{"op":"bases_capture","action":"link_render","target":"Asset.png","resolved":"__codex_bases_expression_oracle/Asset.png","raw":true,"display":"Asset Alt"}
+{"op":"bases_capture","action":"link_resolve","target":"Asset.png","resolved":"__codex_bases_expression_oracle/Asset.png","raw":true,"display":"Asset Alt"}
+{"op":"bases_capture","action":"link_render","target":"Report Final.pdf","resolved":"__codex_bases_expression_oracle/Report Final.pdf","raw":true,"display":"Report Final.pdf"}
+{"op":"bases_capture","action":"link_resolve","target":"Report Final.pdf","resolved":"__codex_bases_expression_oracle/Report Final.pdf","raw":true,"display":"Report Final.pdf"}
+{"op":"bases_capture","action":"link_render","target":"Photo Sample.jpg","resolved":"__codex_bases_expression_oracle/Photo Sample.jpg","raw":true,"display":"Photo Alt"}
+{"op":"bases_capture","action":"link_resolve","target":"Photo Sample.jpg","resolved":"__codex_bases_expression_oracle/Photo Sample.jpg","raw":true,"display":"Photo Alt"}
+{"op":"bases_capture","action":"link_render","target":"Embedded Note","resolved":"__codex_bases_expression_oracle/Embedded Note.md","raw":true,"display":"Embedded Note"}
+{"op":"bases_capture","action":"link_resolve","target":"Embedded Note","resolved":"__codex_bases_expression_oracle/Embedded Note.md","raw":true,"display":"Embedded Note"}
+{"op":"bases_capture","action":"link_render","target":"Other#Section One","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other > Section One"}
+{"op":"bases_capture","action":"link_resolve","target":"Other#Section One","resolved":"__codex_bases_expression_oracle/Other.md","raw":true,"display":"Other > Section One"}
+{"op":"bases_capture","action":"link_render","target":"Asset.png","resolved":"__codex_bases_expression_oracle/Asset.png","raw":true,"display":"Asset Alt"}
+{"op":"bases_capture","action":"link_resolve","target":"Asset.png","resolved":"__codex_bases_expression_oracle/Asset.png","raw":true,"display":"Asset Alt"}
+{"op":"bases_capture","action":"link_render","target":"Report Final.pdf","resolved":"__codex_bases_expression_oracle/Report Final.pdf","raw":true,"display":"Report Final.pdf"}
+{"op":"bases_capture","action":"link_resolve","target":"Report Final.pdf","resolved":"__codex_bases_expression_oracle/Report Final.pdf","raw":true,"display":"Report Final.pdf"}
+{"op":"bases_capture","action":"link_render","target":"Photo Sample.jpg","resolved":"__codex_bases_expression_oracle/Photo Sample.jpg","raw":true,"display":"Photo Alt"}
+{"op":"bases_capture","action":"link_resolve","target":"Photo Sample.jpg","resolved":"__codex_bases_expression_oracle/Photo Sample.jpg","raw":true,"display":"Photo Alt"}
+{"op":"bases_capture","action":"link_render","target":"__codex_bases_expression_oracle/Backlink Source.md","resolved":"__codex_bases_expression_oracle/Backlink Source.md","raw":true,"display":"Backlink Source"}
+{"op":"bases_capture","action":"link_render","target":"__codex_bases_expression_oracle/Backlink Markdown Source.md","resolved":"__codex_bases_expression_oracle/Backlink Markdown Source.md","raw":true,"display":"Backlink Markdown Source"}
+{"op":"bases_capture","action":"link_render","target":" ![[Folder/Note#H|old]] ","display":"new","resolved":"Folder/Note.md"}
+{"op":"bases_capture","action":"link_render","target":"https://example.com","display":"Alias","resolved":null}
+{"op":"bases_capture","action":"link_external","target":"scheme+v1:abc","resolved":null}
+{"op":"bases_capture","action":"link_external","target":"1scheme:abc","resolved":null}
+{"op":"bases_capture","action":"link_resolve","target":"Missing","resolved":null}
+{"op":"bases_capture","action":"link_resolve","target":"Unknown"}
+{"op":"bases_capture","action":"link_equals","target":"Other#H","resolved":"x/Other.md","rhs":{"target":"Other.md","resolved":"x/Other.md"}}
+{"op":"bases_capture","action":"link_matches","target":"Missing","resolved":null,"rhs":{"target":"Missing","resolved":null}}
+{"op":"bases_capture","action":"link_matches","target":"Missing","resolved":null,"rhs":{"target":"Missing.md","resolved":null}}
+{"op":"bases_capture","action":"file_property","path":"x.md","property":"size"}
+{"op":"bases_capture","action":"file_created","path":"x.md","timezone":"UTC"}
+{"op":"bases_capture","action":"file_modified","path":"x.md","timezone":"UTC"}
+{"op":"bases_capture","action":"file_created","path":"x.md","timezone":"UTC","created_origin":"create_log","created_ms":0}
+{"op":"bases_capture","action":"file_created","path":"x.md","timezone":"UTC","created_origin":"import_birth","created_ms":1781075828070}
+{"op":"bases_capture","action":"file_modified","path":"x.md","timezone":"UTC","modified_ms":1781075828070}
+{"op":"bases_capture","action":"file_property","path":"../x.md","property":"name"}
+{"op":"bases_capture","action":"file_property","path":"x.md","property":"size","size":9007199254740992}
+{"op":"bases_capture","action":"file_in_folder","path":"a/b/c.md","folder":"a/b/"}
+{"op":"bases_capture","action":"file_in_folder","path":"a/beta/c.md","folder":"a/b"}
+{"op":"bases_capture","action":"file_has_tag","tags":["#project/sub"],"needles":["project"]}
+{"op":"bases_capture","action":"file_has_tag","tags":["projectile/sub"],"needles":["project"]}
+{"op":"bases_capture","action":"file_property","path":"Unicode/Über.v2.md","property":"name"}
+{"op":"bases_capture","action":"link_render","target":"Note","resolved":null}
+{"op":"bases_capture","action":"link_render","target":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","resolved":null}

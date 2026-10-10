@@ -1,0 +1,10 @@
+/ PutObjectResult / {
+  / status / 0: 1 / Upload /,
+  / direct / 1: / DirectTransfer / {
+    / url / 0: "https://objects.example/c/4c18af2e/abcd?sig=x",
+    / headers / 1: {
+      "x-amz-checksum-sha256": "q83v"
+    },
+    / expires_at / 2: 1791100900000
+  }
+}

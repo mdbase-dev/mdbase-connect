@@ -1,0 +1,90 @@
+{
+  "_type": "EntryPayload",
+  "fmt": 1,
+  "sem": {"_type": "Version", "major": 1, "minor": 0},
+  "mutation": {
+    "_type": "Mutation",
+    "id": "h'0192f3a460007abc8def0123456789ab'",
+    "origin": "h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'",
+    "base_seq": 41,
+    "clock": {
+      "_type": "OpClock",
+      "instant": 1791100800000,
+      "tz": "Australia/Melbourne",
+      "local_date": "2026-10-04"
+    },
+    "seed": "h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e'",
+    "source": "Api",
+    "ops": [
+      {
+        "_type": "Update",
+        "kind": "Update",
+        "id": "h'0192f3a45b6c7d8e9f0123456789abcd'",
+        "patch": [
+          ["status", "done"],
+          ["priority", 3],
+          ["estimate", 1.5]
+        ],
+        "unset": [
+          "snoozed"
+        ],
+        "add": [
+          ["tags", [
+            "urgent"
+          ]]
+        ],
+        "remove": [
+          ["tags", [
+            "someday"
+          ]]
+        ],
+        "body_edits": [
+          {"_type": "BodyEdit", "start": 0, "end": 5, "insert": "Agenda"},
+          {"_type": "BodyEdit", "start": 42, "end": 42, "insert": "\n- follow up with Bo"}
+        ],
+        "body_base": "h'38732073f309589131fec63f417896537e63d27fc29fcf7c60d5f47379f0887a'",
+        "base": [
+          {"_type": "BaseField", "key": "status", "observed": "open"},
+          {"_type": "BaseField", "key": "snoozed"}
+        ]
+      }
+    ],
+    "validated_at": "Error"
+  },
+  "status": "Merged",
+  "effects": [
+    {
+      "_type": "PutRecord",
+      "kind": "PutRecord",
+      "id": "h'0192f3a45b6c7d8e9f0123456789abcd'",
+      "path": "tasks/write contracts.md",
+      "doc": 1
+    }
+  ],
+  "texts": [
+    "---\nstatus: open\n---\nNotes\n",
+    {
+      "_type": "Delta",
+      "kind": "Delta",
+      "source": {"_type": "TextSource", "form": "prev_record", "ref": "h'0192f3a45b6c7d8e9f0123456789abcd'"},
+      "ops": [
+        {"_type": "Copy", "op": "copy", "offset": 0, "len": 12},
+        {"_type": "Insert", "op": "insert", "bytes": "h'646f6e65'"},
+        {"_type": "Copy", "op": "copy", "offset": 16, "len": 10}
+      ]
+    },
+    {
+      "_type": "Blob",
+      "kind": "Blob",
+      "blob": {
+        "_type": "BlobRef",
+        "plain_hash": "h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2'",
+        "size": 18,
+        "blob_id": "h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1'",
+        "id_epoch": 1,
+        "part_size": 8388608
+      }
+    }
+  ],
+  "resurrect": 42
+}

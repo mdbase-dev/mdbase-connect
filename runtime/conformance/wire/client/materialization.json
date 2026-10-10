@@ -1,0 +1,11 @@
+{
+  "_type": "Materialization",
+  "mode": "OnDemand",
+  "pinned": [
+    "Journal"
+  ],
+  "media": [
+    "Image",
+    "Pdf"
+  ]
+}

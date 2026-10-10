@@ -1,0 +1,16 @@
+/ Item / {
+  / fmt / 0: 1,
+  / kind / 1: 1 / Entry /,
+  / collection / 2: h'4c18af2eb04a4b77b83e493c3695962e',
+  / seq / 3: 42,
+  / prev / 4: h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4',
+  / epoch / 5: 1,
+  / signer / 6: h'2d7e9a416c3b4f189a05c8e1b2d3f467',
+  / salt / 7: h'00112233445566778899aabbccddeeff',
+  / idem / 8: h'1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d',
+  / refs / 9: [
+    h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1'
+  ],
+  / body / 11: h'deadbeef',
+  / sig / 12: h'5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a'
+}

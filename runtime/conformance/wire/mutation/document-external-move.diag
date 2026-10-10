@@ -1,0 +1,26 @@
+/ Mutation / {
+  / id / 0: h'0192f3a460007abc8def0123456789ab',
+  / origin / 1: h'9b2f6c1e3a474d5b8e216f0a9c3d7e54',
+  / base_seq / 2: 41,
+  / clock / 3: / OpClock / {
+    / instant / 0: 1791100800000,
+    / tz / 1: "Australia/Melbourne",
+    / local_date / 2: "2026-10-04"
+  },
+  / seed / 4: h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e',
+  / source / 5: 1 / External /,
+  / ops / 6: [
+    / Document / {
+      / kind / 0: 3 / Document /,
+      / id / 1: h'0192f3a45b6c7d8e9f0123456789abcd',
+      / base / 2: / DocVersion / {
+        / path / 0: "tasks/a.md",
+        / doc / 1: "---\nstatus: open\n---\n"
+      },
+      / new / 3: / DocVersion / {
+        / path / 0: "tasks/b.md",
+        / doc / 1: "---\nstatus: open\n---\nedited\n"
+      }
+    }
+  ]
+}

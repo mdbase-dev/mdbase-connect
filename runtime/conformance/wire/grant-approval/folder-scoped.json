@@ -1,0 +1,14 @@
+{
+  "_type": "GrantApprovalPayload",
+  "fmt": 1,
+  "grant": "h'6f1e2d3c4b5a49688776655443322110'",
+  "client_pk": "h'0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c'",
+  "capabilities": [
+    "collection.read",
+    "records.edit"
+  ],
+  "file_folders": [
+    "Photos",
+    "Scans/2026"
+  ]
+}

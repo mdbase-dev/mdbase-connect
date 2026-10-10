@@ -1,0 +1,21 @@
+[package]
+name = "mdbn-takeover"
+description = "Local takeover of an old mdbase Connect connector's collections by the new daemon (T0-T6) and its local rollback."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Native only. Allowed internal dependencies: mdbn-legacy (read-only old-state
+# readers). Depended on by mdbn-daemon (the driver) and mdbn-migrate (re-export).
+# No store-pg, no sealing, no hosted-service code.
+[dependencies]
+mdbn-legacy.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+[lints]
+workspace = true

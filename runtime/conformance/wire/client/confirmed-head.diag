@@ -1,0 +1,6 @@
+/ ConfirmedHead / {
+  / seq / 0: 1,
+  / chain / 1: h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4',
+  / policy_generation / 2: h'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1',
+  / catalog_generation / 3: h'cacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacaca'
+}

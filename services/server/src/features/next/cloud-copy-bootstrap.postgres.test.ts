@@ -4,11 +4,19 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { tokenHash } from "../../security.js";
+import { randomToken, tokenHash } from "../../security.js";
+import { registerErrorHandler } from "../../platform/error-handler.js";
+import { registerConnectorPairingRoutes } from "../connectors/pairing-routes.js";
+import { createHostedCollectionMembership } from "../../collection-policy.js";
+import { revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
 import { registerPeopleRoutes } from "../account/people-routes.js";
 import { collectionLogTokenDigest, registerCollectionLogTokenRoute } from "./collection-log-token.js";
 import { cloudCopyCreateDigest, cloudCopyJoinDigest, registerCloudCopyRoutes } from "./cloud-copy-bootstrap.js";
-import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
+import { createServiceCloudCopy } from "./service-cloud-copy.js";
+import { registerMigrationProviderRoutes } from "./migration-provider.js";
+import { currentAccount } from "./bootstrap-common.js";
+import { setCohortFrozen } from "./migration-rollout.js";
+import { clientFingerprint, deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { collectionDirectory } from "./hosted-routes.js";
 import { LogServiceClient } from "./log-service-client.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./policy-keys.js";
@@ -22,6 +30,7 @@ const field = (value: Decoded, key: number) => value instanceof Map ? value.get(
 const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
 const rawX = () => (generateKeyPairSync("x25519").publicKey.export({ format: "der", type: "spki" }) as Buffer).subarray(-32);
 const ZERO_ACCOUNT = "00".repeat(16);
+const ENROLMENT_SQL = "SELECT id FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> jsonb_build_array(jsonb_build_object('op','device-enrol','device',$2::uuid::text))";
 const tokens = { hosted: "h".repeat(40), escrow: "e".repeat(40), hostedOut: "H".repeat(40), escrowOut: "E".repeat(40) };
 
 describe("cloud-copy bootstrap configuration", () => {
@@ -158,7 +167,10 @@ describePg("cloud-copy bootstrap", () => {
     db = await createDatabase(url.toString());
     emitter = new PolicyEmitter(db, client, loadPolicySigner(config, Date.now()));
     await app.register(cookie);
+    registerErrorHandler(app);
+    registerConnectorPairingRoutes(app,{db,publicUrl:"https://connect.test",installationDevices:true,installationEnvironment:"lab",cloudCopy:{db,next:config,emitter,log:client,fetchImpl:deployments.fetch}});
     registerCloudCopyRoutes(app, { db, next: config, emitter, log: client, fetchImpl: deployments.fetch });
+    registerMigrationProviderRoutes(app, { db, token: "synthetic-migration-target-token", bootstrap: { next: config, emitter, log: client, fetchImpl: deployments.fetch } });
     registerCollectionLogTokenRoute(app,{db,log:client});
     registerPeopleRoutes(app,{db,issuer:"https://identity.test",publicUrl:"https://connect.test"});
   }, 60_000);
@@ -192,6 +204,135 @@ describePg("cloud-copy bootstrap", () => {
   }
   const create = (who: Who, payload: unknown) => app.inject({ method: "POST", url: "/v1/next/collections/cloud-copy", headers: who.headers, payload });
   const registered = async (collection: string) => (await db.query("SELECT 1 FROM next_collections WHERE collection_id = $1", [collection])).rows.length === 1;
+
+  async function migration() {
+    const who = await identity(), collection = randomUUID(), cohort = `target-${randomUUID().slice(0, 8)}`;
+    const owner = who.connector.user_id;
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [owner]);
+    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Legacy source','mdbase')", [collection, owner]);
+    await db.query("INSERT INTO next_migration_cohorts(name,released_at,frozen_at) VALUES($1,now(),now())", [cohort]);
+    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort,started_at) VALUES($1,$2,now())", [owner, cohort]);
+    const request = (payload: unknown = {}, credential = "synthetic-migration-target-token") => app.inject({
+      method: "POST", url: `/internal/v1/next/migration/collections/${collection}/target`, headers: { authorization: `Bearer ${credential}` }, payload
+    });
+    return { owner, collection, request };
+  }
+  it("composes canonical SHADOW metadata for a started suspended legacy owner, never native readiness", async () => {
+    const f = await migration(); await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [f.owner]);
+    const response = await f.request(); expect(response.statusCode, response.body).toBe(200);
+    const result = response.json(); expect(result).toMatchObject({ collection_id: f.collection, owner_account: f.owner, first_member: "hosted", head: { seq: 1 } });
+    expect(result).not.toHaveProperty("verified"); expect(result).not.toHaveProperty("ready");
+    expect(result).not.toHaveProperty("device"); expect(result).not.toHaveProperty("rekey_recipients");
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect((await db.query("SELECT runtime FROM next_collections WHERE collection_id=$1", [f.collection])).rows).toEqual([{ runtime: "shadow" }]);
+    expect((await db.query("SELECT account_backend,suspended_at FROM users WHERE id=$1", [f.owner])).rows[0])
+      .toMatchObject({ account_backend: "legacy", suspended_at: expect.any(Date) });
+    const calls = deployments.calls;
+    expect((await f.request()).json()).toEqual(result); expect(deployments.calls).toBe(calls);
+    for (const service of result.service_devices) {
+      expect(response.body).not.toContain(deployments.devices.get(`${service.kind}/${f.collection}`)!.wrapped_keys);
+    }
+  });
+  it("refuses ordinary credentials/caller runtime/owner/readiness facts before generation", async () => {
+    const f = await migration(), calls = deployments.calls;
+    for (const credential of ["session", "app", "hosted-service", ""]) expect((await f.request({}, credential)).statusCode).toBe(401);
+    for (const body of [{ runtime: "next" }, { owner: f.owner }, { verified: true }, { collection: f.collection }]) {
+      expect((await f.request(body)).statusCode).toBe(400);
+    }
+    expect(deployments.calls).toBe(calls); expect(await registered(f.collection)).toBe(false);
+  });
+  for (const boundary of ["before", "generation", "readback"] as const) {
+    it.each(["unstarted", "claim-microsecond", "terminal", "quarantine", "transfer", "backend-flip", "deletion-floor"])(
+      `refuses changed target claims at ${boundary}: %s`, async change => {
+        const f = await migration();
+        const mutate = async () => {
+          if (change === "unstarted") await db.query("UPDATE next_migration_cohort_members SET started_at=NULL WHERE account_id=$1", [f.owner]);
+          if (change === "claim-microsecond") await db.query("UPDATE next_migration_cohort_members SET started_at=started_at+interval '1 microsecond' WHERE account_id=$1", [f.owner]);
+          if (change === "terminal") await db.query("UPDATE next_migration_cohort_members SET terminal_excluded_at=now() WHERE account_id=$1", [f.owner]);
+          if (change === "quarantine") await db.query("UPDATE hosted_collections SET quarantined_at=now() WHERE id=$1", [f.collection]);
+          if (change === "transfer") await db.query("UPDATE hosted_collections SET authority_state='transferred' WHERE id=$1", [f.collection]);
+          if (change === "backend-flip") await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [f.owner]);
+          if (change === "deletion-floor") await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [f.collection, randomUUID()]);
+        };
+        if (boundary === "before") await mutate();
+        if (boundary === "generation") deployments.during = mutate;
+        if (boundary === "readback") log.onRead = mutate;
+        const response = await f.request();
+        expect(response.statusCode, response.body).toBe(boundary === "before" && change === "claim-microsecond" ? 200 : 409);
+        if (boundary === "generation") expect(await registered(f.collection)).toBe(false);
+      });
+  }
+
+  async function nativePortal(requestedCreate=true) {
+    const who=await identity();
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1",[who.connector.user_id]);
+    const headers=await session(who.connector.user_id);
+    const original={app_id:"5cdfa020-c201-4da8-845a-f2cc9969eade",request_id:randomUUID(),pairing_secret:randomToken("pair"),installation_id:randomUUID(),device_id:randomUUID(),kind:"app-runtime",requested_create_collections:requestedCreate};
+    const started=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{origin:"https://lab.tasknotes-app.pages.dev"},payload:{installation:original}});
+    expect(started.statusCode).toBe(201);
+    const base=`/v1/pairing-requests/${original.request_id}`,bearer={authorization:`Bearer ${original.pairing_secret}`};
+    expect((await app.inject({method:"POST",url:`${base}/select-account`,headers})).statusCode).toBe(200);
+    const selected=(await app.inject({method:"POST",url:`${base}/exchange`,headers:bearer})).json();
+    const key=generateKeyPairSync("ed25519").privateKey,signPk=ed25519RawPublicKey(key),kemPk=rawX(),noisePk=rawX();
+    const proof={sign_pk:hex(signPk),kem_pk:hex(kemPk),noise_pk:hex(noisePk),sig:hex(sign(null,deviceRegistrationDigest({challenge:Buffer.from(selected.challenge,"hex"),connectorId:selected.connector_id,deviceId:original.device_id,signPk,kemPk,noisePk}),key))};
+    expect((await app.inject({method:"POST",url:`${base}/attest`,headers:bearer,payload:proof})).statusCode).toBe(200);
+    return {who,headers,original,base,bearer,fingerprint:clientFingerprint(Buffer.from(signPk))};
+  }
+  const named=(p:Awaited<ReturnType<typeof nativePortal>>,display_name:unknown)=>app.inject({method:"POST",url:`${p.base}/collections`,headers:p.headers,payload:{display_name}});
+  const picked=(p:Awaited<ReturnType<typeof nativePortal>>,collection:string)=>app.inject({method:"POST",url:`${p.base}/approve`,headers:p.headers,payload:{fingerprint:p.fingerprint,collection_ids:[collection],selected_collection_id:collection}});
+  const nativeReceipt=(p:Awaited<ReturnType<typeof nativePortal>>)=>app.inject({method:"POST",url:`${p.base}/exchange`,headers:p.bearer});
+
+  it("uses the canonical creator for one named portal collection and exact final creation provenance",async()=>{
+    const p=await nativePortal(),created=await named(p," My tasks ");
+    expect(created.statusCode).toBe(200);
+    const {collection_id,display_name}=created.json(); expect(display_name).toBe("My tasks");
+    const generated=deployments.calls;
+    expect((await named(p,"My tasks")).json()).toEqual(created.json());
+    expect(deployments.calls).toBe(generated);
+    const state=(await app.inject({method:"GET",url:p.base,headers:p.headers})).json().pairing;
+    expect(state).toMatchObject({account_selection_confirmed:true,creation:{collection_id,display_name:"My tasks",completed:true}});
+    expect(state.collections).toContainEqual(expect.objectContaining({collection_id,display_name:"My tasks"}));
+    expect((await db.query("SELECT 1 FROM next_devices WHERE id=$1",[p.original.device_id])).rows).toEqual([]);
+    expect((await picked(p,collection_id)).statusCode).toBe(200);
+    const receipt=(await nativeReceipt(p)).json();
+    expect(receipt).toMatchObject({status:"paired",request_id:p.original.request_id,account_selection_confirmed:true,selected_collection_id:collection_id,created_collection_ids:[collection_id],collection_ids:[collection_id]});
+    const replay=(await nativeReceipt(p)).json();
+    expect(replay.selected_collection_id).toBe(receipt.selected_collection_id); expect(replay.created_collection_ids).toEqual(receipt.created_collection_ids);
+    expect(tokenHash(replay.token)).toBe(tokenHash(receipt.token));
+    const next={...p.original,request_id:randomUUID(),pairing_secret:randomToken("pair"),reconsent:true,requested_create_collections:false};
+    expect((await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{origin:"https://lab.tasknotes-app.pages.dev",authorization:`Bearer ${receipt.token}`},payload:{installation:next}})).statusCode).toBe(201);
+    const base=`/v1/pairing-requests/${next.request_id}`;
+    expect((await app.inject({method:"POST",url:`${base}/select-account`,headers:p.headers})).statusCode).toBe(200);
+    expect((await app.inject({method:"POST",url:`${base}/approve`,headers:p.headers,payload:{fingerprint:p.fingerprint,collection_ids:[],selected_collection_id:collection_id}})).statusCode).toBe(200);
+    const additive=(await app.inject({method:"POST",url:`${base}/exchange`,headers:{authorization:`Bearer ${next.pairing_secret}`}})).json();
+    expect(additive).toMatchObject({status:"scope_updated",request_id:next.request_id,selected_collection_id:collection_id,created_collection_ids:[],added_collection_ids:[]});
+  });
+  it("retains one original named target through a failed canonical creation and explicit same-target retry",async()=>{
+    const p=await nativePortal(); deployments.failing="down";
+    try {expect((await named(p,"Work journal")).statusCode).toBe(503);} finally {deployments.failing=undefined;}
+    const intent=(await db.query("SELECT collection_id,display_name,completed_at FROM installation_pairing_collection_creations WHERE pairing_id=$1",[p.original.request_id])).rows[0];
+    expect(intent.completed_at).toBeNull();
+    const calls=deployments.calls;
+    expect((await named(p,"Replacement name")).statusCode).toBe(409); expect(deployments.calls).toBe(calls);
+    const completed=await named(p,"Work journal");expect(completed.statusCode).toBe(200);expect(completed.json().collection_id).toBe(intent.collection_id);
+  });
+  it.each(["session","request"])("rechecks %s withdrawal after service generation without publishing or completing creation",async withdrawal=>{
+    const p=await nativePortal();
+    deployments.during=async()=>{await db.query(withdrawal==="session"?"UPDATE sessions SET revoked_at=now() WHERE user_id=$1":"UPDATE pairing_requests SET revoked_at=now() WHERE id=$1",[withdrawal==="session"?p.who.connector.user_id:p.original.request_id]);};
+    const result=await named(p,"Interrupted collection");expect(result.statusCode).toBe(withdrawal==="session"?403:404);
+    const intent=(await db.query("SELECT collection_id,completed_at FROM installation_pairing_collection_creations WHERE pairing_id=$1",[p.original.request_id])).rows[0];
+    expect(intent.completed_at).toBeNull();expect(await registered(intent.collection_id)).toBe(false);
+    expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1",[intent.collection_id])).rows).toEqual([]);
+  });
+  it("refuses invalid names, a foreign account and undeclared creation before service work",async()=>{
+    const p=await nativePortal(),before=deployments.calls;
+    for(const name of [null,7,"", "Bad\nname"]) expect((await named(p,name)).statusCode).toBe(400);
+    const foreign=await identity(),headers=await session(foreign.connector.user_id);
+    const denied=await app.inject({method:"POST",url:`${p.base}/collections`,headers,payload:{display_name:"Foreign"}});expect(denied.statusCode).toBeGreaterThanOrEqual(400);
+    const noCreate=await nativePortal(false);expect((await named(noCreate,"Undeclared")).statusCode).toBe(403);
+    expect(deployments.calls).toBe(before);
+    expect((await db.query("SELECT 1 FROM installation_pairing_collection_creations WHERE pairing_id=ANY($1::uuid[])",[[p.original.request_id,noCreate.original.request_id]])).rows).toEqual([]);
+  });
 
   it("enrols the owner's device and both service devices in a cloud-copy genesis", async () => {
     const who = await identity(); const collection = randomUUID();
@@ -449,6 +590,61 @@ describePg("cloud-copy bootstrap", () => {
     expect(again.json().enrolled_at).toBe(2);
   });
 
+  it.each(["viewer", "editor"] as const)("joins an ordinary invited %s only after acknowledged membership and denies queued removal", async role => {
+    const owner = await identity(), member = await identity(), collection = randomUUID();
+    await db.query("UPDATE users SET account_backend='next' WHERE id=ANY($1::uuid[])", [[owner.connector.user_id, member.connector.user_id]]);
+    expect((await serviceCreate(await session(owner.connector.user_id), collection)).statusCode).toBe(200);
+    expect((await db.query("SELECT id FROM hosted_collections WHERE id=$1", [collection])).rows).toEqual([]);
+    const membership = await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner.connector.user_id, userId: member.connector.user_id, role });
+    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(409);
+    expect((await db.query(ENROLMENT_SQL, [collection, member.device])).rows).toEqual([]);
+    // Membership permits JOIN, never replacing the owner through CREATE.
+    expect((await create(member, await proof(member, collection))).statusCode).toBe(409);
+    await emitter.drainCollection(collection);
+    const joined = await join(member, collection, await joinProof(member, collection));
+    expect(joined.statusCode, joined.body).toBe(200);
+    expect(joined.json()).toMatchObject({ collection_id: collection, enrolled_at: 3, genesis: { seq: 1 } });
+    const token = decodeCbor(Buffer.from(joined.json().device.token.split(".")[0], "hex"));
+    expect(hex(field(token, 1) as Uint8Array)).toBe(member.device.replaceAll("-", ""));
+    const enrolled = await db.query(ENROLMENT_SQL, [collection, member.device]);
+    expect(enrolled.rows).toHaveLength(1);
+    await revokeHostedCollectionMembership(db, { collectionId: collection, actorUserId: owner.connector.user_id, membershipId: membership.membershipId });
+    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(409);
+    await emitter.drainCollection(collection);
+    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(409);
+    expect((await db.query(ENROLMENT_SQL, [collection, member.device])).rows).toHaveLength(1);
+    await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner.connector.user_id, userId: member.connector.user_id, role });
+    await emitter.drainCollection(collection);
+    const oldDevice = await join(member, collection, await joinProof(member, collection));
+    expect(oldDevice.statusCode, oldDevice.body).toBe(409);
+    expect(oldDevice.json().error.code).toBe("device_revoked");
+    const fresh = await identity(member.connector.user_id);
+    const freshJoin = await join(fresh, collection, await joinProof(fresh, collection));
+    expect(freshJoin.statusCode, freshJoin.body).toBe(200);
+  });
+
+  it("mints no invited-member token when removal wins during join readback", async () => {
+    const owner = await identity(), member = await identity(), collection = randomUUID();
+    await db.query("UPDATE users SET account_backend='next' WHERE id=ANY($1::uuid[])", [[owner.connector.user_id, member.connector.user_id]]);
+    expect((await serviceCreate(await session(owner.connector.user_id), collection)).statusCode).toBe(200);
+    const membership = await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner.connector.user_id, userId: member.connector.user_id, role: "editor" });
+    await emitter.drainCollection(collection);
+    log.onRead = () => revokeHostedCollectionMembership(db, { collectionId: collection, actorUserId: owner.connector.user_id, membershipId: membership.membershipId }).then(() => undefined);
+    const joined = await join(member, collection, await joinProof(member, collection));
+    expect(joined.statusCode, joined.body).toBe(409);
+    expect(joined.body).not.toContain("token");
+  });
+
+  it("does not enrol into a collection with a permanent deletion fact", async () => {
+    const owner = await identity(), collection = randomUUID();
+    expect((await serviceCreate(await session(owner.connector.user_id), collection)).statusCode).toBe(200);
+    await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [collection, randomUUID()]);
+    const joined = await join(owner, collection, await joinProof(owner, collection));
+    expect(joined.statusCode, joined.body).toBe(409);
+    expect(joined.json().error.code).toBe("collection_deleted");
+    expect((await db.query(ENROLMENT_SQL, [collection, owner.device])).rows).toEqual([]);
+  });
+
   it("never enrols a device into a private collection, someone else's, or one that left sync", async () => {
     const who = await identity();
     const priv = randomUUID();
@@ -583,14 +779,15 @@ describePg("cloud-copy bootstrap", () => {
     expect((await people(who,collection)).statusCode).toBe(403);expect((await refresh(who,collection)).statusCode).toBe(403);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(403);
     expect((await listed(who)).json().collections).toEqual([]); // historical enrolment never widens scope
   });
-  it("refuses pending member additions/removals and owner suspension; ordinary non-owner daemons remain owner-only",async()=>{
+  it("refuses pending additions/removals and suspension while admitting acknowledged ordinary members",async()=>{
     const owner=await identity(),who=await installation(),collection=randomUUID();expect((await serviceCreate(await session(owner.connector.user_id),collection)).statusCode).toBe(200);await approveScope(who,collection);
     await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"editor"}],false);
     expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(409);
     await emitter.drainCollection(collection);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(200);
-    const daemon=await identity(who.connector.user_id);expect((await join(daemon,collection,await joinProof(daemon,collection))).statusCode).toBe(409);
+    const daemon=await identity(who.connector.user_id);expect((await join(daemon,collection,await joinProof(daemon,collection))).statusCode).toBe(200);
     await policy(collection,[{op:"member-remove",account:who.connector.user_id}],false);
     expect((await refresh(who,collection)).statusCode).toBe(409);expect((await people(who,collection)).statusCode).toBe(409);expect((await listed(who)).json().collections).toEqual([]);
+    expect((await join(daemon,collection,await joinProof(daemon,collection))).statusCode).toBe(409);
     await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"editor"}]);
     await db.query("UPDATE users SET suspended_at=now() WHERE id=$1",[owner.connector.user_id]);
     expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(403);expect((await people(who,collection)).statusCode).toBe(403);expect((await refresh(who,collection)).statusCode).toBe(403);expect((await listed(who)).json().collections).toEqual([]);
@@ -627,6 +824,60 @@ describePg("cloud-copy bootstrap", () => {
     await approveScope(who,collection);
     log.onRead=async()=>{await policy(collection,[{op:"member-remove",account:who.connector.user_id}],false);};
     const joined=await join(who,collection,await joinProof(who,collection));expect(joined.statusCode,joined.body).toBe(409);expect(joined.body).not.toContain("token");
+  });
+  it("shares service generation/outbox for internal SHADOW and keeps the immutable tuple on retry", async () => {
+    const who = await identity(), collection = randomUUID();
+    const owner = who.connector.user_id;
+    const options = { db, next: config, emitter, log: client, fetchImpl: deployments.fetch };
+    let checks = 0;
+    const input = { collection, owner, runtime: "shadow" as const, displayName: "Migration shadow",
+      current: async (connection: Parameters<typeof currentAccount>[0]) => { checks++; await currentAccount(connection, owner); } };
+    const first = await createServiceCloudCopy(options, input);
+    const calls = deployments.calls;
+    const retry = await createServiceCloudCopy(options, { ...input, displayName: "Retry must not rename" });
+    expect(retry.service_devices).toEqual(first.service_devices); expect(retry.genesis).toEqual(first.genesis);
+    expect(deployments.calls).toBe(calls); expect(checks).toBeGreaterThanOrEqual(8);
+    expect((await db.query("SELECT runtime,display_name FROM next_collections WHERE collection_id=$1", [collection])).rows[0])
+      .toEqual({ runtime: "shadow", display_name: "Migration shadow" });
+    expect((await db.query("SELECT account_backend FROM users WHERE id=$1", [owner])).rows[0]).toEqual({ account_backend: "legacy" });
+    expect(first).not.toHaveProperty("verified"); expect(first).not.toHaveProperty("ready");
+    expect(JSON.stringify(first)).not.toContain("wrapped_keys");
+    const publicRetry = await serviceCreate(await session(owner), collection);
+    expect(publicRetry.statusCode, publicRetry.body).toBe(409); expect(deployments.calls).toBe(calls);
+    await expect(createServiceCloudCopy(options, { ...input, runtime: "next" })).rejects.toMatchObject({ code: "collection_exists" });
+    await db.query("UPDATE next_collections SET root_key_id=$2 WHERE collection_id=$1", [collection, Buffer.alloc(32, 9)]);
+    await expect(createServiceCloudCopy(options, input)).rejects.toMatchObject({ code: "collection_exists" });
+    expect(deployments.calls).toBe(calls);
+  });
+  it("denies public new service creation while legacy topology is frozen before generating any keys", async () => {
+    const who = await identity(), owner = who.connector.user_id, cohort = `bootstrap-${randomUUID().slice(0, 8)}`;
+    await db.query("INSERT INTO next_migration_cohorts(name) VALUES($1)", [cohort]);
+    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [owner, cohort]);
+    await setCohortFrozen(db, cohort, true, "synthetic capture", "isolated-pg");
+    const calls = deployments.calls, collection = randomUUID();
+    const result = await serviceCreate(await session(owner), collection);
+    expect(result.statusCode, result.body).toBe(409); expect(deployments.calls).toBe(calls); expect(await registered(collection)).toBe(false);
+  });
+  it.each(["before", "during-generation"])("honors permanent deletion floors at %s", async boundary => {
+    const who = await identity(), owner = who.connector.user_id, collection = randomUUID();
+    const deleted = () => db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [collection, randomUUID()]).then(() => undefined);
+    if (boundary === "before") await deleted(); else deployments.during = deleted;
+    const calls = deployments.calls;
+    const result = await serviceCreate(await session(owner), collection);
+    expect(result.statusCode, result.body).toBe(409); expect(result.json().error.code).toBe("collection_deleted");
+    expect(await registered(collection)).toBe(false);
+    if (boundary === "before") expect(deployments.calls).toBe(calls);
+  });
+  it("refuses deletion during genesis readback before owner-device token or service metadata publication", async () => {
+    const who = await identity();
+    for (const mode of ["service", "device"]) {
+      const collection = randomUUID();
+      log.onRead = () => db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [collection, randomUUID()]).then(() => undefined);
+      const result = mode === "service" ? await serviceCreate(await session(who.connector.user_id), collection)
+        : await create(who, await proof(who, collection));
+      expect(result.statusCode, result.body).toBe(409);
+      expect(result.body).not.toContain('"token"'); expect(result.body).not.toContain('"service_devices"');
+    }
   });
   it("rechecks the session after generation: a sign-out or session-epoch bump refuses", async () => {
     const who = await identity();

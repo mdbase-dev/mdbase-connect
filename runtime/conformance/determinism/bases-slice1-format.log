@@ -1,0 +1,135 @@
+# Independent upstream-source JS numeric/English-UTC Moment values + explicit unqualified precision/token/overflow refusals
+{"op":"bases_slice1","expression":"(0).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.1).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.1).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.1).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.1).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.1).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.1).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.1).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.1).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.5).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.5).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.5).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.5).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.5).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.5).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.5).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.5).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.5).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.5).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.5).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.5).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.5).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.5).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.5).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.5).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(2.5).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(2.5).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(2.5).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(2.5).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-2.5).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-2.5).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-2.5).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-2.5).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.49999999999999994).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.49999999999999994).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.49999999999999994).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.49999999999999994).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.5000000000000001).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.5000000000000001).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.5000000000000001).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(0.5000000000000001).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.5000000000000001).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.5000000000000001).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.5000000000000001).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-0.5000000000000001).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.4999999999999998).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.4999999999999998).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.4999999999999998).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.4999999999999998).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.5000000000000002).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.5000000000000002).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.5000000000000002).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.5000000000000002).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.005).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.005).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.005).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.005).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.275).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.275).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.275).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.275).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.25).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.25).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.25).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.25).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1234.5678).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1234.5678).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1234.5678).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1234.5678).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(5e-324).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(5e-324).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(5e-324).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(5e-324).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-5e-324).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-5e-324).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-5e-324).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-5e-324).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(4503599627370496).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(4503599627370496).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(4503599627370496).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(4503599627370496).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(9007199254740992).round(0)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(9007199254740992).round(1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(9007199254740992).round(2)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(9007199254740992).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(-1.5).round()","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.25).round(\"1\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.25).round(null)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.25).round(false)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"number(duration(\"1h\"))","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-07\").format(\"ddd MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-08\").format(\"ddd MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-09\").format(\"ddd MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-10\").format(\"ddd MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-11\").format(\"ddd MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-12\").format(\"ddd MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-13\").format(\"ddd MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-01-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-02-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-03-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-04-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-05-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-07-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-08-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-09-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-10-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-11-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-12-01\").format(\"MMM D\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"0001-01-01\").format(\"ddd MMM D YYYY\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"1900-02-28\").format(\"ddd MMM D YYYY\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2000-02-29\").format(\"ddd MMM D YYYY\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-12-31\").format(\"ddd MMM D YYYY\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"9999-12-31\").format(\"ddd MMM D YYYY\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-10\").format(\"[ddd] ddd YYYY-MM-DD\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-10\").format(\"MMM D [MMM]\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.25).round(-1)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.25).round(-4)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.25).round(-5)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.25).round(0.5)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.25).round(16)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"(1.7976931348623157e308).round(15)","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-10\").format(\"dddd\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-10\").format(\"MMMM\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-10\").format(\"DDD\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-10\").format(\"DDDD\")","timezone":"UTC","now_ms":1700000000000}
+{"op":"bases_slice1","expression":"date(\"2026-06-10\").format(\"SSS\")","timezone":"UTC","now_ms":1700000000000}

@@ -1,0 +1,25 @@
+{
+  "_type": "SyncStatus",
+  "mode": "Synced",
+  "confirmed_through": 1,
+  "head_known": 44,
+  "pending": 3,
+  "oldest_pending": 1791100700000,
+  "holds": 1,
+  "unresolved": 2,
+  "connection": "Online",
+  "incidents": [
+    {
+      "_type": "Incident",
+      "kind": "VoidedItems",
+      "details": 1
+    }
+  ],
+  "confirmed_head": {
+    "_type": "ConfirmedHead",
+    "seq": 1,
+    "chain": "h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4'",
+    "policy_generation": "h'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1'",
+    "catalog_generation": "h'cacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacaca'"
+  }
+}

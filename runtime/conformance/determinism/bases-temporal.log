@@ -1,0 +1,47 @@
+# Pure temporal helper witness; copied original oracle values plus explicit boundary expectations.
+{"op":"bases_temporal","action":"number","timezone":"Australia/Melbourne","date":"1970-01-02"}
+{"op":"bases_temporal","action":"parse","timezone":"Australia/Melbourne","date":"2026-06-10"}
+{"op":"bases_temporal","action":"parse","timezone":"Australia/Melbourne","date":"2026-06-10 12:34:56"}
+{"op":"bases_temporal","action":"format","timezone":"Australia/Melbourne","date":"2026-06-10","pattern":"YYYY-MM-DD"}
+{"op":"bases_temporal","action":"date","timezone":"Australia/Melbourne","date":"2026-06-10 12:34:56"}
+{"op":"bases_temporal","action":"format","timezone":"Australia/Melbourne","date":"2026-06-10 12:34:56","pattern":"HH:mm:ss"}
+{"op":"bases_temporal","action":"property","timezone":"Australia/Melbourne","date":"2026-06-10 12:34:56","property":"year"}
+{"op":"bases_temporal","action":"property","timezone":"Australia/Melbourne","date":"2026-06-10 12:34:56","property":"month"}
+{"op":"bases_temporal","action":"property","timezone":"Australia/Melbourne","date":"2026-06-10 12:34:56","property":"day"}
+{"op":"bases_temporal","action":"property","timezone":"Australia/Melbourne","date":"2026-06-10 12:34:56","property":"hour"}
+{"op":"bases_temporal","action":"property","timezone":"Australia/Melbourne","date":"2026-06-10 12:34:56","property":"minute"}
+{"op":"bases_temporal","action":"property","timezone":"Australia/Melbourne","date":"2026-06-10 12:34:56","property":"second"}
+{"op":"bases_temporal","action":"today","timezone":"Australia/Melbourne","date":"2026-06-10 12:34:56","now_ms":1781075828000}
+{"op":"bases_temporal","action":"now","timezone":"Australia/Melbourne","date":"2026-06-10 12:34:56","now_ms":1781075828000}
+{"op":"bases_temporal","action":"months","timezone":"Australia/Melbourne","date":"2026-12-01","amount":1}
+{"op":"bases_temporal","action":"millis","timezone":"Australia/Melbourne","date":"2026-06-10 12:00:00","amount":86400000}
+{"op":"bases_temporal","action":"millis","timezone":"Australia/Melbourne","date":"2026-06-10 12:00:00","amount":-7200000}
+{"op":"bases_temporal","action":"months","timezone":"UTC","date":"2024-01-31","amount":1}
+{"op":"bases_temporal","action":"months","timezone":"UTC","date":"2025-01-31","amount":1}
+{"op":"bases_temporal","action":"months","timezone":"UTC","date":"2024-03-31","amount":-1}
+{"op":"bases_temporal","action":"format","timezone":"UTC","date":"2016-01-01","pattern":"WW"}
+{"op":"bases_temporal","action":"format","timezone":"UTC","date":"2024-12-30","pattern":"WW"}
+{"op":"bases_temporal","action":"format","timezone":"UTC","date":"2026-06-10","pattern":"WW"}
+{"op":"bases_temporal","action":"format","timezone":"UTC","date":"2026-06-10 12:34:56","pattern":"[YYYY] YYYY/MM/DD [at] HH:mm:ss"}
+{"op":"bases_temporal","action":"parse","timezone":"UTC","date":"2026-06-10T12:34:56.123+10:00"}
+{"op":"bases_temporal","action":"property","timezone":"UTC","date":"2026-06-10T12:34:56.123+10:00","property":"millisecond"}
+{"op":"bases_temporal","action":"parse","timezone":"UTC","date":"1969-12-31T23:59:59.999Z"}
+{"op":"bases_temporal","action":"number","timezone":"+05:30","date":"1970-01-01"}
+{"op":"bases_temporal","action":"millis","timezone":"Australia/Melbourne","date":"2026-10-03 12:00:00","amount":86400000}
+{"op":"bases_temporal","action":"parse","timezone":"Australia/Melbourne","date":"2026-04-05 02:30:00"}
+{"op":"bases_temporal","action":"parse","timezone":"Australia/Melbourne","date":"2026-10-04 02:30:00"}
+{"op":"bases_temporal","action":"parse","timezone":"UTC","date":"not-a-date"}
+{"op":"bases_temporal","action":"parse","timezone":"UTC","date":"2025-02-29"}
+{"op":"bases_temporal","action":"parse","timezone":"UTC","date":"0000-01-01"}
+{"op":"bases_temporal","action":"parse","timezone":"UTC","date":"2026-01-01T00:00:00.000001Z"}
+{"op":"bases_temporal","action":"parse","timezone":"","date":"2026-06-10"}
+{"op":"bases_temporal","action":"parse","timezone":"local","date":"2026-06-10"}
+{"op":"bases_temporal","action":"parse","timezone":"Not/AZone","date":"2026-06-10"}
+{"op":"bases_temporal","action":"parse","timezone":"+24:00","date":"2026-06-10"}
+{"op":"bases_temporal","action":"format","timezone":"UTC","date":"2026-06-10","pattern":"ddd"}
+{"op":"bases_temporal","action":"format","timezone":"UTC","date":"2026-06-10","pattern":"MMM D"}
+{"op":"bases_temporal","action":"format","timezone":"UTC","date":"2026-06-10","pattern":"%Y"}
+{"op":"bases_temporal","action":"format","timezone":"UTC","date":"2026-06-10","pattern":"dd"}
+{"op":"bases_temporal","action":"format","timezone":"UTC","date":"2026-06-10","pattern":"[bad"}
+{"op":"bases_temporal","action":"parse","timezone":"UTC","date":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+{"op":"bases_temporal","action":"format","timezone":"UTC","date":"2026-06-10","pattern":"---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------"}

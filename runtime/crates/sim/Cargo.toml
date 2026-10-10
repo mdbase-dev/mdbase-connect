@@ -1,0 +1,25 @@
+[package]
+name = "mdbn-sim"
+description = "Deterministic simulator: the real replica, stores and log service under simulated time, network, file systems and crashes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies: any non-tool crate except store-pg and platform-native (the simulator replaces real backends).
+[dependencies]
+mdbn-core.workspace = true
+mdbn-wire.workspace = true
+mdbn-replica = { workspace = true, features = ["testing"] }
+mdbn-store-file.workspace = true
+mdbn-log-service.workspace = true
+# Inflating DEFLATE frames for the plaintext oracle. Pure Rust.
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+
+[dev-dependencies]
+# Actual shared production IK, with seeded caller inputs only in this simulator.
+mdbn-noise = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

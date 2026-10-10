@@ -1,0 +1,12 @@
+/ AttachmentSectionV1 / {
+  / kind / 0: 11 / AttachmentTombstones /,
+  / chunks / 1: [
+    / ChunkRef / {
+      / address / 0: h'a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4',
+      / plain_hash / 1: h'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
+      / rows / 2: 1,
+      / bucket / 3: 0,
+      / plain_size / 4: 256
+    }
+  ]
+}

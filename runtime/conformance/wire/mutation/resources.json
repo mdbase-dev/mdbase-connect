@@ -1,0 +1,29 @@
+{
+  "_type": "Mutation",
+  "id": "h'0192f3a460007abc8def0123456789ab'",
+  "origin": "h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'",
+  "base_seq": 41,
+  "clock": {
+    "_type": "OpClock",
+    "instant": 1791100800000,
+    "tz": "Australia/Melbourne",
+    "local_date": "2026-10-04"
+  },
+  "seed": "h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e'",
+  "source": "Api",
+  "ops": [
+    {
+      "_type": "ResourcePut",
+      "kind": "ResourcePut",
+      "path": "_types/task.md",
+      "doc": "---\nname: task\n---\n",
+      "base_revision": "h'3333333333333333333333333333333333333333333333333333333333333333'"
+    },
+    {
+      "_type": "ResourceDelete",
+      "kind": "ResourceDelete",
+      "path": "_types/old.md"
+    }
+  ],
+  "validated_at": "Error"
+}

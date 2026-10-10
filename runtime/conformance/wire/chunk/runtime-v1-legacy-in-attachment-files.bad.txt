@@ -1,0 +1,1 @@
+legacy Blob rows cannot inhabit AttachmentFiles10

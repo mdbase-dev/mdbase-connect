@@ -1,0 +1,6 @@
+/ Request / {
+  / kind / 0: 0 / Request /,
+  / id / 1: 7,
+  / method / 2: "append",
+  / params / 3: {0: h'4c18af2eb04a4b77b83e493c3695962e', 1: 43, 2: h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4', 3: [h'a10001']}
+}

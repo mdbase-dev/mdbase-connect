@@ -1,0 +1,24 @@
+{
+  // D2 candidate B: the log service as one Durable Object per collection + R2.
+  // Throwaway evaluation Worker. Never route it to a production domain.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mdbase-next-logsvc-eval",
+  "main": "build/worker/shim.mjs",
+  "compatibility_date": "2026-10-04",
+  "build": { "command": "worker-build --release --locked" },
+  "durable_objects": {
+    "bindings": [{ "name": "LOG", "class_name": "LogCollection" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LogCollection"] }],
+  "r2_buckets": [{ "binding": "OBJECTS", "bucket_name": "mdbase-next-logsvc-eval" }],
+  "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "mdbase_next_logsvc_eval" }],
+  // Production config: LOGSVC_ROOT_KEYS, LOGSVC_TOKEN_ISSUERS, LOGSVC_URL_SECRET as
+  // Worker secrets; PUBLIC_BASE as a var. The D2 evaluation ran with
+  //   --var INSECURE_TEST_KEYS:1 --var DEBUG_HOOKS:1 --var TESTKIT_CP:conformance
+  // which enables deterministic test keys and /debug/* (throwaway Workers only).
+  "vars": {
+    "PUBLIC_BASE": "http://127.0.0.1:8787"
+  },
+  "workers_dev": true,
+  "observability": { "enabled": true, "traces": { "enabled": true } }
+}

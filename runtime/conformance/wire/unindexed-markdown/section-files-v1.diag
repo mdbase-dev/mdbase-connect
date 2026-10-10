@@ -1,0 +1,12 @@
+/ UnindexedMarkdownSectionV1 / {
+  / kind / 0: 12 / UnindexedMarkdownFiles /,
+  / chunks / 1: [
+    / ChunkRef / {
+      / address / 0: h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4',
+      / plain_hash / 1: h'c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5',
+      / rows / 2: 1,
+      / bucket / 3: 0,
+      / plain_size / 4: 256
+    }
+  ]
+}

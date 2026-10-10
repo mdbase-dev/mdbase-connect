@@ -1,0 +1,31 @@
+[package]
+name = "mdbn-hosted-worker"
+description = "The hosted replica's engine for the Cloudflare Worker: one Durable Object per collection, the replica in hosted mode over a disposable DO SQLite cache."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# cdylib for wasm32 (hosted.wasm, loaded by services/hosted-worker); rlib for native tests.
+crate-type = ["cdylib", "rlib"]
+
+# Allowed internal dependencies: mdbn-core, mdbn-wire, mdbn-replica, mdbn-store-file,
+# mdbn-noise (the sole WASM consumer of host cryptography: Noise responder sessions),
+# mdbn-migrate-portable (metadata-only legacy path preflight).
+# Portable. Host capabilities (SQL, clock, entropy, zones) are WASM imports.
+[dependencies]
+mdbn-core.workspace = true
+mdbn-wire.workspace = true
+mdbn-replica.workspace = true
+mdbn-store-file.workspace = true
+mdbn-noise.workspace = true
+mdbn-migrate-portable.workspace = true
+zeroize = "1.8"
+
+[dev-dependencies]
+mdbn-replica = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

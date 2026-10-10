@@ -1,0 +1,1 @@
+rule 6: struct keys not ascending

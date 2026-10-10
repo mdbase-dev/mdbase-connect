@@ -1,0 +1,46 @@
+/ ManifestPayload / {
+  / fmt / 0: 1,
+  / seq / 1: 10000,
+  / chain / 2: h'c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5',
+  / state_digest / 3: h'd5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5',
+  / bucket_bits / 4: 8,
+  / sections / 5: [
+    / Section / {
+      / kind / 0: 1 / Resources /,
+      / chunks / 1: [
+        / ChunkRef / {
+          / address / 0: h'0101010101010101010101010101010101010101010101010101010101010101',
+          / plain_hash / 1: h'0202020202020202020202020202020202020202020202020202020202020202',
+          / rows / 2: 3,
+          / bucket / 3: 0,
+          / plain_size / 4: 900
+        }
+      ]
+    },
+    / Section / {
+      / kind / 0: 2 / Index /,
+      / chunks / 1: [
+        / ChunkRef / {
+          / address / 0: h'0303030303030303030303030303030303030303030303030303030303030303',
+          / plain_hash / 1: h'0404040404040404040404040404040404040404040404040404040404040404',
+          / rows / 2: 400,
+          / bucket / 3: 0,
+          / plain_size / 4: 44000
+        }
+      ]
+    },
+    / Section / {
+      / kind / 0: 8 / Receipts /,
+      / chunks / 1: []
+    }
+  ],
+  / horizon / 6: / Horizon / {
+    / seq_floor / 0: 1,
+    / time_floor / 1: 0
+  },
+  / sem / 7: / Version / [/ major / 1, / minor / 0],
+  / record_count / 8: 100000,
+  / file_count / 9: 1234,
+  / previous / 10: h'0606060606060606060606060606060606060606060606060606060606060606',
+  / control_chain / 11: h'0707070707070707070707070707070707070707070707070707070707070707'
+}

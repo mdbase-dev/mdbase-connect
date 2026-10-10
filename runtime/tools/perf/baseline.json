@@ -1,0 +1,32 @@
+{
+  "about": "min iteration / calibration_ms per scenario at 1k notes (mdbn-perf gate). A scenario fails when its ratio exceeds baseline x threshold in two consecutive runs. Regenerate with `mdbn-perf gate --baseline tools/perf/baseline.json --write` on a quiet machine and say why in the PR.",
+  "meta": {
+    "arch": "x86_64",
+    "calibration_ms": 64.952,
+    "cpu": "AMD Ryzen 9 7940HS w/ Radeon 780M Graphics",
+    "debug_build": false,
+    "loadavg_start": 2.22,
+    "os": "linux",
+    "threads": 16
+  },
+  "ratios": {
+    "bases.all_tasks": 0.0222,
+    "bases.kanban_board": 0.0223,
+    "bases.overdue": 0.0224,
+    "bases.today": 0.0228,
+    "native.backlinks_hub": 0.0058,
+    "native.backlinks_random": 0.0029,
+    "native.commit": 0.0421,
+    "native.edit_visible": 0.385,
+    "native.external_edit_rescan": 0.3032,
+    "native.open_cold": 16.3175,
+    "native.open_warm": 1.1576,
+    "native.query_tasks_all": 0.3748,
+    "native.query_tasks_open": 0.2594,
+    "native.search_title": 0.6127,
+    "replica.commit": 0.0003,
+    "replica.edit_visible": 0.0081,
+    "replica.query_tasks_open": 0.1181
+  },
+  "threshold": 2.5
+}

@@ -1,0 +1,109 @@
+{
+  "_type": "Mutation",
+  "id": "h'0192f3a460007abc8def0123456789ab'",
+  "origin": "h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'",
+  "base_seq": 41,
+  "clock": {
+    "_type": "OpClock",
+    "instant": 1791100800000,
+    "tz": "Australia/Melbourne",
+    "local_date": "2026-10-04"
+  },
+  "seed": "h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e'",
+  "source": "Api",
+  "ops": [
+    {
+      "_type": "Update",
+      "kind": "Update",
+      "id": "h'0192f3a45b6c7d8e9f0123456789abcd'",
+      "patch": [
+        ["status", "done"],
+        ["priority", 3],
+        ["estimate", 1.5]
+      ],
+      "unset": [
+        "snoozed"
+      ],
+      "add": [
+        ["tags", [
+          "urgent"
+        ]]
+      ],
+      "remove": [
+        ["tags", [
+          "someday"
+        ]]
+      ],
+      "body_edits": [
+        {"_type": "BodyEdit", "start": 0, "end": 5, "insert": "Agenda"},
+        {"_type": "BodyEdit", "start": 42, "end": 42, "insert": "\n- follow up with Bo"}
+      ],
+      "body_base": "h'38732073f309589131fec63f417896537e63d27fc29fcf7c60d5f47379f0887a'",
+      "base": [
+        {"_type": "BaseField", "key": "status", "observed": "open"},
+        {"_type": "BaseField", "key": "snoozed"}
+      ]
+    },
+    {
+      "_type": "FileAttach",
+      "kind": "FileAttach",
+      "id": "h'0192f3a45b6c7d8e9f01fedcba987654'",
+      "path": "assets/photo.webp",
+      "content": {"_type": "AttachmentContentV1", "version": 1, "reference": {"_type": "AttachmentRefV1", "version": 1, "collection": "h'4c18af2eb04a4b77b83e493c3695962e'", "key_epoch": 3, "attachment_id": "h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1'", "chunk_bytes": 8388608, "manifest_cipher_hash": "h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'"}, "whole_plain_hash": "h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3'", "total_plain_bytes": 9000000},
+      "if_revision": "h'b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3'",
+      "base": "h'b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4'"
+    },
+    {
+      "_type": "FileDelete",
+      "kind": "FileDelete",
+      "id": "h'0192f3a45b6c7d8e9f01fedcba987654'"
+    },
+    {
+      "_type": "UnindexedMarkdownPut",
+      "kind": "UnindexedMarkdownPut",
+      "id": "h'0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e'",
+      "path": "notes/14.md",
+      "payload": {"_type": "UnindexedMarkdownPayloadV1", "discriminator": 2, "profile": 1, "kind": "UnindexedOversizedMarkdown", "content": {"_type": "AttachmentContentV1", "version": 1, "reference": {"_type": "AttachmentRefV1", "version": 1, "collection": "h'4c18af2eb04a4b77b83e493c3695962e'", "key_epoch": 3, "attachment_id": "h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1'", "chunk_bytes": 8388608, "manifest_cipher_hash": "h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'"}, "whole_plain_hash": "h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3'", "total_plain_bytes": 9000000}},
+      "expected": {"_type": "UnindexedMarkdownPayloadV1", "discriminator": 2, "profile": 1, "kind": "UnindexedOversizedMarkdown", "content": {"_type": "AttachmentContentV1", "version": 1, "reference": {"_type": "AttachmentRefV1", "version": 1, "collection": "h'4c18af2eb04a4b77b83e493c3695962e'", "key_epoch": 3, "attachment_id": "h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1'", "chunk_bytes": 8388608, "manifest_cipher_hash": "h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'"}, "whole_plain_hash": "h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3'", "total_plain_bytes": 9000000}}
+    },
+    {
+      "_type": "RecordToUnindexedMarkdown",
+      "kind": "RecordToUnindexedMarkdown",
+      "id": "h'0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f'",
+      "path": "notes/15.md",
+      "payload": {"_type": "UnindexedMarkdownPayloadV1", "discriminator": 2, "profile": 1, "kind": "UnindexedOversizedMarkdown", "content": {"_type": "AttachmentContentV1", "version": 1, "reference": {"_type": "AttachmentRefV1", "version": 1, "collection": "h'4c18af2eb04a4b77b83e493c3695962e'", "key_epoch": 3, "attachment_id": "h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1'", "chunk_bytes": 8388608, "manifest_cipher_hash": "h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'"}, "whole_plain_hash": "h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3'", "total_plain_bytes": 9000000}},
+      "prior_revision": "h'd1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1'"
+    },
+    {
+      "_type": "UnindexedMarkdownToRecord",
+      "kind": "UnindexedMarkdownToRecord",
+      "id": "h'10101010101010101010101010101010'",
+      "path": "notes/16.md",
+      "doc": 0,
+      "prior": {"_type": "UnindexedMarkdownPayloadV1", "discriminator": 2, "profile": 1, "kind": "UnindexedOversizedMarkdown", "content": {"_type": "AttachmentContentV1", "version": 1, "reference": {"_type": "AttachmentRefV1", "version": 1, "collection": "h'4c18af2eb04a4b77b83e493c3695962e'", "key_epoch": 3, "attachment_id": "h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1'", "chunk_bytes": 8388608, "manifest_cipher_hash": "h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'"}, "whole_plain_hash": "h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3'", "total_plain_bytes": 9000000}}
+    },
+    {
+      "_type": "OrdinaryFileToRecord",
+      "kind": "OrdinaryFileToRecord",
+      "id": "h'11111111111111111111111111111111'",
+      "path": "views/existing.base",
+      "doc": "views: []\n",
+      "prior": {
+        "_type": "BlobRef",
+        "plain_hash": "h'96f38c29a06a779a354059c40c74130771b33df5743d2e3c18f9ce1851a17f26'",
+        "size": 10,
+        "blob_id": "h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1'",
+        "id_epoch": 1,
+        "part_size": 8388608
+      }
+    }
+  ],
+  "on_behalf": "h'6f1e2d3c4b5a49688776655443322110'",
+  "conflict_mode": "Record",
+  "validated_at": "Error",
+  "room": {
+    "_type": "RoomCheckpoint",
+    "stream": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'",
+    "state": "h'7777777777777777777777777777777777777777777777777777777777777777'"
+  }
+}

@@ -1,0 +1,5 @@
+/ GetObjectParams / {
+  / collection / 0: h'4c18af2eb04a4b77b83e493c3695962e',
+  / address / 1: h'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
+  / range / 2: / ByteRange / [/ offset / 65552, / len / 65552]
+}

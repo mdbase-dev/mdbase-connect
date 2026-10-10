@@ -6,10 +6,11 @@ mod support;
 mod test_postgres;
 
 use chrono::{Duration, Utc};
-use mdbase_connect_hosted_provider::{app, AppState};
+use mdbase_connect_hosted_provider::{app, AppState, LegacyRollbackRequest};
 use mdbase_connect_protocol::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use sqlx::Row;
 use support::FileLifecycleFixture;
 use test_postgres::DisposablePostgres;
 use uuid::Uuid;
@@ -658,4 +659,557 @@ async fn independent_or_rewritten_revocations_are_never_restored_by_rollback() {
             "{mode}: mirror stays revoked; re-link required"
         );
     }
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_requires_drain_and_refuses_foreign_replica_scope() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let foreign = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    let request = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_mutation_journal
+             (replica_id, request_id, operation_kind, input_schema_version, input_digest,
+              state, process_epoch, lease_owner, lease_expires_at, fencing_generation)
+           VALUES ($1, $2, 'test', 1, '\x00', 'claimed', $3, $3, now() + interval '1 minute', 1)"#,
+    )
+    .bind(mirror)
+    .bind(request)
+    .bind(Uuid::now_v7())
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![mirror]).await;
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_migration_not_drained"
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+    sqlx::query("UPDATE hosted_provider_mutation_journal SET lease_expires_at = now() - interval '1 second' WHERE request_id = $1")
+        .bind(request).execute(&fixture.pool).await.unwrap();
+    let mut wrong = input.clone();
+    wrong.replica_ids.push(mirror_id(&foreign).await);
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &wrong)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    let receipt = fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    assert!(receipt.restored_ids.is_empty()); // this mirror was not migration-revoked
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_replaced_or_deleted_collection_cannot_reuse_the_old_run() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM hosted_provider_collections WHERE id = $1")
+        .bind(id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "hosted_collection_not_found"
+    );
+    fixture
+        .provider
+        .create_collection(input.owner_account_id, id, "mdbase", "Replacement", "UTC")
+        .await
+        .unwrap();
+    fenced(&fixture).await;
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+}
+
+async fn rollback_input(
+    fixture: &FileLifecycleFixture,
+    replica_ids: Vec<Uuid>,
+) -> LegacyRollbackRequest {
+    let row = sqlx::query("SELECT account_id, legacy_migration_id, authority_epoch, head FROM hosted_provider_collections WHERE id = $1")
+        .bind(fixture.collection_id).fetch_one(&fixture.pool).await.unwrap();
+    LegacyRollbackRequest {
+        owner_account_id: row.get::<Option<Uuid>, _>("account_id").unwrap(),
+        provider_migration_id: row.get::<Option<Uuid>, _>("legacy_migration_id").unwrap(),
+        authority_epoch: row.get("authority_epoch"),
+        fixed_head: row.get("head"),
+        driver_id: Uuid::new_v4(),
+        action_id: Uuid::new_v4(),
+        replica_ids,
+    }
+}
+
+async fn fenced(fixture: &FileLifecycleFixture) {
+    fixture
+        .provider
+        .set_legacy_migration_state(fixture.collection_id, "migrating", None, false, &[])
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_restores_owned_ids_and_survives_lost_reply_and_old_writes() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    fenced(&fixture).await;
+    assert_eq!(
+        fixture
+            .provider
+            .revoke_migration_replicas(id, &[mirror])
+            .await
+            .unwrap(),
+        vec![mirror]
+    );
+    let input = rollback_input(&fixture, vec![mirror]).await;
+    let receipt = fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    assert_eq!(receipt.binding, input);
+    assert_eq!(receipt.restored_ids, vec![mirror]);
+    assert_eq!(state_of(&fixture).await, "active");
+    fixture
+        .provider
+        .open_file_upload(id, &fixture.token, upload(), None)
+        .await
+        .unwrap();
+    // Model ordinary old writes advancing the already-reopened source head.
+    sqlx::query("UPDATE hosted_provider_collections SET head = head + 1 WHERE id = $1")
+        .bind(id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let reopened = fixture.provider.clone();
+    assert_eq!(
+        reopened
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap(),
+        receipt
+    );
+    assert_eq!(
+        reopened
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap(),
+        receipt
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_empty_scope_and_missing_lookup_never_infer_success() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_receipt_unknown"
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+    let receipt = fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    assert!(receipt.restored_ids.is_empty());
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap(),
+        receipt
+    );
+
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    fixture
+        .provider
+        .set_legacy_migration_state(fixture.collection_id, "active", None, false, &[])
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(fixture.collection_id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_receipt_unknown"
+    );
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(fixture.collection_id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_source_and_replay_bindings_fail_closed() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    for field in [
+        "owner_account_id",
+        "provider_migration_id",
+        "authority_epoch",
+        "fixed_head",
+    ] {
+        let mut wrong = input.clone();
+        match field {
+            "owner_account_id" => wrong.owner_account_id = Uuid::new_v4(),
+            "provider_migration_id" => wrong.provider_migration_id = Uuid::new_v4(),
+            "authority_epoch" => wrong.authority_epoch += 1,
+            "fixed_head" => wrong.fixed_head += 1,
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            fixture
+                .provider
+                .rollback_legacy_migration(id, &wrong)
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_rollback_binding_conflict",
+            "{field}"
+        );
+        assert_eq!(state_of(&fixture).await, "migrating");
+    }
+    let receipt = fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    for field in ["driver_id", "action_id", "replica_ids"] {
+        let mut wrong = input.clone();
+        match field {
+            "driver_id" => wrong.driver_id = Uuid::new_v4(),
+            "action_id" => wrong.action_id = Uuid::new_v4(),
+            "replica_ids" => wrong.replica_ids.push(Uuid::new_v4()),
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            fixture
+                .provider
+                .legacy_migration_rollback_receipt(id, &wrong)
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_rollback_binding_conflict",
+            "{field}"
+        );
+        assert_eq!(
+            fixture
+                .provider
+                .rollback_legacy_migration(id, &wrong)
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_rollback_binding_conflict",
+            "{field}"
+        );
+    }
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap(),
+        receipt
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_preserves_independent_revocations() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    fenced(&fixture).await;
+    fixture
+        .provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    fixture.provider.revoke_replica(mirror).await.unwrap();
+    let input = rollback_input(&fixture, vec![mirror]).await;
+    let receipt = fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    assert!(receipt.restored_ids.is_empty());
+    let revoked: Option<chrono::DateTime<Utc>> =
+        sqlx::query_scalar("SELECT revoked_at FROM hosted_provider_replicas WHERE id = $1")
+            .bind(mirror)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert!(revoked.is_some());
+    assert!(fixture
+        .provider
+        .open_file_upload(id, &fixture.token, upload(), None)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_insert_failure_rolls_back_restore_and_active() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let first = FileLifecycleFixture::new(database.url()).await;
+    fenced(&first).await;
+    let first_input = rollback_input(&first, vec![]).await;
+    first
+        .provider
+        .rollback_legacy_migration(first.collection_id, &first_input)
+        .await
+        .unwrap();
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    fenced(&fixture).await;
+    fixture
+        .provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    let mut input = rollback_input(&fixture, vec![mirror]).await;
+    input.driver_id = first_input.driver_id;
+    input.action_id = first_input.action_id;
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+    let revoked: Option<chrono::DateTime<Utc>> =
+        sqlx::query_scalar("SELECT revoked_at FROM hosted_provider_replicas WHERE id = $1")
+            .bind(mirror)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert!(revoked.is_some());
+    input.action_id = Uuid::new_v4();
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap()
+            .restored_ids,
+        vec![mirror]
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_is_not_revived_by_a_later_migration_or_reverse_flag() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    fenced(&fixture).await;
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    fixture
+        .provider
+        .set_legacy_migration_state(id, "active", None, false, &[])
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    fixture
+        .provider
+        .set_legacy_migration_state(
+            id,
+            "migrated",
+            Some(Utc::now() + Duration::days(91)),
+            false,
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    assert_eq!(state_of(&fixture).await, "migrated");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_owner_is_checked_after_collection_lock_wait() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    let mut transaction = fixture.pool.begin().await.unwrap();
+    sqlx::query("UPDATE hosted_provider_collections SET account_id = NULL WHERE id = $1")
+        .bind(id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    let provider = fixture.provider.clone();
+    let task = tokio::spawn(async move { provider.rollback_legacy_migration(id, &input).await });
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(!task.is_finished());
+    transaction.commit().await.unwrap();
+    assert_eq!(
+        task.await.unwrap().unwrap_err().code,
+        "legacy_rollback_binding_conflict"
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_http_requires_internal_auth_and_lookup_is_read_only() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let token = "internal-rollback-receipt-test-token-".repeat(2);
+    let state = AppState::new(fixture.provider.clone(), &token).unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/internal/v1/collections/{id}/legacy-migration");
+    for path in ["rollback", "rollback-receipt"] {
+        assert_eq!(
+            client
+                .post(format!("{base}/{path}"))
+                .json(&input)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(
+        client
+            .post(format!("{base}/rollback-receipt"))
+            .bearer_auth(&token)
+            .json(&input)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::NOT_FOUND
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+    let response = client
+        .post(format!("{base}/rollback"))
+        .bearer_auth(&token)
+        .json(&input)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let receipt: Value = response.json().await.unwrap();
+    let response = client
+        .post(format!("{base}/rollback-receipt"))
+        .bearer_auth(&token)
+        .json(&input)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(response.json::<Value>().await.unwrap(), receipt);
+    server.abort();
 }

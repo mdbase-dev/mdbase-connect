@@ -1,0 +1,18 @@
+[package]
+name = "mdbn-conformance"
+description = "Conformance harnesses: the spec fixture runner (with its pending/pass ratchet) and the native side of the determinism replay."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies: mdbn-core, mdbn-wasm (its replay function, run natively). Native only.
+[dependencies]
+mdbn-core.workspace = true
+mdbn-wasm.workspace = true
+serde_json.workspace = true
+yaml-rust2.workspace = true
+
+[lints]
+workspace = true

@@ -126,6 +126,21 @@ export async function refuseRevoked(client: DatabaseConnection, collection: stri
     [collection, JSON.stringify([{ op: "device-revoke", device }])]
   );
   if (revoked.rows.length) throw new CreateError(409, "device_revoked");
+  // Member removal permanently revokes that account's already-enrolled devices.
+  // A later invitation/member-set does not restore the historical device tuple.
+  const removed = await client.query(
+    `SELECT 1 FROM next_policy_outbox enrolled
+     CROSS JOIN LATERAL jsonb_array_elements(enrolled.ops->'ops') WITH ORDINALITY AS e(value, ord)
+     JOIN next_policy_outbox removal ON removal.collection_id = enrolled.collection_id AND removal.id >= enrolled.id
+     CROSS JOIN LATERAL jsonb_array_elements(removal.ops->'ops') WITH ORDINALITY AS r(value, ord)
+     WHERE enrolled.collection_id = $1 AND enrolled.ops->'ops' @> $2::jsonb
+       AND e.value->>'op' = 'device-enrol' AND e.value->>'device' = $3
+       AND r.value->>'op' = 'member-remove' AND r.value->>'account' = e.value->>'account'
+       AND (removal.id > enrolled.id OR r.ord > e.ord)
+     LIMIT 1`,
+    [collection, enrolmentKey(device), device]
+  );
+  if (removed.rows.length) throw new CreateError(409, "device_revoked");
 }
 
 export function refuse(reply: FastifyReply, error: unknown, message: string) {

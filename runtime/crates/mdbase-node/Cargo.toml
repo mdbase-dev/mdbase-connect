@@ -1,0 +1,25 @@
+[package]
+name = "mdbase-node"
+description = "The Node.js addon (napi-rs) behind `mdbase/node`: the mdbase crate's Collection on a dedicated thread, driven by JSON calls."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+# Ships inside the npm `mdbase` package as a prebuilt binary, never on crates.io.
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+# Allowed internal dependencies: mdbase only (the public facade). Native.
+[dependencies]
+mdbase.workspace = true
+napi = { version = "3.14", default-features = false, features = ["napi4"] }
+napi-derive = "3.6"
+serde_json.workspace = true
+
+[build-dependencies]
+napi-build = "2.6"
+
+[lints]
+workspace = true

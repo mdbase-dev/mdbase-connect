@@ -1,0 +1,54 @@
+{
+  "name": "@mdbase-dev/obsidian-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runtime host for Obsidian: vault FilePlatform, dual journal, sqlite-wasm IndexStorage, editor fence, shared runtime registry.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./app-storage": {
+      "types": "./dist/index/appSqliteIndex.d.ts",
+      "import": "./dist/index/appSqliteIndex.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    },
+    "./tasknotes-query": {
+      "types": "./dist/query/tasknotes.d.ts",
+      "import": "./dist/query/tasknotes.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "esbuild": "0.28.2",
+    "fake-indexeddb": "6.2.5",
+    "happy-dom": "20.14.5",
+    "obsidian": "1.12.3",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  },
+  "dependencies": {
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "@sqlite.org/sqlite-wasm": "3.53.4-build2",
+    "obsidian-bases-expression": "0.3.0-rc.4"
+  }
+}

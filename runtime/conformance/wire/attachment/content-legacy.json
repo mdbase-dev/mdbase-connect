@@ -1,0 +1,8 @@
+{
+  "_type": "BlobRef",
+  "plain_hash": "h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1'",
+  "size": 42,
+  "blob_id": "h'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2'",
+  "id_epoch": 2,
+  "part_size": 8388608
+}

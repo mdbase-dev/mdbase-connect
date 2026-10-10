@@ -1,0 +1,51 @@
+name: file-macos
+
+# Real-disk tests of the native file layer on macOS (APFS + non-swap volumes), using
+# standard hosted runner. macOS minutes are expensive: this runs only on pushes to
+# native-platform branches that touch the file layer, and on demand.
+on:
+  workflow_dispatch:
+    inputs:
+      stress_secs:
+        description: "Seconds for the editor race test"
+        default: "10"
+  push:
+    branches: ["ws/file-*"]
+    paths:
+      - "crates/platform-native/**"
+      - "crates/store-file/**"
+      - ".github/workflows/file-macos.yml"
+
+concurrency:
+  group: file-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apfs:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+      - name: Build tests
+        run: cargo test -p mdbn-platform-native -p mdbn-store-file --no-run
+      - name: Tests on APFS
+        env:
+          MDBN_STRESS_SECS: ${{ inputs.stress_secs || '10' }}
+          MDBN_TEST_DIR: ${{ runner.temp }}/file-ws.noindex
+        run: cargo test -p mdbn-platform-native -p mdbn-store-file -- --nocapture
+      - name: Volumes without swap are read-only
+        env:
+          MDBN_TEST_DIR: ${{ runner.temp }}/file-ws.noindex
+        run: |
+          set -eu
+          for fs in "MS-DOS FAT32" ExFAT "HFS+"; do
+            img="$RUNNER_TEMP/vol-$(echo "$fs" | tr -cd 'A-Za-z0-9').dmg"
+            hdiutil create -size 64m -fs "$fs" -volname MDBNVOL -o "$img" >/dev/null
+            mnt=$(hdiutil attach "$img" | awk -F'\t' '/\/Volumes\//{print $NF}')
+            echo "== $fs at $mnt"
+            MDBN_READONLY_DIR="$mnt" cargo test -p mdbn-platform-native --test native probe_volume_without_swap_is_read_only -- --ignored --nocapture
+            hdiutil detach "$mnt" >/dev/null
+          done

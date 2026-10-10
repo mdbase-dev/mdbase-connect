@@ -1,0 +1,27 @@
+[package]
+name = "mdbn-log-server"
+description = "Native host for the log service: WebSocket/HTTP gateway, the Postgres backend (D2 candidate A) and a local object store."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies: mdbn-wire, mdbn-log-service. Blind like the service it hosts.
+[dependencies]
+mdbn-wire.workspace = true
+mdbn-log-service.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs", "sync", "time", "io-util", "signal"] }
+axum = { version = "0.8", features = ["ws"] }
+futures-util = "0.3"
+tokio-postgres = "0.7"
+getrandom = { version = "0.3", default-features = false }
+postgres-native-tls = "0.5"
+native-tls = "0.2"
+
+[features]
+# Only the native conformance dev-dependency enables this. Never a release profile.
+test-support = []
+
+[lints]
+workspace = true

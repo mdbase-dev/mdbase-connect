@@ -1,0 +1,16 @@
+{
+  "_type": "Item",
+  "fmt": 1,
+  "kind": "Base",
+  "collection": "h'4c18af2eb04a4b77b83e493c3695962e'",
+  "seq": 3,
+  "prev": "h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4'",
+  "epoch": 1,
+  "signer": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'",
+  "salt": "h'00112233445566778899aabbccddeeff'",
+  "refs": [
+    "h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'"
+  ],
+  "body": "h'010203'",
+  "sig": "h'5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d'"
+}

@@ -11,33 +11,18 @@ import { connectorFromRequest, requireInstallationDeviceConnector } from "../../
 import { clientFingerprint, deviceRegistrationDigest } from "../next/devices.js";
 import { ed25519RawPublicKey } from "../next/policy-keys.js";
 import { registerNextDeviceRoutes } from "../next/device-routes.js";
-import { installationApp } from "./installation-pairing.js";
+import { registerApplicationManifest } from "../../manifest.js";
+import { upsertApplication } from "../applications/store.js";
 import { registerConnectorPairingRoutes } from "./pairing-routes.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
 const describePg = testUrl && approved ? describe : describe.skip;
 const webOrigin = "https://lab.tasknotes-app.pages.dev";
+const tasknotesId = "5cdfa020-c201-4da8-845a-f2cc9969eade";
+const apps = new Map<string, {name: string; web: string; mobile: string}>([[tasknotesId, {name: "TaskNotes", web: webOrigin, mobile: "capacitor://app.tasknotes.dev"}]]);
 const rawX = () => (generateKeyPairSync("x25519").publicKey.export({ type: "spki", format: "der" }) as Buffer).subarray(-32).toString("hex");
 const publicOutcome = (body: Record<string, unknown>) => { const {token: _token, ...result} = body; return result; };
-
-describe("first-party installation identity map", () => {
-  it("uses fixed environment origins and native schemes, never a caller URL or missing Origin", () => {
-    expect(installationApp("lab", "tasknotes-web", webOrigin, "app-runtime")).toEqual({id:"tasknotes-web",origin:webOrigin,name:"TaskNotes"});
-    expect(installationApp("production", "tasknotes-mobile", "capacitor://app.tasknotes.dev", "mobile").name).toBe("TaskNotes");
-    for (const [environment,app,origin,kind] of [
-      ["lab","tasknotes-web","https://app.tasknotes.dev","app-runtime"],
-      ["production","tasknotes-web",webOrigin,"app-runtime"],
-      ["lab","unknown",webOrigin,"app-runtime"],
-      ["lab","tasknotes-web","https://untrusted.example","app-runtime"],
-      ["lab","tasknotes-web",undefined,"app-runtime"],
-      [undefined,"tasknotes-web",webOrigin,"app-runtime"],
-      ["__proto__","tasknotes-web",webOrigin,"app-runtime"],
-      ["lab","tasknotes-mobile","null","mobile"],
-      ["lab","tasknotes-web",webOrigin,"mobile"],
-    ] as const) expect(() => installationApp(environment,app,origin,kind)).toThrow();
-  });
-});
 
 describePg("installation device sign-in on daemon pairing", () => {
   let db: DatabasePool;
@@ -71,6 +56,49 @@ describePg("installation device sign-in on daemon pairing", () => {
     if (admin && schema) await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await admin?.end();
   });
+  async function registeredApp(family: string) {
+    const id=randomUUID(), web=`https://app-${id}.example.test`, mobile=`capacitor://app-${id}.example.test`;
+    apps.set(id,{name:"Independent Notes",web,mobile});
+    await db.query("INSERT INTO applications(id,canonical_identity,family_identity,name,homepage,redirect_uris,installation_origins) VALUES($1,$2,$3,$4,$5,'[]',$6)",[id,randomUUID(),family,"Independent Notes",web,JSON.stringify({lab:{"app-runtime":[web],mobile:[mobile]}})]);
+    return id;
+  }
+  it("registers TaskNotes as ordinary data; manifest upserts cannot expand installation origins", async () => {
+    const seeded=(await db.query("SELECT * FROM applications WHERE id=$1",[tasknotesId])).rows[0];
+    expect(seeded.installation_origins.lab["app-runtime"]).toEqual([webOrigin,"http://127.0.0.1:48218"]);
+    expect(seeded.application_declaration.name).toBe("TaskNotes");
+    const discovered=registerApplicationManifest(seeded.application_declaration);
+    expect(discovered.digest).toBe(seeded.manifest_digest); expect(discovered.canonicalIdentity).toBe(seeded.canonical_identity);
+    expect((await upsertApplication(db,discovered)).id).toBe(tasknotesId);
+    expect((await db.query("SELECT installation_origins FROM applications WHERE id=$1",[tasknotesId])).rows[0].installation_origins).toEqual(seeded.installation_origins);
+  });
+  it("rejects non-object installation origin configuration in real PostgreSQL", async () => {
+    for (const value of ["null", "[]", '"origin"', "3", "true"]) {
+      await expect(db.query("UPDATE applications SET installation_origins=$2::jsonb WHERE id=$1",[tasknotesId,value])).rejects.toMatchObject({code:"23514"});
+    }
+    await expect(db.query("UPDATE applications SET installation_origins=NULL WHERE id=$1",[tasknotesId])).rejects.toMatchObject({code:"23502"});
+    expect((await db.query("SELECT installation_origins FROM applications WHERE id=$1",[tasknotesId])).rows[0].installation_origins.lab["app-runtime"]).toEqual([webOrigin,"http://127.0.0.1:48218"]);
+  });
+  it("old LAB aliases refuse START and reconsent without mutating the original registered credential", async () => {
+    const p=await prepared(); expect((await approveDevice(p.flow,p.owner)).statusCode).toBe(200);
+    const paired=(await p.flow.exchange()).json();
+    for (const alias of ["tasknotes-web","tasknotes-mobile"]) {
+      const input=original(); input.installation.app_id=alias;
+      for (const reconsent of [false,true]) {
+        const payload={...input,installation:{...input.installation,reconsent,installation_id:reconsent?p.input.installation.installation_id:input.installation.installation_id,device_id:reconsent?p.input.installation.device_id:input.installation.device_id}};
+        const result=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{origin:webOrigin,...(reconsent?{authorization:`Bearer ${paired.token}`}:{})},payload});
+        expect(result.statusCode).toBe(403); expect(result.json().error.code).toBe("installation_app_not_allowed");
+      }
+      expect((await db.query("SELECT id FROM pairing_requests WHERE id=$1",[input.installation.request_id])).rows).toEqual([]);
+    }
+    expect(tokenHash((await p.flow.exchange()).json().token)).toBe(tokenHash(paired.token));
+    expect((await db.query("SELECT app_id FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].app_id).toBe(tasknotesId);
+  });
+  it("pairs a separately registered app with a different name and origin, without brand logic", async () => {
+    const appId=await registeredApp("bundle:another.independent.app"), f=await prepared("app-runtime",false,undefined,undefined,appId);
+    expect(f.selected.app_id).toBe(appId); expect(f.selected.app_origin).toBe(apps.get(appId)!.web);
+    expect((await approveDevice(f.flow,f.owner)).statusCode).toBe(200);
+    const paired=(await f.flow.exchange()).json(); expect(paired.status).toBe("paired"); expect(paired.connector.name).toBe("Independent Notes");
+  });
   async function account() {
     const user = randomUUID(), session = randomUUID(), token = randomToken("session");
     await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'Owner','next')", [user, `${user}@example.test`]);
@@ -78,10 +106,10 @@ describePg("installation device sign-in on daemon pairing", () => {
     return { user, session, headers: { cookie: `mdbase_session=${token}` } };
   }
   function original(kind: "app-runtime" | "mobile" = "app-runtime") {
-    return { connector_name: "Caller-supplied name is not app identity", installation: { request_id: randomUUID(), pairing_secret: randomToken("pair"), installation_id: randomUUID(), device_id: randomUUID(), kind, app_id: kind === "mobile" ? "tasknotes-mobile" : "tasknotes-web", requested_create_collections:false, reconsent:false } };
+    return { connector_name: "Caller-supplied name is not app identity", installation: { request_id: randomUUID(), pairing_secret: randomToken("pair"), installation_id: randomUUID(), device_id: randomUUID(), kind, app_id: tasknotesId, requested_create_collections:false, reconsent:false } };
   }
   type Input = ReturnType<typeof original> & {installation: ReturnType<typeof original>["installation"] & {renewal?: {request_id:string;pairing_secret:string}}};
-  const originHeaders = (input:Input) => ({origin:input.installation.kind === "mobile" ? "capacitor://app.tasknotes.dev" : webOrigin});
+  const originHeaders = (input:Input) => ({origin:input.installation.kind === "mobile" ? apps.get(input.installation.app_id)!.mobile : apps.get(input.installation.app_id)!.web});
   function channel(input: Input) {
     const base = `/v1/pairing-requests/${input.installation.request_id}`;
     const bearer = { authorization: `Bearer ${input.installation.pairing_secret}` };
@@ -91,7 +119,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     const result = await app.inject({ method: "POST", url: "/v1/pairing-requests", payload: input, headers:{origin} });
     expect(result.statusCode).toBe(201);
     expect(result.json().verification_uri).toBe(`https://connect.test/pair/${input.installation.request_id}`);
-    expect(result.json().app_name).toBe("TaskNotes");
+    expect(result.json().app_name).toBe(apps.get(input.installation.app_id)!.name);
     expect(result.headers["cache-control"]).toBe("no-store");
     return channel(input);
   }
@@ -107,8 +135,9 @@ describePg("installation device sign-in on daemon pairing", () => {
     const result = await app.inject({ method: "POST", url: `${flow.base}/attest`, headers: flow.bearer, payload });
     return { payload, result };
   }
-  async function prepared(kind: "app-runtime" | "mobile" = "app-runtime", create=false, existingOwner?:Awaited<ReturnType<typeof account>>, origin?:string) {
+  async function prepared(kind: "app-runtime" | "mobile" = "app-runtime", create=false, existingOwner?:Awaited<ReturnType<typeof account>>, origin?:string, appId=tasknotesId) {
     const owner = existingOwner??await account(), input = original(kind);
+    input.installation.app_id=appId;
     input.installation.requested_create_collections=create;
     const flow = await start(input, origin);
     expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).statusCode).toBe(200);
@@ -121,6 +150,81 @@ describePg("installation device sign-in on daemon pairing", () => {
   function renewal(input:Input):Input {
     return {...input,installation:{...input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),renewal:{request_id:input.installation.request_id,pairing_secret:input.installation.pairing_secret}}};
   }
+  it.each([false, true])("confirms a returning password account's authenticated primary email with null legacy email (reconsent=%s)", async reconsent => {
+    const prior = await prepared(); expect((await approveDevice(prior.flow, prior.owner)).statusCode).toBe(200);
+    const credential = (await prior.flow.exchange()).json(); expect(credential.status).toBe("paired");
+    const email = `${randomUUID()}@example.test`;
+    await db.query("INSERT INTO email_identities(id,user_id,email,normalized_email,verified_at,is_primary) VALUES($1,$2,$3,$3,now(),true)", [randomUUID(), prior.owner.user, email]);
+    await db.query("UPDATE users SET email=NULL WHERE id=$1", [prior.owner.user]);
+    const input = original();
+    if (reconsent) { input.installation.installation_id = prior.input.installation.installation_id; input.installation.device_id = prior.input.installation.device_id; input.installation.reconsent = true; }
+    const created = await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{...originHeaders(input),...(reconsent ? {authorization:`Bearer ${credential.token}`} : {})},payload:input});
+    expect(created.statusCode).toBe(201); const flow = channel(input);
+    // The exact pre-fix legacy-email assignment must still violate applied0067;
+    // fixing the request path must NOT relax or rewrite that all-or-none guard.
+    await expect(db.query(`UPDATE installation_device_pairings SET
+      portal_account_confirmed_at=now(),portal_account_email=u.email,
+      portal_account_session_id=$3,portal_account_session_epoch=u.session_epoch
+      FROM users u WHERE pairing_id=$1 AND u.id=$2`,[input.installation.request_id,prior.owner.user,prior.owner.session])).rejects.toMatchObject({code:"23514",constraint:"installation_portal_confirmation_complete"});
+    const selected = await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:prior.owner.headers,payload:{email:"not-authority@example.test"}});
+    expect(selected.statusCode).toBe(200);
+    const confirmation = (await db.query("SELECT portal_account_confirmed_at,portal_account_email,portal_account_session_id,portal_account_session_epoch FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0];
+    expect(confirmation).toMatchObject({portal_account_email:email,portal_account_session_id:prior.owner.session});
+    expect(confirmation.portal_account_confirmed_at).not.toBeNull(); expect(confirmation.portal_account_session_epoch).not.toBeNull();
+    expect((await app.inject({method:"GET",url:flow.base,headers:prior.owner.headers})).json().pairing.signed_in_account_email).toBe(email);
+    // Another authenticated email must not rewrite this request's explicit evidence.
+    await db.query("UPDATE email_identities SET email=$2,normalized_email=$2 WHERE user_id=$1",[prior.owner.user,`changed-${email}`]);
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:prior.owner.headers})).statusCode).toBe(200);
+    expect((await db.query("SELECT portal_account_confirmed_at,portal_account_email,portal_account_session_id,portal_account_session_epoch FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0]).toEqual(confirmation);
+    expect((await db.query("SELECT portal_account_email FROM installation_device_pairings WHERE pairing_id=$1",[prior.input.installation.request_id])).rows[0].portal_account_email).toBe(`${prior.owner.user}@example.test`);
+    expect((await db.query("SELECT device_id FROM installation_device_credentials WHERE pairing_id=$1",[input.installation.request_id])).rows).toEqual([]);
+  });
+  it.each([false,true])("confirms an authenticated GitHub login without any email (reconsent=%s)", async reconsent => {
+    const prior = await prepared(); expect((await approveDevice(prior.flow,prior.owner)).statusCode).toBe(200);
+    const credential=(await prior.flow.exchange()).json(); expect(credential.status).toBe("paired");
+    const login=`fixture-${randomUUID().slice(0,8)}`;
+    await db.query("UPDATE users SET email=NULL,name='Not an authenticated login' WHERE id=$1",[prior.owner.user]);
+    await db.query("INSERT INTO external_identities(provider,subject,user_id,login,email,email_verified) VALUES('github',$1,$2,$3,NULL,false)",[randomUUID(),prior.owner.user,login]);
+    await db.query("UPDATE sessions SET provider='github' WHERE id=$1",[prior.owner.session]);
+    const input=original(); if(reconsent){input.installation.installation_id=prior.input.installation.installation_id;input.installation.device_id=prior.input.installation.device_id;input.installation.reconsent=true;}
+    expect((await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{...originHeaders(input),...(reconsent?{authorization:`Bearer ${credential.token}`}:{})},payload:input})).statusCode).toBe(201);
+    const flow=channel(input);
+    const selected=await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:prior.owner.headers,payload:{email:"spoof@example.test",provider:"github",login:"spoof"}});
+    expect(selected.statusCode).toBe(200);
+    const pairing=(await app.inject({method:"GET",url:flow.base,headers:prior.owner.headers})).json().pairing;
+    expect(pairing).toMatchObject({account_selection_confirmed:true,account_email:null,account_provider:"github",account_login:login});
+    const frozen=(await db.query("SELECT portal_account_confirmed_at,portal_account_email,portal_account_provider,portal_account_login,portal_account_session_id,portal_account_session_epoch FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0];
+    expect(frozen).toMatchObject({portal_account_email:null,portal_account_provider:"github",portal_account_login:login,portal_account_session_id:prior.owner.session});
+    if(!reconsent) expect((await attest(input,(await flow.exchange()).json())).result.statusCode).toBe(200);
+    expect((await approveDevice(flow,prior.owner)).statusCode).toBe(200);
+    const paired=(await flow.exchange()).json(); expect(paired).toMatchObject({status:reconsent?"scope_updated":"paired",account_email:null,account_provider:"github",account_login:login,account_selection_confirmed:true});
+    await db.query("UPDATE external_identities SET login='changed',email='changed@example.test' WHERE user_id=$1",[prior.owner.user]);
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:prior.owner.headers})).statusCode).toBe(200);
+    expect((await db.query("SELECT portal_account_confirmed_at,portal_account_email,portal_account_provider,portal_account_login,portal_account_session_id,portal_account_session_epoch FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0]).toEqual(frozen);
+  });
+  it("refuses unavailable authenticated identity without partial confirmation, backfill or an internal constraint failure", async () => {
+    const owner = await account(); await db.query("UPDATE users SET email=NULL WHERE id=$1",[owner.user]);
+    const input = original(), flow = await start(input);
+    const selected = await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:owner.headers,payload:{email:"invented@example.test",provider:"github",login:"invented"}});
+    expect(selected.statusCode).toBe(403); expect(selected.json().error.code).toBe("installation_account_identity_unavailable");
+    expect(selected.json().error.message).toBe("We couldn't identify your account. Sign in again to continue.");
+    const unchanged = (await db.query("SELECT p.user_id,i.account_selected_at,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_session_id,i.portal_account_session_epoch FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id WHERE p.id=$1",[input.installation.request_id])).rows[0];
+    expect(Object.values(unchanged)).toEqual([null,null,null,null,null,null]);
+    expect((await flow.exchange()).json()).toEqual({status:"pending"});
+  });
+  it("keeps forward confirmation complete and request-local without backfilling any identity", async () => {
+    const owner=await account(), input=original(); await start(input);
+    for(const fields of [
+      "portal_account_provider='github',portal_account_login='login'",
+      "portal_account_confirmed_at=now(),portal_account_session_id=$2,portal_account_session_epoch=0",
+      "portal_account_confirmed_at=now(),portal_account_session_id=$2,portal_account_session_epoch=0,portal_account_provider='github'",
+      "portal_account_confirmed_at=now(),portal_account_session_id=$2,portal_account_session_epoch=0,portal_account_provider='github',portal_account_login=''",
+      "portal_account_confirmed_at=now(),portal_account_session_id=$2,portal_account_session_epoch=0,portal_account_provider='password',portal_account_login='login'",
+      "portal_account_confirmed_at=now(),portal_account_session_id=$2,portal_account_session_epoch=0,portal_account_email='owner@example.test',portal_account_provider='github',portal_account_login='login'",
+    ]) await expect(db.query(`UPDATE installation_device_pairings SET ${fields} WHERE pairing_id=$1`,fields.includes("$2")?[input.installation.request_id,owner.session]:[input.installation.request_id])).rejects.toMatchObject({code:"23514",constraint:"installation_portal_confirmation_complete"});
+    const empty=(await db.query("SELECT portal_account_confirmed_at,portal_account_email,portal_account_provider,portal_account_login,portal_account_session_id,portal_account_session_epoch FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0];
+    expect(Object.values(empty)).toEqual([null,null,null,null,null,null]);
+  });
   it("refuses legacy account selection without claiming the request or issuing a device", async () => {
     const owner = await account(), input = original(), flow = await start(input);
     await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [owner.user]);
@@ -322,6 +426,91 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect(result.statusCode,result.body).toBe(201);
     return {input,flow:channel(input)};
   }
+  it("enforces complete confirmation and rejects created IDs without a final selection in PostgreSQL",async()=>{
+    const p=await prepared();
+    await expect(db.query("UPDATE installation_device_pairings SET portal_account_email=NULL WHERE pairing_id=$1",[p.input.installation.request_id])).rejects.toMatchObject({code:"23514"});
+    await expect(db.query("UPDATE installation_device_pairings SET created_collection_ids=$2 WHERE pairing_id=$1",[p.input.installation.request_id,[randomUUID()]])).rejects.toMatchObject({code:"23514"});
+    const row=(await db.query("SELECT portal_account_email,selected_collection_id,created_collection_ids FROM installation_device_pairings WHERE pairing_id=$1",[p.input.installation.request_id])).rows[0];
+    expect(row).toEqual({portal_account_email:p.selected.account_email,selected_collection_id:null,created_collection_ids:[]});
+  });
+  it("emits explicit account/email confirmation only for the authenticated original request",async()=>{
+    const owner=await account(),input=original(),flow=await start(input);
+    expect((await flow.exchange()).json()).toEqual({status:"pending"});
+    const inspected=(await app.inject({method:"GET",url:flow.base,headers:owner.headers})).json().pairing;
+    expect(inspected.signed_in_account_email).toBe(`${owner.user}@example.test`);
+    expect(inspected.account_selection_confirmed).toBeUndefined();
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`})).statusCode).toBe(401);
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:owner.headers})).statusCode).toBe(200);
+    const selected=(await flow.exchange()).json();
+    expect(selected).toMatchObject({request_id:input.installation.request_id,account_id:owner.user,account_email:`${owner.user}@example.test`,account_selection_confirmed:true});
+    await db.query("UPDATE users SET email=$2 WHERE id=$1",[owner.user,`${owner.user}+changed@example.test`]);
+    expect((await flow.exchange()).json().account_email).toBe(selected.account_email);
+    expect((await db.query("SELECT portal_account_session_id FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0].portal_account_session_id).toBe(owner.session);
+  });
+  it("does not promote inherited renewal selection to exact-request portal confirmation",async()=>{
+    const p=await prepared();
+    await db.query("UPDATE pairing_requests SET expires_at=now()-interval '1 minute' WHERE id=$1",[p.input.installation.request_id]);
+    const next=renewal(p.input),flow=await start(next),receipt=(await flow.exchange()).json();
+    expect(receipt).toMatchObject({status:"awaiting_approval",account_id:p.owner.user,challenge:p.selected.challenge,connector_id:p.selected.connector_id});
+    expect(receipt.account_selection_confirmed).toBeUndefined();
+    expect(receipt.account_email).toBeUndefined();
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:p.owner.headers})).statusCode).toBe(200);
+    expect((await flow.exchange()).json()).toMatchObject({request_id:next.installation.request_id,account_selection_confirmed:true,account_email:p.selected.account_email});
+  });
+  it("preserves manual legacy receipts without inferring confirmation from account_selected_at",async()=>{
+    const p=await prepared(),collection=await scopeCollection(p.owner.user);
+    await db.query("UPDATE installation_device_pairings SET portal_account_confirmed_at=NULL,portal_account_email=NULL,portal_account_session_id=NULL,portal_account_session_epoch=NULL WHERE pairing_id=$1",[p.input.installation.request_id]);
+    expect((await p.flow.exchange()).json().account_selection_confirmed).toBeUndefined();
+    const picked=await app.inject({method:"POST",url:`${p.flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:[collection],selected_collection_id:collection}});
+    expect(picked.statusCode).toBe(403);
+    expect((await approveDevice(p.flow,p.owner)).statusCode).toBe(200);
+    const receipt=(await p.flow.exchange()).json();
+    expect(receipt.status).toBe("paired");
+    for(const field of ["account_email","account_selection_confirmed","selected_collection_id","created_collection_ids"]) expect(receipt[field]).toBeUndefined();
+    expect((await app.inject({method:"POST",url:`${p.flow.base}/select-account`,headers:p.owner.headers})).statusCode).toBe(409);
+  });
+  async function approvePicked(p:Awaited<ReturnType<typeof prepared>>,flow:ReturnType<typeof channel>,ids:string[],selected:string) {
+    return app.inject({method:"POST",url:`${flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:ids,selected_collection_id:selected}});
+  }
+  it("binds final existing-collection selection to the exact approved subset and stable receipt",async()=>{
+    const p=await prepared(),selected=await scopeCollection(p.owner.user),other=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[other],selected)).statusCode).toBe(400);
+    expect((await approvePicked(p,p.flow,[selected],selected)).statusCode).toBe(200);
+    expect((await approvePicked(p,p.flow,[selected],other)).statusCode).toBe(409);
+    const receipt=(await p.flow.exchange()).json();
+    expect(receipt).toMatchObject({request_id:p.input.installation.request_id,account_selection_confirmed:true,selected_collection_id:selected,created_collection_ids:[],collection_ids:[selected]});
+    expect(publicOutcome((await p.flow.exchange()).json())).toEqual(publicOutcome(receipt));
+  });
+  it("requires independent reconsent confirmation and never borrows the initial receipt's provenance",async()=>{
+    const p=await prepared(),first=await scopeCollection(p.owner.user),added=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[first],first)).statusCode).toBe(200);
+    const initial=(await p.flow.exchange()).json(),next=await rescope(p,initial.token);
+    expect((await next.flow.exchange()).json().account_selection_confirmed).toBeUndefined();
+    expect((await approvePicked(p,next.flow,[added],added)).statusCode).toBe(403);
+    expect((await app.inject({method:"POST",url:`${next.flow.base}/select-account`,headers:p.owner.headers})).statusCode).toBe(200);
+    expect((await approvePicked(p,next.flow,[added],added)).statusCode).toBe(200);
+    const receipt=(await next.flow.exchange()).json();
+    expect(receipt).toMatchObject({status:"scope_updated",request_id:next.input.installation.request_id,account_selection_confirmed:true,account_email:p.selected.account_email,selected_collection_id:added,created_collection_ids:[],added_collection_ids:[added]});
+    expect(receipt.token).toBeUndefined(); expect(receipt.registration).toBeUndefined();
+    expect((await next.flow.exchange()).json()).toEqual(receipt);
+  });
+  it("refuses initial consumption after the approved account epoch changes",async()=>{
+    const p=await prepared(),collection=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[collection],collection)).statusCode).toBe(200);
+    await db.query("UPDATE users SET session_epoch=session_epoch+1 WHERE id=$1",[p.owner.user]);
+    expect((await p.flow.exchange()).statusCode).toBe(403);
+    expect((await db.query("SELECT 1 FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+  });
+  it("rechecks a retained final selection without reapplying removed scope",async()=>{
+    const p=await prepared(),first=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[first],first)).statusCode).toBe(200);
+    const initial=(await p.flow.exchange()).json(),next=await rescope(p,initial.token);
+    expect((await app.inject({method:"POST",url:`${next.flow.base}/select-account`,headers:p.owner.headers})).statusCode).toBe(200);
+    expect((await approvePicked(p,next.flow,[],first)).statusCode).toBe(200);
+    await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[p.selected.connector_id,first]);
+    expect((await next.flow.exchange()).statusCode).toBe(403);
+    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[p.selected.connector_id,first])).rows).toEqual([]);
+  });
   it("adds scope with unchanged credential/actor even after original window deletion; lost committed replies never reapply additions",async()=>{
     const p=await prepared("mobile",true), first=await scopeCollection(p.owner.user), added=await scopeCollection(p.owner.user);
     expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[first],create_collections:true})).statusCode).toBe(200);
@@ -346,7 +535,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     const origin="http://127.0.0.1:48218", p=await prepared("app-runtime",true,undefined,origin);
     const first=await scopeCollection(p.owner.user), added=await scopeCollection(p.owner.user);
     const inspected=(await app.inject({method:"GET",url:p.flow.base,headers:p.owner.headers})).json().pairing;
-    expect(inspected).toMatchObject({app_origin:origin,app_id:"tasknotes-web",connector_name:"TaskNotes"});
+    expect(inspected).toMatchObject({app_origin:origin,app_id:tasknotesId,connector_name:"TaskNotes"});
     expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[first],create_collections:true})).statusCode).toBe(200);
     const issued=await p.flow.exchange(); expect(issued.statusCode).toBe(200);
     const original=issued.json(), headers={authorization:`Bearer ${original.token}`};
@@ -391,11 +580,15 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await approveDevice(next.flow,fresh)).statusCode).toBeGreaterThanOrEqual(400);
   });
   it("explicit Remove access revokes the app's grants and enrolled devices for one collection across its installations, atomically and idempotently",async()=>{
-    const p=await prepared("mobile",true),collection=await scopeCollection(p.owner.user);
+    const family="bundle:independent.notes.app", primary=await registeredApp(family), siblingApp=await registeredApp(family);
+    const p=await prepared("mobile",true,undefined,undefined,primary),collection=await scopeCollection(p.owner.user);
     expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[collection],create_collections:true})).statusCode).toBe(200);
-    const original=(await p.flow.exchange()).json(), sibling=await prepared("app-runtime",false,p.owner);
+    const original=(await p.flow.exchange()).json(), sibling=await prepared("app-runtime",false,p.owner,undefined,siblingApp);
     expect((await approveDevice(sibling.flow,p.owner,undefined,{collection_ids:[collection],create_collections:false})).statusCode).toBe(200);expect((await sibling.flow.exchange()).statusCode).toBe(200);
-    for(const installed of [p,sibling]) {
+    const otherApp=await registeredApp("bundle:other.app"), other=await prepared("app-runtime",false,p.owner,undefined,otherApp);
+    expect((await approveDevice(other.flow,p.owner,undefined,{collection_ids:[collection],create_collections:false})).statusCode).toBe(200);
+    expect((await other.flow.exchange()).statusCode).toBe(200);
+    for(const installed of [p,sibling,other]) {
       const keys=installed.proof.payload;
       const ops=[{op:"device-enrol",device:installed.input.installation.device_id,account:p.owner.user,kind:installed.input.installation.kind,signPublicKey:{$hex:keys.sign_pk},kemPublicKey:{$hex:keys.kem_pk},noisePublicKey:{$hex:keys.noise_pk}}];
       await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",[collection,JSON.stringify({version:1,ops})]);
@@ -409,22 +602,22 @@ describePg("installation device sign-in on daemon pairing", () => {
       await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$2,$3,$4)",[id,collection,log,Buffer.alloc(32)]);
       return {id,log};
     }
-    const target=await grant("bundle:dev.tasknotes.app"), unrelated=await grant("bundle:other.app"), stranger=await account(), foreign=await grant("bundle:dev.tasknotes.app",stranger.user);
+    const target=await grant(family), unrelated=await grant("bundle:other.app"), stranger=await account(), foreign=await grant(family,stranger.user);
     const next=await rescope(p,original.token);
     const remove=(headers=p.owner.headers,confirm=true)=>app.inject({method:"POST",url:`${next.flow.base}/remove-access`,headers,payload:{collection_id:collection,confirm}});
     expect((await remove(stranger.headers)).statusCode).toBe(403);expect((await remove(p.owner.headers,false)).statusCode).toBe(400);
     const result=await remove();expect(result.statusCode,result.body).toBe(200);expect(result.json()).toMatchObject({collection_id:collection,state:"revoking"});
-    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([]);
+    expect((await db.query("SELECT connector_id FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([{connector_id:other.selected.connector_id}]);
     expect((await db.query("SELECT active FROM next_grant_bindings WHERE grant_id=$1",[target.id])).rows[0].active).toBe(false);
     for(const id of [unrelated.id,foreign.id]) expect((await db.query("SELECT revoked_at FROM grants WHERE id=$1",[id])).rows[0].revoked_at).toBeNull();
     const revokes=(await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id",[collection])).rows.flatMap(row=>row.ops.ops).filter((op:{op:string})=>op.op.endsWith("revoke"));
     expect(revokes).toEqual([{op:"grant-revoke",grant:target.log},...([p,sibling].sort((a,b)=>a.selected.connector_id.localeCompare(b.selected.connector_id)).map(installed=>({op:"device-revoke",device:installed.input.installation.device_id})))]);
     expect((await remove()).statusCode).toBe(200);
-    expect((await db.query("SELECT count(*)::int AS n FROM next_policy_outbox WHERE collection_id=$1",[collection])).rows[0].n).toBe(1+2+3);
+    expect((await db.query("SELECT count(*)::int AS n FROM next_policy_outbox WHERE collection_id=$1",[collection])).rows[0].n).toBe(1+3+3);
     expect((await approveDevice(next.flow,p.owner,undefined,{collection_ids:[collection],create_collections:false})).statusCode).toBe(409);
     expect((await db.query("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].create_collections).toBe(true);
     expect((await p.flow.exchange()).statusCode).toBe(200); // receipt replay cannot reapply removed scope
-    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([]);
+    expect((await db.query("SELECT connector_id FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([{connector_id:other.selected.connector_id}]);
   });
   it("keeps original daemon pairing response and one-shot exchange semantics", async () => {
     const owner = await account();

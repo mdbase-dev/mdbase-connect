@@ -1,0 +1,16 @@
+kind: mdbase.type-pack
+id: tasknotes.tasks
+version: 0.2.0
+name: TaskNotes task support
+description: The TaskNotes data contract and its canonical task type.
+resources:
+  - kind: contract
+    mode: managed
+    source: _contracts/tasknotes.task.md
+    target: _contracts/tasknotes.task.md
+    digest: sha256:22a1e45daf5d78e5f6ee8c4c678b37a63d76c8190cfbf8e3cecc84481e5076f3
+  - kind: type
+    mode: managed
+    source: _types/task.md
+    target: _types/task.md
+    digest: sha256:a514a968739b742a81a953d191cb92526a36a811573c9a84d7c2f8bd12c78e94

@@ -5,6 +5,7 @@ pub(in crate::provider) use legacy_migration::{
     ensure_legacy_data_disposable, lock_replica_for_revocation, refuse_migrating,
     refuse_migrating_replica,
 };
+pub use legacy_migration::{LegacyRollbackReceipt, LegacyRollbackRequest};
 
 const COLLECTION_DELETE_DATABASE_RETRIES: usize = 3;
 const COLLECTION_DELETE_RETRY_BACKOFF_MS: u64 = 25;

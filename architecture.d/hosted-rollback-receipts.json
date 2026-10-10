@@ -1,0 +1,6 @@
+{
+  "reason": "The internal provider receipt boundary reuses the existing single state-transition transaction and migration-owned restore; no parallel migration driver, CP rollback front, native readiness flag or cross-service lease is added. Seventeen Rust public declarations comprise two strict metadata DTOs, their eleven exact source/correlation/requested-restored fields, two provider methods (atomic effect and read-only receipt lookup), and two forwarding export declarations for the existing HTTP crate and integration-test consumers. These facts are required to persist and recover the actual same-run transaction before the native Driver clears IDs. A new provider run supersedes only receipt replay eligibility in that same canonical transition; historical evidence remains stored. No collection record payload or target key material enters this boundary.",
+  "growth": {
+    "rustPublicDeclarations": 17
+  }
+}

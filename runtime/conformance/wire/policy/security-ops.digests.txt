@@ -1,0 +1,2 @@
+cert_signed_digest: cd94bc8c53b4744dda7b3d0fb9517b5457c90bc5b63397b15e2843d63d0d023e
+op3 root_handover_consent_digest (seq 7): 1ec6c33e9f05f66bceb0820944db6188e55005405943daca0ce0ceac7c6ce0ba

@@ -1,0 +1,8 @@
+{
+  "reason": "One next-device metadata module replaces the installation-only people implementation. Existing public authority routes reuse current identity/member, exact acknowledged enrolment, permanent revocation and collection-deletion guards for ordinary registered devices, while installation scopes remain additional authorization. No new endpoint, credential, persisted schema, record payload storage or native collection semantics. The new module is the shared authorization boundary, not a parallel people implementation.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 5,
+    "services/server": 1
+  }
+}

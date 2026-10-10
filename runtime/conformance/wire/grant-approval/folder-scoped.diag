@@ -1,0 +1,13 @@
+/ GrantApprovalPayload / {
+  / fmt / 0: 1,
+  / grant / 1: h'6f1e2d3c4b5a49688776655443322110',
+  / client_pk / 2: h'0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c',
+  / capabilities / 3: [
+    "collection.read",
+    "records.edit"
+  ],
+  / file_folders / 4: [
+    "Photos",
+    "Scans/2026"
+  ]
+}

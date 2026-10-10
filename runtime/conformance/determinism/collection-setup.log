@@ -1,0 +1,36 @@
+# Complete pure setup component; owned fixtures, no provider activation
+{"op":"collection_setup","case":"no files"}
+{"op":"collection_setup","case":"absent config","config_absent":true}
+{"op":"collection_setup","case":"exact CRLF","files":[{"path":"v.base","doc":"# exact\r\nviews: []\r\n"}]}
+{"op":"collection_setup","case":"blob","files":[{"path":"v.base","doc":"views: []\n","profile":"blob"}]}
+{"op":"collection_setup","case":"attachment","files":[{"path":"v.base","doc":"views: []\n","profile":"attachment"}]}
+{"op":"collection_setup","case":"mapping admission 'views: ['","files":[{"path":"v.base","doc":"views: ["}]}
+{"op":"collection_setup","case":"mapping admission '[]'","files":[{"path":"v.base","doc":"[]"}]}
+{"op":"collection_setup","case":"mapping admission 'hello'","files":[{"path":"v.base","doc":"hello"}]}
+{"op":"collection_setup","case":"mapping admission ''","files":[{"path":"v.base","doc":""}]}
+{"op":"collection_setup","case":"mapping admission '~'","files":[{"path":"v.base","doc":"~"}]}
+{"op":"collection_setup","case":"invalid UTF8","files":[{"path":"v.base","source_status":"invalid_utf8"}]}
+{"op":"collection_setup","case":"source cap","files":[{"path":"v.base","size":1048577}]}
+{"op":"collection_setup","case":"not record path","files":[{"path":"v.txt","doc":"views: []\n"}]}
+{"op":"collection_setup","case":"explicit unindexed kind is not ordinary","files":[{"path":"v.base","unindexed":true}]}
+{"op":"collection_setup","case":"mixed admitted/refused","files":[{"path":"yes.base","doc":"views: []\n"},{"path":"no.base","doc":"views: ["}]}
+{"op":"collection_setup","case":"provider source mismatch","files":[{"path":"v.base","doc":"views: {}\n","declared_doc":"views: []\n"}]}
+{"op":"collection_setup","case":"provider unavailable","files":[{"path":"v.base","source_status":"unavailable"}]}
+{"op":"collection_setup","case":"inventory unavailable","inventory_unavailable":true}
+{"op":"collection_setup","case":"receipt occupied file","occupied_receipt":"file"}
+{"op":"collection_setup","case":"receipt occupied record","occupied_receipt":"record"}
+{"op":"collection_setup","case":"stale reviewed revision","stale_revision":true}
+{"op":"collection_setup","case":"configuration shape SECRET","config":"spec_version: '0.3.0'\nsettings:\n  record_extensions: SECRET\n"}
+{"op":"collection_setup","case":"configuration shape {}","config":"spec_version: '0.3.0'\nsettings:\n  record_extensions: {}\n"}
+{"op":"collection_setup","case":"already enabled","config":"spec_version: '0.3.0'\nsettings:\n  record_extensions: [md, base]\n"}
+{"op":"collection_setup","case":"unrelated extensions","config":"spec_version: '0.3.0'\nsettings:\n  record_extensions: [md, txt]\n"}
+{"op":"collection_setup","case":"existing receipt valid empty","receipt":"{\"kind\":\"mdbase.provision-lock\",\"lock_version\":1,\"contributions\":[]}"}
+{"op":"collection_setup","case":"invalid receipt private safe","receipt":"SECRET: ["}
+{"op":"collection_setup","case":"nested pack","note_pack":true}
+{"op":"collection_setup","case":"nested pack and source","note_pack":true,"files":[{"path":"v.base","doc":"views: []\n"}]}
+{"op":"collection_setup","case":"invalid app identity","application_id":"Invalid App"}
+{"op":"collection_setup","case":"scalar contribution None","configuration":{"requirements":[{"id":"feature","path":"/x-app/features","predicate":"contains","value":null}],"provisions":[{"requirement":"feature","path":"/x-app/features","operation":"set_add","value":null}]}}
+{"op":"collection_setup","case":"scalar contribution True","configuration":{"requirements":[{"id":"feature","path":"/x-app/features","predicate":"contains","value":true}],"provisions":[{"requirement":"feature","path":"/x-app/features","operation":"set_add","value":true}]}}
+{"op":"collection_setup","case":"scalar contribution 1","configuration":{"requirements":[{"id":"feature","path":"/x-app/features","predicate":"contains","value":1}],"provisions":[{"requirement":"feature","path":"/x-app/features","operation":"set_add","value":1}]}}
+{"op":"collection_setup","case":"scalar contribution 'enabled'","configuration":{"requirements":[{"id":"feature","path":"/x-app/features","predicate":"contains","value":"enabled"}],"provisions":[{"requirement":"feature","path":"/x-app/features","operation":"set_add","value":"enabled"}]}}
+{"op":"collection_setup","case":"unapproved settings pointer","configuration":{"requirements":[{"id":"feature","path":"/settings/exclude","predicate":"contains","value":"x"}],"provisions":[{"requirement":"feature","path":"/settings/exclude","operation":"set_add","value":"x"}]}}

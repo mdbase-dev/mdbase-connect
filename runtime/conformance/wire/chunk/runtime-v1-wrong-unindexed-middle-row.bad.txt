@@ -1,0 +1,1 @@
+section12 requires typed unindexed rows; no valid prefix returned

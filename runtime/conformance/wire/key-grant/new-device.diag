@@ -1,0 +1,10 @@
+/ KeyGrantPayload / {
+  / fmt / 0: 1,
+  / recipient / 1: h'2d7e9a416c3b4f189a05c8e1b2d3f467',
+  / epoch / 2: 2,
+  / wrap / 3: / KeyWrap / {
+    / device / 0: h'2d7e9a416c3b4f189a05c8e1b2d3f467',
+    / enc / 1: h'e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1',
+    / ct / 2: h'c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7'
+  }
+}

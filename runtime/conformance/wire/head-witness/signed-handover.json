@@ -1,0 +1,13 @@
+{
+  "_type": "HeadWitness",
+  "fmt": 1,
+  "collection": "h'4c18af2eb04a4b77b83e493c3695962e'",
+  "device": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'",
+  "seq": 1,
+  "chain": "h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4'",
+  "epoch": 1,
+  "signed_at": 0,
+  "sig": "h'54545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454'",
+  "policy_generation": "h'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1'",
+  "catalog_generation": "h'cacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacaca'"
+}

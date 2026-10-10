@@ -1,0 +1,22 @@
+/ SyncStatus / {
+  / mode / 0: 1 / Synced /,
+  / confirmed_through / 1: 1,
+  / head_known / 2: 44,
+  / pending / 3: 3,
+  / oldest_pending / 4: 1791100700000,
+  / holds / 5: 1,
+  / unresolved / 6: 2,
+  / connection / 7: 0 / Online /,
+  / incidents / 9: [
+    / Incident / {
+      / kind / 0: 7 / VoidedItems /,
+      / details / 1: 1
+    }
+  ],
+  / confirmed_head / 11: / ConfirmedHead / {
+    / seq / 0: 1,
+    / chain / 1: h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4',
+    / policy_generation / 2: h'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1',
+    / catalog_generation / 3: h'cacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacaca'
+  }
+}

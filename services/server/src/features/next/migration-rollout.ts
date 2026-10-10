@@ -50,8 +50,9 @@ export class RolloutRefused extends Error {
 
 // Canonical scalars must consume the entire string without normalization.
 const COHORT_NAME = /^[a-z0-9][a-z0-9-]{0,62}(?![\s\S])/;
-// New legacy locations and unchanged historical locations only; never routine.
-const ARCHIVE_PREFIX = /^(?:legacy-archive\/)?(staging|production)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/;
+// LAB is a separate exact schema with a mandatory legacy-archive prefix.
+// Existing v4 locations retain their unchanged staging/production contract.
+const ARCHIVE_PREFIX = /^(?:legacy-archive\/)?(staging|production|lab)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/;
 const HEX64 = /^[0-9a-f]{64}(?![\s\S])/;
 const UUID_CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\s\S])/;
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z(?![\s\S])/;
@@ -70,7 +71,7 @@ const archiveBindingSchema = z.object({
   membership_digest: z.string().regex(HEX64),
   membership_changed_at: millisecondTime
 }).strict();
-const verifiedArchiveSchema = z.object({
+const v4VerifiedArchiveSchema = z.object({
   schema: z.literal("mdbase-recovery-set/v4"),
   environment: z.enum(["production", "staging"]),
   bucket: z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9](?![\s\S])/),
@@ -87,6 +88,22 @@ const verifiedArchiveSchema = z.object({
     inventory_digest: z.string().regex(HEX64), count: decimal(18_446_744_073_709_551_615n, true)
   }).strict()
 }).strict();
+// Opaque service IDs only: fixed private LAB infrastructure mapping, image
+// signatures/attestations and live currentness are the ONE verifier's boundary.
+// Structural decoding cannot establish those facts or open source-exclusion.
+const labRuntimeComponentSchema = z.object({
+  commit: z.string().regex(/^[0-9a-f]{40}(?![\s\S])/),
+  image_digest: z.string().regex(/^sha256:[0-9a-f]{64}(?![\s\S])/),
+  service_id: z.string().max(84).regex(/^srv-[a-z0-9]{1,80}(?![\s\S])/)
+}).strict();
+const labVerifiedArchiveSchema = v4VerifiedArchiveSchema.extend({
+  schema: z.literal("mdbase-recovery-set/lab-cohort-v1"), environment: z.literal("lab"),
+  prefix: z.string().max(128).regex(/^legacy-archive\/lab\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
+  // source_commit is Ops capture/signing source, never a guessed common runtime.
+  runtime_provenance: z.object({ connect: labRuntimeComponentSchema, hosted_provider: labRuntimeComponentSchema,
+    relay: labRuntimeComponentSchema, mcp: labRuntimeComponentSchema }).strict()
+}).strict();
+const verifiedArchiveSchema = z.union([v4VerifiedArchiveSchema, labVerifiedArchiveSchema]);
 export type ArchiveBinding = z.infer<typeof archiveBindingSchema>;
 type VerifiedBatchArchive = z.infer<typeof verifiedArchiveSchema>;
 
@@ -109,7 +126,7 @@ export function migrationMembershipDigest(inventory: readonly (readonly [string,
 /** Structural decoding is NOT signature/retention verification; only the dedicated trusted verifier route may accept this result. */
 export function parseVerifiedBatchArchive(body: unknown): VerifiedBatchArchive {
   const parsed = verifiedArchiveSchema.safeParse(body);
-  if (!parsed.success) throw new RolloutRefused("backup_missing", "A complete verified v4 archive result is required.");
+  if (!parsed.success) throw new RolloutRefused("backup_missing", "A complete verified cohort archive result is required.");
   const result = parsed.data;
   if (ARCHIVE_PREFIX.exec(result.prefix)?.[1] !== result.environment || result.prefix.split("/").at(-1) !== result.backup_id) {
     throw new RolloutRefused("backup_missing", "Archive identity does not match.");

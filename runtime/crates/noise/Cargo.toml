@@ -1,0 +1,25 @@
+[package]
+name = "mdbn-noise"
+description = "Shared deterministic production Noise IK cryptography with caller-supplied entropy and no admission policy."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Explicit test tooling only; no key export in normal native/WASM consumers.
+default = []
+testing = []
+
+# Native/WASM deterministic cryptography. Allowed internal dependencies: none.
+# Host composition supplies entropy; browser SDK implementation is unchanged.
+[dependencies]
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+hmac = "0.12"
+sha2 = "0.10"
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
+zeroize = "1"
+
+[lints]
+workspace = true

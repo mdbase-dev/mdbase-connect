@@ -1,0 +1,1 @@
+Schema negative: list_resources params-limit-zero.

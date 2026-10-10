@@ -3,9 +3,18 @@ import test from "node:test";
 import {
   capturePortalBootstrapSecrets,
   message,
+  installationAccountLabel,
   returnTarget,
   signInUrl
 } from "./src/portal-model.ts";
+
+test("installation account label uses canonical identity, freezes confirmation and never invents email", () => {
+  assert.equal(installationAccountLabel({signed_in_account_email:"owner@example.test",signed_in_account_provider:"github",signed_in_account_login:"login"}),"owner@example.test");
+  assert.equal(installationAccountLabel({signed_in_account_email:null,signed_in_account_provider:"github",signed_in_account_login:"login"}),"GitHub account @login");
+  assert.equal(installationAccountLabel({account_selection_confirmed:true,account_email:null,account_provider:"github",account_login:"original",signed_in_account_email:"new@example.test",signed_in_account_login:"changed"}),"GitHub account @original");
+  assert.equal(installationAccountLabel({account_selection_confirmed:true,account_email:"original@example.test",signed_in_account_email:"changed@example.test"}),"original@example.test");
+  for(const value of [{},{signed_in_account_provider:"github"},{signed_in_account_provider:"password",signed_in_account_login:"not-provider-proof"},{account_selection_confirmed:true,signed_in_account_email:"must-not-backfill@example.test"}]) assert.equal(installationAccountLabel(value),null);
+});
 
 test("captures one-time auth fragments before rendering and removes them from history", () => {
   const replacements = [];

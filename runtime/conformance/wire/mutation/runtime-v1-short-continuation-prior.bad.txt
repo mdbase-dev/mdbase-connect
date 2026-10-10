@@ -1,0 +1,1 @@
+current full prior hash must be32bytes

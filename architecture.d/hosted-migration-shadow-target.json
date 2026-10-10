@@ -1,0 +1,6 @@
+{
+  "reason": "One relative import composes the existing canonical service-cloud-copy creator in the existing migration provider route module. The caller hardcodes SHADOW and reuses the actual started-owner/microsecond claim callback before/after bootstrap awaits, with public facts only. No duplicate key generation, storage, genesis/outbox or bootstrap state machine and no new public declaration/module/package edge are added; native H1/currentness/physical target/settlement admission remains separate and withheld.",
+  "growth": {
+    "relativeImports": 1
+  }
+}

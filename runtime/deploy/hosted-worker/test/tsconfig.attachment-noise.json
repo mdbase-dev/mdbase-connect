@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {"types": ["../worker-configuration.d.ts"]},
+  "include": ["../src/**/*.ts", "../wasm.d.ts", "attachment-noise-workerd.ts", "../../../packages/sdk/src/cbor.ts"],
+  "exclude": ["../src/**/*.test.ts"]
+}

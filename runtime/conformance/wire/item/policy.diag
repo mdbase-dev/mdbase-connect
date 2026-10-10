@@ -1,0 +1,10 @@
+/ Item / {
+  / fmt / 0: 1,
+  / kind / 1: 2 / Policy /,
+  / collection / 2: h'4c18af2eb04a4b77b83e493c3695962e',
+  / seq / 3: 1,
+  / prev / 4: h'0000000000000000000000000000000000000000000000000000000000000000',
+  / signer / 6: h'ce7ee39cb8c5c4b32f954bf04d50757d',
+  / body / 11: h'a0',
+  / sig / 12: h'5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b'
+}

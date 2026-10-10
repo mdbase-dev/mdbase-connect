@@ -1,0 +1,44 @@
+{
+  "_type": "ManifestPayload",
+  "fmt": 1,
+  "seq": 42,
+  "chain": "h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4'",
+  "state_digest": "h'c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5'",
+  "bucket_bits": 0,
+  "sections": [
+    {
+      "_type": "Section",
+      "kind": "Resources",
+      "chunks": []
+    },
+    {
+      "_type": "Section",
+      "kind": "AttachmentFiles",
+      "chunks": [
+        {
+          "_type": "ChunkRef",
+          "address": "h'a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4'",
+          "plain_hash": "h'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5'",
+          "rows": 3,
+          "bucket": 0,
+          "plain_size": 600
+        }
+      ]
+    },
+    {
+      "_type": "Section",
+      "kind": "AttachmentTombstones",
+      "chunks": []
+    }
+  ],
+  "horizon": {
+    "_type": "Horizon",
+    "seq_floor": 1,
+    "time_floor": 0
+  },
+  "sem": {"_type": "Version", "major": 1, "minor": 0},
+  "record_count": 1,
+  "file_count": 3,
+  "previous": "h'a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6'",
+  "control_chain": "h'a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7'"
+}

@@ -5,6 +5,7 @@ import {
   type GrantScope
 } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "./db.js";
+import { resolveCollectionSharingAuthority, type CollectionSharingAuthority } from "./collection-sharing-authority.js";
 import {
   resolveHostedCollection,
   resolveLocalCollection,
@@ -83,6 +84,22 @@ export async function resolveLocalCollectionAccess(
   const collection = await resolveLocalCollection(db, authorityRowId);
   if (!collection || collection.ownerUserId !== userId) return null;
   return ownerAccess(collection, userId);
+}
+
+export async function requireCollectionSharingManager(
+  db: DatabaseQueryable,
+  userId: string,
+  collectionId: string
+): Promise<CollectionSharingAuthority> {
+  const authority = await resolveCollectionSharingAuthority(db, collectionId);
+  if (authority) {
+    if (authority.user_id === userId) return authority;
+    const policy = await resolveActiveMembershipPolicy(db, {
+      collectionId, ownerUserId: authority.user_id, userId
+    });
+    if (policy?.actions.includes("members.manage")) return authority;
+  }
+  throw new CollectionAccessDeniedError("members.manage");
 }
 
 export function requireCollectionAction(

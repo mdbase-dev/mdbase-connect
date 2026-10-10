@@ -1,0 +1,14 @@
+# A fresh Cargo project that consumes the `mdbase` crate the way a user would
+# (`cargo run --manifest-path scripts/clean-install/rust/Cargo.toml`). Not a
+# workspace member on purpose: it must build with only the public crate.
+[package]
+name = "mdbase-clean-install"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+mdbase = { path = "../../../crates/mdbase" }
+serde_json = "1"
+
+[workspace]

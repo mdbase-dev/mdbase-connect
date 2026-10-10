@@ -1,0 +1,15 @@
+{
+  "_type": "OrdinaryFileToRecord",
+  "kind": "OrdinaryFileToRecord",
+  "id": "h'11111111111111111111111111111111'",
+  "path": "views/existing.base",
+  "doc": "views: []\n",
+  "prior": {
+    "_type": "BlobRef",
+    "plain_hash": "h'96f38c29a06a779a354059c40c74130771b33df5743d2e3c18f9ce1851a17f26'",
+    "size": 10,
+    "blob_id": "h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1'",
+    "id_epoch": 1,
+    "part_size": 8388608
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "_type": "Mutation",
+  "id": "h'0192f3a460007abc8def0123456789ab'",
+  "origin": "h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'",
+  "base_seq": 41,
+  "clock": {
+    "_type": "OpClock",
+    "instant": 1791100800000,
+    "tz": "Australia/Melbourne",
+    "local_date": "2026-10-04"
+  },
+  "seed": "h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e'",
+  "source": "Api",
+  "ops": [
+    {
+      "_type": "Update",
+      "kind": "Update",
+      "id": "h'0192f3a45b6c7d8e9f0123456789abcd'",
+      "body_edits": [
+        {"_type": "BodyEdit", "start": 6, "end": 6, "insert": "typed in a room\n"}
+      ],
+      "body_base": "h'38732073f309589131fec63f417896537e63d27fc29fcf7c60d5f47379f0887a'",
+      "body_base_text": "Notes\n"
+    }
+  ],
+  "validated_at": "Error",
+  "room": {
+    "_type": "RoomCheckpoint",
+    "stream": "h'5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a'",
+    "state": "h'7777777777777777777777777777777777777777777777777777777777777777'"
+  }
+}

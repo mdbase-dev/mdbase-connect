@@ -1,0 +1,6 @@
+/ TransferProgress / {
+  / id / 0: h'7a7a7a7a7a7a4a7a8a7a7a7a7a7a7a7a',
+  / phase / 1: 2 / Uploading /,
+  / done / 2: 16777216,
+  / total / 3: 3221225472
+}

@@ -5,6 +5,7 @@ import {
   type HostedCollectionInvitation,
   type HostedCollectionMember,
   type ManagementOverview,
+  type NativeCollection,
   type ManagementRequestOptions
 } from "@mdbase/connect-management";
 import {
@@ -365,7 +366,7 @@ function CollectionOverview({ collection, applications, busy, perform, navigate,
   return <Page title={collection.name} intro="Manage where this collection lives and which applications can use it.">
     <section>
       <SectionTitle title="Storage" action={<RouteLink view="storage" collectionId={collection.id} navigate={navigate}>Manage</RouteLink>} />
-      <div className="connect-row connect-storage-summary"><div><strong>Main copy</strong><small>{collection.kind === "hosted" ? "Stored by mdbase" : `Stored on ${collection.detail}`}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span></div>
+      <div className="connect-row connect-storage-summary"><div><strong>Main copy</strong><small>{collection.kind === "native" ? "Stored on your devices" : collection.kind === "hosted" ? "Stored by mdbase" : `Stored on ${collection.detail}`}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span></div>
     </section>
     <section>
       <SectionTitle title="Application access" count={applications.length} action={<RouteLink view="access" collectionId={collection.id} navigate={navigate}>Review all</RouteLink>} />
@@ -373,7 +374,7 @@ function CollectionOverview({ collection, applications, busy, perform, navigate,
       {applications.length === 0 && <Empty title="No connected applications" body="Applications appear after you approve access to this collection." />}
     </section>
     <section><SectionTitle title="Your person record" /><div className="connect-row"><div><strong>Use an existing person or create a note</strong><small>Link your account to an editable record in this collection. Collection access is approved separately.</small></div><a href={`${editorSurfaceUrls(collection.id).settings}#your-person`}>Choose or create my person record</a></div></section>
-    {collection.kind === "hosted" && collection.source.access.can_manage_members && <CollectionSharingPanel sharingAvailable={sharingAvailable} collection={collection.source} busy={busy} perform={perform} />}
+    {collection.kind !== "local" && collection.source.access.can_manage_members && <CollectionSharingPanel key={collection.id} sharingAvailable={sharingAvailable} collection={collection.source} busy={busy} perform={perform} />}
     <section>
       <SectionTitle title="Connection" />
       <div className="connect-row connect-connection-summary"><div><small>{connectionDescription(collection)}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span></div>
@@ -383,7 +384,7 @@ function CollectionOverview({ collection, applications, busy, perform, navigate,
 
 function CollectionSharingPanel({ collection, busy, perform, sharingAvailable }: {
   sharingAvailable: boolean;
-  collection: HostedCollection;
+  collection: { id: string; display_name: string | null };
   busy: BusyOperations;
   perform: PerformOperation;
 }) {
@@ -485,7 +486,7 @@ function CollectionSharingPanel({ collection, busy, perform, sharingAvailable }:
       <div><strong>{member.name}</strong><small>{member.kind === "owner" ? "Collection owner" : member.state === "changing" ? "Updating access…" : member.state === "revoking" ? "Removing application and folder access…" : member.role === "editor" ? "Can edit notes and manage types" : "Can view and connect read-only apps"}</small></div>
       {member.kind === "owner" ? <span>Owner</span> : <>
         <label className="connect-role-select"><span className="sr-only">Role for {member.name}</span><Select aria-label={`Role for ${member.name}`} value={member.role as MemberRole} options={memberRoles} disabled={member.state !== "active" || (!sharingAvailable && member.role === "viewer") || busy.has(`member-role-${member.id}`)} onChange={(next) => void mutate(`member-role-${member.id}`, (options) => management.changeCollectionMemberRole(collection.id, member.id!, next, options))} /></label>
-        <ConfirmAction className="danger" label={member.state === "revoking" ? "Removing…" : "Remove"} question={`Remove ${member.name} from ${collection.display_name}? Their application and folder access will also be revoked.`} confirmLabel="Remove access" busy={member.state === "revoking" || busy.has(`member-revoke-${member.id}`)} onConfirm={() => void mutate(`member-revoke-${member.id}`, (options) => management.revokeCollectionMember(collection.id, member.id!, options))} />
+        <ConfirmAction className="danger" label={member.state === "revoking" ? "Removing…" : "Remove"} question={`Remove ${member.name} from ${collection.display_name ?? "Unnamed collection"}? Their application and folder access will also be revoked.`} confirmLabel="Remove access" busy={member.state === "revoking" || busy.has(`member-revoke-${member.id}`)} onConfirm={() => void mutate(`member-revoke-${member.id}`, (options) => management.revokeCollectionMember(collection.id, member.id!, options))} />
       </>}
     </div>)}
     {members === undefined && !loadError && <p className="connect-muted" role="status">Loading people…</p>}
@@ -501,6 +502,11 @@ function Storage({ collection, busy, perform }: {
   busy: BusyOperations;
   perform: PerformOperation;
 }) {
+  if (collection.kind === "native") {
+    return <Page title="Storage & sync" intro={`${collection.name} is stored in mdbase replicas on your devices.`}>
+      <section><SectionTitle title="Sync" /><div className="connect-row"><div><strong>{collection.source.sync === "cloud_copy" ? "Cloud copy configured" : "Private collection"}</strong><small>{collection.source.sync === "cloud_copy" ? "A cloud copy helps your replicas sync. This page does not report their connection status." : "Collection content remains in your replicas; no cloud copy is configured."}</small></div></div></section>
+    </Page>;
+  }
   if (collection.kind === "hosted") {
     const replicas = collection.source.replicas.filter((replica) => replica.revocation_status !== "revoked");
     return <Page title="Storage & sync" intro={`Manage the main copy of ${collection.name} and its synced Markdown folders.`}>
@@ -703,7 +709,8 @@ interface CollectionRowBase {
 
 type CollectionRow =
   | CollectionRowBase & { kind: "local" }
-  | CollectionRowBase & { kind: "hosted"; source: HostedCollection };
+  | CollectionRowBase & { kind: "hosted"; source: HostedCollection }
+  | CollectionRowBase & { kind: "native"; source: NativeCollection };
 
 function collectionRows(data: ManagementOverview): CollectionRow[] {
   const connectors = new Map(data.connectors.map((connector) => [connector.id, connector]));
@@ -730,7 +737,17 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
     kind: "hosted" as const,
     source: collection
   }));
-  return [...hosted, ...local].sort((left, right) => left.name.localeCompare(right.name));
+  const native = (data.native_collections ?? []).map((collection) => ({
+    id: collection.id,
+    name: collection.display_name ?? "Unnamed collection",
+    detail: collection.sync === "cloud_copy" ? "Cloud copy configured" : "Stored on your devices",
+    status: collection.sync === "cloud_copy" ? "Cloud copy" : "Private",
+    // Registry visibility is not a statement about replica read health.
+    available: false,
+    kind: "native" as const,
+    source: collection
+  }));
+  return [...native, ...hosted, ...local].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function CollectionSummary({ collection, navigate }: { collection: CollectionRow; navigate(view: ConnectView, collectionId?: string): void }) {
@@ -738,6 +755,7 @@ function CollectionSummary({ collection, navigate }: { collection: CollectionRow
 }
 
 function connectionDescription(collection: CollectionRow): string {
+  if (collection.kind === "native") return "Management access does not give applications access to collection content. Each application needs its own collection approval.";
   if (collection.kind === "hosted") {
     return collection.available
       ? "The hosted collection is available to the editor."
