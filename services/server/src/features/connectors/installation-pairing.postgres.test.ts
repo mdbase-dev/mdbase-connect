@@ -10,7 +10,9 @@ import { pruneUsageHistory } from "../../usage-report.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { connectorFromRequest, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { clientFingerprint, deviceRegistrationDigest } from "../next/devices.js";
-import { ed25519RawPublicKey } from "../next/policy-keys.js";
+import { certToJson, ed25519RawPublicKey, type NextControlPlaneConfig } from "../next/policy-keys.js";
+import { certDigest, keyId } from "../next/policy-wire.js";
+import { buildApp } from "../../app.js";
 import { registerNextDeviceRoutes } from "../next/device-routes.js";
 import { registerApplicationManifest } from "../../manifest.js";
 import { upsertApplication } from "../applications/store.js";
@@ -20,6 +22,8 @@ import { registerTimerRoutes } from "../next/timers/routes.js";
 import { lockNamespace } from "../next/timers/store.js";
 import { TimerWorker, notificationsConsumer, timerEventId } from "../next/timers/worker.js";
 import { PushTargetSealer } from "../next/push-target-seal.js";
+import { NotificationService } from "../../notifications.js";
+import { registerNotificationRoutes } from "../notifications/routes.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -35,6 +39,8 @@ describePg("installation device sign-in on daemon pairing", () => {
   let admin: pg.Pool;
   let schema: string;
   const app = Fastify();
+  const channelSealer = new PushTargetSealer({keyId:"synthetic",key:Buffer.alloc(32,42),previousKeys:{}});
+  const transports = {webPush:{send:async()=>undefined},fcm:{send:async()=>undefined}};
   beforeAll(async () => {
     const url = new URL(testUrl!);
     if (!["localhost", "127.0.0.1", "::1"].includes(url.hostname) || !/test/i.test(url.pathname)) throw new Error("Requires dedicated local test Postgres.");
@@ -47,7 +53,10 @@ describePg("installation device sign-in on daemon pairing", () => {
     registerErrorHandler(app);
     registerConnectorPairingRoutes(app, { db, publicUrl: "https://connect.test", installationDevices: true, installationEnvironment: "lab" });
     registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null } });
-    registerTimerRoutes(app, { db, resolver: backgroundTimerGrantResolver(db,"lab") });
+    const resolver = backgroundTimerGrantResolver(db,"lab");
+    registerTimerRoutes(app, { db, resolver });
+    registerNotificationRoutes(app,{db,grantResolver:resolver,transports,
+      service:new NotificationService(db,transports,1000,()=>undefined,channelSealer,resolver)});
     app.get("/test/installation-scope", async (request, reply) => {
       const identity = await requireInstallationDeviceConnector(request, reply, db);
       if (!identity) return reply;
@@ -479,11 +488,11 @@ describePg("installation device sign-in on daemon pairing", () => {
   async function approvePicked(p:Awaited<ReturnType<typeof prepared>>,flow:ReturnType<typeof channel>,ids:string[],selected:string,timers?:boolean) {
     return app.inject({method:"POST",url:`${flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:ids,selected_collection_id:selected,...(timers!==undefined?{timer_consent:timers}:{})}});
   }
-  async function timerApp() {
+  async function timerApp(nativeDelivery?: {mode:"managed_fcm";firebase_project_id:string}) {
     const id = await registeredApp(`bundle:synthetic.reminders.${randomUUID()}`);
     await db.query("UPDATE applications SET requirements=$2::jsonb,notifications=$3::jsonb WHERE id=$1", [id,
       JSON.stringify({access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"],optional:["background.schedule"]}}),
-      JSON.stringify({criteria:[{id:"synthetic.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Reminder"}}]})]);
+      JSON.stringify({criteria:[{id:"synthetic.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Reminder"}}],...(nativeDelivery?{native_delivery:nativeDelivery}:{})})]);
     return id;
   }
   it("issues genuine installation timer grants for only the approved request collections, with exact stable exchange metadata",async()=>{
@@ -512,8 +521,8 @@ describePg("installation device sign-in on daemon pairing", () => {
     }
     expect((await db.query("SELECT 1 FROM next_background_grants WHERE approval_request_id=$1",[p.input.installation.request_id])).rows).toHaveLength(2);
   });
-  async function currentTimerFixture() {
-    const p=await prepared("app-runtime",false,undefined,undefined,await timerApp()),collection=await scopeCollection(p.owner.user);
+  async function currentTimerFixture(application?:string) {
+    const p=await prepared("app-runtime",false,undefined,undefined,application ?? await timerApp()),collection=await scopeCollection(p.owner.user);
     expect((await approvePicked(p,p.flow,[collection],collection,true)).statusCode).toBe(200);
     const receipt=(await p.flow.exchange()).json(),grantId=receipt.timer_grants[0].grant_id as string;
     const batch=(await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,2,$2,$3,2,'appended') RETURNING id",[collection,Buffer.alloc(32),Buffer.alloc(1)])).rows[0].id;
@@ -629,6 +638,75 @@ describePg("installation device sign-in on daemon pairing", () => {
     if(change==="scope") await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[f.p.selected.connector_id,f.collection]);
     expect((await app.inject({method:"GET",url:base,headers})).statusCode).toBe(403);
     expect((await db.query("SELECT 1 FROM next_timers WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
+  });
+  const channelPath = (f:Awaited<ReturnType<typeof currentTimerFixture>>) => timerPath(f).replace("/timers/reminders","/notifications/channels");
+  const webChannel = (f:Awaited<ReturnType<typeof currentTimerFixture>>) => ({installation_id:f.p.input.installation.installation_id,
+    criteria:["synthetic.reminder"],subscription:{endpoint:"https://push.example.test/synthetic",expirationTime:null,keys:{p256dh:"synthetic-p256dh-key",auth:"synthetic-auth"}}});
+  it("registers and removes native channels with the same current authority and sealed original installation scope",async()=>{
+    const f=await currentTimerFixture(),headers={authorization:`Bearer ${f.token}`},url=channelPath(f),payload=webChannel(f);
+    const registered=await app.inject({method:"POST",url,headers,payload});
+    expect(registered.statusCode,registered.body).toBe(201);
+    const channel=registered.json().channel_id;
+    const row=(await db.query("SELECT * FROM push_channels WHERE id=$1",[channel])).rows[0];
+    expect(row).toMatchObject({grant_id:f.grantId,installation_id:payload.installation_id,kind:"web_push",endpoint:null,p256dh:null,auth:null,fcm_token:null,sealed_key_id:"synthetic"});
+    expect(channelSealer.open(f.grantId,payload.installation_id,row.sealed_target).endpoint).toBe(payload.subscription.endpoint);
+    const repeated=await app.inject({method:"POST",url,headers,payload});
+    expect(repeated.statusCode,repeated.body).toBe(201); expect(repeated.json().channel_id).toBe(channel);
+    const sealed=(await db.query("SELECT sealed_target FROM push_channels WHERE id=$1",[channel])).rows[0].sealed_target;
+    expect((await app.inject({method:"POST",url,headers,payload:{...payload,criteria:["not-approved"]}})).statusCode).toBe(400);
+    expect((await app.inject({method:"POST",url,headers,payload:{...payload,installation_id:randomUUID()}})).statusCode).toBe(403);
+    expect((await db.query("SELECT sealed_target FROM push_channels WHERE id=$1",[channel])).rows[0].sealed_target).toBe(sealed);
+    expect((await db.query("SELECT criterion_id FROM notification_subscriptions WHERE channel_id=$1",[channel])).rows).toEqual([{criterion_id:"synthetic.reminder"}]);
+    expect((await app.inject({method:"DELETE",url:`${url}/${randomUUID()}`,headers})).statusCode).toBe(404);
+    expect((await app.inject({method:"DELETE",url:`${url}/${channel}`,headers})).statusCode).toBe(204);
+    expect((await db.query("SELECT 1 FROM push_channels WHERE id=$1",[channel])).rows).toHaveLength(0);
+    expect((await db.query("SELECT 1 FROM notification_subscriptions WHERE channel_id=$1",[channel])).rows).toHaveLength(0);
+  });
+  it("never admits another installation, cookie, ordinary or legacy channel route and refuses unsealed native targets",async()=>{
+    const f=await currentTimerFixture(),other=await currentTimerFixture(),url=channelPath(f),payload=webChannel(f),headers={authorization:`Bearer ${f.token}`};
+    for(const bad of [{},f.p.owner.headers,{authorization:"Bearer invalid"},{authorization:`Bearer ${other.token}`}]) {
+      expect((await app.inject({method:"POST",url,headers:bad,payload})).statusCode).toBe(401);
+    }
+    expect((await app.inject({method:"POST",url:url.replace(f.collection,other.collection),headers,payload})).statusCode).toBe(403);
+    expect((await app.inject({method:"POST",url:"/v1/notifications/channels",headers,payload})).statusCode).toBe(401);
+    const unsealed=Fastify(); registerErrorHandler(unsealed);
+    registerNotificationRoutes(unsealed,{db,grantResolver:f.resolver,transports,service:new NotificationService(db,transports,1000,()=>undefined,undefined,f.resolver)});
+    try { expect((await unsealed.inject({method:"POST",url,headers,payload})).statusCode).toBe(503); }
+    finally { await unsealed.close(); }
+    expect((await db.query("SELECT 1 FROM push_channels WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
+    await db.query("UPDATE next_background_grants SET revoked_at=now() WHERE id=$1",[f.grantId]);
+    expect((await app.inject({method:"POST",url,headers,payload})).statusCode).toBe(403);
+  });
+  it("wires the one native resolver into configured app timers and channels, and rejects an unspecified registry environment",async()=>{
+    const f=await currentTimerFixture(),root=generateKeyPairSync("ed25519").privateKey,policy=generateKeyPairSync("ed25519").privateKey;
+    const cert={policyPublicKey:ed25519RawPublicKey(policy),root:keyId(ed25519RawPublicKey(root)),notBefore:Date.now()-60_000,notAfter:Date.now()+30*86_400_000};
+    const pem=(key:typeof root)=>key.export({format:"pem",type:"pkcs8"}).toString();
+    const next:NextControlPlaneConfig={rootPublicKey:ed25519RawPublicKey(root),policyPrivateKeyPem:pem(policy),policyCert:certToJson({...cert,signature:sign(null,certDigest(cert),root)}),
+      serviceTokens:{},logService:{url:"http://127.0.0.1:1",tokenIssuerKeyPem:pem(policy),transportKeyPem:pem(generateKeyPairSync("ed25519").privateKey)}};
+    await expect(buildApp({db,nextControlPlane:next,nextTimers:{}})).rejects.toThrow("Native timers require a configured installation registry environment.");
+    const built=await buildApp({db,environment:"lab",publicUrl:"https://connect.example.test",nextControlPlane:next,nextTimers:{pollIntervalMs:60_000},notifications:{transports,pushTargetSealer:channelSealer,pollIntervalMs:60_000}});
+    try {
+      const headers={authorization:`Bearer ${f.token}`};
+      expect((await built.app.inject({method:"GET",url:timerPath(f),headers})).statusCode).toBe(200);
+      const result=await built.app.inject({method:"POST",url:channelPath(f),headers,payload:webChannel(f)});
+      expect(result.statusCode,result.body).toBe(201);
+    } finally { await built.app.close(); }
+  });
+  it("keeps managed FCM targets sealed without deleting a different native grant's channel",async()=>{
+    const id=await timerApp({mode:"managed_fcm",firebase_project_id:"synthetic-project"});
+    const first=await currentTimerFixture(id),second=await currentTimerFixture(id),token="synthetic-shared-fcm-token-1234567890";
+    for(const f of [first,second]) {
+      const result=await app.inject({method:"POST",url:channelPath(f),headers:{authorization:`Bearer ${f.token}`},payload:{installation_id:f.p.input.installation.installation_id,criteria:["synthetic.reminder"],transport:"fcm",token}});
+      expect(result.statusCode,result.body).toBe(201);
+    }
+    const rows=(await db.query("SELECT grant_id,installation_id,sealed_target,fcm_token,fcm_project_id FROM push_channels WHERE grant_id=ANY($1::uuid[])",[[first.grantId,second.grantId]])).rows;
+    expect(rows).toHaveLength(2);
+    for(const row of rows) {
+      expect(row.fcm_token).toBeNull(); expect(row.fcm_project_id).toBe("synthetic-project");
+      expect(channelSealer.open(row.grant_id,row.installation_id,row.sealed_target).fcm_token).toBe(token);
+    }
+    const noFcm=await currentTimerFixture();
+    expect((await app.inject({method:"POST",url:channelPath(noFcm),headers:{authorization:`Bearer ${noFcm.token}`},payload:{installation_id:noFcm.p.input.installation.installation_id,criteria:["synthetic.reminder"],transport:"fcm",token}})).statusCode).toBe(400);
   });
   async function dueNativeTimer(f:Awaited<ReturnType<typeof currentTimerFixture>>,future=false) {
     const result=await app.inject({method:"PUT",url:`${timerPath(f)}/due`,headers:{authorization:`Bearer ${f.token}`},payload:{criterion_id:"synthetic.reminder",fire_at:new Date(Date.now()+(future?3_600_000:-1000)).toISOString()}});

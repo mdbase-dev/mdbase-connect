@@ -621,7 +621,7 @@ export async function activeGrantForToken(
      FROM access_tokens tok
      JOIN grants g ON g.id = tok.grant_id
      JOIN users u ON u.id = g.user_id
-     WHERE tok.token_hash = $1 AND tok.expires_at > now()
+     WHERE tok.token_hash = $1 AND tok.expires_at > clock_timestamp()
        AND tok.revoked_at IS NULL AND g.revoked_at IS NULL
        AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL`,
     [tokenHash]

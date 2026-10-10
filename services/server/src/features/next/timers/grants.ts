@@ -3,6 +3,9 @@ import {
   type NotificationCriterion
 } from "@mdbase-dev/connect-protocol";
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../../database-types.js";
+import { createHash } from "node:crypto";
+import { canonicalJson } from "../../../canonical-json.js";
+import type { TimerReceiptAuthority } from "./receipts.js";
 import { InstallationPairingError, installationApp } from "../../connectors/installation-pairing.js";
 import { CreateError, currentCollectionDevice, inTransaction, type Device } from "../bootstrap-common.js";
 import { requireInstallationScope } from "../installation-scope.js";
@@ -178,6 +181,45 @@ export function backgroundTimerGrantResolver(db: DatabasePool, environment: "lab
       return native(queryable as DatabaseConnection,grantId);
     }
   };
+}
+
+/** Fixed installation/collection/grant receiver boundary, shared by timers and
+ * channels. Caller owns the transaction; policy locks precede timer/channel
+ * writes. Public grant metadata never substitutes for its dedicated credential. */
+export async function currentInstallationTimerAuthority(
+  client: DatabaseConnection, resolver: TimerGrantResolver,
+  collectionId: string, grantId: string, credentialHash: string
+): Promise<TimerReceiptAuthority & { installationId: string }> {
+  // Reject an unrelated bearer before acquiring another principal's policy.
+  const credential = await client.query(
+    `SELECT b.id FROM next_background_grants b
+     JOIN installation_device_credentials k ON k.connector_id=b.native_connector_id
+     WHERE b.id=$1 AND b.principal_kind='installation' AND k.token_hash=$2`, [grantId, credentialHash]);
+  if (!credential.rows.length) throw new TimerError(401, "unauthenticated", "Installation timer credential is invalid.");
+  const current = await resolver.resolve(client, grantId);
+  if (!current) throw new TimerError(401, "unauthenticated", "The timer grant does not exist.");
+  if (current.grantId !== grantId || current.state !== "e2e") throw new Error("Invalid native timer authority variant.");
+  if (!current.collectionIds.includes(collectionId)) throw new TimerError(403, "forbidden", "The timer grant is not for this collection.");
+  if (!current.usable) throw new TimerError(403, "forbidden", "The grant is not usable.", { reason: "grant_not_usable" });
+  const consent = (await client.query<Record<string, unknown> & {installation_id:string}>(
+    `SELECT b.id, b.user_id, b.application_id, b.collection_id, b.native_connector_id,
+       b.installation_id, b.device_id, b.device_kind, b.approval_request_id,
+       (extract(epoch FROM b.approved_at)*1000000)::bigint::text AS approved_us, b.timer_declaration,
+       encode(b.sign_pk,'hex') AS sign_pk, encode(b.kem_pk,'hex') AS kem_pk,
+       encode(b.noise_pk,'hex') AS noise_pk
+     FROM next_background_grants b
+     JOIN installation_device_credentials k ON k.connector_id=b.native_connector_id
+     JOIN connectors c ON c.id=k.connector_id JOIN users u ON u.id=b.user_id
+     WHERE b.id=$1 AND b.principal_kind='installation' AND b.revoked_at IS NULL
+       AND k.token_hash=$2 AND c.user_id=b.user_id AND c.revoked_at IS NULL
+       AND u.suspended_at IS NULL AND u.account_backend='next'
+     FOR SHARE OF b,k,c,u`, [grantId, credentialHash])).rows[0];
+  if (!consent) throw new TimerError(401, "unauthenticated", "The installation timer credential is no longer current.");
+  return { grant: current, installationId: consent.installation_id,
+    termsDigest: createHash("sha256").update(canonicalJson({
+      principal_kind: "installation", consent, state: current.state,
+      collection_ids: current.collectionIds, operations: [...current.operations].sort(), criteria: current.criteria
+    })).digest() };
 }
 
 export type TimerOperation = "list_timers" | "put_timer" | "cancel_timer" | "reconcile_timers";

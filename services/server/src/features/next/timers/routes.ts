@@ -12,6 +12,7 @@ import { bearerToken } from "../../../platform/request-authentication.js";
 import { tokenHash } from "../../../security.js";
 import {
   authorizeTimerOperation,
+  currentInstallationTimerAuthority,
   grantMayFire,
   legacyTimerGrantResolver,
   type TimerGrant,
@@ -180,35 +181,11 @@ export function registerTimerRoutes(app: FastifyInstance, options: TimerRoutesOp
         const currentAuthority = async (): Promise<TimerReceiptAuthority> => {
           checkDeadline();
           if (source === installationGrant) {
-            // The canonical resolver holds current identity/owner/policy/consent
-            // locks. Native receipt recovery uses that genuine credential and
-            // exact original consent, never a fabricated legacy P-256 binding.
-            const current = await resolver.resolve(connection, grantId);
-            if (!current) throw new TimerError(401, "unauthenticated", "The timer grant does not exist.");
-            if (current.grantId !== grantId || current.state !== "e2e") throw new Error("Invalid native timer authority variant.");
-            if (!current.collectionIds.includes((request.params as { collection: string }).collection)) {
-              throw new TimerError(403, "forbidden", "The timer grant is not for this collection.");
-            }
-            authorizeTimerOperation(current, operation, criterionId);
-            const consent = (await connection.query<Record<string, unknown>>(
-              `SELECT b.id, b.user_id, b.application_id, b.collection_id, b.native_connector_id,
-                 b.installation_id, b.device_id, b.device_kind, b.approval_request_id,
-                 (extract(epoch FROM b.approved_at)*1000000)::bigint::text AS approved_us, b.timer_declaration,
-                 encode(b.sign_pk,'hex') AS sign_pk, encode(b.kem_pk,'hex') AS kem_pk,
-                 encode(b.noise_pk,'hex') AS noise_pk
-               FROM next_background_grants b
-               JOIN installation_device_credentials k ON k.connector_id=b.native_connector_id
-               JOIN connectors c ON c.id=k.connector_id JOIN users u ON u.id=b.user_id
-               WHERE b.id=$1 AND b.principal_kind='installation' AND b.revoked_at IS NULL
-                 AND k.token_hash=$2 AND c.user_id=b.user_id AND c.revoked_at IS NULL
-                 AND u.suspended_at IS NULL AND u.account_backend='next'
-               FOR SHARE OF b,k,c,u`, [grantId, tokenHash(bearerToken(request)!)])).rows[0];
-            if (!consent) throw new TimerError(401, "unauthenticated", "The installation timer credential is no longer current.");
+            const authority = await currentInstallationTimerAuthority(connection, resolver,
+              (request.params as { collection: string }).collection, grantId, tokenHash(bearerToken(request)!));
+            authorizeTimerOperation(authority.grant, operation, criterionId);
             checkDeadline();
-            return { grant: current, termsDigest: createHash("sha256").update(canonicalJson({
-              principal_kind: "installation", consent, state: current.state,
-              collection_ids: current.collectionIds, operations: [...current.operations].sort(), criteria: current.criteria
-            })).digest() };
+            return authority;
           }
           const fields = `g.id, g.user_id, g.application_id, g.collection_id, g.hosted_collection_id,
             g.application_origin, g.application_authorization, g.scope, g.operations, g.notification_criteria,

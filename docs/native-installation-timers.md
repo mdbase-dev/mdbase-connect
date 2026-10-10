@@ -87,9 +87,32 @@ the existing generation CAS, event identity and consumer receipt uniqueness.
 Signal production uses the original frozen native notification declaration and
 the existing sealed channel/subscription/delivery queue, not a legacy grant join.
 
-Default runtime wiring, channel request authentication, transport delivery and
-the adopted-host timer port remain separate integration work. Producing a queued
-signal in tests is not delivered or enabled reminders.
+The existing native-control-plane and timer flags select one configured native
+resolver shared by timer routes, worker, notification consumer/service and channel
+routes. Its registry environment must be explicitly lab, staging or production;
+there is no hostname inference or native-to-legacy recovery on invalid settings.
+No runtime flag or deployment is changed by this wiring.
+
+## Installation reminder channels
+
+Registration and deletion mount the existing channel engine at
+`/v1/next/collections/:collection/background-grants/:grant/notifications/channels`
+(and `/:channelId` for deletion). The same current installation authority checks
+apply before channel writes and commit, with policy locks held. The installation
+ID must be the actual original installation; criteria are limited to its frozen
+timer consent. Other installation/account cookies, ordinary connector credentials
+and legacy channel routes do not authorize these operations.
+
+Native targets require configured sealing; missing keys refuse rather than storing
+plaintext. Web Push and managed FCM retain the existing target sealing and
+subscription machinery. Managed FCM requires the frozen declared project and
+configured transport. A native registration cannot delete another grant/account's
+channel merely because it has the same FCM token. Unregistration is exact-grant
+and explicit; closing a host is not deletion of persistent channels.
+
+Transport delivery and the adopted-host timer port remain integration work.
+Producing a queued signal or registering a channel in tests is not delivered or
+enabled reminders.
 
 ## Upgrade evidence and down-path limit
 

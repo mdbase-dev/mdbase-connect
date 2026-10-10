@@ -3,21 +3,25 @@ import type {
   ApplicationNotifications,
   NotificationCriterion
 } from "@mdbase-dev/connect-protocol";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, RouteHandlerMethod } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import {
   activeGrantForToken,
+  backgroundGrantNotificationDeclaration,
   type NotificationService,
   type NotificationTransports
 } from "../../notifications.js";
 import { tokenHash } from "../../security.js";
 import {
+  currentInstallationTimerAuthority,
+  grantMayFire,
   legacyTimerGrantResolver,
   type TimerGrantResolver
 } from "../next/timers/grants.js";
 import { apiError } from "../../platform/http-errors.js";
+import { TimerError } from "../next/timers/model.js";
 import {
   bearerToken,
   requireConnector
@@ -72,7 +76,7 @@ export function registerNotificationRoutes(
     }
   );
 
-  app.post("/v1/notifications/channels", async (request, reply) => {
+  const registerChannel = (installation: boolean): RouteHandlerMethod => async (request, reply) => {
     if (!options.service) {
       return notificationsUnavailable(reply);
     }
@@ -113,34 +117,30 @@ export function registerNotificationRoutes(
     const connection = await options.db.connect();
     try {
       await connection.query("BEGIN");
-      const grant = await activeGrantForToken(
-        connection,
-        tokenHash(bearer)
-      );
-      if (!grant) {
-        await connection.query("ROLLBACK");
-        return reply.code(401).send(apiError(
-          "invalid_token",
-          "Access token is invalid or expired."
-        ));
-      }
-      if (!(await (options.grantResolver ?? legacyTimerGrantResolver).resolve(connection, grant.grant_id))?.usable) {
-        await connection.query("ROLLBACK");
-        return reply.code(403).send(grantNotUsable());
-      }
-      const application = await connection.query<{
-        notifications: ApplicationNotifications;
-        notification_criteria: NotificationCriterion[];
-      }>(
-        `SELECT a.notifications, g.notification_criteria
-         FROM grants g
-         JOIN applications a ON a.id = g.application_id
-         WHERE g.id = $1 AND g.revoked_at IS NULL
-           AND g.activated_at IS NOT NULL`,
-        [grant.grant_id]
-      );
+      await connection.query("SET LOCAL lock_timeout = '5s'");
+      await connection.query("SET LOCAL statement_timeout = '5s'");
+      const resolver = options.grantResolver ?? legacyTimerGrantResolver;
+      const authenticate = async () => {
+        if (installation) {
+          const params = z.object({collection:z.uuid(),grant:z.uuid()}).parse(request.params);
+          const authority = await currentInstallationTimerAuthority(connection,resolver,params.collection,params.grant,tokenHash(bearer));
+          if (input.installation_id !== authority.installationId) throw new TimerError(403,"forbidden","The channel is not for this installation.");
+          if (criteria.some(criterion => !grantMayFire(authority.grant,criterion))) {
+            throw new TimerError(400,"notification_reauthorization_required","The timer consent does not authorize this notification criterion.");
+          }
+          return {grant_id:authority.grant.grantId,application_id:authority.grant.applicationId};
+        }
+        const retained = await activeGrantForToken(connection,tokenHash(bearer));
+        if (!retained) throw new TimerError(401,"invalid_token","Access token is invalid or expired.");
+        if (!(await resolver.resolve(connection,retained.grant_id))?.usable) {
+          throw new TimerError(403,"forbidden","This grant cannot receive notifications until a device approves it.",{reason:"grant_not_usable"});
+        }
+        return retained;
+      };
+      const grant = await authenticate();
+      const application = await backgroundGrantNotificationDeclaration(connection,grant.grant_id);
       const declared = new Set(
-        application.rows[0]?.notification_criteria.map(
+        application?.notification_criteria.map(
           (criterion) => criterion.id
         ) ?? []
       );
@@ -160,7 +160,7 @@ export function registerNotificationRoutes(
         ? null
         : input.subscription;
       const nativeDelivery =
-        application.rows[0]?.notifications.native_delivery;
+        application?.notifications.native_delivery;
       if (kind === "fcm") {
         if (nativeDelivery?.mode !== "managed_fcm") {
           await connection.query("ROLLBACK");
@@ -176,7 +176,9 @@ export function registerNotificationRoutes(
             "Connect-managed FCM delivery is not configured."
           ));
         }
-        await connection.query(
+        // Native consent is exact-collection authority, not permission to
+        // delete another grant/account's channel when it shares an FCM token.
+        if (!installation) await connection.query(
           `DELETE FROM push_channels
            WHERE grant_id IN (
              SELECT id FROM grants WHERE application_id = $1
@@ -200,6 +202,7 @@ export function registerNotificationRoutes(
       // Sealed at rest when a push-target key is configured: the plaintext
       // target columns stay NULL and only the hashes remain queryable.
       const sealer = options.service.pushTargetSealer;
+      if (installation && !sealer) throw new TimerError(503,"push_target_sealing_required","Native reminder channels require sealed push targets.");
       const target = {
         endpoint: webSubscription?.endpoint ?? null,
         p256dh: webSubscription?.keys.p256dh ?? null,
@@ -275,6 +278,7 @@ export function registerNotificationRoutes(
           ]
         );
       }
+      await authenticate();
       await connection.query("COMMIT");
       return reply.code(201).send({
         channel_id: channel.rows[0].id,
@@ -283,11 +287,15 @@ export function registerNotificationRoutes(
       });
     } catch (error) {
       await connection.query("ROLLBACK");
+      if (error instanceof TimerError) return reply.code(error.statusCode).send(apiError(error.code,error.message,error.details));
+      if (["55P03","57014"].includes(String((error as {code?:string})?.code))) return reply.code(503).send(apiError("busy","Reminder channels are temporarily unavailable."));
       throw error;
     } finally {
       connection.release();
     }
-  });
+  };
+  app.post("/v1/notifications/channels",registerChannel(false));
+  app.post("/v1/next/collections/:collection/background-grants/:grant/notifications/channels",registerChannel(true));
 
   app.put(
     "/v1/notifications/subscriptions/:criterionId",
@@ -367,9 +375,7 @@ export function registerNotificationRoutes(
     }
   );
 
-  app.delete(
-    "/v1/notifications/channels/:channelId",
-    async (request, reply) => {
+  const removeChannel = (installation: boolean): RouteHandlerMethod => async (request, reply) => {
       const params = z.object({
         channelId: z.uuid()
       }).parse(request.params);
@@ -380,31 +386,37 @@ export function registerNotificationRoutes(
           "Bearer token required."
         ));
       }
-      const grant = await activeGrantForToken(
-        options.db,
-        tokenHash(bearer)
-      );
-      if (!grant) {
-        return reply.code(401).send(apiError(
-          "invalid_token",
-          "Access token is invalid or expired."
-        ));
-      }
-      const removed = await options.db.query(
-        `DELETE FROM push_channels
-         WHERE id = $1 AND grant_id = $2
-         RETURNING id`,
-        [params.channelId, grant.grant_id]
-      );
-      if (!removed.rows[0]) {
-        return reply.code(404).send(apiError(
-          "channel_not_found",
-          "The push channel was not found."
-        ));
-      }
-      return reply.code(204).send();
-    }
-  );
+      const connection = await options.db.connect();
+      try {
+        await connection.query("BEGIN");
+        await connection.query("SET LOCAL lock_timeout = '5s'");
+        await connection.query("SET LOCAL statement_timeout = '5s'");
+        const authenticate = async () => {
+          if (installation) {
+            const scope = z.object({collection:z.uuid(),grant:z.uuid()}).parse(request.params);
+            return (await currentInstallationTimerAuthority(connection,options.grantResolver ?? legacyTimerGrantResolver,
+              scope.collection,scope.grant,tokenHash(bearer))).grant.grantId;
+          }
+          const retained = await activeGrantForToken(connection,tokenHash(bearer));
+          if (!retained) throw new TimerError(401,"invalid_token","Access token is invalid or expired.");
+          return retained.grant_id;
+        };
+        const grantId = await authenticate();
+        const removed = await connection.query(
+          `DELETE FROM push_channels WHERE id=$1 AND grant_id=$2 RETURNING id`, [params.channelId,grantId]);
+        if (!removed.rows[0]) throw new TimerError(404,"channel_not_found","The push channel was not found.");
+        await authenticate();
+        await connection.query("COMMIT");
+        return reply.code(204).send();
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        if (error instanceof TimerError) return reply.code(error.statusCode).send(apiError(error.code,error.message,error.details));
+        if (["55P03","57014"].includes(String((error as {code?:string})?.code))) return reply.code(503).send(apiError("busy","Reminder channels are temporarily unavailable."));
+        throw error;
+      } finally { connection.release(); }
+  };
+  app.delete("/v1/notifications/channels/:channelId",removeChannel(false));
+  app.delete("/v1/next/collections/:collection/background-grants/:grant/notifications/channels/:channelId",removeChannel(true));
 
   app.post(
     "/internal/v1/hosted/notification-signals",
