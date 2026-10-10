@@ -1,6 +1,5 @@
 // Hermetic canonical-helper composition checks; SQL substituted, no PG/provider.
 import { describe, expect, it } from "vitest";
-import type { DatabaseConnection } from "../../database-types.js";
 import { pitrLabel, type LabPitrConfig } from "./lab-pitr-config.js";
 import { cloudCopyMetadata, createServiceCloudCopy, existingCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 const A = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", D = "dddddddd-dddd-4ddd-addd-dddddddddddd";
@@ -10,7 +9,7 @@ const pitr: LabPitrConfig = { run:"gate4-pitr-lab-20261009-01",active:A,deleted:
 function fixture(change: object = {}) {
   const queries: string[] = [];
   const row = {owner_user_id:OWNER,sync:"cloud_copy",left:false,created_at:new Date(1000),display_name:pitrLabel(pitr,A),...change};
-  const client = { async query(sql: string) { queries.push(sql); return {rows:sql.includes("FROM next_collections")?[row]:[]}; } } as unknown as DatabaseConnection;
+  const client = { async query(sql: string) { queries.push(sql); return {rows:sql.includes("FROM next_collections")?[row]:[]}; } } as unknown as Parameters<typeof existingCloudCopy>[0];
   return {client,queries};
 }
 const options = {next:{rootPublicKey:Buffer.alloc(32,1),policyCert:{root_key_id:"06".repeat(16)},
