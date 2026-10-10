@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { chromium } from "@playwright/test";
+import { auditPortalInstallationApproval } from "./portal-installation-approval-audit.mjs";
 
 const roots = {
   portal: resolve("apps/portal/dist"),
@@ -26,6 +27,7 @@ try {
   await auditPortalColdStartAuthorization({ atomic: true });
   await auditPortalExpiredAuthorization();
   await auditPortalDeviceAuthorization();
+  await auditPortalInstallationApproval(localPage, servers[0].origin);
   if (!process.argv.includes("--portal-only")) {
     await auditDesktopResumedAuthorization();
     await auditDesktopRoutes();

@@ -919,6 +919,49 @@ select {
   font-size: 0.78rem;
 }
 
+.installation-approval {
+  --control-height: 44px;
+  min-height: 100svh;
+}
+
+.installation-approval section {
+  min-width: 0;
+}
+
+.installation-approval .installation-account-label {
+  margin-top: var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.installation-advanced,
+.installation-details {
+  margin-block: var(--space-4);
+  color: var(--color-text-soft);
+  font-size: var(--font-size-ui);
+}
+
+.installation-advanced summary,
+.installation-details summary {
+  min-height: 44px;
+  padding-block: var(--space-3);
+  cursor: pointer;
+}
+
+.installation-advanced legend {
+  margin-bottom: var(--space-2);
+}
+
+.installation-details code {
+  overflow-wrap: anywhere;
+}
+
+.installation-approval .decision-actions {
+  display: inline-flex;
+  margin: 0 0 0 var(--space-2);
+  padding: 0;
+  border: 0;
+}
+
 .installation-choice {
   display: grid;
   gap: var(--space-2);
