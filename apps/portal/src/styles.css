@@ -919,6 +919,34 @@ select {
   font-size: 0.78rem;
 }
 
+.installation-choice {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-block: var(--space-4);
+}
+
+.installation-choice input,
+.installation-choice button,
+.installation-scopes label {
+  min-height: 44px;
+}
+
+.installation-scopes {
+  min-width: 0;
+}
+
+.installation-scopes label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.installation-scopes code {
+  overflow-wrap: anywhere;
+}
+
 .decision-actions {
   display: flex;
   justify-content: flex-end;

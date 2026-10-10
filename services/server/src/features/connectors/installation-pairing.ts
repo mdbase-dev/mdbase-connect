@@ -77,6 +77,12 @@ interface Row {
   kind: "app-runtime" | "mobile";
   challenge: Buffer;
   account_selected_at: Date | string | null;
+  portal_account_confirmed_at: Date | string | null;
+  portal_account_email: string | null;
+  portal_account_session_id: string | null;
+  portal_account_session_epoch: string | number | null;
+  selected_collection_id: string | null;
+  created_collection_ids: string[];
   sign_pk: Buffer | null;
   kem_pk: Buffer | null;
   noise_pk: Buffer | null;
@@ -97,7 +103,7 @@ async function row(
   includeRevoked = false,
 ): Promise<Row> {
   const found = await c.query<Row>(
-    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
+    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.created_collection_ids FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
     [id, ...(secret === undefined ? [] : [tokenHash(secret)])],
   );
   const r = found.rows[0];
@@ -138,8 +144,21 @@ async function ordinary(
   )
     strict();
 }
+function portalConfirmation(r: Row) {
+  return r.portal_account_confirmed_at ? {
+    account_email: r.portal_account_email!,
+    account_selection_confirmed: true as const,
+  } : {};
+}
+function collectionSelection(r: Row) {
+  return r.selected_collection_id ? {
+    selected_collection_id: r.selected_collection_id,
+    created_collection_ids: r.created_collection_ids,
+  } : {};
+}
 function selection(r: Row) {
   return {
+    ...portalConfirmation(r),
     request_id: r.id,
     account_id: r.user_id,
     connector_id: r.connector_id,
@@ -233,6 +252,7 @@ export async function inspectInstallationPairing(
   db: DatabasePool,
   id: string,
   user: string,
+  canCreateCollection = false,
 ) {
   const r = await row(db, id);
   live(r);
@@ -250,9 +270,15 @@ export async function inspectInstallationPairing(
       app_id: r.app_id,
       app_origin: r.app_origin,
       account_selected: !!r.account_selected_at,
+      ...portalConfirmation(r),
+      // Current signed-in account is display-only before explicit confirmation.
+      signed_in_account_email: (await db.query<{email:string}>("SELECT email FROM users WHERE id=$1",[user])).rows[0]?.email,
+      selected_collection_id: r.selected_collection_id,
+      creation: (await db.query<{collection_id:string;display_name:string;completed:boolean}>("SELECT collection_id,display_name,completed_at IS NOT NULL AS completed FROM installation_pairing_collection_creations WHERE pairing_id=$1",[id])).rows[0] ?? null,
       attested: r.scope_only || !!r.attested_at,
       fingerprint: r.sign_pk ? clientFingerprint(r.sign_pk) : null,
       requested_create_collections: r.requested_create_collections,
+      can_create_collection: canCreateCollection && r.requested_create_collections,
       approved_create_collections: r.approved_create_collections,
       approved_collection_ids: r.approved_collection_ids,
       scope_only: r.scope_only,
@@ -276,6 +302,8 @@ export async function selectInstallationAccount(
     live(r);
     if (r.user_id && r.user_id !== user)
       fail("installation_account_changed", 403);
+    if (!r.portal_account_confirmed_at && (r.approved_at || r.consumed_at))
+      fail("installation_approval_already_recorded");
     if (!r.account_selected_at) {
       await c.query("UPDATE pairing_requests SET user_id=$2 WHERE id=$1", [
         id,
@@ -286,8 +314,32 @@ export async function selectInstallationAccount(
         [id],
       );
     }
+    // This authenticated click, not account_selected_at copied by renewal or
+    // re-consent, is the SDK's exact-request portal confirmation evidence.
+    if (!r.portal_account_confirmed_at) {
+      await c.query(`UPDATE installation_device_pairings SET
+        portal_account_confirmed_at=now(),portal_account_email=u.email,
+        portal_account_session_id=$3,portal_account_session_epoch=u.session_epoch
+        FROM users u WHERE pairing_id=$1 AND u.id=$2`,[id,user,session]);
+    }
     return { ok: true };
   });
+}
+/** Current original request/session boundary for the canonical portal creator.
+ * Called before and after every await; network work never runs under these locks. */
+export async function currentInstallationPairingPortal(c: Connection, id: string, user: string, session: string): Promise<void> {
+  await active(c,user,true);
+  await currentSession(c,session,user);
+  await ordinary(c,user);
+  const r = await row(c,id,undefined,true);
+  live(r);
+  if (r.user_id!==user) fail("installation_account_changed",403);
+  if (r.approved_at || r.consumed_at) fail("installation_approval_already_recorded");
+  const epoch = (await c.query<{session_epoch:string|number}>("SELECT session_epoch FROM users WHERE id=$1",[user])).rows[0]?.session_epoch;
+  if (!r.portal_account_confirmed_at || String(epoch)!==String(r.portal_account_session_epoch)) fail("installation_account_confirmation_required",403);
+  if (!r.attested_at && !r.scope_only) fail("installation_attestation_required");
+  if (!r.requested_create_collections) fail("installation_creation_not_requested",403);
+  if (r.scope_only) await requireInstallationScope(c,{id:r.connector_id,user_id:user,installation_device_id:r.device_id});
 }
 export async function attestInstallationPairing(
   db: DatabasePool,
@@ -352,7 +404,7 @@ export async function approveInstallationPairing(
   user: string,
   session: string,
   fingerprint: string,
-  consent: {collection_ids:string[];create_collections:boolean} = {collection_ids:[],create_collections:false},
+  consent: {collection_ids:string[];create_collections:boolean;selected_collection_id?:string} = {collection_ids:[],create_collections:false},
 ) {
   return tx(db, async (c) => {
     await active(c, user, true);
@@ -363,17 +415,38 @@ export async function approveInstallationPairing(
     if (r.user_id !== user || !r.account_selected_at || (!r.attested_at && !r.scope_only))
       fail("installation_attestation_required");
     if (!r.sign_pk || fingerprint !== clientFingerprint(r.sign_pk)) return fail("installation_fingerprint_changed", 403);
+    const selected = consent.selected_collection_id ?? null;
+    // Manual legacy approval remains supported, but can never fabricate the
+    // guarded SDK's portal confirmation or collection-selection provenance.
+    if (selected) {
+      const epoch = (await c.query<{session_epoch:string|number}>("SELECT session_epoch FROM users WHERE id=$1",[user])).rows[0]?.session_epoch;
+      if (!r.portal_account_confirmed_at || String(epoch)!==String(r.portal_account_session_epoch))
+        fail("installation_account_confirmation_required",403);
+    }
     const ids = [...consent.collection_ids].sort();
     if (new Set(ids).size!==ids.length || ids.length>1000 || (consent.create_collections && !r.requested_create_collections)) return fail("installation_invalid_scope",400);
-    if (r.approved_at && (r.approved_create_collections!==consent.create_collections || JSON.stringify([...r.approved_collection_ids].sort())!==JSON.stringify(ids))) return fail("installation_approved_scope_changed");
+    if (r.approved_at && (r.approved_create_collections!==consent.create_collections || r.selected_collection_id!==selected || JSON.stringify([...r.approved_collection_ids].sort())!==JSON.stringify(ids))) return fail("installation_approved_scope_changed");
     if (!r.approved_at) {
+      if (selected && !ids.includes(selected)) {
+        const retained = r.scope_only && (await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[r.connector_id,selected])).rows.length;
+        if (!retained) fail("installation_invalid_scope",400);
+      }
+      if (selected) {
+        await currentMember(c,selected,user);
+        await refuseRevoked(c,selected,r.device_id);
+        const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR SHARE OF n,owner",[selected]);
+        if (!current.rows.length) fail("installation_collection_unavailable",403);
+      }
       for (const collection of ids) {
         const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR SHARE OF n,owner",[collection]);
         if (!current.rows.length) return fail("installation_collection_unavailable",403);
         await currentMember(c,collection,user);
         await refuseRevoked(c,collection,r.device_id);
       }
-      await c.query("UPDATE installation_device_pairings SET approved_collection_ids=$2,approved_create_collections=$3,approved_session_epoch=(SELECT session_epoch FROM users WHERE id=$4) WHERE pairing_id=$1",[id,ids,consent.create_collections,user]);
+      if (selected && (await c.query("SELECT 1 FROM installation_pairing_collection_creations WHERE pairing_id=$1 AND collection_id=$2 AND completed_at IS NULL",[id,selected])).rows.length)
+        fail("installation_creation_incomplete",503);
+      const created = selected ? (await c.query<{collection_id:string}>("SELECT collection_id FROM installation_pairing_collection_creations WHERE pairing_id=$1 AND completed_at IS NOT NULL AND collection_id=ANY($2::uuid[]) ORDER BY collection_id",[id,ids])).rows.map(row=>row.collection_id) : [];
+      await c.query("UPDATE installation_device_pairings SET approved_collection_ids=$2,approved_create_collections=$3,approved_session_epoch=(SELECT session_epoch FROM users WHERE id=$4),selected_collection_id=$5,created_collection_ids=$6 WHERE pairing_id=$1",[id,ids,consent.create_collections,user,selected,created]);
       await c.query(
         "UPDATE pairing_requests SET approved_at=now(),expires_at=GREATEST(expires_at,now()+interval '10 minutes') WHERE id=$1",
         [id],
@@ -473,7 +546,11 @@ function credential(r: Row, secret: string): string {
  * Re-consent never removes access or revokes a device as a hidden side effect. */
 async function persistScope(c: Connection, r: Row): Promise<void> {
   await c.query("UPDATE installation_device_credentials SET create_collections=create_collections OR $2 WHERE connector_id=$1",[r.connector_id,r.approved_create_collections]);
-  for (const collection of [...r.approved_collection_ids].sort()) {
+  if (r.scope_only && r.selected_collection_id && !r.approved_collection_ids.includes(r.selected_collection_id)) {
+    const retained = await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[r.connector_id,r.selected_collection_id]);
+    if (!retained.rows.length) fail("installation_collection_unavailable",403);
+  }
+  for (const collection of [...new Set([...r.approved_collection_ids,...(r.selected_collection_id?[r.selected_collection_id]:[])])].sort()) {
     const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR UPDATE OF n",[collection]);
     if (!current.rows.length) return fail("installation_collection_unavailable",403);
     await currentMember(c,collection,r.user_id!);
@@ -514,10 +591,14 @@ export async function exchangeInstallationPairing(
         await persistScope(c,r);
         await c.query("UPDATE pairing_requests SET consumed_at=now() WHERE id=$1",[id]);
       }
-      return {status:"scope_updated" as const,...selection(r),added_collection_ids:r.approved_collection_ids,approved_create_collections:r.approved_create_collections};
+      return {status:"scope_updated" as const,...selection(r),...collectionSelection(r),added_collection_ids:r.approved_collection_ids,approved_create_collections:r.approved_create_collections};
     }
     const token = credential(r, secret);
     if (!r.consumed_at) {
+      if (r.portal_account_confirmed_at) {
+        const epoch = (await c.query<{session_epoch:string|number}>("SELECT session_epoch FROM users WHERE id=$1",[r.user_id])).rows[0]?.session_epoch;
+        if (r.approved_session_epoch===null || String(epoch)!==String(r.approved_session_epoch)) fail("installation_approval_not_current",403);
+      }
       await c.query(
         "INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,$3,$4)",
         [
@@ -575,6 +656,7 @@ export async function exchangeInstallationPairing(
     return {
       status: "paired" as const,
       ...selection(r),
+      ...collectionSelection(r),
       collection_ids:r.approved_collection_ids,
       create_collections:r.approved_create_collections,
       connector: { id: r.connector_id, name: r.connector_name },

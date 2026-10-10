@@ -2,7 +2,8 @@ import { randomBytes, randomUUID } from "node:crypto";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { listHostedCollectionsVisibleToUser, listLocalCollectionsVisibleToUser, listNativeCollectionsVisibleToUser } from "./collection-catalog.js";
 import { createDatabase, type DatabasePool } from "./db.js";
 import { acceptHostedCollectionInvitation, createHostedCollectionInvitation } from "./collection-invitations.js";
 import { changeHostedCollectionMembershipRole, finalizeReadyMembershipTransitions, revokeHostedCollectionMembership } from "./collection-membership-lifecycle.js";
@@ -247,6 +248,58 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
     await completeProvider(f);
     expect(await finalizeReadyMembershipTransitions(db)).toBe(0);
     expect(await memberOps(f)).toEqual([{ op: "member-set", account: f.member.id, role: "viewer" }, { op: "member-set", account: f.member.id, role: "viewer" }]);
+  });
+
+  it.each(["private", "cloud_copy"] as const)("discovers %s native management without retaining legacy authority", async sync => {
+    const f = await fixture(sync, true);
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [f.owner.id]);
+    await db.query("UPDATE next_collections SET display_name='Native label' WHERE collection_id=$1", [f.collection]);
+    const connector = randomUUID();
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Retained connector',$3)", [connector,f.owner.id,randomUUID()]);
+    await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version) VALUES($1,$2,$3,$4,'Retained local','0.3.0')", [randomUUID(),f.owner.id,connector,f.collection]);
+    expect(await listNativeCollectionsVisibleToUser(db, f.owner.id)).toEqual([{id:f.collection,display_name:"Native label",sync,access:{relationship:"owner",role:"owner",can_manage_members:true}}]);
+    expect(await listHostedCollectionsVisibleToUser(db, f.owner.id)).toEqual([]);
+    expect(await listLocalCollectionsVisibleToUser(db, f.owner.id)).toEqual([]);
+    expect(await ops(f.collection)).toEqual([]);
+  });
+
+  it("native management discovery follows the exact current membership policy", async () => {
+    const f = await fixture(), stranger = await account();
+    const membership = await createMember(f, "viewer");
+    expect(await listNativeCollectionsVisibleToUser(db, stranger.id)).toEqual([]);
+    expect(await listNativeCollectionsVisibleToUser(db, f.member.id)).toEqual([{id:f.collection,display_name:null,sync:"cloud_copy",access:{relationship:"member",role:"viewer",can_manage_members:false}}]);
+    await revokeHostedCollectionMembership(db, {collectionId:f.collection,actorUserId:f.owner.id,membershipId:membership.membershipId});
+    expect(await listNativeCollectionsVisibleToUser(db, f.member.id)).toEqual([]);
+  });
+
+  it.each(["left", "suspended", "deleted"] as const)("hides %s native management without legacy fallback", async state => {
+    const f = await fixture("cloud_copy", true);
+    if (state === "left") await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [f.collection]);
+    if (state === "suspended") await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [f.owner.id]);
+    if (state === "deleted") await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [f.collection,randomUUID()]);
+    expect(await listNativeCollectionsVisibleToUser(db, f.owner.id)).toEqual([]);
+    expect(await listHostedCollectionsVisibleToUser(db, f.owner.id)).toEqual([]);
+  });
+
+  it("shows frozen management metadata without advertising sharing mutations", async () => {
+    const f = await fixture(), cohort = randomUUID();
+    await db.query("INSERT INTO next_migration_cohorts(name) VALUES($1)", [cohort]);
+    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [f.owner.id,cohort]);
+    await db.query("UPDATE next_migration_cohorts SET frozen_at=now() WHERE name=$1", [cohort]);
+    expect(await listNativeCollectionsVisibleToUser(db, f.owner.id)).toEqual([{id:f.collection,display_name:null,sync:"cloud_copy",access:{relationship:"owner",role:"owner",can_manage_members:false}}]);
+    expect(await ops(f.collection)).toEqual([]);
+  });
+
+  it("keeps shadow management on its real legacy authority", async () => {
+    const f = await fixture("shadow");
+    expect(await listNativeCollectionsVisibleToUser(db, f.owner.id)).toEqual([]);
+    expect((await listHostedCollectionsVisibleToUser(db, f.owner.id)).map(row => row.locator.collectionId)).toEqual([f.collection]);
+  });
+
+  it("refuses a bounded catalog overflow rather than returning a partial chooser", async () => {
+    const query = vi.fn().mockResolvedValue({rows:Array.from({length:1001}, () => ({collection_id:randomUUID()}))});
+    await expect(listNativeCollectionsVisibleToUser({query}, randomUUID())).rejects.toMatchObject({code:"collection_inventory_limit"});
+    expect(query).toHaveBeenCalledOnce();
   });
 
   it.each([true, false])("uses current native authority before account flip (retained hosted row: %s)", async retainedHosted => {
