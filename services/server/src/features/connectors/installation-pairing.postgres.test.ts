@@ -16,6 +16,8 @@ import { registerApplicationManifest } from "../../manifest.js";
 import { upsertApplication } from "../applications/store.js";
 import { registerConnectorPairingRoutes } from "./pairing-routes.js";
 import { backgroundTimerGrantResolver, dataPermitted } from "../next/timers/grants.js";
+import { registerTimerRoutes } from "../next/timers/routes.js";
+import { lockNamespace } from "../next/timers/store.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -43,6 +45,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     registerErrorHandler(app);
     registerConnectorPairingRoutes(app, { db, publicUrl: "https://connect.test", installationDevices: true, installationEnvironment: "lab" });
     registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null } });
+    registerTimerRoutes(app, { db, resolver: backgroundTimerGrantResolver(db,"lab") });
     app.get("/test/installation-scope", async (request, reply) => {
       const identity = await requireInstallationDeviceConnector(request, reply, db);
       if (!identity) return reply;
@@ -517,8 +520,114 @@ describePg("installation device sign-in on daemon pairing", () => {
     await db.query("INSERT INTO next_policy_outbox(collection_id,ops,batch_id) VALUES($1,$2,$3)",[collection,JSON.stringify({version:1,ops:[enrol]}),batch]);
     const resolver=backgroundTimerGrantResolver(db,"lab");
     expect((await resolver.resolve(db,grantId))?.usable).toBe(true);
-    return {p,collection,grantId,batch,resolver};
+    return {p,collection,grantId,batch,resolver,token:receipt.token as string};
   }
+  const timerPath = (f:Awaited<ReturnType<typeof currentTimerFixture>>) => `/v1/next/collections/${f.collection}/background-grants/${f.grantId}/timers/reminders`;
+  it("authenticates the original installation consent on the shared opaque timer and exact receipt routes",async()=>{
+    const f=await currentTimerFixture(),headers={authorization:`Bearer ${f.token}`},base=timerPath(f);
+    const fire_at=new Date(Date.now()+3_600_000).toISOString();
+    const listed=await app.inject({method:"GET",url:base,headers});
+    expect(listed.statusCode,listed.body).toBe(200);
+    expect(listed.json()).toEqual({namespace:"reminders",intent_revision:0,timers:[]});
+    const opaque=await app.inject({method:"PUT",url:`${base}/one`,headers,payload:{criterion_id:"synthetic.reminder",fire_at,data:{content:"never store"}}});
+    expect(opaque.statusCode,opaque.body).toBe(400);
+    expect((await db.query("SELECT 1 FROM next_timers WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
+    const put=await app.inject({method:"PUT",url:`${base}/one`,headers,payload:{criterion_id:"synthetic.reminder",fire_at}});
+    expect(put.statusCode,put.body).toBe(200); expect(put.json().generation).toBe(1);
+    expect(put.json().data).toBeUndefined();
+    const operation_id=Date.now().toString(16).padStart(12,"0").replace(/(.{8})(.{4})/,"$1-$2")+"-7000-8000-"+randomUUID().slice(-12);
+    const payload={criterion_id:"synthetic.reminder",timers:[{id:"two",fire_at}],recovery:{protocol_version:1,operation_id,expected_revision:1}};
+    const receipt=await app.inject({method:"POST",url:`${base}/reconcile`,headers,payload});
+    expect(receipt.statusCode,receipt.body).toBe(200);
+    expect(receipt.json()).toMatchObject({protocol_version:1,operation_id,expected_revision:1,committed_revision:2,result:{cancelled_ids:["one"]}});
+    const replay=await app.inject({method:"POST",url:`${base}/reconcile`,headers,payload});
+    expect(replay.statusCode,replay.body).toBe(200); expect(replay.json()).toEqual(receipt.json());
+    const lookup=await app.inject({method:"GET",url:`${base}/operations/${operation_id}`,headers});
+    expect(lookup.statusCode,lookup.body).toBe(200); expect(lookup.json()).toEqual({outcome:"committed",receipt:receipt.json()});
+    const conflict=await app.inject({method:"POST",url:`${base}/reconcile`,headers,payload:{...payload,timers:[]}});
+    expect(conflict.statusCode).toBe(409); expect(conflict.json().error.code).toBe("operation_conflict");
+    const unknown=await app.inject({method:"GET",url:`${base}/operations/${operation_id.slice(0,-12)+randomUUID().slice(-12)}`,headers});
+    expect(unknown.statusCode).toBe(200); expect(unknown.json().outcome).toBe("unknown");
+    const cancelled=await app.inject({method:"DELETE",url:`${base}/two?generation=1`,headers});
+    expect(cancelled.statusCode,cancelled.body).toBe(200); expect(cancelled.json().cancelled).toBe(true);
+    expect((await db.query("SELECT intent_revision FROM next_timer_namespace_intents WHERE grant_id=$1",[f.grantId])).rows[0].intent_revision).toBe("3");
+    await db.query("UPDATE next_background_grants SET revoked_at=now() WHERE id=$1",[f.grantId]);
+    expect((await app.inject({method:"GET",url:`${base}/operations/${operation_id}`,headers})).statusCode).toBe(403);
+  });
+  it("never treats public consent references, other installations, ordinary controller or legacy/internal credentials as native timer authority",async()=>{
+    const f=await currentTimerFixture(),other=await currentTimerFixture(),base=timerPath(f);
+    for(const headers of [{},{authorization:"Bearer invalid"},{authorization:`Bearer ${other.token}`}]) {
+      expect((await app.inject({method:"GET",url:base,headers})).statusCode).toBe(401);
+    }
+    const ordinary=randomToken("connector");
+    await db.query("UPDATE connectors SET token_hash=$2 WHERE id=$1",[f.p.selected.connector_id,tokenHash(ordinary)]);
+    expect((await app.inject({method:"GET",url:"/test/controller-scope",headers:{authorization:`Bearer ${ordinary}`}})).statusCode).toBe(200);
+    expect((await app.inject({method:"GET",url:base,headers:{authorization:`Bearer ${ordinary}`}})).statusCode).toBe(401);
+    const headers={authorization:`Bearer ${f.token}`};
+    expect((await app.inject({method:"GET",url:base.replace(f.collection,other.collection),headers})).statusCode).toBe(403);
+    expect((await app.inject({method:"GET",url:base.replace(f.grantId,other.grantId),headers})).statusCode).toBe(401);
+    expect((await app.inject({method:"GET",url:`/v1/next/collections/${f.collection}/timers/reminders`,headers})).statusCode).toBe(401);
+    expect((await app.inject({method:"GET",url:`/internal/v1/next/timers/${f.grantId}/reminders`,headers})).statusCode).toBe(401);
+    const p=await prepared("app-runtime",false,undefined,undefined,await timerApp()),collection=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[collection],collection,false)).statusCode).toBe(200);
+    const receipt=(await p.flow.exchange()).json();
+    expect((await app.inject({method:"GET",url:base,headers:{authorization:`Bearer ${receipt.token}`}})).statusCode).toBe(401);
+    await db.query("UPDATE installation_device_credentials SET token_hash=$2 WHERE connector_id=$1",[f.p.selected.connector_id,tokenHash(randomToken("ct"))]);
+    expect((await app.inject({method:"GET",url:base,headers})).statusCode).toBe(401);
+  });
+  it("rechecks the dedicated credential after preliminary timer admission, not just its public grant reference",async()=>{
+    const f=await currentTimerFixture(),receiver=Fastify(); let changed=false;
+    registerErrorHandler(receiver);
+    registerTimerRoutes(receiver,{db,resolver:{async resolve(queryable,id) {
+      const grant=await f.resolver.resolve(queryable,id);
+      if(queryable===db && !changed) {
+        changed=true;
+        await db.query("UPDATE installation_device_credentials SET token_hash=$2 WHERE connector_id=$1",[f.p.selected.connector_id,tokenHash(randomToken("ct"))]);
+      }
+      return grant;
+    }}});
+    try {
+      const result=await receiver.inject({method:"PUT",url:`${timerPath(f)}/one`,headers:{authorization:`Bearer ${f.token}`},payload:{criterion_id:"synthetic.reminder",fire_at:new Date(Date.now()+3_600_000).toISOString()}});
+      expect(changed).toBe(true); expect(result.statusCode,result.body).toBe(401);
+      expect((await db.query("SELECT 1 FROM next_timers WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
+    } finally { await receiver.close(); }
+  });
+  it("holds native policy before waiting on the shared real timer namespace lock",async()=>{
+    const f=await currentTimerFixture(),blocker=await db.connect(),probe=await db.connect();
+    let pending:ReturnType<typeof app.inject>|undefined;
+    try {
+      await blocker.query("BEGIN"); await lockNamespace(blocker,f.grantId,"reminders");
+      const pid=(await blocker.query<{pid:number}>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      pending=app.inject({method:"GET",url:timerPath(f),headers:{authorization:`Bearer ${f.token}`}});
+      let waiting=false;
+      for(let attempt=0;attempt<100;attempt++) {
+        waiting=(await db.query<{waiting:boolean}>(`SELECT EXISTS(SELECT 1 FROM pg_locks w JOIN pg_locks h
+          ON h.locktype=w.locktype AND h.classid=w.classid AND h.objid=w.objid AND h.objsubid=w.objsubid
+          WHERE h.pid=$1 AND h.locktype='advisory' AND h.granted AND NOT w.granted) AS waiting`,[pid])).rows[0].waiting;
+        if(waiting) break;
+        await new Promise(resolve=>setTimeout(resolve,10));
+      }
+      expect(waiting).toBe(true);
+      await probe.query("BEGIN"); await probe.query("SET LOCAL lock_timeout = '100ms'");
+      await expect(probe.query("SELECT 1 FROM next_collections WHERE collection_id=$1 FOR UPDATE",[f.collection])).rejects.toMatchObject({code:"55P03"});
+      await probe.query("ROLLBACK"); await blocker.query("COMMIT");
+      expect((await pending).statusCode).toBe(200);
+    } finally {
+      await probe.query("ROLLBACK"); await blocker.query("ROLLBACK");
+      if(pending) await pending;
+      probe.release(); blocker.release();
+    }
+  });
+  it.each(["declaration","device-key","member-remove","scope"])("rechecks native timer HTTP authority after %s changes",async change=>{
+    const f=await currentTimerFixture(),headers={authorization:`Bearer ${f.token}`},base=timerPath(f);
+    expect((await app.inject({method:"GET",url:base,headers})).statusCode).toBe(200);
+    if(change==="declaration") await db.query("UPDATE applications SET notifications=$2::jsonb WHERE id=$1",[f.p.input.installation.app_id,JSON.stringify({criteria:[]})]);
+    if(change==="device-key") await db.query("UPDATE next_devices SET noise_pk=$2 WHERE id=$1",[f.p.input.installation.device_id,Buffer.alloc(32,91)]);
+    if(change==="member-remove") await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",[f.collection,JSON.stringify({version:1,ops:[{op:"member-remove",account:f.p.owner.user}]})]);
+    if(change==="scope") await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[f.p.selected.connector_id,f.collection]);
+    expect((await app.inject({method:"GET",url:base,headers})).statusCode).toBe(403);
+    expect((await db.query("SELECT 1 FROM next_timers WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
+  });
   it("resolves actual native timer consent as opaque, exact collection authority, independent of transient pairing-window custody",async()=>{
     const f=await currentTimerFixture(),grant=(await f.resolver.resolve(db,f.grantId))!;
     expect(grant).toMatchObject({grantId:f.grantId,userId:f.p.owner.user,applicationId:f.p.input.installation.app_id,

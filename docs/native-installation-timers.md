@@ -55,9 +55,33 @@ Reads own a bounded transaction; calls from an engine transaction retain policy
 and live-consent locks through its commit. A pruned pairing window does not erase
 registered custody or grant provenance. Native timers are always opaque: even a
 cloud-copy native collection does not authorize plaintext timer data. The native
-credential is not the connector's unused ordinary-controller token. HTTP request,
-worker/delivery and adopted-host port integration require their own current
-principal checks; the resolver alone does not enable runtime reminders.
+credential is not the connector's unused ordinary-controller token. The resolver
+alone does not enable runtime reminders.
+
+## Installation timer requests and receipts
+
+The additive v1 installation route is
+`/v1/next/collections/:collection/background-grants/:grant/timers/:namespace`.
+It mounts the same timer operations and original-operation receipt engine, not a
+second store. Both path IDs are fixed by the original public approval reference;
+only the grant's genuine dedicated installation bearer authenticates a request.
+The receiver rechecks that credential inside the engine transaction and checks
+current authority before mutation and commit. A grant reference, account cookie,
+other installation or ordinary connector bearer is insufficient. Existing OAuth
+routes and hosted/internal shims do not admit native installation authority.
+
+Native identity/policy locks precede the shared grant/namespace locks, with another
+current check after waiting. Legacy requests retain their original post-wait token
+expiry, revocation and P-256 proof checks. Native receipt recovery binds the actual
+original immutable consent/device/key tuple and exact approval microseconds; it
+never manufactures a legacy proof key or changes installation custody. Replay and
+read-only lookup use the existing operation identity, request/terms digests and
+intent revisions. Missing remains UNKNOWN, and revoked consent cannot recover a
+receipt. No request or receipt authorizes native timer data.
+
+These routes require the actual native resolver. Default runtime wiring,
+worker/consumption/delivery and the adopted-host timer port remain separate
+integration work; request tests alone are not delivered or enabled reminders.
 
 ## Upgrade evidence and down-path limit
 
