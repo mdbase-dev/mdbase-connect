@@ -35,15 +35,20 @@ async function fixture(failure?: string) {
     if (sql.startsWith("SELECT sync")) return {rows: failure === "queue" ? [] : [{sync:"cloud_copy"}]};
     if (sql.includes("FROM sessions s")) return {rows:failure === "session" ? [] : [{one:1}]};
     if (sql.includes("FROM next_collection_deletion_facts")) {
+      if(sql.includes("LIMIT 3")){
+        const fact={deletion_id:HOSTED,epoch:"1"};
+        return {rows:failure==="nil-fact-missing"?[]:failure==="nil-fact-conflict"?[fact,{...fact,epoch:"2"}]:failure==="nil-fact-many"?[fact,fact,fact]:failure==="nil-fact-two"?[fact,fact]:[fact]};
+      }
       if (sql.includes("ORDER BY")) return {rows:[{collection_id:D,deletion_id:HOSTED,epoch:"1"}]};
       return {rows:failure === "deleted" ? [{one:1}] : []};
     }
-    if (sql.includes("SELECT n.root_key_id")) return {rows:failure === "parent" ? [] : [{root_key_id:failure === "root" ? Buffer.alloc(16,9) : ROOT}]};
+    if (sql.includes("SELECT n.root_key_id")) return {rows:failure === "parent" || (failure==="nil-second-parent"&&values[0]===D)
+      || (failure==="nil-left"&&sql.includes("left_sync_at IS NULL")) ? [] : [{root_key_id:failure === "root" ? Buffer.alloc(16,9) : ROOT}]};
     if (sql.includes("e.value->>'op' AS op")) return {rows:[{op:failure === "member" ? "member-remove" : "member-set",role:"owner"}]};
     if (sql.includes("CASE WHEN octet_length(item)")) {
       if (failure==="genesis") return {rows:[]};
       const item=items.get(String(values[0]));
-      const row={state:failure==="cp-sending"?"sending":failure==="cp-parked"?"parked":"appended",item,lost_at:failure==="cp-lost"?new Date(0):null};
+      const row={state:failure==="cp-sending"?"sending":failure==="cp-parked"?"parked":"appended",item,lost_at:failure==="cp-lost"||(failure==="nil-second-lost"&&values[0]===D)?new Date(0):null};
       if(failure==="cp-duplicate")return {rows:[row,row]};
       if(failure==="cp-lost-with-live-reissue")return {rows:[{...row,lost_at:new Date(0)},{...row,state:"sending"}]};
       if(failure==="cp-missing-loss")return {rows:[{state:"sending",item}]};
@@ -71,7 +76,7 @@ async function fixture(failure?: string) {
         return {rows:failure==="grant-pending"?[]:[{one:1}]};
       }
       if (op.op === "device-revoke") return {rows:failure === "revoked" ? [{one:1}] : []};
-      if (op.op === "cp-key-revoke") { if(failure==="cp-clock")now=cert.notAfter; return {rows:failure === "security-key" ? [{one:1}] : []}; }
+      if (op.op === "cp-key-revoke") { if(failure==="cp-clock")now=cert.notAfter; return {rows:failure === "security-key"||(failure==="nil-second-security"&&values[0]===D) ? [{one:1}] : []}; }
       if (op.op === "device-enrol") {
         expect(op).toHaveProperty("signPublicKey"); expect(op).toHaveProperty("kemPublicKey"); expect(op).toHaveProperty("noisePublicKey");
         if (failure === "clock") now = cert.notAfter;
@@ -94,7 +99,15 @@ async function fixture(failure?: string) {
   const cpBody={run:body.run,principal:"control-plane",purpose:"pending-original-genesis",collection:A,
     genesisSha256:hashes[A],transportPublicKey:"07".repeat(32),issuerKeyId:"08".repeat(16),policyKeyId:body.policyKeyId};
   const currentCp=(change:object={},authorization=`Bearer ${TOKEN}`)=>app.inject({method:"POST",url:"/internal/v1/next/lab-pitr/current-cp-genesis",headers:{authorization},payload:{...cpBody,...change}});
-  return {app,current,mutate,currentGrant,grantBody,currentCp,cpBody,queries,writes,body,counts:()=>({connects,releases})};
+  const cpCollectionBody={...cpBody,purpose:"collection"};
+  const currentCpCollection=(change:object={},authorization=`Bearer ${TOKEN}`)=>app.inject({method:"POST",url:"/internal/v1/next/lab-pitr/current-cp-collection",headers:{authorization},payload:{...cpCollectionBody,...change}});
+  const {genesisSha256:_hash,...cpFields}=cpBody;
+  const nilReadBody={...cpFields,collection:"00000000-0000-0000-0000-000000000000",purpose:"registry-read",activeGenesisSha256:hashes[A],deletedGenesisSha256:hashes[D]};
+  const nilRecordBody={...nilReadBody,purpose:"deletion-record",subject:D,deletionId:HOSTED,lifecycleEpoch:"1"};
+  const currentNil=(record=false,change:object={},authorization=`Bearer ${TOKEN}`)=>app.inject({method:"POST",url:`/internal/v1/next/lab-pitr/current-cp-nil-${record?"record":"read"}`,headers:{authorization},payload:{...(record?nilRecordBody:nilReadBody),...change}});
+  const nilPeekBody={...cpBody,purpose:"deletion-peek",collection:"00000000-0000-0000-0000-000000000000",subject:A};
+  const currentNilPeek=(change:object={},authorization=`Bearer ${TOKEN}`)=>app.inject({method:"POST",url:"/internal/v1/next/lab-pitr/current-cp-nil-peek",headers:{authorization},payload:{...nilPeekBody,...change}});
+  return {app,current,mutate,currentGrant,grantBody,currentCp,cpBody,currentNilPeek,nilPeekBody,currentCpCollection,cpCollectionBody,currentNil,nilReadBody,nilRecordBody,queries,writes,body,counts:()=>({connects,releases})};
 }
 describe("fixed-run current CP adapter", () => {
   it("authenticates and validates scope before authority SQL", async () => {
@@ -146,6 +159,69 @@ describe("distinct CP original sending-genesis observation",()=>{
     const f=await fixture(failure);try{const r=await f.currentCp();expect([409,503]).toContain(r.statusCode);expect(r.json()).not.toHaveProperty("current");expect(f.writes).toEqual([]);}finally{await f.app.close();}
   });
   it("refuses foreign original genesis bytes",async()=>{const f=await fixture();try{expect((await f.currentCp({genesisSha256:"ff".repeat(32)})).statusCode).toBe(409);}finally{await f.app.close();}});
+});
+describe("distinct ordinary CP collection observation",()=>{
+  it("requires appended original/current membership and keeps pending purpose separate",async()=>{
+    const f=await fixture();try{
+      const r=await f.currentCpCollection();expect(r.statusCode).toBe(200);expect(r.json()).toEqual({...f.cpCollectionBody,current:true,checkedAt:NOW});
+      expect(f.queries.some(q=>q.includes("e.value->>'op' AS op"))).toBe(true);expect(f.writes).toEqual([]);
+      expect((await f.currentCpCollection({purpose:"pending-original-genesis"})).statusCode).toBe(400);
+      expect((await f.currentCp({purpose:"collection"})).statusCode).toBe(400);
+    }finally{await f.app.close();}
+  });
+  it.each(["cp-sending","member","deleted","root","cp-genesis-owner","cp-genesis-root","cp-lost","cp-duplicate","security-key","cp-clock","database"])("denies %s",async failure=>{
+    const f=await fixture(failure);try{const r=await f.currentCpCollection();expect([409,503]).toContain(r.statusCode);expect(r.json()).not.toHaveProperty("current");expect(f.writes).toEqual([]);}finally{await f.app.close();}
+  });
+});
+describe("single-subject nil deletion-floor peek during real bootstrap",()=>{
+  it.each(["cp-sending","nil-second-parent","nil-second-lost","deleted","member"])("allows narrowly bound denial lookup at %s without requiring uncreated D",async failure=>{
+    const f=await fixture(failure);try{
+      const r=await f.currentNilPeek();expect(r.statusCode).toBe(200);expect(r.json()).toEqual({...f.nilPeekBody,current:true,checkedAt:NOW});expect(r.headers["cache-control"]).toBe("no-store");
+      expect(f.queries.filter(q=>q.includes("pg_advisory_xact_lock"))).toHaveLength(1);expect(f.writes).toEqual([]);
+      expect((await f.currentNilPeek({subject:DEVICE})).statusCode).toBe(409);
+      expect((await f.currentNilPeek({purpose:"registry-read"})).statusCode).toBe(400);
+      if(failure==="cp-sending"||failure?.startsWith("nil-second"))expect([409,503]).toContain((await f.currentNil()).statusCode);
+    }finally{await f.app.close();}
+  });
+  it.each(["parent","root","cp-genesis-owner","cp-genesis-root","cp-lost","cp-duplicate","cp-lost-with-live-reissue","cp-missing-loss","cp-parked","security-key","cp-identity","cp-clock","database"])("denies peek at %s",async failure=>{
+    const f=await fixture(failure);try{const r=await f.currentNilPeek();expect([409,503]).toContain(r.statusCode);expect(r.json()).not.toHaveProperty("current");expect(f.writes).toEqual([]);}finally{await f.app.close();}
+  });
+});
+describe("distinct isolated CP nil denial-only observations",()=>{
+  it("authenticates exact nil/principal/purpose/binding before SQL",async()=>{
+    const f=await fixture();try{
+      expect((await f.currentNil(false,{},"Bearer wrong")).statusCode).toBe(401);
+      for(const change of [{collection:A},{principal:"device"},{principal:"app-grant"},{purpose:"collection"},{genesisSha256:f.body.genesisSha256},{activeGenesisSha256:"invalid"}])expect((await f.currentNil(false,change)).statusCode).toBe(400);
+      for(const change of [{transportPublicKey:"09".repeat(32)},{issuerKeyId:"09".repeat(16)},{policyKeyId:"09".repeat(16)}])expect((await f.currentNil(false,change)).statusCode).toBe(409);
+      expect((await f.currentNil(true,{subject:DEVICE})).statusCode).toBe(409);
+      for(const lifecycleEpoch of ["0","01","18446744073709551616"])expect((await f.currentNil(true,{lifecycleEpoch})).statusCode).toBe(400);
+      expect((await f.currentNil(true,{purpose:"registry-read"})).statusCode).toBe(400);
+      expect(f.queries).toEqual([]);expect(f.counts().connects).toBe(0);
+    }finally{await f.app.close();}
+  });
+  it.each([undefined,"deleted","member","cp-owner-remove","nil-left","nil-fact-two"])("can propagate denial after %s, never authorizes collection serving",async failure=>{
+    const f=await fixture(failure);try{
+      for(const record of [false,true]){const r=await f.currentNil(record);expect(r.statusCode).toBe(200);expect(r.json()).toEqual({...(record?f.nilRecordBody:f.nilReadBody),current:true,checkedAt:NOW});expect(r.headers["cache-control"]).toBe("no-store");}
+      expect(f.writes).toEqual([]);
+      const rows=f.queries.filter(q=>q.includes("SELECT n.root_key_id"));expect(rows).toHaveLength(4);expect(rows.every(q=>!q.includes("left_sync_at"))).toBe(true);
+      expect(f.queries.some(q=>q.includes("e.value->>'op' AS op")||q.includes("FROM next_devices")||q.includes("IS DISTINCT FROM 'owner'"))).toBe(false);
+      expect(f.queries.filter(q=>q.includes("pg_advisory_xact_lock"))).toHaveLength(4);
+      if(failure==="deleted"||failure==="member"||failure==="nil-left")expect((await f.currentCpCollection()).statusCode).toBe(409);
+    }finally{await f.app.close();}
+  });
+  it.each(["parent","nil-second-parent","nil-second-lost","nil-second-security","root","cp-genesis-owner","cp-genesis-root","cp-lost","cp-lost-with-live-reissue","cp-missing-loss","cp-duplicate","cp-sending","cp-parked","genesis","security-key","cp-identity","cp-clock","lock","database"])("closes %s for read and record",async failure=>{
+    const f=await fixture(failure);try{for(const record of [false,true]){const r=await f.currentNil(record);expect([409,503]).toContain(r.statusCode);expect(r.json()).not.toHaveProperty("current");}expect(f.writes).toEqual([]);}finally{await f.app.close();}
+  });
+  it.each(["nil-fact-missing","nil-fact-conflict","nil-fact-many"])("refuses exact deletion recording with %s",async failure=>{
+    const f=await fixture(failure);try{const r=await f.currentNil(true);expect(r.statusCode).toBe(409);expect(r.json()).not.toHaveProperty("current");expect(f.writes).toEqual([]);}finally{await f.app.close();}
+  });
+  it("requires both originals and exact persisted denial tuple",async()=>{
+    const f=await fixture();try{
+      for(const field of ["activeGenesisSha256","deletedGenesisSha256"])expect((await f.currentNil(false,{[field]:"ff".repeat(32)})).statusCode).toBe(409);
+      for(const change of [{deletionId:DEVICE},{lifecycleEpoch:"2"}])expect((await f.currentNil(true,change)).statusCode).toBe(409);
+      expect(f.writes).toEqual([]);
+    }finally{await f.app.close();}
+  });
 });
 describe("canonical grant projection shared by publication/current observation",()=>{
   it("preserves the original publication terms algorithm and wire fields",()=>{

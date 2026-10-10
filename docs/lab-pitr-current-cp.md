@@ -60,6 +60,39 @@ limit bodies to 4096 bytes, return no-store metadata, and never unwrap keys:
   checks. Echo is ten-field point metadata, not native role/PoP verification,
   publication, a reusable lease, nil-registry or serving authority. Runtime must
   verify original CP-role token/issuer/transport proof and signed genesis first.
+- `/internal/v1/next/lab-pitr/current-cp-collection`: same exact CP public identity
+  fields as genesis but fixed `purpose: "collection"`; current owner membership,
+  nondeleted/current cloud copy and strictly appended original identity required.
+  Original owner/root/cert-root and explicit nonlost/all-history uniqueness also
+  checked. Sending-genesis purpose cannot enter this route or supply its authority.
+- `/internal/v1/next/lab-pitr/current-cp-nil-peek`: original CP public identity,
+  literal nil collection, fixed `deletion-peek`, exact A/D `subject` and that
+  subject's `genesisSha256`. Admitted live owner/root/date/label/cloud-copy and
+  original owner/root/cert-root/unique nonlost sending-or-appended identity only.
+  This narrow subject deletion-floor LOOKUP avoids bootstrap deadlock: native
+  create_log reads its deletion floor before storing genesis, and the other run
+  subject may not yet exist. It cannot authorize page enumeration or recording;
+  missing/lost/ambiguous/parked original and security floors still close.
+- `/internal/v1/next/lab-pitr/current-cp-nil-read`: `run`, `principal: "control-plane"`,
+  `purpose: "registry-read"`, literal nil `collection`, `transportPublicKey`,
+  `issuerKeyId`, `policyKeyId`, `activeGenesisSha256`, `deletedGenesisSha256`.
+  Same distinct bearer/startup public identity; sorted locks for BOTH original
+  admitted subjects with live owner/user/root/date/label/cloud-copy rows, appended
+  nonlost unique original bytes/owner/root and current policy security floors.
+  Subject deletion/member removal/leave does not disable DENIAL metadata reading;
+  this is deliberately not an ordinary current-member/serving check. Missing row,
+  suspended owner, changed root/hash/security key or unavailable CP closes.
+- `/internal/v1/next/lab-pitr/current-cp-nil-record`: same nil identity but fixed
+  `purpose: "deletion-record"`, plus exact `subject` (A/D), `deletionId` and nonzero
+  decimal-u64 `lifecycleEpoch`. After both subject checks, bounded LIMIT3 reads
+  all retained CP deletion facts for subject: at least one fact, every tuple exact,
+  at most two equal cp-intent/native-registry facts. Missing/conflicting/unknown
+  facts close; never select a winner, publish or manufacture a native Deleted ACK.
+  Reply is exact point echo only. No nil device/grant/enrolment/revocation/signing
+  capability is installed; actor must verify original CP role/issuer/transport
+  proof, enforce purpose-to-native-method and exact isolated nil binding/phase,
+  repeat before each effect/final output and validate complete deletion pages.
+  No predicate/range lock, whole-transaction deadline, lease or drain claim.
 - `/internal/v1/next/lab-pitr/registry`: exact `run`, nullable `after` and
   nullable decimal-u64 `expected`. Generation-pinned isolated nil page only;
   absent profile/foreign member/unavailability refuses, with no shared fallback.

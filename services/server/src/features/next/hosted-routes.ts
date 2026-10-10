@@ -100,17 +100,18 @@ class OriginalGenesisUnavailable extends Error {}
  * Original genesis may predate cloud-copy; it never proves current mode.
  * Explicit CP-only pending metadata observation may accept the immutable original
  * sending batch, never parked/lost. Ordinary callers remain appended-only. */
-export async function originalGenesis(db: DatabaseQueryable, collection: string, pending?: { owner: string; root: string }) {
+export async function originalGenesis(db: DatabaseQueryable, collection: string,
+  original?: { owner: string; root: string; state: "appended" | "sending-or-appended" }) {
   const rows = await db.query<{state: string; lost_at?: Date | null; item: Buffer | null}>(
     // Count candidates across retained history before checking loss/state: a lost
     // original plus live reissue must not masquerade as a unique original seq1.
-    `SELECT state${pending ? ", lost_at" : ""}, CASE WHEN octet_length(item) BETWEEN 1 AND $2 THEN item ELSE NULL END AS item
+    `SELECT state${original ? ", lost_at" : ""}, CASE WHEN octet_length(item) BETWEEN 1 AND $2 THEN item ELSE NULL END AS item
      FROM next_policy_batches WHERE collection_id=$1 AND seq=1 ORDER BY id LIMIT 2 FOR SHARE`,
     [collection, ORIGINAL_GENESIS_BYTES_MAX],
   );
   const row = rows.rows[0];
-  if (rows.rows.length !== 1 || !row || (pending && row.lost_at !== null)
-    || !(row.state === "appended" || (pending && row.state === "sending")) || !row.item) throw new OriginalGenesisUnavailable();
+  if (rows.rows.length !== 1 || !row || (original && row.lost_at !== null)
+    || !(row.state === "appended" || (original?.state === "sending-or-appended" && row.state === "sending")) || !row.item) throw new OriginalGenesisUnavailable();
   const item = row.item;
   const bytes = (v: Decoded | undefined, n: number): v is Uint8Array => v instanceof Uint8Array && v.length === n;
   const shape = (v: Decoded | undefined, keys: number[]): v is Map<number, Decoded> => v instanceof Map && v.size === keys.length && keys.every(k => v.has(k));
@@ -125,9 +126,9 @@ export async function originalGenesis(db: DatabaseQueryable, collection: string,
     if (!shape(cert,[0,1,2,3,4]) || !bytes(cert.get(0),32) || !Number.isSafeInteger(cert.get(1)) || !Number.isSafeInteger(cert.get(2)) || !bytes(cert.get(3),16) || !bytes(cert.get(4),64) || !Array.isArray(ops) || !ops.length) throw new OriginalGenesisUnavailable();
     const genesis = ops[0];
     if (!shape(genesis,[0,1,2,3]) || genesis.get(0) !== 1 || !bytes(genesis.get(1),16) || !bytes(genesis.get(2),16) || (genesis.get(3) !== 0 && genesis.get(3) !== 1)) throw new OriginalGenesisUnavailable();
-    if (pending && (!Buffer.from(genesis.get(1) as Uint8Array).equals(Buffer.from(uuidBytes(pending.owner)))
-      || !/^[0-9a-f]{32}$/.test(pending.root) || !Buffer.from(genesis.get(2) as Uint8Array).equals(Buffer.from(pending.root,"hex"))
-      || !Buffer.from(cert.get(3) as Uint8Array).equals(Buffer.from(pending.root,"hex")))) throw new OriginalGenesisUnavailable();
+    if (original && (!Buffer.from(genesis.get(1) as Uint8Array).equals(Buffer.from(uuidBytes(original.owner)))
+      || !/^[0-9a-f]{32}$/.test(original.root) || !Buffer.from(genesis.get(2) as Uint8Array).equals(Buffer.from(original.root,"hex"))
+      || !Buffer.from(cert.get(3) as Uint8Array).equals(Buffer.from(original.root,"hex")))) throw new OriginalGenesisUnavailable();
   } catch { throw new OriginalGenesisUnavailable(); }
   return {seq: 1 as const, item: item.toString("base64"), hash: createHash("sha256").update(item).digest("hex")};
 }

@@ -29,6 +29,12 @@ const cpGenesisProbe = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), 
   purpose: z.literal("pending-original-genesis"), collection: uuid, genesisSha256: hash,
   transportPublicKey: hash.refine(v => v !== "00".repeat(32)), issuerKeyId: z.string().regex(/^[0-9a-f]{32}$/),
   policyKeyId: z.string().regex(/^[0-9a-f]{32}$/) }).strict();
+const cpCollectionProbe = cpGenesisProbe.extend({purpose:z.literal("collection")});
+const cpNilReadProbe = cpGenesisProbe.omit({genesisSha256:true}).extend({collection:z.literal(NIL),
+  purpose:z.literal("registry-read"),activeGenesisSha256:hash,deletedGenesisSha256:hash});
+const cpNilPeekProbe = cpGenesisProbe.extend({collection:z.literal(NIL),purpose:z.literal("deletion-peek"),subject:uuid});
+const cpNilRecordProbe = cpNilReadProbe.extend({purpose:z.literal("deletion-record"),subject:uuid,deletionId:uuid,
+  lifecycleEpoch:z.string().regex(/^[1-9][0-9]{0,19}$/).refine(v=>BigInt(v)<=(1n<<64n)-1n)});
 const registry = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), after: uuid.nullable(),
   expected: z.string().regex(/^(?:0|[1-9][0-9]{0,19})$/).refine(v => /^(?:0|[1-9][0-9]{0,19})$/.test(v) && BigInt(v) <= (1n << 64n) - 1n).nullable() }).strict();
 const mutation = z.object({ run: z.literal("gate4-pitr-lab-20261009-01"), activeGenesisSha256: hash,
@@ -37,7 +43,9 @@ interface Peer { id: string; account: string; kind: DeviceKind; sign_pk: Buffer;
 const denied = (): never => { throw new CreateError(409, "lab_pitr_authority_denied"); };
 
 async function currentCollection(client: DatabaseConnection, pitr: LabPitrConfig, next: NextControlPlaneConfig,
-  collection: string, expectedGenesis: string, now: number, pendingGenesis = false): Promise<void> {
+  collection: string, expectedGenesis: string, now: number,
+  mode: "ordinary" | "cp-genesis" | "cp-collection" = "ordinary"): Promise<void> {
+  const pendingGenesis=mode==="cp-genesis";
   if ((collection !== pitr.active && collection !== pitr.deleted) || now < next.policyCert.not_before || now >= next.policyCert.not_after) denied();
   await requireCollectionNotDeleted(client, collection);
   const row = (await client.query<{ root_key_id: Buffer }>(
@@ -58,7 +66,8 @@ async function currentCollection(client: DatabaseConnection, pitr: LabPitrConfig
       [collection, pitr.owner]);
     if (removal.rows.length) denied();
   } else await currentMember(client, collection, pitr.owner, "owner");
-  const genesis = await originalGenesis(client, collection, pendingGenesis ? {owner:pitr.owner,root:next.policyCert.root_key_id} : undefined);
+  const genesis = await originalGenesis(client, collection, mode!=="ordinary"
+    ? {owner:pitr.owner,root:next.policyCert.root_key_id,state:pendingGenesis?"sending-or-appended":"appended"} : undefined);
   if (genesis.hash !== expectedGenesis) denied(); // structural CP metadata; runtime still verifies the signed original.
   const policyKeyId = Buffer.from(keyId(Buffer.from(next.policyCert.policy_public_key, "hex"))).toString("hex");
   const revoked = await client.query(`SELECT 1 FROM next_policy_outbox
@@ -135,6 +144,30 @@ async function assertPitrAppGrant(db: DatabaseConnection, pitr: LabPitrConfig,
       AND o.ops->'ops' @> $2::jsonb LIMIT 1`, [collection, tuple]);
   if (!applied.rows.length) return denied();
 }
+/** Nil may propagate denial for D after deletion/leave/member loss, never serve it.
+ * Still require live admitted owner/root and appended signed-original metadata for
+ * the exact subject set fixed by the nil-purpose route (peek: one; page/record:
+ * both). No request-controlled bypass in ordinary collection checks. */
+async function currentNilSubjects(client: DatabaseConnection,pitr:LabPitrConfig,next:NextControlPlaneConfig,
+  subjects:readonly {collection:string;genesisSha256:string;state:"appended"|"sending-or-appended"}[],now:number):Promise<void>{
+  if(!Number.isSafeInteger(now)||now<next.policyCert.not_before||now>=next.policyCert.not_after)denied();
+  for(const subject of [...subjects].sort((a,b)=>a.collection.localeCompare(b.collection))){
+    const collection=subject.collection;
+    if(collection!==pitr.active&&collection!==pitr.deleted)denied();
+    await lock(client,collection);
+    const rows=await client.query<{root_key_id:Buffer}>(`SELECT n.root_key_id FROM next_collections n JOIN users u ON u.id=n.owner_user_id
+      WHERE n.collection_id=$1 AND n.owner_user_id=$2 AND n.runtime='next' AND n.sync='cloud_copy'
+        AND u.suspended_at IS NULL AND n.created_at>=to_timestamp($3::double precision/1000) AND n.display_name=$4
+      FOR SHARE OF n,u`,[collection,pitr.owner,pitr.createdAfter,pitrLabel(pitr,collection)]);
+    if(rows.rows.length!==1||!rows.rows[0]!.root_key_id.equals(Buffer.from(next.policyCert.root_key_id,"hex")))denied();
+    const genesis=await originalGenesis(client,collection,{owner:pitr.owner,root:next.policyCert.root_key_id,state:subject.state});
+    if(genesis.hash!==subject.genesisSha256)denied();
+    const policyKeyId=Buffer.from(keyId(Buffer.from(next.policyCert.policy_public_key,"hex"))).toString("hex");
+    const revoked=await client.query(`SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1`,
+      [collection,JSON.stringify([{op:"cp-key-revoke",keyId:{$hex:policyKeyId}}])]);
+    if(revoked.rows.length)denied();
+  }
+}
 export function registerLabPitrRoutes(app: FastifyInstance, options: {
   db: DatabasePool; next: NextControlPlaneConfig;
   log: Pick<LogServiceClient, "labPitrCollectionDeletions" | "pitrControlIdentity">; now?: () => number;
@@ -167,11 +200,14 @@ export function registerLabPitrRoutes(app: FastifyInstance, options: {
       return reply.code(status).send(apiError(status === 409 ? "lab_pitr_authority_denied" : "lab_pitr_authority_unavailable", "Current authority not established."));
     }
   });
-  app.post("/internal/v1/next/lab-pitr/current-cp-genesis", limit, async (request, reply) => {
+  for(const [path,schema,mode] of [
+    ["current-cp-genesis",cpGenesisProbe,"cp-genesis"],
+    ["current-cp-collection",cpCollectionProbe,"cp-collection"],
+  ] as const) app.post(`/internal/v1/next/lab-pitr/${path}`, limit, async (request, reply) => {
     reply.header("cache-control", "no-store");
     const presented = bearerToken(request);
     if (!presented || !safeEqual(presented, token)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
-    const input = cpGenesisProbe.safeParse(request.body);
+    const input = schema.safeParse(request.body);
     if (!input.success) return reply.code(400).send(apiError("invalid_request", "Exact original CP genesis identity required."));
     const b = input.data;
     try {
@@ -180,7 +216,7 @@ export function registerLabPitrRoutes(app: FastifyInstance, options: {
         || b.transportPublicKey !== identity.transportPublicKey || b.issuerKeyId !== identity.issuerKeyId) denied();
       return await inTransaction(options.db, async client => {
         await lock(client, b.collection);
-        await currentCollection(client, pitr, options.next, b.collection, b.genesisSha256, (options.now ?? Date.now)(), true);
+        await currentCollection(client, pitr, options.next, b.collection, b.genesisSha256, (options.now ?? Date.now)(), mode);
         const checkedAt = (options.now ?? Date.now)();
         if (!Number.isSafeInteger(checkedAt) || checkedAt < options.next.policyCert.not_before || checkedAt >= options.next.policyCert.not_after) denied();
         return { ...b, current: true, checkedAt };
@@ -189,6 +225,41 @@ export function registerLabPitrRoutes(app: FastifyInstance, options: {
       const status = error instanceof CreateError || (error instanceof Error && error.message === "collection_deleted") ? 409 : 503;
       return reply.code(status).send(apiError(status === 409 ? "lab_pitr_authority_denied" : "lab_pitr_authority_unavailable", "Original CP genesis authority not established."));
     }
+  });
+  for(const [path,schema] of [["current-cp-nil-peek",cpNilPeekProbe],["current-cp-nil-read",cpNilReadProbe],["current-cp-nil-record",cpNilRecordProbe]] as const)
+  app.post(`/internal/v1/next/lab-pitr/${path}`,limit,async(request,reply)=>{
+    reply.header("cache-control","no-store");
+    const presented=bearerToken(request);
+    if(!presented||!safeEqual(presented,token))return reply.code(401).send(apiError("invalid_internal_token","Internal token required."));
+    const input=schema.safeParse(request.body);
+    if(!input.success)return reply.code(400).send(apiError("invalid_request","Exact original CP nil identity required."));
+    const b=input.data;
+    try{
+      const identity=options.log.pitrControlIdentity();
+      if(!identity||b.policyKeyId!==policyKeyId||b.transportPublicKey!==identity.transportPublicKey||b.issuerKeyId!==identity.issuerKeyId)denied();
+      if(b.purpose!=="registry-read"&&b.subject!==pitr.active&&b.subject!==pitr.deleted)denied();
+      return await inTransaction(options.db,async client=>{
+        // create_log reads its deletion floor BEFORE persisting genesis. A single
+        // subject peek can therefore observe its immutable sending original;
+        // requiring the other not-yet-created subject would deadlock real seed.
+        const subjects=b.purpose==="deletion-peek"
+          ? [{collection:b.subject,genesisSha256:b.genesisSha256,state:"sending-or-appended" as const}]
+          : [{collection:pitr.active,genesisSha256:b.activeGenesisSha256,state:"appended" as const},
+             {collection:pitr.deleted,genesisSha256:b.deletedGenesisSha256,state:"appended" as const}];
+        await currentNilSubjects(client,pitr,options.next,subjects,(options.now??Date.now)());
+        if(b.purpose==="deletion-record"){
+          // Exact denial fact only. Equal cp-intent/native rows may coexist;
+          // ANY other retained tuple closes rather than selecting a winner.
+          const facts=await client.query<{deletion_id:string;epoch:string}>(`SELECT deletion_id::text,lifecycle_epoch::text AS epoch
+            FROM next_collection_deletion_facts WHERE collection_id=$1 ORDER BY lifecycle_epoch,deletion_id,authority LIMIT 3 FOR SHARE`,[b.subject]);
+          if(!facts.rows.length||facts.rows.length>2||facts.rows.some(f=>f.deletion_id!==b.deletionId||f.epoch!==b.lifecycleEpoch))denied();
+        }
+        const checkedAt=(options.now??Date.now)();
+        if(!Number.isSafeInteger(checkedAt)||checkedAt<options.next.policyCert.not_before||checkedAt>=options.next.policyCert.not_after)denied();
+        return {...b,current:true,checkedAt};
+      });
+    }catch(error){const status=error instanceof CreateError?409:503;
+      return reply.code(status).send(apiError(status===409?"lab_pitr_authority_denied":"lab_pitr_authority_unavailable","Current nil authority not established."));}
   });
   app.post("/internal/v1/next/lab-pitr/current-app-grant", limit, async (request, reply) => {
     reply.header("cache-control", "no-store");
