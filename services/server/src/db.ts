@@ -94,6 +94,11 @@ export async function openDatabase(
       // Timing constraints/functions have no schema columns to emulate. They
       // require real PostgreSQL; pg-mem is never retention/claim qualification.
       if (sql.includes("-- mdbase:next-migration-archive-elapsed:v1")) return [];
+      // Native background-grant hooks/FK upgrades require real PostgreSQL.
+      // Keep memory tests on their existing legacy FKs; no native revocation,
+      // raw-insert/cascade or consent qualification is emulated here.
+      const backgroundHooks = "-- mdbase:native-background-grant-hooks:v1";
+      if (sql.includes(backgroundHooks)) return memory.public.many(sql.slice(0, sql.indexOf(backgroundHooks)));
       const archiveTrigger = "-- mdbase:next-migration-archive-triggers:v1";
       if (sql.includes(archiveTrigger)) return memory.public.many(
         sql.slice(0, sql.indexOf(archiveTrigger)).replace("DEFAULT date_trunc('milliseconds', clock_timestamp())", "DEFAULT now()")
