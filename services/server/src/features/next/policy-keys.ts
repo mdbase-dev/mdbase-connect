@@ -8,6 +8,7 @@ import { createPrivateKey, createPublicKey, verify as edVerify, type KeyObject }
 import { certDigest, keyId, type CpCert, type PolicySigner } from "./policy-wire.js";
 import { parseLabFixtureConfig, type LabFixtureConfig } from "./lab-fixture-config.js";
 import { hostedClientOrigin } from "./hosted-route-target.js";
+import { parseLabPitrConfig, type LabPitrConfig } from "./lab-pitr-config.js";
 
 /** Refuse to start when the certificate expires within this window. */
 const MIN_CERT_REMAINING_MS = 7 * 24 * 60 * 60 * 1000;
@@ -24,6 +25,7 @@ export interface LogServiceConfig {
   url: string;
   tokenIssuerKeyPem: string;
   transportKeyPem: string;
+  labPitr?: LabPitrConfig;
 }
 
 export interface NextControlPlaneConfig {
@@ -35,6 +37,8 @@ export interface NextControlPlaneConfig {
   serviceTokens: { hosted?: string; escrow?: string };
   /** Bearer token of the hosted migrator (MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN): the only caller of the staged-migration routes. Absent: those routes are not mounted. */
   migrationToken?: string;
+  /** Separate fixed-run CP authority-read credential; absent outside isolated LAB. */
+  pitrAuthorityToken?: string;
   /**
    * Outbound: where the control plane asks each deployment to generate its service
    * device when an owner creates a cloud copy. Set only by MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1;
@@ -95,9 +99,13 @@ export function verifyCert(cert: CpCert, rootPublicKey: Uint8Array): boolean {
  */
 export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPlaneConfig | null {
   const labFixtures = parseLabFixtureConfig(env);
+  const labPitr = parseLabPitrConfig(env);
   const enabled = env.MDBASE_NEXT_CONTROL_PLANE?.trim() ?? "";
   if (enabled !== "" && enabled !== "0" && enabled !== "1") throw new Error("MDBASE_NEXT_CONTROL_PLANE must be 0 or 1.");
-  if (enabled !== "1") return null;
+  if (enabled !== "1") {
+    if (labPitr) throw new Error("LAB PITR requires the real next control plane.");
+    return null;
+  }
   const root = env.MDBASE_NEXT_ROOT_PUBLIC_KEY?.trim() ?? "";
   const pem = env.MDBASE_NEXT_POLICY_SIGNING_KEY?.trim() ?? "";
   const cert = env.MDBASE_NEXT_POLICY_KEY_CERT?.trim() ?? "";
@@ -144,15 +152,22 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
       throw new Error("Inbound and outbound service tokens must all differ.");
     }
   }
+  if (labPitr && !cloudCopyBootstrap) throw new Error("LAB PITR requires real cloud-copy factories.");
+  const pitrAuthorityToken = serviceToken("MDBASE_NEXT_PITR_AUTHORITY_TOKEN");
+  if (Boolean(labPitr) !== Boolean(pitrAuthorityToken)) throw new Error("LAB PITR mapping and authority token must be configured together.");
+  if (pitrAuthorityToken && [hosted, escrow, migration, cloudCopyBootstrap?.hosted.token, cloudCopyBootstrap?.escrow.token].includes(pitrAuthorityToken)) {
+    throw new Error("LAB PITR authority token must differ from existing service tokens.");
+  }
   const privateBootstrap = env.MDBASE_NEXT_PRIVATE_BOOTSTRAP?.trim() ?? "";
   if (privateBootstrap !== "" && privateBootstrap !== "0" && privateBootstrap !== "1") throw new Error("MDBASE_NEXT_PRIVATE_BOOTSTRAP must be 0 or 1.");
   return {
     rootPublicKey: hexBytes(root, 32, "MDBASE_NEXT_ROOT_PUBLIC_KEY"),
     policyPrivateKeyPem: pem,
     policyCert: parsedCert,
-    logService: { url: logServiceUrl, tokenIssuerKeyPem, transportKeyPem },
+    logService: { url: logServiceUrl, tokenIssuerKeyPem, transportKeyPem, ...(labPitr ? { labPitr } : {}) },
     serviceTokens: { ...(hosted ? { hosted } : {}), ...(escrow ? { escrow } : {}) },
     ...(migration ? { migrationToken: migration } : {}),
+    ...(pitrAuthorityToken ? { pitrAuthorityToken } : {}),
     ...(cloudCopyBootstrap ? { cloudCopyBootstrap } : {}),
     ...(privateBootstrap === "1" ? { privateBootstrap: true as const } : {}),
     ...(env.MDBASE_NEXT_HOSTED_CLIENT_URL?.trim() ? { hostedClientUrl: hostedClientOrigin(env.MDBASE_NEXT_HOSTED_CLIENT_URL.trim()) } : {}),

@@ -10,6 +10,7 @@ import type { LogServiceClient } from "./log-service-client.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { generateServiceDevice, loadServiceDevice, storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
+import { pitrCollection, pitrLabel, pitrLogUrl, pitrDeployments, type LabPitrConfig } from "./lab-pitr-config.js";
 
 export interface CloudCopyBootstrapOptions {
   db: DatabasePool; next: NextControlPlaneConfig; emitter: PolicyEmitter;
@@ -26,11 +27,15 @@ async function notDeleted(client: DatabaseConnection, collection: string): Promi
 }
 
 /** False when free, true when this owner's current cloud copy; never adopt another owner. */
-export async function existingCloudCopy(client: DatabaseConnection, collection: string, owner: string): Promise<boolean> {
+export async function existingCloudCopy(client: DatabaseConnection, collection: string, owner: string, pitr?: LabPitrConfig): Promise<boolean> {
   await notDeleted(client, collection);
-  const row = (await client.query<{ owner_user_id: string; sync: string; left: boolean }>(
-    "SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left FROM next_collections WHERE collection_id = $1 FOR UPDATE", [collection]
+  const isolated = pitrCollection(pitr, collection);
+  const row = (await client.query<{ owner_user_id: string; sync: string; left: boolean; created_at?: Date; display_name?: string }>(
+    isolated ? "SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left, created_at, display_name FROM next_collections WHERE collection_id = $1 FOR UPDATE"
+      : "SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left FROM next_collections WHERE collection_id = $1 FOR UPDATE", [collection]
   )).rows[0];
+  if (isolated && (owner !== pitr!.owner || (row && (!(row.created_at instanceof Date)
+      || !Number.isFinite(row.created_at.getTime()) || row.created_at.getTime() < pitr!.createdAfter || row.display_name !== pitrLabel(pitr!, collection))))) throw new CreateError(409, "collection_exists");
   if (row && (row.owner_user_id !== owner || row.sync !== "cloud_copy" || row.left)) throw new CreateError(409, "collection_exists");
   if (!row) {
     const other = await client.query("SELECT 1 FROM collections WHERE local_id = $1 AND user_id <> $2 AND removed_at IS NULL", [collection, owner]);
@@ -51,7 +56,8 @@ export async function currentCloudCopy(client: DatabaseConnection, collection: s
 export function generateCloudCopyServices(options: CloudCopyBootstrapOptions, collection: string) {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new CreateError(503, "not_ready");
-  return Promise.all(KINDS.map(kind => generateServiceDevice(deployments[kind], kind, collection, options.fetchImpl)));
+  const selected = pitrDeployments(deployments, options.next.logService.labPitr, collection);
+  return Promise.all(KINDS.map(kind => generateServiceDevice(selected[kind], kind, collection, options.fetchImpl)));
 }
 
 /** Verify exact appended bytes at the saved position, never just an outbox row/202. */
@@ -82,7 +88,7 @@ export function cloudCopyMetadata(options: CloudCopyBootstrapOptions, collection
   head: { seq: number; chain: Uint8Array }, genesis: Buffer, records: ServiceDeviceRecord[]) {
   return {
     collection_id: collection, state: "cloud-copy", owner_account: owner,
-    log_url: options.next.logService.url, head: { seq: head.seq, chain: Buffer.from(head.chain).toString("hex") },
+    log_url: pitrLogUrl(options.next.logService.url, options.next.logService.labPitr, collection), head: { seq: head.seq, chain: Buffer.from(head.chain).toString("hex") },
     root_public_key: Buffer.from(options.next.rootPublicKey).toString("hex"), policy_cert: options.next.policyCert,
     genesis: { seq: 1, item: genesis.toString("hex") }, service_devices: records.map(record => ({
       kind: record.kind, device_id: record.device_id,
@@ -100,11 +106,13 @@ export async function createServiceCloudCopy(options: CloudCopyBootstrapOptions,
 }) {
   const { collection, owner, runtime, displayName, current } = input;
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
+  const pitr = options.next.logService.labPitr;
+  if (pitrCollection(pitr, collection) && (runtime !== "next" || owner !== pitr!.owner || displayName !== pitrLabel(pitr!, collection))) throw new CreateError(403, "lab_pitr_fixture_required");
   const check = async (client: DatabaseConnection) => {
     // Owner/principal first, then collection: do not invert deletion/freeze locks.
     await current(client);
     await lock(client, collection);
-    const exists = await existingCloudCopy(client, collection, owner);
+    const exists = await existingCloudCopy(client, collection, owner, pitr);
     if (exists) {
       const exact = await client.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime=$2 AND root_key_id=$3", [collection, runtime, rootKeyId]);
       if (!exact.rows.length) throw new CreateError(409, "collection_exists");

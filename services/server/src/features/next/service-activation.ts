@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import type { DatabaseQueryable } from "../../database-types.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import type { ServiceKind } from "./service-devices.js";
+import { pitrCollection, pitrDeployments, type LabPitrConfig } from "./lab-pitr-config.js";
 
 const LIMIT = 4;
 const TIMEOUT_MS = 8_000;
@@ -45,8 +46,20 @@ export async function activatePendingServices(
   db: DatabaseQueryable,
   deployments: NonNullable<NextControlPlaneConfig["cloudCopyBootstrap"]>,
   fetchImpl: typeof fetch = fetch,
-  collectionId?: string
+  collectionId?: string,
+  pitr?: LabPitrConfig
 ): Promise<void> {
+  const values: unknown[] = [LIMIT];
+  let exclusion = "";
+  if (pitr) {
+    values.push([pitr.active, pitr.deleted]);
+    exclusion = `AND NOT (device.kind = 'escrow' AND device.collection_id = ANY($${values.length}::uuid[]))`;
+  }
+  let selection = "";
+  if (collectionId) {
+    values.push(collectionId);
+    selection = `AND device.collection_id = $${values.length}::uuid`;
+  }
   const pending = await db.query<{ collection_id: string; kind: ServiceKind; batch_id: string }>(
     `SELECT device.collection_id::text, device.kind, latest.id::text AS batch_id FROM next_service_devices device
      JOIN next_collections parent ON parent.collection_id = device.collection_id
@@ -58,11 +71,14 @@ export async function activatePendingServices(
        AND parent.sync = 'cloud_copy' AND parent.left_sync_at IS NULL
        AND EXISTS (SELECT 1 FROM next_policy_batches batch WHERE batch.collection_id = device.collection_id
          AND batch.seq = 1 AND batch.state = 'appended' AND batch.lost_at IS NULL)
-     ${collectionId ? "AND device.collection_id = $2::uuid" : ""}
-     ORDER BY device.activation_next_at, device.collection_id, device.kind LIMIT $1`, collectionId ? [LIMIT, collectionId] : [LIMIT]
+     ${exclusion}
+     ${selection}
+     ORDER BY device.activation_next_at, device.collection_id, device.kind LIMIT $1`, values
   );
   await Promise.all(pending.rows.map(async ({ collection_id: collection, kind, batch_id: batch }) => {
-    const deployment = deployments[kind];
+    // Do not manufacture an activation ACK for an intentionally stateless record.
+    if (kind === "escrow" && pitrCollection(pitr, collection)) return;
+    const deployment = pitrDeployments(deployments, pitr, collection)[kind];
     const url = new URL("internal/v1/collections/activate", `${deployment.url.replace(/\/+$/u, "")}/`);
     let ok = false;
     let status: number | undefined;

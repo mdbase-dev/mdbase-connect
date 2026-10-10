@@ -25,12 +25,12 @@ import {
   authenticate, CreateError, currentAccount, currentIdentity, currentMember, currentSession, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment,
   inTransaction, lock, NIL, refuse as refuseCommon, refuseRevoked, SERVICE_ACCOUNT, type Device, type Proof
 } from "./bootstrap-common.js";
-import { type NextControlPlaneConfig } from "./policy-keys.js";
 import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 import { ServiceDeviceError, storeServiceDevice } from "./service-devices.js";
+import { pitrCollection, pitrLabel, pitrLogUrl } from "./lab-pitr-config.js";
 import { appendedCloudCopyBatch, appendedCloudCopyGenesis, cloudCopyMetadata, createServiceCloudCopy, currentCloudCopy,
-  existingCloudCopy as existing, generateCloudCopyServices, loadCloudCopyRecords } from "./service-cloud-copy.js";
+  existingCloudCopy as existing, generateCloudCopyServices, loadCloudCopyRecords, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 
 import { installationCollections, requireInstallationScope } from "./installation-scope.js";
 import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
@@ -69,7 +69,7 @@ async function currentJoiningCloudCopy(client: DatabaseConnection, collection: s
 }
 
 export function registerCloudCopyRoutes(app: FastifyInstance, options: {
-  db: DatabasePool; next: NextControlPlaneConfig; emitter: PolicyEmitter;
+  db: DatabasePool; next: CloudCopyBootstrapOptions["next"]; emitter: PolicyEmitter;
   log: Pick<LogServiceClient, "controlItemAt" | "head" | "mintToken">; fetchImpl?: typeof fetch; now?: () => number;
   tailscaleAuth?: boolean;
 }): void {
@@ -85,6 +85,11 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
   const appendedGenesis = appendedCloudCopyGenesis.bind(null, options);
   const loadRecords = loadCloudCopyRecords;
   const created = cloudCopyMetadata.bind(null, options);
+  const pitr = options.next.logService.labPitr;
+  const existingFor = (client: DatabaseConnection, collection: string, owner: string) => existing(client, collection, owner, pitr);
+  const fixtureName = (collection: string, owner: string, name: string) => {
+    if (pitrCollection(pitr, collection) && (owner !== pitr!.owner || name !== pitrLabel(pitr!, collection))) throw new CreateError(403, "lab_pitr_fixture_required");
+  };
 
   const mint = (device: string, signPk: Buffer, collection: string) => {
     const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
@@ -161,13 +166,14 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     let device: Device;
     try {
       const displayName = collectionDisplayName(initialDisplayName === undefined ? DEFAULT_COLLECTION_DISPLAY_NAME : initialDisplayName);
+      fixtureName(collection, connector.user_id, displayName);
       // 1. Proof and ownership, consuming the challenge. No network call holds a lock.
       let exists: boolean;
       ({ device, exists } = await inTransaction(options.db, async (client) => {
         await lock(client, collection);
         const owner = await authenticate(client, body, connector, digest);
         await currentIdentity(client,connector,body.device_id,owner);
-        const exists = await existing(client, collection, connector.user_id);
+        const exists = await existingFor(client, collection, connector.user_id);
         await requireInstallationScope(client,connector,exists?collection:undefined,!exists);
         return { device: owner, exists };
       }));
@@ -180,7 +186,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
           await currentIdentity(client, connector, body.device_id, device);
           await requireInstallationScope(client,connector,undefined,true);
           // Created concurrently: the retry path rechecks the enrolled device.
-          if (await existing(client, collection, connector.user_id)) throw new CreateError(503, "not_ready");
+          if (await existingFor(client, collection, connector.user_id)) throw new CreateError(503, "not_ready");
           await registerNextCollection(client, {
             collectionId: collection, ownerUserId: connector.user_id, runtime: "next", sync: "cloud_copy", rootKeyId, displayName,
             ops: [
@@ -285,7 +291,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
         await refuseRevoked(client, collection, body.device_id);
         // Hosted (or escrow) wraps the current epoch key to this device next.
         return {
-          collection_id: collection, enrolled_at: batch.seq, log_url: options.next.logService.url,
+          collection_id: collection, enrolled_at: batch.seq, log_url: pitrLogUrl(options.next.logService.url, pitr, collection),
           genesis: { seq: 1, item: genesis.item.toString("hex") },
           device: mint(body.device_id, device.sign_pk, collection)
         };

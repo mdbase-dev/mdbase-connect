@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { LogServiceClient, LogServiceError } from "./log-service-client.js";
 import { ed25519PublicKeyObject, ed25519RawPublicKey } from "./policy-keys.js";
-import { decodeCbor, encodeCbor } from "./policy-wire.js";
+import { decodeCbor, encodeCbor, keyId } from "./policy-wire.js";
 
 // Independent reference to3809 Rust auth::http_digest + actual Worker call site:
 // method is the LS method, not HTTP POST; raw token/body/collection/nonce bound.
@@ -42,6 +42,19 @@ function fixture() {
 }
 
 describe("log HTTP PoP client interoperability", () => {
+  it("exposes detached PITR public CP identity without fetch/sign/token work; absent otherwise",()=>{
+    const ordinary=fixture();expect(ordinary.client.pitrControlIdentity()).toBeNull();
+    const issuer=generateKeyPairSync("ed25519").privateKey,transport=generateKeyPairSync("ed25519").privateKey;
+    const client=new LogServiceClient({url:"https://normal.example.test",tokenIssuerKeyPem:issuer.export({format:"pem",type:"pkcs8"}).toString(),
+      transportKeyPem:transport.export({format:"pem",type:"pkcs8"}).toString(),labPitr:{run:"gate4-pitr-lab-20261009-01",active:"aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        deleted:"dddddddd-dddd-4ddd-addd-dddddddddddd",owner:"11111111-1111-4111-a111-111111111111",createdAfter:1,logUrl:"https://synthetic-log.example.test",hostedUrl:"https://synthetic-hosted.example.test"}},
+      async()=>{throw Error("unexpected_network");});
+    const mint=vi.spyOn(client,"mintToken").mockImplementation(()=>{throw Error("unexpected_token");});
+    const expected={transportPublicKey:Buffer.from(ed25519RawPublicKey(transport)).toString("hex"),issuerKeyId:Buffer.from(keyId(ed25519RawPublicKey(issuer))).toString("hex")};
+    const first=client.pitrControlIdentity()!;expect(first).toEqual(expected);
+    (first as {transportPublicKey:string}).transportPublicKey="00".repeat(32);
+    expect(client.pitrControlIdentity()).toEqual(expected);expect(mint).not.toHaveBeenCalled();
+  });
   it("matches the independently generated public3809 Rust/Python conformance vector byte-for-byte", async () => {
     const vector = JSON.parse(readFileSync(new URL("./fixtures/log-http-public-vector.json", import.meta.url), "utf8"));
     const transport = createPrivateKey({ format: "der", type: "pkcs8", key: Buffer.concat([
