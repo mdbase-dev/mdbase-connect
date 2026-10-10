@@ -1,4 +1,5 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { pipeline } from "node:stream/promises";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -66,12 +67,27 @@ export function architectureBase(root, env = process.env) {
   return git(root, ["rev-parse", "--verify", "origin/main"]);
 }
 
+async function extractArchive(root, revision, destination) {
+  const archive = spawn("git", ["archive", revision], { cwd: root, stdio: ["ignore", "pipe", "inherit"] });
+  // Read through archive padding to EOF, so tar cannot close stdin while git
+  // still writes a valid archive (premature-close/SIGPIPE on large snapshots).
+  const extract = spawn("tar", ["-xi", "-C", destination], { stdio: ["pipe", "ignore", "inherit"] });
+  const completed = (child, command) => new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => code === 0 ? resolve() : reject(new Error(`${command} failed (${signal ?? code}).`)));
+  });
+  try {
+    await Promise.all([completed(archive, "git archive"), completed(extract, "tar"), pipeline(archive.stdout, extract.stdin)]);
+  } finally {
+    archive.kill(); extract.kill();
+  }
+}
+
 export async function checkArchitectureGrowth(root, baseRef) {
   const mergeBase = git(root, ["merge-base", "HEAD", baseRef]);
   const snapshot = await mkdtemp(path.join(tmpdir(), "connect-architecture-base-"));
   try {
-    const archive = execFileSync("git", ["archive", mergeBase], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
-    execFileSync("tar", ["-x", "-C", snapshot], { input: archive });
+    await extractArchive(root, mergeBase, snapshot);
     const budgets = JSON.parse(await readFile(path.join(root, "config/architecture-budgets.json"), "utf8"));
     const baseBudgets = JSON.parse(await readFile(path.join(snapshot, "config/architecture-budgets.json"), "utf8"));
     const base = await evaluateArchitecture(snapshot, baseBudgets, { checkCounters: false });
